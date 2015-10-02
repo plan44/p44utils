@@ -373,6 +373,11 @@ namespace p44 {
 
     ChildThreadWrapperPtr selfRef;
 
+    bool terminationPending; ///< set if termination has been requested by requestTermination()
+
+    MainLoop *myMainLoopP; ///< the (optional) mainloop of this thread
+
+
   public:
 
     /// constructor
@@ -384,9 +389,16 @@ namespace p44 {
     /// @name methods to call from child thread
     /// @{
 
+    /// check if termination is requested
+    bool shouldTerminate() { return terminationPending; }
+
     /// signal parent thread
     /// @param aSignalCode a signal code to be sent to the parent thread
     void signalParentThread(ThreadSignals aSignalCode);
+
+    /// returns (and creates, if not yet existing) the thread's mainloop
+    /// @note MUST be called from the thread itself to get the correct mainloop!
+    MainLoop &threadMainLoop();
 
     /// @}
 
@@ -394,11 +406,17 @@ namespace p44 {
     /// @name methods to call from parent thread
     /// @{
 
+    /// request termination
+    /// @note this does not actually cancel thread execution, but relies on the thread routine to check
+    ///    shouldTerminate() and finish running by itself. If a mainloop was installed using
+    ///    threadMainloop(), it will be requested to terminate with exit code 0
+    void terminate();
+
     /// cancel execution and wait for cancellation to complete
     void cancel();
 
     /// confirm termination
-    void terminated();
+    void confirmTerminated();
 
     /// @}
 

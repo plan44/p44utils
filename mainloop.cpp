@@ -750,7 +750,7 @@ void *ChildThreadWrapper::startFunction()
   // run the routine
   threadRoutine(*this);
   // signal termination
-  terminated();
+  confirmTerminated();
   return NULL;
 }
 
@@ -760,6 +760,8 @@ ChildThreadWrapper::ChildThreadWrapper(MainLoop &aParentThreadMainLoop, ThreadRo
   parentThreadMainLoop(aParentThreadMainLoop),
   threadRoutine(aThreadRoutine),
   parentSignalHandler(aThreadSignalHandler),
+  terminationPending(false),
+  myMainLoopP(NULL),
   threadRunning(false)
 {
   // create a signal pipe
@@ -796,12 +798,35 @@ ChildThreadWrapper::~ChildThreadWrapper()
 {
   // cancel thread
   cancel();
+  // delete mainloop if any
+  if (myMainLoopP) {
+    delete myMainLoopP;
+    myMainLoopP = NULL;
+  }
+}
+
+
+MainLoop &ChildThreadWrapper::threadMainLoop()
+{
+  myMainLoopP = &MainLoop::currentMainLoop();
+  return *myMainLoopP;
+}
+
+
+// can be called from main thread to request termination from thread routine
+void ChildThreadWrapper::terminate()
+{
+  terminationPending = true;
+  if (myMainLoopP) {
+    myMainLoopP->terminate(0);
+  }
 }
 
 
 
+
 // called from child thread when terminated
-void ChildThreadWrapper::terminated()
+void ChildThreadWrapper::confirmTerminated()
 {
   signalParentThread(threadSignalCompleted);
 }
