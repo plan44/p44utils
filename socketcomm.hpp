@@ -113,7 +113,7 @@ namespace p44 {
     /// @param aHostNameOrAddress host name/address (1.2.3.4 or xxx.yy) - client only
     /// @param aServiceOrPortOrSocket port number, service name or absolute local socket path
     /// @param aSocketType defaults to SOCK_STREAM (TCP)
-    /// @param aProtocolFamily defaults to PF_UNSPEC (means that address family is derived from host name lookup for clients, or )
+    /// @param aProtocolFamily defaults to PF_UNSPEC, means that address family is derived from host name and/or service name (starting with slash means PF_LOCAL)
     /// @param aProtocol defaults to 0
     void setConnectionParams(const char* aHostNameOrAddress, const char* aServiceOrPortOrSocket, int aSocketType = SOCK_STREAM, int aProtocolFamily = PF_UNSPEC, int aProtocol = 0);
 

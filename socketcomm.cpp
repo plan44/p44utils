@@ -298,6 +298,12 @@ ErrorPtr SocketComm::initiateConnection()
 
   if (!connectionOpen && !isConnecting && !serverConnection) {
     freeAddressInfo();
+    // check for protocolfamily auto-choice
+    if (protocolFamily==PF_UNSPEC) {
+      // not specified, choose local socket if service spec begins with slash
+      if (serviceOrPortOrSocket.size()>1 && serviceOrPortOrSocket[0]=='/')
+        protocolFamily = PF_LOCAL; // absolute paths are considered local sockets
+    }
     if (protocolFamily==PF_LOCAL) {
       // local socket -> just connect, no lists to try
       LOG(LOG_DEBUG, "Initiating local socket %s connection\n", serviceOrPortOrSocket.c_str());
