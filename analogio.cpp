@@ -30,8 +30,12 @@
 #include <unistd.h>
 
 #include "iopin.hpp"
+#if !DISABLE_GPIO
 #include "gpio.hpp"
+#endif
+#if !DISABLE_I2C
 #include "i2c.hpp"
+#endif
 
 #include "logger.hpp"
 #include "mainloop.hpp"
@@ -72,17 +76,23 @@ AnalogIo::AnalogIo(const char* aAnalogIoName, bool aOutput, double aInitialValue
   }
   // now create appropriate pin
   DBGLOG(LOG_DEBUG, "AnalogIo: bus name = '%s'\n", busName.c_str());
+  #if !DISABLE_I2C
   if (busName.substr(0,3)=="i2c") {
     // i2c<busnum>.<devicespec>.<pinnum>
     int busNumber = atoi(busName.c_str()+3);
     int pinNumber = atoi(pinName.c_str());
     ioPin = AnalogIOPinPtr(new AnalogI2CPin(busNumber, deviceName.c_str(), pinNumber, output, aInitialValue));
   }
-  else if (busName=="syscmd") {
+  else
+  #endif
+  #if !DISABLE_SYSCMDIO
+  if (busName=="syscmd") {
     // analog I/O calling system command to set value
     ioPin = AnalogIOPinPtr(new AnalogSysCommandPin(pinName.c_str(), output, aInitialValue));
   }
-  else {
+  else
+  #endif
+  {
     // all other/unknown bus names default to simulated pin
     ioPin = AnalogIOPinPtr(new AnalogSimPin(name.c_str(), output, aInitialValue)); // set even for inputs
   }

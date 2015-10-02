@@ -24,7 +24,9 @@
 
 #include "p44_common.hpp"
 
+#ifndef DISABLE_CONSOLEKEY
 #include "consolekey.hpp"
+#endif
 
 using namespace std;
 
@@ -100,7 +102,9 @@ namespace p44 {
   {
     typedef IOPin inherited;
 
+    #ifndef DISABLE_CONSOLEKEY
     ConsoleKeyPtr consoleKey;
+    #endif
     bool output;
     string name;
     bool pinState;
@@ -140,6 +144,8 @@ namespace p44 {
   };
 
 
+  #ifndef DISABLE_SYSTEMCMDIO
+
   /// Digital System Command I/O pin
   class SysCommandPin : public IOPin
   {
@@ -172,6 +178,8 @@ namespace p44 {
 
   };
 
+  #endif // !DISABLE_SYSTEMCMDIO
+
 
 
   #pragma mark - analog pins
@@ -198,7 +206,9 @@ namespace p44 {
   {
     typedef AnalogIOPin inherited;
 
+    #ifndef DISABLE_CONSOLEKEY
     ConsoleKeyPtr consoleKey;
+    #endif
     bool output;
     string name;
     double pinValue;
@@ -239,6 +249,8 @@ namespace p44 {
 
 
 
+  #ifndef DISABLE_SYSTEMCMDIO
+
   /// Digital System Command I/O pin
   class AnalogSysCommandPin : public AnalogIOPin
   {
@@ -271,6 +283,7 @@ namespace p44 {
     
   };
 
+  #endif // !DISABLE_SYSTEMCMDIO
 
 
 } // namespace

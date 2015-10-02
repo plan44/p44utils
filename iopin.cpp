@@ -146,6 +146,7 @@ SimPin::SimPin(const char *aName, bool aOutput, bool aInitialState) :
   pinState(aInitialState)
 {
   LOG(LOG_ALERT, "Initialized SimPin \"%s\" as %s with initial state %s\n", name.c_str(), aOutput ? "output" : "input", pinState ? "HI" : "LO");
+  #if !DISABLE_CONSOLEKEY
   if (!aOutput) {
     if (!output) {
       consoleKey = ConsoleKeyManager::sharedKeyManager()->newConsoleKey(
@@ -155,15 +156,22 @@ SimPin::SimPin(const char *aName, bool aOutput, bool aInitialState) :
       );
     }
   }
+  #endif
 }
 
 
 bool SimPin::getState()
 {
-  if (output)
+  if (output) {
     return pinState; // just return last set state
-  else
+  }
+  else {
+    #if DISABLE_CONSOLEKEY
+    return false; // no input at all
+    #else
     return (bool)consoleKey->isSet();
+    #endif
+  }
 }
 
 
@@ -179,6 +187,7 @@ void SimPin::setState(bool aState)
 
 #pragma mark - digital output via system command
 
+#if !DISABLE_SYSTEMCMDIO
 
 SysCommandPin::SysCommandPin(const char *aConfig, bool aOutput, bool aInitialState) :
   pinState(aInitialState),
@@ -247,6 +256,7 @@ void SysCommandPin::stateUpdated(ErrorPtr aError, const string &aOutputString)
   }
 }
 
+#endif // !DISABLE_SYSTEMCMDIO
 
 
 #pragma mark - analog I/O simulation
@@ -258,6 +268,7 @@ AnalogSimPin::AnalogSimPin(const char *aName, bool aOutput, double aInitialValue
   pinValue(aInitialValue)
 {
   LOG(LOG_ALERT, "Initialized AnalogSimPin \"%s\" as %s with initial value %.2f\n", name.c_str(), aOutput ? "output" : "input", pinValue);
+  #if !DISABLE_CONSOLEKEY
   if (!aOutput) {
     if (!output) {
       consoleKey = ConsoleKeyManager::sharedKeyManager()->newConsoleKey(
@@ -267,6 +278,7 @@ AnalogSimPin::AnalogSimPin(const char *aName, bool aOutput, double aInitialValue
       );
     }
   }
+  #endif
 }
 
 
@@ -288,6 +300,8 @@ void AnalogSimPin::setValue(double aValue)
 
 #pragma mark - analog output via system command
 
+
+#if !DISABLE_SYSTEMCMDIO
 
 AnalogSysCommandPin::AnalogSysCommandPin(const char *aConfig, bool aOutput, double aInitialValue) :
   pinValue(aInitialValue),
@@ -364,5 +378,6 @@ void AnalogSysCommandPin::valueUpdated(ErrorPtr aError, const string &aOutputStr
   }
 }
 
+#endif // !DISABLE_SYSTEMCMDIO
 
 

@@ -31,8 +31,13 @@
 #include <unistd.h>
 
 #include "iopin.hpp"
+
+#if !DISABLE_GPIO
 #include "gpio.hpp"
+#endif
+#if !DISABLE_I2C
 #include "i2c.hpp"
+#endif
 
 #include "logger.hpp"
 #include "mainloop.hpp"
@@ -84,7 +89,7 @@ DigitalIo::DigitalIo(const char* aName, bool aOutput, bool aInverted, bool aInit
   }
   // now create appropriate pin
   DBGLOG(LOG_DEBUG, "DigitalIo: bus name = '%s'\n", busName.c_str());
-  #ifndef __APPLE__
+  #if !defined(__APPLE__) && !DISABLE_GPIO
   if (busName=="gpio") {
     // Linux generic GPIO
     // gpio.<gpionumber>
@@ -99,7 +104,7 @@ DigitalIo::DigitalIo(const char* aName, bool aOutput, bool aInverted, bool aInit
   }
   else
   #endif
-  #ifdef DIGI_ESP
+  #if defined(DIGI_ESP) && !DISABLE_GPIO
   if (busName=="gpioNS9XXXX") {
     // gpioNS9XXXX.<pinname>
     // NS9XXX driver based GPIO (Digi ME 9210 LX)
@@ -107,17 +112,23 @@ DigitalIo::DigitalIo(const char* aName, bool aOutput, bool aInverted, bool aInit
   }
   else
   #endif
+  #if !DISABLE_I2C
   if (busName.substr(0,3)=="i2c") {
     // i2c<busnum>.<devicespec>.<pinnum>
     int busNumber = atoi(busName.c_str()+3);
     int pinNumber = atoi(pinName.c_str());
     ioPin = IOPinPtr(new I2CPin(busNumber, deviceName.c_str(), pinNumber, output, initialPinState));
   }
-  else if (busName=="syscmd") {
+  else
+  #endif
+  #if !DISABLE_SYSTEMCMDIO
+  if (busName=="syscmd") {
     // digital I/O calling system command to turn on/off
     ioPin = IOPinPtr(new SysCommandPin(pinName.c_str(), output, initialPinState));
   }
-  else {
+  else
+  #endif
+  {
     // all other/unknown bus names default to simulated pin
     ioPin = IOPinPtr(new SimPin(name.c_str(), output, initialPinState)); // set even for inputs
   }
