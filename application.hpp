@@ -83,6 +83,7 @@ namespace p44 {
 
   private:
 
+    void initializeInternal();    
     void handleSignal(int aSignal);
     static void sigaction_handler(int aSignal, siginfo_t *aSiginfo, void *aUap);
 

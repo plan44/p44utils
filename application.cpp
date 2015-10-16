@@ -41,7 +41,29 @@ Application *Application::sharedApplication()
 Application::Application(MainLoop &aMainLoop) :
   mainLoop(aMainLoop)
 {
+  initializeInternal();
+}
+
+
+Application::Application() :
+  mainLoop(MainLoop::currentMainLoop())
+{
+  initializeInternal();
+}
+
+
+Application::~Application()
+{
+}
+
+
+void Application::initializeInternal()
+{
   sharedApplicationP = this;
+  // register signal handlers
+  handleSignal(SIGHUP);
+  handleSignal(SIGINT);
+  handleSignal(SIGTERM);
 }
 
 
@@ -53,7 +75,6 @@ void Application::sigaction_handler(int aSignal, siginfo_t *aSiginfo, void *aUap
 }
 
 
-
 void Application::handleSignal(int aSignal)
 {
   struct sigaction act;
@@ -62,22 +83,6 @@ void Application::handleSignal(int aSignal)
   act.sa_sigaction = Application::sigaction_handler;
   act.sa_flags = SA_SIGINFO;
   int ret = sigaction (aSignal, &act, NULL);
-}
-
-
-Application::Application() :
-  mainLoop(MainLoop::currentMainLoop())
-{
-  sharedApplicationP = this;
-  // register signal handlers
-  handleSignal(SIGHUP);
-  handleSignal(SIGINT);
-  handleSignal(SIGTERM);
-}
-
-
-Application::~Application()
-{
 }
 
 
