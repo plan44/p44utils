@@ -154,6 +154,23 @@ bool OperationQueue::idleHandler()
   if (!operationQueue.empty()) {
     MLMicroSeconds now = MainLoop::now();
     OperationList::iterator pos;
+    #if FOCUSLOGGING
+    // Statistics
+    if (FOCUSLOGENABLED) {
+      int numTimedOut = 0;
+      int numInitiated = 0;
+      int numCompleted = 0;
+      for (pos = operationQueue.begin(); pos!=operationQueue.end(); ++pos) {
+        OperationPtr op = *pos;
+        if (op->hasTimedOutAt(now)) numTimedOut++;
+        if (op->isInitiated()) {
+          numInitiated++;
+          if (op->hasCompleted()) numCompleted++;
+        }
+      }
+      FOCUSLOG("OperationQueue stats: size=%d, pending: initiated=%d, completed=%d, timedout=%d\n", operationQueue.size(), numInitiated, numCompleted, numTimedOut);
+    }
+    #endif
     // (re)start with first element in queue
     for (pos = operationQueue.begin(); pos!=operationQueue.end(); ++pos) {
       OperationPtr op = *pos;
