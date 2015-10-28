@@ -50,6 +50,17 @@ bool Logger::logEnabled(int aErrLevel)
 }
 
 
+const static char levelChars[8] = {
+  '*', // LOG_EMERG	  - system is unusable
+  '!', // LOG_ALERT   - action must be taken immediately
+  'C', // LOG_CRIT    - critical conditions
+  'E', // LOG_ERR     - error conditions
+  'W', // LOG_WARNING - warning conditions
+  'N', // LOG_NOTICE  - normal but significant condition
+  'I', // LOG_INFO    - informational
+  'D'  // LOG_DEBUG   - debug-level messages
+};
+
 
 void Logger::log(int aErrLevel, const char *aFmt, ... )
 {
@@ -76,13 +87,13 @@ void Logger::log(int aErrLevel, const char *aFmt, ... )
       }
       i++;
     }
-    // create date
-    char tsbuf[40];
+    // create date + level
+    char tsbuf[42];
     char *p = tsbuf;
     struct timeval t;
     gettimeofday(&t, NULL);
     p += strftime(p, sizeof(tsbuf), "[%Y-%m-%d %H:%M:%S", localtime(&t.tv_sec));
-    p += sprintf(p, ".%03d]", t.tv_usec/1000);
+    p += sprintf(p, ".%03d %c]", t.tv_usec/1000, levelChars[aErrLevel]);
     // output
     if (aErrLevel<=stderrLevel) {
       // must go to stderr anyway
