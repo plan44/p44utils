@@ -46,12 +46,12 @@ namespace p44 {
   /// printf-style format into std::string
   /// @param aFormat printf-style format string
   /// @return formatted string
-  std::string string_format(const char *aFormat, ...);
+  std::string string_format(const char *aFormat, ...) __printflike(1,2);
 
   /// printf-style format appending to std::string
   /// @param aStringToAppendTo std::string to append format to
   /// @param aFormat printf-style format string
-  void string_format_append(std::string &aStringToAppendTo, const char *aFormat, ...);
+  void string_format_append(std::string &aStringToAppendTo, const char *aFormat, ...) __printflike(2,3);
 	
 	/// always return a valid C String, if NULL is passed, an empty string is returned
 	/// @param aNULLOrCStr NULL or C-String

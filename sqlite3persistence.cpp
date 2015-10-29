@@ -149,7 +149,7 @@ ErrorPtr SQLite3Persistence::connectAndInitialize(const char *aDatabaseFileName,
           // set it in globs
           err = executef("UPDATE globs SET schemaVersion = %d", currentSchemaVersion);
           if (err!=SQLITE_OK) {
-            LOG(LOG_ERR, "SQLite3Persistence: Cannot set globs.schemaVersion = %d\n", currentSchemaVersion, error_msg());
+            LOG(LOG_ERR, "SQLite3Persistence: Cannot set globs.schemaVersion = %d: %s\n", currentSchemaVersion, error_msg());
             errPtr = error("Error setting schema version: ");
             break;
           }

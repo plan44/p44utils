@@ -244,7 +244,7 @@ ErrorPtr PersistentParams::saveToStore(const char *aParentIdentifier, bool aMult
       }
       FOCUSLOG("- cleanup before save: %s\n", sql.c_str());
       if (paramStore.executef(sql.c_str()) != SQLITE_OK) {
-        LOG(LOG_ERR, "- cleanup error (ignored): %s\n", sql.c_str(), paramStore.error()->description().c_str());
+        LOG(LOG_ERR, "- cleanup error (ignored): %s\n", paramStore.error()->description().c_str());
       }
     }
     // now save

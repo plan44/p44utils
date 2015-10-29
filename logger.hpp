@@ -102,7 +102,7 @@ namespace p44 {
     /// log a message
     /// @param aErrLevel error level of the message
     /// @param aFmt, ... printf style error message
-    void log(int aErrLevel, const char *aFmt, ... );
+    void log(int aErrLevel, const char *aFmt, ... ) __printflike(3,4);
 
     /// log a system error
     /// @param aErrLevel error level of the message

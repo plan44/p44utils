@@ -352,7 +352,7 @@ size_t SerialOperationQueue::acceptBytes(size_t aNumBytes, uint8_t *aBytes)
       }
       else {
         // buffer full, cannot store more
-        LOG(LOG_DEBUG, "- %d received bytes could neither be processed nor buffered -> ignored\n", aNumBytes);
+        LOG(LOG_DEBUG, "- %zu received bytes could neither be processed nor buffered -> ignored\n", aNumBytes);
         break; // no point in iterating
       }
       // initiate processing on buffered data

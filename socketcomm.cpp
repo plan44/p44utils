@@ -222,7 +222,7 @@ bool SocketComm::connectionAcceptHandler(MLMicroSeconds aCycleStartTime, int aFd
         clientComm->serviceOrPortOrSocket = sbuf;
         // - remember
         clientConnections.push_back(clientComm);
-        LOG(LOG_DEBUG, "New client connection accepted from %s:%s (now %d connections)\n", hostNameOrAddress.c_str(), serviceOrPortOrSocket.c_str(), clientConnections.size());
+        LOG(LOG_DEBUG, "New client connection accepted from %s:%s (now %lu connections)\n", hostNameOrAddress.c_str(), serviceOrPortOrSocket.c_str(), clientConnections.size());
         // - pass connection to child
         clientComm->passClientConnection(clientFD, this);
       }
@@ -273,7 +273,7 @@ SocketCommPtr SocketComm::returnClientConnection(SocketCommPtr aClientConnection
       break;
     }
   }
-  LOG(LOG_DEBUG, "Client connection terminated (now %d connections)\n", clientConnections.size());
+  LOG(LOG_DEBUG, "Client connection terminated (now %lu connections)\n", clientConnections.size());
   // return connection object to prevent premature deletion
   return endingConnection;
 }
@@ -421,7 +421,7 @@ ErrorPtr SocketComm::connectNextAddress()
   if (!startedConnecting) {
     // exhausted addresses without starting to connect
     if (!err) err = ErrorPtr(new SocketCommError(SocketCommErrorNoConnection, "No connection could be established"));
-    LOG(LOG_DEBUG, "Cannot initiate connection to %s:%s\n", hostNameOrAddress.c_str(), serviceOrPortOrSocket.c_str(), err->description().c_str());
+    LOG(LOG_DEBUG, "Cannot initiate connection to %s:%s - %s\n", hostNameOrAddress.c_str(), serviceOrPortOrSocket.c_str(), err->description().c_str());
   }
   else {
     if (!connectionLess) {

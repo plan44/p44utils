@@ -281,7 +281,7 @@ void MainLoop::fork_and_execve(ExecCB aCallback, const char *aPath, char *const 
     // fork successful
     if (child_pid==0) {
       // this is the child process (fork() returns 0 for the child process)
-      LOG(LOG_DEBUG,"forked child process: preparing for execve\n", aPath);
+      LOG(LOG_DEBUG,"forked child process: preparing for execve\n");
       if (aPipeBackStdOut) {
         dup2(answerPipe[1],STDOUT_FILENO); // replace STDOUT by writing end of pipe
         close(answerPipe[1]); // release the original descriptor (does NOT really close the file)
