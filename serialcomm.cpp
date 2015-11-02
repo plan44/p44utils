@@ -174,7 +174,7 @@ bool SerialComm::requestConnection()
   ErrorPtr err = establishConnection();
   if (!Error::isOK(err)) {
     if (!reconnecting) {
-      LOG(LOG_ERR, "SerialComm: requestConnection() could not open connection now: %s -> entering background retry mode\n", err->description().c_str());
+      LOG(LOG_ERR, "SerialComm: requestConnection() could not open connection now: %s -> entering background retry mode", err->description().c_str());
       reconnecting = true;
       MainLoop::currentMainLoop().executeOnce(boost::bind(&SerialComm::reconnectHandler, this), 5*Second);
     }
@@ -233,27 +233,27 @@ void SerialComm::setRTS(bool aActive)
 
 void SerialComm::dataExceptionHandler(int aFd, int aPollFlags)
 {
-  DBGLOG(LOG_DEBUG, "SerialComm::dataExceptionHandler(fd==%d, pollflags==0x%X)\n", aFd, aPollFlags);
+  DBGLOG(LOG_DEBUG, "SerialComm::dataExceptionHandler(fd==%d, pollflags==0x%X)", aFd, aPollFlags);
   bool reEstablish = false;
   if (aPollFlags & POLLHUP) {
     // other end has closed connection
-    LOG(LOG_ERR, "SerialComm: serial connection was hung up unexpectely\n");
+    LOG(LOG_ERR, "SerialComm: serial connection was hung up unexpectely");
     reEstablish = true;
   }
   else if (aPollFlags & POLLIN) {
     // Note: on linux a socket closed server side does not return POLLHUP, but POLLIN with no data
     // alerted for read, but nothing to read any more: assume connection closed
-    LOG(LOG_ERR, "SerialComm: serial connection returns POLLIN with no data: assuming connection broken\n");
+    LOG(LOG_ERR, "SerialComm: serial connection returns POLLIN with no data: assuming connection broken");
     reEstablish = true;
   }
   else if (aPollFlags & POLLERR) {
     // error
-    LOG(LOG_ERR, "SerialComm: error on serial connection: assuming connection broken\n");
+    LOG(LOG_ERR, "SerialComm: error on serial connection: assuming connection broken");
     reEstablish = true;
   }
   // in case of error, close and re-open connection
   if (reEstablish && !reconnecting) {
-    LOG(LOG_ERR, "SerialComm: closing and re-opening connection in attempt to re-establish it after error\n");
+    LOG(LOG_ERR, "SerialComm: closing and re-opening connection in attempt to re-establish it after error");
     closeConnection();
     // try re-opening right now
     reconnecting = true;
@@ -267,12 +267,12 @@ void SerialComm::reconnectHandler()
   if (reconnecting) {
     ErrorPtr err = establishConnection();
     if (!Error::isOK(err)) {
-      LOG(LOG_ERR, "SerialComm: re-connect failed: %s -> retry again later\n", err->description().c_str());
+      LOG(LOG_ERR, "SerialComm: re-connect failed: %s -> retry again later", err->description().c_str());
       reconnecting = true;
       MainLoop::currentMainLoop().executeOnce(boost::bind(&SerialComm::reconnectHandler, this), 15*Second);
     }
     else {
-      LOG(LOG_NOTICE, "SerialComm: successfully reconnected to %s\n", connectionPath.c_str());
+      LOG(LOG_NOTICE, "SerialComm: successfully reconnected to %s", connectionPath.c_str());
     }
   }
 }

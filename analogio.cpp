@@ -75,7 +75,7 @@ AnalogIo::AnalogIo(const char* aAnalogIoName, bool aOutput, double aInitialValue
     }
   }
   // now create appropriate pin
-  DBGLOG(LOG_DEBUG, "AnalogIo: bus name = '%s'\n", busName.c_str());
+  DBGLOG(LOG_DEBUG, "AnalogIo: bus name = '%s'", busName.c_str());
   #if !DISABLE_I2C
   if (busName.substr(0,3)=="i2c") {
     // i2c<busnum>.<devicespec>.<pinnum>

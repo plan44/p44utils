@@ -108,7 +108,7 @@ void Application::cleanup(int aExitCode)
 void Application::signalOccurred(int aSignal, siginfo_t *aSiginfo)
 {
   // default action is terminating the program
-  LOG(LOG_ERR, "Terminating because pid %d sent signal %d\n", aSiginfo->si_pid, aSignal);
+  LOG(LOG_ERR, "Terminating because pid %d sent signal %d", aSiginfo->si_pid, aSignal);
   mainLoop.terminate(EXIT_FAILURE);
 }
 
@@ -140,7 +140,7 @@ void Application::terminateAppWith(ErrorPtr aError)
     mainLoop.terminate(EXIT_SUCCESS);
   }
   else {
-    LOG(LOG_ERR, "Terminating because of error: %s\n", aError->description().c_str());
+    LOG(LOG_ERR, "Terminating because of error: %s", aError->description().c_str());
     mainLoop.terminate(EXIT_FAILURE);
   }
 }

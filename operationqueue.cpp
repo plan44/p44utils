@@ -61,11 +61,11 @@ bool Operation::canInitiate()
 {
   MLMicroSeconds now = MainLoop::now();
   if (initiationDelay>0) {
-    //DBGLOG(LOG_DEBUG,"requesting initiation delay of %lld uS\n", initiationDelay);
+    //DBGLOG(LOG_DEBUG, "requesting initiation delay of %lld uS", initiationDelay);
     if (initiatesNotBefore==0) {
       // first time queried, start delay now
       initiatesNotBefore = now+initiationDelay;
-      //DBGLOG(LOG_DEBUG,"- now is %lld, will initiate at %lld uS\n", now, initiatesNotBefore);
+      //DBGLOG(LOG_DEBUG, "- now is %lld, will initiate at %lld uS", now, initiatesNotBefore);
       initiationDelay = 0; // consumed
     }
   }
@@ -168,7 +168,7 @@ bool OperationQueue::idleHandler()
           if (op->hasCompleted()) numCompleted++;
         }
       }
-      FOCUSLOG("OperationQueue stats: size=%d, pending: initiated=%d, completed=%d, timedout=%d\n", operationQueue.size(), numInitiated, numCompleted, numTimedOut);
+      FOCUSLOG("OperationQueue stats: size=%d, pending: initiated=%d, completed=%d, timedout=%d", operationQueue.size(), numInitiated, numCompleted, numTimedOut);
     }
     #endif
     // (re)start with first element in queue

@@ -119,6 +119,7 @@ void Logger::logStr(int aErrLevel, string aMessage)
       fputs(tsbuf, stderr);
       fputs(" ", stderr);
       fputs(aMessage.c_str(), stderr);
+      fputs("\n", stderr);
       fflush(stderr);
     }
     if (stdoutLogEnabled(aErrLevel) && (aErrLevel>stderrLevel || errToStdout)) {
@@ -127,6 +128,7 @@ void Logger::logStr(int aErrLevel, string aMessage)
       fputs(tsbuf, stdout);
       fputs(" ", stdout);
       fputs(aMessage.c_str(), stdout);
+      fputs("\n", stdout);
       fflush(stdout);
     }
     pthread_mutex_unlock(&reportMutex);

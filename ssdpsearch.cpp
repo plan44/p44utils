@@ -94,9 +94,9 @@ void SsdpSearch::startSearchForTarget(SsdpSearchCB aSearchResultHandler, const c
 
 void SsdpSearch::socketStatusHandler(ErrorPtr aError)
 {
-  FOCUSLOG("SSDP socket status: %s\n", aError ? aError->description().c_str() : "<no error>");
+  FOCUSLOG("SSDP socket status: %s", aError ? aError->description().c_str() : "<no error>");
   if (Error::isOK(aError)) {
-    FOCUSLOG("### sending UDP M-SEARCH\n");
+    FOCUSLOG("### sending UDP M-SEARCH");
     // unregister socket status handler (or we'll get called when connection closes)
     setConnectionStatusHandler(NULL);
     // send search request
@@ -158,7 +158,7 @@ void SsdpSearch::gotData(ErrorPtr aError)
   if (Error::isOK(receiveString(response))) {
     // extract uuid and location
     const char *p = response.c_str();
-    FOCUSLOG("### received UDP answer: %s\n", p);
+    FOCUSLOG("### received UDP answer: %s", p);
     string line;
     bool locFound = false;
     bool uuidFound = false;
@@ -170,13 +170,13 @@ void SsdpSearch::gotData(ErrorPtr aError)
         if (key=="LOCATION") {
           locationURL = value;
           locFound = true;
-          FOCUSLOG("Location: %s\n", locationURL.c_str());
+          FOCUSLOG("Location: %s", locationURL.c_str());
         }
         else if (key=="ST") {
           if (targetMustMatch) {
             if (searchTarget!=value) {
               // wrong ST, discard
-              LOG(LOG_INFO,"Received notify from %s, but wrong ST (%s, expected: %s) -> ignored\n", locationURL.c_str(), value.c_str(), searchTarget.c_str());
+              LOG(LOG_INFO, "Received notify from %s, but wrong ST (%s, expected: %s) -> ignored", locationURL.c_str(), value.c_str(), searchTarget.c_str());
               // no more action, wait for response with correct ST
               return;
             }
@@ -184,7 +184,7 @@ void SsdpSearch::gotData(ErrorPtr aError)
           stFound = true;
         }
         else if (key=="USN") {
-          FOCUSLOG("USN: %s\n", value.c_str());
+          FOCUSLOG("USN: %s", value.c_str());
           // extract the UUID
           string k,v;
           if (keyAndValue(value, k, v)) {
@@ -207,7 +207,7 @@ void SsdpSearch::gotData(ErrorPtr aError)
         else if (key=="SERVER") {
           server = value;
           serverFound = true;
-          FOCUSLOG("SERVER: %s\n", server.c_str());
+          FOCUSLOG("SERVER: %s", server.c_str());
         }
       }
     }
@@ -222,7 +222,7 @@ void SsdpSearch::gotData(ErrorPtr aError)
     }
     else {
       // invalid answer, just ignore it
-      FOCUSLOG("Received invalid SEARCH response (or unrelated SSDP packet) -> ignored\n");
+      FOCUSLOG("Received invalid SEARCH response (or unrelated SSDP packet) -> ignored");
     }
   }
   else {

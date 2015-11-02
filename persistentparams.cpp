@@ -149,16 +149,16 @@ sqlite3pp::query *PersistentParams::newLoadAllQuery(const char *aParentIdentifie
   appendfieldList(sql, false, true, false);
   // limit to entries linked to parent
   string_format_append(sql, " FROM %s WHERE %s='%s'", tableName(), getKeyDef(0)->fieldName, aParentIdentifier);
-  FOCUSLOG("newLoadAllQuery for parent='%s': %s\n", aParentIdentifier, sql.c_str());
+  FOCUSLOG("newLoadAllQuery for parent='%s': %s", aParentIdentifier, sql.c_str());
   // now execute query
   if (queryP->prepare(sql.c_str())!=SQLITE_OK) {
-    FOCUSLOG("- query not successful - assume wrong schema -> calling checkAndUpdateSchema()\n");
+    FOCUSLOG("- query not successful - assume wrong schema -> calling checkAndUpdateSchema()");
     // - error could mean schema is not up to date
     queryP->reset();
     checkAndUpdateSchema();
-    FOCUSLOG("newLoadAllQuery: retrying newLoadAllQuery after schema update: %s\n", sql.c_str());
+    FOCUSLOG("newLoadAllQuery: retrying newLoadAllQuery after schema update: %s", sql.c_str());
     if (queryP->prepare(sql.c_str())!=SQLITE_OK) {
-      LOG(LOG_ERR, "newLoadAllQuery: %s - failed: %s\n", sql.c_str(), paramStore.error()->description().c_str());
+      LOG(LOG_ERR, "newLoadAllQuery: %s - failed: %s", sql.c_str(), paramStore.error()->description().c_str());
       // error now means something is really wrong
       delete queryP;
       return NULL;
@@ -174,7 +174,7 @@ void PersistentParams::loadFromRow(sqlite3pp::query::iterator &aRow, int &aIndex
 {
   // - load ROWID which is always there
   rowid = aRow->get<long long>(aIndex++);
-  FOCUSLOG("loadFromRow: fetching ROWID=%lld\n", rowid);
+  FOCUSLOG("loadFromRow: fetching ROWID=%lld", rowid);
   // - skip the row that identifies the parent (because that's the fetch criteria)
   aIndex++;
 }
@@ -242,9 +242,9 @@ ErrorPtr PersistentParams::saveToStore(const char *aParentIdentifier, bool aMult
       if (rowid!=0) {
         string_format_append(sql, " AND ROWID!=%lld", rowid);
       }
-      FOCUSLOG("- cleanup before save: %s\n", sql.c_str());
+      FOCUSLOG("- cleanup before save: %s", sql.c_str());
       if (paramStore.executef(sql.c_str()) != SQLITE_OK) {
-        LOG(LOG_ERR, "- cleanup error (ignored): %s\n", paramStore.error()->description().c_str());
+        LOG(LOG_ERR, "- cleanup error (ignored): %s", paramStore.error()->description().c_str());
       }
     }
     // now save
@@ -256,7 +256,7 @@ ErrorPtr PersistentParams::saveToStore(const char *aParentIdentifier, bool aMult
       appendfieldList(sql, false, true, true);
       string_format_append(sql, " WHERE ROWID=%lld", rowid);
       // now execute command
-      FOCUSLOG("saveToStore: update existing row for parent='%s': %s\n", aParentIdentifier, sql.c_str());
+      FOCUSLOG("saveToStore: update existing row for parent='%s': %s", aParentIdentifier, sql.c_str());
       if (cmd.prepare(sql.c_str())!=SQLITE_OK) {
         // error on update is always a real error - if we loaded the params from the DB, schema IS ok!
         err = paramStore.error();
@@ -290,13 +290,13 @@ ErrorPtr PersistentParams::saveToStore(const char *aParentIdentifier, bool aMult
       }
       sql += ")";
       // prepare
-      FOCUSLOG("saveToStore: insert new row for parent='%s': %s\n", aParentIdentifier, sql.c_str());
+      FOCUSLOG("saveToStore: insert new row for parent='%s': %s", aParentIdentifier, sql.c_str());
       if (cmd.prepare(sql.c_str())!=SQLITE_OK) {
-        FOCUSLOG("- insert not successful - assume wrong schema -> calling checkAndUpdateSchema()\n");
+        FOCUSLOG("- insert not successful - assume wrong schema -> calling checkAndUpdateSchema()");
         // - error on INSERT could mean schema is not up to date
         cmd.reset();
         checkAndUpdateSchema();
-        FOCUSLOG("saveToStore: retrying insert after schema update: %s\n", sql.c_str());
+        FOCUSLOG("saveToStore: retrying insert after schema update: %s", sql.c_str());
         if (cmd.prepare(sql.c_str())!=SQLITE_OK) {
           // error now means something is really wrong
           err = paramStore.error();
@@ -319,7 +319,7 @@ ErrorPtr PersistentParams::saveToStore(const char *aParentIdentifier, bool aMult
       }
     }
     if (!Error::isOK(err)) {
-      LOG(LOG_ERR, "saveToStore: %s - failed: %s\n", sql.c_str(), err->description().c_str());
+      LOG(LOG_ERR, "saveToStore: %s - failed: %s", sql.c_str(), err->description().c_str());
     }
   }
   // anyway, have children checked
@@ -335,7 +335,7 @@ ErrorPtr PersistentParams::deleteFromStore()
   ErrorPtr err;
   dirty = false; // forget any unstored changes
   if (rowid!=0) {
-    FOCUSLOG("deleteFromStore: deleting row %lld in table %s\n", rowid, tableName());
+    FOCUSLOG("deleteFromStore: deleting row %lld in table %s", rowid, tableName());
     if (paramStore.executef("DELETE FROM %s WHERE ROWID=%lld", tableName(), rowid) != SQLITE_OK) {
       err = paramStore.error();
     }
@@ -347,7 +347,7 @@ ErrorPtr PersistentParams::deleteFromStore()
     err = deleteChildren();
   }
   if (!Error::isOK(err)) {
-    LOG(LOG_ERR, "deleteFromStore: table=%s, ROWID=%lld - failed: %s\n", tableName(), rowid, err->description().c_str());
+    LOG(LOG_ERR, "deleteFromStore: table=%s, ROWID=%lld - failed: %s", tableName(), rowid, err->description().c_str());
   }
   return err;
 }

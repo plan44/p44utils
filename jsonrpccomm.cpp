@@ -87,7 +87,7 @@ ErrorPtr JsonRpcComm::sendRequest(const char *aMethod, JsonObjectPtr aParams, Js
     pendingAnswers[requestIdCounter] = aResponseHandler;
   }
   // now send
-  FOCUSLOG("Sending JSON-RPC 2.0 request message:\n  %s\n", request->c_strValue());
+  FOCUSLOG("Sending JSON-RPC 2.0 request message:\n  %s", request->c_strValue());
   return sendMessage(request);
 }
 
@@ -100,7 +100,7 @@ ErrorPtr JsonRpcComm::sendResult(const char *aJsonRpcId, JsonObjectPtr aResult)
   // add the ID so the caller can associate with a previous request
   response->add("id", JsonObject::newString(aJsonRpcId));
   // now send
-  FOCUSLOG("Sending JSON-RPC 2.0 result message:\n  %s\n", response->c_strValue());
+  FOCUSLOG("Sending JSON-RPC 2.0 result message:\n  %s", response->c_strValue());
   return sendMessage(response);
 }
 
@@ -128,7 +128,7 @@ ErrorPtr JsonRpcComm::sendError(const char *aJsonRpcId, uint32_t aErrorCode, con
   // add the ID so the caller can associate with a previous request
   response->add("id", aJsonRpcId ? JsonObject::newString(aJsonRpcId) : JsonObjectPtr());
   // now send
-  FOCUSLOG("Sending JSON-RPC 2.0 error message:\n  %s\n", response->c_strValue());
+  FOCUSLOG("Sending JSON-RPC 2.0 error message:\n  %s", response->c_strValue());
   return sendMessage(response);
 }
 
@@ -155,7 +155,7 @@ void JsonRpcComm::gotJson(ErrorPtr aError, JsonObjectPtr aJsonObject)
   const char *idString = NULL;
   if (Error::isOK(aError)) {
     // received proper JSON, now check JSON-RPC specifics
-    FOCUSLOG("Received JSON message:\n  %s\n", aJsonObject->c_strValue());
+    FOCUSLOG("Received JSON message:\n  %s", aJsonObject->c_strValue());
     if (aJsonObject->isType(json_type_array)) {
       respErr = ErrorPtr(new JsonRpcError(JSONRPC_INVALID_REQUEST, "Invalid Request - batch mode not supported by this implementation"));
     }
@@ -228,7 +228,7 @@ void JsonRpcComm::gotJson(ErrorPtr aError, JsonObjectPtr aJsonObject)
           // Now we have either result or error.data in respObj, and respErr is Ok or contains the error code + message
           if (!idObj) {
             // errors without ID cannot be associated with calls made earlier, so just log the error
-            LOG(LOG_WARNING,"JSON-RPC 2.0 warning: Received response with no or NULL 'id' that cannot be dispatched:\n  %s\n", aJsonObject->c_strValue());
+            LOG(LOG_WARNING, "JSON-RPC 2.0 warning: Received response with no or NULL 'id' that cannot be dispatched:\n  %s", aJsonObject->c_strValue());
           }
           else {
             // dispatch by ID
@@ -236,7 +236,7 @@ void JsonRpcComm::gotJson(ErrorPtr aError, JsonObjectPtr aJsonObject)
             PendingAnswerMap::iterator pos = pendingAnswers.find(requestId);
             if (pos==pendingAnswers.end()) {
               // errors without ID cannot be associated with calls made earlier, so just log the error
-              LOG(LOG_WARNING,"JSON-RPC 2.0 error: Received response with unknown 'id'=%d : %s\n", requestId, aJsonObject->c_strValue());
+              LOG(LOG_WARNING, "JSON-RPC 2.0 error: Received response with unknown 'id'=%d : %s", requestId, aJsonObject->c_strValue());
             }
             else {
               // found callback
@@ -266,7 +266,7 @@ void JsonRpcComm::gotJson(ErrorPtr aError, JsonObjectPtr aJsonObject)
     if (safeError || reportAllErrors)
       sendError(idString, respErr);
     else
-      LOG(LOG_WARNING,"Received data that generated error which can't be sent back: Code=%ld, Message='%s'\n", respErr->getErrorCode(), respErr->description().c_str());
+      LOG(LOG_WARNING, "Received data that generated error which can't be sent back: Code=%ld, Message='%s'", respErr->getErrorCode(), respErr->description().c_str());
   }
 }
 

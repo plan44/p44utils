@@ -62,7 +62,7 @@ void JsonWebClient::requestThreadSignal(ChildThreadWrapper &aChildThread, Thread
         json_tokener_free(tokener);
       }
       // call back with result of request
-      LOG(LOG_DEBUG,"JsonWebClient: <- received JSON answer:\n%s\n", message ? message->json_c_str() : "<none>");
+      LOG(LOG_DEBUG, "JsonWebClient: <- received JSON answer:\n%s", message ? message->json_c_str() : "<none>");
       // Note: this callback might initiate another request already
       if (jsonResponseCallback) {
         // use this callback, but as callback routine might post another request immediately, we need to free the member first
@@ -91,7 +91,7 @@ bool JsonWebClient::jsonRequest(const char *aURL, JsonWebClientCB aResponseCallb
   if (aJsonRequest) {
     jsonstring = aJsonRequest->json_c_str();
   }
-  LOG(LOG_DEBUG,"JsonWebClient: -> sending %s JSON request to %s:\n%s\n", aMethod, aURL, jsonstring.c_str());
+  LOG(LOG_DEBUG, "JsonWebClient: -> sending %s JSON request to %s:\n%s", aMethod, aURL, jsonstring.c_str());
   return httpRequest(aURL, NULL, aMethod, jsonstring.c_str());
 }
 
@@ -101,7 +101,7 @@ bool JsonWebClient::jsonReturningRequest(const char *aURL, JsonWebClientCB aResp
   if (!aContentType) aContentType = "application/x-www-form-urlencoded";
   // set callback
   jsonResponseCallback = aResponseCallback;
-  LOG(LOG_DEBUG,"JsonWebClient: -> sending %s raw data request to %s:\n%s\n", aMethod, aURL, aPostData.c_str());
+  LOG(LOG_DEBUG, "JsonWebClient: -> sending %s raw data request to %s:\n%s", aMethod, aURL, aPostData.c_str());
   return httpRequest(aURL, NULL, aMethod, aPostData.c_str(), aContentType);
 }
 

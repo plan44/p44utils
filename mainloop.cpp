@@ -236,7 +236,7 @@ bool MainLoop::rescheduleExecutionTicketAt(long aTicketNo, MLMicroSeconds aExecu
 
 void MainLoop::waitForPid(WaitCB aCallback, pid_t aPid)
 {
-  LOG(LOG_DEBUG,"waitForPid: requested wait for pid=%d\n", aPid);
+  LOG(LOG_DEBUG, "waitForPid: requested wait for pid=%d", aPid);
   if (aCallback) {
     // install new callback
     WaitHandler h;
@@ -259,7 +259,7 @@ extern char **environ;
 
 void MainLoop::fork_and_execve(ExecCB aCallback, const char *aPath, char *const aArgv[], char *const aEnvp[], bool aPipeBackStdOut)
 {
-  LOG(LOG_DEBUG,"fork_and_execve: preparing to fork for executing '%s' now\n", aPath);
+  LOG(LOG_DEBUG, "fork_and_execve: preparing to fork for executing '%s' now", aPath);
   pid_t child_pid;
   int answerPipe[2]; /* Child to parent pipe */
 
@@ -281,7 +281,7 @@ void MainLoop::fork_and_execve(ExecCB aCallback, const char *aPath, char *const 
     // fork successful
     if (child_pid==0) {
       // this is the child process (fork() returns 0 for the child process)
-      LOG(LOG_DEBUG,"forked child process: preparing for execve\n");
+      LOG(LOG_DEBUG, "forked child process: preparing for execve");
       if (aPipeBackStdOut) {
         dup2(answerPipe[1],STDOUT_FILENO); // replace STDOUT by writing end of pipe
         close(answerPipe[1]); // release the original descriptor (does NOT really close the file)
@@ -297,16 +297,16 @@ void MainLoop::fork_and_execve(ExecCB aCallback, const char *aPath, char *const 
     }
     else {
       // this is the parent process, wait for the child to terminate
-      LOG(LOG_DEBUG,"fork_and_execve: child pid=%d, parent will now set up pipe string collector\n", child_pid);
+      LOG(LOG_DEBUG, "fork_and_execve: child pid=%d, parent will now set up pipe string collector", child_pid);
       FdStringCollectorPtr ans;
       if (aPipeBackStdOut) {
-        LOG(LOG_DEBUG,"fork_and_execve: parent will now set up pipe string collector\n");
+        LOG(LOG_DEBUG, "fork_and_execve: parent will now set up pipe string collector");
         close(answerPipe[1]); // close parent's writing end (child uses it!)
         // set up collector for data returned from child process
         ans = FdStringCollectorPtr(new FdStringCollector(MainLoop::currentMainLoop()));
         ans->setFd(answerPipe[0]);
       }
-      LOG(LOG_DEBUG,"fork_and_execve: now calling waitForPid(%d)\n", child_pid);
+      LOG(LOG_DEBUG, "fork_and_execve: now calling waitForPid(%d)", child_pid);
       waitForPid(boost::bind(&MainLoop::execChildTerminated, this, aCallback, ans, _2, _3), child_pid);
     }
   }
@@ -333,17 +333,17 @@ void MainLoop::fork_and_system(ExecCB aCallback, const char *aCommandLine, bool 
 
 void MainLoop::execChildTerminated(ExecCB aCallback, FdStringCollectorPtr aAnswerCollector, pid_t aPid, int aStatus)
 {
-  LOG(LOG_DEBUG,"execChildTerminated: pid=%d, aStatus=%d\n", aPid, aStatus);
+  LOG(LOG_DEBUG, "execChildTerminated: pid=%d, aStatus=%d", aPid, aStatus);
   if (aCallback) {
-    LOG(LOG_DEBUG,"- callback set, execute it\n");
+    LOG(LOG_DEBUG, "- callback set, execute it");
     ErrorPtr err = ExecError::exitStatus(WEXITSTATUS(aStatus));
     if (aAnswerCollector) {
-      LOG(LOG_DEBUG,"- aAnswerCollector: starting collectToEnd\n");
+      LOG(LOG_DEBUG, "- aAnswerCollector: starting collectToEnd");
       aAnswerCollector->collectToEnd(boost::bind(&MainLoop::childAnswerCollected, this, aCallback, aAnswerCollector, err));
     }
     else {
       // call back directly
-      LOG(LOG_DEBUG,"- no aAnswerCollector: callback immediately\n");
+      LOG(LOG_DEBUG, "- no aAnswerCollector: callback immediately");
       aCallback(cycleStartTime, err, "");
     }
   }
@@ -352,12 +352,12 @@ void MainLoop::execChildTerminated(ExecCB aCallback, FdStringCollectorPtr aAnswe
 
 void MainLoop::childAnswerCollected(ExecCB aCallback, FdStringCollectorPtr aAnswerCollector, ErrorPtr aError)
 {
-  LOG(LOG_DEBUG,"childAnswerCollected: error = %s\n", Error::isOK(aError) ? "none" : aError->description().c_str());
+  LOG(LOG_DEBUG, "childAnswerCollected: error = %s", Error::isOK(aError) ? "none" : aError->description().c_str());
   // close my end of the pipe
   aAnswerCollector->stopMonitoringAndClose();
   // now get answer
   string answer = aAnswerCollector->collectedData;
-  LOG(LOG_DEBUG,"- Answer = %s\n", answer.c_str());
+  LOG(LOG_DEBUG, "- Answer = %s", answer.c_str());
   // call back directly
   aCallback(cycleStartTime, aError, answer);
 }
@@ -440,7 +440,7 @@ bool MainLoop::checkWait()
     int status;
     pid_t pid = waitpid(-1, &status, WNOHANG);
     if (pid>0) {
-      LOG(LOG_DEBUG,"checkWait: child pid=%d reports exit status %d\n", pid, status);
+      LOG(LOG_DEBUG, "checkWait: child pid=%d reports exit status %d", pid, status);
       // process has status
       WaitHandlerMap::iterator pos = waitHandlers.find(pid);
       if (pos!=waitHandlers.end()) {
@@ -450,7 +450,7 @@ bool MainLoop::checkWait()
         waitHandlers.erase(pos);
         // call back
         ML_STAT_START
-        LOG(LOG_DEBUG,"- calling wait handler for pid=%d now\n", pid);
+        LOG(LOG_DEBUG, "- calling wait handler for pid=%d now", pid);
         cb(cycleStartTime, pid, status);
         ML_STAT_ADD(waitHandlerTime);
         return false; // more process status could be ready, call soon again
@@ -461,7 +461,7 @@ bool MainLoop::checkWait()
       int e = errno;
       if (e==ECHILD) {
         // no more children
-        LOG(LOG_DEBUG,"checkWait: no children any more -> ending all waits\n");
+        LOG(LOG_DEBUG, "checkWait: no children any more -> ending all waits");
         // - inform all still waiting handlers
         WaitHandlerMap oldHandlers = waitHandlers; // copy
         waitHandlers.clear(); // remove all handlers from real list, as new handlers might be added in handlers we'll call now
@@ -473,7 +473,7 @@ bool MainLoop::checkWait()
         ML_STAT_ADD(waitHandlerTime);
       }
       else {
-        LOG(LOG_DEBUG,"checkWait: waitpid returns error %s\n", strerror(e));
+        LOG(LOG_DEBUG, "checkWait: waitpid returns error %s", strerror(e));
       }
     }
   }
@@ -595,23 +595,23 @@ int MainLoop::run()
 {
   #if MAINLOOP_STATISTICS
   // initial cycle time measurement
-  LOG(LOG_DEBUG,"Mainloop specified cycle time: %.6f S\n", (double)loopCycleTime/Second);
+  LOG(LOG_DEBUG, "Mainloop specified cycle time: %.6f S", (double)loopCycleTime/Second);
   MLMicroSeconds t, tsum;
   cycleStartTime = now();
   usleep((useconds_t)loopCycleTime);
   t = now()-cycleStartTime;
   tsum = t;
-  LOG(LOG_DEBUG,"- measurement 1: %.6f S\n", (double)t/Second);
+  LOG(LOG_DEBUG, "- measurement 1: %.6f S", (double)t/Second);
   cycleStartTime = now();
   usleep((useconds_t)loopCycleTime);
   t = now()-cycleStartTime;
   tsum += t;
-  LOG(LOG_DEBUG,"- measurement 2: %.6f S, average: %.6f S\n", (double)t/Second, (double)(tsum/2)/Second);
+  LOG(LOG_DEBUG, "- measurement 2: %.6f S, average: %.6f S", (double)t/Second, (double)(tsum/2)/Second);
   cycleStartTime = now();
   usleep((useconds_t)loopCycleTime);
   t = now()-cycleStartTime;
   tsum += t;
-  LOG(LOG_DEBUG,"- measurement 3: %.6f S, average: %.6f S\n", (double)t/Second, (double)(tsum/3)/Second);
+  LOG(LOG_DEBUG, "- measurement 3: %.6f S, average: %.6f S", (double)t/Second, (double)(tsum/3)/Second);
   #endif
   while (!terminated) {
     cycleStartTime = now();
@@ -684,7 +684,7 @@ string MainLoop::description()
     "  max waiting in period        : %ld\n"
     #endif
     "- number of I/O poll handlers  : %ld\n"
-    "- number of wait handlers      : %ld\n",
+    "- number of wait handlers      : %ld",
     (double)loopCycleTime/Second,
     terminated ? " (terminating)" : "",
     #if MAINLOOP_STATISTICS
@@ -877,7 +877,7 @@ void ChildThreadWrapper::cancel()
 bool ChildThreadWrapper::signalPipeHandler(int aPollFlags)
 {
   ThreadSignals sig = threadSignalNone;
-  //DBGLOG(LOG_DEBUG, "\nMAINTHREAD: signalPipeHandler with pollFlags=0x%X\n", aPollFlags);
+  //DBGLOG(LOG_DEBUG, "\nMAINTHREAD: signalPipeHandler with pollFlags=0x%X", aPollFlags);
   if (aPollFlags & POLLIN) {
     uint8_t sigByte;
     ssize_t res = read(parentSignalFd, &sigByte, 1); // read signal byte

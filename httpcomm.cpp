@@ -173,9 +173,9 @@ void HttpComm::requestThread(ChildThreadWrapper &aThread)
 
 void HttpComm::requestThreadSignal(ChildThreadWrapper &aChildThread, ThreadSignals aSignalCode)
 {
-  DBGLOG(LOG_DEBUG,"HttpComm: Received signal from child thread: %d\n", aSignalCode);
+  DBGLOG(LOG_DEBUG, "HttpComm: Received signal from child thread: %d", aSignalCode);
   if (aSignalCode==threadSignalCompleted) {
-    DBGLOG(LOG_DEBUG,"- HTTP subthread exited - request completed\n");
+    DBGLOG(LOG_DEBUG, "- HTTP subthread exited - request completed");
     requestInProgress = false; // thread completed
     // call back with result of request
     // Note: as this callback might initiate another request already and overwrite the callback, copy it here

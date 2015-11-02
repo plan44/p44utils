@@ -222,13 +222,13 @@ bool SocketComm::connectionAcceptHandler(MLMicroSeconds aCycleStartTime, int aFd
         clientComm->serviceOrPortOrSocket = sbuf;
         // - remember
         clientConnections.push_back(clientComm);
-        LOG(LOG_DEBUG, "New client connection accepted from %s:%s (now %lu connections)\n", hostNameOrAddress.c_str(), serviceOrPortOrSocket.c_str(), clientConnections.size());
+        LOG(LOG_DEBUG, "New client connection accepted from %s:%s (now %lu connections)", hostNameOrAddress.c_str(), serviceOrPortOrSocket.c_str(), clientConnections.size());
         // - pass connection to child
         clientComm->passClientConnection(clientFD, this);
       }
       else {
         // can't handle connection, close immediately
-        LOG(LOG_NOTICE, "Connection not accepted from %s:%s - shut down\n", hbuf, sbuf);
+        LOG(LOG_NOTICE, "Connection not accepted from %s:%s - shut down", hbuf, sbuf);
         shutdown(clientFD, SHUT_RDWR);
         close(clientFD);
       }
@@ -273,7 +273,7 @@ SocketCommPtr SocketComm::returnClientConnection(SocketCommPtr aClientConnection
       break;
     }
   }
-  LOG(LOG_DEBUG, "Client connection terminated (now %lu connections)\n", clientConnections.size());
+  LOG(LOG_DEBUG, "Client connection terminated (now %lu connections)", clientConnections.size());
   // return connection object to prevent premature deletion
   return endingConnection;
 }
@@ -306,7 +306,7 @@ ErrorPtr SocketComm::initiateConnection()
     }
     if (protocolFamily==PF_LOCAL) {
       // local socket -> just connect, no lists to try
-      LOG(LOG_DEBUG, "Initiating local socket %s connection\n", serviceOrPortOrSocket.c_str());
+      LOG(LOG_DEBUG, "Initiating local socket %s connection", serviceOrPortOrSocket.c_str());
       hostNameOrAddress = "local"; // set it for log display
       // synthesize address info for unix socket, because standard UN*X getaddrinfo() call usually does not handle PF_LOCAL
       addressInfoList = new struct addrinfo;
@@ -339,7 +339,7 @@ ErrorPtr SocketComm::initiateConnection()
       if (res!=0) {
         // error
         err = ErrorPtr(new SocketCommError(SocketCommErrorCannotResolve, string_format("getaddrinfo error %d: %s", res, gai_strerror(res))));
-        DBGLOG(LOG_DEBUG, "SocketComm: getaddrinfo failed: %s\n", err->description().c_str());
+        DBGLOG(LOG_DEBUG, "SocketComm: getaddrinfo failed: %s", err->description().c_str());
         goto done;
       }
     }
@@ -347,7 +347,7 @@ ErrorPtr SocketComm::initiateConnection()
     // - init iterator pointer
     currentAddressInfo = addressInfoList;
     // - try connecting first address
-    LOG(LOG_DEBUG, "Initiating connection to %s:%s\n", hostNameOrAddress.c_str(), serviceOrPortOrSocket.c_str());
+    LOG(LOG_DEBUG, "Initiating connection to %s:%s", hostNameOrAddress.c_str(), serviceOrPortOrSocket.c_str());
     err = connectNextAddress();
   }
 done:
@@ -404,7 +404,7 @@ ErrorPtr SocketComm::connectNextAddress()
       else {
         // TCP: initiate connection
         res = connect(socketFD, currentAddressInfo->ai_addr, currentAddressInfo->ai_addrlen);
-        LOG(LOG_DEBUG, "- Attempting connection with address family = %d, protocol = %d\n", currentAddressInfo->ai_family, currentAddressInfo->ai_protocol);
+        LOG(LOG_DEBUG, "- Attempting connection with address family = %d, protocol = %d", currentAddressInfo->ai_family, currentAddressInfo->ai_protocol);
         if (res==0 || errno==EINPROGRESS) {
           // connection initiated (or already open, but connectionMonitorHandler will take care in both cases)
           startedConnecting = true;
@@ -421,7 +421,7 @@ ErrorPtr SocketComm::connectNextAddress()
   if (!startedConnecting) {
     // exhausted addresses without starting to connect
     if (!err) err = ErrorPtr(new SocketCommError(SocketCommErrorNoConnection, "No connection could be established"));
-    LOG(LOG_DEBUG, "Cannot initiate connection to %s:%s - %s\n", hostNameOrAddress.c_str(), serviceOrPortOrSocket.c_str(), err->description().c_str());
+    LOG(LOG_DEBUG, "Cannot initiate connection to %s:%s - %s", hostNameOrAddress.c_str(), serviceOrPortOrSocket.c_str(), err->description().c_str());
   }
   else {
     if (!connectionLess) {
@@ -438,7 +438,7 @@ ErrorPtr SocketComm::connectNextAddress()
     }
     else {
       // UDP socket successfully created
-      LOG(LOG_DEBUG, "Connectionless socket ready for address family = %d, protocol = %d\n", protocolFamily, protocol);
+      LOG(LOG_DEBUG, "Connectionless socket ready for address family = %d, protocol = %d", protocolFamily, protocol);
       connectionOpen = true;
       isConnecting = false;
       currentAddressInfo = NULL; // no more addresses to check
@@ -498,7 +498,7 @@ bool SocketComm::connectionMonitorHandler(MLMicroSeconds aCycleStartTime, int aF
     isConnecting = false;
     currentAddressInfo = NULL; // no more addresses to check
     freeAddressInfo();
-    LOG(LOG_DEBUG, "Connection to %s:%s established\n", hostNameOrAddress.c_str(), serviceOrPortOrSocket.c_str());
+    LOG(LOG_DEBUG, "Connection to %s:%s established", hostNameOrAddress.c_str(), serviceOrPortOrSocket.c_str());
     // call handler if defined
     if (connectionStatusHandler) {
       // connection ok
@@ -509,12 +509,12 @@ bool SocketComm::connectionMonitorHandler(MLMicroSeconds aCycleStartTime, int aF
   }
   else {
     // this attempt has failed, try next (if any)
-    LOG(LOG_DEBUG, "- Connection attempt failed: %s\n", err->description().c_str());
+    LOG(LOG_DEBUG, "- Connection attempt failed: %s", err->description().c_str());
     // this will return no error if we have another address to try
     err = connectNextAddress();
     if (err) {
       // no next attempt started, report error
-      LOG(LOG_WARNING, "Connection to %s:%s failed: %s\n", hostNameOrAddress.c_str(), serviceOrPortOrSocket.c_str(), err->description().c_str());
+      LOG(LOG_WARNING, "Connection to %s:%s failed: %s", hostNameOrAddress.c_str(), serviceOrPortOrSocket.c_str(), err->description().c_str());
       if (connectionStatusHandler) {
         connectionStatusHandler(this, err);
       }
@@ -540,7 +540,7 @@ void SocketComm::closeConnection()
   if (connectionOpen && !isClosing) {
     isClosing = true; // prevent doing it more than once due to handlers called
     // report to handler
-    LOG(LOG_DEBUG, "Connection with %s:%s explicitly closing\n", hostNameOrAddress.c_str(), serviceOrPortOrSocket.c_str());
+    LOG(LOG_DEBUG, "Connection with %s:%s explicitly closing", hostNameOrAddress.c_str(), serviceOrPortOrSocket.c_str());
     if (connectionStatusHandler) {
       // connection ok
       ErrorPtr err = ErrorPtr(new SocketCommError(SocketCommErrorClosed, "Connection closed"));
@@ -640,7 +640,7 @@ size_t SocketComm::transmitBytes(size_t aNumBytes, const uint8_t *aBytes, ErrorP
 void SocketComm::dataExceptionHandler(int aFd, int aPollFlags)
 {
   SocketCommPtr keepMyselfAlive(this);
-  DBGLOG(LOG_DEBUG, "SocketComm::dataExceptionHandler(fd==%d, pollflags==0x%X)\n", aFd, aPollFlags);
+  DBGLOG(LOG_DEBUG, "SocketComm::dataExceptionHandler(fd==%d, pollflags==0x%X)", aFd, aPollFlags);
   if (!isClosing) {
     if (aPollFlags & POLLHUP) {
       // other end has closed connection
@@ -656,7 +656,7 @@ void SocketComm::dataExceptionHandler(int aFd, int aPollFlags)
       ErrorPtr err = socketError(aFd);
       if (Error::isOK(err))
         err = ErrorPtr(new SocketCommError(SocketCommErrorHungUp,"Connection closed (POLLIN but no data -> interpreted as HUP)"));
-      DBGLOG(LOG_DEBUG, "Connection to %s:%s has POLLIN but no data; error: %s\n", hostNameOrAddress.c_str(), serviceOrPortOrSocket.c_str(), err->description().c_str());
+      DBGLOG(LOG_DEBUG, "Connection to %s:%s has POLLIN but no data; error: %s", hostNameOrAddress.c_str(), serviceOrPortOrSocket.c_str(), err->description().c_str());
       // - report
       if (connectionStatusHandler) {
         // report reason for closing
@@ -666,7 +666,7 @@ void SocketComm::dataExceptionHandler(int aFd, int aPollFlags)
     else if (aPollFlags & POLLERR) {
       // error
       ErrorPtr err = socketError(aFd);
-      LOG(LOG_WARNING, "Connection to %s:%s reported error: %s\n", hostNameOrAddress.c_str(), serviceOrPortOrSocket.c_str(), err->description().c_str());
+      LOG(LOG_WARNING, "Connection to %s:%s reported error: %s", hostNameOrAddress.c_str(), serviceOrPortOrSocket.c_str(), err->description().c_str());
       // - report
       if (connectionStatusHandler) {
         // report reason for closing

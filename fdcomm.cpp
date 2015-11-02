@@ -82,7 +82,7 @@ void FdComm::stopMonitoringAndClose()
 
 void FdComm::dataExceptionHandler(int aFd, int aPollFlags)
 {
-  FOCUSLOG("FdComm::dataExceptionHandler(fd==%d, pollflags==0x%X)\n", aFd, aPollFlags);
+  FOCUSLOG("FdComm::dataExceptionHandler(fd==%d, pollflags==0x%X)", aFd, aPollFlags);
 }
 
 
@@ -90,35 +90,35 @@ void FdComm::dataExceptionHandler(int aFd, int aPollFlags)
 bool FdComm::dataMonitorHandler(MLMicroSeconds aCycleStartTime, int aFd, int aPollFlags)
 {
   FdCommPtr keepMeAlive(this); // make sure this object lives until routine terminates
-  FOCUSLOG("FdComm::dataMonitorHandler(time==%lld, fd==%d, pollflags==0x%X)\n", aCycleStartTime, aFd, aPollFlags);
+  FOCUSLOG("FdComm::dataMonitorHandler(time==%lld, fd==%d, pollflags==0x%X)", aCycleStartTime, aFd, aPollFlags);
   // Note: test POLLIN first, because we might get a POLLHUP in parallel - so make sure we process data before hanging up
   if ((aPollFlags & POLLIN) && receiveHandler) {
     // Note: on linux a socket closed server side does not return POLLHUP, but POLLIN with no data
     size_t bytes = numBytesReady();
-    FOCUSLOG("- POLLIN with %d bytes ready\n", bytes);
+    FOCUSLOG("- POLLIN with %d bytes ready", bytes);
     if (bytes>0) {
-      FOCUSLOG("- calling receive handler\n");
+      FOCUSLOG("- calling receive handler");
       receiveHandler(ErrorPtr());
     }
     else {
       // alerted for read, but nothing to read any more - is also an exception
-      FOCUSLOG("- POLLIN with no data - calling data exception handler\n");
+      FOCUSLOG("- POLLIN with no data - calling data exception handler");
       dataExceptionHandler(aFd, aPollFlags);
       aPollFlags = 0; // handle only once
     }
   }
   if (aPollFlags & POLLHUP) {
     // other end has closed connection
-    FOCUSLOG("- POLLHUP - calling data exception handler\n");
+    FOCUSLOG("- POLLHUP - calling data exception handler");
     dataExceptionHandler(aFd, aPollFlags);
   }
   else if ((aPollFlags & POLLOUT) && transmitHandler) {
-    FOCUSLOG("- POLLOUT - calling data transmit handler\n");
+    FOCUSLOG("- POLLOUT - calling data transmit handler");
     transmitHandler(ErrorPtr());
   }
   else if (aPollFlags & POLLERR) {
     // error
-    FOCUSLOG("- POLLERR - calling data exception handler\n");
+    FOCUSLOG("- POLLERR - calling data exception handler");
     dataExceptionHandler(aFd, aPollFlags);
   }
   // handled
@@ -286,7 +286,7 @@ void FdStringCollector::gotData(ErrorPtr aError)
 void FdStringCollector::dataExceptionHandler(int aFd, int aPollFlags)
 {
   FdCommPtr keepMeAlive(this); // make sure this object lives until routine terminates
-  FOCUSLOG("FdStringCollector::dataExceptionHandler(fd==%d, pollflags==0x%X), numBytesReady()=%d\n", aFd, aPollFlags, numBytesReady());
+  FOCUSLOG("FdStringCollector::dataExceptionHandler(fd==%d, pollflags==0x%X), numBytesReady()=%d", aFd, aPollFlags, numBytesReady());
   if ((aPollFlags & (POLLHUP|POLLIN|POLLERR)) != 0) {
     // - other end has closed connection (POLLHUP)
     // - linux socket was closed server side and does not return POLLHUP, but POLLIN with no data

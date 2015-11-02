@@ -48,7 +48,7 @@ GpioLedPin::GpioLedPin(int aLEDNo, bool aInitialState) :
 {
   string name = string_format("%s/led%d/brightness", GPIO_LED_CLASS_PATH, ledNo);
   ledFD = open(name.c_str(), O_RDWR);
-  if (ledFD<0) { LOG(LOG_ERR,"Cannot open LED brightness file %s: %s\n", name.c_str(), strerror(errno)); return; }
+  if (ledFD<0) { LOG(LOG_ERR, "Cannot open LED brightness file %s: %s", name.c_str(), strerror(errno)); return; }
   // set initial state
   setState(ledState);
 }
@@ -98,7 +98,7 @@ GpioPin::GpioPin(int aGpioNo, bool aOutput, bool aInitialState) :
   // have the kernel export the pin
   name = string_format("%s/export",GPIO_SYS_CLASS_PATH);
   tempFd = open(name.c_str(), O_WRONLY);
-  if (tempFd<0) { LOG(LOG_ERR,"Cannot open GPIO export file %s: %s\n", name.c_str(), strerror(errno)); return; }
+  if (tempFd<0) { LOG(LOG_ERR, "Cannot open GPIO export file %s: %s", name.c_str(), strerror(errno)); return; }
   write(tempFd, s.c_str(), s.length());
   close(tempFd);
   // save base path
@@ -106,7 +106,7 @@ GpioPin::GpioPin(int aGpioNo, bool aOutput, bool aInitialState) :
   // configure
   name = basePath + "/direction";
   tempFd = open(name.c_str(), O_RDWR);
-  if (tempFd<0) { LOG(LOG_ERR,"Cannot open GPIO direction file %s: %s\n", name.c_str(), strerror(errno)); return; }
+  if (tempFd<0) { LOG(LOG_ERR, "Cannot open GPIO direction file %s: %s", name.c_str(), strerror(errno)); return; }
   if (output) {
     // output
     // - set output with initial value
@@ -123,7 +123,7 @@ GpioPin::GpioPin(int aGpioNo, bool aOutput, bool aInitialState) :
   // now keep the value FD open
   name = basePath + "/value";
   gpioFD = open(name.c_str(), O_RDWR);
-  if (gpioFD<0) { LOG(LOG_ERR,"Cannot open GPIO value file %s: %s\n", name.c_str(), strerror(errno)); return; }
+  if (gpioFD<0) { LOG(LOG_ERR, "Cannot open GPIO value file %s: %s", name.c_str(), strerror(errno)); return; }
 }
 
 
@@ -174,7 +174,7 @@ bool GpioPin::setInputChangedHandler(InputChangedCB aInputChangedCB, bool aInver
   string edgePath = string_format("%s/gpio%d/edge", GPIO_SYS_CLASS_PATH, gpioNo);
   int edgeFd = open(edgePath.c_str(), O_RDWR);
   if (edgeFd<0) {
-    LOG(LOG_DEBUG,"GPIO edge file does not exist -> GPIO %d has no edge interrupt capability\n", gpioNo);
+    LOG(LOG_DEBUG, "GPIO edge file does not exist -> GPIO %d has no edge interrupt capability", gpioNo);
     // use poll-based input change detection
     return inherited::setInputChangedHandler(aInputChangedCB, aInverted, aInitialState, aDebounceTime, aPollInterval);
   }
@@ -192,7 +192,7 @@ bool GpioPin::setInputChangedHandler(InputChangedCB aInputChangedCB, bool aInver
 bool GpioPin::stateChanged(int aPollFlags)
 {
   bool newState = getState();
-  //LOG(LOG_DEBUG,"GPIO %d edge detected (poll() returned POLLPRI for value file) : new state = %d\n", gpioNo, newState);
+  //LOG(LOG_DEBUG, "GPIO %d edge detected (poll() returned POLLPRI for value file) : new state = %d", gpioNo, newState);
   inputHasChangedTo(newState);
   return true; // handled
 }
@@ -388,14 +388,14 @@ GpioNS9XXXPin::GpioNS9XXXPin(const char* aGpioName, bool aOutput, bool aInitialS
   gpiopath.append(name);
   gpioFD = open(gpiopath.c_str(), O_RDWR);
   if (gpioFD<0) {
-    LOG(LOG_ERR,"Cannot open GPIO device %s: %s\n", name.c_str(), strerror(errno));
+    LOG(LOG_ERR, "Cannot open GPIO device %s: %s", name.c_str(), strerror(errno));
     return;
   }
   // configure
   if (output) {
     // output
     if ((ret_val = ioctl(gpioFD, GPIO_CONFIG_AS_OUT)) < 0) {
-      LOG(LOG_ERR,"GPIO_CONFIG_AS_OUT failed for %s: %s\n", name.c_str(), strerror(errno));
+      LOG(LOG_ERR, "GPIO_CONFIG_AS_OUT failed for %s: %s", name.c_str(), strerror(errno));
       return;
     }
     // set state immediately
@@ -404,7 +404,7 @@ GpioNS9XXXPin::GpioNS9XXXPin(const char* aGpioName, bool aOutput, bool aInitialS
   else {
     // input
     if ((ret_val = ioctl(gpioFD, GPIO_CONFIG_AS_INP)) < 0) {
-      LOG(LOG_ERR,"GPIO_CONFIG_AS_INP failed for %s: %s\n", name.c_str(), strerror(errno));
+      LOG(LOG_ERR, "GPIO_CONFIG_AS_INP failed for %s: %s", name.c_str(), strerror(errno));
       return;
     }
   }
@@ -432,11 +432,11 @@ bool GpioNS9XXXPin::getState()
     #ifndef __APPLE__
     int ret_val;
     if ((ret_val = ioctl(gpioFD, GPIO_READ_PIN_VAL, &inval)) < 0) {
-      LOG(LOG_ERR,"GPIO_READ_PIN_VAL failed for %s: %s\n", name.c_str(), strerror(errno));
+      LOG(LOG_ERR, "GPIO_READ_PIN_VAL failed for %s: %s", name.c_str(), strerror(errno));
       return false;
     }
     #else
-    DBGLOG(LOG_ERR,"ioctl(gpioFD, GPIO_READ_PIN_VAL, &dummy)\n");
+    DBGLOG(LOG_ERR, "ioctl(gpioFD, GPIO_READ_PIN_VAL, &dummy)");
     inval = 0;
     #endif
     return (bool)inval;
@@ -454,10 +454,10 @@ void GpioNS9XXXPin::setState(bool aState)
   #ifndef __APPLE__
   int ret_val;
   if ((ret_val = ioctl(gpioFD, GPIO_WRITE_PIN_VAL, &setval)) < 0) {
-    LOG(LOG_ERR,"GPIO_WRITE_PIN_VAL failed for %s: %s\n", name.c_str(), strerror(errno));
+    LOG(LOG_ERR, "GPIO_WRITE_PIN_VAL failed for %s: %s", name.c_str(), strerror(errno));
     return;
   }
   #else
-  DBGLOG(LOG_ERR,"ioctl(gpioFD, GPIO_WRITE_PIN_VAL, %d)\n", setval);
+  DBGLOG(LOG_ERR, "ioctl(gpioFD, GPIO_WRITE_PIN_VAL, %d)", setval);
   #endif
 }

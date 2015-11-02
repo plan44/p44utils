@@ -88,7 +88,7 @@ DigitalIo::DigitalIo(const char* aName, bool aOutput, bool aInverted, bool aInit
     }
   }
   // now create appropriate pin
-  DBGLOG(LOG_DEBUG, "DigitalIo: bus name = '%s'\n", busName.c_str());
+  DBGLOG(LOG_DEBUG, "DigitalIo: bus name = '%s'", busName.c_str());
   #if !defined(__APPLE__) && !DISABLE_GPIO
   if (busName=="gpio") {
     // Linux generic GPIO

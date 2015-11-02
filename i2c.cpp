@@ -163,7 +163,7 @@ bool I2CBus::I2CReadByte(I2CDevice *aDeviceP, uint8_t &aByte)
   int res = 0x42; // dummy
   #endif
   // read is shown only in real Debug log, because button polling creates lots of accesses
-  DBGFOCUSLOG("i2c_smbus_read_byte() = %d / 0x%02X\n", res, res);
+  DBGFOCUSLOG("i2c_smbus_read_byte() = %d / 0x%02X", res, res);
   if (res<0) return false;
   aByte = (uint8_t)res;
   return true;
@@ -178,7 +178,7 @@ bool I2CBus::I2CWriteByte(I2CDevice *aDeviceP, uint8_t aByte)
   #else
   int res = 1; // ok
   #endif
-  FOCUSLOG("i2c_smbus_write_byte(byte=0x%02X) = %d\n", aByte, res);
+  FOCUSLOG("i2c_smbus_write_byte(byte=0x%02X) = %d", aByte, res);
   return (res>=0);
 }
 
@@ -193,7 +193,7 @@ bool I2CBus::SMBusReadByte(I2CDevice *aDeviceP, uint8_t aRegister, uint8_t &aByt
   int res = 0x42; // dummy
   #endif
   // read is shown only in real Debug log, because button polling creates lots of accesses
-  DBGFOCUSLOG("i2c_smbus_read_byte_data(cmd=0x%02X) = %d / 0x%02X\n", aRegister, res, res);
+  DBGFOCUSLOG("i2c_smbus_read_byte_data(cmd=0x%02X) = %d / 0x%02X", aRegister, res, res);
   if (res<0) return false;
   aByte = (uint8_t)res;
   return true;
@@ -210,7 +210,7 @@ bool I2CBus::SMBusReadWord(I2CDevice *aDeviceP, uint8_t aRegister, uint16_t &aWo
   int res = 0x4242; // dummy
   #endif
   // read is shown only in real Debug log, because button polling creates lots of accesses
-  DBGFOCUSLOG("i2c_smbus_read_word_data(cmd=0x%02X) = %d / 0x%04X\n", aRegister, res, res);
+  DBGFOCUSLOG("i2c_smbus_read_word_data(cmd=0x%02X) = %d / 0x%04X", aRegister, res, res);
   if (res<0) return false;
   aWord = (uint16_t)res;
   return true;
@@ -229,7 +229,7 @@ bool I2CBus::SMBusReadBlock(I2CDevice *aDeviceP, uint8_t aRegister, uint8_t &aCo
   if (FOCUSLOGENABLED) {
     string data;
     for (uint8_t i=0; i<res; i++) string_format_append(data, ", 0x%02X", aData[i]);
-    FOCUSLOG("i2c_smbus_read_block_data(cmd=0x%02X) = %d / 0x%02X%s\n", aRegister, res, res, data.c_str());
+    FOCUSLOG("i2c_smbus_read_block_data(cmd=0x%02X) = %d / 0x%02X%s", aRegister, res, res, data.c_str());
   }
   if (res<0) return false;
   aCount = (uint16_t)res;
@@ -248,7 +248,7 @@ bool I2CBus::SMBusWriteByte(I2CDevice *aDeviceP, uint8_t aRegister, uint8_t aByt
   #else
   int res = 1; // ok
   #endif
-  FOCUSLOG("i2c_smbus_write_byte_data(cmd=0x%02X, byte=0x%02X) = %d\n", aRegister, aByte, res);
+  FOCUSLOG("i2c_smbus_write_byte_data(cmd=0x%02X, byte=0x%02X) = %d", aRegister, aByte, res);
   return (res>=0);
 }
 
@@ -261,7 +261,7 @@ bool I2CBus::SMBusWriteWord(I2CDevice *aDeviceP, uint8_t aRegister, uint16_t aWo
   #else
   int res = 1; // ok
   #endif
-  FOCUSLOG("i2c_smbus_write_word_data(cmd=0x%02X, word=0x%04X) = %d\n", aRegister, aWord, res);
+  FOCUSLOG("i2c_smbus_write_word_data(cmd=0x%02X, word=0x%04X) = %d", aRegister, aWord, res);
   return (res>=0);
 }
 
@@ -279,7 +279,7 @@ bool I2CBus::SMBusWriteBlock(I2CDevice *aDeviceP, uint8_t aRegister, uint8_t aCo
     if (res>=0) {
       for (uint8_t i=0; i<aCount; i++) string_format_append(data, ", 0x%02X", aDataP[i]);
     }
-    FOCUSLOG("i2c_smbus_write_block_data(cmd=0x%02X, count=0x%02X%s) = %d\n", aRegister, aCount, data.c_str(), res);
+    FOCUSLOG("i2c_smbus_write_block_data(cmd=0x%02X, count=0x%02X%s) = %d", aRegister, aCount, data.c_str(), res);
   }
   return (res>=0);
 }
@@ -299,7 +299,7 @@ bool I2CBus::SMBusWriteBytes(I2CDevice *aDeviceP, uint8_t aRegister, uint8_t aCo
     if (res>=0) {
       for (uint8_t i=0; i<aCount; i++) string_format_append(data, ", 0x%02X", aDataP[i]);
     }
-    FOCUSLOG("i2c_smbus_write_i2c_block_data(cmd=0x%02X, count=0x%02X%s) = %d\n", aRegister, aCount, data.c_str(), res);
+    FOCUSLOG("i2c_smbus_write_i2c_block_data(cmd=0x%02X, count=0x%02X%s) = %d", aRegister, aCount, data.c_str(), res);
   }
   return (res>=0);
 }
@@ -316,12 +316,12 @@ bool I2CBus::accessDevice(I2CDevice *aDeviceP)
   // address the device
   #if !DISABLE_I2C
   if (ioctl(busFD, I2C_SLAVE, aDeviceP->deviceAddress) < 0) {
-    LOG(LOG_ERR,"Error: Cannot access device '%s' on bus %d\n", aDeviceP->deviceID().c_str(), busNumber);
+    LOG(LOG_ERR, "Error: Cannot access device '%s' on bus %d", aDeviceP->deviceID().c_str(), busNumber);
     lastDeviceAddress = -1; // invalidate
     return false;
   }
   #endif
-  FOCUSLOG("ioctl(busFD, I2C_SLAVE, 0x%02X)\n", aDeviceP->deviceAddress);
+  FOCUSLOG("ioctl(busFD, I2C_SLAVE, 0x%02X)", aDeviceP->deviceAddress);
   // remember
   lastDeviceAddress = aDeviceP->deviceAddress;
   return true; // ok
@@ -337,13 +337,13 @@ bool I2CBus::accessBus()
   #if !DISABLE_I2C
   busFD = open(busDevName.c_str(), O_RDWR);
   if (busFD<0) {
-    LOG(LOG_ERR,"Error: Cannot open i2c bus device '%s'\n",busDevName.c_str());
+    LOG(LOG_ERR, "Error: Cannot open i2c bus device '%s'",busDevName.c_str());
     return false;
   }
   #else
   busFD = 1; // dummy, signalling open
   #endif
-  FOCUSLOG("open(\"%s\", O_RDWR) = %d\n", busDevName.c_str(), busFD);
+  FOCUSLOG("open(\"%s\", O_RDWR) = %d", busDevName.c_str(), busFD);
   return true;
 }
 

@@ -90,14 +90,14 @@ void IOPin::inputHasChangedTo(bool aNewState)
     if (debounceTime>0 && lastReportedChange!=Never) {
       // check for debounce time passed
       if (lastReportedChange+debounceTime>now) {
-        LOG(LOG_DEBUG,"- debouncing holdoff, will resample after debouncing time\n");
+        LOG(LOG_DEBUG, "- debouncing holdoff, will resample after debouncing time");
         // debounce time not yet over, schedule an extra re-sample later and suppress reporting for now
         debounceTicket = MainLoop::currentMainLoop().executeOnceAt(boost::bind(&IOPin::debounceSample, this), now+debounceTime);
         return;
       }
     }
     // report change now
-    LOG(LOG_DEBUG,"- state changed >=debouncing time after last change: new state = %d\n", aNewState);
+    LOG(LOG_DEBUG, "- state changed >=debouncing time after last change: new state = %d", aNewState);
     currentState = aNewState;
     lastReportedChange = now;
     if (inputChangedCB) inputChangedCB(currentState!=invertedReporting);
@@ -108,7 +108,7 @@ void IOPin::inputHasChangedTo(bool aNewState)
 void IOPin::debounceSample()
 {
   bool newState = getState();
-  LOG(LOG_DEBUG,"- debouncing time over, resampled state = %d\n", newState);
+  LOG(LOG_DEBUG, "- debouncing time over, resampled state = %d", newState);
   if (newState!=currentState) {
     currentState = newState;
     lastReportedChange = MainLoop::now();
@@ -145,7 +145,7 @@ SimPin::SimPin(const char *aName, bool aOutput, bool aInitialState) :
   output(aOutput),
   pinState(aInitialState)
 {
-  LOG(LOG_ALERT, "Initialized SimPin \"%s\" as %s with initial state %s\n", name.c_str(), aOutput ? "output" : "input", pinState ? "HI" : "LO");
+  LOG(LOG_ALERT, "Initialized SimPin \"%s\" as %s with initial state %s", name.c_str(), aOutput ? "output" : "input", pinState ? "HI" : "LO");
   #if !DISABLE_CONSOLEKEY
   if (!aOutput) {
     if (!output) {
@@ -180,7 +180,7 @@ void SimPin::setState(bool aState)
   if (!output) return; // non-outputs cannot be set
   if (pinState!=aState) {
     pinState = aState;
-    LOG(LOG_ALERT, ">>> SimPin \"%s\" set to %s\n", name.c_str(), pinState ? "HI" : "LO");
+    LOG(LOG_ALERT, ">>> SimPin \"%s\" set to %s", name.c_str(), pinState ? "HI" : "LO");
   }
 }
 
@@ -243,10 +243,10 @@ void SysCommandPin::applyState(bool aState)
 void SysCommandPin::stateUpdated(ErrorPtr aError, const string &aOutputString)
 {
   if (!Error::isOK(aError)) {
-    LOG(LOG_WARNING, "SysCommandPin set state=%d: command (%s) execution failed: %s\n", pinState, stateSetCommand(pinState).c_str(), aError->description().c_str());
+    LOG(LOG_WARNING, "SysCommandPin set state=%d: command (%s) execution failed: %s", pinState, stateSetCommand(pinState).c_str(), aError->description().c_str());
   }
   else {
-    LOG(LOG_INFO, "SysCommandPin set state=%d: command (%s) executed successfully\n", pinState, stateSetCommand(pinState).c_str());
+    LOG(LOG_INFO, "SysCommandPin set state=%d: command (%s) executed successfully", pinState, stateSetCommand(pinState).c_str());
   }
   changing = false;
   if (changePending) {
@@ -267,7 +267,7 @@ AnalogSimPin::AnalogSimPin(const char *aName, bool aOutput, double aInitialValue
   output(aOutput),
   pinValue(aInitialValue)
 {
-  LOG(LOG_ALERT, "Initialized AnalogSimPin \"%s\" as %s with initial value %.2f\n", name.c_str(), aOutput ? "output" : "input", pinValue);
+  LOG(LOG_ALERT, "Initialized AnalogSimPin \"%s\" as %s with initial value %.2f", name.c_str(), aOutput ? "output" : "input", pinValue);
   #if !DISABLE_CONSOLEKEY
   if (!aOutput) {
     if (!output) {
@@ -293,7 +293,7 @@ void AnalogSimPin::setValue(double aValue)
   if (!output) return; // non-outputs cannot be set
   if (pinValue!=aValue) {
     pinValue = aValue;
-    LOG(LOG_ALERT, ">>> AnalogSimPin \"%s\" set to %.2f\n", name.c_str(), pinValue);
+    LOG(LOG_ALERT, ">>> AnalogSimPin \"%s\" set to %.2f", name.c_str(), pinValue);
   }
 }
 
@@ -365,10 +365,10 @@ void AnalogSysCommandPin::applyValue(double aValue)
 void AnalogSysCommandPin::valueUpdated(ErrorPtr aError, const string &aOutputString)
 {
   if (!Error::isOK(aError)) {
-    LOG(LOG_WARNING, "AnalogSysCommandPin set value=%.2f: command (%s) execution failed: %s\n", pinValue, valueSetCommand(pinValue).c_str(), aError->description().c_str());
+    LOG(LOG_WARNING, "AnalogSysCommandPin set value=%.2f: command (%s) execution failed: %s", pinValue, valueSetCommand(pinValue).c_str(), aError->description().c_str());
   }
   else {
-    LOG(LOG_INFO, "AnalogSysCommandPin set value=%.2f: command (%s) executed successfully\n", pinValue, valueSetCommand(pinValue).c_str());
+    LOG(LOG_INFO, "AnalogSysCommandPin set value=%.2f: command (%s) executed successfully", pinValue, valueSetCommand(pinValue).c_str());
   }
   changing = false;
   if (changePending) {

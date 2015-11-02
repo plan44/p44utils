@@ -96,7 +96,7 @@ ErrorPtr SQLite3Persistence::connectAndInitialize(const char *aDatabaseFileName,
     if (!initialized) {
       err = connect(aDatabaseFileName);
       if (err!=SQLITE_OK) {
-        LOG(LOG_ERR, "SQLite3Persistence: Cannot open %s : %s\n", aDatabaseFileName, error_msg());
+        LOG(LOG_ERR, "SQLite3Persistence: Cannot open %s : %s", aDatabaseFileName, error_msg());
         return error();
       }
       // query the DB version
@@ -126,7 +126,7 @@ ErrorPtr SQLite3Persistence::connectAndInitialize(const char *aDatabaseFileName,
           int nextSchemaVersion = aNeededSchemaVersion;
           std::string migrationSQL = dbSchemaUpgradeSQL(currentSchemaVersion, nextSchemaVersion);
           if (migrationSQL.size()==0) {
-            LOG(LOG_ERR, "SQLite3Persistence: Cannot update from version %d to %d\n", currentSchemaVersion, nextSchemaVersion);
+            LOG(LOG_ERR, "SQLite3Persistence: Cannot update from version %d to %d", currentSchemaVersion, nextSchemaVersion);
             errPtr = SQLite3Error::err(SQLITE_PERSISTENCE_ERR_MIGRATION,"Database migration error: no update path available");
             break;
           }
@@ -137,7 +137,7 @@ ErrorPtr SQLite3Persistence::connectAndInitialize(const char *aDatabaseFileName,
             err = migrationCmd.execute_all();
           if (err!=SQLITE_OK) {
             LOG(LOG_ERR,
-              "SQLite3Persistence: Error executing migration SQL from version %d to %d = %s : %s\n",
+              "SQLite3Persistence: Error executing migration SQL from version %d to %d = %s : %s",
               currentSchemaVersion, nextSchemaVersion, migrationSQL.c_str(), error_msg()
             );
             errPtr = error("Error executing migration SQL: ");
@@ -149,7 +149,7 @@ ErrorPtr SQLite3Persistence::connectAndInitialize(const char *aDatabaseFileName,
           // set it in globs
           err = executef("UPDATE globs SET schemaVersion = %d", currentSchemaVersion);
           if (err!=SQLITE_OK) {
-            LOG(LOG_ERR, "SQLite3Persistence: Cannot set globs.schemaVersion = %d: %s\n", currentSchemaVersion, error_msg());
+            LOG(LOG_ERR, "SQLite3Persistence: Cannot set globs.schemaVersion = %d: %s", currentSchemaVersion, error_msg());
             errPtr = error("Error setting schema version: ");
             break;
           }
