@@ -72,21 +72,39 @@ void Logger::log(int aErrLevel, const char *aFmt, ... )
     string message;
     string_format_v(message, false, aFmt, args);
     va_end(args);
+    logStr(aErrLevel, message);
+  }
+}
+
+
+void Logger::logStr(int aErrLevel, string aMessage)
+{
+  if (logEnabled(aErrLevel)) {
     // escape non-printables and detect multiline
-    bool isMultiline = false;
+    int emptyLines = 0; // empty lines before log line
     string::size_type i=0;
-    while (i<message.length()) {
-      char c = message[i];
+    while (i<aMessage.length()) {
+      char c = aMessage[i];
       if (c=='\n') {
-        if (i!=message.length()-1)
-          isMultiline = true; // not just trailing LF
+        if (i==0) {
+          emptyLines++;
+          aMessage.erase(0, 1);
+          continue;
+        }
+        else if (i!=aMessage.length()-1) {
+          // multiline, not first LF -> indent
+          aMessage.insert(i+1, 28, ' ');
+          i += 28; // 28 more
+        }
       }
       else if (!isprint(c) && (uint8_t)c<0x80) {
         // ASCII control character, but not bit 7 set (UTF8 component char)
-        message.replace(i, 1, string_format("\\x%02x", (unsigned)(c & 0xFF)));
+        aMessage.replace(i, 1, string_format("\\x%02x", (unsigned)(c & 0xFF)));
+        i += 3; // single char replaced by 4 chars: \xNN
       }
       i++;
     }
+    // print initial newlines
     // create date + level
     char tsbuf[42];
     char *p = tsbuf;
@@ -97,22 +115,18 @@ void Logger::log(int aErrLevel, const char *aFmt, ... )
     // output
     if (aErrLevel<=stderrLevel) {
       // must go to stderr anyway
+      while (emptyLines-- > 0) fputs("\n", stderr);
       fputs(tsbuf, stderr);
-      if (isMultiline)
-        fputs("\n", stderr);
-      else
-        fputs(" ", stderr);
-      fputs(message.c_str(), stderr);
+      fputs(" ", stderr);
+      fputs(aMessage.c_str(), stderr);
       fflush(stderr);
     }
     if (stdoutLogEnabled(aErrLevel) && (aErrLevel>stderrLevel || errToStdout)) {
       // must go to stdout as well
+      while (emptyLines-- > 0) fputs("\n", stdout);
       fputs(tsbuf, stdout);
-      if (isMultiline)
-        fputs("\n", stdout);
-      else
-        fputs(" ", stdout);
-      fputs(message.c_str(), stdout);
+      fputs(" ", stdout);
+      fputs(aMessage.c_str(), stdout);
       fflush(stdout);
     }
     pthread_mutex_unlock(&reportMutex);

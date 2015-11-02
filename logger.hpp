@@ -104,6 +104,11 @@ namespace p44 {
     /// @param aFmt, ... printf style error message
     void log(int aErrLevel, const char *aFmt, ... ) __printflike(3,4);
 
+    /// log a message
+    /// @param aErrLevel error level of the message
+    /// @param aMessage the message string
+    void logStr(int aErrLevel, std::string aMessage);
+
     /// log a system error
     /// @param aErrLevel error level of the message
     /// @param aErrNum optional system error code (if none specified, errno global will be used)
