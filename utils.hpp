@@ -26,6 +26,10 @@
 #include <stdarg.h>
 #include <stdint.h>
 
+#ifndef __printflike
+#define __printflike(...)
+#endif
+
 using namespace std;
 
 namespace p44 {
@@ -52,7 +56,7 @@ namespace p44 {
   /// @param aStringToAppendTo std::string to append format to
   /// @param aFormat printf-style format string
   void string_format_append(std::string &aStringToAppendTo, const char *aFormat, ...) __printflike(2,3);
-	
+
 	/// always return a valid C String, if NULL is passed, an empty string is returned
 	/// @param aNULLOrCStr NULL or C-String
 	/// @return the input string if it is non-NULL, or an empty string

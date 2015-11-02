@@ -39,6 +39,11 @@
 
 #include <syslog.h>
 
+#ifndef __printflike
+#define __printflike(...)
+#endif
+
+
 #include "p44obj.hpp"
 
 #if defined(DEBUG) || ALWAYS_DEBUG

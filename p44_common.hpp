@@ -18,6 +18,10 @@
 #include <boost/function.hpp>
 #include <boost/bind.hpp>
 
+#ifndef __printflike
+#define __printflike(...)
+#endif
+
 #include "p44obj.hpp"
 #include "logger.hpp"
 #include "utils.hpp"
