@@ -155,7 +155,7 @@ void SsdpSearch::stopSearch()
 
 void SsdpSearch::gotData(ErrorPtr aError)
 {
-  if (Error::isOK(receiveString(response))) {
+  if (Error::isOK(receiveIntoString(response))) {
     // extract uuid and location
     const char *p = response.c_str();
     FOCUSLOG("### received UDP answer: %s", p);

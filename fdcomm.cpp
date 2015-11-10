@@ -35,7 +35,9 @@ using namespace p44;
 
 FdComm::FdComm(MainLoop &aMainLoop) :
   dataFd(-1),
-  mainLoop(aMainLoop)
+  mainLoop(aMainLoop),
+  delimiter(0),
+  delimiterPos(string::npos)
 {
 }
 
@@ -97,8 +99,18 @@ bool FdComm::dataMonitorHandler(MLMicroSeconds aCycleStartTime, int aFd, int aPo
     size_t bytes = numBytesReady();
     FOCUSLOG("- POLLIN with %d bytes ready", bytes);
     if (bytes>0) {
-      FOCUSLOG("- calling receive handler");
-      receiveHandler(ErrorPtr());
+      // check if in delimited mode (e.g. line by line)
+      if (delimiter) {
+        // receive into buffer
+        size_t d = receiveBuffer.size();
+        receiveAndAppendToString(receiveBuffer);
+        // check data and call back if we have collected a delimited string already
+        checkReceiveData(d);
+      }
+      else {
+        FOCUSLOG("- calling receive handler");
+        receiveHandler(ErrorPtr());
+      }
     }
     else {
       // alerted for read, but nothing to read any more - is also an exception
@@ -112,9 +124,11 @@ bool FdComm::dataMonitorHandler(MLMicroSeconds aCycleStartTime, int aFd, int aPo
     FOCUSLOG("- POLLHUP - calling data exception handler");
     dataExceptionHandler(aFd, aPollFlags);
   }
-  else if ((aPollFlags & POLLOUT) && transmitHandler) {
-    FOCUSLOG("- POLLOUT - calling data transmit handler");
-    transmitHandler(ErrorPtr());
+  else if ((aPollFlags & POLLOUT)) {
+    if (!sendBufferedData() && transmitHandler) {
+      FOCUSLOG("- POLLOUT - calling data transmit handler");
+      transmitHandler(ErrorPtr());
+    }
   }
   else if (aPollFlags & POLLERR) {
     // error
@@ -126,9 +140,72 @@ bool FdComm::dataMonitorHandler(MLMicroSeconds aCycleStartTime, int aFd, int aPo
 }
 
 
+void FdComm::checkReceiveData(size_t aOldSize)
+{
+  if (delimiterPos==string::npos) {
+    // no delimiter pending
+    // - data was already checked for delimiters up to aOldSize, so we can start there
+    delimiterPos = receiveBuffer.find(delimiter, aOldSize);
+    if (delimiterPos!=string::npos) {
+      FOCUSLOG("- found delimiter, calling receive handler");
+      receiveHandler(ErrorPtr());
+    }
+  }
+}
 
 
-void FdComm::setReceiveHandler(FdCommCB aReceiveHandler)
+bool FdComm::sendBufferedData()
+{
+  size_t toSend = transmitBuffer.size();
+  if (toSend==0) {
+    if (transmitHandler.empty())
+      mainLoop.changePollFlags(dataFd, 0, POLLOUT); // done, we don't need POLLOUT any more
+    return false;
+  }
+  // send as much as possible
+  ErrorPtr err;
+  size_t sent = transmitBytes(toSend, (const uint8_t *)transmitBuffer.c_str(), err);
+  if (sent<toSend)
+    transmitBuffer.erase(0,sent);
+  else
+    transmitBuffer.clear();
+  return true; // buffered send still in progress
+}
+
+
+bool FdComm::receiveDelimitedString(string &aString)
+{
+  if (delimiterPos==string::npos) return false; // none ready
+  // also remove CR if delimiter is LF
+  size_t eraseSz = delimiterPos+1;
+  if (delimiter=='\n' && delimiterPos>0 && receiveBuffer[delimiterPos-1]=='\r') {
+    delimiterPos--;
+  }
+  aString.assign(receiveBuffer, 0, delimiterPos);
+  receiveBuffer.erase(0, eraseSz);
+  delimiterPos = string::npos; // consumed this one, ready for next
+  // check for more delimited strings that might already be in the buffer
+  mainLoop.executeOnce(boost::bind(&FdComm::checkReceiveData, this, 0));
+  return true;
+}
+
+
+void FdComm::sendString(const string &aString)
+{
+  if (transmitBuffer.empty()) {
+    if (transmitHandler.empty())
+      mainLoop.changePollFlags(dataFd, POLLOUT, 0); // we need POLLOUT even if no transmit handler is set
+    transmitBuffer = aString;
+    sendBufferedData();
+  }
+  else {
+    transmitBuffer.append(aString);
+  }
+}
+
+
+
+void FdComm::setReceiveHandler(StatusCB aReceiveHandler, char aDelimiter)
 {
   if (receiveHandler.empty()!=aReceiveHandler.empty()) {
     receiveHandler = aReceiveHandler;
@@ -141,11 +218,13 @@ void FdComm::setReceiveHandler(FdCommCB aReceiveHandler)
         mainLoop.changePollFlags(dataFd, POLLIN, 0); // set POLLIN
     }
   }
+  delimiter = aDelimiter;
+  delimiterPos = string::npos;
   receiveHandler = aReceiveHandler;
 }
 
 
-void FdComm::setTransmitHandler(FdCommCB aTransmitHandler)
+void FdComm::setTransmitHandler(StatusCB aTransmitHandler)
 {
   if (transmitHandler.empty()!=aTransmitHandler.empty()) {
     transmitHandler = aTransmitHandler;
@@ -178,7 +257,7 @@ size_t FdComm::transmitBytes(size_t aNumBytes, const uint8_t *aBytes, ErrorPtr &
 }
 
 
-bool FdComm::transmitString(string &aString)
+bool FdComm::transmitString(const string &aString)
 {
   ErrorPtr err;
   size_t res = transmitBytes(aString.length(), (uint8_t *)aString.c_str(), err);
@@ -229,7 +308,7 @@ ErrorPtr FdComm::receiveAndAppendToString(string &aString, ssize_t aMaxBytes)
 }
 
 
-ErrorPtr FdComm::receiveString(string &aString, ssize_t aMaxBytes)
+ErrorPtr FdComm::receiveIntoString(string &aString, ssize_t aMaxBytes)
 {
   aString.erase();
   return receiveAndAppendToString(aString, aMaxBytes);
@@ -304,7 +383,7 @@ void FdStringCollector::dataExceptionHandler(int aFd, int aPollFlags)
 }
 
 
-void FdStringCollector::collectToEnd(FdCommCB aEndedCallback)
+void FdStringCollector::collectToEnd(StatusCB aEndedCallback)
 {
   FdCommPtr keepMeAlive(this); // make sure this object lives until routine terminates
   endedCallback = aEndedCallback;

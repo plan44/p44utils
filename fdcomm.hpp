@@ -48,20 +48,20 @@ namespace p44 {
 
   typedef boost::intrusive_ptr<FdComm> FdCommPtr;
 
-  /// callback for signalling ready for receive or transmit, or error
-  typedef boost::function<void (ErrorPtr aError)> FdCommCB;
-
-
   /// wrapper for non-blocking I/O on a file descriptor
   class FdComm : public P44Obj
   {
-    FdCommCB receiveHandler;
-    FdCommCB transmitHandler;
+    StatusCB receiveHandler;
+    StatusCB transmitHandler;
 
   protected:
 
     int dataFd;
     MainLoop &mainLoop;
+    char delimiter;
+    string receiveBuffer;
+    string transmitBuffer;
+    size_t delimiterPos;
 
   public:
 
@@ -91,9 +91,10 @@ namespace p44 {
 
     /// transmit string
     /// @param aString string to transmit
-    /// @return true if string could be sent in one single attempt, false if not (truncated, not ready, error)
-    /// @note intended for datagrams. Use transmitBytes to be able to handle partial transmission
-    bool transmitString(string &aString);
+    /// @param aBuffered true if string should be buffered and transmitted automatically when possible
+    /// @note intended for datagrams. Use transmitBytes to be able to handle partial transmission or
+    ///   sendString() for buffered transfers
+    bool transmitString(const string &aString);
 
 
     /// @return number of bytes ready for read
@@ -106,19 +107,33 @@ namespace p44 {
     /// @return number ob bytes actually read
     size_t receiveBytes(size_t aNumBytes, uint8_t *aBytes, ErrorPtr &aError);
 
+    /// Can be called from receive handler when setReceiveHandler() was set up with a delimiter
+    /// to get the accumulated delimited string
+    /// @param aString will contain the delimited string, without delimiters included
+    /// @return true if a delimited string could be returned
+    bool receiveDelimitedString(string &aString);
+
+    /// Send string, buffer and transmit later if needed
+    /// @param aString string to send
+    void sendString(const string &aString);
+
+
     /// read data into string
-    ErrorPtr receiveString(string &aString, ssize_t aMaxBytes = -1);
+    ErrorPtr receiveIntoString(string &aString, ssize_t aMaxBytes = -1);
 
     /// read data and append to string
     ErrorPtr receiveAndAppendToString(string &aString, ssize_t aMaxBytes = -1);
 
     /// install callback for data becoming ready to read
     /// @param aCallBack will be called when data is ready for reading (receiveBytes()) or an asynchronous error occurs on the file descriptor
-    void setReceiveHandler(FdCommCB aReceiveHandler);
+    /// @param aDelimiter if set, aReceiveHandler will only be called after seeing the specified delimiter in the incoming stream.
+    ///   use receiveDelimitedString() to get the (internally accumulated) delimited string. Note that when using delimiter,
+    ///   data will be consumed internally into the chunkbuffer, so numBytesReady() and receiveBytes() should not be used.
+    void setReceiveHandler(StatusCB aReceiveHandler, char aDelimiter = 0);
 
     /// install callback for file descriptor ready for accepting new data to send
     /// @param aCallBack will be called when file descriptor is ready to transmit more data (using transmitBytes())
-    void setTransmitHandler(FdCommCB aTransmitHandler);
+    void setTransmitHandler(StatusCB aTransmitHandler);
 
     /// make non-blocking
     /// @param aFd optional; fd to switch to non-blocking, defaults to this FdConn's fd set with setFd()
@@ -136,6 +151,9 @@ namespace p44 {
   private:
 
     bool dataMonitorHandler(MLMicroSeconds aCycleStartTime, int aFd, int aPollFlags);
+    void checkReceiveData(size_t aOldSize);
+    bool sendBufferedData();
+
   };
 
 
@@ -144,7 +162,7 @@ namespace p44 {
     typedef FdComm inherited;
 
     bool ended; ///< set when FD returns error or HUP
-    FdCommCB endedCallback; ///< called when collecting ends (after setup by collectToEnd())
+    StatusCB endedCallback; ///< called when collecting ends (after setup by collectToEnd())
 
   public:
 
@@ -153,7 +171,7 @@ namespace p44 {
     FdStringCollector(MainLoop &aMainLoop);
 
     /// collect until file descriptor does not provide any more data
-    void collectToEnd(FdCommCB aEndedCallback);
+    void collectToEnd(StatusCB aEndedCallback);
 
     /// clear all callbacks
     /// @note this is important because handlers might cause retain cycles when they have smart ptr arguments
