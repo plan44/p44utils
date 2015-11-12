@@ -108,8 +108,9 @@ void Logger::logStr(int aErrLevel, string aMessage)
         // set indent instead of date prefix for subsequent lines: 28 chars
         //   01234567890123456789012345678
         prefix = "                            ";
-        // advance line start
-        linestart = i+1;
+        // new line starts after terminator
+        i++;
+        linestart = i;
       }
       else if (!isprint(c) && (uint8_t)c<0x80) {
         // ASCII control character, but not bit 7 set (UTF8 component char)
