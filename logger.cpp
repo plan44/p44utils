@@ -27,7 +27,9 @@ using namespace p44;
 
 p44::Logger globalLogger;
 
-Logger::Logger()
+Logger::Logger() :
+  loggerCB(NULL),
+  loggerContextPtr(NULL)
 {
   pthread_mutex_init(&reportMutex, NULL);
   logLevel = LOGGER_DEFAULT_LOGLEVEL;
@@ -80,58 +82,72 @@ void Logger::log(int aErrLevel, const char *aFmt, ... )
 void Logger::logStr(int aErrLevel, string aMessage)
 {
   if (logEnabled(aErrLevel)) {
-    // escape non-printables and detect multiline
-    int emptyLines = 0; // empty lines before log line
-    string::size_type i=0;
-    while (i<aMessage.length()) {
-      char c = aMessage[i];
-      if (c=='\n') {
-        if (i==0) {
-          emptyLines++;
-          aMessage.erase(0, 1);
-          continue;
-        }
-        else if (i!=aMessage.length()-1) {
-          // multiline, not first LF -> indent
-          aMessage.insert(i+1, 28, ' ');
-          i += 28; // 28 more
-        }
-      }
-      else if (!isprint(c) && (uint8_t)c<0x80) {
-        // ASCII control character, but not bit 7 set (UTF8 component char)
-        aMessage.replace(i, 1, string_format("\\x%02x", (unsigned)(c & 0xFF)));
-        i += 3; // single char replaced by 4 chars: \xNN
-      }
-      i++;
-    }
-    // print initial newlines
     // create date + level
     char tsbuf[42];
     char *p = tsbuf;
     struct timeval t;
     gettimeofday(&t, NULL);
     p += strftime(p, sizeof(tsbuf), "[%Y-%m-%d %H:%M:%S", localtime(&t.tv_sec));
-    p += sprintf(p, ".%03d %c]", t.tv_usec/1000, levelChars[aErrLevel]);
-    // output
-    if (aErrLevel<=stderrLevel) {
+    p += sprintf(p, ".%03d %c] ", t.tv_usec/1000, levelChars[aErrLevel]);
+    // generate empty leading lines, if any
+    string::size_type i=0;
+    while (i<aMessage.length() && aMessage[i]=='\n') {
+      logOutput(aErrLevel, "", "");
+      i++;
+    }
+    // now process message, possibly multi-lined
+    const char *prefix = tsbuf;
+    string::size_type linestart=i;
+    while (i<aMessage.length()) {
+      char c = aMessage[i];
+      if (c=='\n') {
+        // end of line
+        aMessage[i] = 0; // terminate
+        // print it
+        logOutput(aErrLevel, prefix, aMessage.c_str()+linestart);
+        // set indent instead of date prefix for subsequent lines: 28 chars
+        //   01234567890123456789012345678
+        prefix = "                            ";
+        // advance line start
+        linestart = i+1;
+      }
+      else if (!isprint(c) && (uint8_t)c<0x80) {
+        // ASCII control character, but not bit 7 set (UTF8 component char)
+        aMessage.replace(i, 1, string_format("\\x%02x", (unsigned)(c & 0xFF)));
+        i += 4; // single char replaced by 4 chars: \xNN
+      }
+      else {
+        i++;
+      }
+    }
+    logOutput(aErrLevel, prefix, aMessage.c_str()+linestart);
+    pthread_mutex_unlock(&reportMutex);
+  }
+}
+
+
+void Logger::logOutput(int aLevel, const char *aLinePrefix, const char *aLogMessage)
+{
+  // output
+  if (loggerCB) {
+    loggerCB(loggerContextPtr, aLevel, aLinePrefix, aLogMessage);
+  }
+  else {
+    // normal logging to stdout/err
+    if (aLevel<=stderrLevel) {
       // must go to stderr anyway
-      while (emptyLines-- > 0) fputs("\n", stderr);
-      fputs(tsbuf, stderr);
-      fputs(" ", stderr);
-      fputs(aMessage.c_str(), stderr);
+      fputs(aLinePrefix, stderr);
+      fputs(aLogMessage, stderr);
       fputs("\n", stderr);
       fflush(stderr);
     }
-    if (stdoutLogEnabled(aErrLevel) && (aErrLevel>stderrLevel || errToStdout)) {
+    if (stdoutLogEnabled(aLevel) && (aLevel>stderrLevel || errToStdout)) {
       // must go to stdout as well
-      while (emptyLines-- > 0) fputs("\n", stdout);
-      fputs(tsbuf, stdout);
-      fputs(" ", stdout);
-      fputs(aMessage.c_str(), stdout);
+      fputs(aLinePrefix, stdout);
+      fputs(aLogMessage, stdout);
       fputs("\n", stdout);
       fflush(stdout);
     }
-    pthread_mutex_unlock(&reportMutex);
   }
 }
 
@@ -164,3 +180,11 @@ void Logger::setErrLevel(int aStderrLevel, bool aErrToStdout)
   stderrLevel = aStderrLevel;
   errToStdout = aErrToStdout;
 }
+
+
+void Logger::setLogHandler(LoggerCB aLoggerCB, void *aContextPtr)
+{
+  loggerCB = aLoggerCB;
+  loggerContextPtr = aContextPtr;
+}
+

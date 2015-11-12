@@ -79,9 +79,17 @@
 #define SETLOGLEVEL(lvl) globalLogger.setLogLevel(lvl)
 #define SETERRLEVEL(lvl, dup) globalLogger.setErrLevel(lvl, dup)
 #define LOGLEVEL (globalLogger.getLogLevel())
+#define SETLOGHANDLER(lh,ctx) globalLogger.setLogHandler(lh,ctx)
 
 
 namespace p44 {
+
+
+  /// callback for logging lines somewhere else than stderr/stdout
+  /// @param aLevel the log level
+  /// @param aLinePrefix the line prefix (date and loglevel in square brackets, or indent for multilines)
+  /// @param aLogMessage the log message itself
+  typedef void (*LoggerCB)(void *aContextPtr, int aLevel, const char *aLinePrefix, const char *aLogMessage);
 
   class Logger : public P44Obj
   {
@@ -89,6 +97,9 @@ namespace p44 {
     int logLevel;
     int stderrLevel;
     bool errToStdout;
+    LoggerCB loggerCB;
+    void *loggerContextPtr;
+
   public:
     Logger();
 
@@ -133,6 +144,14 @@ namespace p44 {
     /// @param aStderrLevel any messages with this or a lower (=higher priority) level will be sent to stderr (default = LOG_ERR)
     /// @param aErrToStdout if set, messages that qualify for stderr will STILL be duplicated to stdout as well (default = true)
     void setErrLevel(int aStderrLevel, bool aErrToStdout);
+
+    /// set handler for outputting log lines
+    /// @param aLoggerCB callback to be called whenever
+    void setLogHandler(LoggerCB aLoggerCB, void *aContextPtr);
+
+  private:
+
+    void logOutput(int aLevel, const char *aLinePrefix, const char *aLogMessage);
 
   };
 
