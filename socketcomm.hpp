@@ -86,6 +86,7 @@ namespace p44 {
     int protocol;
     bool nonLocal;
     bool connectionLess;
+    bool broadcast;
     // connection making fd (for server to listen, for clients or server handlers for opening connection)
     int connectionFd;
     // client connection internals
@@ -93,6 +94,8 @@ namespace p44 {
     struct addrinfo *currentAddressInfo; ///< address currently connecting to
     struct sockaddr *currentSockAddrP; ///< address info as currently in use by open connection
     socklen_t currentSockAddrLen; ///< length of current sockAddr struct
+    struct sockaddr *peerSockAddrP; ///< address info of last UDP receive
+    socklen_t peerSockAddrLen; ///< length of address info of last UDP receive
     bool isConnecting; ///< in progress of opening connection
     bool isClosing; ///< in progress of closing connection
     bool connectionOpen; ///< regular data connection is open
@@ -117,6 +120,10 @@ namespace p44 {
     /// @param aProtocol defaults to 0
     void setConnectionParams(const char* aHostNameOrAddress, const char* aServiceOrPortOrSocket, int aSocketType = SOCK_STREAM, int aProtocolFamily = PF_UNSPEC, int aProtocol = 0);
 
+    /// Enable/disable socket for broadcast (SO_BROADCAST)
+    /// @param aEnable if true, socket will be configured to be ready for broadcast
+    void enableBroadcast(bool aEnable) { broadcast = aEnable; }
+
     /// get host name we are connected to (useful for server to query connecting client's address)
     /// @return name or IP address of host (for server: actually connected, for client: as set with setConnectionParams())
     const char *getHost() { return hostNameOrAddress.c_str(); };
@@ -124,6 +131,13 @@ namespace p44 {
     /// get port, service name or socket path
     /// @return port/service/path (for server: actually connected, for client: as set with setConnectionParams())
     const char *getPort() { return serviceOrPortOrSocket.c_str(); };
+
+    /// get datagram origin information
+    /// @param aAddress will be set to address of datagram origin
+    /// @param aPort will be set to port of datagram origin
+    /// @return true if origin information is available
+    /// @note only works for SOCK_DGRAM type connections, and is valid only after a successful receiveBytes() operation
+    bool getDatagramOrigin(string &aAddress, string &aPort);
 
     /// Set if server may accept non-local connections
     /// @param aAllow if set, server accepts non-local connections
@@ -179,6 +193,13 @@ namespace p44 {
     /// @return number ob bytes actually written, can be 0 (e.g. if connection is still in process of opening)
     /// @note for UDP, the host/port specified in setConnectionParams() will be used to send datagrams to
     virtual size_t transmitBytes(size_t aNumBytes, const uint8_t *aBytes, ErrorPtr &aError);
+
+    /// read data (non-blocking)
+    /// @param aNumBytes max number of bytes to receive
+    /// @param aBytes pointer to buffer to store received bytes
+    /// @param aError reference to ErrorPtr. Will be left untouched if no error occurs
+    /// @return number ob bytes actually read
+    virtual size_t receiveBytes(size_t aNumBytes, uint8_t *aBytes, ErrorPtr &aError);
 
     /// clear all callbacks
     /// @note this is important because handlers might cause retain cycles when they have smart ptr arguments

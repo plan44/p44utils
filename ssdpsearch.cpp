@@ -86,6 +86,7 @@ void SsdpSearch::startSearchForTarget(SsdpSearchCB aSearchResultHandler, const c
   closeConnection();
   // setup new UDP socket
   setConnectionParams(SSDP_BROADCAST_ADDR, SSDP_PORT, SOCK_DGRAM, AF_INET);
+  enableBroadcast(true);
   setConnectionStatusHandler(boost::bind(&SsdpSearch::socketStatusHandler, this, _2));
   // prepare socket for usage
   initiateConnection();

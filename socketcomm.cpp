@@ -36,8 +36,10 @@ SocketComm::SocketComm(MainLoop &aMainLoop) :
   addressInfoList(NULL),
   currentAddressInfo(NULL),
   currentSockAddrP(NULL),
+  peerSockAddrP(NULL),
   maxServerConnections(1),
   serverConnection(NULL),
+  broadcast(false),
   connectionFd(-1)
 {
 }
@@ -142,8 +144,8 @@ ErrorPtr SocketComm::startServer(ServerConnectionCB aServerConnectionHandler, in
     }
     else {
       // socket created, set options
-      if (setsockopt(socketFD,SOL_SOCKET,SO_REUSEADDR,(char *)&one,(int)sizeof(one)) == -1) {
-        err = SysError::errNo("Cannot SETSOCKOPT SO_REUSEADDR: ");
+      if (setsockopt(socketFD, SOL_SOCKET, SO_REUSEADDR, (char *)&one, (int)sizeof(one)) == -1) {
+        err = SysError::errNo("Cannot setsockopt(SO_REUSEADDR): ");
       }
       else {
         // options ok, bind to address
@@ -373,6 +375,7 @@ ErrorPtr SocketComm::connectNextAddress()
 {
   int res;
   ErrorPtr err;
+  const int one = 1;
 
   // close possibly not fully open connection FD
   internalCloseConnection();
@@ -393,13 +396,48 @@ ErrorPtr SocketComm::connectNextAddress()
       // Now we have a socket
       if (connectionLess) {
         // UDP: no connect phase
-        startedConnecting = true;
-        // save valid address info for later use (UDP needs it to send datagrams)
-        if (currentSockAddrP)
-          free(currentSockAddrP);
-        currentSockAddrLen = currentAddressInfo->ai_addrlen;
-        currentSockAddrP = (sockaddr *)malloc(currentSockAddrLen);
-        memcpy(currentSockAddrP, currentAddressInfo->ai_addr, currentAddressInfo->ai_addrlen);
+        // - enable for broadcast if requested
+        if (broadcast) {
+          // needs SO_BROADCAST
+          if (setsockopt(socketFD, SOL_SOCKET, SO_BROADCAST, (char *)&one, (int)sizeof(one)) == -1) {
+            err = SysError::errNo("Cannot setsockopt(SO_BROADCAST): ");
+          }
+          else {
+            // to receive answers, we also need to bind to INADDR_ANY
+            // - get port number
+            char sbuf[NI_MAXSERV];
+            int s = getnameinfo(
+              currentAddressInfo->ai_addr, currentAddressInfo->ai_addrlen,
+              NULL, 0, // no host address
+              sbuf, sizeof sbuf, // only service/port
+              NI_NUMERICSERV
+            );
+            if (s==0) {
+              // convert to numeric port number
+              int port;
+              if (sscanf(sbuf, "%d", &port)==1) {
+                // bind connectionless socket to INADDR_ANY to receive broadcasts at all
+                struct sockaddr_in recvaddr;
+                memset(&recvaddr, 0, sizeof recvaddr);
+                recvaddr.sin_family = AF_INET;
+                recvaddr.sin_port = htons(port);
+                recvaddr.sin_addr.s_addr = INADDR_ANY;
+                if (::bind(socketFD, (struct sockaddr*)&recvaddr, sizeof recvaddr) == -1) {
+                  err = SysError::errNo("Cannot bind to INADDR_ANY: ");
+                }
+              }
+            }
+          }
+        }
+        if (Error::isOK(err)) {
+          startedConnecting = true;
+          // save valid address info for later use (UDP needs it to send datagrams)
+          if (currentSockAddrP)
+            free(currentSockAddrP);
+          currentSockAddrLen = currentAddressInfo->ai_addrlen;
+          currentSockAddrP = (sockaddr *)malloc(currentSockAddrLen);
+          memcpy(currentSockAddrP, currentAddressInfo->ai_addr, currentAddressInfo->ai_addrlen);
+        }
       }
       else {
         // TCP: initiate connection
@@ -581,6 +619,7 @@ void SocketComm::internalCloseConnection()
     connectionFd = -1;
     connectionOpen = false;
     isConnecting = false;
+    broadcast = false;
     // if this was a client connection to our server, let server know
     if (serverConnection) {
       serverConnection->returnClientConnection(this);
@@ -591,6 +630,10 @@ void SocketComm::internalCloseConnection()
   if (currentSockAddrP) {
     free(currentSockAddrP);
     currentSockAddrP = NULL;
+  }
+  if (peerSockAddrP) {
+    free(peerSockAddrP);
+    peerSockAddrP = NULL;
   }
   // now clear handlers if requested
   if (clearHandlersAtClose) {
@@ -632,6 +675,57 @@ size_t SocketComm::transmitBytes(size_t aNumBytes, const uint8_t *aBytes, ErrorP
   }
 }
 
+
+size_t SocketComm::receiveBytes(size_t aNumBytes, uint8_t *aBytes, ErrorPtr &aError)
+{
+  if (connectionLess) {
+    if (dataFd>=0) {
+      // read
+      ssize_t res = 0;
+      if (aNumBytes>0) {
+        if (peerSockAddrP)
+          free(peerSockAddrP);
+        peerSockAddrLen = sizeof(sockaddr); // pass in buffer size
+        peerSockAddrP = (sockaddr *)malloc(peerSockAddrLen); // prepare buffer
+        res = recvfrom(dataFd, (void *)aBytes, aNumBytes, 0, peerSockAddrP, &peerSockAddrLen);
+        if (res<0) {
+          if (errno==EWOULDBLOCK)
+            return 0; // nothing received
+          else {
+            aError = SysError::errNo("SocketComm::receiveBytes: ");
+            return 0; // nothing received
+          }
+        }
+        return res;
+      }
+    }
+    return 0; // no fd set, nothing to read
+  }
+  else {
+    return inherited::receiveBytes(aNumBytes, aBytes, aError);
+  }
+}
+
+
+bool SocketComm::getDatagramOrigin(string &aAddress, string &aPort)
+{
+  if (peerSockAddrP) {
+    // get address and port of incoming connection
+    char hbuf[NI_MAXHOST], sbuf[NI_MAXSERV];
+    int s = getnameinfo(
+      peerSockAddrP, peerSockAddrLen,
+      hbuf, sizeof hbuf,
+      sbuf, sizeof sbuf,
+      NI_NUMERICHOST | NI_NUMERICSERV
+    );
+    if (s==0) {
+      aAddress = hbuf;
+      aPort = sbuf;
+      return true;
+    }
+  }
+  return false;
+}
 
 
 #pragma mark - handling data exception

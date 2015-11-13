@@ -105,7 +105,7 @@ namespace p44 {
     /// @param aBytes pointer to buffer to store received bytes
     /// @param aError reference to ErrorPtr. Will be left untouched if no error occurs
     /// @return number ob bytes actually read
-    size_t receiveBytes(size_t aNumBytes, uint8_t *aBytes, ErrorPtr &aError);
+    virtual size_t receiveBytes(size_t aNumBytes, uint8_t *aBytes, ErrorPtr &aError);
 
     /// Can be called from receive handler when setReceiveHandler() was set up with a delimiter
     /// to get the accumulated delimited string
