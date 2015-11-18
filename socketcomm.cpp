@@ -608,15 +608,18 @@ void SocketComm::internalCloseConnection()
     }
   }
   else if (connectionOpen || isConnecting) {
-    // stop monitoring data connection
-    setFd(-1);
+    // stop monitoring data connection and close descriptor
+    if (connectionFd==getFd()) connectionFd = -1; // is the same descriptor, don't double-close
+    stopMonitoringAndClose(); // close the data connection
     // to make sure, also unregister handler for connectionFd (in case FdComm had no fd set yet)
     mainLoop.unregisterPollHandler(connectionFd);
     if (serverConnection) {
       shutdown(connectionFd, SHUT_RDWR);
     }
-    close(connectionFd);
-    connectionFd = -1;
+    if (connectionFd>0) {
+      close(connectionFd);
+      connectionFd = -1;
+    }
     connectionOpen = false;
     isConnecting = false;
     broadcast = false;
