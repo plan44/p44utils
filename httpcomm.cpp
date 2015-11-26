@@ -282,7 +282,7 @@ string HttpComm::urlEncode(const string &aString, bool aFormURLEncoded)
   while (char c = *p++) {
     if (aFormURLEncoded && c==' ')
       result += '+'; // replace spaces by pluses
-    else if (c=='&' || c=='%' || c=='=' || (aFormURLEncoded && c=='+') || c<=0x20 || c>0x7E)
+    else if (!isalnum(c))
       string_format_append(result, "%%%02X", c);
     else
       result += c; // just append
