@@ -84,6 +84,39 @@ void p44::string_format_append(std::string &aStringToAppendTo, const char *aForm
 } // string_format_append
 
 
+
+bool p44::string_fgetline(FILE *aFile, string &aLine)
+{
+  const size_t bufLen = 1024;
+  char buf[bufLen];
+  aLine.clear();
+  bool eol = false;
+  while (!eol) {
+    char *p = fgets(buf, bufLen-1, aFile);
+    if (!p) {
+      // eof or error
+      if (feof(aFile)) return !aLine.empty(); // eof is ok if it occurs after having collected some data, otherwise it means: no more lines
+      return false;
+    }
+    // something read
+    size_t l = strlen(buf);
+    // check for CR, LF or CRLF
+    if (l>0 && buf[l-1]=='\n') {
+      l--;
+      eol = true;
+    }
+    if (l>0 && buf[l-1]=='\r') {
+      l--;
+      eol = true;
+    }
+    // collect
+    aLine.append(buf,l);
+  }
+  return true;
+}
+
+
+
 const char *p44::nonNullCStr(const char *aNULLOrCStr)
 {
 	if (aNULLOrCStr==NULL) return "";
@@ -140,7 +173,6 @@ string p44::shellQuote(const string &aString)
 }
 
 
-
 bool p44::nextLine(const char * &aCursor, string &aLine)
 {
   const char *p = aCursor;
@@ -163,6 +195,96 @@ bool p44::nextLine(const char * &aCursor, string &aLine)
     ++p;
   } while (true);
 }
+
+
+bool p44::nextPart(const char *&aCursor, string &aPart, char aSeparator, bool aStopAtEOL)
+{
+  const char *p = aCursor;
+  if (!p || *p==0) return false; // no input or end of text -> no part
+  char c;
+  do {
+    c = *p;
+    if (c==0 || c==aSeparator || (aStopAtEOL && (c=='\n' || c=='\r')) ) {
+      // end of part
+      aPart.assign(aCursor,p-aCursor);
+      if (c==aSeparator) p++; // skip the separator
+      aCursor = p; // return start of next part or end of line/string
+      return true;
+    }
+    ++p;
+  } while (true);
+}
+
+
+
+
+bool p44::nextCSVField(const char * &aCursor, string &aField, char aSeparator, bool aContinueQuoted)
+{
+  const char *p = aCursor;
+  char c;
+  if (!p || *p==0) return false; // no input or end of text -> no field
+  if (!aContinueQuoted) {
+    // new field
+    aField.clear();
+    // check if it is a quoted field
+    if (*p=='"') {
+      aContinueQuoted = true;
+      p++;
+    }
+  }
+  bool skip = false;
+  if (aContinueQuoted) {
+    // (part of) quoted field
+    while ((c=*p++)) {
+      if (c=='"') {
+        // check if followed by another quote
+        if (*p=='"') {
+          // decodes into a single quote
+          aField += c;
+          p++; // continue after second quote
+        }
+        else {
+          // end of quoted field
+          break;
+        }
+      }
+      else {
+        aField += c;
+      }
+    }
+    if (c!='"') {
+      // not properly terminated -> report special condition
+      aCursor = NULL;
+      return true;
+    }
+    skip = true;
+  }
+  // unquoted field or stuff to skip until next separator
+  while ((c=*p++)) {
+    if (
+      aSeparator ?
+      (c==aSeparator) :
+      (c==';' || c==',' || c=='\t')
+    ) {
+      // is separator
+      break;
+    }
+    else if (c=='\n' || c=='\r') {
+      // newline also ends field
+      break;
+    }
+    else if (!skip) {
+      // part of value
+      aField += c;
+    }
+  }
+  // end of field
+  if (c=='\r' && *p=='\n') ++p; // consume possibly trainling LF (from CRLF separated input)
+  aCursor = p; // points to next field or end of input
+  return true;
+}
+
+
 
 
 bool p44::keyAndValue(const string &aInput, string &aKey, string &aValue, char aSeparator)

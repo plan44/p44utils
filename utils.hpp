@@ -57,6 +57,12 @@ namespace p44 {
   /// @param aFormat printf-style format string
   void string_format_append(std::string &aStringToAppendTo, const char *aFormat, ...) __printflike(2,3);
 
+  /// get next line from file into string
+  /// @param aFile file open for read
+  /// @param aLine string to store read line (without CRLF)
+  /// @return true if line could be read, false otherwise
+  bool string_fgetline(FILE *aFile, string &aLine);
+
 	/// always return a valid C String, if NULL is passed, an empty string is returned
 	/// @param aNULLOrCStr NULL or C-String
 	/// @return the input string if it is non-NULL, or an empty string
@@ -87,7 +93,29 @@ namespace p44 {
   /// @param aLine the contents of the line, without any CR or LF chars
   /// @return true if a line could be extracted, false if end of text
   bool nextLine(const char * &aCursor, string &aLine);
-  bool nextLine(const string &aInput, size_t aCursor, string &aLine);
+
+  /// return next TSV or CSV field from line
+  /// @param aCursor at entry, must point to the beginning of a CSV field (beginning of line or
+  ///   result of a previous nextCSVField() call.
+  ///   After return, this is updated to either
+  ///   - point to the beginning of the next field or the end of input
+  ///   - NULL (but still returning true) if at end of incomplete quoted field (no closing quote found). This
+  ///     condition can be used to support newlines embedded in quoted field values, by getting next line and using aContinueQuoted
+  /// @param aField the unescaped content of the field
+  /// @param aSeparator the separator. If 0 (default), any unquoted ",", ";" or TAB is considered a separator.
+  /// @param aContinueQuoted if set, aCursor must be within a quoted field, and aField will be added to to complete it
+  /// @return true if a CSV field could be extracted, false if no more fields found
+  bool nextCSVField(const char * &aCursor, string &aField, char aSeparator=0, bool aContinueQuoted=false);
+
+
+  /// return next part from a separated string
+  /// @param aCursor at entry, must point to the beginning of a string
+  ///   After return, this is updated to point to next char following aSeparator or to end-of-string
+  /// @param aPart the part found between aCursor and the next aSeparator (or end of string)
+  /// @param aSeparator the separator char
+  /// @param aStopAtEOL if set, reaching EOL (CR or LF) also ends part
+  /// @return true if a part could be extracted, false if no more parts found
+  bool nextPart(const char *&aCursor, string &aPart, char aSeparator, bool aStopAtEOL=false);
 
   /// extract key and value from "KEY: VALUE" type header string
   /// @param aInput the contents of the line to extract key/value from
