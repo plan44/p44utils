@@ -150,7 +150,7 @@ sqlite3pp::query *PersistentParams::newLoadAllQuery(const char *aParentIdentifie
   // limit to entries linked to parent
   string_format_append(sql, " FROM %s WHERE %s='%s'", tableName(), getKeyDef(0)->fieldName, aParentIdentifier);
   FOCUSLOG("newLoadAllQuery for parent='%s': %s", aParentIdentifier, sql.c_str());
-  // now execute query
+  // now prepare query
   if (queryP->prepare(sql.c_str())!=SQLITE_OK) {
     FOCUSLOG("- query not successful - assume wrong schema -> calling checkAndUpdateSchema()");
     // - error could mean schema is not up to date
