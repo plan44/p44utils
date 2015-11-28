@@ -45,8 +45,10 @@ namespace p44 {
   class PersistentParams
   {
     bool dirty; ///< if set, means that values need to be saved
+
   protected:
     ParamStore &paramStore; ///< the associated parameter store
+
   public:
     PersistentParams(ParamStore &aParamStore);
     uint64_t rowid; ///< ROWID of the persisted data, 0 if not yet persisted
@@ -112,6 +114,9 @@ namespace p44 {
     /// mark the parameter set dirty (so it will be saved to DB next time saveToStore is called
     virtual void markDirty();
 
+    /// mark the parameter set clean (e.g. after setting default values that must not be saved, but which trigger dirty flag)
+    virtual void markClean();
+
     /// @return true if needs to be saved
     bool isDirty() { return dirty; }
 
@@ -145,12 +150,6 @@ namespace p44 {
     /// @return a prepared query set up to iterate through all records with a given parent identifier, or NULL on error
     /// @param aParentIdentifier identifies the parent of this parameter set (a string (G)UID or the ROWID of a parent parameter set)
     sqlite3pp::query *newLoadAllQuery(const char *aParentIdentifier);
-
-  protected:
-
-    /// mark the parameter set clean (e.g. after setting default values that must not be saved, but which trigger dirty flag)
-    virtual void markClean();
-
 
   private:
     /// check and update schema to hold the parameters
