@@ -260,7 +260,8 @@ bool p44::nextCSVField(const char * &aCursor, string &aField, char aSeparator, b
     skip = true;
   }
   // unquoted field or stuff to skip until next separator
-  while ((c=*p++)) {
+  while ((c=*p)) {
+    p++;
     if (
       aSeparator ?
       (c==aSeparator) :
