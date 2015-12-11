@@ -82,6 +82,7 @@ namespace p44 {
     string contentType;
     string requestBody;
     int responseDataFd;
+    MLMicroSeconds timeout; // timeout, Never = use default, do not set
     struct mg_connection *mgConn; // mongoose connection
 
   public:
@@ -126,6 +127,10 @@ namespace p44 {
 
     /// cancel request
     void cancelRequest();
+
+    /// explicitly set socket timeout to use
+    void setTimeout(MLMicroSeconds aTimeout) { timeout = aTimeout; };
+
 
     // Utilities
     static string urlEncode(const string &aString, bool aFormURLEncoded);

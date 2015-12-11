@@ -28,6 +28,7 @@ HttpComm::HttpComm(MainLoop &aMainLoop) :
   mainLoop(aMainLoop),
   requestInProgress(false),
   mgConn(NULL),
+  timeout(Never),
   responseDataFd(-1)
 {
 }
@@ -84,12 +85,14 @@ void HttpComm::requestThread(ChildThreadWrapper &aThread)
     // now issue request
     const size_t ebufSz = 100;
     char ebuf[ebufSz];
+    int tmo = timeout==Never ? -1 : (int)(timeout/MilliSecond);
     if (requestBody.length()>0) {
       // is a request which sends data in the HTTP message body (e.g. POST)
-      mgConn = mg_download(
+      mgConn = mg_download_tmo(
         host.c_str(),
         port,
         useSSL,
+        tmo,
         ebuf, ebufSz,
         "%s %s HTTP/1.1\r\n"
         "Host: %s\r\n"
@@ -107,10 +110,11 @@ void HttpComm::requestThread(ChildThreadWrapper &aThread)
     }
     else {
       // no request body (e.g. GET, DELETE)
-      mgConn = mg_download(
+      mgConn = mg_download_tmo(
         host.c_str(),
         port,
         useSSL,
+        tmo,
         ebuf, ebufSz,
         "%s %s HTTP/1.1\r\n"
         "Host: %s\r\n"
