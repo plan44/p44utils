@@ -26,6 +26,8 @@
 
 #if DIGI_ESP
 #include "json.h"
+#elif DSS_BUILD
+#include <json.h>
 #else
 #include <json/json.h>
 #endif
