@@ -151,7 +151,7 @@ namespace p44 {
   private:
 
     bool dataMonitorHandler(MLMicroSeconds aCycleStartTime, int aFd, int aPollFlags);
-    void checkReceiveData(size_t aOldSize);
+    void checkReceiveData();
     bool sendBufferedData();
 
   };

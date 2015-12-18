@@ -97,15 +97,14 @@ bool FdComm::dataMonitorHandler(MLMicroSeconds aCycleStartTime, int aFd, int aPo
   if ((aPollFlags & POLLIN) && receiveHandler) {
     // Note: on linux a socket closed server side does not return POLLHUP, but POLLIN with no data
     size_t bytes = numBytesReady();
-    FOCUSLOG("- POLLIN with %d bytes ready", bytes);
+    FOCUSLOG("- POLLIN with %zd bytes ready", bytes);
     if (bytes>0) {
       // check if in delimited mode (e.g. line by line)
       if (delimiter) {
         // receive into buffer
-        size_t d = receiveBuffer.size();
         receiveAndAppendToString(receiveBuffer);
         // check data and call back if we have collected a delimited string already
-        checkReceiveData(d);
+        checkReceiveData();
       }
       else {
         FOCUSLOG("- calling receive handler");
@@ -140,12 +139,11 @@ bool FdComm::dataMonitorHandler(MLMicroSeconds aCycleStartTime, int aFd, int aPo
 }
 
 
-void FdComm::checkReceiveData(size_t aOldSize)
+void FdComm::checkReceiveData()
 {
   if (delimiterPos==string::npos) {
     // no delimiter pending
-    // - data was already checked for delimiters up to aOldSize, so we can start there
-    delimiterPos = receiveBuffer.find(delimiter, aOldSize);
+    delimiterPos = receiveBuffer.find(delimiter);
     if (delimiterPos!=string::npos) {
       FOCUSLOG("- found delimiter, calling receive handler");
       receiveHandler(ErrorPtr());
@@ -185,7 +183,7 @@ bool FdComm::receiveDelimitedString(string &aString)
   receiveBuffer.erase(0, eraseSz);
   delimiterPos = string::npos; // consumed this one, ready for next
   // check for more delimited strings that might already be in the buffer
-  mainLoop.executeOnce(boost::bind(&FdComm::checkReceiveData, this, 0));
+  mainLoop.executeOnce(boost::bind(&FdComm::checkReceiveData, this));
   return true;
 }
 
