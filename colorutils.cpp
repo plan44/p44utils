@@ -115,13 +115,16 @@ bool p44::XYZtoRGB(const Matrix3x3 &calib, const Row3 &XYZ, Row3 &RGB)
   r = m_inv[0][0]*XYZ[0] + m_inv[0][1]*XYZ[1] + m_inv[0][2]*XYZ[2];
   g = m_inv[1][0]*XYZ[0] + m_inv[1][1]*XYZ[1] + m_inv[1][2]*XYZ[2];
   b = m_inv[2][0]*XYZ[0] + m_inv[2][1]*XYZ[1] + m_inv[2][2]*XYZ[2];
-  // apply sRGB companding
+  // apply gamma companding
   // see http://www.brucelindbloom.com/index.html?ColorCalculator.html, math section
-  double gamma = 2.2;
+  double gamma = 2.2; // 2.2 is CIE RGB, or approximately like sRGB, or like 1998 Adobe RGB
   double power = 1/gamma;
-  RGB[0] = pow(r, power);
-  RGB[1] = pow(g, power);
-  RGB[2] = pow(b, power);
+  // Note: correct expansion would be:
+  //  V = sign(v)*pow(abs(v), power)
+  // However, as negative RGB does not make practical sense, we clip them to 0 here already
+  RGB[0] = r>0 ? pow(r, power) : 0;
+  RGB[1] = g>0 ? pow(g, power) : 0;
+  RGB[2] = b>0 ? pow(b, power) : 0;
   return true;
 }
 
