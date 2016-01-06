@@ -3,7 +3,7 @@
 // p44utils
 //
 // Author: Lukas Zeller / luz@plan44.ch
-// Copyright: 2012-2013 by plan44.ch/luz
+// Copyright (c) 2012-2016 by plan44.ch/luz
 //
 
 #ifndef __p44utils__common__
