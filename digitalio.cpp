@@ -330,3 +330,30 @@ bool IndicatorOutput::timer(MLMicroSeconds aTimestamp)
   }
   return true;
 }
+
+
+
+BlindsOutput::BlindsOutput(const char* aGpioNameUp, const char* aGpioNameDown, bool aInverted)
+{
+  upPin = DigitalIoPtr(new DigitalIo(aGpioNameUp, true, aInverted, false));
+  downPin = DigitalIoPtr(new DigitalIo(aGpioNameDown, true, aInverted, false));
+}
+
+
+void BlindsOutput::changeMovement(SimpleCB aDoneCB, int aNewDirection)
+{
+  if (aNewDirection == 0) {
+    // stop
+    upPin->set(false);
+    downPin->set(false);
+  } else if (aNewDirection > 0) {
+    downPin->set(false);
+    upPin->set(true);
+  } else {
+    upPin->set(false);
+    downPin->set(true);
+  }
+  if (aDoneCB) {
+    aDoneCB();
+  }
+}

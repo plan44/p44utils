@@ -188,7 +188,22 @@ namespace p44 {
   };
 	typedef boost::intrusive_ptr<IndicatorOutput> IndicatorOutputPtr;
 
+    
+    
+  class BlindsOutput : public P44Obj
+  {
+    DigitalIoPtr upPin;
+    DigitalIoPtr downPin;
+      
+  public:
+    BlindsOutput(const char* aGpioNameUp, const char* aGpioNameDown, bool aInverted);
+    virtual ~BlindsOutput() {}
 
+    void changeMovement(SimpleCB aDoneCB, int aNewDirection);
+    
+    string getName() { return string_format("%s+%s", upPin->getName().c_str(), downPin->getName().c_str()); };
+  };
+  typedef boost::intrusive_ptr<BlindsOutput> BlindsOutputPtr;
 
 } // namespace p44
 
