@@ -70,7 +70,7 @@ void SsdpSearch::startSearch(SsdpSearchCB aSearchResultHandler, const char *aUui
 //  MX: 5
 //  ST: upnp:rootdevice
 
-#define SSDP_BROADCAST_ADDR "239.255.255.250"
+#define SSDP_MULTICAST_ADDR "239.255.255.250"
 #define SSDP_PORT "1900"
 #define SSDP_MX 3 // should be sufficient (5 is max allowed)
 
@@ -85,8 +85,11 @@ void SsdpSearch::startSearchForTarget(SsdpSearchCB aSearchResultHandler, const c
   // close current socket
   closeConnection();
   // setup new UDP socket
-  setConnectionParams(SSDP_BROADCAST_ADDR, SSDP_PORT, SOCK_DGRAM, AF_INET);
-  enableBroadcast(true);
+  // Note: this socket does not need to (and thus should not) enable broadcast because (SSDP Wikipedia):
+  //  "[...] A client that wishes to discover available services on a network, uses the M-SEARCH method.
+  //   Responses to such search requests are sent via unicast addressing to the
+  //   originating address and port number of the multicast request."
+  setConnectionParams(SSDP_MULTICAST_ADDR, SSDP_PORT, SOCK_DGRAM, AF_INET);
   setConnectionStatusHandler(boost::bind(&SsdpSearch::socketStatusHandler, this, _2));
   // prepare socket for usage
   initiateConnection();
@@ -107,7 +110,7 @@ void SsdpSearch::socketStatusHandler(ErrorPtr aError)
       "MAN: \"ssdp:discover\"\n"
       "MX: %d\n"
       "ST: %s\n",
-      SSDP_BROADCAST_ADDR,
+      SSDP_MULTICAST_ADDR,
       SSDP_PORT,
       SSDP_MX,
       searchTarget.c_str()
