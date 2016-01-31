@@ -297,7 +297,7 @@ void MainLoop::fork_and_execve(ExecCB aCallback, const char *aPath, char *const 
     }
     else {
       // this is the parent process, wait for the child to terminate
-      LOG(LOG_DEBUG, "fork_and_execve: child pid=%d, parent will now set up pipe string collector", child_pid);
+      LOG(LOG_DEBUG, "fork_and_execve: parent: child pid=%d", child_pid);
       FdStringCollectorPtr ans;
       if (aPipeBackStdOut) {
         LOG(LOG_DEBUG, "fork_and_execve: parent will now set up pipe string collector");
