@@ -400,6 +400,9 @@ namespace p44 {
     /// @note MUST be called from the thread itself to get the correct mainloop!
     MainLoop &threadMainLoop();
 
+    /// confirm termination
+    void confirmTerminated();
+
     /// @}
 
 
@@ -414,9 +417,6 @@ namespace p44 {
 
     /// cancel execution and wait for cancellation to complete
     void cancel();
-
-    /// confirm termination
-    void confirmTerminated();
 
     /// @}
 
