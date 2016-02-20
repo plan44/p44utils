@@ -167,6 +167,22 @@ long MainLoop::executeOnceAt(OneTimeCB aCallback, MLMicroSeconds aExecutionTime)
 }
 
 
+void MainLoop::executeTicketOnceAt(long &aTicketNo, OneTimeCB aCallback, MLMicroSeconds aExecutionTime)
+{
+  cancelExecutionTicket(aTicketNo);
+  aTicketNo = executeOnceAt(aCallback, aExecutionTime);
+}
+
+
+void MainLoop::executeTicketOnce(long &aTicketNo, OneTimeCB aCallback, MLMicroSeconds aDelay)
+{
+  cancelExecutionTicket(aTicketNo);
+  aTicketNo = executeOnce(aCallback, aDelay);
+}
+
+
+
+
 long MainLoop::scheduleOneTimeHandler(OnetimeHandler &aHandler)
 {
   #if MAINLOOP_STATISTICS

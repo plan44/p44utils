@@ -96,8 +96,7 @@ void ConsoleKey::toggle()
 
 void ConsoleKey::pulse()
 {
-  MainLoop::currentMainLoop().cancelExecutionTicket(keyHandlerTicket);
-  keyHandlerTicket = MainLoop::currentMainLoop().executeOnce(boost::bind(&ConsoleKey::pulseEnd, this), 200*MilliSecond);
+  MainLoop::currentMainLoop().executeTicketOnce(keyHandlerTicket, boost::bind(&ConsoleKey::pulseEnd, this), 200*MilliSecond);
   if (state==initialState) {
     state = !initialState;
     reportState();

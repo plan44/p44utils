@@ -239,6 +239,20 @@ namespace p44 {
     /// @return ticket number which can be used to cancel this specific execution request
     long executeOnce(OneTimeCB aCallback, MLMicroSeconds aDelay = 0);
 
+    /// have handler called from the mainloop once with an optional delay from now
+    /// @param aTicketNo if not 0 on entry, this ticket will be cancelled beforehand. On exit, this contains the new ticket
+    /// @param aCallback the functor to be called
+    /// @param aExecutionTime when to execute (approximately), in now() timescale
+    /// @return ticket number which can be used to cancel this specific execution request
+    void executeTicketOnceAt(long &aTicketNo, OneTimeCB aCallback, MLMicroSeconds aExecutionTime);
+
+    /// have handler called from the mainloop once with an optional delay from now
+    /// @param aTicketNo if not 0 on entry, this ticket will be cancelled beforehand. On exit, this contains the new ticket
+    /// @param aCallback the functor to be called
+    /// @param aDelay delay from now when to execute (approximately)
+    /// @return ticket number which can be used to cancel this specific execution request
+    void executeTicketOnce(long &aTicketNo, OneTimeCB aCallback, MLMicroSeconds aDelay = 0);
+
     /// cancel pending execution by ticket number
     /// @param aTicketNo ticket of execution to cancel. Will be set to 0 on return
     void cancelExecutionTicket(long &aTicketNo);
