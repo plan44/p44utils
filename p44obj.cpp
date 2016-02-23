@@ -33,21 +33,18 @@ namespace p44 {
 
   void intrusive_ptr_release(P44Obj* o)
   {
-    if(--(o->refCount) == 0)
+    if(--(o->refCount) == 0) {
+      // Setting the refCount to an arbitrary not small negative number
+      // gives us some protection (at no performance penalty for normal ref+/- operations)
+      // against destuctors that cause reference count to increase again (e.g. by callbacks
+      // that reference the object) and would otherwise cause a double delete once the
+      // refcount re-reaches zero.
+      // Only after 4242 extra references added to the object DURING DESTRUCTION, this
+      // would not hold any more...
+      o->refCount = -4242;
+      // now delete, ONCE
       delete o;
+    }
   }
-
-//  template<typename T>
-//  void intrusive_ptr_add_ref(T* o){
-//    ++(o->refCount);
-//  }
-//
-//  template<typename T>
-//  void intrusive_ptr_release(T* o){
-//    if(--(o->refCount) == 0)
-//      delete o;
-//  }
-
-
 
 }
