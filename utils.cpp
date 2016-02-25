@@ -413,24 +413,33 @@ int p44::gtinCheckDigit(uint64_t aGtin)
 }
 
 
-string p44::hexToBinaryString(const char *aHexString)
+string p44::hexToBinaryString(const char *aHexString, bool aSpacesAllowed)
 {
   string bs;
   uint8_t b = 0;
   bool firstNibble = true;
   char c;
-  while ((c = *aHexString++)!=0) {
-    if (c=='-') continue; // dashes allowed but ignored
+  while (true) {
+    c = *aHexString++;
+    if (c==0 || c=='-' || (aSpacesAllowed && c==' ')) {
+      if (aSpacesAllowed && !firstNibble) {
+        // in space-allowed mode, a separator (space or dash) means the byte is complete, even if it has only one digit
+        bs.append((char *)&b,1);
+        firstNibble = true;
+      }
+      if (c==0) break; // done
+      continue; // skip delimiter
+    }
     c = toupper(c)-'0';
     if (c>9) c -= ('A'-'9'-1);
     if (c<0 || c>0xF)
       break; // invalid char, done
     if (firstNibble) {
-      b = c<<4;
+      b = c;
       firstNibble = false;
     }
     else {
-      b |= c;
+      b = (b<<4) | c;
       bs.append((char *)&b,1);
       firstNibble = true;
     }

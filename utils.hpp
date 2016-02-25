@@ -151,9 +151,10 @@ namespace p44 {
   int gtinCheckDigit(uint64_t aGtin);
 
   /// hex string to binary string conversion
-  /// @param aHexString string in hex notation
+  /// @param aHexString bytes string in hex notation, byte-separating dashes allowed
+  /// @param aSpacesAllowed if true, spaces may be used between bytes, and single digits can be used for bytes with value 0..F
   /// @return binary string
-  string hexToBinaryString(const char *aHexString);
+  string hexToBinaryString(const char *aHexString, bool aSpacesAllowed = false);
 
   /// hex string to binary string conversion
   /// @param aBinaryString binary string
