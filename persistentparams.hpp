@@ -124,12 +124,14 @@ namespace p44 {
     /// @param aTargetValue the variable to update
     /// @param aNewValue the new value
     /// @note marks PersistentParams dirty if variable is actually changed
-    template<typename T> void setPVar(T &aTargetValue, T aNewValue)
+    template<typename T> bool setPVar(T &aTargetValue, T aNewValue)
     {
       if (aTargetValue!=aNewValue) {
         aTargetValue = aNewValue;
         markDirty();
+        return true; // changed value
       }
+      return false; // not changed value
     };
 
 
