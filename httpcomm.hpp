@@ -19,8 +19,8 @@
 //  along with p44utils. If not, see <http://www.gnu.org/licenses/>.
 //
 
-#ifndef __vdcd__httpcomm__
-#define __vdcd__httpcomm__
+#ifndef __p44utils__httpcomm__
+#define __p44utils__httpcomm__
 
 #include "p44_common.hpp"
 
@@ -151,4 +151,4 @@ namespace p44 {
 } // namespace p44
 
 
-#endif /* defined(__vdcd__httpcomm__) */
+#endif /* defined(__p44utils__httpcomm__) */

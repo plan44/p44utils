@@ -19,8 +19,8 @@
 //  along with p44utils. If not, see <http://www.gnu.org/licenses/>.
 //
 
-#ifndef __vdcd__macaddress__
-#define __vdcd__macaddress__
+#ifndef __p44utils__macaddress__
+#define __p44utils__macaddress__
 
 #include <stdint.h>
 
@@ -48,4 +48,4 @@ namespace p44 {
 } // namespace p44
 
 
-#endif /* defined(__vdcd__macaddress__) */
+#endif /* defined(__p44utils__macaddress__) */

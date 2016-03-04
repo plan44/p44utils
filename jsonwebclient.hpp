@@ -19,8 +19,8 @@
 //  along with p44utils. If not, see <http://www.gnu.org/licenses/>.
 //
 
-#ifndef __vdcd__jsonwebclient__
-#define __vdcd__jsonwebclient__
+#ifndef __p44utils__jsonwebclient__
+#define __p44utils__jsonwebclient__
 
 #include "p44_common.hpp"
 
@@ -84,4 +84,4 @@ namespace p44 {
 
 } // namespace p44
 
-#endif /* defined(__vdcd__jsonwebclient__) */
+#endif /* defined(__p44utils__jsonwebclient__) */

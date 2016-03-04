@@ -19,8 +19,8 @@
 //  along with p44utils. If not, see <http://www.gnu.org/licenses/>.
 //
 
-#ifndef __vdcd__ssdpsearch__
-#define __vdcd__ssdpsearch__
+#ifndef __p44utils__ssdpsearch__
+#define __p44utils__ssdpsearch__
 
 #include "socketcomm.hpp"
 
