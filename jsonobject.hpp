@@ -24,7 +24,7 @@
 
 #include "p44_common.hpp"
 
-#if DIGI_ESP
+#if P44_BUILD_DIGI
 #include "json.h"
 #elif DSS_BUILD
 #include <json.h>

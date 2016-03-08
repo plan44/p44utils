@@ -21,7 +21,7 @@
 
 #include "jsonobject.hpp"
 
-#if DIGI_ESP
+#if P44_BUILD_DIGI
 #include "json_object_private.h"
 #elif DSS_BUILD
 #include <json_object_private.h> // needed for _ref_count

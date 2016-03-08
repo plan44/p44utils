@@ -104,7 +104,7 @@ DigitalIo::DigitalIo(const char* aName, bool aOutput, bool aInverted, bool aInit
   }
   else
   #endif
-  #if defined(DIGI_ESP) && !DISABLE_GPIO
+  #if P44_BUILD_DIGI && !DISABLE_GPIO
   if (busName=="gpioNS9XXXX") {
     // gpioNS9XXXX.<pinname>
     // NS9XXX driver based GPIO (Digi ME 9210 LX)

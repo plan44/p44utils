@@ -29,7 +29,7 @@
 
 #include "i2c.hpp"
 
-#if !defined(DISABLE_I2C) && (defined(__APPLE__) || defined(DIGI_ESP)) && !defined(RASPBERRYPI)
+#if !defined(DISABLE_I2C) && (defined(__APPLE__) || P44_BUILD_DIGI) && !P44_BUILD_RPI
   #define DISABLE_I2C 1
 #endif
 
