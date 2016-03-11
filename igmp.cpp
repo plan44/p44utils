@@ -153,7 +153,7 @@ size_t p44::sendIGMP(uint8_t aType, uint8_t aMaxRespTime, const char *aGroupAddr
 int p44::sendRawPacket(struct sockaddr_in *aSockAddrP, const char *aDatagramP, size_t aDatagramSize)
 {
   // Create a raw socket
-  int s = socket (PF_INET, SOCK_RAW, IPPROTO_TCP);
+  int s = socket(PF_INET, SOCK_RAW, IPPROTO_TCP);
   if(s == -1) {
     return errno;
   }
@@ -161,12 +161,15 @@ int p44::sendRawPacket(struct sockaddr_in *aSockAddrP, const char *aDatagramP, s
   int one = 1;
   const int *val = &one;
   if (setsockopt (s, IPPROTO_IP, IP_HDRINCL, val, sizeof (one)) < 0) {
+    close(s);
     return errno;
   }
   // Send the packet
   if (sendto (s, aDatagramP, aDatagramSize, 0 , (struct sockaddr *)aSockAddrP, sizeof (*aSockAddrP)) < 0) {
+    close(s);
     return errno;
   }
+  close(s);
   return 0;
 }
 
