@@ -183,7 +183,7 @@ bool DigitalIo::setInputChangedHandler(InputChangedCB aInputChangedCB, MLMicroSe
 
 #pragma mark - Button input
 
-#define BUTTON_DEBOUNCE_TIME (5*MilliSecond)
+#define BUTTON_DEBOUNCE_TIME (80*MilliSecond)
 
 ButtonInput::ButtonInput(const char* aName, bool aInverted) :
   DigitalIo(aName, false, aInverted, false),
