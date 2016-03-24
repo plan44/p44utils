@@ -210,6 +210,15 @@ bool SerialComm::connectionIsOpen()
 }
 
 
+#pragma mark - break
+
+void SerialComm::sendBreak()
+{
+  if (!connectionIsOpen()) return; // ignore
+  tcsendbreak(connectionFd, 0); // send standard break, which should be >=0.25sec and <=0.5sec
+}
+
+
 #pragma mark - handshake signal control
 
 void SerialComm::setDTR(bool aActive)

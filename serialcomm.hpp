@@ -125,6 +125,9 @@ namespace p44 {
     /// @param aActive if set RTS will set active, otherwise DTR will be made inactive
     void setRTS(bool aActive);
 
+    /// send BREAK
+    void sendBreak();
+
 
   protected:
 

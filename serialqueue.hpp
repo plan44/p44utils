@@ -225,6 +225,8 @@ namespace p44 {
     /// FdComm handler
     void receiveHandler(ErrorPtr aError);
 
+  protected:
+  
     /// standard transmitter
     size_t standardTransmitter(size_t aNumBytes, const uint8_t *aBytes);
 
