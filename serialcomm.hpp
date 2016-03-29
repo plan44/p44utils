@@ -79,6 +79,10 @@ namespace p44 {
     string connectionPath;
     uint16_t connectionPort;
     int baudRate;
+    int charSize; // character size 5..8 bits
+    bool parityEnable;
+    bool evenParity;
+    bool twoStopBits;
     bool connectionOpen;
     int connectionFd;
     struct termios oldTermIO;
@@ -91,16 +95,10 @@ namespace p44 {
     virtual ~SerialComm();
 
     /// Specify the serial connection parameters as single string
-    /// @param aConnectionSpec "/dev[:baudrate]" or "hostname[:port]"
+    /// @param aConnectionSpec "/dev[:commParams]" or "hostname[:port]"
     /// @param aDefaultPort default port number for TCP connection (irrelevant for direct serial device connection)
-    /// @param aDefaultBaudRate default baud rate for serial connection (irrelevant for TCP connection)
-    void setConnectionSpecification(const char* aConnectionSpec, uint16_t aDefaultPort, int aDefaultBaudRate);
-
-    /// Set the serial connection parameters
-    /// @param aConnectionPath serial device path (/dev/...) or host name/address (1.2.3.4 or xxx.yy)
-    /// @param aPortNo port number for TCP connection (irrelevant for direct serial device connection)
-    /// @param aBaudRate baud rate for serial connection (irrelevant for TCP connection)
-    void setConnectionParameters(const char* aConnectionPath, uint16_t aPortNo, int aBaudRate);
+    /// @param aDefaultCommParams default communication parameters (in case spec does not contain :commParams)
+    void setConnectionSpecification(const char* aConnectionSpec, uint16_t aDefaultPort, const char *aDefaultCommParams);
 
     /// establish the serial connection
     /// @note can be called multiple times, opens connection only if not already open
@@ -124,6 +122,9 @@ namespace p44 {
     /// control RTS
     /// @param aActive if set RTS will set active, otherwise DTR will be made inactive
     void setRTS(bool aActive);
+
+    /// send BREAK
+    void sendBreak();
 
 
   protected:

@@ -30,6 +30,10 @@ SerialComm::SerialComm(MainLoop &aMainLoop) :
 	inherited(aMainLoop),
   connectionPort(0),
   baudRate(9600),
+  charSize(8),
+  parityEnable(false),
+  evenParity(false),
+  twoStopBits(false),
   connectionOpen(false),
   reconnecting(false)
 {
@@ -43,39 +47,60 @@ SerialComm::~SerialComm()
 
 
 
-void SerialComm::setConnectionSpecification(const char* aConnectionSpec, uint16_t aDefaultPort, int aDefaultBaudRate)
+void SerialComm::setConnectionSpecification(const char* aConnectionSpec, uint16_t aDefaultPort, const char *aDefaultCommParams)
 {
   // device or IP host?
-  string path;
   if (aConnectionSpec && *aConnectionSpec) {
     if (aConnectionSpec[0]=='/') {
       // serial device
-      path = aConnectionSpec;
-      size_t n = path.find(":");
+      connectionPath = aConnectionSpec;
+      string opt = nonNullCStr(aDefaultCommParams);
+      size_t n = connectionPath.find(":");
       if (n!=string::npos) {
-        // explicit specification of baudrate
-        string opt = path.substr(n+1,string::npos);
-        path.erase(n,string::npos);
-        // get baud rate
-        sscanf(opt.c_str(), "%d", &aDefaultBaudRate);
+        // explicit specification of communication params: baudrate, bits, parity
+        string opt = connectionPath.substr(n+1,string::npos);
+        connectionPath.erase(n,string::npos);
+      }
+      if (opt.size()>0) {
+        // get communication options: [baud rate][,[bits][,[parity][,[stopbits]]]]
+        string part;
+        const char *p = opt.c_str();
+        if (nextPart(p, part, ',')) {
+          // baud rate
+          sscanf(part.c_str(), "%d", &baudRate);
+          if (nextPart(p, part, ',')) {
+            // bits
+            sscanf(part.c_str(), "%d", &charSize);
+            if (nextPart(p, part, ',')) {
+              // parity: O,E,N
+              if (part.size()>0) {
+                parityEnable = false;
+                if (part[0]=='E') {
+                  parityEnable = true;
+                  evenParity = true;
+                }
+                else if (part[0]=='O') {
+                  parityEnable = false;
+                  evenParity = false;
+                }
+              }
+              if (nextPart(p, part, ',')) {
+                // stopbits: 1 or 2
+                if (part.size()>0) {
+                  twoStopBits = part[0]=='2';
+                }
+              }
+            }
+          }
+        }
       }
     }
     else {
       // IP host
-      splitHost(aConnectionSpec, &path, &aDefaultPort);
+      splitHost(aConnectionSpec, &connectionPath, &connectionPort);
     }
   }
-  setConnectionParameters(path.c_str(), aDefaultPort, aDefaultBaudRate);
-}
-
-
-
-void SerialComm::setConnectionParameters(const char* aConnectionPath, uint16_t aPortNo, int aBaudRate)
-{
   closeConnection();
-	connectionPath = nonNullCStr(aConnectionPath);
-  connectionPort = aPortNo;
-  baudRate = aBaudRate;
 }
 
 
@@ -121,10 +146,15 @@ ErrorPtr SerialComm::establishConnection()
       tcgetattr(connectionFd,&oldTermIO); // save current port settings
       // see "man termios" for details
       memset(&newtio, 0, sizeof(newtio));
-      // - 8-N-1, no modem control lines (local), reading enabled
-      newtio.c_cflag = CS8 | CLOCAL | CREAD;
+      // - 8-N-1,
+      newtio.c_cflag =
+        CLOCAL | CREAD | // no modem control lines (local), reading enabled
+        (charSize==5 ? CS5 : (charSize==6 ? CS6 : (charSize==7 ? CS7 : CS8))) | // char size
+        (twoStopBits ? CSTOPB : 0) | // stop bits
+        (parityEnable ? PARENB | (evenParity ? 0 : PARODD) : 0); // parity
       // - ignore parity errors
-      newtio.c_iflag = IGNPAR;
+      newtio.c_iflag =
+        parityEnable ? INPCK : IGNPAR; // check or ignore parity
       // - no output control
       newtio.c_oflag = 0;
       // - no input control (non-canonical)
@@ -207,6 +237,15 @@ void SerialComm::closeConnection()
 bool SerialComm::connectionIsOpen()
 {
   return connectionOpen;
+}
+
+
+#pragma mark - break
+
+void SerialComm::sendBreak()
+{
+  if (!connectionIsOpen()) return; // ignore
+  tcsendbreak(connectionFd, 0); // send standard break, which should be >=0.25sec and <=0.5sec
 }
 
 
