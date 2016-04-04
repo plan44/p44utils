@@ -97,6 +97,7 @@ void SerialComm::setConnectionSpecification(const char* aConnectionSpec, uint16_
     }
     else {
       // IP host
+      connectionPort = aDefaultPort; // set default in case aConnectionSpec does not have a path number
       splitHost(aConnectionSpec, &connectionPath, &connectionPort);
     }
   }
