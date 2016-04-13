@@ -28,4 +28,10 @@
 #include "error.hpp"
 #include "mainloop.hpp"
 
+// build platform dependencies
+#if P44_BUILD_OW
+  #define DISABLE_I2C 1 // %%% for now
+#endif
+
+
 #endif /* __p44utils__common__ */
