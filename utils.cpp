@@ -23,6 +23,7 @@
 
 #include <string.h>
 #include <stdio.h>
+#include <sys/types.h> // for ssize_t, size_t etc.
 
 using namespace p44;
 
