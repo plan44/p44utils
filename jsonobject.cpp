@@ -21,13 +21,7 @@
 
 #include "jsonobject.hpp"
 
-#if P44_BUILD_DIGI
 #include "json_object_private.h"
-#elif DSS_BUILD
-#include <json_object_private.h> // needed for _ref_count
-#else
-#include <json/json_object_private.h> // needed for _ref_count
-#endif
 
 #include <sys/stat.h> // for fstat
 

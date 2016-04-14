@@ -24,14 +24,7 @@
 
 #include "p44_common.hpp"
 
-#if P44_BUILD_DIGI
 #include "json.h"
-#elif DSS_BUILD
-#include <json.h>
-#else
-#include <json/json.h>
-#endif
-
 
 using namespace std;
 
