@@ -437,30 +437,38 @@ size_t SerialOperationQueue::standardTransmitter(size_t aNumBytes, const uint8_t
 {
   FOCUSLOG("SerialOperationQueue::standardTransmitter(%d bytes) called", aNumBytes);
   ssize_t res = 0;
+  size_t numWritten = 0;
   ErrorPtr err = serialComm->establishConnection();
   if (Error::isOK(err)) {
-    res = serialComm->transmitBytes(aNumBytes, aBytes, err);
-    if (!Error::isOK(err)) {
-      FOCUSLOG("Error writing serial: %s", err->description().c_str());
-      res = 0; // none written
-    }
-    else {
-      if (FOCUSLOGENABLED) {
-        std::string s;
-        for (ssize_t i=0; i<res; i++) {
-          string_format_append(s, "%02X ",aBytes[i]);
-        }
-        FOCUSLOG("Transmitted %d bytes: %s", res, s.c_str());
+    while (aNumBytes>0) {
+      res = serialComm->transmitBytes(aNumBytes, aBytes+numWritten, err);
+      if (!Error::isOK(err)) {
+        FOCUSLOG("Error writing serial data: %s", err->description().c_str());
+        break;
+      }
+      else if (res<=0) {
+        // 0 can happen when connection is not open, minus should not but is catched here to safegard against loop
+        FOCUSLOG("transmitBytes returned res<=0 -> end transmitting");
+        break;
       }
       else {
-        FOCUSLOG("Transmitted %d bytes", res);
+        // written some
+        numWritten += res;
+        aNumBytes -= res;
+        if (FOCUSLOGENABLED) {
+          std::string s;
+          for (ssize_t i=0; i<res; i++) {
+            string_format_append(s, "%02X ",aBytes[i]);
+          }
+          FOCUSLOG("Transmitted %d bytes: %s", res, s.c_str());
+        }
       }
     }
   }
   else {
     LOG(LOG_DEBUG, "SerialOperationQueue::standardTransmitter error - connection could not be established!");
   }
-  return res;
+  return numWritten;
 }
 
 
