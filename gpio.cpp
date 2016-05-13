@@ -41,12 +41,19 @@ using namespace p44;
 
 #define GPIO_LED_CLASS_PATH "/sys/class/leds"
 
-GpioLedPin::GpioLedPin(int aLEDNo, bool aInitialState) :
-  ledNo(aLEDNo),
+GpioLedPin::GpioLedPin(const char* aLedName, bool aInitialState) :
   ledState(aInitialState),
   ledFD(-1)
 {
-  string name = string_format("%s/led%d/brightness", GPIO_LED_CLASS_PATH, ledNo);
+  string name;
+  if (isdigit(*aLedName)) {
+    // old style number-only -> prefix with "led"
+    name = string_format("%s/led%s/brightness", GPIO_LED_CLASS_PATH, aLedName);
+  }
+  else {
+    // modern alphanumeric LED name -> use as-is
+    name = string_format("%s/%s/brightness", GPIO_LED_CLASS_PATH, aLedName);
+  }
   ledFD = open(name.c_str(), O_RDWR);
   if (ledFD<0) { LOG(LOG_ERR, "Cannot open LED brightness file %s: %s", name.c_str(), strerror(errno)); return; }
   // set initial state

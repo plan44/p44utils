@@ -98,9 +98,8 @@ DigitalIo::DigitalIo(const char* aName, bool aOutput, bool aInverted, bool aInit
   }
   else if (busName=="led") {
     // Linux generic LED
-    // led.<lednumber>
-    int pinNumber = atoi(pinName.c_str());
-    ioPin = IOPinPtr(new GpioLedPin(pinNumber, initialPinState));
+    // led.<lednumber_or_name>
+    ioPin = IOPinPtr(new GpioLedPin(pinName.c_str(), initialPinState));
   }
   else
   #endif

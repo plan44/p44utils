@@ -42,16 +42,16 @@ namespace p44 {
   {
     typedef IOPin inherited;
 
-    int ledNo;
     int ledFD;
     bool ledState;
 
   public:
 
     /// Create general purpose I/O pin
-    /// @param aLEDNo number of the LED
+    /// @param aLedName name or number of the led. If aLedName starts with digit, it is considered
+    ///   an old-style numeric led and will be prefixed with "led" to form the LED name
     /// @param aInitialState initial state for the LED
-    GpioLedPin(int aLEDNo, bool aInitialState);
+    GpioLedPin(const char* aLedName, bool aInitialState);
     virtual ~GpioLedPin();
 
     /// get state of LED
