@@ -38,6 +38,15 @@ Application *Application::sharedApplication()
 }
 
 
+bool Application::isRunning()
+{
+  if (sharedApplicationP) {
+    return sharedApplicationP->mainLoop.isRunning();
+  }
+  return false; // no app -> not running
+}
+
+
 Application::Application(MainLoop &aMainLoop) :
   mainLoop(aMainLoop)
 {
@@ -54,6 +63,7 @@ Application::Application() :
 
 Application::~Application()
 {
+  sharedApplicationP = NULL;
 }
 
 

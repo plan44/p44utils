@@ -174,6 +174,7 @@ namespace p44 {
 
   protected:
 
+    bool hasStarted;
     bool terminated;
     int exitCode;
 
@@ -335,6 +336,10 @@ namespace p44 {
     /// terminate the mainloop
     /// @param aExitCode the code to return from run()
     void terminate(int aExitCode);
+
+    /// ask if mainloop is normally running
+    /// @return will return false as soon as mainloop has been requested to terminate, or before run() has been called
+    bool isRunning() { return hasStarted && !terminated; };
 
     /// register a cleanup handler, which will be called when the main loop has terminated
     /// @param aCleanupHandler the routine to be called

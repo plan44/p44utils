@@ -101,6 +101,7 @@ ErrorPtr ExecError::exitStatus(int aExitStatus, const char *aContextMessage)
 
 MainLoop::MainLoop() :
 	terminated(false),
+  hasStarted(false),
   loopCycleTime(MAINLOOP_DEFAULT_CYCLE_TIME_uS),
   cycleStartTime(Never),
   exitCode(EXIT_SUCCESS),
@@ -629,6 +630,7 @@ int MainLoop::run()
   tsum += t;
   LOG(LOG_DEBUG, "- measurement 3: %.6f S, average: %.6f S", (double)t/Second, (double)(tsum/3)/Second);
   #endif
+  hasStarted = true;
   while (!terminated) {
     cycleStartTime = now();
     // start of a new cycle
