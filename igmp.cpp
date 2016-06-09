@@ -65,7 +65,7 @@ static unsigned short csum(unsigned short *ptr,int nbytes)
   }
   if(nbytes==1) {
     oddbyte=0;
-    *((u_char*)&oddbyte)=*(u_char*)ptr;
+    *((unsigned char *)&oddbyte)=*(unsigned char *)ptr;
     sum+=oddbyte;
   }
 
