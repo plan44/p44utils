@@ -24,7 +24,7 @@
 
 #include "p44_common.hpp"
 
-#include <sys/poll.h>
+#include <poll.h>
 #include <pthread.h>
 
 // if set to non-zero, mainloop will have some code to record statistics
