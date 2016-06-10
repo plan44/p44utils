@@ -38,6 +38,9 @@
 #if !DISABLE_I2C
 #include "i2c.hpp"
 #endif
+#if !DISABLE_SPI
+#include "spi.hpp"
+#endif
 
 #include "logger.hpp"
 #include "mainloop.hpp"
@@ -47,15 +50,22 @@ using namespace p44;
 
 DigitalIo::DigitalIo(const char* aName, bool aOutput, bool aInverted, bool aInitialState) 
 {
+  bool pullUp = false;
   // save params
   output = aOutput;
-  // allow inverting via prefixing name with slash
+  // allow inverting by prefixing name with slash
   if (aName && *aName=='/') {
     inverted = !aInverted;
     ++aName; // skip first char of name for further processing
   }
   else
     inverted = aInverted;
+  // allow enabling pull-up
+  if (aName && *aName=='+') {
+    pullUp = true;
+    ++aName; // skip first char of name for further processing
+  }
+  // rest is actual pin specification
   name = aName;
   bool initialPinState = aInitialState!=inverted;
   // check for missing pin (no pin, just silently keeping state)
@@ -116,7 +126,16 @@ DigitalIo::DigitalIo(const char* aName, bool aOutput, bool aInverted, bool aInit
     // i2c<busnum>.<devicespec>.<pinnum>
     int busNumber = atoi(busName.c_str()+3);
     int pinNumber = atoi(pinName.c_str());
-    ioPin = IOPinPtr(new I2CPin(busNumber, deviceName.c_str(), pinNumber, output, initialPinState));
+    ioPin = IOPinPtr(new I2CPin(busNumber, deviceName.c_str(), pinNumber, output, initialPinState, pullUp));
+  }
+  else
+  #endif
+  #if !DISABLE_SPI
+  if (busName.substr(0,3)=="spi") {
+    // spi<interfaceno*10+chipselno>.<devicespec>.<pinnum>
+    int busNumber = atoi(busName.c_str()+3);
+    int pinNumber = atoi(pinName.c_str());
+    ioPin = IOPinPtr(new SPIPin(busNumber, deviceName.c_str(), pinNumber, output, initialPinState, pullUp));
   }
   else
   #endif

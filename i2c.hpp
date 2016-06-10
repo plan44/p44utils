@@ -56,7 +56,7 @@ namespace p44 {
     /// create device
     /// @param aDeviceAddress slave address of the device
     /// @param aBusP I2CBus object
-    I2CDevice(uint8_t aDeviceAddress, I2CBus *aBusP);
+    I2CDevice(uint8_t aDeviceAddress, I2CBus *aBusP, const char *aDeviceOptions);
 
   };
   typedef boost::intrusive_ptr<I2CDevice> I2CDevicePtr;
@@ -165,6 +165,7 @@ namespace p44 {
     uint32_t outputEnableMask; ///< bit set = pin is output
     uint32_t pinStateMask; ///< state of pins 0..31(max)
     uint32_t outputStateMask; ///< state of outputs 0..31(max)
+    uint32_t pullUpMask; ///< bit set = enable pullup for inputs
 
     virtual void updateInputState(int aForBitNo) = 0;
     virtual void updateOutputs(int aForBitNo) = 0;
@@ -174,7 +175,7 @@ namespace p44 {
     /// create device
     /// @param aDeviceAddress slave address of the device
     /// @param aBusP I2CBus object
-    I2CBitPortDevice(uint8_t aDeviceAddress, I2CBus *aBusP);
+    I2CBitPortDevice(uint8_t aDeviceAddress, I2CBus *aBusP, const char *aDeviceOptions);
 
     /// @return device type identifier
     virtual const char *deviceType() { return "BitPort"; };
@@ -184,7 +185,7 @@ namespace p44 {
 
     bool getBitState(int aBitNo);
     void setBitState(int aBitNo, bool aState);
-    void setAsOutput(int aBitNo, bool aOutput, bool aInitialState);
+    void setAsOutput(int aBitNo, bool aOutput, bool aInitialState, bool aPullUp);
 
   };
   typedef boost::intrusive_ptr<I2CBitPortDevice> I2CBitPortDevicePtr;
@@ -248,6 +249,35 @@ namespace p44 {
   };
   
 
+  class MCP23017 : public I2CBitPortDevice
+  {
+    typedef I2CBitPortDevice inherited;
+
+  protected:
+
+    virtual void updateInputState(int aForBitNo);
+    virtual void updateOutputs(int aForBitNo);
+    virtual void updateDirection(int aForBitNo);
+
+
+  public:
+
+    /// create device
+    /// @param aDeviceAddress slave address of the device
+    /// @param aBusP SPIBus object
+    /// @param aDeviceOptions optional device-level options
+    MCP23017(uint8_t aDeviceAddress, I2CBus *aBusP, const char *aDeviceOptions);
+
+    /// @return device type identifier
+    virtual const char *deviceType() { return "MCP23017"; };
+
+    /// @return true if this device or one of it's ancestors is of the given type
+    virtual bool isKindOf(const char *aDeviceType);
+    
+  };
+
+
+
   /// wrapper class for digital I/O pin
   class I2CPin : public IOPin
   {
@@ -261,7 +291,7 @@ namespace p44 {
   public:
 
     /// create i2c based digital input or output pin
-    I2CPin(int aBusNumber, const char *aDeviceId, int aPinNumber, bool aOutput, bool aInitialState);
+    I2CPin(int aBusNumber, const char *aDeviceId, int aPinNumber, bool aOutput, bool aInitialState, bool aPullUp);
 
     /// get state of pin
     /// @return current state (from actual GPIO pin for inputs, from last set state for outputs)
@@ -284,7 +314,8 @@ namespace p44 {
     /// create device
     /// @param aDeviceAddress slave address of the device
     /// @param aBusP I2CBus object
-    I2CAnalogPortDevice(uint8_t aDeviceAddress, I2CBus *aBusP);
+    /// @param aDeviceOptions optional device-level options
+    I2CAnalogPortDevice(uint8_t aDeviceAddress, I2CBus *aBusP, const char *aDeviceOptions);
 
     /// @return device type identifier
     virtual const char *deviceType() { return "AnalogPort"; };

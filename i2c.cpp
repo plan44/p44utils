@@ -107,6 +107,8 @@ I2CDevicePtr I2CManager::getDevice(int aBusNumber, const char *aDeviceID)
     // create device from typestring
     if (typeString=="TCA9555")
       dev = I2CDevicePtr(new TCA9555(deviceAddress, bus.get(), deviceOptions.c_str()));
+    else if (typeString=="MCP23017")
+      dev = I2CDevicePtr(new MCP23017(deviceAddress, bus.get(), deviceOptions.c_str()));
     else if (typeString=="PCF8574")
       dev = I2CDevicePtr(new PCF8574(deviceAddress, bus.get(), deviceOptions.c_str()));
     else if (typeString=="PCA9685")
@@ -333,6 +335,7 @@ bool I2CBus::accessBus()
   if (busFD>=0)
     return true; // already open
   // need to open
+  lastDeviceAddress = -1; // invalidate
   string busDevName = string_format("/dev/i2c-%d", busNumber);
   #if !DISABLE_I2C
   busFD = open(busDevName.c_str(), O_RDWR);
@@ -364,7 +367,7 @@ void I2CBus::closeBus()
 #pragma mark - I2CDevice
 
 
-I2CDevice::I2CDevice(uint8_t aDeviceAddress, I2CBus *aBusP)
+I2CDevice::I2CDevice(uint8_t aDeviceAddress, I2CBus *aBusP, const char *aDeviceOptions)
 {
   i2cbus = aBusP;
   deviceAddress = aDeviceAddress;
@@ -389,10 +392,11 @@ bool I2CDevice::isKindOf(const char *aDeviceType)
 #pragma mark - I2CBitPortDevice
 
 
-I2CBitPortDevice::I2CBitPortDevice(uint8_t aDeviceAddress, I2CBus *aBusP) :
-  inherited(aDeviceAddress, aBusP),
+I2CBitPortDevice::I2CBitPortDevice(uint8_t aDeviceAddress, I2CBus *aBusP, const char *aDeviceOptions) :
+  inherited(aDeviceAddress, aBusP, aDeviceOptions),
   outputEnableMask(0),
-  pinStateMask(0)
+  pinStateMask(0),
+  pullUpMask(0)
 {
 }
 
@@ -437,13 +441,20 @@ void I2CBitPortDevice::setBitState(int aBitNo, bool aState)
 }
 
 
-void I2CBitPortDevice::setAsOutput(int aBitNo, bool aOutput, bool aInitialState)
+void I2CBitPortDevice::setAsOutput(int aBitNo, bool aOutput, bool aInitialState, bool aPullUp)
 {
   uint32_t bitMask = 1<<aBitNo;
+  // Input or output
   if (aOutput)
     outputEnableMask |= bitMask;
   else
     outputEnableMask &= ~bitMask;
+  // Pullup or not
+  if (aPullUp)
+    pullUpMask |= bitMask;
+  else {
+    pullUpMask &= ~bitMask;
+  }
   // before actually updating direction, set initial value
   setBitState(aBitNo, aInitialState);
   // now update direction
@@ -456,7 +467,7 @@ void I2CBitPortDevice::setAsOutput(int aBitNo, bool aOutput, bool aInitialState)
 
 
 TCA9555::TCA9555(uint8_t aDeviceAddress, I2CBus *aBusP, const char *aDeviceOptions) :
-  inherited(aDeviceAddress, aBusP)
+  inherited(aDeviceAddress, aBusP, aDeviceOptions)
 {
   // make sure we have all inputs
   updateDirection(0); // port 0
@@ -483,7 +494,7 @@ void TCA9555::updateInputState(int aForBitNo)
   uint8_t shift = 8*port;
   uint8_t data;
   i2cbus->SMBusReadByte(this, port, data); // get input byte
-  pinStateMask = (pinStateMask & (~((uint32_t)0xFF) << shift)) | ((uint32_t)data << shift);
+  pinStateMask = (pinStateMask & ~(((uint32_t)0xFF) << shift)) | ((uint32_t)data << shift);
 }
 
 
@@ -512,7 +523,7 @@ void TCA9555::updateDirection(int aForBitNo)
 
 
 PCF8574::PCF8574(uint8_t aDeviceAddress, I2CBus *aBusP, const char *aDeviceOptions) :
-  inherited(aDeviceAddress, aBusP)
+  inherited(aDeviceAddress, aBusP, aDeviceOptions)
 {
   // make sure we have all inputs
   updateDirection(0); // port 0
@@ -560,11 +571,78 @@ void PCF8574::updateDirection(int aForBitNo)
 
 
 
+#pragma mark - MCP23S17
+
+
+MCP23017::MCP23017(uint8_t aDeviceAddress, I2CBus *aBusP, const char *aDeviceOptions) :
+  inherited(aDeviceAddress, aBusP, aDeviceOptions)
+{
+  // initially, IOCON==0 -> IOCON.BANK==0 -> A/B interleaved register access
+  // enable hardware addressing if selected
+  if (strchr(aDeviceOptions, 'A')) {
+    i2cbus->SMBusWriteByte(this, 0x0A, 0x08); // set HAEN (hardware address enable) in IOCON
+  }
+  // make sure we have all inputs
+  updateDirection(0); // port 0
+  updateDirection(8); // port 1
+  // reset polarity inverter
+  i2cbus->SMBusWriteByte(this, 0x02, 0); // reset polarity inversion A
+  i2cbus->SMBusWriteByte(this, 0x03, 0); // reset polarity inversion B
+}
+
+
+bool MCP23017::isKindOf(const char *aDeviceType)
+{
+  if (strcmp(deviceType(),aDeviceType)==0)
+    return true;
+  else
+    return inherited::isKindOf(aDeviceType);
+}
+
+
+void MCP23017::updateInputState(int aForBitNo)
+{
+  if (aForBitNo>15) return;
+  uint8_t port = aForBitNo >> 3; // calculate port No
+  uint8_t shift = 8*port;
+  uint8_t data;
+  i2cbus->SMBusReadByte(this, port+0x12, data); // get current port state from GPIO reg 12/13
+  pinStateMask = (pinStateMask & ~(((uint32_t)0xFF) << shift)) | ((uint32_t)data << shift);
+}
+
+
+void MCP23017::updateOutputs(int aForBitNo)
+{
+  if (aForBitNo>15) return;
+  uint8_t port = aForBitNo >> 3; // calculate port No
+  uint8_t shift = 8*port;
+  i2cbus->SMBusWriteByte(this, port+0x14, (outputStateMask >> shift) & 0xFF); // write to output latch (OLAT) A/B reg 14/15
+}
+
+
+
+void MCP23017::updateDirection(int aForBitNo)
+{
+  if (aForBitNo>15) return;
+  updateOutputs(aForBitNo); // make sure output register has the correct value
+  uint8_t port = aForBitNo >> 3; // calculate port No
+  uint8_t shift = 8*port;
+  uint8_t data;
+  // configure pullups
+  data = (pullUpMask >> shift) & 0xFF; // MCP23S17 GPPU register has 1 for pullup enabled
+  i2cbus->SMBusWriteByte(this, port+0x0C, data); // set pullup enable flags in GPPU reg C or D
+  // configure direction
+  data = ~((outputEnableMask >> shift) & 0xFF); // MCP23S17 IODIR register has 1 for inputs, 0 for outputs
+  i2cbus->SMBusWriteByte(this, port+0x00, data); // set input enable flags in IODIR reg 0 or 1
+}
+
+
+
 #pragma mark - I2Cpin
 
 
 /// create i2c based digital input or output pin
-I2CPin::I2CPin(int aBusNumber, const char *aDeviceId, int aPinNumber, bool aOutput, bool aInitialState) :
+I2CPin::I2CPin(int aBusNumber, const char *aDeviceId, int aPinNumber, bool aOutput, bool aInitialState, bool aPullUp) :
   output(false),
   lastSetState(false)
 {
@@ -573,7 +651,7 @@ I2CPin::I2CPin(int aBusNumber, const char *aDeviceId, int aPinNumber, bool aOutp
   I2CDevicePtr dev = I2CManager::sharedManager()->getDevice(aBusNumber, aDeviceId);
   bitPortDevice = boost::dynamic_pointer_cast<I2CBitPortDevice>(dev);
   if (bitPortDevice) {
-    bitPortDevice->setAsOutput(pinNumber, output, aInitialState);
+    bitPortDevice->setAsOutput(pinNumber, output, aInitialState, aPullUp);
     lastSetState = aInitialState;
   }
 }
@@ -607,8 +685,8 @@ void I2CPin::setState(bool aState)
 #pragma mark - I2CAnalogPortDevice
 
 
-I2CAnalogPortDevice::I2CAnalogPortDevice(uint8_t aDeviceAddress, I2CBus *aBusP) :
-  inherited(aDeviceAddress, aBusP)
+I2CAnalogPortDevice::I2CAnalogPortDevice(uint8_t aDeviceAddress, I2CBus *aBusP, const char *aDeviceOptions) :
+  inherited(aDeviceAddress, aBusP, aDeviceOptions)
 {
 }
 
@@ -628,7 +706,7 @@ bool I2CAnalogPortDevice::isKindOf(const char *aDeviceType)
 
 
 PCA9685::PCA9685(uint8_t aDeviceAddress, I2CBus *aBusP, const char *aDeviceOptions) :
-  inherited(aDeviceAddress, aBusP)
+  inherited(aDeviceAddress, aBusP, aDeviceOptions)
 {
   // Initalize
   // device options:
