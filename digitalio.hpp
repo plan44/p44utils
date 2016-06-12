@@ -35,30 +35,32 @@ namespace p44 {
   {
     IOPinPtr ioPin; ///< the actual hardware interface to the pin
 
-    string name;
+    string pinSpec;
     bool output;
     bool inverted;
+    bool pullUp;
 
   public:
     /// Create general purpose I/O
-    /// @param aGpioName name of the IO; form is [/][bus.device.]pin, where optional leading slash inverts the polarity
-    ///   (again, in addition to aInverted) and where bus & device can be omitted for normal GPIOs.
+    /// @param aPinSpec specification of the IO; form is [+][/][bus.device.]pin, where optional leading plus '+' enables pullup (if device supports it)
+    ///   optional slash '/' inverts the polarity, and where bus & device can be omitted for normal GPIOs.
     /// @param aOutput use as output
-    /// @param aInverted inverted polarity (output high level is treated as logic false)
     /// @param aInitialState initial state (to set for output, to expect without triggering change for input)
-    ///   Note: aInitialState is logic state (pin state will be inverse if aInverted is set or name is slash-prefixed)
-    /// @note possible pin types are
+    ///   Note: aInitialState is logic state (pin state is inverse if aPinSpec is slash-prefixed)
+    /// @note possible pin specifications are
     ///   "missing" : dummy (non-connected) pin
     ///   "gpio.N" or just "N": standard Linux GPIO number N
     ///   "led.N": standard Linux LED number N
     ///   "gpioNS9XXXX.NAME" : DigiESP Linux GPIO named NAME
     ///   "i2cN.DEVICE@i2caddr.pinNumber" : numbered pin of DEVICE at i2caddr on i2c bus N
     ///     (DEVICE is name of chip, such as PCF8574 or TCA9555)
-    DigitalIo(const char* aName, bool aOutput, bool aInverted = false, bool aInitialState = false);
+    ///   "spiXY.DEVICE@spiaddr.pinNumber" : numbered pin of DEVICE at spiaddr on spidevX.Y
+    ///     (DEVICE is name of chip, such as MCP23S17)
+    DigitalIo(const char* aPinSpec, bool aOutput, bool aInitialState = false);
     virtual ~DigitalIo();
 
 		/// get name
-		string getName() { return string_format("%s%s", inverted ? "/" : "", name.c_str()); };
+    string getName();
 
     /// check for output
     bool isOutput() { return output; };
@@ -123,9 +125,8 @@ namespace p44 {
 
   public:
     /// Create pushbutton
-    /// @param aGpioName name of the GPIO where the pushbutton is connected (can be prefixed with slash to invert again on top of aInverted)
-    /// @param aInverted inverted polarity (output high level is treated as logic false)
-    ButtonInput(const char* aGpioName, bool aInverted);
+    /// @param aPinSpec specification of the pin where the pushbutton is connected (can be prefixed with slash to invert, plus to enable pullup)
+    ButtonInput(const char* aPinSpec);
 
     /// destructor
     virtual ~ButtonInput();
@@ -157,10 +158,9 @@ namespace p44 {
 
   public:
     /// Create indicator output
-    /// @param aGpioName name of the GPIO where the indicator is connected (can be prefixed with slash to invert again on top of aInverted)
-    /// @param aInverted inverted polarity (output high level means indicator off)
+    /// @param aPinSpec specification of the pin where the pushbutton is connected (can be prefixed with slash to invert)
     /// @param aInitiallyOn initial state (on or off) of the indicator
-    IndicatorOutput(const char* aGpioName, bool aInverted, bool aInitiallyOn = false);
+    IndicatorOutput(const char* aPinSpec, bool aInitiallyOn = false);
 
     /// destructor
     virtual ~IndicatorOutput();

@@ -48,28 +48,24 @@
 using namespace p44;
 
 
-DigitalIo::DigitalIo(const char* aName, bool aOutput, bool aInverted, bool aInitialState) 
+DigitalIo::DigitalIo(const char* aPinSpec, bool aOutput, bool aInitialState) :
+  inverted(false),
+  pullUp(false)
 {
-  bool pullUp = false;
   // save params
   output = aOutput;
   // allow inverting by prefixing name with slash
-  if (aName && *aName=='/') {
-    inverted = !aInverted;
-    ++aName; // skip first char of name for further processing
-  }
-  else
-    inverted = aInverted;
-  // allow enabling pull-up
-  if (aName && *aName=='+') {
-    pullUp = true;
-    ++aName; // skip first char of name for further processing
+  while (aPinSpec && *aPinSpec) {
+    if (*aPinSpec=='/') inverted = true;
+    else if (*aPinSpec=='+') pullUp = true;
+    else break; // none of the allowed prefixes -> done
+    ++aPinSpec; // processed prefix -> check next
   }
   // rest is actual pin specification
-  name = aName;
+  pinSpec = aPinSpec;
   bool initialPinState = aInitialState!=inverted;
   // check for missing pin (no pin, just silently keeping state)
-  if (name=="missing") {
+  if (pinSpec=="missing") {
     ioPin = IOPinPtr(new MissingPin(initialPinState));
     return;
   }
@@ -77,15 +73,15 @@ DigitalIo::DigitalIo(const char* aName, bool aOutput, bool aInverted, bool aInit
   string busName;
   string deviceName;
   string pinName;
-  size_t i = name.find(".");
+  size_t i = pinSpec.find(".");
   if (i==string::npos) {
     // no structured name, assume GPIO
     busName = "gpio";
   }
   else {
-    busName = name.substr(0,i);
+    busName = pinSpec.substr(0,i);
     // rest is device + pinname or just pinname
-    pinName = name.substr(i+1,string::npos);
+    pinName = pinSpec.substr(i+1,string::npos);
     if (busName!="syscmd") {
       i = pinName.find(".");
       if (i!=string::npos) {
@@ -148,7 +144,7 @@ DigitalIo::DigitalIo(const char* aName, bool aOutput, bool aInverted, bool aInit
   #endif
   {
     // all other/unknown bus names default to simulated pin
-    ioPin = IOPinPtr(new SimPin(name.c_str(), output, initialPinState)); // set even for inputs
+    ioPin = IOPinPtr(new SimPin(pinSpec.c_str(), output, initialPinState));
   }
 }
 
@@ -156,6 +152,13 @@ DigitalIo::DigitalIo(const char* aName, bool aOutput, bool aInverted, bool aInit
 DigitalIo::~DigitalIo()
 {
 }
+
+
+string DigitalIo::getName()
+{
+  return string_format("%s%s%s", pullUp ? "+" : "", inverted ? "/" : "", pinSpec.c_str());
+}
+
 
 
 bool DigitalIo::isSet()
@@ -203,8 +206,8 @@ bool DigitalIo::setInputChangedHandler(InputChangedCB aInputChangedCB, MLMicroSe
 
 #define BUTTON_DEBOUNCE_TIME (80*MilliSecond)
 
-ButtonInput::ButtonInput(const char* aName, bool aInverted) :
-  DigitalIo(aName, false, aInverted, false),
+ButtonInput::ButtonInput(const char* aPinSpec) :
+  DigitalIo(aPinSpec, false, false),
   repeatActiveReport(Never),
   activeReportTicket(0)
 {
@@ -265,8 +268,8 @@ void ButtonInput::repeatStateReport()
 
 #pragma mark - Indicator output
 
-IndicatorOutput::IndicatorOutput(const char* aName, bool aInverted, bool aInitiallyOn) :
-  DigitalIo(aName, true, aInverted, aInitiallyOn),
+IndicatorOutput::IndicatorOutput(const char* aPinSpec, bool aInitiallyOn) :
+  DigitalIo(aPinSpec, true, aInitiallyOn),
   switchOffAt(Never),
   blinkOnTime(Never),
   blinkOffTime(Never)
