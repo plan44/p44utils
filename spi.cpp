@@ -156,9 +156,9 @@ SPIDevicePtr SPIBus::getDevice(const char *aDeviceID)
 
 static int spidev_write_read(
   int busFD,
-  uint num_out_bytes,
+  unsigned int num_out_bytes,
   uint8_t *out_buffer,
-  uint num_in_bytes,
+  unsigned int num_in_bytes,
   uint8_t *in_buffer,
   bool writeWrite = false
 )
