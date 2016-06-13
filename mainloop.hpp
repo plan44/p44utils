@@ -337,6 +337,10 @@ namespace p44 {
     /// @param aExitCode the code to return from run()
     void terminate(int aExitCode);
 
+    /// ask if mainloop has already been asked to terminate
+    /// @return returns true if terminate() has been called before
+    bool isTerminated() { return terminated; };
+
     /// ask if mainloop is normally running
     /// @return will return false as soon as mainloop has been requested to terminate, or before run() has been called
     bool isRunning() { return hasStarted && !terminated; };

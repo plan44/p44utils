@@ -47,6 +47,16 @@ bool Application::isRunning()
 }
 
 
+bool Application::isTerminated()
+{
+  if (sharedApplicationP) {
+    return sharedApplicationP->mainLoop.isTerminated();
+  }
+  return true; // no app -> consider terminated as well
+}
+
+
+
 Application::Application(MainLoop &aMainLoop) :
   mainLoop(aMainLoop)
 {
