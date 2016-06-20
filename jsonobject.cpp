@@ -73,7 +73,7 @@ JsonObjectPtr JsonObject::objFromFile(const char *aJsonFilePath)
       char *jsontext = new char[fs.st_size];
       read(fd, jsontext, fs.st_size);
       JsonObjectPtr json = JsonObject::objFromText(jsontext,fs.st_size);
-      delete jsontext;
+      delete[] jsontext;
       return json;
     }
   }
