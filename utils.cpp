@@ -414,15 +414,15 @@ int p44::gtinCheckDigit(uint64_t aGtin)
 }
 
 
-string p44::hexToBinaryString(const char *aHexString, bool aSpacesAllowed)
+string p44::hexToBinaryString(const char *aHexString, bool aSpacesAllowed, size_t aMaxBytes)
 {
   string bs;
   uint8_t b = 0;
   bool firstNibble = true;
   char c;
-  while (true) {
+  while (aMaxBytes==0 || bs.size()<aMaxBytes) {
     c = *aHexString++;
-    if (c==0 || c=='-' || (aSpacesAllowed && c==' ')) {
+    if (c==0 || c=='-' || c==':' || (aSpacesAllowed && c==' ')) {
       if (aSpacesAllowed && !firstNibble) {
         // in space-allowed mode, a separator (space or dash) means the byte is complete, even if it has only one digit
         bs.append((char *)&b,1);
@@ -449,13 +449,43 @@ string p44::hexToBinaryString(const char *aHexString, bool aSpacesAllowed)
 }
 
 
-string p44::binaryToHexString(const string &aBinaryString)
+string p44::binaryToHexString(const string &aBinaryString, char aSeparator)
 {
   string s;
   size_t n = aBinaryString.size();
   for (int i=0; i<n; i++) {
+    if (aSeparator && i!=0) s += aSeparator;
     string_format_append(s, "%02X", (uint8_t)aBinaryString[i]);
   }
   return s;
 }
+
+
+string p44::macAddressToString(uint64_t aMacAddress, char aSeparator)
+{
+  string b;
+  for (int i=0; i<6; ++i) {
+    b += (aMacAddress>>((5-i)*8)) & 0xFF;
+  }
+  return binaryToHexString(b, aSeparator);
+}
+
+
+uint64_t p44::stringToMacAddress(const char *aMacString, bool aSpacesAllowed)
+{
+  uint64_t mac = 0;
+  string b = hexToBinaryString(aMacString, aSpacesAllowed, 6);
+  if (b.size()==6) {
+    for (int i=0; i<6; ++i) {
+      mac <<= 8;
+      mac += (uint8_t)b[i];
+    }
+  }
+  return mac;
+}
+
+
+
+
+
 

@@ -44,7 +44,9 @@ namespace p44 {
 
   /// printf-style format into std::string
   /// @param aFormat printf-style format string
-  /// @return formatted string
+  /// @param aStringObj string to receive formatted result
+  /// @param aAppend if true, aStringObj will be appended to, otherwise contents will be replaced
+  /// @param aArgs va_list of vprintf arguments
   void string_format_v(std::string &aStringObj, bool aAppend, const char *aFormat, va_list aArgs);
 
   /// printf-style format into std::string
@@ -85,7 +87,7 @@ namespace p44 {
   /// @param aLeading if set, remove leading spaces
   /// @param aTrailing if set, remove trailing spaces
   /// @return trimmed string
-  string trimWhiteSpace(const string &aString, bool aLeading=true, bool aTrailing=true);
+  string trimWhiteSpace(const string &aString, bool aLeading = true, bool aTrailing = true);
 
   /// return next line from buffer
   /// @param aCursor at entry, must point to the beginning of a line. At exit, will point
@@ -105,7 +107,7 @@ namespace p44 {
   /// @param aSeparator the separator. If 0 (default), any unquoted ",", ";" or TAB is considered a separator.
   /// @param aContinueQuoted if set, aCursor must be within a quoted field, and aField will be added to to complete it
   /// @return true if a CSV field could be extracted, false if no more fields found
-  bool nextCSVField(const char * &aCursor, string &aField, char aSeparator=0, bool aContinueQuoted=false);
+  bool nextCSVField(const char * &aCursor, string &aField, char aSeparator = 0, bool aContinueQuoted = false);
 
 
   /// return next part from a separated string
@@ -115,7 +117,7 @@ namespace p44 {
   /// @param aSeparator the separator char
   /// @param aStopAtEOL if set, reaching EOL (CR or LF) also ends part
   /// @return true if a part could be extracted, false if no more parts found
-  bool nextPart(const char *&aCursor, string &aPart, char aSeparator, bool aStopAtEOL=false);
+  bool nextPart(const char *&aCursor, string &aPart, char aSeparator, bool aStopAtEOL = false);
 
   /// extract key and value from "KEY: VALUE" type header string
   /// @param aInput the contents of the line to extract key/value from
@@ -123,7 +125,7 @@ namespace p44 {
   /// @param aValue the value (everything after the first non-whitespace after the first aSeparator)
   /// @param aSeparator the separating character, defaults to colon ':'
   /// @return true if key/value could be extracted
-  bool keyAndValue(const string &aInput, string &aKey, string &aValue, char aSeparator=':');
+  bool keyAndValue(const string &aInput, string &aKey, string &aValue, char aSeparator = ':');
 
   /// split URL into its parts
   /// @param aURI a URI in the [protocol:][//][user[:password]@]host[/doc] format
@@ -132,7 +134,7 @@ namespace p44 {
   /// @param aDoc if not NULL, returns the document part (path and possibly query), empty string if none
   /// @param aUser if not NULL, returns user, empty string if none
   /// @param aPasswd if not NULL, returns password, empty string if none
-  void splitURL(const char *aURI, string *aProtocol, string *aHost, string *aDoc, string *aUser=NULL, string *aPasswd=NULL);
+  void splitURL(const char *aURI, string *aProtocol, string *aHost, string *aDoc, string *aUser = NULL, string *aPasswd = NULL);
 
   /// split host specification into hostname and port
   /// @param aHostSpec a host specification in the host[:port] format
@@ -151,15 +153,28 @@ namespace p44 {
   int gtinCheckDigit(uint64_t aGtin);
 
   /// hex string to binary string conversion
-  /// @param aHexString bytes string in hex notation, byte-separating dashes allowed
+  /// @param aHexString bytes string in hex notation, byte-separating dashes and colons allowed
   /// @param aSpacesAllowed if true, spaces may be used between bytes, and single digits can be used for bytes with value 0..F
   /// @return binary string
-  string hexToBinaryString(const char *aHexString, bool aSpacesAllowed = false);
+  string hexToBinaryString(const char *aHexString, bool aSpacesAllowed = false, size_t aMaxBytes = 0);
 
   /// hex string to binary string conversion
   /// @param aBinaryString binary string
+  /// @param aSeparator character to be used to separate hex bytes, 0 for no separator
   /// @return hex string
-  string binaryToHexString(const string &aBinaryString);
+  string binaryToHexString(const string &aBinaryString, char aSeparator = 0);
+
+  /// mac address to string
+  /// @param aMacAddress MAC address as 48bit integer number
+  /// @param aSeparator character to be used to separate MAC bytes, 0 for no separator
+  /// @return MAC address as string
+  string macAddressToString(uint64_t aMacAddress, char aSeparator = 0);
+
+  /// mac address to string
+  /// @param aMacString MAC address as string, with bytes either unseparated two hex digits each, or separated by dash or colon
+  /// @return MAC address as 48bit integer number, or 0 if input string is invalid
+  uint64_t stringToMacAddress(const char *aMacString, bool aSpacesAllowed = false);
+
 
 } // namespace p44
 
