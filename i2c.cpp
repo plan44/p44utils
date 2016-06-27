@@ -29,11 +29,12 @@
 
 #include "i2c.hpp"
 
+// locally disable actual functionality on unsupported platforms (but still provide console output dummies)
 #if !defined(DISABLE_I2C) && (defined(__APPLE__) || P44_BUILD_DIGI) && !P44_BUILD_RPI
   #define DISABLE_I2C 1
 #endif
 
-#ifndef DISABLE_I2C
+#if !DISABLE_I2C
 #include <linux/i2c-dev.h>
 #else
 #warning "No i2C supported on this platform - just showing calls in focus debug output"

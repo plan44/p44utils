@@ -32,6 +32,10 @@
 #if P44_BUILD_OW
   #define DISABLE_I2C 1 // %%% for now
 #endif
+#if P44_BUILD_DIGI
+  #define DISABLE_I2C 1 // no user space I2C support
+  #define DISABLE_SPI 1 // no user space SPI support
+#endif
 
 
 #endif /* __p44utils__common__ */

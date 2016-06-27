@@ -29,11 +29,12 @@
 
 #include "spi.hpp"
 
+// locally disable actual functionality on unsupported platforms (but still provide console output dummies)
 #if !defined(DISABLE_SPI) && (defined(__APPLE__) || P44_BUILD_DIGI) && !P44_BUILD_RPI
   #define DISABLE_SPI 1
 #endif
 
-#ifndef DISABLE_SPI
+#if !DISABLE_SPI
 extern "C" {
   #include <sys/ioctl.h>
   #include <linux/spi/spidev.h>
