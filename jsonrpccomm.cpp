@@ -65,7 +65,7 @@ static JsonObjectPtr jsonRPCObj()
 
 
 
-#pragma mark - sending outgoing requests and responses
+// MARK: ===== sending outgoing requests and responses
 
 
 ErrorPtr JsonRpcComm::sendRequest(const char *aMethod, JsonObjectPtr aParams, JsonRpcResponseCB aResponseHandler)
@@ -143,7 +143,7 @@ ErrorPtr JsonRpcComm::sendError(const char *aJsonRpcId, ErrorPtr aErrorToSend)
 
 
 
-#pragma mark - handling incoming requests and responses
+// MARK: ===== handling incoming requests and responses
 
 
 void JsonRpcComm::gotJson(ErrorPtr aError, JsonObjectPtr aJsonObject)

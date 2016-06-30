@@ -35,7 +35,7 @@ using namespace p44;
 #define DEFAULT_RECEIVE_TIMEOUT (3*Second) // [uS] = 3 seconds
 
 
-#pragma mark - SerialOperation
+// MARK: ===== SerialOperation
 
 
 SerialOperation::SerialOperation(SerialOperationFinalizeCB aCallback) :
@@ -79,7 +79,7 @@ void SerialOperation::abortOperation(ErrorPtr aError)
 
 
 
-#pragma mark - SerialOperationSend
+// MARK: ===== SerialOperationSend
 
 
 SerialOperationSend::SerialOperationSend(size_t aNumBytes, uint8_t *aBytes, SerialOperationFinalizeCB aCallback) :
@@ -154,7 +154,7 @@ bool SerialOperationSend::initiate()
 
 
 
-#pragma mark - SerialOperationReceive
+// MARK: ===== SerialOperationReceive
 
 
 SerialOperationReceive::SerialOperationReceive(size_t aExpectedBytes, SerialOperationFinalizeCB aCallback) :
@@ -217,7 +217,7 @@ void SerialOperationReceive::abortOperation(ErrorPtr aError)
 }
 
 
-#pragma mark - SerialOperationSendAndReceive
+// MARK: ===== SerialOperationSendAndReceive
 
 
 SerialOperationSendAndReceive::SerialOperationSendAndReceive(size_t aNumBytes, uint8_t *aBytes, size_t aExpectedBytes, SerialOperationFinalizeCB aCallback) :
@@ -243,7 +243,7 @@ OperationPtr SerialOperationSendAndReceive::finalize(OperationQueue *aQueueP)
 }
 
 
-#pragma mark - SerialOperationQueue
+// MARK: ===== SerialOperationQueue
 
 
 // Link into mainloop
@@ -428,7 +428,7 @@ size_t SerialOperationQueue::acceptBytes(size_t aNumBytes, uint8_t *aBytes)
 };
 
 
-#pragma mark - standard transmitter and receivers
+// MARK: ===== standard transmitter and receivers
 
 
 

@@ -173,7 +173,7 @@ namespace p44 {
   };
 
 
-  #pragma mark - digital IO
+  // MARK: ===== digital IO
 
 
   class SPIBitPortDevice : public SPIDevice
@@ -267,7 +267,7 @@ namespace p44 {
   };  
 
 
-  #pragma mark - analog IO
+  // MARK: ===== analog IO
 
 
   class SPIAnalogPortDevice : public SPIDevice

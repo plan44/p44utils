@@ -125,7 +125,7 @@ uint64_t Fnv64::getHash() const
 }
 
 
-#pragma mark - folded down variants with less bits
+// MARK: ===== folded down variants with less bits
 
 // for non 2^x bit sized hashes, recommened practice is x-or folding:
 

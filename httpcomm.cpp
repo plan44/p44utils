@@ -240,7 +240,7 @@ void HttpComm::cancelRequest()
   }
 }
 
-#pragma mark - Utilities
+// MARK: ===== Utilities
 
 
 //  8.2.1. The form-urlencoded Media Type

@@ -30,7 +30,7 @@
 
 #include "fdcomm.hpp"
 
-#pragma mark - MainLoop
+// MARK: ===== MainLoop
 
 
 #define MAINLOOP_DEFAULT_CYCLE_TIME_uS 100000 // 100mS
@@ -744,7 +744,7 @@ void MainLoop::statistics_reset()
 }
 
 
-#pragma mark - execution in subthreads
+// MARK: ===== execution in subthreads
 
 
 ChildThreadWrapperPtr MainLoop::executeInThread(ThreadRoutine aThreadRoutine, ThreadSignalHandler aThreadSignalHandler)
@@ -753,7 +753,7 @@ ChildThreadWrapperPtr MainLoop::executeInThread(ThreadRoutine aThreadRoutine, Th
 }
 
 
-#pragma mark - ChildThreadWrapper
+// MARK: ===== ChildThreadWrapper
 
 
 static void *thread_start_function(void *arg)

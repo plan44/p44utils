@@ -42,7 +42,7 @@
 
 using namespace p44;
 
-#pragma mark - I2C Manager
+// MARK: ===== I2C Manager
 
 static I2CManager *sharedI2CManager = NULL;
 
@@ -124,7 +124,7 @@ I2CDevicePtr I2CManager::getDevice(int aBusNumber, const char *aDeviceID)
 }
 
 
-#pragma mark - I2CBus
+// MARK: ===== I2CBus
 
 
 I2CBus::I2CBus(int aBusNumber) :
@@ -365,7 +365,7 @@ void I2CBus::closeBus()
 
 
 
-#pragma mark - I2CDevice
+// MARK: ===== I2CDevice
 
 
 I2CDevice::I2CDevice(uint8_t aDeviceAddress, I2CBus *aBusP, const char *aDeviceOptions)
@@ -390,7 +390,7 @@ bool I2CDevice::isKindOf(const char *aDeviceType)
 
 
 
-#pragma mark - I2CBitPortDevice
+// MARK: ===== I2CBitPortDevice
 
 
 I2CBitPortDevice::I2CBitPortDevice(uint8_t aDeviceAddress, I2CBus *aBusP, const char *aDeviceOptions) :
@@ -464,7 +464,7 @@ void I2CBitPortDevice::setAsOutput(int aBitNo, bool aOutput, bool aInitialState,
 
 
 
-#pragma mark - TCA9555
+// MARK: ===== TCA9555
 
 
 TCA9555::TCA9555(uint8_t aDeviceAddress, I2CBus *aBusP, const char *aDeviceOptions) :
@@ -520,7 +520,7 @@ void TCA9555::updateDirection(int aForBitNo)
 }
 
 
-#pragma mark - PCF8574
+// MARK: ===== PCF8574
 
 
 PCF8574::PCF8574(uint8_t aDeviceAddress, I2CBus *aBusP, const char *aDeviceOptions) :
@@ -572,7 +572,7 @@ void PCF8574::updateDirection(int aForBitNo)
 
 
 
-#pragma mark - MCP23S17
+// MARK: ===== MCP23S17
 
 
 MCP23017::MCP23017(uint8_t aDeviceAddress, I2CBus *aBusP, const char *aDeviceOptions) :
@@ -639,7 +639,7 @@ void MCP23017::updateDirection(int aForBitNo)
 
 
 
-#pragma mark - I2Cpin
+// MARK: ===== I2Cpin
 
 
 /// create i2c based digital input or output pin
@@ -683,7 +683,7 @@ void I2CPin::setState(bool aState)
 
 
 
-#pragma mark - I2CAnalogPortDevice
+// MARK: ===== I2CAnalogPortDevice
 
 
 I2CAnalogPortDevice::I2CAnalogPortDevice(uint8_t aDeviceAddress, I2CBus *aBusP, const char *aDeviceOptions) :
@@ -703,7 +703,7 @@ bool I2CAnalogPortDevice::isKindOf(const char *aDeviceType)
 
 
 
-#pragma mark - PCA9685
+// MARK: ===== PCA9685
 
 
 PCA9685::PCA9685(uint8_t aDeviceAddress, I2CBus *aBusP, const char *aDeviceOptions) :
@@ -794,7 +794,7 @@ void PCA9685::setPinValue(int aPinNo, double aValue)
 }
 
 
-#pragma mark - I2Cpin
+// MARK: ===== I2Cpin
 
 
 /// create i2c based digital input or output pin

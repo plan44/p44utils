@@ -24,7 +24,7 @@
 using namespace p44;
 
 
-#pragma mark - IOPin
+// MARK: ===== IOPin
 
 IOPin::IOPin() :
   currentState(false),
@@ -136,7 +136,7 @@ void IOPin::timedpoll()
 
 
 
-#pragma mark - digital I/O simulation
+// MARK: ===== digital I/O simulation
 
 static char nextIoSimKey = 'a';
 
@@ -185,7 +185,7 @@ void SimPin::setState(bool aState)
 }
 
 
-#pragma mark - digital output via system command
+// MARK: ===== digital output via system command
 
 #if !DISABLE_SYSTEMCMDIO
 
@@ -259,7 +259,7 @@ void SysCommandPin::stateUpdated(ErrorPtr aError, const string &aOutputString)
 #endif // !DISABLE_SYSTEMCMDIO
 
 
-#pragma mark - analog I/O simulation
+// MARK: ===== analog I/O simulation
 
 
 AnalogSimPin::AnalogSimPin(const char *aName, bool aOutput, double aInitialValue) :
@@ -298,7 +298,7 @@ void AnalogSimPin::setValue(double aValue)
 }
 
 
-#pragma mark - analog output via system command
+// MARK: ===== analog output via system command
 
 
 #if !DISABLE_SYSTEMCMDIO

@@ -29,7 +29,7 @@
 using namespace p44;
 
 
-#pragma mark - console key
+// MARK: ===== console key
 
 ConsoleKey::ConsoleKey(char aKeyCode, const char *aDescription, bool aInitialState) :
   keyHandlerTicket(0)
@@ -123,7 +123,7 @@ void ConsoleKey::reportState()
 
 
 
-#pragma mark - console key manager singleton
+// MARK: ===== console key manager singleton
 
 static ConsoleKeyManager *consoleKeyManager = NULL;
 

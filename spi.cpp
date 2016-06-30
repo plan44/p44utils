@@ -45,7 +45,7 @@ extern "C" {
 
 using namespace p44;
 
-#pragma mark - I2C Manager
+// MARK: ===== I2C Manager
 
 static SPIManager *sharedSPIManager = NULL;
 
@@ -121,7 +121,7 @@ SPIDevicePtr SPIManager::getDevice(int aBusNumber, const char *aDeviceID)
 }
 
 
-#pragma mark - SPIBus
+// MARK: ===== SPIBus
 
 
 SPIBus::SPIBus(int aBusNumber) :
@@ -352,7 +352,7 @@ void SPIBus::closeBus()
 
 
 
-#pragma mark - SPIDevice
+// MARK: ===== SPIDevice
 
 
 //  #define SPI_CPHA		0x01
@@ -407,7 +407,7 @@ bool SPIDevice::isKindOf(const char *aDeviceType)
 
 
 
-#pragma mark - SPIBitPortDevice
+// MARK: ===== SPIBitPortDevice
 
 
 SPIBitPortDevice::SPIBitPortDevice(uint8_t aDeviceAddress, SPIBus *aBusP, const char *aDeviceOptions) :
@@ -482,7 +482,7 @@ void SPIBitPortDevice::setAsOutput(int aBitNo, bool aOutput, bool aInitialState,
 
 
 
-#pragma mark - MCP23S17
+// MARK: ===== MCP23S17
 
 
 MCP23S17::MCP23S17(uint8_t aDeviceAddress, SPIBus *aBusP, const char *aDeviceOptions) :
@@ -549,7 +549,7 @@ void MCP23S17::updateDirection(int aForBitNo)
 
 
 
-#pragma mark - SPIpin
+// MARK: ===== SPIpin
 
 
 /// create SPI based digital input or output pin
@@ -593,7 +593,7 @@ void SPIPin::setState(bool aState)
 
 
 
-#pragma mark - SPIAnalogPortDevice
+// MARK: ===== SPIAnalogPortDevice
 
 
 SPIAnalogPortDevice::SPIAnalogPortDevice(uint8_t aDeviceAddress, SPIBus *aBusP, const char *aDeviceOptions) :
@@ -613,7 +613,7 @@ bool SPIAnalogPortDevice::isKindOf(const char *aDeviceType)
 
 
 
-#pragma mark - AnalogSPIpin
+// MARK: ===== AnalogSPIpin
 
 
 /// create spi based digital input or output pin

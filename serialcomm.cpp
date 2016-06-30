@@ -241,7 +241,7 @@ bool SerialComm::connectionIsOpen()
 }
 
 
-#pragma mark - break
+// MARK: ===== break
 
 void SerialComm::sendBreak()
 {
@@ -250,7 +250,7 @@ void SerialComm::sendBreak()
 }
 
 
-#pragma mark - handshake signal control
+// MARK: ===== handshake signal control
 
 void SerialComm::setDTR(bool aActive)
 {
@@ -268,7 +268,7 @@ void SerialComm::setRTS(bool aActive)
 }
 
 
-#pragma mark - handling data exception
+// MARK: ===== handling data exception
 
 
 void SerialComm::dataExceptionHandler(int aFd, int aPollFlags)
