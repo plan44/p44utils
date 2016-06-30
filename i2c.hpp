@@ -22,7 +22,7 @@
 #ifndef __p44utils__i2c__
 #define __p44utils__i2c__
 
-#include "p44_common.hpp"
+#include "p44utils_common.hpp"
 
 #include "iopin.hpp"
 

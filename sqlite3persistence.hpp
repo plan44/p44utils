@@ -22,7 +22,7 @@
 #ifndef __p44utils__sqlite3persistence__
 #define __p44utils__sqlite3persistence__
 
-#include "p44_common.hpp"
+#include "p44utils_common.hpp"
 
 #include "sqlite3pp/sqlite3pp.h"
 

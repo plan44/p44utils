@@ -22,7 +22,7 @@
 #ifndef __p44utils__spi__
 #define __p44utils__spi__
 
-#include "p44_common.hpp"
+#include "p44utils_common.hpp"
 
 #include "iopin.hpp"
 

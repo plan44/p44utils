@@ -22,7 +22,7 @@
 #ifndef __p44utils__gpio__
 #define __p44utils__gpio__
 
-#include "p44_common.hpp"
+#include "p44utils_common.hpp"
 
 #include "iopin.hpp"
 
