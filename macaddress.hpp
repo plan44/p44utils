@@ -37,8 +37,8 @@ namespace p44 {
   uint32_t ipv4Address();
 
   /// get network interface information
-  /// @param aMacAddress if not NULL: is set to the MAC address of this machine
-  /// @param aIPv4Address if not NULL: is set to current IPv4 address of this machine
+  /// @param aMacAddressP if not NULL: is set to the MAC address of this machine
+  /// @param aIPv4AddressP if not NULL: is set to current IPv4 address of this machine
   /// Notes:
   /// - On Linux, the first non-loopback interface's MAC will be used (as enumerated by ifr_ifindex 1..n)
   /// - On OS X, the MAC address of the "en0" device will be used (every Mac has a en0, which is the

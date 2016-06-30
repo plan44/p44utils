@@ -52,7 +52,7 @@ namespace p44 {
   /// Send raw packet
   /// @param aSockAddrP pointer to a sockaddr_in that will be filled ready for use with sendto()
   /// @param aDatagramP must point to a buffer large enough to hold the IGMP packet (no checks!)
-  /// @param aMaxDatagramSize size of buffer at aDatagramP
+  /// @param aDatagramSize size of buffer at aDatagramP
   int sendRawPacket(struct sockaddr_in *aSockAddrP, const char *aDatagramP, size_t aDatagramSize);
 
 

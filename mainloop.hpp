@@ -86,7 +86,6 @@ namespace p44 {
   typedef boost::function<void (MLMicroSeconds aCycleStartTime, ErrorPtr aError, const string &aOutputString)> ExecCB;
 
   /// I/O callback
-  /// @param aMainLoop the mainloop which calls this handler
   /// @param aCycleStartTime the time when the current mainloop cycle has started
   /// @param aFD the file descriptor that was signalled and has caused this call
   /// @param aPollFlags the poll flags describing the reason for the callback
@@ -94,13 +93,12 @@ namespace p44 {
   typedef boost::function<bool (MLMicroSeconds aCycleStartTime, int aFD, int aPollFlags)> IOPollCB;
 
   /// thread routine, will be called on a separate thread
-  /// @param aThreadWrapper the object that wraps the thread and allows sending signals to the parent thread
+  /// @param aThread the object that wraps the thread and allows sending signals to the parent thread
   ///   Use this pointer to call signalParentThread() on
   /// @note when this routine exits, a threadSignalCompleted will be sent to the parent thread
   typedef boost::function<void (ChildThreadWrapper &aThread)> ThreadRoutine;
 
   /// thread signal handler, will be called from main loop of parent thread when child thread uses signalParentThread()
-  /// @param aMainLoop the mainloop of the parent thread which has started the child thread
   /// @param aChildThread the ChildThreadWrapper object which sent the signal
   /// @param aSignalCode the signal received from the child thread
   typedef boost::function<void (ChildThreadWrapper &aChildThread, ThreadSignals aSignalCode)> ThreadSignalHandler;
@@ -244,14 +242,12 @@ namespace p44 {
     /// @param aTicketNo if not 0 on entry, this ticket will be cancelled beforehand. On exit, this contains the new ticket
     /// @param aCallback the functor to be called
     /// @param aExecutionTime when to execute (approximately), in now() timescale
-    /// @return ticket number which can be used to cancel this specific execution request
     void executeTicketOnceAt(long &aTicketNo, OneTimeCB aCallback, MLMicroSeconds aExecutionTime);
 
     /// have handler called from the mainloop once with an optional delay from now
     /// @param aTicketNo if not 0 on entry, this ticket will be cancelled beforehand. On exit, this contains the new ticket
     /// @param aCallback the functor to be called
     /// @param aDelay delay from now when to execute (approximately)
-    /// @return ticket number which can be used to cancel this specific execution request
     void executeTicketOnce(long &aTicketNo, OneTimeCB aCallback, MLMicroSeconds aDelay = 0);
 
     /// cancel pending execution by ticket number
@@ -305,16 +301,16 @@ namespace p44 {
     /// register handler to be called for activity on specified file descriptor
     /// @param aFD the file descriptor to poll
     /// @param aPollFlags POLLxxx flags to specify events we want a callback for
-    /// @param aFdEventCB the functor to be called when poll() reports an event for one of the flags set in aPollFlags
+    /// @param aPollEventHandler the functor to be called when poll() reports an event for one of the flags set in aPollFlags
     void registerPollHandler(int aFD, int aPollFlags, IOPollCB aPollEventHandler);
 
     /// change the poll flags for an already registered handler
     /// @param aFD the file descriptor
-    /// @param aPollFlags POLLxxx flags to specify events we want a callback for
+    /// @param aSetPollFlags POLLxxx flags to be enabled for this file descriptor
+    /// @param aClearPollFlags POLLxxx flags to be disabled for this file descriptor
     void changePollFlags(int aFD, int aSetPollFlags, int aClearPollFlags=-1);
 
-    /// unregister all handlers registered by a given subscriber
-    /// @param aSubscriberP a value identifying the subscriber
+    /// unregister poll handlers for this file descriptor
     /// @param aFD the file descriptor
     void unregisterPollHandler(int aFD);
     

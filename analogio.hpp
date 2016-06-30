@@ -59,7 +59,7 @@ namespace p44 {
     double value();
 
     /// set state of output (NOP for inputs)
-    /// @param aState new state to set output to
+    /// @param aValue new state to set output to
     void setValue(double aValue);
 
   };

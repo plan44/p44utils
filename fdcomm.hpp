@@ -91,7 +91,6 @@ namespace p44 {
 
     /// transmit string
     /// @param aString string to transmit
-    /// @param aBuffered true if string should be buffered and transmitted automatically when possible
     /// @note intended for datagrams. Use transmitBytes to be able to handle partial transmission or
     ///   sendString() for buffered transfers
     bool transmitString(const string &aString);
@@ -125,14 +124,14 @@ namespace p44 {
     ErrorPtr receiveAndAppendToString(string &aString, ssize_t aMaxBytes = -1);
 
     /// install callback for data becoming ready to read
-    /// @param aCallBack will be called when data is ready for reading (receiveBytes()) or an asynchronous error occurs on the file descriptor
+    /// @param aReceiveHandler will be called when data is ready for reading (receiveBytes()) or an asynchronous error occurs on the file descriptor
     /// @param aDelimiter if set, aReceiveHandler will only be called after seeing the specified delimiter in the incoming stream.
     ///   use receiveDelimitedString() to get the (internally accumulated) delimited string. Note that when using delimiter,
     ///   data will be consumed internally into the chunkbuffer, so numBytesReady() and receiveBytes() should not be used.
     void setReceiveHandler(StatusCB aReceiveHandler, char aDelimiter = 0);
 
     /// install callback for file descriptor ready for accepting new data to send
-    /// @param aCallBack will be called when file descriptor is ready to transmit more data (using transmitBytes())
+    /// @param aTransmitHandler will be called when file descriptor is ready to transmit more data (using transmitBytes())
     void setTransmitHandler(StatusCB aTransmitHandler);
 
     /// make non-blocking

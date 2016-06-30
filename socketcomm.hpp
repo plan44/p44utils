@@ -144,10 +144,9 @@ namespace p44 {
     void setAllowNonlocalConnections(bool aAllow) { nonLocal = aAllow; };
 
     /// start the server
-    /// @param aConnectionStatusHandler will be called when a server connection is accepted
+    /// @param aServerConnectionHandler will be called when a server connection is accepted
     ///   The SocketComm object passed in the handler is a new SocketComm object for that particular connection
     /// @param aMaxConnections max number of simultaneous server connections
-    /// @param aNonLocal if set, connections from other hosts are allowed. Default is false, which means only
     ///   local connections are accepted
     ErrorPtr startServer(ServerConnectionCB aServerConnectionHandler, int aMaxConnections);
 

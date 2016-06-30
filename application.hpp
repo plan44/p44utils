@@ -137,7 +137,7 @@ namespace p44 {
 
     /// set command description constants (option definitions and synopsis)
     /// @param aSynopsis short usage description, used in showUsage(). %1$s will be replaced by invocationName
-    /// @param aCmdLineOptionDescriptors pointer to array of descriptors for the options
+    /// @param aOptionDescriptors pointer to array of descriptors for the options
     void setCommandDescriptors(const char *aSynopsis, const CmdLineOptionDescriptor *aOptionDescriptors);
 
     /// show usage, consisting of invocationName + synopsis + option descriptions

@@ -87,7 +87,7 @@ namespace p44 {
     /// load values from passed row
     /// @param aRow result row to get parameter values from
     /// @param aIndex index of first column to load
-    /// @param aCommonFlags flag word already containing flags from superclasses (which are included in a flagword saved by subclasses)
+    /// @param aCommonFlagsP flag word already containing flags from superclasses (which are included in a flagword saved by subclasses)
     /// @note the base class loads ROWID and the parent identifier (first item in keyDefs) automatically.
     ///   subclasses should always call inherited loadFromRow() FIRST
     virtual void loadFromRow(sqlite3pp::query::iterator &aRow, int &aIndex, uint64_t *aCommonFlagsP);

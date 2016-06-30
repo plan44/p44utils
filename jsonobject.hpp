@@ -59,7 +59,7 @@ namespace p44 {
     struct lh_entry *nextEntryP; ///< iterator pointer for resetKeyIteration()/nextKeyValue()
 
     /// construct object as wrapper of json-c json_object.
-    /// @param obj json_object, ownership is passed into this JsonObject, caller looses ownership!
+    /// @param aObjPassingOwnership json_object, ownership is passed into this JsonObject, caller looses ownership!
     JsonObject(struct json_object *aObjPassingOwnership);
 
     /// construct empty object
@@ -71,7 +71,7 @@ namespace p44 {
     virtual ~JsonObject();
 
     /// factory to return smart pointer to new wrapper of a newly created json_object
-    /// @param obj json_object, ownership is passed into this JsonObject, caller looses ownership!
+    /// @param aObjPassingOwnership json_object, ownership is passed into this JsonObject, caller looses ownership!
     static JsonObjectPtr newObj(struct json_object *aObjPassingOwnership);
 
     /// get type

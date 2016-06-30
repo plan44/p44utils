@@ -81,7 +81,7 @@ namespace p44 {
     I2CBus(int aBusNumber);
 
     /// register new I2CDevice
-    /// @param the device to register
+    /// @param aDevice the device to register
     void registerDevice(I2CDevicePtr aDevice);
 
     /// get device registered for address
@@ -95,25 +95,56 @@ namespace p44 {
 
     typedef uint8_t smbus_block_t[32];
 
-    /// SMBus read byte/word/block
-    /// @param aDevice device to access
+    /// SMBus read byte
+    /// @param aDeviceP device to access
     /// @param aRegister register/command to access
-    /// @param aCount (for blocks only) number of bytes
-    /// @param aByte/aWord/aData will receive result
+    /// @param aByte will receive result
     /// @return true if successful
     bool SMBusReadByte(I2CDevice *aDeviceP, uint8_t aRegister, uint8_t &aByte);
+
+    /// SMBus read word
+    /// @param aDeviceP device to access
+    /// @param aRegister register/command to access
+    /// @param aWord will receive result
+    /// @return true if successful
     bool SMBusReadWord(I2CDevice *aDeviceP, uint8_t aRegister, uint16_t &aWord);
+
+    /// SMBus read byte/word/block
+    /// @param aDeviceP device to access
+    /// @param aRegister register/command to access
+    /// @param aCount number of bytes
+    /// @param aData will receive result
+    /// @return true if successful
     bool SMBusReadBlock(I2CDevice *aDeviceP, uint8_t aRegister, uint8_t &aCount, smbus_block_t &aData);
 
-    /// SMBus write byte/word/block
-    /// @param aDevice device to access
+    /// SMBus write byte
+    /// @param aDeviceP device to access
     /// @param aRegister register/command to access
-    /// @param aCount (for blocks only) number of bytes
-    /// @param aByte/aWord/aDataP data to write
+    /// @param aByte data to write
     /// @return true if successful
     bool SMBusWriteByte(I2CDevice *aDeviceP, uint8_t aRegister, uint8_t aByte);
+
+    /// SMBus write word
+    /// @param aDeviceP device to access
+    /// @param aRegister register/command to access
+    /// @param aWord data to write
+    /// @return true if successful
     bool SMBusWriteWord(I2CDevice *aDeviceP, uint8_t aRegister, uint16_t aWord);
+
+    /// SMBus write SMBus block
+    /// @param aDeviceP device to access
+    /// @param aRegister register/command to access
+    /// @param aCount number of bytes
+    /// @param aDataP data to write
+    /// @return true if successful
     bool SMBusWriteBlock(I2CDevice *aDeviceP, uint8_t aRegister, uint8_t aCount, const uint8_t *aDataP);
+
+    /// SMBus write a number of bytes (but not using the SMBus block semantics)
+    /// @param aDeviceP device to access
+    /// @param aRegister register/command to access
+    /// @param aCount number of bytes
+    /// @param aDataP data to write
+    /// @return true if successful
     bool SMBusWriteBytes(I2CDevice *aDeviceP, uint8_t aRegister, uint8_t aCount, const uint8_t *aDataP);
 
     /// I2C direct read/write without SMBus protocol (old devices like PCF8574)

@@ -67,7 +67,7 @@ namespace p44 {
     /// @param aNeededSchemaVersion the schema version needed to use the DB
     /// @param aFactoryReset if set, DB will be erased and recreated
     /// @param aLowestValidSchemaVersion if set to non-zero, all DB versions before this one will be considered obsolete and will cause a factory reset
-    /// @param returns SQLITE_OK or SQLite error code
+    /// @return ok or error
     ErrorPtr connectAndInitialize(const char *aDatabaseFileName, int aNeededSchemaVersion, int aLowestValidSchemaVersion, bool aFactoryReset);
 
     /// check if database is available (was initialized correctly)

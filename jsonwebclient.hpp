@@ -36,7 +36,7 @@ namespace p44 {
   typedef boost::intrusive_ptr<JsonWebClient> JsonWebClientPtr;
 
   /// callback for returning response data or reporting error
-  /// @param aResponse the response string
+  /// @param aJsonResponse the response string
   /// @param aError an error object if an error occurred, empty pointer otherwise
   typedef boost::function<void (JsonObjectPtr aJsonResponse, ErrorPtr aError)> JsonWebClientCB;
 
@@ -57,7 +57,7 @@ namespace p44 {
 
     /// send a JSON request via HTTP or HTTPS
     /// @param aURL the http or https URL to send JSON request to
-    /// @param responseCallback will be called when request completes, returning response or error
+    /// @param aResponseCallback will be called when request completes, returning response or error
     /// @param aMethod the HTTP method to use (defaults to "GET")
     /// @param aJsonRequest the JSON request to send (defaults to none)
     /// @return false if no request could be initiated (already busy with another request).
@@ -66,7 +66,7 @@ namespace p44 {
 
     /// send a request expected to return JSON via HTTP or HTTPS
     /// @param aURL the http or https URL to send JSON request to
-    /// @param responseCallback will be called when request completes, returning response or error
+    /// @param aResponseCallback will be called when request completes, returning response or error
     /// @param aMethod the HTTP method to use (defaults to "POST")
     /// @param aPostData the raw POST data to send (for POST or PUT requests)
     /// @param aContentType the content type, default is "application/x-www-form-urlencoded"

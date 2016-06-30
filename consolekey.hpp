@@ -64,7 +64,7 @@ namespace p44 {
     bool isSet();
 
     /// set handler for when key state changes
-    /// @param handler to call when input state changes
+    /// @param aHandler to call when input state changes
     void setConsoleKeyHandler(ConsoleKeyHandlerCB aHandler);
 
   private:
@@ -105,14 +105,14 @@ namespace p44 {
     static ConsoleKeyManager *sharedKeyManager();
 
     /// install a callback for when a key is pressed
-    /// @param handler to call when a key is pressed on the console
+    /// @param aHandler to call when a key is pressed on the console
     void setKeyPressHandler(ConsoleKeyPressCB aHandler);
 
     /// create a new console key
     /// @param aKeyCode ASCII-code of the key. A-Z are special, as
     ///   for these typing the lowercase (a-z) means pulsing the input state,
     ///   while typing the uppercase (A-Z) means toggling the input state.
-    /// @param description description shown on console at initialisation and when key
+    /// @param aDescription description shown on console at initialisation and when key
     ///   is operated.
     ConsoleKeyPtr newConsoleKey(char aKeyCode, const char *aDescription, bool aInitialState=false);
 

@@ -86,7 +86,7 @@ namespace p44 {
     bool isDomain(const char *aDomain) const;
 
     /// checks for OK condition, which means either no error object assigned at all to the smart ptr, or ErrorCode==0
-    /// @param a ErrorPtr smart pointer
+    /// @param aError error pointer to check
     /// @return true if OK
     static bool isOK(ErrorPtr aError);
 

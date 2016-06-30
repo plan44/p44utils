@@ -83,7 +83,7 @@ namespace p44 {
     SPIBus(int aBusNumber);
 
     /// register new SPIDevice
-    /// @param the device to register
+    /// @param aDevice device to register
     void registerDevice(SPIDevicePtr aDevice);
 
     /// get device registered for address
@@ -95,24 +95,48 @@ namespace p44 {
 
     virtual ~SPIBus();
 
-    /// SPI register read byte/word/block
-    /// @param aDevice device to access
+    /// SPI register read byte
+    /// @param aDeviceP device to access
     /// @param aRegister register/command to access
-    /// @param aCount (for ReadBytes only) number of bytes
-    /// @param aByte/aWord/aData will receive result
+    /// @param aByte will receive result
     /// @return true if successful
     bool SPIRegReadByte(SPIDevice *aDeviceP, uint8_t aRegister, uint8_t &aByte);
+
+    /// SPI register read word
+    /// @param aDeviceP device to access
+    /// @param aRegister register/command to access
+    /// @param aWord will receive result
+    /// @return true if successful
     bool SPIRegReadWord(SPIDevice *aDeviceP, uint8_t aRegister, uint16_t &aWord);
+
+    /// SPI register read a number of bytes
+    /// @param aDeviceP device to access
+    /// @param aRegister register/command to access
+    /// @param aCount number of bytes
+    /// @param aDataP will receive result
+    /// @return true if successful
     bool SPIRegReadBytes(SPIDevice *aDeviceP, uint8_t aRegister, uint8_t aCount, uint8_t *aDataP);
 
-    /// SPI register write byte/word/block
-    /// @param aDevice device to access
+    /// SPI register write byte
+    /// @param aDeviceP device to access
     /// @param aRegister register/command to access
-    /// @param aCount (for WriteBytes only) number of bytes
-    /// @param aByte/aWord/aDataP data to write
+    /// @param aByte data to write
     /// @return true if successful
     bool SPIRegWriteByte(SPIDevice *aDeviceP, uint8_t aRegister, uint8_t aByte);
+
+    /// SPI register write word
+    /// @param aDeviceP device to access
+    /// @param aRegister register/command to access
+    /// @param aWord data to write
+    /// @return true if successful
     bool SPIRegWriteWord(SPIDevice *aDeviceP, uint8_t aRegister, uint16_t aWord);
+
+    /// SPI register write a number of bytes
+    /// @param aDeviceP device to access
+    /// @param aRegister register/command to access
+    /// @param aCount number of bytes
+    /// @param aDataP data to write
+    /// @return true if successful
     bool SPIRegWriteBytes(SPIDevice *aDeviceP, uint8_t aRegister, uint8_t aCount, const uint8_t *aDataP);
 
 
