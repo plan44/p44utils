@@ -169,7 +169,6 @@ bool p44::RGBtoHSV(const Row3 &RGB, Row3 &HSV)
   // calc min/max
   int maxt = 0;
   double max = RGB[0];
-  int mint = 0;
   double min = RGB[0];
   for (int i=1; i<3; i++) {
     if (RGB[i] > max) {
@@ -177,7 +176,6 @@ bool p44::RGBtoHSV(const Row3 &RGB, Row3 &HSV)
       max = RGB[i];
     }
     if (RGB[i] < min) {
-      mint = i;
       min = RGB[i];
     }
   }
@@ -210,14 +208,15 @@ bool p44::RGBtoHSV(const Row3 &RGB, Row3 &HSV)
 
 bool p44::HSVtoRGB(const Row3 &HSV, Row3 &RGB)
 {
-  int hi = floor(HSV[0] / 60);
+  int hi = (int)floor(HSV[0] / 60) % 6;
   double f = (HSV[0] / 60 - hi);
   double p = HSV[2] * (1 - HSV[1]);
   double q = HSV[2] * (1 - (HSV[1]*f));
   double t = HSV[2] * (1 - (HSV[1]*(1-f)));
   switch (hi) {
+    default: // should not occur, hi should be 0..5
+    case 6: // should not occur, hi should be 0..5
     case 0:
-    case 6:
       RGB[0] = HSV[2];
       RGB[1] = t;
       RGB[2] = p;
@@ -346,7 +345,7 @@ bool p44::xyVtoCT(const Row3 &xyV, double &mired)
   // - CIE x 0.65 -> 1000K = 1000mired
   double x = xyV[0] - 0.28;
   if (x<0) x=0;
-  mired = (xyV[0]-0.28)/(0.65-0.28)*900 + 100;
+  mired = (x)/(0.65-0.28)*900 + 100;
   return true;
 }
 

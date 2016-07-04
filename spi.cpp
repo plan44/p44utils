@@ -217,7 +217,7 @@ bool SPIBus::SPIRegReadByte(SPIDevice *aDeviceP, uint8_t aRegister, uint8_t &aBy
   uint8_t msg[2];
   msg[0] = SPI_RD(aDeviceP->deviceAddress);
   msg[1] = aRegister;
-  uint8_t ans;
+  uint8_t ans = 0;
   int res = spidev_write_read(busFD, 2, msg, 1, &ans);
   // read is shown only in real Debug log, because button polling creates lots of accesses
   DBGFOCUSLOG("SPIRegReadByte(devaddr=0x%02X, reg=0x%02X) = %d / 0x%02X (res=%d)", aDeviceP->deviceAddress, aRegister, ans, ans, res);
@@ -233,7 +233,7 @@ bool SPIBus::SPIRegReadWord(SPIDevice *aDeviceP, uint8_t aRegister, uint16_t &aW
   uint8_t msg[2];
   msg[0] = SPI_RD(aDeviceP->deviceAddress);
   msg[1] = aRegister;
-  uint16_t ans;
+  uint16_t ans = 0;
   int res = spidev_write_read(busFD, 2, msg, 2, (uint8_t *)&ans);
   // read is shown only in real Debug log, because button polling creates lots of accesses
   DBGFOCUSLOG("SPIRegReadWord(devaddr=0x%02X, reg=0x%02X) = %d / 0x%02X (res=%d)", aDeviceP->deviceAddress, aRegister, ans, ans, res);

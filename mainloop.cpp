@@ -579,7 +579,6 @@ bool MainLoop::handleIOPoll(MLMicroSeconds aTimeout)
     }
   }
   // call handlers
-  bool didHandle = false;
   if (numReadyFDs>0) {
     // at least one of the flagged events has occurred in at least one FD
     // - find the FDs that are affected and call their handlers when needed
@@ -591,9 +590,8 @@ bool MainLoop::handleIOPoll(MLMicroSeconds aTimeout)
         // - get handler, note that it might have been deleted in the meantime
         IOPollHandlerMap::iterator pos = ioPollHandlers.find(pollfdP->fd);
         if (pos!=ioPollHandlers.end()) {
-          // - there is a handler
-          if (pos->second.pollHandler(cycleStartTime, pollfdP->fd, pollfdP->revents))
-            didHandle = true; // really handled (not just checked flags and decided it's nothing to handle)
+          // - there is a handler, call it
+          pos->second.pollHandler(cycleStartTime, pollfdP->fd, pollfdP->revents);
         }
         ML_STAT_ADD(ioHandlerTime);
       }
@@ -646,9 +644,7 @@ int MainLoop::run()
       bool iohandled = false;
       if (!allCompleted || timeLeft<=0) {
         // no time to wait for I/O, just check
-        ML_STAT_START
         iohandled = handleIOPoll(0);
-        ML_STAT_ADD(ioHandlerTime);
       }
       else {
         // nothing to do except waiting for I/O
