@@ -25,6 +25,7 @@
 #include <string>
 #include <stdarg.h>
 #include <stdint.h>
+#include <time.h>
 
 #ifndef __printflike
 #define __printflike(...)
@@ -55,9 +56,21 @@ namespace p44 {
   std::string string_format(const char *aFormat, ...) __printflike(1,2);
 
   /// printf-style format appending to std::string
-  /// @param aStringToAppendTo std::string to append format to
+  /// @param aStringToAppendTo std::string to append formatted string to
   /// @param aFormat printf-style format string
   void string_format_append(std::string &aStringToAppendTo, const char *aFormat, ...) __printflike(2,3);
+
+  /// strftime with output to std::string
+  /// @param aFormat strftime-style format string
+  /// @param aTime aTime time to format, or NULL for current local time
+  /// @return formatted time string
+  std::string string_ftime(const char *aFormat, const struct tm *aTimeP = NULL);
+
+  /// strftime appending to std::string
+  /// @param aStringToAppendTo std::string to append formatted time to
+  /// @param aFormat strftime-style format string
+  /// @param aTime aTime time to format, or NULL for current local time
+  void string_ftime_append(std::string &aStringToAppendTo, const char *aFormat, const struct tm *aTimeP = NULL);
 
   /// get next line from file into string
   /// @param aFile file open for read

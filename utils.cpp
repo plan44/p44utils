@@ -86,6 +86,43 @@ void p44::string_format_append(std::string &aStringToAppendTo, const char *aForm
 
 
 
+/// strftime with output to std::string
+std::string p44::string_ftime(const char *aFormat, const struct tm *aTimeP)
+{
+  std::string s;
+  string_ftime_append(s, aFormat, aTimeP);
+  return s;
+}
+
+
+/// strftime appending to std::string
+void p44::string_ftime_append(std::string &aStringToAppendTo, const char *aFormat, const struct tm *aTimeP)
+{
+  // get time if none passed
+  struct tm nowtime;
+  if (aTimeP==NULL) {
+    time_t t = time(NULL);
+    localtime_r(&t, &nowtime);
+    aTimeP = &nowtime;
+  }
+  // format
+  const size_t bufsiz=42;
+  char buf[bufsiz];
+  if (strftime(buf, bufsiz, aFormat, aTimeP)==0) {
+    // not enough buffer
+    size_t n = strlen(aFormat)*5; // heuristics, assume a %x specifier usually does not expand to more than 10 chars
+    char *bufP = new char[n];
+    if (strftime(bufP, n, aFormat, aTimeP)>0) {
+      aStringToAppendTo += bufP;
+    }
+    delete [] bufP;
+  }
+  else {
+    aStringToAppendTo += buf;
+  }
+}
+
+
 bool p44::string_fgetline(FILE *aFile, string &aLine)
 {
   const size_t bufLen = 1024;
