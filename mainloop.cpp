@@ -467,7 +467,7 @@ bool MainLoop::checkWait()
         waitHandlers.erase(pos);
         // call back
         ML_STAT_START
-        LOG(LOG_DEBUG, "- calling wait handler for pid=%d now", pid);
+        LOG(LOG_DEBUG, "- calling wait handler for pid=%d now with status=%d", pid, status);
         cb(cycleStartTime, pid, status);
         ML_STAT_ADD(waitHandlerTime);
         return false; // more process status could be ready, call soon again
@@ -478,13 +478,14 @@ bool MainLoop::checkWait()
       int e = errno;
       if (e==ECHILD) {
         // no more children
-        LOG(LOG_DEBUG, "checkWait: no children any more -> ending all waits");
+        LOG(LOG_WARNING, "checkWait: pending handlers but no children any more -> ending all waits WITH FAKE STATUS 0 - probably SIGCHLD ignored?");
         // - inform all still waiting handlers
         WaitHandlerMap oldHandlers = waitHandlers; // copy
         waitHandlers.clear(); // remove all handlers from real list, as new handlers might be added in handlers we'll call now
         ML_STAT_START
         for (WaitHandlerMap::iterator pos = oldHandlers.begin(); pos!=oldHandlers.end(); pos++) {
           WaitCB cb = pos->second.callback; // get callback
+          LOG(LOG_DEBUG, "- calling wait handler for pid=%d now WITH FAKE STATUS 0", pos->second.pid);
           cb(cycleStartTime, pos->second.pid, 0); // fake status
         }
         ML_STAT_ADD(waitHandlerTime);
