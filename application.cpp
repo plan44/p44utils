@@ -84,6 +84,12 @@ void Application::initializeInternal()
   handleSignal(SIGHUP);
   handleSignal(SIGINT);
   handleSignal(SIGTERM);
+  // make sure we have default SIGCHLD handling
+  // - with SIGCHLD ignored, waitpid() cannot catch children's exit status!
+  // - SIGCHLD ignored status is inherited via execve(), so if caller of execve
+  //   does not restore SIGCHLD to SIG_DFL and execs us, we could be in SIG_IGN
+  //   state now - that's why we set it now!
+  signal(SIGCHLD, SIG_DFL);
 }
 
 
