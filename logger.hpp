@@ -99,9 +99,11 @@ namespace p44 {
     bool errToStdout;
     LoggerCB loggerCB;
     void *loggerContextPtr;
+    FILE *logFILE;
 
   public:
     Logger();
+    virtual ~Logger();
 
     /// test if log is enabled at a given level
     /// @param aErrLevel level to check
@@ -129,6 +131,10 @@ namespace p44 {
     /// @param aErrLevel error level of the message
     /// @param aErrNum optional system error code (if none specified, errno global will be used)
     void logSysError(int aErrLevel, int aErrNum = 0);
+
+    /// set log file
+    /// @param aLogFilePath file to write log to instead of stdout
+    void setLogFile(const char *aLogFilePath);
 
     /// set log level
     /// @param aLogLevel the new log level

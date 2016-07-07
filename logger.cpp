@@ -29,12 +29,22 @@ p44::Logger globalLogger;
 
 Logger::Logger() :
   loggerCB(NULL),
-  loggerContextPtr(NULL)
+  loggerContextPtr(NULL),
+  logFILE(NULL)
 {
   pthread_mutex_init(&reportMutex, NULL);
   logLevel = LOGGER_DEFAULT_LOGLEVEL;
   stderrLevel = LOG_ERR;
   errToStdout = true;
+}
+
+
+Logger::~Logger()
+{
+  if (logFILE) {
+    fclose(logFILE);
+    logFILE = NULL;
+  }
 }
 
 #define LOGBUFSIZ 8192
@@ -133,6 +143,14 @@ void Logger::logOutput(int aLevel, const char *aLinePrefix, const char *aLogMess
   if (loggerCB) {
     loggerCB(loggerContextPtr, aLevel, aLinePrefix, aLogMessage);
   }
+  else if (logFILE) {
+    if (stdoutLogEnabled(aLevel)) {
+      fputs(aLinePrefix, logFILE);
+      fputs(aLogMessage, logFILE);
+      fputs("\n", logFILE);
+      fflush(logFILE);
+    }
+  }
   else {
     // normal logging to stdout/err
     if (aLevel<=stderrLevel) {
@@ -151,6 +169,21 @@ void Logger::logOutput(int aLevel, const char *aLinePrefix, const char *aLogMess
     }
   }
 }
+
+
+void Logger::setLogFile(const char *aLogFilePath)
+{
+  if (aLogFilePath) {
+    logFILE = fopen(aLogFilePath, "a");
+  }
+  else {
+    if (logFILE) {
+      fclose(logFILE);
+      logFILE = NULL;
+    }
+  }
+}
+
 
 
 void Logger::logSysError(int aErrLevel, int aErrNum)
