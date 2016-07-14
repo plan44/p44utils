@@ -43,6 +43,10 @@ extern "C" {
 #warning "No SPI supported on this platform - just showing calls in focus debug output"
 #endif
 
+
+#define SPI_MAX_SPEED_HZ 100000 // 1MHz seems reasonable, faster sometimes does not work ok e.g. on RPi
+
+
 using namespace p44;
 
 // MARK: ===== I2C Manager
@@ -127,7 +131,7 @@ SPIDevicePtr SPIManager::getDevice(int aBusNumber, const char *aDeviceID)
 SPIBus::SPIBus(int aBusNumber) :
   busFD(-1),
   busNumber(aBusNumber),
-  lastSpiMode(0) // assume default mode
+  lastSpiMode(0xFF) // invalid mode -> force setting it on first use
 {
 }
 
@@ -154,27 +158,69 @@ SPIDevicePtr SPIBus::getDevice(const char *aDeviceID)
 
 
 
+// Note that "cs_change" functionality is described in a misleading way
+// in other places, e.g. in spidev.h - suggesting cs_change must be SET
+// to make CS go inactive at the end of the transfer.
+// However, truth is that cs_change just INVERTS the normal way of operation:
+// - between multiple transfers, CS is normally kept active -> cs_change
+//   causes CS to go high quickly between transfers
+// - after the last transfer, CS is normally made inactive -> cs_change
+//   causes CS to REMAIN ACTIVE. This apparently had no effect with
+//   spi-bcm2708 (old RPi SPI driver) but did completely mess up
+//   SPI communication with spi-bcm2835 (one single never ending transaction).
+//
+// Bottom line: under normal circumstances (i.e. one SPI_IOC_MESSAGE ioctl call
+// per transaction), cs_change must not be set to do the right thing.
 
-static int spidev_write_read(
-  int busFD,
+// The following is from include/linux/spi/spi.h:
+//
+//  All SPI transfers start with the relevant chipselect active.  Normally
+//  it stays selected until after the last transfer in a message.  Drivers
+//  can affect the chipselect signal using cs_change.
+//
+//  (i) If the transfer isn't the last one in the message, this flag is
+//  used to make the chipselect briefly go inactive in the middle of the
+//  message.  Toggling chipselect in this way may be needed to terminate
+//  a chip command, letting a single spi_message perform all of group of
+//  chip transactions together.
+//
+//  (ii) When the transfer is the last one in the message, the chip may
+//  stay selected until the next transfer.  On multi-device SPI busses
+//  with nothing blocking messages going to other devices, this is just
+//  a performance hint; starting a message to another device deselects
+//  this one.  But in other cases, this can be used to ensure correctness.
+//  Some devices need protocol transactions to be built from a series of
+//  spi_message submissions, where the content of one message is determined
+//  by the results of previous messages and where the whole transaction
+//  ends when the chipselect goes inactive.
+
+
+
+int SPIBus::spidev_write_read(
+  SPIDevice *aDeviceP,
   unsigned int num_out_bytes,
   uint8_t *out_buffer,
   unsigned int num_in_bytes,
   uint8_t *in_buffer,
-  bool writeWrite = false
+  bool writeWrite
 )
 {
   #if !DISABLE_SPI
-  struct spi_ioc_transfer mesg[2] = { 0, };
+  struct spi_ioc_transfer mesg[2];
   uint8_t num_tr = 0;
   int ret;
 
+  // init all fields of the struct, important for spi_bcm2835 driver (not relevant for spi_bcm2708)
+  for (int i=0; i<2; ++i) {
+    memset(&mesg[i], 0, sizeof (spi_ioc_transfer));
+    mesg[i].bits_per_word = 8; // 8 bits
+    mesg[i].speed_hz = aDeviceP->speedHz; // current speed
+  }
   // prepare output transfer, if any data provided
   if((out_buffer != NULL) && (num_out_bytes != 0)) {
     mesg[num_tr].tx_buf = (unsigned long)out_buffer;
     mesg[num_tr].rx_buf = (unsigned long)NULL;
     mesg[num_tr].len = num_out_bytes;
-    mesg[num_tr].cs_change = 1; // could be end of transfer if no read follows (see below)
     num_tr++;
   }
   // prepare input (or second write) transfer, if buffer provided
@@ -188,10 +234,6 @@ static int spidev_write_read(
       mesg[num_tr].rx_buf = (unsigned long)in_buffer;
     }
     mesg[num_tr].len = num_in_bytes;
-    mesg[num_tr].cs_change = 1; // second message ends the transfer
-    if (num_tr==1) {
-      mesg[0].cs_change = 0; // there was a write before, prevent CS going inactive between write and read
-    }
     num_tr++;
   }
   // execute
@@ -218,7 +260,7 @@ bool SPIBus::SPIRegReadByte(SPIDevice *aDeviceP, uint8_t aRegister, uint8_t &aBy
   msg[0] = SPI_RD(aDeviceP->deviceAddress);
   msg[1] = aRegister;
   uint8_t ans = 0;
-  int res = spidev_write_read(busFD, 2, msg, 1, &ans);
+  int res = spidev_write_read(aDeviceP, 2, msg, 1, &ans);
   // read is shown only in real Debug log, because button polling creates lots of accesses
   DBGFOCUSLOG("SPIRegReadByte(devaddr=0x%02X, reg=0x%02X) = %d / 0x%02X (res=%d)", aDeviceP->deviceAddress, aRegister, ans, ans, res);
   if (res<0) return false;
@@ -234,7 +276,7 @@ bool SPIBus::SPIRegReadWord(SPIDevice *aDeviceP, uint8_t aRegister, uint16_t &aW
   msg[0] = SPI_RD(aDeviceP->deviceAddress);
   msg[1] = aRegister;
   uint16_t ans = 0;
-  int res = spidev_write_read(busFD, 2, msg, 2, (uint8_t *)&ans);
+  int res = spidev_write_read(aDeviceP, 2, msg, 2, (uint8_t *)&ans);
   // read is shown only in real Debug log, because button polling creates lots of accesses
   DBGFOCUSLOG("SPIRegReadWord(devaddr=0x%02X, reg=0x%02X) = %d / 0x%02X (res=%d)", aDeviceP->deviceAddress, aRegister, ans, ans, res);
   if (res<0) return false;
@@ -249,7 +291,7 @@ bool SPIBus::SPIRegReadBytes(SPIDevice *aDeviceP, uint8_t aRegister, uint8_t aCo
   uint8_t msg[2];
   msg[0] = SPI_RD(aDeviceP->deviceAddress);
   msg[1] = aRegister;
-  int res = spidev_write_read(busFD, 2, msg, aCount, aDataP);
+  int res = spidev_write_read(aDeviceP, 2, msg, aCount, aDataP);
   // read is shown only in real Debug log, because button polling creates lots of accesses
   DBGFOCUSLOG("SPIRegReadBytes(devaddr=0x%02X, reg=0x%02X), %d bytes read (res=%d)", aDeviceP->deviceAddress, aRegister, aCount, res);
   return (res>=0);
@@ -263,7 +305,7 @@ bool SPIBus::SPIRegWriteByte(SPIDevice *aDeviceP, uint8_t aRegister, uint8_t aBy
   msg[0] = SPI_WR(aDeviceP->deviceAddress);
   msg[1] = aRegister;
   msg[2] = aByte;
-  int res = spidev_write_read(busFD, 3, msg, 0, NULL);
+  int res = spidev_write_read(aDeviceP, 3, msg, 0, NULL);
   FOCUSLOG("SPIRegWriteByte(devaddr=0x%02X, reg=0x%02X, byte=0x%02X), res=%d", aDeviceP->deviceAddress, aRegister, aByte, res);
   return (res>=0);
 }
@@ -276,7 +318,7 @@ bool SPIBus::SPIRegWriteWord(SPIDevice *aDeviceP, uint8_t aRegister, uint16_t aW
   msg[0] = SPI_WR(aDeviceP->deviceAddress);
   msg[1] = aRegister;
   *((uint16_t *)&(msg[2])) = aWord;
-  int res = spidev_write_read(busFD, 4, msg, 0, NULL);
+  int res = spidev_write_read(aDeviceP, 4, msg, 0, NULL);
   DBGFOCUSLOG("SPIRegWriteWord(devaddr=0x%02X, reg=0x%02X, word=0x%04X), res=%d", aDeviceP->deviceAddress, aRegister, aWord, res);
   return (res>=0);
 }
@@ -288,7 +330,7 @@ bool SPIBus::SPIRegWriteBytes(SPIDevice *aDeviceP, uint8_t aRegister, uint8_t aC
   uint8_t msg[2];
   msg[0] = SPI_WR(aDeviceP->deviceAddress);
   msg[1] = aRegister;
-  int res = spidev_write_read(busFD, 2, msg, aCount, (uint8_t *)aDataP, true);
+  int res = spidev_write_read(aDeviceP, 2, msg, aCount, (uint8_t *)aDataP, true);
   // read is shown only in real Debug log, because button polling creates lots of accesses
   DBGFOCUSLOG("SPIRegWriteBytes(devaddr=0x%02X, reg=0x%02X), %d bytes written (res=%d)", aDeviceP->deviceAddress, aRegister, aCount, res);
   return (res>=0);
@@ -306,7 +348,7 @@ bool SPIBus::accessDevice(SPIDevice *aDeviceP)
   // set the SPI mode
   #if !DISABLE_SPI
   if (ioctl(busFD, SPI_IOC_WR_MODE, &aDeviceP->spimode) < 0) {
-    LOG(LOG_ERR, "Error: Cannot set mode for device '%s' on bus %d", aDeviceP->deviceID().c_str(), busNumber);
+    LOG(LOG_ERR, "Error: Cannot SPI_IOC_WR_MODE for device '%s' on bus %d", aDeviceP->deviceID().c_str(), busNumber);
     lastSpiMode = 0; // assume default mode
     return false;
   }
@@ -329,6 +371,18 @@ bool SPIBus::accessBus()
   busFD = open(busDevName.c_str(), O_RDWR);
   if (busFD<0) {
     LOG(LOG_ERR, "Error: Cannot open SPI device '%s'",busDevName.c_str());
+    return false;
+  }
+  // - limit max speed
+  uint32_t speed = SPI_MAX_SPEED_HZ;
+  if (ioctl(busFD, SPI_IOC_WR_MAX_SPEED_HZ, &speed) < 0) {
+    LOG(LOG_ERR, "Error: Cannot SPI_IOC_WR_MAX_SPEED_HZ for bus %d", busNumber);
+    return false;
+  }
+  // - at this time, we only support 8-bit words
+  uint8_t bpw = 8;
+  if (ioctl(busFD, SPI_IOC_WR_BITS_PER_WORD, &bpw) < 0) {
+    LOG(LOG_ERR, "Error: Cannot SPI_IOC_WR_BITS_PER_WORD for bus %d", busNumber);
     return false;
   }
   #else
@@ -369,10 +423,6 @@ void SPIBus::closeBus()
 //  #define SPI_LOOP		0x20
 //  #define SPI_NO_CS		0x40
 //  #define SPI_READY		0x80
-//  #define SPI_TX_DUAL		0x100
-//  #define SPI_TX_QUAD		0x200
-//  #define SPI_RX_DUAL		0x400
-//  #define SPI_RX_QUAD		0x800
 
 
 SPIDevice::SPIDevice(uint8_t aDeviceAddress, SPIBus *aBusP, const char *aDeviceOptions)
@@ -381,6 +431,7 @@ SPIDevice::SPIDevice(uint8_t aDeviceAddress, SPIBus *aBusP, const char *aDeviceO
   deviceAddress = aDeviceAddress;
   // evaluate SPI mode options
   spimode = 0;
+  speedHz = SPI_MAX_SPEED_HZ; // use bus' default max speed
   #if !DISABLE_SPI
   if (strchr(aDeviceOptions, 'H')) spimode |= SPI_CPHA; // inverted phase (compared to original microwire SPI)
   if (strchr(aDeviceOptions, 'P')) spimode |= SPI_CPOL; // inverted polarity (compared to original microwire SPI)
@@ -388,6 +439,9 @@ SPIDevice::SPIDevice(uint8_t aDeviceAddress, SPIBus *aBusP, const char *aDeviceO
   if (strchr(aDeviceOptions, 'N')) spimode |= SPI_NO_CS; // no chip select
   if (strchr(aDeviceOptions, '3')) spimode |= SPI_3WIRE; // 3 wire
   if (strchr(aDeviceOptions, 'R')) spimode |= SPI_READY; // slave pulls low to pause
+  // reduced speeds
+  if (strchr(aDeviceOptions, 'S')) speedHz /= 10; // slow speed - 1/10 of normal
+  if (strchr(aDeviceOptions, 's')) speedHz /= 100; // very slow speed - 1/100 of normal
   #endif
 }
 

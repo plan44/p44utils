@@ -41,7 +41,8 @@ namespace p44 {
 
     SPIBus *spibus;
     uint8_t deviceAddress;
-    uint16_t spimode;
+    uint8_t spimode;
+    uint32_t speedHz;
 
   public:
 
@@ -75,7 +76,7 @@ namespace p44 {
     SPIDeviceMap deviceMap;
 
     int busFD;
-    uint16_t lastSpiMode;
+    uint8_t lastSpiMode;
 
   protected:
     /// create spi bus
@@ -90,6 +91,17 @@ namespace p44 {
     /// @param aDeviceID the device ID string in fully qualified "devicetype@2digithexaddr" form
     /// @return the device registered for this type/address or empty pointer if none registered
     SPIDevicePtr getDevice(const char *aDeviceID);
+
+    /// helper: prepare SPI transaction
+    int spidev_write_read(
+      SPIDevice *aDeviceP,
+      unsigned int num_out_bytes,
+      uint8_t *out_buffer,
+      unsigned int num_in_bytes,
+      uint8_t *in_buffer,
+      bool writeWrite = false
+    );
+
 
   public:
 
