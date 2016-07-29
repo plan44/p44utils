@@ -35,6 +35,13 @@
 #define __printflike(...)
 #endif
 
+#if __cplusplus >= 201103L
+  // we have C++ 11
+  #define P44_FINAL final
+#else
+  #define P44_FINAL
+#endif
+
 #include "p44obj.hpp"
 #include "logger.hpp"
 #include "utils.hpp"
