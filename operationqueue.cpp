@@ -32,6 +32,7 @@ using namespace p44;
 
 
 Operation::Operation() :
+  completionCB(NULL),
   initiated(false),
   aborted(false),
   timeout(0), // no timeout
@@ -40,27 +41,58 @@ Operation::Operation() :
   initiatesNotBefore(0), // no initiation time
   inSequence(true) // by default, execute in sequence
 {
+  FOCUSLOG("+++++ Creating Operation   %p", this);
 }
 
-// set timeout
+
+Operation::~Operation()
+{
+  FOCUSLOG("----- Deleteting Operation %p", this);
+}
+
+
+void Operation::reset()
+{
+  // release callback
+  completionCB = NULL;
+  // release chained object
+  if (chainedOp) {
+    chainedOp->reset(); // reset contents, break ownership loops held trough callbacks
+  }
+  chainedOp.reset(); // release object early
+}
+
+
 void Operation::setTimeout(MLMicroSeconds aTimeout)
 {
   timeout = aTimeout;
 }
 
 
-// set delay for initiation (after first attempt to initiate)
 void Operation::setInitiationDelay(MLMicroSeconds aInitiationDelay)
 {
   initiationDelay = aInitiationDelay;
   initiatesNotBefore = 0;
 }
 
-// set earliest time to execute
+
 void Operation::setInitiatesAt(MLMicroSeconds aInitiatesAt)
 {
   initiatesNotBefore = aInitiatesAt;
 }
+
+
+void Operation::setChainedOperation(OperationPtr aChainedOp)
+{
+  chainedOp = aChainedOp;
+}
+
+
+void Operation::setCompletionCallback(StatusCB aCompletionCB)
+{
+  completionCB = aCompletionCB;
+}
+
 
 
 // check if can be initiated
@@ -102,6 +134,13 @@ bool Operation::isInitiated()
 }
 
 
+// check if already aborted
+bool Operation::isAborted()
+{
+  return aborted;
+}
+
+
 // call to check if operation has completed
 bool Operation::hasCompleted()
 {
@@ -117,12 +156,55 @@ bool Operation::hasTimedOutAt(MLMicroSeconds aRefTime)
 
 
 
+OperationPtr Operation::finalize()
+{
+  OperationPtr keepMeAlive(this); // make sure this object lives until routine terminates
+  // callback (only if not chaining)
+  if (completionCB) {
+    StatusCB cb = completionCB;
+    completionCB = NULL; // call once only (or never when chaining)
+    if (!chainedOp) {
+      // no error and not chained (yet, callback might still set chained op) - callback now
+      cb(ErrorPtr());
+    }
+  }
+  OperationPtr next = chainedOp;
+  chainedOp.reset(); // make sure it is not chained twice
+  return next;
+}
+
+
+void Operation::abortOperation(ErrorPtr aError)
+{
+  OperationPtr keepMeAlive(this); // make sure this object lives until routine terminates
+  if (!aborted) {
+    aborted = true;
+    if (completionCB) {
+      StatusCB cb = completionCB;
+      completionCB = NULL; // call once only
+      cb(aError);
+    }
+  }
+  // abort chained operation as well
+  if (chainedOp) {
+    OperationPtr op = chainedOp;
+    chainedOp = NULL;
+    op->abortOperation(aError);
+  }
+  // make sure no links are held
+  reset();
+}
+
+
+
+
 // MARK: ===== OperationQueue
 
 
 // create operation queue into specified mainloop
 OperationQueue::OperationQueue(MainLoop &aMainLoop) :
-  mainLoop(aMainLoop)
+  mainLoop(aMainLoop),
+  processingQueue(false)
 {
   // register with mainloop
   mainLoop.registerIdleHandler(this, boost::bind(&OperationQueue::idleHandler, this));
@@ -134,6 +216,8 @@ OperationQueue::~OperationQueue()
 {
   // unregister from mainloop
   mainLoop.unregisterIdleHandlers(this);
+  // reset all operations
+  abortOperations();
 }
 
 
@@ -157,6 +241,11 @@ void OperationQueue::processOperations()
 
 bool OperationQueue::idleHandler()
 {
+  if (processingQueue) {
+    // already processing, avoid recursion
+    return true;
+  }
+  processingQueue = true; // protect agains recursion
   bool pleaseCallAgainSoon = false; // assume nothing to do
   if (!operationQueue.empty()) {
     MLMicroSeconds now = MainLoop::now();
@@ -175,7 +264,7 @@ bool OperationQueue::idleHandler()
           if (op->hasCompleted()) numCompleted++;
         }
       }
-      FOCUSLOG("OperationQueue stats: size=%d, pending: initiated=%d, completed=%d, timedout=%d", operationQueue.size(), numInitiated, numCompleted, numTimedOut);
+      FOCUSLOG("OperationQueue stats: size=%lu, pending: initiated=%d, completed=%d, timedout=%d", operationQueue.size(), numInitiated, numCompleted, numTimedOut);
     }
     #endif
     // (re)start with first element in queue
@@ -201,6 +290,13 @@ bool OperationQueue::idleHandler()
           }
         }
       }
+      if (op->isAborted()) {
+        // just remove from list
+        operationQueue.erase(pos);
+        // restart with start of (modified) queue
+        pleaseCallAgainSoon = true;
+        break;
+      }
       if (op->isInitiated()) {
         // initiated, check if already completed
         if (op->hasCompleted()) {
@@ -208,7 +304,7 @@ bool OperationQueue::idleHandler()
           // - remove from list
           OperationList::iterator nextPos = operationQueue.erase(pos);
           // - finalize. This might push new operations in front or back of the queue
-          OperationPtr nextOp = op->finalize(this);
+          OperationPtr nextOp = op->finalize();
           if (nextOp) {
             operationQueue.insert(nextPos, nextOp);
           }
@@ -227,6 +323,7 @@ bool OperationQueue::idleHandler()
       }
     } // for all ops in queue
   } // queue not empty
+  processingQueue = false;
   // if not everything is processed we'd like to process, return false, causing main loop to call us ASAP again
   return !pleaseCallAgainSoon;
 };

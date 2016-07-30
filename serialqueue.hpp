@@ -44,6 +44,7 @@ namespace p44 {
 
   // Errors
   typedef enum {
+    SQErrorOK,
     SQErrorTransmit,
   } SQErrors;
 
@@ -64,9 +65,6 @@ namespace p44 {
 
   typedef boost::intrusive_ptr<SerialOperation> SerialOperationPtr;
 
-  /// SerialOperation completion callback
-  typedef boost::function<void (SerialOperationPtr aSerialOperation, OperationQueuePtr aQueue, ErrorPtr aError)> SerialOperationFinalizeCB;
-
   /// SerialOperation transmitter
   typedef boost::function<size_t (size_t aNumBytes, const uint8_t *aBytes)> SerialOperationTransmitter;
 
@@ -74,27 +72,27 @@ namespace p44 {
   /// Serial operation
   class SerialOperation : public Operation
   {
-    friend class SerialOperationSendAndReceive;
+    typedef Operation inherited;
+
   protected:
+
     SerialOperationTransmitter transmitter;
-    SerialOperationFinalizeCB callback;
+
   public:
-    /// constructor
-    SerialOperation(SerialOperationFinalizeCB aCallback);
 
     /// set transmitter
+    /// @param aTransmitter callback to be used to transmit data
     void setTransmitter(SerialOperationTransmitter aTransmitter);
 
-    /// call to deliver received bytes
+    /// is called to deliver received bytes
     /// @param aNumBytes number of bytes ready for accepting
     /// @param aBytes pointer to bytes buffer
-    /// @return number of bytes operation could accept, 0 if none, NOT_ENOUGH_BYTES if operation would accept bytes,
-    ///   but not enough of them are ready. Note that NOT_ENOUGH_BYTES may only be used when the SerialQueue has a
+    /// @return number of bytes operation could accept, 0 if operation does accept none,
+    ///   NOT_ENOUGH_BYTES if operation would accept bytes, but not enough of them are ready.
+    ///   Note that NOT_ENOUGH_BYTES may only be used when the SerialQueue has a
     ///   buffer for re-assembling messages (see SerialQueue::setAcceptBuffer())
     virtual ssize_t acceptBytes(size_t aNumBytes, uint8_t *aBytes);
 
-    virtual OperationPtr finalize(OperationQueue *aQueueP = NULL);
-    virtual void abortOperation(ErrorPtr aError);
   };
 
 
@@ -107,20 +105,36 @@ namespace p44 {
     size_t dataSize;
     size_t appendIndex;
     uint8_t *dataP;
+
   public:
 
-    SerialOperationSend(size_t aNumBytes, uint8_t *aBytes, SerialOperationFinalizeCB aCallback);
+    /// constructor
+    SerialOperationSend();
+
+    /// destructor
     virtual ~SerialOperationSend();
 
+    /// set how much data to send
+    /// @param aDataSize size of data buffer to prepare
     void setDataSize(size_t aDataSize);
-    void appendData(size_t aNumBytes, uint8_t *aBytes);
+
+    /// clear all data
     void clearData();
 
+    /// append data to buffer
+    /// @param aNumBytes number of bytes to add
+    /// @param aBytes bytes to append
+    void appendData(size_t aNumBytes, uint8_t *aBytes);
 
+    /// append single byte to buffer
+    /// @param aByte byte to append
+    void appendByte(uint8_t aByte);
+
+    /// will be called by queue when data can be sent
     virtual bool initiate();
+
   };
   typedef boost::intrusive_ptr<SerialOperationSend> SerialOperationSendPtr;
-
 
 
   /// receive operation
@@ -134,36 +148,39 @@ namespace p44 {
 
   public:
 
-    SerialOperationReceive(size_t aExpectedBytes, SerialOperationFinalizeCB aCallback);
+    /// constructor
+    SerialOperationReceive();
+
+    /// destructor
     virtual ~SerialOperationReceive();
-    uint8_t *getDataP() { return dataP; };
-    size_t getDataSize() { return dataIndex; };
+
+    /// set how much data to send
+    /// @param aExpectedBytes how many bytes we expect to receive
+    void setExpectedBytes(size_t aExpectedBytes);
+
+    /// clear all data
     void clearData();
 
+    /// get size of data received
+    /// @return size of data accessible via getDataP()
+    size_t getDataSize() { return dataIndex; };
+
+    /// get data buffer pointer
+    /// @return pointer to data
+    uint8_t *getDataP() { return dataP; };
+
+    /// accepts bytes into buffer until expected number
     virtual ssize_t acceptBytes(size_t aNumBytes, uint8_t *aBytes);
+
+    /// returns true when enough bytes were received
     virtual bool hasCompleted();
+
+    /// abort
     virtual void abortOperation(ErrorPtr aError);
+
   };
   typedef boost::intrusive_ptr<SerialOperationReceive> SerialOperationReceivePtr;
 
-
-
-  /// send operation which automatically inserts a receive operation after completion
-  class SerialOperationSendAndReceive : public SerialOperationSend
-  {
-    typedef SerialOperationSend inherited;
-
-    size_t expectedBytes;
-
-  public:
-
-    bool answersInSequence;
-    MLMicroSeconds receiveTimeoout;
-
-    SerialOperationSendAndReceive(size_t aNumBytes, uint8_t *aBytes, size_t aExpectedBytes, SerialOperationFinalizeCB aCallback);
-
-    virtual OperationPtr finalize(OperationQueue *aQueueP = NULL);
-  };
 
 
   /// SerialOperation receiver

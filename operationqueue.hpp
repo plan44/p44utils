@@ -50,6 +50,7 @@ namespace p44 {
   class Operation;
   class OperationQueue;
 
+
   /// Operation
   typedef boost::intrusive_ptr<Operation> OperationPtr;
   class Operation : public P44Obj
@@ -58,10 +59,14 @@ namespace p44 {
 
     bool initiated;
     bool aborted;
-    MLMicroSeconds timeout; // timeout
-    MLMicroSeconds timesOutAt; // absolute time for timeout
-    MLMicroSeconds initiationDelay; // how much to delay initiation (after first attempt to initiate)
-    MLMicroSeconds initiatesNotBefore; // absolute time for earliest initiation
+    MLMicroSeconds timeout; ///< timeout
+    MLMicroSeconds timesOutAt; ///< absolute time for timeout
+    MLMicroSeconds initiationDelay; ///< how much to delay initiation (after first attempt to initiate)
+    MLMicroSeconds initiatesNotBefore; ///< absolute time for earliest initiation
+
+    StatusCB completionCB; ///< completion callback
+    OperationPtr chainedOp; ///< operation to insert once this operation has finalized
+
 
   public:
 
@@ -70,6 +75,23 @@ namespace p44 {
 
     /// constructor
     Operation();
+
+    virtual ~Operation();
+
+    /// reset operation (clear callbacks to break ownership loops)
+    /// @note no callbacks are called
+    void reset();
+
+    /// set completion callback
+    /// @param aCompletionCB will be called when operation completes or fails
+    void setCompletionCallback(StatusCB aCompletionCB);
+
+    /// chain another operation
+    /// @note after this operation has finalized, the specified operation will be inserted
+    ///   into the queue in place of this operation
+    /// @note when an operation is chained, the completion callback will not be called.
+    ///   Still it makes sense to set it in case the original operation is aborted.
+    void setChainedOperation(OperationPtr aChainedOp);
 
     /// set delay for initiation (after first attempt to initiate)
     /// @param aInitiationDelay how long to delay initiation of the operation minimally
@@ -86,7 +108,10 @@ namespace p44 {
     /// check if already initiated
     bool isInitiated();
 
-    /// call to check if operation has timed out
+    /// check if already aborted
+    bool isAborted();
+
+    /// called to check if operation has timed out
     bool hasTimedOutAt(MLMicroSeconds aRefTime = MainLoop::now());
 
     /// Methods to override by concrete subclasses of Operation
@@ -94,22 +119,30 @@ namespace p44 {
 
     /// check if can be initiated
     /// @return false if cannot be initiated now and must be retried
+    /// @note base class implementation implements initiation delay here.
+    ///   Derived classes might check other criteria in addition
     virtual bool canInitiate();
 
     /// call to initiate operation
     /// @return false if cannot be initiated now and must be retried
+    /// @note base class starts timeout when initiation has occurred
     /// @note internally calls canInitiate() first
     virtual bool initiate();
     
-    /// call to check if operation has completed
+    /// call to check if operation has completed (after being initiated)
     /// @return true if completed
+    /// @note base class alwayys returns true.
+    ///   Derived classes can signal operation in process by returning true
     virtual bool hasCompleted();
 
     /// call to execute after completion, can chain another operation by returning it
-    virtual OperationPtr finalize(OperationQueue *aQueueP) = 0;
+    /// @note base class calls callback if one was set by setCompletionCallback(),
+    ///   and then chains operation set by setChainedOperation();
+    virtual OperationPtr finalize();
 
     /// abort operation
-    virtual void abortOperation(ErrorPtr aError) = 0;
+    /// @note base class calls callback if one was set by setCompletionCallback()
+    virtual void abortOperation(ErrorPtr aError);
 
     /// @}
 
@@ -122,8 +155,10 @@ namespace p44 {
   class OperationQueue : public P44Obj
   {
     MainLoop &mainLoop;
+    bool processingQueue; ///< set when queue is currently processing
 
   protected:
+
     typedef list<OperationPtr> OperationList;
     OperationList operationQueue;
 

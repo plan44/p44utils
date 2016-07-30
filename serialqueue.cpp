@@ -38,11 +38,6 @@ using namespace p44;
 // MARK: ===== SerialOperation
 
 
-SerialOperation::SerialOperation(SerialOperationFinalizeCB aCallback) :
-  callback(aCallback)
-{
-}
-
 // set transmitter
 void SerialOperation::setTransmitter(SerialOperationTransmitter aTransmitter)
 {
@@ -57,38 +52,14 @@ ssize_t SerialOperation::acceptBytes(size_t aNumBytes, uint8_t *aBytes)
 }
 
 
-OperationPtr SerialOperation::finalize(OperationQueue *aQueueP)
-{
-  if (callback) {
-    callback(SerialOperationPtr(this), aQueueP, ErrorPtr());
-    callback = NULL; // call once only
-  }
-  return OperationPtr(); // no operation to insert
-}
-
-
-void SerialOperation::abortOperation(ErrorPtr aError)
-{
-  if (callback && !aborted) {
-    aborted = true;
-    callback(SerialOperationPtr(this), NULL, aError);
-    callback = NULL; // call once only
-  }
-}
-
-
-
-
 // MARK: ===== SerialOperationSend
 
 
-SerialOperationSend::SerialOperationSend(size_t aNumBytes, uint8_t *aBytes, SerialOperationFinalizeCB aCallback) :
-  inherited(aCallback),
-  dataP(NULL)
+SerialOperationSend::SerialOperationSend() :
+  dataP(NULL),
+  dataSize(0),
+  appendIndex(0)
 {
-  // copy data
-  setDataSize(aNumBytes);
-  appendData(aNumBytes, aBytes);
 }
 
 
@@ -126,10 +97,16 @@ void SerialOperationSend::appendData(size_t aNumBytes, uint8_t *aBytes)
   if (appendIndex+aNumBytes>dataSize)
     aNumBytes = dataSize-appendIndex;
   if (aNumBytes>0) {
-    memcpy(dataP, aBytes, aNumBytes);
+    memcpy(dataP+appendIndex, aBytes, aNumBytes);
+    appendIndex += aNumBytes;
   }
 }
 
+
+void SerialOperationSend::appendByte(uint8_t aByte)
+{
+  appendData(1, &aByte);
+}
 
 
 
@@ -157,13 +134,12 @@ bool SerialOperationSend::initiate()
 // MARK: ===== SerialOperationReceive
 
 
-SerialOperationReceive::SerialOperationReceive(size_t aExpectedBytes, SerialOperationFinalizeCB aCallback) :
-  inherited(aCallback)
+SerialOperationReceive::SerialOperationReceive() :
+  dataP(NULL),
+  expectedBytes(0),
+  dataIndex(0)
 {
   // allocate buffer
-  expectedBytes = aExpectedBytes;
-  dataP = new uint8_t[expectedBytes];
-  dataIndex = 0;
   setTimeout(DEFAULT_RECEIVE_TIMEOUT);
 };
 
@@ -173,6 +149,13 @@ SerialOperationReceive::~SerialOperationReceive()
   clearData();
 }
 
+
+void SerialOperationReceive::setExpectedBytes(size_t aExpectedBytes)
+{
+  expectedBytes = aExpectedBytes;
+  dataP = new uint8_t[expectedBytes];
+  dataIndex = 0;
+}
 
 
 void SerialOperationReceive::clearData()
@@ -214,32 +197,6 @@ void SerialOperationReceive::abortOperation(ErrorPtr aError)
 {
   clearData(); // don't expect any more, early release
   inherited::abortOperation(aError);
-}
-
-
-// MARK: ===== SerialOperationSendAndReceive
-
-
-SerialOperationSendAndReceive::SerialOperationSendAndReceive(size_t aNumBytes, uint8_t *aBytes, size_t aExpectedBytes, SerialOperationFinalizeCB aCallback) :
-  inherited(aNumBytes, aBytes, aCallback),
-  expectedBytes(aExpectedBytes),
-  answersInSequence(true), // by default, answer must arrive until next send can be initiated
-  receiveTimeoout(DEFAULT_RECEIVE_TIMEOUT)
-{
-};
-
-
-OperationPtr SerialOperationSendAndReceive::finalize(OperationQueue *aQueueP)
-{
-  if (aQueueP) {
-    // insert receive operation
-    SerialOperationPtr op(new SerialOperationReceive(expectedBytes, callback)); // inherit completion callback
-    callback = NULL; // prevent it to be called from this object!
-    op->inSequence = answersInSequence; // if false, further sends might be started before answer received
-    op->setTimeout(receiveTimeoout); // set receive timeout
-    return op;
-  }
-  return inherited::finalize(aQueueP); // default
 }
 
 
