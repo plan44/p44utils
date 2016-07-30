@@ -245,7 +245,7 @@ bool SerialComm::connectionIsOpen()
 
 void SerialComm::sendBreak()
 {
-  if (!connectionIsOpen()) return; // ignore
+  if (!connectionIsOpen() || !serialConnection) return; // ignore
   tcsendbreak(connectionFd, 0); // send standard break, which should be >=0.25sec and <=0.5sec
 }
 
@@ -254,7 +254,7 @@ void SerialComm::sendBreak()
 
 void SerialComm::setDTR(bool aActive)
 {
-  if (!connectionIsOpen()) return; // ignore
+  if (!connectionIsOpen() || !serialConnection) return; // ignore
   int iFlags = TIOCM_DTR;
   ioctl(connectionFd, aActive ? TIOCMBIS : TIOCMBIC, &iFlags);
 }
@@ -262,7 +262,7 @@ void SerialComm::setDTR(bool aActive)
 
 void SerialComm::setRTS(bool aActive)
 {
-  if (!connectionIsOpen()) return; // ignore
+  if (!connectionIsOpen() || !serialConnection) return; // ignore
   int iFlags = TIOCM_RTS;
   ioctl(connectionFd, aActive ? TIOCMBIS : TIOCMBIC, &iFlags);
 }
