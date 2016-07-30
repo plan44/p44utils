@@ -19,6 +19,13 @@
 //  along with p44utils. If not, see <http://www.gnu.org/licenses/>.
 //
 
+// File scope debugging options
+// - Set ALWAYS_DEBUG to 1 to enable DBGLOG output even in non-DEBUG builds of this file
+#define ALWAYS_DEBUG 0
+// - set FOCUSLOGLEVEL to non-zero log level (usually, 5,6, or 7==LOG_DEBUG) to get focus (extensive logging) for this file
+//   Note: must be before including "logger.hpp" (or anything that includes "logger.hpp")
+#define FOCUSLOGLEVEL 0
+
 #include "operationqueue.hpp"
 
 using namespace p44;
@@ -61,11 +68,11 @@ bool Operation::canInitiate()
 {
   MLMicroSeconds now = MainLoop::now();
   if (initiationDelay>0) {
-    //DBGLOG(LOG_DEBUG, "requesting initiation delay of %lld uS", initiationDelay);
+    DBGFOCUSLOG("Operation 0x%pX: requesting initiation delay of %lld uS", this, initiationDelay);
     if (initiatesNotBefore==0) {
       // first time queried, start delay now
       initiatesNotBefore = now+initiationDelay;
-      //DBGLOG(LOG_DEBUG, "- now is %lld, will initiate at %lld uS", now, initiatesNotBefore);
+      DBGFOCUSLOG("- now is %lld, will initiate at %lld uS", now, initiatesNotBefore);
       initiationDelay = 0; // consumed
     }
   }
