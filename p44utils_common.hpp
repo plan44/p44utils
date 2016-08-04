@@ -38,8 +38,10 @@
 #if __cplusplus >= 201103L
   // we have C++ 11
   #define P44_FINAL final
+  #define P44_OVERRIDE override
 #else
   #define P44_FINAL
+  #define P44_OVERRIDE
 #endif
 
 #include "p44obj.hpp"
