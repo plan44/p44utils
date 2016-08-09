@@ -39,11 +39,19 @@ namespace p44 {
   /// get network interface information
   /// @param aMacAddressP if not NULL: is set to the MAC address of this machine
   /// @param aIPv4AddressP if not NULL: is set to current IPv4 address of this machine
-  /// Notes:
-  /// - On Linux, the first non-loopback interface's MAC will be used (as enumerated by ifr_ifindex 1..n)
-  /// - On OS X, the MAC address of the "en0" device will be used (every Mac has a en0, which is the
+  /// @param aIfIndexP if not NULL: is set to interface index of the interface which has the MAC returned
+  /// @return true if MAC (but not necessarily IP) was found, false otherwise.
+  /// @note: On Linux, the first non-loopback interface's MAC will be used (as enumerated by ifr_ifindex 1..n)
+  /// @note: On OS X, the MAC address of the "en0" device will be used (every Mac has a en0, which is the
   ///   built-in network port of the machine; ethernet port for Macs that have one, WiFi port otherwise)
-  bool getIfInfo(uint64_t *aMacAddressP, uint32_t *aIPv4AddressP);
+  bool getIfInfo(uint64_t *aMacAddressP, uint32_t *aIPv4AddressP, int *aIfIndexP);
+
+  /// get MAC address of a remote party by IP
+  /// @param aIPv4Address an IPv4 address to find out MAC address for
+  /// @param aMacAddress if not NULL: is set to the MAC address of the
+  /// @return true if MAC of remote IP could be found
+  bool getMacAddressByIpv4(uint32_t aIPv4Address, uint64_t &aMacAddress);
+
 
 } // namespace p44
 
