@@ -521,8 +521,23 @@ uint64_t p44::stringToMacAddress(const char *aMacString, bool aSpacesAllowed)
   return mac;
 }
 
+string p44::ipv4ToString(uint32_t aIPv4Address)
+{
+  return string_format("%d.%d.%d.%d",
+    (aIPv4Address>>24) & 0xFF,
+    (aIPv4Address>>16) & 0xFF,
+    (aIPv4Address>>8) & 0xFF,
+    aIPv4Address & 0xFF
+  );
+}
 
 
 
-
-
+uint32_t p44::stringToIpv4(const char *aIPv4String)
+{
+  short ib[4];
+  if (sscanf(aIPv4String, "%hd.%hd.%hd.%hd", &ib[0], &ib[1], &ib[2], &ib[3])==4) {
+    return (ib[0]<<24) | (ib[1]<<16) | (ib[2]<<8) | ib[3];
+  }
+  return 0; // failed
+}

@@ -62,14 +62,14 @@ namespace p44 {
 
   /// strftime with output to std::string
   /// @param aFormat strftime-style format string
-  /// @param aTime aTime time to format, or NULL for current local time
+  /// @param aTimeP aTime time to format, or NULL for current local time
   /// @return formatted time string
   std::string string_ftime(const char *aFormat, const struct tm *aTimeP = NULL);
 
   /// strftime appending to std::string
   /// @param aStringToAppendTo std::string to append formatted time to
   /// @param aFormat strftime-style format string
-  /// @param aTime aTime time to format, or NULL for current local time
+  /// @param aTimeP aTime time to format, or NULL for current local time
   void string_ftime_append(std::string &aStringToAppendTo, const char *aFormat, const struct tm *aTimeP = NULL);
 
   /// get next line from file into string
@@ -187,6 +187,17 @@ namespace p44 {
   /// @param aMacString MAC address as string, with bytes either unseparated two hex digits each, or separated by dash or colon
   /// @return MAC address as 48bit integer number, or 0 if input string is invalid
   uint64_t stringToMacAddress(const char *aMacString, bool aSpacesAllowed = false);
+
+  /// mac address to string
+  /// @param aIPv4Address IPv4 address as 32bit integer number
+  /// @return IPv4 address as string
+  string ipv4ToString(uint32_t aIPv4Address);
+
+  /// @param aIPv4String IPv4 address in x.x.x.x notation
+  /// @return IPv4 address as 32bit integer number, or 0 if input string is invalid
+  uint32_t stringToIpv4(const char *aIPv4String);
+  
+
 
 
 } // namespace p44
