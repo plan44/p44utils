@@ -209,6 +209,10 @@ namespace p44 {
     ///   smart pointers to the connection, it is essential the handlers are cleared
     void setClearHandlersAtClose() { clearHandlersAtClose = true; }
 
+    /// get server (listening) socketComm
+    /// @return NULL if this is not a client connection, server listening socketComm otherwise
+    SocketCommPtr getServerConnection() { return serverConnection; }
+
   private:
     void freeAddressInfo();
     ErrorPtr socketError(int aSocketFd);
