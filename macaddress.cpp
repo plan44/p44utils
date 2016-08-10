@@ -138,7 +138,7 @@ bool p44::getIfInfo(uint64_t *aMacAddressP, uint32_t *aIPv4AddressP, int *aIfInd
 
 bool p44::getMacAddressByIpv4(uint32_t aIPv4Address, uint64_t &aMacAddress)
 {
-  #warning "Q&D version using blocking system() and popen() calls"
+  #warning "Q&D version using blocking system() and popen() calls, not working when more than one network interface connects to the same subnet (e.g. WiFi+cable)"
   bool found = false;
   // ping to make sure we have the IP in the cache
   const size_t bufSize = 100;
@@ -262,9 +262,6 @@ bool p44::getIfInfo(uint64_t *aMacAddressP, uint32_t *aIPv4AddressP, int *aIfInd
   return found;
 }
 
-
-#include <stdio.h>
-#include <errno.h>
 
 bool p44::getMacAddressByIpv4(uint32_t aIPv4Address, uint64_t &aMacAddress)
 {
