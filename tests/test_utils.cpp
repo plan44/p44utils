@@ -50,3 +50,13 @@ TEST_CASE( "mac address parsing", "[utils]" ) {
   REQUIRE( p44::stringToMacAddress("1-2-3-4F-5F:6F", true) == 0x0102034F5F6F );
 }
 
+TEST_CASE( "IPv4 address formatting", "[utils]" ) {
+  REQUIRE( p44::ipv4ToString(0xC0A83B2A) == "192.168.59.42" );
+  REQUIRE( p44::ipv4ToString(0xFFFFFFFF) == "255.255.255.255" );
+}
+
+TEST_CASE( "IPv4 address parsing", "[utils]" ) {
+  REQUIRE( p44::stringToIpv4("192.168.59.42") == 0xC0A83B2A );
+  REQUIRE( p44::stringToIpv4("192.168.59") == 0 );
+}
+
