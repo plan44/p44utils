@@ -83,6 +83,7 @@ namespace p44 {
     bool parityEnable;
     bool evenParity;
     bool twoStopBits;
+    bool hardwareHandshake;
     bool connectionOpen;
     int connectionFd;
     struct termios oldTermIO;

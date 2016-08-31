@@ -34,6 +34,7 @@ SerialComm::SerialComm(MainLoop &aMainLoop) :
   parityEnable(false),
   evenParity(false),
   twoStopBits(false),
+  hardwareHandshake(false),
   connectionOpen(false),
   reconnecting(false)
 {
@@ -62,7 +63,7 @@ void SerialComm::setConnectionSpecification(const char* aConnectionSpec, uint16_
         connectionPath.erase(n,string::npos);
       }
       if (opt.size()>0) {
-        // get communication options: [baud rate][,[bits][,[parity][,[stopbits]]]]
+        // get communication options: [baud rate][,[bits][,[parity][,[stopbits][,[H]]]]]
         string part;
         const char *p = opt.c_str();
         if (nextPart(p, part, ',')) {
@@ -88,6 +89,12 @@ void SerialComm::setConnectionSpecification(const char* aConnectionSpec, uint16_
                 // stopbits: 1 or 2
                 if (part.size()>0) {
                   twoStopBits = part[0]=='2';
+                }
+                if (nextPart(p, part, ',')) {
+                  // hardware handshake?
+                  if (part.size()>0) {
+                    hardwareHandshake = part[0]=='H';
+                  }
                 }
               }
             }
@@ -152,7 +159,8 @@ ErrorPtr SerialComm::establishConnection()
         CLOCAL | CREAD | // no modem control lines (local), reading enabled
         (charSize==5 ? CS5 : (charSize==6 ? CS6 : (charSize==7 ? CS7 : CS8))) | // char size
         (twoStopBits ? CSTOPB : 0) | // stop bits
-        (parityEnable ? PARENB | (evenParity ? 0 : PARODD) : 0); // parity
+        (parityEnable ? PARENB | (evenParity ? 0 : PARODD) : 0) | // parity
+        (hardwareHandshake ? CRTSCTS : 0); // hardware handshake
       // - ignore parity errors
       newtio.c_iflag =
         parityEnable ? INPCK : IGNPAR; // check or ignore parity
