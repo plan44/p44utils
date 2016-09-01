@@ -28,20 +28,19 @@ using namespace std;
 
 namespace p44 {
 
-  // Errors
-  typedef enum {
-    SsdpErrorOK,
-    SsdpErrorInvalidAnswer,
-    SsdpErrorTimeout,
-  } SsdpErrors;
-
   class SsdpError : public Error
   {
   public:
+    // Errors
+    typedef enum {
+      OK,
+      InvalidAnswer,
+      Timeout,
+    } ErrorCodes;
+    
     static const char *domain() { return "Ssdp"; }
     virtual const char *getErrorDomain() const { return SsdpError::domain(); };
-    SsdpError(SsdpErrors aError) : Error(ErrorCode(aError)) {};
-    SsdpError(SsdpErrors aError, std::string aErrorMessage) : Error(ErrorCode(aError), aErrorMessage) {};
+    SsdpError(ErrorCodes aError) : Error(ErrorCode(aError)) {};
   };
 
 

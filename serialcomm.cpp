@@ -144,7 +144,7 @@ ErrorPtr SerialComm::establishConnection()
         case 230400 : baudRateCode = B230400; break;
       }
       if (baudRateCode==0) {
-        return ErrorPtr(new SerialCommError(SerialCommErrorUnknownBaudrate));
+        return ErrorPtr(new SerialCommError(SerialCommError::UnknownBaudrate));
       }
       // assume it's a serial port
       connectionFd = open(connectionPath.c_str(), O_RDWR | O_NOCTTY);
@@ -191,7 +191,7 @@ ErrorPtr SerialComm::establishConnection()
       struct hostent *server;
       server = gethostbyname(connectionPath.c_str());
       if (server == NULL) {
-        return ErrorPtr(new SerialCommError(SerialCommErrorInvalidHost));
+        return ErrorPtr(new SerialCommError(SerialCommError::InvalidHost));
       }
       memcpy((char *)&conn_addr.sin_addr.s_addr, (char *)server->h_addr, server->h_length);
       if ((res = connect(connectionFd, (struct sockaddr *)&conn_addr, sizeof(conn_addr))) < 0) {

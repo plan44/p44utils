@@ -49,7 +49,7 @@ void JsonWebClient::requestThreadSignal(ChildThreadWrapper &aChildThread, Thread
         struct json_object *o = json_tokener_parse_ex(tokener, response.c_str(), (int)response.size());
         if (o==NULL) {
           // error (or incomplete JSON, which is fine)
-          JsonErrors err = json_tokener_get_error(tokener);
+          JsonError::ErrorCodes err = json_tokener_get_error(tokener);
           if (err!=json_tokener_continue) {
             // real error
             requestError = ErrorPtr(new JsonError(err));

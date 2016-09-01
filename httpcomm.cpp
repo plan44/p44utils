@@ -78,7 +78,7 @@ void HttpComm::requestThread(ChildThreadWrapper &aThread)
     useSSL = true;
   }
   else {
-    requestError = ErrorPtr(new HttpCommError(HttpCommError_invalidParameters, "invalid protocol"));
+    requestError = Error::err<HttpCommError>(HttpCommError::invalidParameters, "invalid protocol");
   }
   splitHost(hostSpec.c_str(), &host, &port);
   if (Error::isOK(requestError)) {
@@ -127,7 +127,7 @@ void HttpComm::requestThread(ChildThreadWrapper &aThread)
       );
     }
     if (!mgConn) {
-      requestError = ErrorPtr(new HttpCommError(HttpCommError_mongooseError, ebuf));
+      requestError = Error::err_cstr<HttpCommError>(HttpCommError::mongooseError, ebuf);
     }
     else {
       // successfully initiated connection
@@ -151,7 +151,7 @@ void HttpComm::requestThread(ChildThreadWrapper &aThread)
         }
         else if (res<0) {
           // read error
-          requestError = ErrorPtr(new HttpCommError(HttpCommError_read));
+          requestError = ErrorPtr(new HttpCommError(HttpCommError::read));
           break;
         }
         else {

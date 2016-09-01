@@ -42,19 +42,18 @@ namespace p44 {
   #define NOT_ENOUGH_BYTES -1
 
 
-  // Errors
-  typedef enum {
-    SQErrorOK,
-    SQErrorTransmit,
-  } SQErrors;
-
   class SQError : public Error
   {
   public:
+    // Errors
+    typedef enum {
+      OK,
+      Transmit,
+    } ErrorCodes;
+    
     static const char *domain() { return "SerialQueue"; };
     virtual const char *getErrorDomain() const { return SQError::domain(); };
-    SQError(SQErrors aError) : Error(ErrorCode(aError)) {};
-    SQError(SQErrors aError, std::string aErrorMessage) : Error(ErrorCode(aError), aErrorMessage) {};
+    SQError(ErrorCodes aError) : Error(ErrorCode(aError)) {};
   };
 
 

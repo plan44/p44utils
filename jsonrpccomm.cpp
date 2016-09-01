@@ -157,19 +157,19 @@ void JsonRpcComm::gotJson(ErrorPtr aError, JsonObjectPtr aJsonObject)
     // received proper JSON, now check JSON-RPC specifics
     FOCUSLOG("Received JSON message:\n  %s", aJsonObject->c_strValue());
     if (aJsonObject->isType(json_type_array)) {
-      respErr = ErrorPtr(new JsonRpcError(JSONRPC_INVALID_REQUEST, "Invalid Request - batch mode not supported by this implementation"));
+      respErr = Error::err<JsonRpcError>(JsonRpcError::InvalidRequest, "Invalid Request - batch mode not supported by this implementation");
     }
     else if (!aJsonObject->isType(json_type_object)) {
-      respErr = ErrorPtr(new JsonRpcError(JSONRPC_INVALID_REQUEST, "Invalid Request - request must be JSON object"));
+      respErr = Error::err<JsonRpcError>(JsonRpcError::InvalidRequest, "Invalid Request - request must be JSON object");
     }
     else {
       // check request object fields
       const char *method = NULL;
       JsonObjectPtr o = aJsonObject->get("jsonrpc");
       if (!o)
-        respErr = ErrorPtr(new JsonRpcError(JSONRPC_INVALID_REQUEST, "Invalid Request - missing 'jsonrpc'"));
+        respErr = Error::err<JsonRpcError>(JsonRpcError::InvalidRequest, "Invalid Request - missing 'jsonrpc'");
       else if (o->stringValue()!="2.0")
-        respErr = ErrorPtr(new JsonRpcError(JSONRPC_INVALID_REQUEST, "Invalid Request - wrong version in 'jsonrpc'"));
+        respErr = Error::err<JsonRpcError>(JsonRpcError::InvalidRequest, "Invalid Request - wrong version in 'jsonrpc'");
       else {
         // get ID param (must be present for all messages except notification)
         idObj = aJsonObject->get("id");
@@ -181,17 +181,17 @@ void JsonRpcComm::gotJson(ErrorPtr aError, JsonObjectPtr aJsonObject)
           // this is a request (responses don't have the method member)
           safeError = idObj!=NULL; // reporting error is safe if this is a method call. Other errors are reported only when reportAllErrors is set
           if (*method==0)
-            respErr = ErrorPtr(new JsonRpcError(JSONRPC_INVALID_REQUEST, "Invalid Request - empty 'method'"));
+            respErr = Error::err<JsonRpcError>(JsonRpcError::InvalidRequest, "Invalid Request - empty 'method'");
           else {
             // looks like a valid method or notification call
             if (!jsonRequestHandler) {
               // no handler -> method cannot be executed
-              respErr = ErrorPtr(new JsonRpcError(JSONRPC_METHOD_NOT_FOUND, "Method not found"));
+              respErr = Error::err<JsonRpcError>(JsonRpcError::MethodNotFound, "Method not found");
             }
             else {
               if (paramsObj && !paramsObj->isType(json_type_array) && !paramsObj->isType(json_type_object)) {
                 // invalid param object
-                respErr = ErrorPtr(new JsonRpcError(JSONRPC_INVALID_REQUEST, "Invalid Request - 'params' must be object or array"));
+                respErr = Error::err<JsonRpcError>(JsonRpcError::InvalidRequest, "Invalid Request - 'params' must be object or array");
               }
               else {
                 // call handler to execute method or notification
@@ -208,10 +208,10 @@ void JsonRpcComm::gotJson(ErrorPtr aError, JsonObjectPtr aJsonObject)
             // must be error, need further decoding
             respObj = aJsonObject->get("error");
             if (!respObj)
-              respErr = ErrorPtr(new JsonRpcError(JSONRPC_INTERNAL_ERROR, "Internal JSON-RPC error - response with neither 'result' nor 'error'"));
+              respErr = Error::err<JsonRpcError>(JsonRpcError::InternalError, "Internal JSON-RPC error - response with neither 'result' nor 'error'");
             else {
               // dissect error object
-              ErrorCode errCode = JSONRPC_INTERNAL_ERROR; // Internal RPC error
+              ErrorCode errCode = JsonRpcError::InternalError; // Internal RPC error
               const char *errMsg = "malformed Error response";
               // - try to get error code
               JsonObjectPtr o = respObj->get("code");
@@ -220,7 +220,7 @@ void JsonRpcComm::gotJson(ErrorPtr aError, JsonObjectPtr aJsonObject)
               o = respObj->get("message");
               if (o) errMsg = o->c_strValue();
               // compose error object from this
-              respErr = ErrorPtr(new JsonRpcError(errCode, errMsg));
+              respErr = Error::err_cstr<JsonRpcError>(errCode, errMsg);
               // also get optional data element
               respObj = respObj->get("data");
             }
@@ -254,11 +254,11 @@ void JsonRpcComm::gotJson(ErrorPtr aError, JsonObjectPtr aJsonObject)
     // no proper JSON received, create error response
     if (aError->isDomain(JsonError::domain())) {
       // some kind of parsing error
-      respErr = ErrorPtr(new JsonRpcError(JSONRPC_PARSE_ERROR, aError->description()));
+      respErr = Error::err_str<JsonRpcError>(JsonRpcError::ParseError, aError->description());
     }
     else {
       // some other type of server error
-      respErr = ErrorPtr(new JsonRpcError(JSONRPC_SERVER_ERROR, aError->description()));
+      respErr = Error::err_str<JsonRpcError>(JsonRpcError::ServerError, aError->description());
     }
   }
   // auto-generate error response for internally created errors

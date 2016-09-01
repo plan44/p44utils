@@ -28,21 +28,23 @@ using namespace std;
 
 namespace p44 {
 
-  #define JSONRPC_PARSE_ERROR -32700
-  #define JSONRPC_INVALID_REQUEST -32600
-  #define JSONRPC_METHOD_NOT_FOUND -32601
-  #define JSONRPC_INVALID_PARAMS -32602
-  #define JSONRPC_INTERNAL_ERROR -32603
-  #define JSONRPC_SERVER_ERROR -32000
-  #define JSONRPC_SERVER_ERROR_MAX -32099
-
   class JsonRpcError : public Error
   {
   public:
+    enum {
+      ParseError = -32700,
+      InvalidRequest = -32600,
+      MethodNotFound = -32601,
+      InvalidParams = -32602,
+      InternalError = -32603,
+      ServerError = -32000,
+      ServerErrorMax = -32099
+    };
+    typedef uint32_t ErrorCodes;
+
     static const char *domain() { return "JsonRPC"; }
     virtual const char *getErrorDomain() const { return JsonRpcError::domain(); };
     JsonRpcError(ErrorCode aError) : Error(aError) {};
-    JsonRpcError(ErrorCode aError, const std::string &aErrorMessage) : Error(aError, aErrorMessage) {};
   };
 
 

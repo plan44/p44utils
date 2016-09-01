@@ -32,10 +32,6 @@ namespace p44 {
 
   typedef long ErrorCode;
 
-  typedef enum {
-    ErrorOK,
-    ErrorNotOK
-  } CommonErrors;
 
 
   /// error base class
@@ -46,6 +42,12 @@ namespace p44 {
     ErrorCode errorCode;
     string errorMessage;
   public:
+
+    enum {
+      OK,
+      NotOK
+    };
+
     static const char *domain();
 
     /// create error with error code
@@ -56,6 +58,46 @@ namespace p44 {
     /// @param aErrorCode error code. aErrorCode==0 from any domain means OK.
     /// @param aErrorMessage error message
     Error(ErrorCode aErrorCode, const std::string &aErrorMessage);
+
+    /// create a Error subclass object with printf-style formatted error
+    /// @param aErrorCode error code. aErrorCode==0 from any domain means OK.
+    /// @param aFmt ... error message format string and arguments
+    template<typename T> static ErrorPtr err(ErrorCode aErrorCode, const char *aFmt, ...) __printflike(2,3)
+    {
+      Error *errP = new T(static_cast<typename T::ErrorCodes>(aErrorCode));
+      va_list args;
+      va_start(args, aFmt);
+      errP->setFormattedMessage(aFmt, args);
+      va_end(args);
+      return ErrorPtr(errP);
+    };
+
+    /// create a Error subclass object with printf-style formatted error
+    /// @param aErrorCode error code. aErrorCode==0 from any domain means OK.
+    /// @param aMessage error message
+    template<typename T> static ErrorPtr err_str(ErrorCode aErrorCode, const string aMessage)
+    {
+      Error *errP = new T(static_cast<typename T::ErrorCodes>(aErrorCode));
+      errP->errorMessage = aMessage;
+      return ErrorPtr(errP);
+    };
+
+    /// create a Error subclass object with printf-style formatted error
+    /// @param aErrorCode error code. aErrorCode==0 from any domain means OK.
+    /// @param aMessage error message
+    template<typename T> static ErrorPtr err_cstr(ErrorCode aErrorCode, const char *aMessage)
+    {
+      Error *errP = new T(static_cast<typename T::ErrorCodes>(aErrorCode));
+      if (aMessage) errP->errorMessage = aMessage;
+      return ErrorPtr(errP);
+    };
+
+
+
+    /// set formatted error message
+    /// @param aFmt error message format string
+    /// @param aArgs argument list for formatting
+    void setFormattedMessage(const char *aFmt, va_list aArgs);
 
     /// get error code
     /// @return the error code. Note that error codes are unique only within the same error domain.
@@ -96,6 +138,10 @@ namespace p44 {
   };
 
 
+  /// macro to create convenient factory method
+
+
+
   /// C errno based system error
   class SysError : public Error
   {
@@ -131,7 +177,8 @@ namespace p44 {
 
     /// factory function to create a ErrorPtr either containing NULL (if aErrNo indicates OK)
     /// or a SysError (if aErrNo indicates error)
-    static ErrorPtr err(uint16_t aHTTPError, std::string aErrorMessage);
+    static ErrorPtr webErr(uint16_t aHTTPError, const char *aFmt, ... ) __printflike(2,3);
+
   };
 
 
@@ -141,10 +188,10 @@ namespace p44 {
   public:
     static const char *domain() { return "TextError"; }
     virtual const char *getErrorDomain() const { return TextError::domain(); };
-    TextError(std::string aErrorMessage) : Error(ErrorNotOK, aErrorMessage) {};
+    TextError() : Error(Error::NotOK) {};
 
     /// factory method to create string error fprint style
-    static ErrorPtr err(const char *aFormat, ...);
+    static ErrorPtr err(const char *aFmt, ...) __printflike(1,2);
   };
 
 

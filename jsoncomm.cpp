@@ -110,7 +110,7 @@ void JsonComm::gotData(ErrorPtr aError)
               struct json_object *o = json_tokener_parse_ex(tokener, (const char *)buf+bom, (int)(eom-bom));
               if (o==NULL) {
                 // error (or incomplete JSON, which is fine)
-                JsonErrors err = json_tokener_get_error(tokener);
+                JsonError::ErrorCodes err = json_tokener_get_error(tokener);
                 if (err!=json_tokener_continue) {
                   // real error
                   if (jsonMessageHandler) {

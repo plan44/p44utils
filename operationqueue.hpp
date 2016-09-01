@@ -30,20 +30,19 @@ using namespace std;
 namespace p44 {
 
 
-  // Errors
-  typedef enum {
-    OQErrorOK,
-    OQErrorAborted,
-    OQErrorTimedOut,
-  } OQErrors;
-
   class OQError : public Error
   {
   public:
+    // Errors
+    typedef enum {
+      OK,
+      Aborted,
+      TimedOut,
+    } ErrorCodes;
+    
     static const char *domain() { return "OperationQueue"; };
     virtual const char *getErrorDomain() const { return OQError::domain(); };
-    OQError(OQErrors aError) : Error(ErrorCode(aError)) {};
-    OQError(OQErrors aError, std::string aErrorMessage) : Error(ErrorCode(aError), aErrorMessage) {};
+    OQError(ErrorCodes aError) : Error(ErrorCode(aError)) {};
   };
 
 

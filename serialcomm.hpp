@@ -49,20 +49,19 @@ using namespace std;
 
 namespace p44 {
 
-  // Errors
-  typedef enum {
-    SerialCommErrorOK,
-    SerialCommErrorInvalidHost,
-    SerialCommErrorUnknownBaudrate,
-  } SerialCommErrors;
-
   class SerialCommError : public Error
   {
   public:
+    // Errors
+    typedef enum {
+      OK,
+      InvalidHost,
+      UnknownBaudrate,
+    } ErrorCodes;
+    
     static const char *domain() { return "SerialComm"; }
     virtual const char *getErrorDomain() const { return SerialCommError::domain(); };
-    SerialCommError(SerialCommErrors aError) : Error(ErrorCode(aError)) {};
-    SerialCommError(SerialCommErrors aError, std::string aErrorMessage) : Error(ErrorCode(aError), aErrorMessage) {};
+    SerialCommError(ErrorCodes aError) : Error(ErrorCode(aError)) {};
   };
 
 

@@ -44,6 +44,15 @@ Error::Error(ErrorCode aErrorCode, const std::string &aErrorMessage)
 }
 
 
+void Error::setFormattedMessage(const char *aFmt, va_list aArgs)
+{
+  // now make the string
+  string_format_v(errorMessage, true, aFmt, aArgs);
+}
+
+
+
+
 ErrorCode Error::getErrorCode() const
 {
   return errorCode;
@@ -168,29 +177,31 @@ ErrorPtr SysError::err(int aErrNo, const char *aContextMessage)
 // MARK: ===== web error
 
 
-ErrorPtr WebError::err(uint16_t aHTTPError, std::string aErrorMessage)
+ErrorPtr WebError::webErr(uint16_t aHTTPError, const char *aFmt, ... )
 {
   if (aHTTPError==0)
     return ErrorPtr(); // empty, no error
-  return ErrorPtr(new WebError(aHTTPError, aErrorMessage));
+  Error *errP = new WebError(aHTTPError);
+  va_list args;
+  va_start(args, aFmt);
+  errP->setFormattedMessage(aFmt, args);
+  va_end(args);
+  return ErrorPtr(errP);
 }
 
 
 // MARK: ===== text error
 
 
-ErrorPtr TextError::err(const char *aFormat, ...)
+ErrorPtr TextError::err(const char *aFmt, ...)
 {
+  Error *errP = new TextError();
   va_list args;
-
-  va_start(args, aFormat);
-  // now make the string
-  string s;
-  string_format_v(s, true, aFormat, args);
+  va_start(args, aFmt);
+  errP->setFormattedMessage(aFmt, args);
   va_end(args);
-  return ErrorPtr(new TextError(s));
+  return ErrorPtr(errP);
 }
-
 
 
 

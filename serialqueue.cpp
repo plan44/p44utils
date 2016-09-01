@@ -120,7 +120,7 @@ bool SerialOperationSend::initiate()
     res = transmitter(dataSize,dataP);
     if (res!=dataSize) {
       // error
-      abortOperation(ErrorPtr(new SQError(SQErrorTransmit)));
+      abortOperation(ErrorPtr(new SQError(SQError::Transmit)));
     }
     // early release
     clearData();

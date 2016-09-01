@@ -105,7 +105,7 @@ ErrorPtr SocketComm::startServer(ServerConnectionCB aServerConnectionHandler, in
     if ((pse = getservbyname(serviceOrPortOrSocket.c_str(), NULL)) != NULL)
       sinP->sin_port = htons(ntohs((in_port_t)pse->s_port));
     else if ((sinP->sin_port = htons((in_port_t)atoi(serviceOrPortOrSocket.c_str()))) == 0) {
-      err = ErrorPtr(new SocketCommError(SocketCommErrorCannotResolve,"Unknown service/port name"));
+      err = Error::err<SocketCommError>(SocketCommError::CannotResolve, "Unknown service/port name");
     }
     // - protocol derived from socket type
     if (protocol==0) {
@@ -134,7 +134,7 @@ ErrorPtr SocketComm::startServer(ServerConnectionCB aServerConnectionHandler, in
   }
   else {
     // TODO: implement other portocol families, in particular PF_INET6
-    err = ErrorPtr(new SocketCommError(SocketCommErrorUnsupported,"Unsupported protocol family"));
+    err = Error::err<SocketCommError>(SocketCommError::Unsupported, "Unsupported protocol family");
   }
   // now create and configure socket
   if (Error::isOK(err)) {
@@ -327,7 +327,7 @@ ErrorPtr SocketComm::initiateConnection()
     else {
       // assume internet connection -> get list of possible addresses and try them
       if (hostNameOrAddress.empty()) {
-        err = ErrorPtr(new SocketCommError(SocketCommErrorNoParams,"Missing connection parameters"));
+        err = Error::err<SocketCommError>(SocketCommError::NoParams, "Missing connection parameters");
         goto done;
       }
       // try to resolve host name
@@ -340,7 +340,7 @@ ErrorPtr SocketComm::initiateConnection()
       res = getaddrinfo(hostNameOrAddress.c_str(), serviceOrPortOrSocket.c_str(), &hint, &addressInfoList);
       if (res!=0) {
         // error
-        err = ErrorPtr(new SocketCommError(SocketCommErrorCannotResolve, string_format("getaddrinfo error %d: %s", res, gai_strerror(res))));
+        err = Error::err<SocketCommError>(SocketCommError::CannotResolve, "getaddrinfo error %d: %s", res, gai_strerror(res));
         DBGLOG(LOG_DEBUG, "SocketComm: getaddrinfo failed: %s", err->description().c_str());
         goto done;
       }
@@ -458,7 +458,7 @@ ErrorPtr SocketComm::connectNextAddress()
   }
   if (!startedConnecting) {
     // exhausted addresses without starting to connect
-    if (!err) err = ErrorPtr(new SocketCommError(SocketCommErrorNoConnection, "No connection could be established"));
+    if (!err) err = Error::err<SocketCommError>(SocketCommError::NoConnection, "No connection could be established");
     LOG(LOG_DEBUG, "Cannot initiate connection to %s:%s - %s", hostNameOrAddress.c_str(), serviceOrPortOrSocket.c_str(), err->description().c_str());
   }
   else {
@@ -524,7 +524,7 @@ bool SocketComm::connectionMonitorHandler(MLMicroSeconds aCycleStartTime, int aF
     err = socketError(aFd);
   }
   else if (aPollFlags & POLLHUP) {
-    err = ErrorPtr(new SocketCommError(SocketCommErrorHungUp, "Connection HUP while opening (= connection rejected)"));
+    err = Error::err<SocketCommError>(SocketCommError::HungUp, "Connection HUP while opening (= connection rejected)");
   }
   else if (aPollFlags & POLLERR) {
     err = socketError(aFd);
@@ -581,7 +581,7 @@ void SocketComm::closeConnection()
     LOG(LOG_DEBUG, "Connection with %s:%s explicitly closing", hostNameOrAddress.c_str(), serviceOrPortOrSocket.c_str());
     if (connectionStatusHandler) {
       // connection ok
-      ErrorPtr err = ErrorPtr(new SocketCommError(SocketCommErrorClosed, "Connection closed"));
+      ErrorPtr err = Error::err<SocketCommError>(SocketCommError::Closed, "Connection closed");
       connectionStatusHandler(this, err);
     }
     // close the connection
@@ -744,7 +744,7 @@ void SocketComm::dataExceptionHandler(int aFd, int aPollFlags)
       // - report
       if (connectionStatusHandler) {
         // report reason for closing
-        connectionStatusHandler(this, ErrorPtr(new SocketCommError(SocketCommErrorHungUp,"Connection closed (HUP)")));
+        connectionStatusHandler(this, Error::err<SocketCommError>(SocketCommError::HungUp, "Connection closed (HUP)"));
       }
     }
     else if (aPollFlags & POLLIN) {
@@ -752,7 +752,7 @@ void SocketComm::dataExceptionHandler(int aFd, int aPollFlags)
       // alerted for read, but nothing to read any more: assume connection closed
       ErrorPtr err = socketError(aFd);
       if (Error::isOK(err))
-        err = ErrorPtr(new SocketCommError(SocketCommErrorHungUp,"Connection closed (POLLIN but no data -> interpreted as HUP)"));
+        err = Error::err<SocketCommError>(SocketCommError::HungUp, "Connection closed (POLLIN but no data -> interpreted as HUP)");
       DBGLOG(LOG_DEBUG, "Connection to %s:%s has POLLIN but no data; error: %s", hostNameOrAddress.c_str(), serviceOrPortOrSocket.c_str(), err->description().c_str());
       // - report
       if (connectionStatusHandler) {

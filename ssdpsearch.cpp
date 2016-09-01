@@ -132,7 +132,7 @@ void SsdpSearch::searchTimedOut()
 {
   stopSearch();
   if (searchResultHandler) {
-    searchResultHandler(this, ErrorPtr(new SsdpError(SsdpErrorTimeout, "SSDP search timed out with no (more) results")));
+    searchResultHandler(this, Error::err<SsdpError>(SsdpError::Timeout, "SSDP search timed out with no (more) results"));
   }
 }
 

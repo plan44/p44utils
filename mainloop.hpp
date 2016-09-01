@@ -110,10 +110,11 @@ namespace p44 {
   class ExecError : public Error
   {
   public:
+    typedef int ErrorCodes;
+
     static const char *domain() { return "ExecError"; };
     virtual const char *getErrorDomain() const { return ExecError::domain(); };
     ExecError(int aExitStatus) : Error(ErrorCode(aExitStatus)) {};
-    ExecError(int aExitStatus, std::string aErrorMessage) : Error(ErrorCode(aExitStatus), aErrorMessage) {};
     static ErrorPtr exitStatus(int aExitStatus, const char *aContextMessage = NULL);
   };
 

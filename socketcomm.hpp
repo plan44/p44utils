@@ -39,25 +39,24 @@ using namespace std;
 
 namespace p44 {
 
-  // Errors
-  typedef enum {
-    SocketCommErrorOK,
-    SocketCommErrorNoParams, ///< parameters missing to even try initiating connection
-    SocketCommErrorUnsupported, ///< unsupported mode/feature
-    SocketCommErrorCannotResolve, ///< host or service name cannot be resolved
-    SocketCommErrorNoConnection, ///< no connection could be established (none of the addresses worked)
-    SocketCommErrorHungUp, ///< other side closed connection (hung up, HUP)
-    SocketCommErrorClosed, ///< closed from my side
-    SocketCommErrorFDErr, ///< error on file descriptor
-  } SocketCommErrors;
-
   class SocketCommError : public Error
   {
   public:
+    // Errors
+    typedef enum {
+      OK,
+      NoParams, ///< parameters missing to even try initiating connection
+      Unsupported, ///< unsupported mode/feature
+      CannotResolve, ///< host or service name cannot be resolved
+      NoConnection, ///< no connection could be established (none of the addresses worked)
+      HungUp, ///< other side closed connection (hung up, HUP)
+      Closed, ///< closed from my side
+      FDErr, ///< error on file descriptor
+    } ErrorCodes;
+    
     static const char *domain() { return "SocketComm"; }
     virtual const char *getErrorDomain() const { return SocketCommError::domain(); };
-    SocketCommError(SocketCommErrors aError) : Error(ErrorCode(aError)) {};
-    SocketCommError(SocketCommErrors aError, std::string aErrorMessage) : Error(ErrorCode(aError), aErrorMessage) {};
+    SocketCommError(ErrorCodes aError) : Error(ErrorCode(aError)) {};
   };
 
 

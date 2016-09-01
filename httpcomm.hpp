@@ -32,23 +32,22 @@ namespace p44 {
 
 
   // Errors
-  typedef uint16_t HttpCommErrors;
-
-  enum {
-    HttpCommError_invalidParameters = 10000,
-    HttpCommError_noConnection = 10001,
-    HttpCommError_read = 10002,
-    HttpCommError_write = 10003,
-    HttpCommError_mongooseError = 20000
-  };
 
   class HttpCommError : public Error
   {
   public:
+    enum {
+      invalidParameters = 10000,
+      noConnection = 10001,
+      read = 10002,
+      write = 10003,
+      mongooseError = 20000
+    };
+    typedef uint16_t ErrorCodes;
+
     static const char *domain() { return "HttpComm"; }
     virtual const char *getErrorDomain() const { return HttpCommError::domain(); };
-    HttpCommError(HttpCommErrors aError) : Error(ErrorCode(aError)) {};
-    HttpCommError(HttpCommErrors aError, std::string aErrorMessage) : Error(ErrorCode(aError), aErrorMessage) {};
+    HttpCommError(ErrorCodes aError) : Error(ErrorCode(aError)) {};
   };
 
 

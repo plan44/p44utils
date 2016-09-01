@@ -274,7 +274,7 @@ bool OperationQueue::idleHandler()
         // remove from list
         operationQueue.erase(pos);
         // abort with timeout
-        op->abortOperation(ErrorPtr(new OQError(OQErrorTimedOut)));
+        op->abortOperation(ErrorPtr(new OQError(OQError::TimedOut)));
         // restart with start of (modified) queue
         pleaseCallAgainSoon = true;
         break;
@@ -334,7 +334,7 @@ bool OperationQueue::idleHandler()
 void OperationQueue::abortOperations()
 {
   for (OperationList::iterator pos = operationQueue.begin(); pos!=operationQueue.end(); ++pos) {
-    (*pos)->abortOperation(ErrorPtr(new OQError(OQErrorAborted)));
+    (*pos)->abortOperation(ErrorPtr(new OQError(OQError::Aborted)));
   }
   // empty queue
   operationQueue.clear();

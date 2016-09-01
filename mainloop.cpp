@@ -94,7 +94,7 @@ ErrorPtr ExecError::exitStatus(int aExitStatus, const char *aContextMessage)
 {
   if (aExitStatus==0)
     return ErrorPtr(); // empty, no error
-  return ErrorPtr(new ExecError(aExitStatus, nonNullCStr(aContextMessage)));
+  return Error::err_cstr<ExecError>(aExitStatus, aContextMessage);
 }
 
 

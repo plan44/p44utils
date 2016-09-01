@@ -31,16 +31,16 @@ using namespace std;
 namespace p44 {
 
 
-  // Errors
-  typedef enum json_tokener_error JsonErrors;
 
   class JsonError : public Error
   {
   public:
+    // Errors
+    typedef enum json_tokener_error ErrorCodes;
+
     static const char *domain() { return "JsonObject"; }
     virtual const char *getErrorDomain() const { return JsonError::domain(); };
-    JsonError(JsonErrors aError) : Error(ErrorCode(aError), json_tokener_error_desc(aError)) {};
-    JsonError(JsonErrors aError, std::string aErrorMessage) : Error(ErrorCode(aError), aErrorMessage) {};
+    JsonError(ErrorCodes aError) : Error(ErrorCode(aError), json_tokener_error_desc(aError)) {};
   };
   
   
