@@ -19,8 +19,8 @@
 //  along with p44utils. If not, see <http://www.gnu.org/licenses/>.
 //
 
-#ifndef __vdcd__p44obj__
-#define __vdcd__p44obj__
+#ifndef __p44utils__p44obj__
+#define __p44utils__p44obj__
 
 #include <boost/intrusive_ptr.hpp>
 
@@ -49,4 +49,4 @@ namespace p44 {
 } // namespace p44
 
 
-#endif /* defined(__vdcd__p44obj__) */
+#endif /* defined(__p44utils__p44obj__) */
