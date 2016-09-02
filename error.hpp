@@ -19,12 +19,17 @@
 //  along with p44utils. If not, see <http://www.gnu.org/licenses/>.
 //
 
-#ifndef __p44utils__dcerror__
-#define __p44utils__dcerror__
+#ifndef __p44utils__error__
+#define __p44utils__error__
 
 #include <string>
 #include <stdint.h>
+#include <stdarg.h>
 #include "p44obj.hpp"
+
+#ifndef __printflike
+#define __printflike(...)
+#endif
 
 using namespace std;
 
@@ -198,4 +203,4 @@ namespace p44 {
 } // namespace p44
 
 
-#endif /* defined(__p44utils__dcerror__) */
+#endif /* defined(__p44utils__error__) */
