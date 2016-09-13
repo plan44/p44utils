@@ -326,15 +326,20 @@ void CmdLineApp::showUsage()
           }
         }
         // complete first line indent
-        if (remaining>0)
+        if (remaining>0) {
           while (remaining-- > 0) fprintf(stderr, " ");
-        else
+        }
+        else {
           fprintf(stderr, "  "); // just two spaces
+          remaining -= 2; // count these
+        }
         // print option description, properly indented and word-wrapped
+        // Note: remaining is 0 or negative in case arguments reached beyond indent
         if (desc) {
-          ssize_t ll = MAX_LINELEN-indent;
           ssize_t listindent = 0;
           while (*desc) {
+            ssize_t ll = MAX_LINELEN-indent+remaining;
+            remaining = 0;
             ssize_t l = 0;
             ssize_t lastWs = -1;
             // scan for list indent
@@ -372,8 +377,8 @@ void CmdLineApp::showUsage()
               // there is a next line
               fprintf(stderr, "\n");
               // indent
-              remaining = indent+listindent;
-              while (remaining-- > 0) fprintf(stderr, " ");
+              ssize_t r = indent+listindent;
+              while (r-- > 0) fprintf(stderr, " ");
               desc++; // skip the LF or space that caused the line end
             }
           }
