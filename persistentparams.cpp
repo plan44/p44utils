@@ -243,7 +243,7 @@ ErrorPtr PersistentParams::saveToStore(const char *aParentIdentifier, bool aMult
         string_format_append(sql, " AND ROWID!=%lld", rowid);
       }
       FOCUSLOG("- cleanup before save: %s", sql.c_str());
-      if (paramStore.executef(sql.c_str()) != SQLITE_OK) {
+      if (paramStore.execute(sql.c_str()) != SQLITE_OK) {
         LOG(LOG_ERR, "- cleanup error (ignored): %s", paramStore.error()->description().c_str());
       }
     }
