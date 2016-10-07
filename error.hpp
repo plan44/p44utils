@@ -77,7 +77,7 @@ namespace p44 {
       return ErrorPtr(errP);
     };
 
-    /// create a Error subclass object with printf-style formatted error
+    /// create a Error subclass object with message
     /// @param aErrorCode error code. aErrorCode==0 from any domain means OK.
     /// @param aMessage error message
     template<typename T> static ErrorPtr err_str(ErrorCode aErrorCode, const string aMessage)
@@ -87,7 +87,7 @@ namespace p44 {
       return ErrorPtr(errP);
     };
 
-    /// create a Error subclass object with printf-style formatted error
+    /// create a Error subclass object with message
     /// @param aErrorCode error code. aErrorCode==0 from any domain means OK.
     /// @param aMessage error message
     template<typename T> static ErrorPtr err_cstr(ErrorCode aErrorCode, const char *aMessage)
