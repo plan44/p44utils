@@ -348,7 +348,7 @@ size_t SerialOperationQueue::acceptBytes(size_t aNumBytes, uint8_t *aBytes)
       if (numBytes<=0)
         break; // all bytes consumed
     }
-    if (numBytes>0 && consumed!=NOT_ENOUGH_BYTES) {
+    while (numBytes>0 && consumed!=NOT_ENOUGH_BYTES) {
       // Still bytes left to accept, give chance to process these now
       FOCUSLOG("- %zd left after all pending operations asked, offer them to acceptExtraBytes()", numBytes);
       consumed = acceptExtraBytes(numBytes, bytes);
