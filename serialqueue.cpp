@@ -113,7 +113,7 @@ void SerialOperationSend::appendByte(uint8_t aByte)
 bool SerialOperationSend::initiate()
 {
   if (!canInitiate()) return false;
-  FOCUSLOG("SerialOperationSend::initiate: sending %d bytes now", dataSize);
+  FOCUSLOG("SerialOperationSend::initiate: sending %zd bytes now", dataSize);
   size_t res;
   if (dataP && transmitter) {
     // transmit
@@ -251,7 +251,7 @@ void SerialOperationQueue::receiveHandler(ErrorPtr aError)
   if (receiver) {
     uint8_t buffer[RECBUFFER_SIZE];
     size_t numBytes = receiver(RECBUFFER_SIZE, buffer);
-    FOCUSLOG("SerialOperationQueue::receiveHandler: got %d bytes to accept", numBytes);
+    FOCUSLOG("SerialOperationQueue::receiveHandler: got %zd bytes to accept", numBytes);
     if (numBytes>0) {
       acceptBytes(numBytes, buffer);
     }
@@ -287,13 +287,13 @@ void SerialOperationQueue::setAcceptBuffer(size_t aBufferSize)
 // deliver bytes to the most recent waiting operation
 size_t SerialOperationQueue::acceptBytes(size_t aNumBytes, uint8_t *aBytes)
 {
-  FOCUSLOG("Start of SerialOperationQueue::acceptBytes: received %d new bytes to accept", aNumBytes);
+  FOCUSLOG("Start of SerialOperationQueue::acceptBytes: received %zd new bytes to accept", aNumBytes);
   // first check if some operations still need processing
   size_t acceptedBytes = 0;
   uint8_t *bytes;
   size_t numBytes;
   while (aNumBytes>0) {
-    FOCUSLOG("- %d bytes left to process", aNumBytes);
+    FOCUSLOG("- %zd bytes left to process", aNumBytes);
     // buffered mode?
     if (acceptBufferSize>0) {
       // buffered mode - collect in buffer and then let operations process
@@ -305,7 +305,7 @@ size_t SerialOperationQueue::acceptBytes(size_t aNumBytes, uint8_t *aBytes)
         bufferedBytes += by;
         aNumBytes -= by;
         aBytes += by;
-        FOCUSLOG("- %d bytes buffered, %d total buffered, %d remaining", by, bufferedBytes, aNumBytes);
+        FOCUSLOG("- %zd bytes buffered, %zd total buffered, %zd remaining", by, bufferedBytes, aNumBytes);
       }
       else {
         // buffer full, cannot store more
@@ -328,15 +328,15 @@ size_t SerialOperationQueue::acceptBytes(size_t aNumBytes, uint8_t *aBytes)
       for (size_t i=0; i<numBytes; i++) {
         string_format_append(s, " %02X", bytes[i]);
       }
-      FOCUSLOG("- attempting to process %d bytes: %s", numBytes, s.c_str());
+      FOCUSLOG("- attempting to process %zd bytes: %s", numBytes, s.c_str());
     }
     ssize_t consumed = 0;
     for (OperationList::iterator pos = operationQueue.begin(); pos!=operationQueue.end(); ++pos) {
-      FOCUSLOG("- offering %d bytes to next operation to accept", numBytes);
+      FOCUSLOG("- offering %zd bytes to next operation to accept", numBytes);
       SerialOperationPtr sop = boost::dynamic_pointer_cast<SerialOperation>(*pos);
       if (sop) {
         consumed = sop->acceptBytes(numBytes, bytes);
-        FOCUSLOG("- operation accepted %d bytes (-1: not enough to process anything)", consumed);
+        FOCUSLOG("- operation accepted %zd bytes (-1: not enough to process anything)", consumed);
       }
       if (consumed==NOT_ENOUGH_BYTES) {
         FOCUSLOG("- operation will accept bytes, but needs more at a time -> don't process more");
@@ -350,9 +350,9 @@ size_t SerialOperationQueue::acceptBytes(size_t aNumBytes, uint8_t *aBytes)
     }
     if (numBytes>0 && consumed!=NOT_ENOUGH_BYTES) {
       // Still bytes left to accept, give chance to process these now
-      FOCUSLOG("- %d left after all pending operations asked, offer them to acceptExtraBytes()", numBytes);
+      FOCUSLOG("- %zd left after all pending operations asked, offer them to acceptExtraBytes()", numBytes);
       consumed = acceptExtraBytes(numBytes, bytes);
-      FOCUSLOG("- acceptExtraBytes() accepted %d bytes (-1: not enough to process anything)", consumed);
+      FOCUSLOG("- acceptExtraBytes() accepted %zd bytes (-1: not enough to process anything)", consumed);
       if (consumed!=NOT_ENOUGH_BYTES) {
         bytes += consumed; // advance pointer
         numBytes -= consumed; // count
@@ -372,7 +372,7 @@ size_t SerialOperationQueue::acceptBytes(size_t aNumBytes, uint8_t *aBytes)
     else {
       // unbuffered mode - bytes than cannot be processed are lost
       if (numBytes>0) {
-        FOCUSLOG("SerialOperationQueue::acceptBytes - %d unprocessed bytes -> ignored", aNumBytes);
+        FOCUSLOG("SerialOperationQueue::acceptBytes - %zd unprocessed bytes -> ignored", aNumBytes);
       }
       break;
     }
@@ -380,7 +380,7 @@ size_t SerialOperationQueue::acceptBytes(size_t aNumBytes, uint8_t *aBytes)
   // final check if some operations might be complete now
   processOperations();
   // return number of accepted bytes
-  FOCUSLOG("End of SerialOperationQueue::acceptBytes: accepted %d bytes", acceptedBytes);
+  FOCUSLOG("End of SerialOperationQueue::acceptBytes: accepted %zd bytes", acceptedBytes);
   return acceptedBytes;
 };
 
@@ -392,7 +392,7 @@ size_t SerialOperationQueue::acceptBytes(size_t aNumBytes, uint8_t *aBytes)
 
 size_t SerialOperationQueue::standardTransmitter(size_t aNumBytes, const uint8_t *aBytes)
 {
-  FOCUSLOG("SerialOperationQueue::standardTransmitter(%d bytes) called", aNumBytes);
+  FOCUSLOG("SerialOperationQueue::standardTransmitter(%zd bytes) called", aNumBytes);
   ssize_t res = 0;
   size_t numWritten = 0;
   ErrorPtr err = serialComm->establishConnection();
@@ -417,7 +417,7 @@ size_t SerialOperationQueue::standardTransmitter(size_t aNumBytes, const uint8_t
           for (ssize_t i=0; i<res; i++) {
             string_format_append(s, "%02X ",aBytes[i]);
           }
-          FOCUSLOG("Transmitted %d bytes: %s", res, s.c_str());
+          FOCUSLOG("Transmitted %zd bytes: %s", res, s.c_str());
         }
       }
     }
@@ -432,7 +432,7 @@ size_t SerialOperationQueue::standardTransmitter(size_t aNumBytes, const uint8_t
 
 size_t SerialOperationQueue::standardReceiver(size_t aMaxBytes, uint8_t *aBytes)
 {
-  FOCUSLOG("SerialOperationQueue::standardReceiver(%d bytes) called", aMaxBytes);
+  FOCUSLOG("SerialOperationQueue::standardReceiver(%zd bytes) called", aMaxBytes);
   size_t gotBytes = 0;
   if (serialComm->connectionIsOpen()) {
 		// get number of bytes available
@@ -449,11 +449,11 @@ size_t SerialOperationQueue::standardReceiver(size_t aMaxBytes, uint8_t *aBytes)
           for (size_t i=0; i<gotBytes; i++) {
             string_format_append(s, "%02X ",aBytes[i]);
           }
-          FOCUSLOG("- Received %d bytes: %s", gotBytes, s.c_str());
+          FOCUSLOG("- Received %zd bytes: %s", gotBytes, s.c_str());
         }
       }
       else {
-        FOCUSLOG("Received %d bytes", gotBytes);
+        FOCUSLOG("Received %zd bytes", gotBytes);
       }
     }
   }
