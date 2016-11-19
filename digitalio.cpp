@@ -62,7 +62,8 @@ DigitalIo::DigitalIo(const char* aPinSpec, bool aOutput, bool aInitialState) :
     ++aPinSpec; // processed prefix -> check next
   }
   // rest is actual pin specification
-  pinSpec = aPinSpec;
+  pinSpec = nonNullCStr(aPinSpec);
+  if (pinSpec.size()==0) pinSpec="missing";
   bool initialPinState = aInitialState!=inverted;
   // check for missing pin (no pin, just silently keeping state)
   if (pinSpec=="missing") {
