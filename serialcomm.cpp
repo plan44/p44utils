@@ -127,6 +127,7 @@ ErrorPtr SerialComm::establishConnection()
       switch (baudRate) {
         case 50 : baudRateCode = B50; break;
         case 75 : baudRateCode = B75; break;
+        case 110 : baudRateCode = B110; break;
         case 134 : baudRateCode = B134; break;
         case 150 : baudRateCode = B150; break;
         case 200 : baudRateCode = B200; break;
