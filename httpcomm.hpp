@@ -98,18 +98,25 @@ namespace p44 {
     ChildThreadWrapperPtr childThread;
     string response;
     ErrorPtr requestError;
+    HttpHeaderMap requestHeaders; ///< extra request headers to be included with the request(s)
 
   public:
 
     HttpComm(MainLoop &aMainLoop);
     virtual ~HttpComm();
 
+    /// clear request headers
+    void clearRequestHeaders() { requestHeaders.clear(); };
+
+    /// add a request header (will be used on all subsequent requests
+    void addRequestHeader(const string aHeaderName, const string aHeaderValue) { requestHeaders[aHeaderName] = aHeaderValue; };
+
     /// send a HTTP or HTTPS request
     /// @param aURL the http or https URL to access
     /// @param aResponseCallback will be called when request completes, returning response or error
     /// @param aMethod the HTTP method to use (defaults to "GET")
     /// @param aRequestBody a C string containing the request body to send, or NULL if none
-    /// @param aContentType the content type for the body to send, or NULL to use default
+    /// @param aContentType the content type for the body to send (including a charset spec, possibly), or NULL to use default
     /// @param aResponseDataFd if>=0, response data will be written to that file descriptor
     /// @param aSaveHeaders if true, responseHeaders will be set to a string,string map containing the headers
     /// @return false if no request could be initiated (already busy with another request).
@@ -137,7 +144,7 @@ namespace p44 {
 
 
   protected:
-    virtual const char *defaultContentType() { return "text/html"; };
+    virtual const char *defaultContentType() { return "text/html; charset=UTF-8"; };
 
     virtual void requestThreadSignal(ChildThreadWrapper &aChildThread, ThreadSignals aSignalCode);
 

@@ -86,6 +86,10 @@ void HttpComm::requestThread(ChildThreadWrapper &aThread)
     const size_t ebufSz = 100;
     char ebuf[ebufSz];
     int tmo = timeout==Never ? -1 : (int)(timeout/MilliSecond);
+    string extraHeaders;
+    for (HttpHeaderMap::iterator pos=requestHeaders.begin(); pos!=requestHeaders.end(); ++pos) {
+      extraHeaders += string_format("%s: %s\r\n", pos->first.c_str(), pos->second.c_str());
+    }
     if (requestBody.length()>0) {
       // is a request which sends data in the HTTP message body (e.g. POST)
       mgConn = mg_download_tmo(
@@ -96,8 +100,9 @@ void HttpComm::requestThread(ChildThreadWrapper &aThread)
         ebuf, ebufSz,
         "%s %s HTTP/1.1\r\n"
         "Host: %s\r\n"
-        "Content-Type: %s; charset=UTF-8\r\n"
+        "Content-Type: %s\r\n"
         "Content-Length: %ld\r\n"
+        "%s"
         "\r\n"
         "%s",
         method.c_str(),
@@ -105,6 +110,7 @@ void HttpComm::requestThread(ChildThreadWrapper &aThread)
         host.c_str(),
         contentType.c_str(),
         requestBody.length(),
+        extraHeaders.c_str(),
         requestBody.c_str()
       );
     }
@@ -118,12 +124,14 @@ void HttpComm::requestThread(ChildThreadWrapper &aThread)
         ebuf, ebufSz,
         "%s %s HTTP/1.1\r\n"
         "Host: %s\r\n"
-//        "Content-Type: %s; charset=UTF-8\r\n"
+//        "Content-Type: %s\r\n"
+        "%s"
         "\r\n",
         method.c_str(),
         doc.c_str(),
-        host.c_str()
-//        ,contentType.c_str()
+        host.c_str(),
+//        contentType.c_str(),
+        extraHeaders.c_str()
       );
     }
     if (!mgConn) {
