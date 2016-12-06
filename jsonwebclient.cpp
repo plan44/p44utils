@@ -82,7 +82,7 @@ void JsonWebClient::requestThreadSignal(ChildThreadWrapper &aChildThread, Thread
 
 
 
-bool JsonWebClient::jsonRequest(const char *aURL, JsonWebClientCB aResponseCallback, const char *aMethod, JsonObjectPtr aJsonRequest)
+bool JsonWebClient::jsonRequest(const char *aURL, JsonWebClientCB aResponseCallback, const char *aMethod, JsonObjectPtr aJsonRequest, const char* aContentType)
 {
   // set callback
   jsonResponseCallback = aResponseCallback;
@@ -92,7 +92,7 @@ bool JsonWebClient::jsonRequest(const char *aURL, JsonWebClientCB aResponseCallb
     jsonstring = aJsonRequest->json_c_str();
   }
   LOG(LOG_DEBUG, "JsonWebClient: -> sending %s JSON request to %s:\n%s", aMethod, aURL, jsonstring.c_str());
-  return httpRequest(aURL, NULL, aMethod, jsonstring.c_str());
+  return httpRequest(aURL, NULL, aMethod, jsonstring.c_str(), aContentType);
 }
 
 
