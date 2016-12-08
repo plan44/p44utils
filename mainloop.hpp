@@ -51,13 +51,14 @@ namespace p44 {
 
 
   /// subthread/maintthread communication signals (sent via pipe)
-  typedef enum {
+  enum {
     threadSignalNone,
     threadSignalCompleted, ///< sent to parent when child thread terminates
     threadSignalFailedToStart, ///< sent to parent when child thread could not start
     threadSignalCancelled, ///< sent to parent when child thread was cancelled (
     threadSignalUserSignal ///< first user-specified signal
-  } ThreadSignals;
+  };
+  typedef uint8_t ThreadSignals;
 
 
   /// @name Mainloop callbacks

@@ -81,6 +81,7 @@ namespace p44 {
     string contentType;
     string requestBody;
     int responseDataFd;
+    bool streamResult; ///< if set, result will be "streamed", meaning callback will be called multiple times as data chunks arrive
     MLMicroSeconds timeout; // timeout, Never = use default, do not set
     struct mg_connection *mgConn; // mongoose connection
 
@@ -99,6 +100,7 @@ namespace p44 {
     string response;
     ErrorPtr requestError;
     HttpHeaderMap requestHeaders; ///< extra request headers to be included with the request(s)
+    bool dataProcessingPending; ///< set until main thread has returned from callback in streamResult mode
 
   public:
 
@@ -119,6 +121,8 @@ namespace p44 {
     /// @param aContentType the content type for the body to send (including a charset spec, possibly), or NULL to use default
     /// @param aResponseDataFd if>=0, response data will be written to that file descriptor
     /// @param aSaveHeaders if true, responseHeaders will be set to a string,string map containing the headers
+    /// @param aStreamResult if true, response body will be delivered in chunks as they become available.
+    ///   An empty result will be delivered when stream ends.
     /// @return false if no request could be initiated (already busy with another request).
     ///   If false, aHttpCallback will not be called
     bool httpRequest(
@@ -128,7 +132,8 @@ namespace p44 {
       const char* aRequestBody = NULL,
       const char *aContentType = NULL,
       int aResponseDataFd = -1,
-      bool aSaveHeaders = false
+      bool aSaveHeaders = false,
+      bool aStreamResult = false
     );
 
     /// cancel request

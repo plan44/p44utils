@@ -24,12 +24,21 @@
 
 using namespace p44;
 
+
+typedef enum {
+  httpThreadSignalDataReady = threadSignalUserSignal
+} HttpThreadSignals;
+
+
+
 HttpComm::HttpComm(MainLoop &aMainLoop) :
   mainLoop(aMainLoop),
   requestInProgress(false),
   mgConn(NULL),
   timeout(Never),
-  responseDataFd(-1)
+  responseDataFd(-1),
+  streamResult(false),
+  dataProcessingPending(false)
 {
 }
 
@@ -152,9 +161,13 @@ void HttpComm::requestThread(ChildThreadWrapper &aThread)
       const size_t bufferSz = 2048;
       uint8_t *bufferP = new uint8_t[bufferSz];
       while (true) {
-        ssize_t res = mg_read(mgConn, bufferP, bufferSz);
+        ssize_t res = mg_read_ex(mgConn, bufferP, bufferSz, (int)streamResult);
         if (res==0) {
           // connection has closed, all bytes read
+          if (streamResult) {
+            // when streaming, signal of stream condition by an empty data response
+            response.clear();
+          }
           break;
         }
         else if (res<0) {
@@ -168,8 +181,19 @@ void HttpComm::requestThread(ChildThreadWrapper &aThread)
             // write to fd
             write(responseDataFd, bufferP, res);
           }
+          else if (streamResult) {
+            // pass back the data chunk now
+            response.assign((const char *)bufferP, (size_t)res);
+            dataProcessingPending = true;
+            aThread.signalParentThread(httpThreadSignalDataReady);
+            // now wait until data has been processed in main thread
+            while (dataProcessingPending) {
+              // FIXME: ugly - add better thread signalling here
+              usleep(50000); // 50mS
+            }
+          }
           else {
-            // collect in string
+            // just collect entire response in string
             response.append((const char *)bufferP, (size_t)res);
           }
         }
@@ -198,9 +222,14 @@ void HttpComm::requestThreadSignal(ChildThreadWrapper &aChildThread, ThreadSigna
     responseCallback.clear();
     childThread.reset();
     // now execute callback
-    if (cb) {
-      cb(resp, reqErr);
-    }
+    if (cb) cb(resp, reqErr);
+  }
+  else if (aSignalCode==httpThreadSignalDataReady) {
+    // data chunk ready in streamResult mode
+    DBGLOG(LOG_DEBUG, "- HTTP subthread delivers chunk of data - request going on");
+    // callback may NOT issue another request on this httpComm, so no need to copy it
+    if (responseCallback) responseCallback(response, ErrorPtr());
+    dataProcessingPending = false; // child thread can go on reading
   }
 }
 
@@ -213,7 +242,8 @@ bool HttpComm::httpRequest(
   const char* aRequestBody,
   const char* aContentType,
   int aResponseDataFd,
-  bool aSaveHeaders
+  bool aSaveHeaders,
+  bool aStreamResult
 )
 {
   if (requestInProgress || !aURL)
@@ -230,6 +260,7 @@ bool HttpComm::httpRequest(
     contentType = aContentType; // use specified content type
   else
     contentType = defaultContentType(); // use default for the class
+  streamResult = aStreamResult;
   // now let subthread handle this
   requestInProgress = true;
   childThread = MainLoop::currentMainLoop().executeInThread(
