@@ -73,6 +73,10 @@ void JsonWebClient::requestThreadSignal(ChildThreadWrapper &aChildThread, Thread
       // release child thread object now
       childThread.reset();
     }
+    else {
+      // none of the signals we understand at this level (e.g. httpThreadSignalDataReady), let inherited handle that
+      inherited::requestThreadSignal(aChildThread, aSignalCode);
+    }
   }
   else {
     // no JSON callback, let inherited handle this
