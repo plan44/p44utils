@@ -8,7 +8,7 @@ p44utils
 
 "p44utils" have been developed as part of the [vdcd project](https://github.com/plan44/vdcd) (a digitalSTROM virtual device container daemon), but are of more generic use, and thus have been separated from the vdcd repository (and made vdcd and other tools use p44utils as a submodule)
 
-"p44utils" makes very light use of boost (intrusive_ptr, bind), and has some classes that use mongoose, sqlitepp, json-c.
+"p44utils" makes very light use of boost (intrusive_ptr, bind), and has some classes that use mongoose, sqlitepp, rpi_ws281x, json-c.
 
 Usage
 -----
@@ -21,6 +21,8 @@ License
 p44utils are licensed under the GPLv3 License (see COPYING).
 
 If that's a problem for your particular application, I am open to provide a commercial license, please contact me at [luz@plan44.ch](mailto:luz@plan44.ch).
+
+Some of the p44utils make use of third party project's code (mongoose, sqlitepp, rpi_ws281x), which is under less strict licenses such as MIT or BSD. This code is included in the "thirdparty" subfolder. Please see the LICENSE files or license header comments in the individual projects included in that folder.
 
 
 Features
@@ -36,12 +38,13 @@ Features
 - helper class for socket based generic JSON and JSON RPC 2 protocols
 - wrapper class for json-c JSON objects
 - helper class for implementing persistent storage of parameters for object trees with automatic schema updating
-- wrappers to abstract various sources of digital and analog inputs (such as GPIO and I2C peripherals) into easy to use input or output objects, including debouncing for inputs and blinking sequences for indicator outputs.
+- support for a simple http client (mainly targeted at automation APIs)
+- support for JSON based http APIs
+- wrappers to abstract various sources of digital and analog inputs (such as GPIO, I2C and SPI peripherals) into easy to use input or output objects, including debouncing for inputs and blinking sequences for indicator outputs.
+- helper class for serial data controlled RGB and RGBW LED chains (WS281x, SK6812; APA102 planned)
 - other stuff :-)
 
-
-
-(c) 2013-2015 by Lukas Zeller / [plan44.ch](http://www.plan44.ch/opensource)
+(c) 2013-2016 by Lukas Zeller / [plan44.ch](http://www.plan44.ch/opensource)
 
 
 
