@@ -140,6 +140,16 @@ namespace p44 {
   /// @return true if key/value could be extracted
   bool keyAndValue(const string &aInput, string &aKey, string &aValue, char aSeparator = ':');
 
+  /// pick contents of a (properly terminated) HTML or XML tag
+  /// @param aInput the contents of the XML/HTML text to extract the tag contents from
+  /// @param aTag the name of the XML/HTML tag to extract the tag contents from
+  /// @param aContents will be assigned contents (everything between start and end)
+  /// @param aStart where to start looking for tag in aInput
+  /// @return 0 if tag not found, position of next char behind closing tag when tag was found
+  /// @note primitive picking only, does not follow hierarchy so nested tags of same name dont work
+  ///   also does not process entities etc.
+  size_t pickTagContents(const string &aInput, const string aTag, string &aContents, size_t aStart = 0);
+
   /// split URL into its parts
   /// @param aURI a URI in the [protocol:][//][user[:password]@]host[/doc] format
   /// @param aProtocol if not NULL, returns the protocol (e.g. "http"), empty string if none

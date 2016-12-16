@@ -338,6 +338,32 @@ bool p44::keyAndValue(const string &aInput, string &aKey, string &aValue, char a
 }
 
 
+size_t p44::pickTagContents(const string &aInput, const string aTag, string &aContents, size_t aStart)
+{
+  // find the tag
+  size_t t = aInput.find("<"+aTag, aStart);
+  if (t==string::npos) return 0;
+  // find end of tag start
+  size_t te = aInput.find(">",t+1+aTag.size());
+  if (te==string::npos) return 0;
+  if (te>=1 && aInput[te-1]=='/') {
+    // self-terminating: no contents
+    aContents.clear();
+    return true;
+  }
+  te++; // content starts here
+  // find tag end
+  size_t e = aInput.find("</"+aTag+">", te);
+  if (e==string::npos) return 0;
+  // now assign contents
+  aContents = aInput.substr(te,e-te);
+  trimWhiteSpace(aContents, true, true);
+  return e+2+aTag.size()+1;
+}
+
+
+
+
 // split URL into protocol, hostname, document name and auth-info (user, password)
 void p44::splitURL(const char *aURI,string *aProtocol,string *aHost,string *aDoc,string *aUser, string *aPasswd)
 {
