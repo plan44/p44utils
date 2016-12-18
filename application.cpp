@@ -272,7 +272,7 @@ void CmdLineApp::showUsage()
       if (optionDescP->withArgument) {
         const char *p = strchr(desc, ';');
         if (p) {
-          n += 2 + (p-desc); // add room for argument description
+          n += 3 + (p-desc); // add room for argument description
         }
       }
       if (n>indent) indent = n; // new max
@@ -320,8 +320,8 @@ void CmdLineApp::showUsage()
           if (p) {
             size_t n = (p-desc);
             string argDesc(desc,n);
-            fprintf(stderr, "  %s", argDesc.c_str());
-            remaining -= argDesc.length()+2;
+            fprintf(stderr, " <%s>", argDesc.c_str());
+            remaining -= argDesc.length()+3;
             desc += n+1; // desc starts after semicolon
           }
         }

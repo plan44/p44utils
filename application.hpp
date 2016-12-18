@@ -61,7 +61,6 @@ namespace p44 {
 
     /// @return returns true when application has been requested to terminate
     /// @note can be used to make sure no objects are created in case app is terminated early due to option syntax errors or similar
-    ///   object destructors
     static bool isTerminated();
 
     /// terminate app
