@@ -122,14 +122,16 @@ namespace p44 {
     /// @param aRed intensity of red component, 0..255
     /// @param aGreen intensity of green component, 0..255
     /// @param aBlue intensity of blue component, 0..255
-    void setColorXY(uint16_t aX, uint16_t aY, uint8_t aRed, uint8_t aGreen, uint8_t aBlue, uint8_t aWhite);
-    void setColor(uint16_t aLedNumber, uint8_t aRed, uint8_t aGreen, uint8_t aBlue, uint8_t aWhite);
+    /// @param aWhite intensity of separate white component for RGBW LEDs, 0..255
+    void setColorXY(uint16_t aX, uint16_t aY, uint8_t aRed, uint8_t aGreen, uint8_t aBlue, uint8_t aWhite=0);
+    void setColor(uint16_t aLedNumber, uint8_t aRed, uint8_t aGreen, uint8_t aBlue, uint8_t aWhite=0);
 
     /// set color of one LED, scaled by a visible brightness (non-linear) factor
     /// @param aRed intensity of red component, 0..255
     /// @param aGreen intensity of green component, 0..255
     /// @param aBlue intensity of blue component, 0..255
-    /// @param aBrightness brightness, will be converted non-linear to PWM duty cycle for uniform brightness scale, 0..255
+    /// @param aWhite intensity of separate white component for RGBW LEDs, 0..255
+    /// @param aBrightness overall brightness, 0..255
     void setColorDimmedXY(uint16_t aX, uint16_t aY, uint8_t aRed, uint8_t aGreen, uint8_t aBlue, uint8_t aWhite, uint8_t aBrightness);
     void setColorDimmed(uint16_t aLedNumber, uint8_t aRed, uint8_t aGreen, uint8_t aBlue, uint8_t aWhite, uint8_t aBrightness);
 

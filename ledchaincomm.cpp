@@ -114,6 +114,7 @@ bool LEDChainComm::begin()
     initialized = ws2811_init(&ledstring)==0;
     #else
     ledbuffer = new uint8_t[numColorComponents*numLeds];
+    memset(ledbuffer, 0, numColorComponents*numLeds);
     ledFd = open(deviceName.c_str(), O_RDWR);
     if (ledFd>=0) {
       initialized = true;
@@ -292,6 +293,9 @@ void LEDChainComm::getColorXY(uint16_t aX, uint16_t aY, uint8_t &aRed, uint8_t &
   aBlue = brightnesstable[ledbuffer[numColorComponents*ledindex+2]];
   if (numColorComponents>3) {
     aWhite = brightnesstable[ledbuffer[numColorComponents*ledindex+3]];
+  }
+  else {
+    aWhite = 0;
   }
   #endif
 }
