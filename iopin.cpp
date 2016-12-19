@@ -147,10 +147,18 @@ SimPin::SimPin(const char *aName, bool aOutput, bool aInitialState) :
 {
   LOG(LOG_ALERT, "Initialized SimPin \"%s\" as %s with initial state %s", name.c_str(), aOutput ? "output" : "input", pinState ? "HI" : "LO");
   #if !DISABLE_CONSOLEKEY
+  size_t n = name.find(":");
+  char key = 0;
+  if (n!=string::npos && name.size()>n+1) {
+    key = name[n+1];
+  }
+  else {
+    key = nextIoSimKey++;
+  }
   if (!aOutput) {
     if (!output) {
       consoleKey = ConsoleKeyManager::sharedKeyManager()->newConsoleKey(
-        nextIoSimKey++,
+        key,
         name.c_str(),
         pinState
       );
