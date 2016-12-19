@@ -19,6 +19,14 @@
 //  along with p44utils. If not, see <http://www.gnu.org/licenses/>.
 //
 
+// File scope debugging options
+// - Set ALWAYS_DEBUG to 1 to enable DBGLOG output even in non-DEBUG builds of this file
+#define ALWAYS_DEBUG 0
+// - set FOCUSLOGLEVEL to non-zero log level (usually, 5,6, or 7==LOG_DEBUG) to get focus (extensive logging) for this file
+//   Note: must be before including "logger.hpp" (or anything that includes "logger.hpp")
+#define FOCUSLOGLEVEL 0
+
+
 #include "ledchaincomm.hpp"
 
 
@@ -211,6 +219,7 @@ uint8_t LEDChainComm::getMinVisibleColorIntensity()
 
 uint16_t LEDChainComm::ledIndexFromXY(uint16_t aX, uint16_t aY)
 {
+  FOCUSLOG("ledIndexFromXY: X=%d, Y=%d", aX, aY);
   if (swapXY) { uint16_t tmp=aY; aY=aX; aX=tmp; }
   uint16_t ledindex = aY*ledsPerRow;
   bool reversed = xReversed;
@@ -223,6 +232,7 @@ uint16_t LEDChainComm::ledIndexFromXY(uint16_t aX, uint16_t aY)
   else {
     ledindex += aX;
   }
+  FOCUSLOG("--> ledIndex=%d", ledindex);
   return ledindex;
 }
 
@@ -250,6 +260,7 @@ void LEDChainComm::setColorXY(uint16_t aX, uint16_t aY, uint8_t aRed, uint8_t aG
 
 void LEDChainComm::setColor(uint16_t aLedNumber, uint8_t aRed, uint8_t aGreen, uint8_t aBlue, uint8_t aWhite)
 {
+  FOCUSLOG("setColor: ledNumber=%d - sizeX=%d, sizeY=%d", aLedNumber, getSizeX(), getSizeY());
   int y = aLedNumber / getSizeX();
   int x = aLedNumber % getSizeX();
   setColorXY(x, y, aRed, aGreen, aBlue, aWhite);
