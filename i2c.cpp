@@ -35,9 +35,16 @@
 #endif
 
 #if !DISABLE_I2C
-#include <linux/i2c-dev.h>
+  #if P44_BUILD_OW
+    #include <linux/lib-i2c-dev.h>
+  #else
+    #include <linux/i2c-dev.h>
+  #endif
+  #ifndef LIB_I2CDEV_H
+  #warning "Most probably, we have the wrong i2c-dev.h header here - maybe i2c-tools not installed?"
+  #endif
 #else
-#warning "No i2C supported on this platform - just showing calls in focus debug output"
+  #warning "No i2C supported on this platform - just showing calls in focus debug output"
 #endif
 
 using namespace p44;
@@ -273,7 +280,7 @@ bool I2CBus::SMBusWriteBlock(I2CDevice *aDeviceP, uint8_t aRegister, uint8_t aCo
 {
   if (!accessDevice(aDeviceP)) return false; // cannot write
   #if !DISABLE_I2C
-  int res = i2c_smbus_write_block_data(busFD, aRegister, aCount, aDataP);
+  int res = i2c_smbus_write_block_data(busFD, aRegister, aCount, (uint8_t *)aDataP);
   #else
   int res = 1; // ok
   #endif
@@ -293,7 +300,7 @@ bool I2CBus::SMBusWriteBytes(I2CDevice *aDeviceP, uint8_t aRegister, uint8_t aCo
 {
   if (!accessDevice(aDeviceP)) return false; // cannot write
   #if !DISABLE_I2C
-  int res = i2c_smbus_write_i2c_block_data(busFD, aRegister, aCount, aDataP);
+  int res = i2c_smbus_write_i2c_block_data(busFD, aRegister, aCount, (uint8_t *)aDataP);
   #else
   int res = 1; // ok
   #endif
