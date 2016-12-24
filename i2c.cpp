@@ -63,18 +63,17 @@ I2CManager::~I2CManager()
 }
 
 
-I2CManager *I2CManager::sharedManager()
+I2CManager &I2CManager::sharedManager()
 {
   if (!sharedI2CManager) {
     sharedI2CManager = new I2CManager();
   }
-  return sharedI2CManager;
+  return *sharedI2CManager;
 }
 
 
 
-
-I2CDevicePtr I2CManager::getDevice(int aBusNumber, const char *aDeviceID)
+I2CBusPtr I2CManager::getBus(int aBusNumber)
 {
   // find or create bus
   I2CBusMap::iterator pos = busMap.find(aBusNumber);
@@ -87,6 +86,15 @@ I2CDevicePtr I2CManager::getDevice(int aBusNumber, const char *aDeviceID)
     bus = I2CBusPtr(new I2CBus(aBusNumber));
     busMap[aBusNumber] = bus;
   }
+  return bus;
+}
+
+
+
+I2CDevicePtr I2CManager::getDevice(int aBusNumber, const char *aDeviceID)
+{
+  // get the bus
+  I2CBusPtr bus = getBus(aBusNumber);
   // dissect device ID into type and busAddress
   // - type string
   //   consists of Chip name plus optional options suffix. Like "PCA9685" or "PCA9685-TP" (TP=options)
@@ -121,6 +129,8 @@ I2CDevicePtr I2CManager::getDevice(int aBusNumber, const char *aDeviceID)
       dev = I2CDevicePtr(new PCF8574(deviceAddress, bus.get(), deviceOptions.c_str()));
     else if (typeString=="PCA9685")
       dev = I2CDevicePtr(new PCA9685(deviceAddress, bus.get(), deviceOptions.c_str()));
+    else if (typeString=="generic")
+      dev = I2CDevicePtr(new I2CDevice(deviceAddress, bus.get(), deviceOptions.c_str()));
     // TODO: add more device types
     // Register new device
     if (dev) {
@@ -656,7 +666,7 @@ I2CPin::I2CPin(int aBusNumber, const char *aDeviceId, int aPinNumber, bool aOutp
 {
   pinNumber = aPinNumber;
   output = aOutput;
-  I2CDevicePtr dev = I2CManager::sharedManager()->getDevice(aBusNumber, aDeviceId);
+  I2CDevicePtr dev = I2CManager::sharedManager().getDevice(aBusNumber, aDeviceId);
   bitPortDevice = boost::dynamic_pointer_cast<I2CBitPortDevice>(dev);
   if (bitPortDevice) {
     bitPortDevice->setAsOutput(pinNumber, output, aInitialState, aPullUp);
@@ -810,7 +820,7 @@ AnalogI2CPin::AnalogI2CPin(int aBusNumber, const char *aDeviceId, int aPinNumber
 {
   pinNumber = aPinNumber;
   output = aOutput;
-  I2CDevicePtr dev = I2CManager::sharedManager()->getDevice(aBusNumber, aDeviceId);
+  I2CDevicePtr dev = I2CManager::sharedManager().getDevice(aBusNumber, aDeviceId);
   analogPortDevice = boost::dynamic_pointer_cast<I2CAnalogPortDevice>(dev);
   if (analogPortDevice && output) {
     analogPortDevice->setPinValue(pinNumber, aInitialValue);

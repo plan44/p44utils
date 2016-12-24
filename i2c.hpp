@@ -47,6 +47,9 @@ namespace p44 {
     /// @return fully qualified device identifier (deviceType@hexaddress)
     string deviceID();
 
+    /// @return the bus object, allows directly communicating with a device
+    I2CBus &getBus() { return *i2cbus; };
+
     /// @return device type identifier
     virtual const char *deviceType() { return "generic"; };
 
@@ -173,7 +176,7 @@ namespace p44 {
     virtual ~I2CManager();
 
     /// get shared instance of manager
-    static I2CManager *sharedManager();
+    static I2CManager &sharedManager();
 
     /// get device
     /// @param aBusNumber the i2c bus number in the system to use
@@ -181,6 +184,11 @@ namespace p44 {
     ///   like "tca9555@25" meaning TCA9555 chip based IO at HEX!! bus address 25
     /// @return a device of proper type or empty pointer if none could be found
     I2CDevicePtr getDevice(int aBusNumber, const char *aDeviceID);
+
+    /// get bus (for directly communicating with i2c device)
+    /// @param aBusNumber the i2c bus number in the system to use
+    /// @return the ready-to-use i2c bus object or empty pointer if specified bus number is not available
+    I2CBusPtr getBus(int aBusNumber);
 
   };
 
