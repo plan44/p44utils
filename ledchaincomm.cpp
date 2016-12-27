@@ -42,7 +42,7 @@ using namespace p44;
 #endif
 
 
-LEDChainComm::LEDChainComm(LedType aLedType, const string aDeviceName, uint16_t aNumLeds, uint16_t aLedsPerRow, bool aXReversed, bool aAlternating, bool aSwapXY) :
+LEDChainComm::LEDChainComm(LedType aLedType, const string aDeviceName, uint16_t aNumLeds, uint16_t aLedsPerRow, bool aXReversed, bool aAlternating, bool aSwapXY, bool aYReversed) :
   initialized(false)
 {
   // type and device
@@ -60,6 +60,7 @@ LEDChainComm::LEDChainComm(LedType aLedType, const string aDeviceName, uint16_t 
     numRows = (numLeds-1)/ledsPerRow+1; // calculate number of (full or partial) rows
   }
   xReversed = aXReversed;
+  yReversed = aYReversed;
   alternating = aAlternating;
   swapXY = aSwapXY;
   // prepare hardware related stuff
@@ -220,7 +221,8 @@ uint8_t LEDChainComm::getMinVisibleColorIntensity()
 uint16_t LEDChainComm::ledIndexFromXY(uint16_t aX, uint16_t aY)
 {
   FOCUSLOG("ledIndexFromXY: X=%d, Y=%d", aX, aY);
-  if (swapXY) { uint16_t tmp=aY; aY=aX; aX=tmp; }
+  if (swapXY) { uint16_t tmp = aY; aY = aX; aX = tmp; }
+  if (yReversed) { aY = numRows-1-aY; }
   uint16_t ledindex = aY*ledsPerRow;
   bool reversed = xReversed;
   if (alternating) {

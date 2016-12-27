@@ -76,6 +76,7 @@ namespace p44 {
     uint16_t ledsPerRow; // number of LEDs per row (physically, along WS2812 chain)
     uint16_t numRows; // number of rows (sections of WS2812 chain)
     bool xReversed; // even (0,2,4...) rows go backwards, or all if not alternating
+    bool yReversed; // columns go backwards
     bool alternating; // direction changes after every row
     bool swapXY; // x and y swapped
 
@@ -98,7 +99,8 @@ namespace p44 {
     /// @param aXReversed X direction is reversed
     /// @param aAlternating X direction is reversed in first row, normal in second, reversed in third etc..
     /// @param aSwapXY X and Y reversed (for up/down wiring)
-    LEDChainComm(LedType aLedType, const string aDeviceName, uint16_t aNumLeds, uint16_t aLedsPerRow=0, bool aXReversed=false, bool aAlternating=false, bool aSwapXY=false);
+    /// @param aYReversed Y direction is reversed
+    LEDChainComm(LedType aLedType, const string aDeviceName, uint16_t aNumLeds, uint16_t aLedsPerRow=0, bool aXReversed=false, bool aAlternating=false, bool aSwapXY=false, bool aYReversed=false);
 
     /// destructor
     ~LEDChainComm();
