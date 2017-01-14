@@ -12,8 +12,7 @@ p44utils
 
 Usage
 -----
-p44utils are meant to be included as .cpp and .hpp files into a project and compiled together with the project's other sources. The repository does not contain or directly reference any external dependencies (sqlitepp etc.) some of the classes have. If you use classes that have dependenices, you need to include these in your main project.
-
+p44utils are meant to be included as .cpp and .hpp files into a project and compiled together with the project's other sources.
 
 License
 -------
@@ -44,7 +43,7 @@ Features
 - helper class for serial data controlled RGB and RGBW LED chains (WS281x, SK6812; APA102 planned)
 - other stuff :-)
 
-(c) 2013-2016 by Lukas Zeller / [plan44.ch](http://www.plan44.ch/opensource)
+(c) 2013-2017 by Lukas Zeller / [plan44.ch](http://www.plan44.ch/opensource)
 
 
 
