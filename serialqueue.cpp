@@ -353,7 +353,11 @@ size_t SerialOperationQueue::acceptBytes(size_t aNumBytes, uint8_t *aBytes)
       FOCUSLOG("- %zd left after all pending operations asked, offer them to acceptExtraBytes()", numBytes);
       consumed = acceptExtraBytes(numBytes, bytes);
       FOCUSLOG("- acceptExtraBytes() accepted %zd bytes (-1: not enough to process anything)", consumed);
-      if (consumed!=NOT_ENOUGH_BYTES) {
+      if (consumed==0) {
+        // acceptExtraBytes does not accept any bytes -> done
+        break;
+      }
+      else if (consumed!=NOT_ENOUGH_BYTES) {
         bytes += consumed; // advance pointer
         numBytes -= consumed; // count
         acceptedBytes += consumed;
