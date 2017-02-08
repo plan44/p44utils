@@ -445,7 +445,7 @@ enum {
   ACCESS_LOG_FILE, ENABLE_DIRECTORY_LISTING, ERROR_LOG_FILE,
   GLOBAL_PASSWORDS_FILE, INDEX_FILES, ENABLE_KEEP_ALIVE, ACCESS_CONTROL_LIST,
   EXTRA_MIME_TYPES, LISTENING_PORTS, DOCUMENT_ROOT, SSL_CERTIFICATE,
-  NUM_THREADS, RUN_AS_USER, REWRITE, HIDE_FILES, REQUEST_TIMEOUT,
+  NUM_THREADS, RUN_AS_USER, REWRITE, HIDE_FILES, REQUEST_TIMEOUT, FILES_CHANGED_AT_RESTART,
   NUM_OPTIONS
 };
 
@@ -475,11 +475,13 @@ static const char *config_options[] = {
   "url_rewrite_patterns", NULL,
   "hide_files_patterns", NULL,
   "request_timeout_ms", "30000",
+  "files_changed_at_restart", "no",
   NULL
 };
 
 struct mg_context {
   volatile int stop_flag;         // Should we stop event loop
+  time_t birth_time;              // time when context was created, used as fake file change date when FILES_CHANGED_AT_RESTART is enabled
   SSL_CTX *ssl_ctx;               // SSL context
   char *config[NUM_OPTIONS];      // Mongoose configuration parameters
   struct mg_callbacks callbacks;  // User-defined callback function
@@ -1125,8 +1127,15 @@ static int mg_stat(struct mg_connection *conn, const char *path,
     if (GetFileAttributesExW(wbuf, GetFileExInfoStandard, &info) != 0) {
       filep->size = MAKEUQUAD(info.nFileSizeLow, info.nFileSizeHigh);
       filep->modification_time = SYS2UNIX_TIME(
-          info.ftLastWriteTime.dwLowDateTime,
-          info.ftLastWriteTime.dwHighDateTime);
+        info.ftLastWriteTime.dwLowDateTime,
+        info.ftLastWriteTime.dwHighDateTime
+      );
+      if (conn->ctx && mg_strcasecmp(conn->ctx->config[FILES_CHANGED_AT_RESTART], "yes")==0) {
+        // consider all files not older than start of this server
+        if (filep->modification_time < conn->ctx->birth_time) {
+          filep->modification_time = conn->ctx->birth_time;
+        }
+      }
       filep->is_directory = info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY;
       // If file name is fishy, reset the file structure and return error.
       // Note it is important to reset, not just return the error, cause
@@ -1375,6 +1384,12 @@ static int mg_stat(struct mg_connection *conn, const char *path,
   if (!is_file_in_memory(conn, path, filep) && !stat(path, &st)) {
     filep->size = st.st_size;
     filep->modification_time = st.st_mtime;
+    if (conn->ctx && mg_strcasecmp(conn->ctx->config[FILES_CHANGED_AT_RESTART], "yes")==0) {
+      // consider all files not older than start of this server
+      if (filep->modification_time < conn->ctx->birth_time) {
+        filep->modification_time = conn->ctx->birth_time;
+      }
+    }
     filep->is_directory = S_ISDIR(st.st_mode);
   } else {
     filep->modification_time = (time_t) 0;
@@ -5355,6 +5370,7 @@ struct mg_context *mg_start(const struct mg_callbacks *callbacks,
   if ((ctx = (struct mg_context *) calloc(1, sizeof(*ctx))) == NULL) {
     return NULL;
   }
+  ctx->birth_time = time(NULL);
   ctx->callbacks = *callbacks;
   ctx->user_data = user_data;
 
