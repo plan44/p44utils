@@ -100,6 +100,9 @@ namespace p44 {
     /// @param aDefaultCommParams default communication parameters (in case spec does not contain :commParams)
     void setConnectionSpecification(const char* aConnectionSpec, uint16_t aDefaultPort, const char *aDefaultCommParams);
 
+    /// @return connection path (IP address or device path)
+    string getConnectionPath() { return connectionPath; };
+
     /// establish the serial connection
     /// @note can be called multiple times, opens connection only if not already open
     /// @return error in case connection cannot be opened
