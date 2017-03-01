@@ -246,8 +246,10 @@ bool p44::getIfInfo(uint64_t *aMacAddressP, uint32_t *aIPv4AddressP, int *aIfInd
                 ip = (ip<<8) + ((uint8_t *)&(ipv4->sin_addr.s_addr))[i];
               }
             }
-            *aIPv4AddressP = ip;
-            found = true;
+            if (ip!=0) {
+              *aIPv4AddressP = ip;
+              found = true;
+            }
           }
           // done if found something
           if (found)
