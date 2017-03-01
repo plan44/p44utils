@@ -44,3 +44,35 @@ TEST_CASE( "platform MAC address and IPv4 detection", "[macaddress]" ) {
 
 }
 
+TEST_CASE( "specific interface's MAC address", "[macaddress]" ) {
+
+
+  SECTION("asking for a invalid interface's MAC address must return zero") {
+    uint64_t mymac = p44::macAddress("xyz");
+    REQUIRE( mymac == 0 );
+  }
+
+  SECTION("asking for a invalid interface's IPv4 address must return zero") {
+    uint32_t myipv4 = p44::ipv4Address("xyz");
+    REQUIRE( myipv4 == 0 );
+  }
+
+  #ifdef __APPLE__
+  SECTION("asking for 'en0' interface (macOS) should return a MAC address + IP") {
+    uint64_t mymac = p44::macAddress("eth0");
+    uint32_t myipv4 = p44::ipv4Address("eth0");
+    REQUIRE( mymac != 0 );
+    REQUIRE( myipv4 != 0 );
+  }
+  #else
+  SECTION("asking for 'eth0' interface (Linux) should return a MAC address + IP") {
+    uint64_t mymac = p44::macAddress("eth0");
+    uint32_t myipv4 = p44::ipv4Address("eth0");
+    REQUIRE( mymac != 0 );
+    REQUIRE( myipv4 != 0 );
+  }
+  #endif
+
+
+}
+

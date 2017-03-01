@@ -36,13 +36,14 @@ using namespace p44;
 #include <ifaddrs.h>
 #include <arpa/inet.h>
 
-// always use interface en0 (every Apple device has one, it's considered the main interface. Nowadays it's usually WiFi)
+// by default use interface en0 (every Apple device has one, it's considered the main interface. Nowadays it's usually WiFi)
 #define APPLE_DEFAULT_IF_NAME "en0"
 
-bool p44::getIfInfo(uint64_t *aMacAddressP, uint32_t *aIPv4AddressP, int *aIfIndexP)
+bool p44::getIfInfo(uint64_t *aMacAddressP, uint32_t *aIPv4AddressP, int *aIfIndexP, const char *aIfName)
 {
   bool found = false;
 
+  if (!aIfName || *aIfName==0) aIfName = APPLE_DEFAULT_IF_NAME;
   // MAC address
   if (aMacAddressP) {
     int mgmtInfoBase[6];
@@ -58,7 +59,7 @@ bool p44::getIfInfo(uint64_t *aMacAddressP, uint32_t *aIPv4AddressP, int *aIfInd
     mgmtInfoBase[3] = AF_LINK; // Request link layer information
     mgmtInfoBase[4] = NET_RT_IFLIST; // Request all configured interfaces
     // With all configured interfaces requested, get handle index
-    if ((mgmtInfoBase[5] = if_nametoindex(APPLE_DEFAULT_IF_NAME)) == 0) {
+    if ((mgmtInfoBase[5] = if_nametoindex(aIfName)) == 0) {
       return false; // failed
     }
     else {
@@ -192,7 +193,7 @@ bool p44::getMacAddressByIpv4(uint32_t aIPv4Address, uint64_t &aMacAddress)
 #include <linux/sockios.h>
 
 
-bool p44::getIfInfo(uint64_t *aMacAddressP, uint32_t *aIPv4AddressP, int *aIfIndex)
+bool p44::getIfInfo(uint64_t *aMacAddressP, uint32_t *aIPv4AddressP, int *aIfIndex, const char *aIfName)
 {
   int sock;
   int ifIndex;
@@ -203,6 +204,7 @@ bool p44::getIfInfo(uint64_t *aMacAddressP, uint32_t *aIPv4AddressP, int *aIfInd
   bool found = false;
 
   // any socket type will do
+  if (aIfName && *aIfName==0) aIfName = NULL;
   sock = socket(PF_INET, SOCK_DGRAM, 0);
   if (sock>=0) {
     // enumerate interfaces
@@ -217,11 +219,18 @@ bool p44::getIfInfo(uint64_t *aMacAddressP, uint32_t *aIPv4AddressP, int *aIfInd
         break; // no more names, end
       }
       // got name for index
+      if (aIfName) {
+        // name must match
+        if (strcmp(aIfName, ifr.ifr_name)==0) {
+          // name matches, use this and only this interface
+          found = true;
+        }
+      }
       // - get flags for it
       if (ioctl(sock, SIOCGIFFLAGS, &ifr)>=0) {
-        // skip loopback interfaces
-        if ((ifr.ifr_flags & IFF_LOOPBACK)==0) {
-          // not loopback
+        // skip loopback interfaces (unless specified by name)
+        if (found || (!aIfName && (ifr.ifr_flags & IFF_LOOPBACK)==0)) {
+          // found by name or not loopback
           // - now get HWADDR
           if (aMacAddressP && ioctl(sock, SIOCGIFHWADDR, &ifr)>=0) {
             // compose int64
@@ -234,7 +243,7 @@ bool p44::getIfInfo(uint64_t *aMacAddressP, uint32_t *aIPv4AddressP, int *aIfInd
               if (aIfIndex) *aIfIndex = ifIndex;
               // save the mac address
               *aMacAddressP = mac; // found, return it
-              found=true; // done, use it (even if IP is 0)
+              found = true; // done, use it (even if IP is 0)
             }
           }
           // - also get IPv4
@@ -246,16 +255,16 @@ bool p44::getIfInfo(uint64_t *aMacAddressP, uint32_t *aIPv4AddressP, int *aIfInd
                 ip = (ip<<8) + ((uint8_t *)&(ipv4->sin_addr.s_addr))[i];
               }
             }
-            if (ip!=0) {
+            if (ip!=0 || found) {
               *aIPv4AddressP = ip;
               found = true;
             }
           }
-          // done if found something
-          if (found)
-            break;
         }
       }
+      // done if found something
+      if (found)
+        break;
       // next
       ifIndex++;
     } while(true);
@@ -334,19 +343,19 @@ bool p44::getMacAddressByIpv4(uint32_t aIPv4Address, uint64_t &aMacAddress)
 
 
 
-uint64_t p44::macAddress()
+uint64_t p44::macAddress(const char *aIfName)
 {
   uint64_t mac;
-  if (getIfInfo(&mac, NULL, NULL))
+  if (getIfInfo(&mac, NULL, NULL, aIfName))
     return mac;
   return 0; // none
 }
 
 
-uint32_t p44::ipv4Address()
+uint32_t p44::ipv4Address(const char *aIfName)
 {
   uint32_t ip;
-  if (getIfInfo(NULL, &ip, NULL))
+  if (getIfInfo(NULL, &ip, NULL, aIfName))
     return ip;
   return 0; // none
 }

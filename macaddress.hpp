@@ -23,18 +23,19 @@
 #define __p44utils__macaddress__
 
 #include <stdint.h>
+#include <cstddef>
 
 namespace p44 {
 
   /// get MAC address of this machine
   /// @return MAC address as 64bit int (upper 16bits zero) or 0 if none could be determined
   /// @note see getIfInfo() for details how MAC address is obtained
-  uint64_t macAddress();
+  uint64_t macAddress(const char *aIfName = NULL);
 
   /// get MAC address of this machine
   /// @return IPv4 address as 32bit int or 0 if none could be determined
   /// @note see getIfInfo() for details how interface is determined
-  uint32_t ipv4Address();
+  uint32_t ipv4Address(const char *aIfName = NULL);
 
   /// get network interface information
   /// @param aMacAddressP if not NULL: is set to the (a) MAC address of this machine
@@ -45,7 +46,7 @@ namespace p44 {
   /// @note: On Linux, the first non-loopback interface's MAC will be used (as enumerated by ifr_ifindex 1..n)
   /// @note: On OS X, the MAC address of the "en0" device will be used (every Mac has a en0, which is the
   ///   built-in network port of the machine; ethernet port for Macs that have one, WiFi port otherwise)
-  bool getIfInfo(uint64_t *aMacAddressP, uint32_t *aIPv4AddressP, int *aIfIndexP);
+  bool getIfInfo(uint64_t *aMacAddressP, uint32_t *aIPv4AddressP, int *aIfIndexP, const char *aIfName = NULL);
 
   /// get MAC address of a remote party by IP
   /// @param aIPv4Address an IPv4 address to find out MAC address for
