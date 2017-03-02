@@ -43,7 +43,7 @@ bool p44::getIfInfo(uint64_t *aMacAddressP, uint32_t *aIPv4AddressP, int *aIfInd
 {
   bool found = false;
 
-  if (!aIfName || *aIfName==0) aIfName = APPLE_DEFAULT_IF_NAME;
+  if (aIfName && *aIfName==0) aIfName = NULL;
   // MAC address
   if (aMacAddressP) {
     int mgmtInfoBase[6];
@@ -59,7 +59,7 @@ bool p44::getIfInfo(uint64_t *aMacAddressP, uint32_t *aIPv4AddressP, int *aIfInd
     mgmtInfoBase[3] = AF_LINK; // Request link layer information
     mgmtInfoBase[4] = NET_RT_IFLIST; // Request all configured interfaces
     // With all configured interfaces requested, get handle index
-    if ((mgmtInfoBase[5] = if_nametoindex(aIfName)) == 0) {
+    if ((mgmtInfoBase[5] = if_nametoindex(aIfName ? aIfName : APPLE_DEFAULT_IF_NAME)) == 0) {
       return false; // failed
     }
     else {
@@ -114,8 +114,12 @@ bool p44::getIfInfo(uint64_t *aMacAddressP, uint32_t *aIPv4AddressP, int *aIfInd
       temp_addr = interfaces;
       while (temp_addr != NULL) {
         if(temp_addr->ifa_addr->sa_family == AF_INET) {
-          // get IP from first IF which is not the loopback ("lo0" on Apple)
-          if (strcmp(temp_addr->ifa_name,"lo0")!=0) {
+          // get IP from specified interface (if any) or from
+          // first IF which is not the loopback ("lo0" on Apple)
+          if (
+            (aIfName && strcmp(temp_addr->ifa_name, aIfName)==0) ||
+            ((!aIfName) && strcmp(temp_addr->ifa_name,"lo0")!=0)
+          ) {
             uint8_t *addr = (uint8_t *)&(((struct sockaddr_in *)temp_addr->ifa_addr)->sin_addr.s_addr);
             ip = (addr[0]<<24) + (addr[1]<<16) + (addr[2]<<8) + addr[3];
             if (ip!=0) {
@@ -203,8 +207,8 @@ bool p44::getIfInfo(uint64_t *aMacAddressP, uint32_t *aIPv4AddressP, int *aIfInd
   uint32_t ip = 0;
   bool found = false;
 
-  // any socket type will do
   if (aIfName && *aIfName==0) aIfName = NULL;
+  // any socket type will do
   sock = socket(PF_INET, SOCK_DGRAM, 0);
   if (sock>=0) {
     // enumerate interfaces
