@@ -307,6 +307,12 @@ bool OperationQueue::idleHandler()
           OperationPtr nextOp = op->finalize();
           if (nextOp) {
             operationQueue.insert(nextPos, nextOp);
+            // immediately try to initiate already
+            // Note: this is important to provide indivisible sequences of chained ops
+            //   especially in context of send/receive. If a chained receive op was not initiated
+            //   here, mainloop I/O events could cause data to be delivered before the chained
+            //   receive op had a chance to get initiated and would miss the data.
+            nextOp->initiate();
           }
           // restart with start of (modified) queue
           pleaseCallAgainSoon = true;
