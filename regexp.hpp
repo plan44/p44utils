@@ -26,7 +26,7 @@
 #include <string>
 
 extern "C" {
-  #include "slre.h"
+  #include "slre/slre.h"
 }
 
 using namespace std;
@@ -79,7 +79,7 @@ namespace p44 {
   };
   typedef boost::intrusive_ptr<RegExp> RegExpPtr;
 
-  
+
 
 } // namespace p44
 
