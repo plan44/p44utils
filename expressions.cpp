@@ -40,7 +40,7 @@ ErrorPtr p44::substitutePlaceholders(string &aString, StringValueLookupCB aValue
   size_t p = 0;
   // Syntax of placeholders:
   //   @{var[*ff][+|-oo][%frac]}
-  //   ff is an optional float factor to scale the channel value
+  //   ff is an optional float factor to scale the channel value, or 'B' to output JSON-compatible boolean true or false
   //   oo is an float offset to apply
   //   frac are number of fractional digits to use in output
   while ((p = aString.find("@{",p))!=string::npos) {
@@ -55,6 +55,7 @@ ErrorPtr p44::substitutePlaceholders(string &aString, StringValueLookupCB aValue
     double chfactor = 1;
     double choffset = 0;
     int numFracDigits = 0;
+    bool boolFmt = false;
     bool calc = false;
     size_t varend = string::npos;
     size_t i = 0;
@@ -65,6 +66,15 @@ ErrorPtr p44::substitutePlaceholders(string &aString, StringValueLookupCB aValue
       }
       if (i==string::npos) break; // no more factors, offsets or format specs
       // factor and/or offset
+      if (v[i]=='%') {
+        // format, check special cases
+        if (v[i+1]=='B') {
+          // binary true/false
+          boolFmt = true;
+          i+=2;
+          continue;
+        }
+      }
       calc = true;
       double dd;
       if (sscanf(v.c_str()+i+1, "%lf", &dd)==1) {
@@ -91,7 +101,12 @@ ErrorPtr p44::substitutePlaceholders(string &aString, StringValueLookupCB aValue
         // got double value, apply calculations
         dv = dv * chfactor + choffset;
         // render back to string
-        rep = string_format("%.*lf", numFracDigits, dv);
+        if (boolFmt) {
+          rep = dv>0 ? "true" : "false";
+        }
+        else {
+          rep = string_format("%.*lf", numFracDigits, dv);
+        }
       }
     }
     // replace, even if rep is empty
