@@ -91,7 +91,9 @@ ErrorPtr p44::substitutePlaceholders(string &aString, StringValueLookupCB aValue
     string rep = v.substr(0, varend);
     if (aValueLookupCB) {
       // if no replacement is found, original text is used
-      aValueLookupCB(rep, rep);
+      err = aValueLookupCB(rep, rep);
+      if (!Error::isOK(err))
+        break; // abort
     }
     // apply calculations if any
     if (calc) {
