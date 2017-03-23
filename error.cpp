@@ -51,6 +51,17 @@ void Error::setFormattedMessage(const char *aFmt, va_list aArgs)
 }
 
 
+void Error::prefixMessage(const char *aFmt, ...)
+{
+  string s;
+  va_list args;
+  va_start(args, aFmt);
+  string_format_v(s, false, aFmt, args);
+  va_end(args);
+  errorMessage.insert(0, s);
+}
+
+
 
 
 ErrorCode Error::getErrorCode() const

@@ -104,6 +104,10 @@ namespace p44 {
     /// @param aArgs argument list for formatting
     void setFormattedMessage(const char *aFmt, va_list aArgs);
 
+    /// insert additional message context
+    void prefixMessage(const char *aFmt, ...) __printflike(2,3);
+
+
     /// get error code
     /// @return the error code. Note that error codes are unique only within the same error domain.
     ///   error code 0 from any domain means OK.
