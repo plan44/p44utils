@@ -61,7 +61,7 @@ JsonObject::~JsonObject()
 #define MAX_JSON_FILE_SIZE 200000
 
 // factory method, create JSON object from file
-JsonObjectPtr JsonObject::objFromFile(const char *aJsonFilePath)
+JsonObjectPtr JsonObject::objFromFile(const char *aJsonFilePath, ErrorPtr *aErrorP)
 {
   // read file into string
   int fd = open(aJsonFilePath, O_RDONLY);
@@ -72,12 +72,15 @@ JsonObjectPtr JsonObject::objFromFile(const char *aJsonFilePath)
     if (fs.st_size<MAX_JSON_FILE_SIZE) {
       char *jsontext = new char[fs.st_size];
       read(fd, jsontext, fs.st_size);
-      JsonObjectPtr json = JsonObject::objFromText(jsontext,fs.st_size);
+      JsonObjectPtr json = JsonObject::objFromText(jsontext, fs.st_size, aErrorP);
       delete[] jsontext;
       return json;
     }
   }
   // could not open
+  if (aErrorP) {
+    *aErrorP = TextError::err("cannot open file '%s'", aJsonFilePath);
+  }
   return JsonObjectPtr(); // nothing read
 }
 
@@ -296,7 +299,7 @@ JsonObjectPtr JsonObject::newNull()
 }
 
 
-JsonObjectPtr JsonObject::objFromText(const char *aJsonText, ssize_t aMaxChars)
+JsonObjectPtr JsonObject::objFromText(const char *aJsonText, ssize_t aMaxChars, ErrorPtr *errP)
 {
   JsonObjectPtr obj;
   if (aMaxChars<0) aMaxChars = strlen(aJsonText);
@@ -304,6 +307,13 @@ JsonObjectPtr JsonObject::objFromText(const char *aJsonText, ssize_t aMaxChars)
   struct json_object *o = json_tokener_parse_ex(tokener, aJsonText, (int)aMaxChars);
   if (o) {
     obj = JsonObject::newObj(o);
+  }
+  else {
+    // error
+    if (errP) {
+      *errP = ErrorPtr(new JsonError(json_tokener_get_error(tokener)));
+      (*errP)->prefixMessage("at offset %d: ", tokener->char_offset);
+    }
   }
   json_tokener_free(tokener);
   return obj;
