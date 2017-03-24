@@ -61,9 +61,10 @@ namespace p44 {
     /// @param aMethod the HTTP method to use (defaults to "GET")
     /// @param aJsonRequest the JSON request to send (defaults to none)
     /// @param aContentType the content type/charset or NULL to use the default (application/json; charset=UTF-8)
+    /// @param aSaveHeaders if true, responseHeaders will be set to a string,string map containing the headers
     /// @return false if no request could be initiated (already busy with another request).
     ///   If false, aHttpCallback will not be called
-    bool jsonRequest(const char *aURL, JsonWebClientCB aResponseCallback, const char *aMethod = "GET", JsonObjectPtr aJsonRequest = JsonObjectPtr(), const char* aContentType = NULL);
+    bool jsonRequest(const char *aURL, JsonWebClientCB aResponseCallback, const char *aMethod = "GET", JsonObjectPtr aJsonRequest = JsonObjectPtr(), const char* aContentType = NULL, bool aSaveHeaders = false);
 
     /// send a request expected to return JSON (but not having a JSON request body) via HTTP or HTTPS
     /// @param aURL the http or https URL to send JSON request to
@@ -71,9 +72,10 @@ namespace p44 {
     /// @param aMethod the HTTP method to use (defaults to "POST")
     /// @param aPostData the raw POST data to send (for POST or PUT requests)
     /// @param aContentType the content type/charset or NULL to use the default (application/x-www-form-urlencoded)
+    /// @param aSaveHeaders if true, responseHeaders will be set to a string,string map containing the headers
     /// @return false if no request could be initiated (already busy with another request).
     ///   If false, aHttpCallback will not be called
-    bool jsonReturningRequest(const char *aURL, JsonWebClientCB aResponseCallback, const char *aMethod = "POST", const string &aPostData = "", const char* aContentType = NULL);
+    bool jsonReturningRequest(const char *aURL, JsonWebClientCB aResponseCallback, const char *aMethod = "POST", const string &aPostData = "", const char* aContentType = NULL, bool aSaveHeaders = false);
 
   protected:
 

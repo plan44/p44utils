@@ -148,57 +148,65 @@ void HttpComm::requestThread(ChildThreadWrapper &aThread)
     }
     else {
       // successfully initiated connection
+      struct mg_request_info *requestInfo = mg_get_request_info(mgConn);
+      // - get status code (which is in uri)
+      int status = 0;
+      sscanf(requestInfo->uri, "%d", &status);
+      if (status<200 || status>=300) {
+        requestError = Error::err<HttpCommError>(status,"HTTP non-ok status");
+      }
       // - get headers if requested
       if (responseHeaders) {
-        struct mg_request_info *requestInfo = mg_get_request_info(mgConn);
         if (requestInfo) {
           for (int i=0; i<requestInfo->num_headers; i++) {
             (*responseHeaders)[requestInfo->http_headers[i].name] = requestInfo->http_headers[i].value;
           }
         }
       }
-      // - read data
-      const size_t bufferSz = 2048;
-      uint8_t *bufferP = new uint8_t[bufferSz];
-      while (true) {
-        ssize_t res = mg_read_ex(mgConn, bufferP, bufferSz, (int)streamResult);
-        if (res==0) {
-          // connection has closed, all bytes read
-          if (streamResult) {
-            // when streaming, signal of stream condition by an empty data response
-            response.clear();
-          }
-          break;
-        }
-        else if (res<0) {
-          // read error
-          requestError = ErrorPtr(new HttpCommError(HttpCommError::read));
-          break;
-        }
-        else {
-          // data read
-          if (responseDataFd>=0) {
-            // write to fd
-            write(responseDataFd, bufferP, res);
-          }
-          else if (streamResult) {
-            // pass back the data chunk now
-            response.assign((const char *)bufferP, (size_t)res);
-            dataProcessingPending = true;
-            aThread.signalParentThread(httpThreadSignalDataReady);
-            // now wait until data has been processed in main thread
-            while (dataProcessingPending) {
-              // FIXME: ugly - add better thread signalling here
-              usleep(50000); // 50mS
+      if (Error::isOK(requestError)) {
+        // - read data
+        const size_t bufferSz = 2048;
+        uint8_t *bufferP = new uint8_t[bufferSz];
+        while (true) {
+          ssize_t res = mg_read_ex(mgConn, bufferP, bufferSz, (int)streamResult);
+          if (res==0) {
+            // connection has closed, all bytes read
+            if (streamResult) {
+              // when streaming, signal of stream condition by an empty data response
+              response.clear();
             }
+            break;
+          }
+          else if (res<0) {
+            // read error
+            requestError = ErrorPtr(new HttpCommError(HttpCommError::read));
+            break;
           }
           else {
-            // just collect entire response in string
-            response.append((const char *)bufferP, (size_t)res);
+            // data read
+            if (responseDataFd>=0) {
+              // write to fd
+              write(responseDataFd, bufferP, res);
+            }
+            else if (streamResult) {
+              // pass back the data chunk now
+              response.assign((const char *)bufferP, (size_t)res);
+              dataProcessingPending = true;
+              aThread.signalParentThread(httpThreadSignalDataReady);
+              // now wait until data has been processed in main thread
+              while (dataProcessingPending) {
+                // FIXME: ugly - add better thread signalling here
+                usleep(50000); // 50mS
+              }
+            }
+            else {
+              // just collect entire response in string
+              response.append((const char *)bufferP, (size_t)res);
+            }
           }
         }
+        delete[] bufferP;
       }
-      delete[] bufferP;
       mg_close_connection(mgConn);
     }
   }
