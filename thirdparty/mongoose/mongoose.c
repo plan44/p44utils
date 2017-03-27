@@ -1553,7 +1553,9 @@ static ssize_t pull(FILE *fp, struct mg_connection *conn, char *buf, ssize_t len
     nread = nsslread>=0 ? nread+nsslread : nsslread;
 #endif
   } else {
+    // be prepared to try again on EAGAIN
     nread = recv(conn->client.sock, buf, (size_t) len, 0);
+    if (nread<0 && errno==EAGAIN) nread = 0; // just report as "nothing read"
   }
 
   return conn->ctx->stop_flag ? -1 : nread;

@@ -179,7 +179,7 @@ void HttpComm::requestThread(ChildThreadWrapper &aThread)
           }
           else if (res<0) {
             // read error
-            requestError = ErrorPtr(new HttpCommError(HttpCommError::read));
+            requestError = Error::err<HttpCommError>(HttpCommError::read, "HTTP read error: %s", strerror(errno));
             break;
           }
           else {
