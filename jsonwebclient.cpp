@@ -43,7 +43,7 @@ void JsonWebClient::requestThreadSignal(ChildThreadWrapper &aChildThread, Thread
     if (aSignalCode==threadSignalCompleted) {
       requestInProgress = false; // thread completed
       JsonObjectPtr message;
-      if (Error::isOK(requestError)) {
+      if (Error::isOK(requestError) || requestError->isDomain(WebError::domain())) {
         // try to decode JSON
         struct json_tokener* tokener = json_tokener_new();
         struct json_object *o = json_tokener_parse_ex(tokener, response.c_str(), (int)response.size());

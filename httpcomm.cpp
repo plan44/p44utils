@@ -153,7 +153,8 @@ void HttpComm::requestThread(ChildThreadWrapper &aThread)
       int status = 0;
       sscanf(requestInfo->uri, "%d", &status);
       if (status<200 || status>=300) {
-        requestError = Error::err<HttpCommError>(status,"HTTP non-ok status");
+        // Important: report status as WebError, not HttpCommError, because it is not technically an error on the HTTP transport level
+        requestError = WebError::webErr(status,"HTTP non-ok status");
       }
       // - get headers if requested
       if (responseHeaders) {
@@ -163,7 +164,7 @@ void HttpComm::requestThread(ChildThreadWrapper &aThread)
           }
         }
       }
-      if (Error::isOK(requestError)) {
+      if (Error::isOK(requestError) || requestError->isDomain(WebError::domain())) {
         // - read data
         const size_t bufferSz = 2048;
         uint8_t *bufferP = new uint8_t[bufferSz];
@@ -258,6 +259,7 @@ bool HttpComm::httpRequest(
     return false; // blocked or no URL
   responseDataFd = aResponseDataFd;
   responseHeaders.reset();
+  requestError.reset();
   if (aSaveHeaders)
     responseHeaders = HttpHeaderMapPtr(new HttpHeaderMap);
   requestURL = aURL;
