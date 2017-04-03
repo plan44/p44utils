@@ -35,6 +35,7 @@ HttpComm::HttpComm(MainLoop &aMainLoop) :
   mainLoop(aMainLoop),
   requestInProgress(false),
   mgConn(NULL),
+  httpAuthInfo(NULL),
   timeout(Never),
   responseDataFd(-1),
   streamResult(false),
@@ -45,6 +46,7 @@ HttpComm::HttpComm(MainLoop &aMainLoop) :
 
 HttpComm::~HttpComm()
 {
+  if (httpAuthInfo) free(httpAuthInfo); // we own this
   responseCallback.clear(); // prevent calling back now
   cancelRequest(); // make sure subthread is cancelled
 }
@@ -101,22 +103,22 @@ void HttpComm::requestThread(ChildThreadWrapper &aThread)
     }
     if (requestBody.length()>0) {
       // is a request which sends data in the HTTP message body (e.g. POST)
-      mgConn = mg_download_tmo(
+      mgConn = mg_download_ex(
         host.c_str(),
         port,
         useSSL,
         tmo,
+        method.c_str(),
+        doc.c_str(),
+        username.empty() ? NULL : username.c_str(),
+        password.empty() ? NULL : password.c_str(),
+        &httpAuthInfo,
         ebuf, ebufSz,
-        "%s %s HTTP/1.1\r\n"
-        "Host: %s\r\n"
         "Content-Type: %s\r\n"
         "Content-Length: %ld\r\n"
         "%s"
         "\r\n"
         "%s",
-        method.c_str(),
-        doc.c_str(),
-        host.c_str(),
         contentType.c_str(),
         requestBody.length(),
         extraHeaders.c_str(),
@@ -125,21 +127,19 @@ void HttpComm::requestThread(ChildThreadWrapper &aThread)
     }
     else {
       // no request body (e.g. GET, DELETE)
-      mgConn = mg_download_tmo(
+      mgConn = mg_download_ex(
         host.c_str(),
         port,
         useSSL,
         tmo,
-        ebuf, ebufSz,
-        "%s %s HTTP/1.1\r\n"
-        "Host: %s\r\n"
-//        "Content-Type: %s\r\n"
-        "%s"
-        "\r\n",
         method.c_str(),
         doc.c_str(),
-        host.c_str(),
-//        contentType.c_str(),
+        username.empty() ? NULL : username.c_str(),
+        password.empty() ? NULL : password.c_str(),
+        &httpAuthInfo,
+        ebuf, ebufSz,
+        "%s"
+        "\r\n",
         extraHeaders.c_str()
       );
     }
@@ -152,6 +152,10 @@ void HttpComm::requestThread(ChildThreadWrapper &aThread)
       // - get status code (which is in uri)
       int status = 0;
       sscanf(requestInfo->uri, "%d", &status);
+      // check for auth
+      if (status==401) {
+        LOG(LOG_DEBUG, "401 - http auth?")
+      }
       if (status<200 || status>=300) {
         // Important: report status as WebError, not HttpCommError, because it is not technically an error on the HTTP transport level
         requestError = WebError::webErr(status,"HTTP non-ok status");

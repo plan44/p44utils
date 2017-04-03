@@ -80,10 +80,13 @@ namespace p44 {
     string method;
     string contentType;
     string requestBody;
+    string username;
+    string password;
     int responseDataFd;
     bool streamResult; ///< if set, result will be "streamed", meaning callback will be called multiple times as data chunks arrive
     MLMicroSeconds timeout; // timeout, Never = use default, do not set
     struct mg_connection *mgConn; // mongoose connection
+    void *httpAuthInfo; // opaque auth info kept stored between connections
 
   public:
 
@@ -111,7 +114,14 @@ namespace p44 {
     void clearRequestHeaders() { requestHeaders.clear(); };
 
     /// add a request header (will be used on all subsequent requests
+    /// @param aHeaderName the name of the header
+    /// @param aHeaderValue the value of the header
     void addRequestHeader(const string aHeaderName, const string aHeaderValue) { requestHeaders[aHeaderName] = aHeaderValue; };
+
+    /// set http (digest) auth credentials (will be used on all subsequent requests)
+    /// @param aUsername user name
+    /// @param aPassword password
+    void setHttpAuthCredentials(const string aUsername, const string aPassword) { username = aUsername; password = aPassword; };
 
     /// send a HTTP or HTTPS request
     /// @param aURL the http or https URL to access

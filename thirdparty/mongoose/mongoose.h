@@ -321,6 +321,15 @@ struct mg_connection *mg_download_tmo(const char *host, int port, int use_ssl,
                                       PRINTF_FORMAT_STRING(const char *request_fmt),
                                       ...) PRINTF_ARGS(7, 8);
 
+// Variant with timeout and http auth
+struct mg_connection *mg_download_ex(const char *host, int port, int use_ssl,
+                                     int timeout,
+                                     const char *method, const char *requesturi,
+                                     const char *username, const char *password, void **opaqueauthP,
+                                     char *error_buffer, size_t error_buffer_size,
+                                     PRINTF_FORMAT_STRING(const char *request_fmt),
+                                     ...) PRINTF_ARGS(12, 13);
+
 
 
 // Close the connection opened by mg_download().
