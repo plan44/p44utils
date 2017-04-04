@@ -5257,7 +5257,7 @@ struct mg_connection *mg_download_ex(const char *host, int port, int use_ssl,
     create_authorization_header(wah, requesturi, method, username, password, authorization, MG_BUF_LEN);
     reused_auth = 1;
   }
-  while (true) {
+  while (1) {
     ebuf[0] = '\0';
     if ((conn = mg_connect(host, port, use_ssl, ebuf, ebuf_len)) == NULL) {
     } else if (
