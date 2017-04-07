@@ -34,6 +34,7 @@ static const ValueUnitDescriptor valueUnitNames[numValueUnits] = {
   { "none", "" },
   { "percent", "%" },
   { "ppm", "ppm" },
+  // basic SI units
   { "meter", "m" },
   { "gram", "g" },
   { "second", "S" },
@@ -42,6 +43,7 @@ static const ValueUnitDescriptor valueUnitNames[numValueUnits] = {
   { "mole", "mol" },
   { "candle", "cd" },
   { "bequerel", "Bq" },
+  // derived units
   { "watt", "W" },
   { "voltampere", "VA" },
   { "celsius", "°C" },
@@ -52,10 +54,13 @@ static const ValueUnitDescriptor valueUnitNames[numValueUnits] = {
   { "pascal", "Pa" },
   { "degree", "°" },
   { "bel", "B" },
+  // combined units
   { "molpercubicmeter", "mol/m3" },
   { "bequerelpercubicmeter", "Bq/m3" },
   { "grampercubicmeter", "Bq/m3" },
   { "meterpersecond", "m/s" },
+  { "literpersecond", "l/s" },
+  // non-SI scaled units
   { "mperm2", "m/m2" },
   { "minute", "min" },
   { "hour", "h" },
