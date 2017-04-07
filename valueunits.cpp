@@ -22,6 +22,7 @@
 #include "valueunits.hpp"
 
 #include "utils.hpp"
+#include <string.h>
 
 using namespace p44;
 
