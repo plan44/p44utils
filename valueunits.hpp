@@ -65,7 +65,8 @@ namespace p44 {
     valueUnit_degree, ///< angle
     valueUnit_bel, ///< 10*dezibel
     // combined units
-    valueUnit_molpercubicmeter,
+    valueUnit_molpercubicmeter, ///< also: mmol/liter
+    valueUnit_frenchwaterhardness, ///< equivalent to (1/10000 mol)/liter -> 10 times more than mmol/liter
     valueUnit_bequerelperm3,
     valueUnit_gramperm3,
     valueUnit_meterpersecond,
