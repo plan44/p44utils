@@ -340,7 +340,7 @@ string HttpComm::urlEncode(const string &aString, bool aFormURLEncoded)
     if (aFormURLEncoded && c==' ')
       result += '+'; // replace spaces by pluses
     else if (!isalnum(c))
-      string_format_append(result, "%%%02X", c);
+      string_format_append(result, "%%%02X", (unsigned int)c & 0xFF);
     else
       result += c; // just append
   }
