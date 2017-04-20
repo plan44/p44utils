@@ -15,7 +15,7 @@
  *         provided with the distribution.
  *     3.  Neither the name of the owner nor the names of its contributors may be used to endorse
  *         or promote products derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER BE
@@ -52,9 +52,11 @@
 
 #define OSC_FREQ                                 19200000   // crystal frequency
 
-/* 3 colors, 8 bits per byte, 3 symbols per bit + 55uS low for reset signal */
+/* LED_BYTES colors per LED, 8 bits per byte, 3 symbols per bit + 55uS low for reset signal */
+/* Note: set LED_BYTES to 3 for RGB WS281x, set it to 4 for RGBW SK6812 */
+#define LED_BYTES                                3
 #define LED_RESET_uS                             55
-#define LED_BIT_COUNT(leds, freq)                ((leds * 3 * 8 * 3) + ((LED_RESET_uS * \
+#define LED_BIT_COUNT(leds, freq)                ((leds * LED_BYTES * 8 * 3) + ((LED_RESET_uS * \
                                                   (freq * 3)) / 1000000))
 
 // Pad out to the nearest uint32 + 32-bits for idle low/high times the number of channels
@@ -317,7 +319,7 @@ static void dma_start(ws2811_t *ws2811)
     dma->conblk_ad = dma_cb_addr;
     dma->debug = 7; // clear debug error flags
     dma->cs = RPI_DMA_CS_WAIT_OUTSTANDING_WRITES |
-              RPI_DMA_CS_PANIC_PRIORITY(15) | 
+              RPI_DMA_CS_PANIC_PRIORITY(15) |
               RPI_DMA_CS_PRIORITY(15) |
               RPI_DMA_CS_ACTIVE;
 }
@@ -356,7 +358,7 @@ static int gpio_init(ws2811_t *ws2811)
 
 /**
  * Initialize the PWM DMA buffer with all zeros for non-inverted operation, or
- * ones for inverted operation.  The DMA buffer length is assumed to be a word 
+ * ones for inverted operation.  The DMA buffer length is assumed to be a word
  * multiple.
  *
  * @param    ws2811  ws2811 instance pointer.
@@ -609,9 +611,18 @@ int ws2811_render(ws2811_t *ws2811)
         {
             uint8_t color[] =
             {
+                #if LED_BYTES==4
+                // SK2812, RGBW with byte order RR,GG,BB, WW
+                (((channel->leds[i] >> 16) & 0xff) * scale) >> 8, // red
+                (((channel->leds[i] >> 8)  & 0xff) * scale) >> 8, // green
+                (((channel->leds[i] >> 0)  & 0xff) * scale) >> 8, // blue
+                (((channel->leds[i] >> 24) & 0xff) * scale) >> 8, // white
+                #else
+                // WS281x, RGB with byte order GG,RR,BB
                 (((channel->leds[i] >> 8)  & 0xff) * scale) >> 8, // green
                 (((channel->leds[i] >> 16) & 0xff) * scale) >> 8, // red
                 (((channel->leds[i] >> 0)  & 0xff) * scale) >> 8, // blue
+                #endif
             };
 
             for (j = 0; j < ARRAY_SIZE(color); j++)        // Color

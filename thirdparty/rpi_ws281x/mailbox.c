@@ -79,9 +79,9 @@ void *unmapmem(void *addr, unsigned size)
    unsigned offset = base % PAGE_SIZE;
    base = base - offset;
    size = size + offset;
-   int s = munmap(base, size);
+   int s = munmap((void *)base, (size_t)size);
    if (s != 0) {
-      printf("munmap base=0x%uX %p sz=%u (offset=%u): errno=%d\n", base, size, offset, (int)errno);
+      printf("munmap base=0x%uX sz=%u (offset=%u): errno=%d\n", base, size, offset, (int)errno);
       exit (-1);
    }
 
