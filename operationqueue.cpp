@@ -182,7 +182,7 @@ void Operation::abortOperation(ErrorPtr aError)
     if (completionCB) {
       StatusCB cb = completionCB;
       completionCB = NULL; // call once only
-      cb(aError);
+      if (aError) cb(aError); // prevent callback if no error is given
     }
   }
   // abort chained operation as well
@@ -216,7 +216,7 @@ OperationQueue::~OperationQueue()
 {
   // unregister from mainloop
   mainLoop.unregisterIdleHandlers(this);
-  // reset all operations
+  // silently reset all operations
   abortOperations();
 }
 
@@ -245,6 +245,7 @@ bool OperationQueue::idleHandler()
     // already processing, avoid recursion
     return true;
   }
+  OperationQueuePtr keepMeAlive(this); // make sure this object lives until routine terminates
   processingQueue = true; // protect agains recursion
   bool pleaseCallAgainSoon = false; // assume nothing to do
   if (!operationQueue.empty()) {
@@ -337,10 +338,11 @@ bool OperationQueue::idleHandler()
 
 
 // abort all pending operations
-void OperationQueue::abortOperations()
+void OperationQueue::abortOperations(ErrorPtr aError)
 {
+  OperationQueuePtr keepMeAlive(this); // make sure this object lives until routine terminates
   for (OperationList::iterator pos = operationQueue.begin(); pos!=operationQueue.end(); ++pos) {
-    (*pos)->abortOperation(ErrorPtr(new OQError(OQError::Aborted)));
+    (*pos)->abortOperation(aError);
   }
   // empty queue
   operationQueue.clear();

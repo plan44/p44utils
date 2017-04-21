@@ -140,6 +140,7 @@ namespace p44 {
     virtual OperationPtr finalize();
 
     /// abort operation
+    /// @param aError if set, abortion might be reported back by callbacks. If NULL, no callback will happen
     /// @note base class calls callback if one was set by setCompletionCallback()
     virtual void abortOperation(ErrorPtr aError);
 
@@ -177,7 +178,8 @@ namespace p44 {
     void processOperations();
 
     /// abort all pending operations
-    void abortOperations();
+    /// @param aError if set, this will be passed on to each operation, which might cause them to execute call backs.
+    void abortOperations(ErrorPtr aError = ErrorPtr());
     
   private:
 
