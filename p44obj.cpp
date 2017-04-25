@@ -47,4 +47,11 @@ namespace p44 {
     }
   }
 
+  void P44Obj::isMemberVariable()
+  {
+    // set refcount high to avoid deletion via intrusive_ptr_release
+    // the only way the object can get deleted is along with the object it is a member variable of.
+    refCount = 4242;
+  }
+
 }

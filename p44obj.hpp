@@ -37,6 +37,14 @@ namespace p44 {
 
     int refCount;
 
+  public:
+
+    /// Call this method for P44Objs that are allocated as member variable of another object
+    /// @note this is required to avoid destruction is attempted when a member object
+    ///   is referenced by a intrusive_ptr and then this pointer goes out of scope. Refcount would then
+    ///   reach 0 and destruction would be attempted.
+    void isMemberVariable();
+
   protected:
     P44Obj() : refCount(0) {};
     virtual ~P44Obj() {}; // important for multiple inheritance
