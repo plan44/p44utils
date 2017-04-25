@@ -1691,6 +1691,15 @@ static int alloc_vprintf(char **buf, size_t size, const char *fmt, va_list ap) {
   return len;
 }
 
+
+static int alloc_printf(char **buf, size_t size, const char *fmt, ...) {
+  va_list ap;
+  va_start(ap, fmt);
+  return alloc_vprintf(buf, size, fmt, ap);
+}
+
+
+
 ssize_t mg_vprintf(struct mg_connection *conn, const char *fmt, va_list ap) {
   char mem[MG_BUF_LEN], *buf = mem;
   ssize_t len;
@@ -5242,6 +5251,8 @@ struct mg_connection *mg_download_ex(const char *host, int port, int use_ssl,
   char *authorization = NULL;
   int reused_auth = 0;
   struct wah *wah = NULL;
+  char *reqText = NULL;
+  size_t reqLen = 0;
   va_list ap;
   va_start(ap, fmt);
 
@@ -5259,10 +5270,12 @@ struct mg_connection *mg_download_ex(const char *host, int port, int use_ssl,
   }
   while (1) {
     ebuf[0] = '\0';
+    // produce main message (so it will be sent with a single mg_printf/mg_write below)
+    reqText = NULL;
+    reqLen = alloc_vprintf(&reqText, 0, fmt, ap);
     if ((conn = mg_connect(host, port, use_ssl, ebuf, ebuf_len)) == NULL) {
     } else if (
-      (mg_printf(conn, "%s %s HTTP/1.1\r\nHost: %s\r\n%s", method, requesturi, host, authorization ? authorization : "") <= 0) ||
-      (mg_vprintf(conn, fmt, ap) <= 0)
+      mg_printf(conn, "%s %s HTTP/1.1\r\nHost: %s\r\n%s%s", method, requesturi, host, authorization ? authorization : "", reqText) <= 0
     ) {
       snprintf(ebuf, ebuf_len, "%s", "Error sending request");
     } else {
@@ -5271,6 +5284,7 @@ struct mg_connection *mg_download_ex(const char *host, int port, int use_ssl,
       }
       getreq(conn, ebuf, ebuf_len);
     }
+    if (reqText) { free(reqText); reqText = NULL; }
     if (ebuf[0] != '\0' && conn != NULL) {
       mg_close_connection(conn);
       conn = NULL;
