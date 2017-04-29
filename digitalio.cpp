@@ -219,6 +219,7 @@ ButtonInput::ButtonInput(const char* aPinSpec) :
 ButtonInput::~ButtonInput()
 {
   MainLoop::currentMainLoop().unregisterIdleHandlers(this);
+  MainLoop::currentMainLoop().cancelExecutionTicket(activeReportTicket);
 }
 
 
@@ -230,6 +231,11 @@ void ButtonInput::setButtonHandler(ButtonHandlerCB aButtonHandler, bool aPressAn
   if (buttonHandler) {
     // mainloop idle polling if input does not support edge detection
     setInputChangedHandler(boost::bind(&ButtonInput::inputChanged, this, _1), BUTTON_DEBOUNCE_TIME, 0);
+    // if active already when handler is installed and active report repeating requested -> start reporting now
+    if (isSet() && repeatActiveReport!=Never) {
+      // report for the first time and keep reporting
+      repeatStateReport();
+    }
   }
   else {
     // unregister
@@ -250,7 +256,7 @@ void ButtonInput::inputChanged(bool aNewState)
   lastChangeTime = now;
   // active state reported now
   if (aNewState && repeatActiveReport!=Never) {
-    activeReportTicket = MainLoop::currentMainLoop().executeOnce(boost::bind(&ButtonInput::repeatStateReport, this), repeatActiveReport);
+    MainLoop::currentMainLoop().executeTicketOnce(activeReportTicket, boost::bind(&ButtonInput::repeatStateReport, this), repeatActiveReport);
   }
   else {
     // no longer active, cancel repeating active state if any
@@ -262,7 +268,7 @@ void ButtonInput::inputChanged(bool aNewState)
 void ButtonInput::repeatStateReport()
 {
   if (buttonHandler) buttonHandler(true, false, MainLoop::now()-lastChangeTime);
-  activeReportTicket = MainLoop::currentMainLoop().executeOnce(boost::bind(&ButtonInput::repeatStateReport, this), repeatActiveReport);
+  MainLoop::currentMainLoop().executeTicketOnce(activeReportTicket, boost::bind(&ButtonInput::repeatStateReport, this), repeatActiveReport);
 }
 
 
