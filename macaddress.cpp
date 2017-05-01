@@ -209,7 +209,7 @@ bool p44::getIfInfo(uint64_t *aMacAddressP, uint32_t *aIPv4AddressP, int *aIfInd
 
   if (aIfName && *aIfName==0) aIfName = NULL;
   // any socket type will do
-  sock = socket(PF_INET, SOCK_DGRAM, 0);
+  sock = socket(PF_INET, SOCK_DGRAM, IPPROTO_IP);
   if (sock>=0) {
     // enumerate interfaces
     ifIndex = 1; // start with 1
@@ -251,12 +251,21 @@ bool p44::getIfInfo(uint64_t *aMacAddressP, uint32_t *aIPv4AddressP, int *aIfInd
             }
           }
           // - also get IPv4
-          if (aIPv4AddressP && ioctl(sock, SIOCGIFADDR, &ifr)>=0) {
-            for (int i=0; i<4; ++i) {
+          if (aIPv4AddressP) {
+            if (ioctl(sock, SIOCGIFADDR, &ifr)>=0) {
               if (ifr.ifr_addr.sa_family==AF_INET) {
                 // is IPv4
                 struct sockaddr_in *ipv4 = (struct sockaddr_in *)&(ifr.ifr_addr);
-                ip = (ip<<8) + ((uint8_t *)&(ipv4->sin_addr.s_addr))[i];
+                for (int i=0; i<4; ++i) {
+                  ip = (ip<<8) + ((uint8_t *)&(ipv4->sin_addr.s_addr))[i];
+                }
+              }
+            }
+            else {
+              if (found) {
+                // we want IP from exactly this if, but it does not have any -> no IP
+                found = false; // nothing found
+                break;
               }
             }
             if (ip!=0 || found) {
