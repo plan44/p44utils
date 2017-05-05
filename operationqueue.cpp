@@ -214,11 +214,18 @@ OperationQueue::OperationQueue(MainLoop &aMainLoop) :
 // destructor
 OperationQueue::~OperationQueue()
 {
+  terminate();
+}
+
+
+void OperationQueue::terminate()
+{
   // unregister from mainloop
   mainLoop.unregisterIdleHandlers(this);
   // silently reset all operations
   abortOperations();
 }
+
 
 
 // queue a new operation

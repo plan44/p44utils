@@ -47,6 +47,12 @@ HttpComm::HttpComm(MainLoop &aMainLoop) :
 HttpComm::~HttpComm()
 {
   if (httpAuthInfo) free(httpAuthInfo); // we own this
+  terminate();
+}
+
+
+void HttpComm::terminate()
+{
   responseCallback.clear(); // prevent calling back now
   cancelRequest(); // make sure subthread is cancelled
 }

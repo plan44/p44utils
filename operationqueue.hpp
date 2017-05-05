@@ -170,6 +170,9 @@ namespace p44 {
     /// destructor
     virtual ~OperationQueue();
 
+    /// terminate
+    virtual void terminate();
+
     /// queue a new operation
     /// @param aOperation the operation to queue
     void queueOperation(OperationPtr aOperation);

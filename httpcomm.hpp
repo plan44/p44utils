@@ -146,8 +146,11 @@ namespace p44 {
       bool aStreamResult = false
     );
 
-    /// cancel request
+    /// cancel request, request callbacks will be executed
     void cancelRequest();
+
+    /// terminate operation, no callbacks
+    virtual void terminate();
 
     /// explicitly set socket timeout to use
     void setTimeout(MLMicroSeconds aTimeout) { timeout = aTimeout; };
