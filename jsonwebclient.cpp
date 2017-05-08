@@ -65,7 +65,7 @@ void JsonWebClient::requestThreadSignal(ChildThreadWrapper &aChildThread, Thread
         json_tokener_free(tokener);
       }
       // call back with result of request
-      LOG(LOG_DEBUG, "JsonWebClient: <- received JSON answer:\n%s", message ? message->json_c_str() : "<none>");
+      LOG(LOG_DEBUG, "JsonWebClient: <- received JSON response (Error=%s), answer:\n%s", requestError ? requestError->description().c_str() : "<none>", message ? message->json_c_str() : "<none>");
       // Note: this callback might initiate another request already
       if (jsonResponseCallback) {
         // use this callback, but as callback routine might post another request immediately, we need to free the member first
