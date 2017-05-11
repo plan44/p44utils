@@ -78,7 +78,7 @@ namespace sqlite3pp
     char const* error_msg() const;
 
     int execute(char const* sql);
-    int executef(char const* sql, ...) __printflike(2,3);
+    int executef(char const* sql, ...); // __printflike(2,3); // is not really printflike because of non-standard placeholders like %q 
 
     int set_busy_timeout(int ms);
 
