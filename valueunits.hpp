@@ -78,6 +78,7 @@ namespace p44 {
     valueUnit_day,
     valueUnit_watthour,
     valueUnit_literpermin,
+    ValueUnit_mired,
     numValueUnits,
   } ValueBaseUnit;
 

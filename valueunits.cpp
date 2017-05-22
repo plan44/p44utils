@@ -68,7 +68,8 @@ static const ValueUnitDescriptor valueUnitNames[numValueUnits] = {
   { "hour", "h" },
   { "day", "d" },
   { "watthour", "Wh" },
-  { "literperminute", "l/min" }
+  { "literperminute", "l/min" },
+  { "mired", "mired" },
 };
 typedef struct {
   const char *name;
