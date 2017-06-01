@@ -513,6 +513,7 @@ struct mg_connection {
   int64_t consumed_content;   // How many bytes of content have been read
   char *buf;                  // Buffer for received data
   char *path_info;            // PATH_INFO part of the URL
+  int has_content_len;        // for mg_download/mg_read_ex: set if actual content-lenght header found in response
   int must_close;             // 1 if connection must be closed
   ssize_t buf_size;           // Buffer size
   ssize_t request_len;        // Size of the request + headers in a buffer
@@ -1591,8 +1592,8 @@ ssize_t mg_read_ex(struct mg_connection *conn, void *buf, size_t len, int stream
   ssize_t n, buffered_len, nread;
   const char *body;
 
-  // If Content-Length is not set, read until socket is closed
-  if (conn->consumed_content == 0 && conn->content_len == 0) {
+  // If Content-Length is not set, read until socket is closed (but do NOT do that when Content-Length is set to 0 explicitly!) 
+  if (conn->consumed_content == 0 && conn->content_len == 0 && !conn->has_content_len) {
     conn->content_len = INT64_MAX;
     conn->must_close = 1;
   }
@@ -5151,7 +5152,9 @@ static int getreq(struct mg_connection *conn, char *ebuf, size_t ebuf_len) {
     snprintf(ebuf, ebuf_len, "Bad request: [%.*s]", (int)conn->data_len, conn->buf);
   } else {
     // Request is valid
+    conn->has_content_len = 0;
     if ((cl = get_header(&conn->request_info, "Content-Length")) != NULL) {
+      conn->has_content_len = 1;
       conn->content_len = strtoll(cl, NULL, 10);
     } else if (!mg_strcasecmp(conn->request_info.request_method, "POST") ||
                !mg_strcasecmp(conn->request_info.request_method, "PUT")) {
