@@ -40,7 +40,11 @@ SocketComm::SocketComm(MainLoop &aMainLoop) :
   maxServerConnections(1),
   serverConnection(NULL),
   broadcast(false),
-  connectionFd(-1)
+  connectionFd(-1),
+  protocolFamily(PF_UNSPEC),
+  socketType(SOCK_STREAM),
+  protocol(0),
+  connectionLess(false)
 {
 }
 
