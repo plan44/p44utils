@@ -195,6 +195,7 @@ bool p44::getMacAddressByIpv4(uint32_t aIPv4Address, uint64_t &aMacAddress)
 #include <netinet/in.h>
 #include <net/if_arp.h>
 #include <linux/sockios.h>
+#include <errno.h>
 
 
 bool p44::getIfInfo(uint64_t *aMacAddressP, uint32_t *aIPv4AddressP, int *aIfIndex, const char *aIfName)
@@ -220,7 +221,8 @@ bool p44::getIfInfo(uint64_t *aMacAddressP, uint32_t *aIPv4AddressP, int *aIfInd
       ifr.ifr_ifindex = ifIndex;
       res = ioctl(sock, SIOCGIFNAME, &ifr);
       if (res<0) {
-        break; // no more names, end
+        if (ifIndex>20 || res!=ENODEV) break; // error or no more names -> end
+        ifIndex++; continue; // otherwise, just skip (indices aren't necessarily contiguous)
       }
       // got name for index
       if (aIfName) {
