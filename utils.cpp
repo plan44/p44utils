@@ -154,6 +154,26 @@ bool p44::string_fgetline(FILE *aFile, string &aLine)
 }
 
 
+bool p44::string_fgetfile(FILE *aFile, string &aData)
+{
+  const size_t bufLen = 1024;
+  char buf[bufLen];
+  aData.clear();
+  while (!feof(aFile)) {
+    size_t n = fread(buf, 1, bufLen-1, aFile);
+    if (n>0) {
+      // eof or error
+      aData.append(buf, n);
+    }
+    else {
+      if (ferror(aFile))
+        return false;
+    }
+  }
+  return true;
+}
+
+
 
 const char *p44::nonNullCStr(const char *aNULLOrCStr)
 {

@@ -78,6 +78,12 @@ namespace p44 {
   /// @return true if line could be read, false otherwise
   bool string_fgetline(FILE *aFile, string &aLine);
 
+  /// get entire file into string
+  /// @param aFile file open for read
+  /// @param aData string to store data
+  /// @return true if file could be read, false otherwise
+  bool string_fgetfile(FILE *aFile, string &aData);
+
 	/// always return a valid C String, if NULL is passed, an empty string is returned
 	/// @param aNULLOrCStr NULL or C-String
 	/// @return the input string if it is non-NULL, or an empty string
