@@ -173,9 +173,10 @@ namespace p44 {
 
     /// get option
     /// @param aOptionName the name of the option (longOptionName if exists, shortOptionChar if no longOptionName exists)
-    /// @return NULL if option was not specified on the command line, empty string for options without argument, option's argument otherwise
+    /// @param aDefaultValue this is returned in case the option is not specified, defaults to NULL
+    /// @return aDefaultValue if option was not specified on the command line, empty string for options without argument, option's argument otherwise
     /// @note parseCommandLine() must be called before using this method
-    const char *getOption(const char *aOptionName);
+    const char *getOption(const char *aOptionName, const char *aDefaultValue = NULL);
 
     /// @param aOptionName the name of the option (longOptionName if exists, shortOptionChar if no longOptionName exists)
     /// @param aInteger will be set with the integer value of the option, if any

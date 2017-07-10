@@ -528,9 +528,9 @@ void CmdLineApp::resetCommandLine()
 }
 
 
-const char *CmdLineApp::getOption(const char *aOptionName)
+const char *CmdLineApp::getOption(const char *aOptionName, const char *aDefaultValue)
 {
-  const char *opt = NULL;
+  const char *opt = aDefaultValue;
   OptionsMap::iterator pos = options.find(aOptionName);
   if (pos!=options.end()) {
     opt = pos->second.c_str();
