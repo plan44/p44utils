@@ -814,7 +814,6 @@ void PCA9685::setPinValue(int aPinNo, double aValue)
 // MARK: ===== I2Cpin
 
 
-/// create i2c based digital input or output pin
 AnalogI2CPin::AnalogI2CPin(int aBusNumber, const char *aDeviceId, int aPinNumber, bool aOutput, double aInitialValue) :
   output(false)
 {
@@ -828,8 +827,6 @@ AnalogI2CPin::AnalogI2CPin(int aBusNumber, const char *aDeviceId, int aPinNumber
 }
 
 
-/// get state of pin
-/// @return current state (from actual GPIO pin for inputs, from last set state for outputs)
 double AnalogI2CPin::getValue()
 {
   if (analogPortDevice) {
@@ -839,8 +836,6 @@ double AnalogI2CPin::getValue()
 }
 
 
-/// set state of pin (NOP for inputs)
-/// @param aState new state to set output to
 void AnalogI2CPin::setValue(double aValue)
 {
   if (analogPortDevice && output) {

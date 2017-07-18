@@ -54,7 +54,7 @@ DigitalIo::DigitalIo(const char* aPinSpec, bool aOutput, bool aInitialState) :
 {
   // save params
   output = aOutput;
-  // allow inverting by prefixing name with slash
+  // check for inverting and pullup prefixes
   while (aPinSpec && *aPinSpec) {
     if (*aPinSpec=='/') inverted = true;
     else if (*aPinSpec=='+') pullUp = true;

@@ -33,6 +33,9 @@
 #if !DISABLE_GPIO
 #include "gpio.hpp"
 #endif
+#if !DISABLE_PWM
+#include "pwm.hpp"
+#endif
 #if !DISABLE_I2C
 #include "i2c.hpp"
 #endif
@@ -42,13 +45,21 @@
 
 using namespace p44;
 
-AnalogIo::AnalogIo(const char* aAnalogIoName, bool aOutput, double aInitialValue)
+AnalogIo::AnalogIo(const char* aPinSpec, bool aOutput, double aInitialValue)
 {
   // save params
   output = aOutput;
-  name = aAnalogIoName;
+  // check for inverting and pullup prefixes
+  bool inverted = false; // not all analog outputs support this at all
+  while (aPinSpec && *aPinSpec) {
+    if (*aPinSpec=='/') inverted = true;
+    else break; // none of the allowed prefixes -> done
+    ++aPinSpec; // processed prefix -> check next
+  }
+  // rest is pin specification
+  pinspec = aPinSpec;
   // check for missing pin (no pin, just silently keeping value)
-  if (name=="missing") {
+  if (pinspec=="missing") {
     ioPin = AnalogIOPinPtr(new AnalogMissingPin(aInitialValue));
     return;
   }
@@ -56,15 +67,15 @@ AnalogIo::AnalogIo(const char* aAnalogIoName, bool aOutput, double aInitialValue
   string busName;
   string deviceName;
   string pinName;
-  size_t i = name.find(".");
+  size_t i = pinspec.find(".");
   if (i==string::npos) {
     // no structured name, NOP
     return;
   }
   else {
-    busName = name.substr(0,i);
+    busName = pinspec.substr(0,i);
     // rest is device + pinname or just pinname
-    pinName = name.substr(i+1,string::npos);
+    pinName = pinspec.substr(i+1,string::npos);
     i = pinName.find(".");
     if (i!=string::npos) {
       // separate device and pin names
@@ -92,9 +103,24 @@ AnalogIo::AnalogIo(const char* aAnalogIoName, bool aOutput, double aInitialValue
   }
   else
   #endif
-  {
+  if (busName.substr(0,7)=="pwmchip") {
+    // Linux generic PWM output
+    // pwmchip<chipno>.<channelno>[.<period>]
+    int chipNumber = atoi(busName.c_str()+7);
+    int channelNumber;
+    uint32_t periodNs = 40000; // default to 25kHz = 40000nS
+    if (deviceName.empty()) {
+      channelNumber = atoi(pinName.c_str());
+    }
+    else {
+      channelNumber = atoi(deviceName.c_str());
+      periodNs = atoi(pinName.c_str());
+    }
+    ioPin = AnalogIOPinPtr(new PWMPin(chipNumber, channelNumber, inverted, aInitialValue, periodNs));
+  }
+  else {
     // all other/unknown bus names default to simulated pin
-    ioPin = AnalogIOPinPtr(new AnalogSimPin(name.c_str(), output, aInitialValue)); // set even for inputs
+    ioPin = AnalogIOPinPtr(new AnalogSimPin(pinspec.c_str(), output, aInitialValue));
   }
 }
 

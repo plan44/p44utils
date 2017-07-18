@@ -35,21 +35,22 @@ namespace p44 {
   {
     AnalogIOPinPtr ioPin; ///< the actual hardware interface to the pin
 
-    string name;
+    string pinspec;
     bool output;
+    
   public:
     /// Create general purpose analog I/O, such as PWM or D/A output, or A/D input
-    /// @param aAnalogIoName name of the IO; form is [bus.device.]pin
+    /// @param aPinSpec specification of the IO; form is usually [busX.device.]pin
     /// @param aOutput use as output
     /// @param aInitialValue initial value (to set for output, to expect without triggering change for input)
     /// @note possible pin types are
     ///   "i2cN.DEVICE@i2caddr.pinNumber" : numbered pin of DEVICE at i2caddr on i2c bus N
     ///     (DEVICE is name of chip, such as PCA9685)
-    AnalogIo(const char* aAnalogIoName, bool aOutput, double aInitialValue);
+    AnalogIo(const char* aPinSpec, bool aOutput, double aInitialValue);
     virtual ~AnalogIo();
 
     /// get name
-    string getName() { return name.c_str(); };
+    string getName() { return pinspec.c_str(); };
 
     /// check for output
     bool isOutput() { return output; };
