@@ -320,6 +320,13 @@ void IndicatorOutput::stop()
 }
 
 
+void IndicatorOutput::steady(bool aState)
+{
+  stop();
+  set(aState);
+}
+
+
 void IndicatorOutput::steadyOff()
 {
   stop();

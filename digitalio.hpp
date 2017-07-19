@@ -179,6 +179,9 @@ namespace p44 {
     void stop();
 
     /// stop blinking/timed activation immediately and turn indicator off
+    void steady(bool aState);
+
+    /// stop blinking/timed activation immediately and turn indicator off
     void steadyOff();
 
     /// stop blinking/timed activation immediately and turn indicator on
