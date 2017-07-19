@@ -74,10 +74,10 @@ PWMPin::PWMPin(int aPwmChip, int aPwmChannel, bool aInverted, double aInitialVal
   s = string_format("%u", aPeriodInNs);
   write(tempFd, s.c_str(), s.length());
   close(tempFd);
-  // now keep the value FD open
-  name = basePath + "/value";
+  // now keep the duty cycle FD open
+  name = basePath + "/duty_cycle";
   pwmFD = open(name.c_str(), O_RDWR);
-  if (pwmFD<0) { LOG(LOG_ERR, "Cannot open PWM value file %s: %s", name.c_str(), strerror(errno)); return; }
+  if (pwmFD<0) { LOG(LOG_ERR, "Cannot open PWM duty_cycle file %s: %s", name.c_str(), strerror(errno)); return; }
   // - set the initial value
   setValue(aInitialValue);
   // - now enable
