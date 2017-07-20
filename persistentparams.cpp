@@ -182,6 +182,10 @@ void PersistentParams::loadFromRow(sqlite3pp::query::iterator &aRow, int &aIndex
 
 ErrorPtr PersistentParams::loadFromStore(const char *aParentIdentifier)
 {
+  if (aParentIdentifier==NULL) {
+    // no parent -> singeton, default to tableName as identifier
+    aParentIdentifier = tableName();
+  }
   ErrorPtr err;
   rowid = 0; // loading means that we'll get the rowid from the DB, so forget any previous one
   sqlite3pp::query *queryP = newLoadAllQuery(aParentIdentifier);
@@ -232,6 +236,10 @@ void PersistentParams::bindToStatement(sqlite3pp::statement &aStatement, int &aI
 
 ErrorPtr PersistentParams::saveToStore(const char *aParentIdentifier, bool aMultipleChildrenAllowed)
 {
+  if (aParentIdentifier==NULL) {
+    // no parent -> singeton, default to tableName as identifier
+    aParentIdentifier = tableName();
+  }
   ErrorPtr err;
   if (dirty) {
     sqlite3pp::command cmd(paramStore);
