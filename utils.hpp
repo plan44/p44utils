@@ -60,6 +60,13 @@ namespace p44 {
   /// @param aFormat printf-style format string
   void string_format_append(std::string &aStringToAppendTo, const char *aFormat, ...) __printflike(2,3);
 
+  /// printf-style format appending a path element to an existing file path
+  /// @param aPathToAppendTo std::string to append formatted string to
+  /// @param aFormat printf-style format string
+  /// @note if the path is not empty, and does not yet end in a path delimiter, a path delimiter will be appended first
+  void pathstring_format_append(std::string &aPathToAppendTo, const char *aFormat, ...) __printflike(2,3);
+
+
   /// strftime with output to std::string
   /// @param aFormat strftime-style format string
   /// @param aTimeP aTime time to format, or NULL for current local time

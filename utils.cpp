@@ -86,6 +86,21 @@ void p44::string_format_append(std::string &aStringToAppendTo, const char *aForm
 
 
 
+void p44::pathstring_format_append(std::string &aPathToAppendTo, const char *aFormat, ...)
+{
+  va_list args;
+
+  va_start(args, aFormat);
+  if (!aPathToAppendTo.empty() && aPathToAppendTo[aPathToAppendTo.length()-1]!='/') {
+    aPathToAppendTo.append("/");
+  }
+  // now append the path element string
+  string_format_v(aPathToAppendTo, true, aFormat, args);
+  va_end(args);
+}
+
+
+
 /// strftime with output to std::string
 std::string p44::string_ftime(const char *aFormat, const struct tm *aTimeP)
 {
