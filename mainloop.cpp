@@ -793,8 +793,9 @@ ChildThreadWrapper::ChildThreadWrapper(MainLoop &aParentThreadMainLoop, ThreadRo
     if (pthread_create(&pthread, NULL, thread_start_function, this)!=0) {
       // error, could not create thread, fake a signal callback immediately
       threadRunning = false;
-      if (parentSignalHandler)
+      if (parentSignalHandler) {
         parentSignalHandler(*this, threadSignalFailedToStart);
+      }
     }
     else {
       // thread created ok, keep wrapper object alive
@@ -803,8 +804,9 @@ ChildThreadWrapper::ChildThreadWrapper(MainLoop &aParentThreadMainLoop, ThreadRo
   }
   else {
     // pipe could not be created
-    if (parentSignalHandler)
+    if (parentSignalHandler) {
       parentSignalHandler(*this, threadSignalFailedToStart);
+    }
   }
 }
 
@@ -881,8 +883,9 @@ void ChildThreadWrapper::cancel()
     // wait for cancellation to complete
     finalizeThreadExecution();
     // cancelled
-    if (parentSignalHandler)
+    if (parentSignalHandler) {
       parentSignalHandler(*this, threadSignalCancelled);
+    }
   }
 }
 
@@ -917,8 +920,11 @@ bool ChildThreadWrapper::signalPipeHandler(int aPollFlags)
       parentSignalHandler(*this, sig);
       ML_STAT_ADD_AT(parentThreadMainLoop.threadSignalHandlerTime, parentThreadMainLoop.now());
     }
-    // in case nobody keeps this object any more, it might be deleted now
-    selfRef.reset();
+    if (sig==threadSignalCompleted || sig==threadSignalFailedToStart || sig==threadSignalCancelled) {
+      // signal indicates thread has ended (successfully or not)
+      // - in case nobody keeps this object any more, it should be deleted now
+      selfRef.reset();
+    }
     // handled some i/O
     return true;
   }

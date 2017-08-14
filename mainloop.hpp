@@ -55,7 +55,7 @@ namespace p44 {
     threadSignalNone,
     threadSignalCompleted, ///< sent to parent when child thread terminates
     threadSignalFailedToStart, ///< sent to parent when child thread could not start
-    threadSignalCancelled, ///< sent to parent when child thread was cancelled (
+    threadSignalCancelled, ///< sent to parent when child thread was cancelled
     threadSignalUserSignal ///< first user-specified signal
   };
   typedef uint8_t ThreadSignals;
