@@ -39,8 +39,10 @@ namespace p44 {
     MainLoop &mainLoop;
 
   public:
-    /// constructors
+    /// construct application with specific mainloop
     Application(MainLoop &aMainLoop);
+
+    /// construct application using current thread's mainloop
     Application();
 
     /// destructor

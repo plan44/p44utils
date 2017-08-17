@@ -48,7 +48,7 @@ namespace p44 {
     bool initialState;
     bool canToggle;
     ConsoleKeyHandlerCB keyHandler;
-    long keyHandlerTicket;
+    MLTicket keyHandlerTicket;
 
     ConsoleKey(char aKeyCode, const char *aDescription, bool aInitialState=false);
 
@@ -94,6 +94,7 @@ namespace p44 {
 
   private:
 
+    MLTicket keyPollTicket;
     ConsoleKeyMap keyMap;
     bool termInitialized;
     ConsoleKeyPressCB keyPressHandler;
@@ -118,7 +119,7 @@ namespace p44 {
 
   private:
     int kbHit();
-    bool consoleKeyPoll();
+    void consoleKeyPoll(MLTimer &aTimer);
 
   };
 

@@ -64,7 +64,7 @@ void FdComm::setFd(int aFd)
         dataFd,
         (receiveHandler ? POLLIN : 0) | // report ready to read if we have a handler
         (transmitHandler ? POLLOUT : 0), // report ready to transmit if we have a handler
-        boost::bind(&FdComm::dataMonitorHandler, this, _1, _2, _3)
+        boost::bind(&FdComm::dataMonitorHandler, this, _1, _2)
       );
     }
   }
@@ -89,10 +89,10 @@ void FdComm::dataExceptionHandler(int aFd, int aPollFlags)
 
 
 
-bool FdComm::dataMonitorHandler(MLMicroSeconds aCycleStartTime, int aFd, int aPollFlags)
+bool FdComm::dataMonitorHandler(int aFd, int aPollFlags)
 {
   FdCommPtr keepMeAlive(this); // make sure this object lives until routine terminates
-  FOCUSLOG("FdComm::dataMonitorHandler(time==%lld, fd==%d, pollflags==0x%X)", aCycleStartTime, aFd, aPollFlags);
+  FOCUSLOG("FdComm::dataMonitorHandler(time==%lld, fd==%d, pollflags==0x%X)", MainLoop::now(), aFd, aPollFlags);
   // Note: test POLLIN first, because we might get a POLLHUP in parallel - so make sure we process data before hanging up
   if ((aPollFlags & POLLIN) && receiveHandler) {
     // Note: on linux a socket closed server side does not return POLLHUP, but POLLIN with no data

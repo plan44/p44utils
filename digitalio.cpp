@@ -218,7 +218,6 @@ ButtonInput::ButtonInput(const char* aPinSpec) :
 
 ButtonInput::~ButtonInput()
 {
-  MainLoop::currentMainLoop().unregisterIdleHandlers(this);
   MainLoop::currentMainLoop().cancelExecutionTicket(activeReportTicket);
 }
 
@@ -277,38 +276,18 @@ void ButtonInput::repeatStateReport()
 
 IndicatorOutput::IndicatorOutput(const char* aPinSpec, bool aInitiallyOn) :
   DigitalIo(aPinSpec, true, aInitiallyOn),
-  switchOffAt(Never),
   blinkOnTime(Never),
-  blinkOffTime(Never)
+  blinkOffTime(Never),
+  blinkUntilTime(Never),
+  nextTimedState(false),
+  timedOpTicket(0)
 {
-  MainLoop::currentMainLoop().registerIdleHandler(this, boost::bind(&IndicatorOutput::timer, this, _1));
 }
 
 
 IndicatorOutput::~IndicatorOutput()
 {
-  MainLoop::currentMainLoop().unregisterIdleHandlers(this);
-}
-
-
-void IndicatorOutput::onFor(MLMicroSeconds aOnTime)
-{
-  blinkOnTime = Never;
-  blinkOffTime = Never;
-  set(true);
-  if (aOnTime>0)
-    switchOffAt = MainLoop::now()+aOnTime;
-  else
-    switchOffAt = Never;
-}
-
-
-void IndicatorOutput::blinkFor(MLMicroSeconds aOnTime, MLMicroSeconds aBlinkPeriod, int aOnRatioPercent)
-{
-  onFor(aOnTime);
-  blinkOnTime =  (aBlinkPeriod*aOnRatioPercent*10)/1000;
-  blinkOffTime = aBlinkPeriod - blinkOnTime;
-  blinkToggleAt = MainLoop::now()+blinkOnTime;
+  stop();
 }
 
 
@@ -316,7 +295,31 @@ void IndicatorOutput::stop()
 {
   blinkOnTime = Never;
   blinkOffTime = Never;
-  switchOffAt = Never;
+  blinkUntilTime = Never;
+  MainLoop::currentMainLoop().cancelExecutionTicket(timedOpTicket);
+}
+
+
+void IndicatorOutput::onFor(MLMicroSeconds aOnTime)
+{
+  stop();
+  set(true);
+  if (aOnTime>0) {
+    nextTimedState = false; // ..turn off
+    MainLoop::currentMainLoop().executeTicketOnce(timedOpTicket, boost::bind(&IndicatorOutput::timer, this, _1), aOnTime); // ..after given time
+  }
+}
+
+
+void IndicatorOutput::blinkFor(MLMicroSeconds aOnTime, MLMicroSeconds aBlinkPeriod, int aOnRatioPercent)
+{
+  stop();
+  blinkOnTime =  (aBlinkPeriod*aOnRatioPercent*10)/1000;
+  blinkOffTime = aBlinkPeriod - blinkOnTime;
+  blinkUntilTime = aOnTime>0 ? MainLoop::now()+aOnTime : Never;
+  set(true); // ..start with on
+  nextTimedState = false; // ..then turn off..
+  MainLoop::currentMainLoop().executeTicketOnce(timedOpTicket, boost::bind(&IndicatorOutput::timer, this, _1), blinkOnTime); // ..after blinkOn time
 }
 
 
@@ -342,26 +345,18 @@ void IndicatorOutput::steadyOn()
 
 
 
-
-
-bool IndicatorOutput::timer(MLMicroSeconds aTimestamp)
+void IndicatorOutput::timer(MLTimer &aTimer)
 {
-  // check off time first
-  if (switchOffAt!=Never && aTimestamp>=switchOffAt) {
+  // apply scheduled next state
+  set(nextTimedState);
+  // if we are blinking, check continuation
+  if (blinkUntilTime!=Never && blinkUntilTime<MainLoop::now()) {
+    // end of blinking, stop
     stop();
   }
   else if (blinkOnTime!=Never) {
-    // blinking enabled
-    if (aTimestamp>=blinkToggleAt) {
-      if (toggle()) {
-        // turned on, blinkOnTime starts
-        blinkToggleAt = aTimestamp + blinkOnTime;
-      }
-      else {
-        // turned off, blinkOffTime starts
-        blinkToggleAt = aTimestamp + blinkOffTime;
-      }
-    }
+    // blinking should continue
+    nextTimedState = !nextTimedState;
+    MainLoop::currentMainLoop().retriggerTimer(aTimer, nextTimedState ? blinkOffTime : blinkOnTime);
   }
-  return true;
 }

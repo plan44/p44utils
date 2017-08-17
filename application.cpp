@@ -84,6 +84,7 @@ void Application::initializeInternal()
   handleSignal(SIGHUP);
   handleSignal(SIGINT);
   handleSignal(SIGTERM);
+  handleSignal(SIGUSR1);
   // make sure we have default SIGCHLD handling
   // - with SIGCHLD ignored, waitpid() cannot catch children's exit status!
   // - SIGCHLD ignored status is inherited via execve(), so if caller of execve
@@ -133,7 +134,13 @@ void Application::cleanup(int aExitCode)
 
 void Application::signalOccurred(int aSignal, siginfo_t *aSiginfo)
 {
-  // default action is terminating the program
+  if (aSignal==SIGUSR1) {
+    // default for SIGUSR1 is showing mainloop statistics
+    LOG(LOG_NOTICE, "SIGUSR1 requests %s", mainLoop.description().c_str());
+    mainLoop.statistics_reset();
+    return;
+  }
+  // default action for all other signals is terminating the program
   LOG(LOG_ERR, "Terminating because pid %d sent signal %d", aSiginfo->si_pid, aSignal);
   mainLoop.terminate(EXIT_FAILURE);
 }
@@ -145,6 +152,8 @@ int Application::run()
 	mainLoop.executeOnce(boost::bind(&Application::initialize, this));
 	// run the mainloop
 	int exitCode = mainLoop.run();
+  // show the statistic
+  LOG(LOG_INFO, "Terminated: %s", mainLoop.description().c_str());
   // clean up
   cleanup(exitCode);
   // done

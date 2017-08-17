@@ -88,11 +88,11 @@ namespace p44 {
 
     /// get state of GPIO
     /// @return current state (from actual GPIO pin for inputs, from last set state for outputs)
-    virtual bool getState();
+    virtual bool getState() P44_OVERRIDE;
 
     /// set state of output (NOP for inputs)
     /// @param aState new state to set output to
-    virtual void setState(bool aState);
+    virtual void setState(bool aState) P44_OVERRIDE;
 
     /// install state change detector
     /// @param aInputChangedCB will be called when the input state changes. Passing NULL disables input state change reporting.
@@ -106,7 +106,7 @@ namespace p44 {
     ///   on the current mainloop - if pollInterval==0 then polling will be done in a mainloop idle handler, otherwise in
     ///   a timed handler according to the specified interval
     /// @return true if input supports the type of state change detection requested
-    virtual bool setInputChangedHandler(InputChangedCB aInputChangedCB, bool aInverted, bool aInitialState, MLMicroSeconds aDebounceTime, MLMicroSeconds aPollInterval);
+    virtual bool setInputChangedHandler(InputChangedCB aInputChangedCB, bool aInverted, bool aInitialState, MLMicroSeconds aDebounceTime, MLMicroSeconds aPollInterval) P44_OVERRIDE;
 
   };
 

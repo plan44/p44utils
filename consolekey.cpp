@@ -141,13 +141,13 @@ ConsoleKeyManager::ConsoleKeyManager() :
   termInitialized(false)
 {
   // install polling
-  MainLoop::currentMainLoop().registerIdleHandler(this, boost::bind(&ConsoleKeyManager::consoleKeyPoll, this));
+  keyPollTicket = MainLoop::currentMainLoop().executeOnce(boost::bind(&ConsoleKeyManager::consoleKeyPoll, this, _1));
 }
 
 
 ConsoleKeyManager::~ConsoleKeyManager()
 {
-  MainLoop::currentMainLoop().unregisterIdleHandlers(this);
+  MainLoop::currentMainLoop().cancelExecutionTicket(keyPollTicket);
 }
 
 
@@ -191,8 +191,10 @@ int ConsoleKeyManager::kbHit()
 }
 
 
+#define KEY_POLL_INTERVAL (50*MilliSecond)
+#define KEY_POLL_TOLERANCE (20*MilliSecond)
 
-bool ConsoleKeyManager::consoleKeyPoll()
+void ConsoleKeyManager::consoleKeyPoll(MLTimer &aTimer)
 {
   // process all pending console input
   while (kbHit()>0) {
@@ -226,7 +228,7 @@ bool ConsoleKeyManager::consoleKeyPoll()
       }
     }
   }
-  return true; // done for this cycle
+  MainLoop::currentMainLoop().retriggerTimer(aTimer, KEY_POLL_INTERVAL, KEY_POLL_TOLERANCE);
 }
 
 

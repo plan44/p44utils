@@ -47,12 +47,12 @@ namespace p44 {
     InputChangedCB inputChangedCB;
     bool currentState;
     bool invertedReporting;
-    long pollTicket;
+    MLTicket pollTicket;
     MLMicroSeconds pollInterval;
 
     MLMicroSeconds debounceTime;
     MLMicroSeconds lastReportedChange;
-    long debounceTicket;
+    MLTicket debounceTicket;
 
     /// this can be called by derived classes' input change detection or polling routine to report the current input state
     /// Note: the current state does not necessarily need to be "new", inputHasChangedTo() prevents re-reporting the same state
@@ -76,8 +76,8 @@ namespace p44 {
     /// @param aPollInterval if <0 (Infinite), the state change detector only works if the input pin supports state change
     ///   detection without polling (e.g. with GPIO edge trigger). If aPollInterval is >=0, and the
     ///   input pin does not support edge detection, the state detection will be implemented via polling
-    ///   on the current mainloop - if pollInterval==0 then polling will be done in a mainloop idle handler, otherwise in
-    ///   a timed handler according to the specified interval
+    ///   on the current mainloop - if pollInterval==0 then polling will be done with a default interval, otherwise in
+    ///   the specified interval
     /// @return true if input supports the type of state change detection requested
     virtual bool setInputChangedHandler(InputChangedCB aInputChangedCB, bool aInverted, bool aInitialState, MLMicroSeconds aDebounceTime, MLMicroSeconds aPollInterval);
 
@@ -88,8 +88,7 @@ namespace p44 {
   private:
 
     void clearChangeHandling();
-    bool idlepoll();
-    void timedpoll();
+    void timedpoll(MLTimer &aTimer);
     void debounceSample();
 
   };

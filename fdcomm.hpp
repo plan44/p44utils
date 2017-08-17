@@ -149,7 +149,7 @@ namespace p44 {
 
   private:
 
-    bool dataMonitorHandler(MLMicroSeconds aCycleStartTime, int aFd, int aPollFlags);
+    bool dataMonitorHandler(int aFd, int aPollFlags);
     void checkReceiveData();
     bool sendBufferedData();
 

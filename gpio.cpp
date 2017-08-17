@@ -190,7 +190,7 @@ bool GpioPin::setInputChangedHandler(InputChangedCB aInputChangedCB, bool aInver
   write(edgeFd, s.c_str(), s.length());
   close(edgeFd);
   // establish a IO poll
-  MainLoop::currentMainLoop().registerPollHandler(gpioFD, POLLPRI, boost::bind(&GpioPin::stateChanged, this, _3));
+  MainLoop::currentMainLoop().registerPollHandler(gpioFD, POLLPRI, boost::bind(&GpioPin::stateChanged, this, _2));
   return true;
 }
 

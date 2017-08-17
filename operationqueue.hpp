@@ -156,6 +156,7 @@ namespace p44 {
   {
     MainLoop &mainLoop;
     bool processingQueue; ///< set when queue is currently processing
+    MLTicket recheckTicket; ///< regular checking of the queue
 
   protected:
 
@@ -186,10 +187,13 @@ namespace p44 {
     
   private:
 
-    /// handler which is registered with mainloop
+    /// periodic re-check of operation queue
+    void queueRecheck(MLTimer &aTimer);
+
+    /// process at most one operation
     /// @return true if operations processed for now, i.e. no need to call again immediately
-    ///   false if processOperations() should be called ASAP again (in the same mainloop cycle if possible)
-    bool idleHandler();
+    ///   false if processOperations() should be called ASAP again (with no or little delay, if possible)
+    bool processOneOperation();
 
   };
 

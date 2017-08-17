@@ -49,9 +49,10 @@ void IOPin::clearChangeHandling()
   pollInterval = Never;
   MainLoop::currentMainLoop().cancelExecutionTicket(pollTicket);
   MainLoop::currentMainLoop().cancelExecutionTicket(debounceTicket);
-  MainLoop::currentMainLoop().unregisterIdleHandlers(this);
 }
 
+
+#define IOPIN_DEFAULT_POLL_INTERVAL (25*MilliSecond)
 
 bool IOPin::setInputChangedHandler(InputChangedCB aInputChangedCB, bool aInverted, bool aInitialState, MLMicroSeconds aDebounceTime, MLMicroSeconds aPollInterval)
 {
@@ -65,17 +66,15 @@ bool IOPin::setInputChangedHandler(InputChangedCB aInputChangedCB, bool aInverte
     clearChangeHandling();
   }
   else {
-    if (aPollInterval<0)
+    if (pollInterval<0)
       return false; // cannot install non-polling input change handler
     // install handler
-    if (aPollInterval==0) {
-      // idle handler polling requested
-      MainLoop::currentMainLoop().registerIdleHandler(this, boost::bind(&IOPin::idlepoll, this));
+    if (pollInterval==0) {
+      // use default interval
+      pollInterval = IOPIN_DEFAULT_POLL_INTERVAL;
     }
-    else {
-      // run first poll
-      timedpoll();
-    }
+    // schedule first poll
+    MainLoop::currentMainLoop().executeTicketOnce(pollTicket, boost::bind(&IOPin::timedpoll, this, _1));
   }
   return true; // successful
 }
@@ -92,7 +91,7 @@ void IOPin::inputHasChangedTo(bool aNewState)
       if (lastReportedChange+debounceTime>now) {
         LOG(LOG_DEBUG, "- debouncing holdoff, will resample after debouncing time");
         // debounce time not yet over, schedule an extra re-sample later and suppress reporting for now
-        debounceTicket = MainLoop::currentMainLoop().executeOnceAt(boost::bind(&IOPin::debounceSample, this), now+debounceTime);
+        debounceTicket = MainLoop::currentMainLoop().executeOnce(boost::bind(&IOPin::debounceSample, this), debounceTime);
         return;
       }
     }
@@ -118,19 +117,11 @@ void IOPin::debounceSample()
 
 
 
-bool IOPin::idlepoll()
-{
-  inputHasChangedTo(getState());
-  return true; // all done for this mainloop cycle
-}
-
-
-
-void IOPin::timedpoll()
+void IOPin::timedpoll(MLTimer &aTimer)
 {
   inputHasChangedTo(getState());
   // schedule next poll
-  MainLoop::currentMainLoop().executeOnce(boost::bind(&IOPin::timedpoll, this), pollInterval);
+  MainLoop::currentMainLoop().retriggerTimer(aTimer, pollInterval, pollInterval/2); // allow 50% jitter
 }
 
 
@@ -243,7 +234,7 @@ void SysCommandPin::applyState(bool aState)
   else {
     // trigger change
     changing = true;
-    MainLoop::currentMainLoop().fork_and_system(boost::bind(&SysCommandPin::stateUpdated, this, _2, _3), stateSetCommand(aState).c_str());
+    MainLoop::currentMainLoop().fork_and_system(boost::bind(&SysCommandPin::stateUpdated, this, _1, _2), stateSetCommand(aState).c_str());
   }
 }
 
@@ -365,7 +356,7 @@ void AnalogSysCommandPin::applyValue(double aValue)
   else {
     // trigger change
     changing = true;
-    MainLoop::currentMainLoop().fork_and_system(boost::bind(&AnalogSysCommandPin::valueUpdated, this, _2, _3), valueSetCommand(aValue).c_str());
+    MainLoop::currentMainLoop().fork_and_system(boost::bind(&AnalogSysCommandPin::valueUpdated, this, _1, _2), valueSetCommand(aValue).c_str());
   }
 }
 

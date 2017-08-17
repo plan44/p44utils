@@ -201,13 +201,16 @@ void Operation::abortOperation(ErrorPtr aError)
 // MARK: ===== OperationQueue
 
 
+#define QUEUE_RECHECK_INTERVAL (30*MilliSecond)
+#define QUEUE_RECHECK_TOLERANCE (15*MilliSecond)
+
 // create operation queue into specified mainloop
 OperationQueue::OperationQueue(MainLoop &aMainLoop) :
   mainLoop(aMainLoop),
   processingQueue(false)
 {
   // register with mainloop
-  mainLoop.registerIdleHandler(this, boost::bind(&OperationQueue::idleHandler, this));
+  recheckTicket = mainLoop.executeOnce(boost::bind(&OperationQueue::queueRecheck, this, _1));
 }
 
 
@@ -221,7 +224,7 @@ OperationQueue::~OperationQueue()
 void OperationQueue::terminate()
 {
   // unregister from mainloop
-  mainLoop.unregisterIdleHandlers(this);
+  mainLoop.cancelExecutionTicket(recheckTicket);
   // silently reset all operations
   abortOperations();
 }
@@ -235,18 +238,27 @@ void OperationQueue::queueOperation(OperationPtr aOperation)
 }
 
 
+
+void OperationQueue::queueRecheck(MLTimer &aTimer)
+{
+  processOneOperation();
+  mainLoop.retriggerTimer(aTimer, QUEUE_RECHECK_INTERVAL, QUEUE_RECHECK_TOLERANCE);
+}
+
+
+
 // process all pending operations now
 void OperationQueue::processOperations()
 {
 	bool completed = true;
 	do {
-		completed = idleHandler();
+		completed = processOneOperation();
 	} while (!completed);
 }
 
 
 
-bool OperationQueue::idleHandler()
+bool OperationQueue::processOneOperation()
 {
   if (processingQueue) {
     // already processing, avoid recursion

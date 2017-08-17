@@ -41,7 +41,7 @@ namespace p44 {
   typedef boost::intrusive_ptr<ChildThreadWrapper> ChildThreadWrapperPtr;
 
   // Mainloop timing unit
-  typedef long long MLMicroSeconds;
+  typedef long long MLMicroSeconds; ///< Mainloop time in microseconds
   const MLMicroSeconds Never = 0;
   const MLMicroSeconds Infinite = -1;
   const MLMicroSeconds MicroSecond = 1;
@@ -61,6 +61,10 @@ namespace p44 {
   typedef uint8_t ThreadSignals;
 
 
+  typedef long MLTicket; ///< Mainloop timer ticket number
+  class MLTimer;
+
+
   /// @name Mainloop callbacks
   /// @{
 
@@ -70,28 +74,23 @@ namespace p44 {
   /// Generic handler or returning a status (ok or error)
   typedef boost::function<void (ErrorPtr aError)> StatusCB;
 
-  /// Handler for idle time processing (called when other mainloop tasks are done)
-  /// @return true if idle handler has completed for this mainloop cycle and does not need more execution time in this cycle.
-  typedef boost::function<bool (MLMicroSeconds aCycleStartTime)> IdleCB;
-
-  /// Handler for one time processing (scheduled by executeOnce()/executeOnceAt())
-  typedef boost::function<void (MLMicroSeconds aCycleStartTime)> OneTimeCB;
+  /// Handler for timed processing
+  typedef boost::function<void (MLTimer &aTimer, MLMicroSeconds aNow)> TimerCB;
 
   /// Handler for getting signalled when child process terminates
   /// @param aPid the PID of the process that has terminated
   /// @param aStatus the exit status of the process that has terminated
-  typedef boost::function<void (MLMicroSeconds aCycleStartTime, pid_t aPid, int aStatus)> WaitCB;
+  typedef boost::function<void (pid_t aPid, int aStatus)> WaitCB;
 
   /// Handler called when fork_and_execve() or fork_and_system() terminate
   /// @param aOutputString the stdout output of the executed command
-  typedef boost::function<void (MLMicroSeconds aCycleStartTime, ErrorPtr aError, const string &aOutputString)> ExecCB;
+  typedef boost::function<void (ErrorPtr aError, const string &aOutputString)> ExecCB;
 
   /// I/O callback
-  /// @param aCycleStartTime the time when the current mainloop cycle has started
   /// @param aFD the file descriptor that was signalled and has caused this call
   /// @param aPollFlags the poll flags describing the reason for the callback
   /// @return should true if callback really handled some I/O, false if it only checked flags and found nothing to do
-  typedef boost::function<bool (MLMicroSeconds aCycleStartTime, int aFD, int aPollFlags)> IOPollCB;
+  typedef boost::function<bool (int aFD, int aPollFlags)> IOPollCB;
 
   /// thread routine, will be called on a separate thread
   /// @param aThread the object that wraps the thread and allows sending signals to the parent thread
@@ -125,52 +124,59 @@ namespace p44 {
   class FdStringCollector;
   typedef boost::intrusive_ptr<FdStringCollector> FdStringCollectorPtr;
 
+
+
+  class MLTimer P44_FINAL {
+    friend class MainLoop;
+    MLTicket ticketNo;
+    MLMicroSeconds executionTime;
+    MLMicroSeconds tolerance;
+    TimerCB callback;
+    bool reinsert; // if set after running a callback, the timer was re-triggered and must be re-inserted into the timer queue
+  public:
+    MLTicket getTicket() { return ticketNo; };
+  };
+
+
+
   /// A main loop for a thread
   class MainLoop : public P44Obj
   {
     friend class ChildThreadWrapper;
 
+    // clean up handlers
     typedef std::list<SimpleCB> CleanupHandlersList;
-
     CleanupHandlersList cleanupHandlers;
 
-    typedef struct {
-      void *subscriberP;
-      IdleCB callback;
-    } IdleHandler;
-    typedef std::list<IdleHandler> IdleHandlerList;
+    // timers
+    typedef std::list<MLTimer> TimerList;
+    TimerList timers;
+    bool timersChanged;
+    MLTicket ticketNo;
 
-    IdleHandlerList idleHandlers;
-    bool idleHandlersChanged;
-
-    typedef struct {
-      long ticketNo;
-      MLMicroSeconds executionTime;
-      OneTimeCB callback;
-    } OnetimeHandler;
-    typedef std::list<OnetimeHandler> OnetimeHandlerList;
-
-    OnetimeHandlerList onetimeHandlers;
-    bool oneTimeHandlersChanged;
-
+    // wait handlers
     typedef struct {
       pid_t pid;
       WaitCB callback;
     } WaitHandler;
     typedef std::map<pid_t, WaitHandler> WaitHandlerMap;
-
     WaitHandlerMap waitHandlers;
 
+    // IO poll handlers
     typedef struct {
       int monitoredFD;
       int pollFlags;
       IOPollCB pollHandler;
     } IOPollHandler;
     typedef std::map<int, IOPollHandler> IOPollHandlerMap;
-
     IOPollHandlerMap ioPollHandlers;
 
-    long ticketNo;
+    // Configuration
+    MLMicroSeconds maxSleep; ///< how long to sleep maximally per mainloop cycle, can be set to Infinite to allow unlimited sleep
+    MLMicroSeconds throttleSleep; ///< how long to sleep after a mainloop cycle that had no chance to sleep at all. Can be 0.
+    MLMicroSeconds maxRun; ///< how long to run maximally without any interruption. Note that this cannot limit the runtime for a single handler.
+    MLMicroSeconds maxCoalescing; ///< how much to shift timer execution points maximally (always within limits given by timer's tolerance) to coalesce executions
+    MLMicroSeconds waitCheckInterval; ///< max interval between checks for termination of running child processes
 
   protected:
 
@@ -178,16 +184,14 @@ namespace p44 {
     bool terminated;
     int exitCode;
 
-    MLMicroSeconds loopCycleTime;
-    MLMicroSeconds cycleStartTime;
-
     #if MAINLOOP_STATISTICS
     MLMicroSeconds statisticsStartTime;
-    long statisticsCycles;
-    size_t maxOneTimeHandlers;
+    size_t maxTimers;
     MLMicroSeconds ioHandlerTime;
-    MLMicroSeconds idleHandlerTime;
-    MLMicroSeconds oneTimeHandlerTime;
+    MLMicroSeconds timedHandlerTime;
+    MLMicroSeconds maxTimerExecutionDelay;
+    long timesTimersRanToLong;
+    long timesThrottlingApplied;
     MLMicroSeconds waitHandlerTime;
     MLMicroSeconds threadSignalHandlerTime;
     #endif
@@ -204,69 +208,85 @@ namespace p44 {
     /// returns the current microsecond
     static MLMicroSeconds now();
 
-    /// set the cycle time
-    void setLoopCycleTime(MLMicroSeconds aCycleTime);
-
-    /// get time left for current cycle
-    MLMicroSeconds remainingCycleTime();
-
-    /// @name register handlers for idle time (once per mainloop cycle, when all other handlers have been called)
-    /// @{
-
-    /// register routine with mainloop for being called at least once per loop cycle
-    /// @param aSubscriberP usually "this" of the caller, or another unique memory address which allows unregistering later
-    /// @param aCallback the functor to be called
-    void registerIdleHandler(void *aSubscriberP, IdleCB aCallback);
-
-    /// unregister all handlers registered by a given subscriber
-    /// @param aSubscriberP a value identifying the subscriber
-    void unregisterIdleHandlers(void *aSubscriberP);
-
-    /// @}
+    /// sleeps for given number of microseconds
+    static void sleep(MLMicroSeconds aSleepTime);
 
 
-    /// @name register one-time handlers (fired at specified time)
+    /// @name register timed handlers (fired at specified time)
     /// @{
 
     /// have handler called from the mainloop once with an optional delay from now
-    /// @param aCallback the functor to be called
+    /// @param aTimerCallback the functor to be called when timer fires
     /// @param aExecutionTime when to execute (approximately), in now() timescale
+    /// @param aTolerance how precise the timer should be, default=0=as precise as possible (for timer coalescing)
     /// @return ticket number which can be used to cancel this specific execution request
-    long executeOnceAt(OneTimeCB aCallback, MLMicroSeconds aExecutionTime);
+    MLTicket executeOnceAt(TimerCB aTimerCallback, MLMicroSeconds aExecutionTime, MLMicroSeconds aTolerance = 0);
 
     /// have handler called from the mainloop once with an optional delay from now
-    /// @param aCallback the functor to be called
+    /// @param aTimerCallback the functor to be called when timer fires
     /// @param aDelay delay from now when to execute (approximately)
+    /// @param aTolerance how precise the timer should be, default=0=as precise as possible (for timer coalescing)
     /// @return ticket number which can be used to cancel this specific execution request
-    long executeOnce(OneTimeCB aCallback, MLMicroSeconds aDelay = 0);
+    MLTicket executeOnce(TimerCB aTimerCallback, MLMicroSeconds aDelay = 0, MLMicroSeconds aTolerance = 0);
 
     /// have handler called from the mainloop once with an optional delay from now
     /// @param aTicketNo if not 0 on entry, this ticket will be cancelled beforehand. On exit, this contains the new ticket
-    /// @param aCallback the functor to be called
+    /// @param aTimerCallback the functor to be called when timer fires
     /// @param aExecutionTime when to execute (approximately), in now() timescale
-    void executeTicketOnceAt(long &aTicketNo, OneTimeCB aCallback, MLMicroSeconds aExecutionTime);
+    /// @param aTolerance how precise the timer should be, default=0=as precise as possible (for timer coalescing)
+    void executeTicketOnceAt(MLTicket &aTicketNo, TimerCB aTimerCallback, MLMicroSeconds aExecutionTime, MLMicroSeconds aTolerance = 0);
 
     /// have handler called from the mainloop once with an optional delay from now
     /// @param aTicketNo if not 0 on entry, this ticket will be cancelled beforehand. On exit, this contains the new ticket
-    /// @param aCallback the functor to be called
+    /// @param aTimerCallback the functor to be called when timer fires
     /// @param aDelay delay from now when to execute (approximately)
-    void executeTicketOnce(long &aTicketNo, OneTimeCB aCallback, MLMicroSeconds aDelay = 0);
+    /// @param aTolerance how precise the timer should be, default=0=as precise as possible (for timer coalescing)
+    void executeTicketOnce(MLTicket &aTicketNo, TimerCB aTimerCallback, MLMicroSeconds aDelay = 0, MLMicroSeconds aTolerance = 0);
 
     /// cancel pending execution by ticket number
     /// @param aTicketNo ticket of execution to cancel. Will be set to 0 on return
-    void cancelExecutionTicket(long &aTicketNo);
+    void cancelExecutionTicket(MLTicket &aTicketNo);
+
+    /// special values for retriggerTimer() aSkip parameter
+    enum {
+      from_now_if_late = -1, ///< automatically use from_now when we're already too late to trigger relative to last execution
+      from_now = -2 ///< reschedule next trigger time at aInterval from now (rather than from pervious execution time)
+    };
+
+    /// re-arm timer to fire again after a given interval relative to the time of the currently scheduled (or being executed right now)
+    /// ticket.
+    /// @note This is indended to be called exclusively from TimerCB callbacks, in particular to implement periodic timer callbacks.
+    /// @param aTimer the timer handler as passed to TimerCB
+    /// @param aInterval the interval for re-triggering, relative to the scheduled execution time of the timer (which might be
+    ///   in the past, due to time spent for code execution between the scheduled time, the callback and the call to this method)
+    /// @param aTolerance how precise the timer should be, default=0=as precise as possible (for timer coalescing)
+    /// @param aSkip if set to from_now_if_late (default) timer is recheduled from current time into the future if we are too late
+    ///   to schedule the interval relative to the last execution time of the timer.
+    ///   If set to from_now, timer is always rescheduled from current time.
+    ///   Otherwise, if >=0, aSKIP determines how many extra aInterval periods can be inserted maximally to reach an execution point in the future.
+    /// @return returns the number of aIntervals that were left out to reach a time in the future.
+    ///   Return value < 0 means that the timer could not be set to re-trigger for the future within the aMaxSkip limits.
+    ///   In that case, the timer execution time still was advanced by aInterval*(aMaxSkip+1). This allows for repeatedly
+    ///   calling retriggerTimer to find an execution point in the future.
+    ///   When aSkip is set to from_now_if_late, result is 0 when the next interval could be scheduled without delaying, and 1 if
+    ///   the interval had to be added from current time rather than last timer execution.
+    /// @note This is different from rescheduleExecutionTicket as the retrigger time is relative to the previous execution
+    ///   time of the ticket.
+    int retriggerTimer(MLTimer &aTimer, MLMicroSeconds aInterval, MLMicroSeconds aTolerance = 0, int aSkip = MainLoop::from_now_if_late);
 
     /// reschedule existing execution request
     /// @param aTicketNo ticket of execution to reschedule.
     /// @param aDelay delay from now when to reschedule execution (approximately)
+    /// @param aTolerance how precise the timer should be, 0=as precise as possible (for timer coalescing)
     /// @return true if the execution specified with aTicketNo was still pending and could be rescheduled
-    bool rescheduleExecutionTicket(long aTicketNo, MLMicroSeconds aDelay);
+    bool rescheduleExecutionTicket(MLTicket aTicketNo, MLMicroSeconds aDelay, MLMicroSeconds aTolerance = 0);
 
     /// reschedule existing execution request
     /// @param aTicketNo ticket of execution to reschedule.
     /// @param aExecutionTime to when to reschedule execution (approximately), in now() timescale
+    /// @param aTolerance how precise the timer should be, 0=as precise as possible (for timer coalescing)
     /// @return true if the execution specified with aTicketNo was still pending and could be rescheduled
-    bool rescheduleExecutionTicketAt(long aTicketNo, MLMicroSeconds aExecutionTime);
+    bool rescheduleExecutionTicketAt(MLTicket aTicketNo, MLMicroSeconds aExecutionTime, MLMicroSeconds aTolerance = 0);
 
     /// @}
 
@@ -331,6 +351,23 @@ namespace p44 {
     /// @}
 
 
+    /// @name mainloop phases as separate calls, allows integrating this mainloop into another mainloop
+    /// @{
+
+    /// Start running the main loop
+    void startupMainLoop();
+
+    /// Run one mainloop cycle
+    /// @return true if cycle had the chance to sleep. This can be used to sleep a bit extra between calls to throttle CPU usage
+    bool mainLoopCycle();
+
+    /// Finalize running the main loop
+    /// @return returns a exit code
+    int finalizeMainLoop();
+
+    /// @}
+
+
     /// terminate the mainloop
     /// @param aExitCode the code to return from run()
     void terminate(int aExitCode);
@@ -349,7 +386,9 @@ namespace p44 {
     ///   mainloop has already terminated running
     void registerCleanupHandler(SimpleCB aCleanupHandler);
 
-    /// run the mainloop
+    /// run the mainloop until it terminates.
+    /// @note this essentially calls startupMainLoop(), mainLoopCycle() and finalizeMainLoop(). Use these
+    ///   separately to integrate the mainloop into a higher level mainloop
     /// @return returns a exit code
     int run();
 
@@ -360,15 +399,12 @@ namespace p44 {
     void statistics_reset();
 
 
-  protected:
+  private:
 
-    bool runOnetimeHandlers();
-    long scheduleOneTimeHandler(OnetimeHandler &aHandler);
-    bool runIdleHandlers();
+    MLMicroSeconds checkTimers(MLMicroSeconds aTimeout);
+    void scheduleTimer(MLTimer &aTimer);
     bool checkWait();
     bool handleIOPoll(MLMicroSeconds aTimeout);
-
-  private:
 
     void execChildTerminated(ExecCB aCallback, FdStringCollectorPtr aAnswerCollector, pid_t aPid, int aStatus);
     void childAnswerCollected(ExecCB aCallback, FdStringCollectorPtr aAnswerCollector, ErrorPtr aError);

@@ -30,11 +30,15 @@
 
 #include "fdcomm.hpp"
 
+// MARK: ===== MainLoop default parameters
+
+#define MAINLOOP_DEFAULT_MAXSLEEP Infinite // if really nothing to do, we can sleep
+#define MAINLOOP_DEFAULT_MAXRUN (100*MilliSecond) // noticeable reaction time
+#define MAINLOOP_DEFAULT_THROTTLE_SLEEP (20*MilliSecond) // limits CPU usage to about 85%
+#define MAINLOOP_DEFAULT_WAIT_CHECK_INTERVAL (100*MilliSecond) // assuming no really tight timing when using external processes
+#define MAINLOOP_DEFAULT_MAX_COALESCING (1*Second) // keep timing within second precision by default
+
 // MARK: ===== MainLoop
-
-
-#define MAINLOOP_DEFAULT_CYCLE_TIME_uS 100000 // 100mS
-
 
 using namespace p44;
 
@@ -56,6 +60,17 @@ MLMicroSeconds MainLoop::now()
   return ((uint64_t)(tsp.tv_sec))*1000000ll + tsp.tv_nsec/1000; // uS
   #endif
 }
+
+
+void MainLoop::sleep(MLMicroSeconds aSleepTime)
+{
+  // Linux has nanosleep in nanoseconds
+  timespec sleeptime;
+  sleeptime.tv_sec=aSleepTime/Second;
+  sleeptime.tv_nsec=(aSleepTime % Second)*1000L; // nS = 1000 uS
+  nanosleep(&sleeptime,NULL);
+}
+
 
 
 // the current thread's main looop
@@ -102,117 +117,87 @@ ErrorPtr ExecError::exitStatus(int aExitStatus, const char *aContextMessage)
 MainLoop::MainLoop() :
 	terminated(false),
   hasStarted(false),
-  loopCycleTime(MAINLOOP_DEFAULT_CYCLE_TIME_uS),
-  cycleStartTime(Never),
   exitCode(EXIT_SUCCESS),
-  idleHandlersChanged(false),
-  oneTimeHandlersChanged(false)
+  ticketNo(0),
+  timersChanged(false)
 {
+  // default configuration
+  maxSleep = MAINLOOP_DEFAULT_MAXSLEEP;
+  maxRun = MAINLOOP_DEFAULT_MAXRUN;
+  throttleSleep = MAINLOOP_DEFAULT_THROTTLE_SLEEP;
+  waitCheckInterval = MAINLOOP_DEFAULT_WAIT_CHECK_INTERVAL;
+  maxCoalescing = MAINLOOP_DEFAULT_MAX_COALESCING;
   #if MAINLOOP_STATISTICS
   statistics_reset();
   #endif
 }
 
 
-void MainLoop::setLoopCycleTime(MLMicroSeconds aCycleTime)
-{
-	loopCycleTime = aCycleTime;
-}
 
-
-MLMicroSeconds MainLoop::remainingCycleTime()
-{
-  return cycleStartTime+loopCycleTime-now();
-}
-
-
-void MainLoop::registerIdleHandler(void *aSubscriberP, IdleCB aCallback)
-{
-	IdleHandler h;
-	h.subscriberP = aSubscriberP;
-	h.callback = aCallback;
-	idleHandlers.push_back(h);
-}
-
-
-void MainLoop::unregisterIdleHandlers(void *aSubscriberP)
-{
-	IdleHandlerList::iterator pos = idleHandlers.begin();
-	while(pos!=idleHandlers.end()) {
-		if (pos->subscriberP==aSubscriberP) {
-			pos = idleHandlers.erase(pos);
-      idleHandlersChanged = true;
-		}
-		else {
-			// skip
-		  ++pos;
-		}
-	}
-}
-
-
-long MainLoop::executeOnce(OneTimeCB aCallback, MLMicroSeconds aDelay)
+MLTicket MainLoop::executeOnce(TimerCB aTimerCallback, MLMicroSeconds aDelay, MLMicroSeconds aTolerance)
 {
 	MLMicroSeconds executionTime = now()+aDelay;
-	return executeOnceAt(aCallback, executionTime);
+	return executeOnceAt(aTimerCallback, executionTime, aTolerance);
 }
 
 
-long MainLoop::executeOnceAt(OneTimeCB aCallback, MLMicroSeconds aExecutionTime)
+MLTicket MainLoop::executeOnceAt(TimerCB aTimerCallback, MLMicroSeconds aExecutionTime, MLMicroSeconds aTolerance)
 {
-	OnetimeHandler h;
-  h.ticketNo = ++ticketNo;
-  h.executionTime = aExecutionTime;
-	h.callback = aCallback;
-  return scheduleOneTimeHandler(h);
+	MLTimer tmr;
+  tmr.reinsert = false;
+  tmr.ticketNo = ++ticketNo;
+  tmr.executionTime = aExecutionTime;
+  tmr.tolerance = aTolerance;
+	tmr.callback = aTimerCallback;
+  scheduleTimer(tmr);
+  return tmr.ticketNo;
 }
 
 
-void MainLoop::executeTicketOnceAt(long &aTicketNo, OneTimeCB aCallback, MLMicroSeconds aExecutionTime)
-{
-  cancelExecutionTicket(aTicketNo);
-  aTicketNo = executeOnceAt(aCallback, aExecutionTime);
-}
-
-
-void MainLoop::executeTicketOnce(long &aTicketNo, OneTimeCB aCallback, MLMicroSeconds aDelay)
+void MainLoop::executeTicketOnceAt(MLTicket &aTicketNo, TimerCB aTimerCallback, MLMicroSeconds aExecutionTime, MLMicroSeconds aTolerance)
 {
   cancelExecutionTicket(aTicketNo);
-  aTicketNo = executeOnce(aCallback, aDelay);
+  aTicketNo = executeOnceAt(aTimerCallback, aExecutionTime);
+}
+
+
+void MainLoop::executeTicketOnce(MLTicket &aTicketNo, TimerCB aTimerCallback, MLMicroSeconds aDelay, MLMicroSeconds aTolerance)
+{
+  cancelExecutionTicket(aTicketNo);
+  aTicketNo = executeOnce(aTimerCallback, aDelay, aTolerance);
 }
 
 
 
 
-long MainLoop::scheduleOneTimeHandler(OnetimeHandler &aHandler)
+void MainLoop::scheduleTimer(MLTimer &aTimer)
 {
   #if MAINLOOP_STATISTICS
-  size_t n = onetimeHandlers.size()+1;
-  if (n>maxOneTimeHandlers) maxOneTimeHandlers = n;
+  size_t n = timers.size()+1;
+  if (n>maxTimers) maxTimers = n;
   #endif
 	// insert in queue before first item that has a higher execution time
-	OnetimeHandlerList::iterator pos = onetimeHandlers.begin();
-  while (pos!=onetimeHandlers.end()) {
-    if (pos->executionTime>aHandler.executionTime) {
-      onetimeHandlers.insert(pos, aHandler);
-      oneTimeHandlersChanged = true;
-      return ticketNo;
+	TimerList::iterator pos = timers.begin();
+  while (pos!=timers.end()) {
+    if (pos->executionTime>aTimer.executionTime) {
+      timers.insert(pos, aTimer);
+      timersChanged = true;
+      return;
     }
     ++pos;
   }
   // none executes later than this one, just append
-  onetimeHandlers.push_back(aHandler);
-  return ticketNo;
+  timers.push_back(aTimer);
 }
 
 
-void MainLoop::cancelExecutionTicket(long &aTicketNo)
+void MainLoop::cancelExecutionTicket(MLTicket &aTicketNo)
 {
   if (aTicketNo==0) return; // no ticket, NOP
-  for (OnetimeHandlerList::iterator pos = onetimeHandlers.begin(); pos!=onetimeHandlers.end(); ++pos) {
+  for (TimerList::iterator pos = timers.begin(); pos!=timers.end(); ++pos) {
 		if (pos->ticketNo==aTicketNo) {
-			pos = onetimeHandlers.erase(pos);
-      oneTimeHandlersChanged = true;
+			pos = timers.erase(pos);
+      timersChanged = true;
       break;
 		}
 	}
@@ -221,24 +206,24 @@ void MainLoop::cancelExecutionTicket(long &aTicketNo)
 }
 
 
-bool MainLoop::rescheduleExecutionTicket(long aTicketNo, MLMicroSeconds aDelay)
+bool MainLoop::rescheduleExecutionTicket(MLTicket aTicketNo, MLMicroSeconds aDelay, MLMicroSeconds aTolerance)
 {
 	MLMicroSeconds executionTime = now()+aDelay;
-	return rescheduleExecutionTicketAt(aTicketNo, executionTime);
+	return rescheduleExecutionTicketAt(aTicketNo, executionTime, aTolerance);
 }
 
 
-bool MainLoop::rescheduleExecutionTicketAt(long aTicketNo, MLMicroSeconds aExecutionTime)
+bool MainLoop::rescheduleExecutionTicketAt(MLTicket aTicketNo, MLMicroSeconds aExecutionTime, MLMicroSeconds aTolerance)
 {
   if (aTicketNo==0) return false; // no ticket, no reschedule
-  for (OnetimeHandlerList::iterator pos = onetimeHandlers.begin(); pos!=onetimeHandlers.end(); ++pos) {
+  for (TimerList::iterator pos = timers.begin(); pos!=timers.end(); ++pos) {
 		if (pos->ticketNo==aTicketNo) {
-      OnetimeHandler h = *pos;
+      MLTimer h = *pos;
       // remove from queue
-			pos = onetimeHandlers.erase(pos);
+			pos = timers.erase(pos);
       // reschedule
       h.executionTime = aExecutionTime;
-      scheduleOneTimeHandler(h);
+      scheduleTimer(h);
       // reschedule was possible
       return true;
 		}
@@ -248,6 +233,42 @@ bool MainLoop::rescheduleExecutionTicketAt(long aTicketNo, MLMicroSeconds aExecu
 }
 
 
+int MainLoop::retriggerTimer(MLTimer &aTimer, MLMicroSeconds aInterval, MLMicroSeconds aTolerance, int aSkip)
+{
+  MLMicroSeconds now = MainLoop::now();
+  int skipped = 0;
+  aTimer.tolerance = aTolerance;
+  if (aSkip==from_now_if_late) {
+    aTimer.executionTime += aInterval;
+    if (aTimer.executionTime+aTimer.tolerance < now) {
+      // too late (even taking allowed tolerance into account)
+      aTimer.executionTime = now+aInterval;
+      skipped = 1; // signal we skipped some time
+    }
+    // we're not yet too late to let this timer run within its tolerance -> re-insert it
+    aTimer.reinsert = true;
+    return skipped;
+  }
+  else if (aSkip==from_now) {
+    // unconditionally relative to now
+    aTimer.executionTime = now+aInterval;
+    aTimer.reinsert = true;
+    return skipped;
+  }
+  else {
+    do {
+      aTimer.executionTime += aInterval;
+      if (aTimer.executionTime >= now) {
+        // success
+        aTimer.reinsert = true;
+        return skipped;
+      }
+      skipped++;
+    } while (skipped<=aSkip);
+    // could not advance the timer enough
+    return -1; // signal failure to retrigger within the specified limits
+  }
+}
 
 
 
@@ -288,7 +309,7 @@ void MainLoop::fork_and_execve(ExecCB aCallback, const char *aPath, char *const 
   if (aPipeBackStdOut) {
     if(pipe(answerPipe)<0) {
       // pipe could not be created
-      aCallback(cycleStartTime, SysError::errNo(),"");
+      aCallback(SysError::errNo(),"");
       return;
     }
   }
@@ -324,13 +345,13 @@ void MainLoop::fork_and_execve(ExecCB aCallback, const char *aPath, char *const 
         ans->setFd(answerPipe[0]);
       }
       LOG(LOG_DEBUG, "fork_and_execve: now calling waitForPid(%d)", child_pid);
-      waitForPid(boost::bind(&MainLoop::execChildTerminated, this, aCallback, ans, _2, _3), child_pid);
+      waitForPid(boost::bind(&MainLoop::execChildTerminated, this, aCallback, ans, _1, _2), child_pid);
     }
   }
   else {
     if (aCallback) {
       // fork failed, call back with error
-      aCallback(cycleStartTime, SysError::errNo(),"");
+      aCallback(SysError::errNo(),"");
     }
   }
   return;
@@ -361,7 +382,7 @@ void MainLoop::execChildTerminated(ExecCB aCallback, FdStringCollectorPtr aAnswe
     else {
       // call back directly
       LOG(LOG_DEBUG, "- no aAnswerCollector: callback immediately");
-      aCallback(cycleStartTime, err, "");
+      aCallback(err, "");
     }
   }
 }
@@ -376,7 +397,7 @@ void MainLoop::childAnswerCollected(ExecCB aCallback, FdStringCollectorPtr aAnsw
   string answer = aAnswerCollector->collectedData;
   LOG(LOG_DEBUG, "- Answer = %s", answer.c_str());
   // call back directly
-  aCallback(cycleStartTime, aError, answer);
+  aCallback(aError, answer);
 }
 
 
@@ -395,58 +416,62 @@ void MainLoop::terminate(int aExitCode)
 }
 
 
-bool MainLoop::runOnetimeHandlers()
+MLMicroSeconds MainLoop::checkTimers(MLMicroSeconds aTimeout)
 {
   ML_STAT_START
-  int rep = 5; // max 5 re-evaluations of list due to changes
-  bool moreExecutionsInThisCycle = false;
+  MLMicroSeconds nextTimer = Never;
+  MLMicroSeconds runUntilMax = MainLoop::now() + aTimeout;
   do {
-    OnetimeHandlerList::iterator pos = onetimeHandlers.begin();
-    oneTimeHandlersChanged = false; // detect changes happening from callbacks
-    moreExecutionsInThisCycle = false; // no executions found pending for this cycle yet
-    while (pos!=onetimeHandlers.end()) {
-      if (pos->executionTime>=MainLoop::now()) {
-        // execution is in the future, so don't call yet
-        // - however, if run time is before end of this cycle, make sure we return false, so handlers will be called again in this cycle
-        if (pos->executionTime<cycleStartTime+loopCycleTime)
-          moreExecutionsInThisCycle = true; // next execution is pending before end of this cycle
-        break;
+    nextTimer = Never;
+    TimerList::iterator pos = timers.begin();
+    timersChanged = false; // detect changes happening from callbacks
+    while (pos!=timers.end()) {
+      nextTimer = pos->executionTime;
+      MLMicroSeconds now = MainLoop::now();
+      // check for executing next timer
+      MLMicroSeconds tl = pos->tolerance;
+      if (tl>maxCoalescing) tl=maxCoalescing;
+      if (nextTimer-tl>now) {
+        // next timer not ready to run
+        goto done;
+      } else if (now>runUntilMax) {
+        // we are running too long already
+        #if MAINLOOP_STATISTICS
+        timesTimersRanToLong++;
+        #endif
+        goto done;
       }
-      if (terminated) return true; // terminated means everything is considered complete
-      OneTimeCB cb = pos->callback; // get handler
-      pos = onetimeHandlers.erase(pos); // remove from queue
-      cb(cycleStartTime); // call handler
-      if (oneTimeHandlersChanged) {
-        // callback has caused change of onetime handlers list, pos gets invalid
-        break; // but done for now
+      else {
+        // earliest allowed execution time for this timer is reached, execute it
+        if (terminated) {
+          nextTimer = Never; // no more timers to run if terminated
+          goto done;
+        }
+        #if MAINLOOP_STATISTICS
+        // update max delay from intented execution time
+        MLMicroSeconds late = now-nextTimer-pos->tolerance;
+        if (late>maxTimerExecutionDelay) maxTimerExecutionDelay = late;
+        #endif
+        // run this timer
+        MLTimer runningTimer = *pos; // copy the timer object
+        runningTimer.reinsert = false; // not re-inserting by default
+        pos = timers.erase(pos); // remove timer from queue
+        runningTimer.callback(runningTimer, now); // call handler
+        if (runningTimer.reinsert) {
+          // retriggering requested, do it now
+          scheduleTimer(runningTimer);
+        }
+        if (timersChanged) {
+          // callback or retrigger has caused change of onetime handlers list, pos gets invalid
+          break; // quit loop now
+        }
       }
-      ++pos;
     }
-  } while(oneTimeHandlersChanged && rep-->0); // limit repetitions due to changed one time handlers to prevent endless loop
-  ML_STAT_ADD(oneTimeHandlerTime);
-  return !moreExecutionsInThisCycle && rep>0; // fully completed only if no more executions in this cycle and we've not ran out of repetitions due to changed handlers
-}
-
-
-bool MainLoop::runIdleHandlers()
-{
-  ML_STAT_START
-	IdleHandlerList::iterator pos = idleHandlers.begin();
-  bool allCompleted = true;
-  idleHandlersChanged = false; // detect changes happening from callbacks
-  while (pos!=idleHandlers.end()) {
-    if (terminated) return true; // terminated means everything is considered complete
-    IdleCB cb = pos->callback; // get handler
-    allCompleted = allCompleted && cb(cycleStartTime); // call handler
-    if (idleHandlersChanged) {
-      // callback has caused change of idlehandlers list, pos gets invalid
-      ML_STAT_ADD(idleHandlerTime);
-      return false; // not really completed, cause calling again soon
-    }
-		++pos;
-  }
-  ML_STAT_ADD(idleHandlerTime);
-  return allCompleted;
+    // we get here when list was processed
+  } while (timersChanged);
+done:
+  ML_STAT_ADD(timedHandlerTime);
+  return nextTimer; // report to caller when we need to be called again to meet next timer
 }
 
 
@@ -468,7 +493,7 @@ bool MainLoop::checkWait()
         // call back
         ML_STAT_START
         LOG(LOG_DEBUG, "- calling wait handler for pid=%d now with status=%d", pid, status);
-        cb(cycleStartTime, pid, status);
+        cb(pid, status);
         ML_STAT_ADD(waitHandlerTime);
         return false; // more process status could be ready, call soon again
       }
@@ -486,7 +511,7 @@ bool MainLoop::checkWait()
         for (WaitHandlerMap::iterator pos = oldHandlers.begin(); pos!=oldHandlers.end(); pos++) {
           WaitCB cb = pos->second.callback; // get callback
           LOG(LOG_DEBUG, "- calling wait handler for pid=%d now WITH FAKE STATUS 0", pos->second.pid);
-          cb(cycleStartTime, pos->second.pid, 0); // fake status
+          cb(pos->second.pid, 0); // fake status
         }
         ML_STAT_ADD(waitHandlerTime);
       }
@@ -592,7 +617,7 @@ bool MainLoop::handleIOPoll(MLMicroSeconds aTimeout)
         IOPollHandlerMap::iterator pos = ioPollHandlers.find(pollfdP->fd);
         if (pos!=ioPollHandlers.end()) {
           // - there is a handler, call it
-          pos->second.pollHandler(cycleStartTime, pollfdP->fd, pollfdP->revents);
+          pos->second.pollHandler(pollfdP->fd, pollfdP->revents);
         }
         ML_STAT_ADD(ioHandlerTime);
       }
@@ -607,71 +632,87 @@ bool MainLoop::handleIOPoll(MLMicroSeconds aTimeout)
 
 
 
-int MainLoop::run()
+void MainLoop::startupMainLoop()
 {
-  #if MAINLOOP_STATISTICS
-  // initial cycle time measurement
-  LOG(LOG_DEBUG, "Mainloop specified cycle time: %.6f S", (double)loopCycleTime/Second);
-  MLMicroSeconds t, tsum;
-  cycleStartTime = now();
-  usleep((useconds_t)loopCycleTime);
-  t = now()-cycleStartTime;
-  tsum = t;
-  LOG(LOG_DEBUG, "- measurement 1: %.6f S", (double)t/Second);
-  cycleStartTime = now();
-  usleep((useconds_t)loopCycleTime);
-  t = now()-cycleStartTime;
-  tsum += t;
-  LOG(LOG_DEBUG, "- measurement 2: %.6f S, average: %.6f S", (double)t/Second, (double)(tsum/2)/Second);
-  cycleStartTime = now();
-  usleep((useconds_t)loopCycleTime);
-  t = now()-cycleStartTime;
-  tsum += t;
-  LOG(LOG_DEBUG, "- measurement 3: %.6f S, average: %.6f S", (double)t/Second, (double)(tsum/3)/Second);
-  #endif
   hasStarted = true;
+}
+
+
+
+
+
+bool MainLoop::mainLoopCycle()
+{
+  // Mainloop (async) cycle
+  MLMicroSeconds cycleStarted = MainLoop::now();
   while (!terminated) {
-    cycleStartTime = now();
-    // start of a new cycle
-    while (!terminated) {
-      bool allCompleted = runOnetimeHandlers();
-      if (terminated) break;
-			if (!runIdleHandlers()) allCompleted = false;
-      if (terminated) break;
-      if (!checkWait()) allCompleted = false;
-      if (terminated) break;
-      MLMicroSeconds timeLeft = remainingCycleTime();
-      // if other handlers have not completed yet, don't wait for I/O, just quickly check
-      bool iohandled = false;
-      if (!allCompleted || timeLeft<=0) {
-        // no time to wait for I/O, just check
-        iohandled = handleIOPoll(0);
+    // run timers
+    MLMicroSeconds nextWake = checkTimers(maxRun);
+    if (terminated) break;
+    // check
+    if (!checkWait()) {
+      // still need to check for terminating processes
+      if (nextWake>cycleStarted+waitCheckInterval) {
+        nextWake = cycleStarted+waitCheckInterval;
       }
-      else {
-        // nothing to do except waiting for I/O
-        iohandled = handleIOPoll(timeLeft);
-        if (!iohandled) {
-          // timed out, end of cycle
-          break;
-        }
-        // not timed out, means we might still have some time left
+    }
+    if (terminated) break;
+    // limit sleeping time
+    if (maxSleep!=Infinite && (nextWake==Never || nextWake>cycleStarted+maxSleep)) {
+      nextWake = cycleStarted+maxSleep;
+    }
+    // poll I/O and/or sleep
+    MLMicroSeconds pollTimeout = nextWake-MainLoop::now();
+    if (nextWake!=Never && pollTimeout<=0) {
+      // not sleeping at all
+      handleIOPoll(0);
+      // limit cycle run time
+      if (cycleStarted+maxRun<MainLoop::now()) {
+        return false; // run limit reached before we could sleep
       }
-      // if no time left, end the cycle, otherwise re-run handlers
-      if (terminated || remainingCycleTime()<=0) {
-        break; // no more time, end the cycle here
-      }
-    } // not terminated
-    #if MAINLOOP_STATISTICS
-    statisticsCycles ++; // one cycle completed
-    #endif
-  } // not terminated
+    }
+    else {
+      // nothing due before timeout
+      handleIOPoll(nextWake==Never ? -1 : pollTimeout); // negative timeout means blocking forever
+      return true; // we had the chance to sleep
+    }
+    // otherwise, continue processing
+  }
+  // terminated
+  return true; // result does not matter any more after termination, so just assume we did sleep
+}
+
+
+
+int MainLoop::finalizeMainLoop()
+{
   // run mainloop termination handlers
   for (CleanupHandlersList::iterator pos = cleanupHandlers.begin(); pos!=cleanupHandlers.end(); ++pos) {
     SimpleCB cb = *pos;
     if (cb) cb();
   }
-	return exitCode;
+  return exitCode;
 }
+
+
+
+int MainLoop::run()
+{
+  startupMainLoop();
+  // run
+  while (!terminated) {
+    bool couldSleep = mainLoopCycle();
+    if (!couldSleep) {
+      // extra sleep to prevent full CPU usage
+      #if MAINLOOP_STATISTICS
+      timesThrottlingApplied++;
+      #endif
+      MainLoop::sleep(throttleSleep);
+    }
+  }
+  return finalizeMainLoop();
+}
+
 
 
 string MainLoop::description()
@@ -681,47 +722,39 @@ string MainLoop::description()
   MLMicroSeconds statisticsPeriod = now()-statisticsStartTime;
   #endif
   return string_format(
-    "MainLoop: loopCycleTime        : %.6f S%s\n"
+    "Mainloop statistics:\n"
+    "- installed I/O poll handlers   : %ld\n"
+    "- pending child process waits   : %ld\n"
+    "- pending timers right now      : %ld\n"
+    "  - earliest in                 : %lld mS from now\n"
+    "  - latest in                   : %lld mS from now\n"
     #if MAINLOOP_STATISTICS
-    "- statistics period            : %.6f S (%ld cycles)\n"
-    "- actual/specified cycle time  : %d%% (actual average = %.6f S)\n"
-    "- idle handlers                : %d%%\n"
-    "- one time handlers            : %d%%\n"
-    "- I/O poll handlers            : %d%%\n"
-    "- wait handlers                : %d%%\n"
-    "- thread signal handlers       : %d%%\n"
+    "- statistics period             : %.3f S\n"
+    "- I/O poll handler runtime      : %lld mS / %d%% of period\n"
+    "- wait handler runtime          : %lld mS / %d%% of period\n"
+    "- thread signalhandler runtime  : %lld mS / %d%% of period\n"
+    "- timer handler runtime         : %lld mS / %d%% of period\n"
+    "  - max delay in execution      : %lld mS\n"
+    "  - timer handlers ran too long : %ld times\n"
+    "  - max timers waiting at once  : %ld\n"
+    "- throttling sleep inserted     : %ld times\n"
     #endif
-    "- number of idle handlers      : %ld\n"
-    "- number of one-time handlers  : %ld\n"
-    "  earliest in                  : %.6f S from now\n"
-    "  latest in                    : %.6f S from now\n"
+    ,(long)ioPollHandlers.size()
+    ,(long)waitHandlers.size()
+    ,(long)timers.size()
+    ,(long long)(timers.size()>0 ? timers.front().executionTime-now() : 0)/MilliSecond
+    ,(long long)(timers.size()>0 ? timers.back().executionTime-now() : 0)/MilliSecond
     #if MAINLOOP_STATISTICS
-    "  max waiting in period        : %ld\n"
+    ,(double)statisticsPeriod/Second
+    ,ioHandlerTime/MilliSecond ,(int)(statisticsPeriod>0 ? 100ll * ioHandlerTime/statisticsPeriod : 0)
+    ,waitHandlerTime/MilliSecond ,(int)(statisticsPeriod>0 ? 100ll * waitHandlerTime/statisticsPeriod : 0)
+    ,threadSignalHandlerTime/MilliSecond ,(int)(statisticsPeriod>0 ? 100ll * threadSignalHandlerTime/statisticsPeriod : 0)
+    ,timedHandlerTime/MilliSecond ,(int)(statisticsPeriod>0 ? 100ll * timedHandlerTime/statisticsPeriod : 0)
+    ,(long long)maxTimerExecutionDelay/MilliSecond
+    ,(long)timesTimersRanToLong
+    ,(long)maxTimers
+    ,(long)timesThrottlingApplied
     #endif
-    "- number of I/O poll handlers  : %ld\n"
-    "- number of wait handlers      : %ld",
-    (double)loopCycleTime/Second,
-    terminated ? " (terminating)" : "",
-    #if MAINLOOP_STATISTICS
-    (double)statisticsPeriod/Second,
-    statisticsCycles,
-    (int)(statisticsCycles>0 ? 100ll * statisticsPeriod/(statisticsCycles*loopCycleTime) : 0),
-    (double)statisticsPeriod/statisticsCycles/Second,
-    (int)(statisticsPeriod>0 ? 100ll * ioHandlerTime/statisticsPeriod : 0),
-    (int)(statisticsPeriod>0 ? 100ll * idleHandlerTime/statisticsPeriod : 0),
-    (int)(statisticsPeriod>0 ? 100ll * oneTimeHandlerTime/statisticsPeriod : 0),
-    (int)(statisticsPeriod>0 ? 100ll * waitHandlerTime/statisticsPeriod : 0),
-    (int)(statisticsPeriod>0 ? 100ll * threadSignalHandlerTime/statisticsPeriod : 0),
-    #endif
-    (long)idleHandlers.size(),
-    (long)onetimeHandlers.size(),
-    (double)(onetimeHandlers.size()>0 ? onetimeHandlers.front().executionTime-now() : 0)/Second,
-    (double)(onetimeHandlers.size()>0 ? onetimeHandlers.back().executionTime-now() : 0)/Second,
-    #if MAINLOOP_STATISTICS
-    (long)maxOneTimeHandlers,
-    #endif
-    (long)ioPollHandlers.size(),
-    (long)waitHandlers.size()
   );
 }
 
@@ -730,13 +763,14 @@ void MainLoop::statistics_reset()
 {
   #if MAINLOOP_STATISTICS
   statisticsStartTime = now();
-  statisticsCycles = 0;
-  maxOneTimeHandlers = 0;
   ioHandlerTime = 0;
-  idleHandlerTime = 0;
-  oneTimeHandlerTime = 0;
   waitHandlerTime = 0;
   threadSignalHandlerTime = 0;
+  timedHandlerTime = 0;
+  maxTimerExecutionDelay = 0;
+  timesTimersRanToLong = 0;
+  timesThrottlingApplied =0;
+  maxTimers = 0;
   #endif
 }
 
@@ -787,7 +821,7 @@ ChildThreadWrapper::ChildThreadWrapper(MainLoop &aParentThreadMainLoop, ThreadRo
     parentSignalFd = pipeFdPair[0]; // 0 is the reading end
     childSignalFd = pipeFdPair[1]; // 1 is the writing end
     // - install poll handler in the parent mainloop
-    parentThreadMainLoop.registerPollHandler(parentSignalFd, POLLIN, boost::bind(&ChildThreadWrapper::signalPipeHandler, this, _3));
+    parentThreadMainLoop.registerPollHandler(parentSignalFd, POLLIN, boost::bind(&ChildThreadWrapper::signalPipeHandler, this, _2));
     // create a pthread (with default attrs for now
     threadRunning = true; // before creating it, to make sure it is set when child starts to run
     if (pthread_create(&pthread, NULL, thread_start_function, this)!=0) {

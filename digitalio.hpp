@@ -117,7 +117,7 @@ namespace p44 {
     bool reportPressAndRelease;
     ButtonHandlerCB buttonHandler;
     MLMicroSeconds repeatActiveReport;
-    long activeReportTicket;
+    MLTicket activeReportTicket;
 
     void inputChanged(bool aNewState);
     void repeatStateReport();
@@ -149,12 +149,14 @@ namespace p44 {
   {
     typedef DigitalIo inherited;
 
-    MLMicroSeconds switchOffAt;
+    bool nextTimedState; // what state should be set next time the timer triggers
     MLMicroSeconds blinkOnTime;
     MLMicroSeconds blinkOffTime;
-    MLMicroSeconds blinkToggleAt;
+    MLMicroSeconds blinkUntilTime;
 
-    bool timer(MLMicroSeconds aTimestamp);
+    MLTicket timedOpTicket;
+
+    void timer(MLTimer &aTimer);
 
   public:
     /// Create indicator output
@@ -175,7 +177,7 @@ namespace p44 {
     /// @param aOnRatioPercent how many percents of aBlinkPeriod the indicator should be on
     void blinkFor(MLMicroSeconds aOnTime, MLMicroSeconds aBlinkPeriod = 600*MilliSecond, int aOnRatioPercent = 50);
 
-    /// stop blinking/timed activation immediately
+    /// stop blinking/timed activation immediately, but do not change state of the indicator
     void stop();
 
     /// stop blinking/timed activation immediately and turn indicator off

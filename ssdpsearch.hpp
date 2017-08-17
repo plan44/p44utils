@@ -61,7 +61,7 @@ namespace p44 {
     SsdpSearchCB searchResultHandler;
     string searchTarget;
     bool singleTargetSearch;
-    long timeoutTicket;
+    MLTicket timeoutTicket;
 
   public:
 
