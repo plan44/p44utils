@@ -78,6 +78,7 @@
 
 #define SETLOGLEVEL(lvl) globalLogger.setLogLevel(lvl)
 #define SETERRLEVEL(lvl, dup) globalLogger.setErrLevel(lvl, dup)
+#define SETDELTATIME(dt) globalLogger.setDeltaTime(dt)
 #define LOGLEVEL (globalLogger.getLogLevel())
 #define SETLOGHANDLER(lh,ctx) globalLogger.setLogHandler(lh,ctx)
 
@@ -94,12 +95,14 @@ namespace p44 {
   class Logger : public P44Obj
   {
     pthread_mutex_t reportMutex;
-    int logLevel;
-    int stderrLevel;
-    bool errToStdout;
-    LoggerCB loggerCB;
-    void *loggerContextPtr;
-    FILE *logFILE;
+    struct timeval lastLogTS; ///< timestamp of last log line
+    int logLevel; ///< log level
+    int stderrLevel; ///< lowest level that also goes to stderr
+    bool deltaTime; ///< if set, log timestamps will show delta time relative to previous log line
+    bool errToStdout; ///< if set, even log lines that go to stderr are still shown on stdout as well
+    LoggerCB loggerCB; ///< custom logger output function to use (instead of stderr/stdout)
+    void *loggerContextPtr; ///< custom logger output context
+    FILE *logFILE; ///< file to log to (instead of stderr/stdout)
 
   public:
     Logger();
@@ -154,6 +157,10 @@ namespace p44 {
     /// set handler for outputting log lines
     /// @param aLoggerCB callback to be called whenever
     void setLogHandler(LoggerCB aLoggerCB, void *aContextPtr);
+
+    /// set delta time display
+    /// @param aDeltaTime if set, time passed since last log line will be displayed
+    void setDeltaTime(bool aDeltaTime) { deltaTime = aDeltaTime; };
 
   private:
 

@@ -33,8 +33,10 @@ Logger::Logger() :
   logFILE(NULL)
 {
   pthread_mutex_init(&reportMutex, NULL);
+  gettimeofday(&lastLogTS, NULL);
   logLevel = LOGGER_DEFAULT_LOGLEVEL;
   stderrLevel = LOG_ERR;
+  deltaTime = false;
   errToStdout = true;
 }
 
@@ -98,7 +100,13 @@ void Logger::logStr(int aErrLevel, string aMessage)
     struct timeval t;
     gettimeofday(&t, NULL);
     p += strftime(p, sizeof(tsbuf), "[%Y-%m-%d %H:%M:%S", localtime(&t.tv_sec));
-    p += sprintf(p, ".%03d %c] ", t.tv_usec/1000, levelChars[aErrLevel]);
+    p += sprintf(p, ".%03d", t.tv_usec/1000);
+    if (deltaTime) {
+      long long millisPassed = ((t.tv_sec*1e6+t.tv_usec) - (lastLogTS.tv_sec*1e6+lastLogTS.tv_usec))/1000; // in mS
+      p += sprintf(p, "%6lldmS", millisPassed);
+    }
+    lastLogTS = t;
+    p += sprintf(p, " %c] ", levelChars[aErrLevel]);
     // generate empty leading lines, if any
     string::size_type i=0;
     while (i<aMessage.length() && aMessage[i]=='\n') {
@@ -117,7 +125,7 @@ void Logger::logStr(int aErrLevel, string aMessage)
         logOutput(aErrLevel, prefix, aMessage.c_str()+linestart);
         // set indent instead of date prefix for subsequent lines: 28 chars
         //   01234567890123456789012345678
-        prefix = "                            ";
+        prefix = deltaTime ? "                                    " : "                            ";
         // new line starts after terminator
         i++;
         linestart = i;
