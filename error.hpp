@@ -107,6 +107,8 @@ namespace p44 {
     /// insert additional message context
     void prefixMessage(const char *aFmt, ...) __printflike(2,3);
 
+    /// return error object with inserted additional message context
+    ErrorPtr withPrefix(const char *aFmt, ...) __printflike(2,3);
 
     /// get error code
     /// @return the error code. Note that error codes are unique only within the same error domain.
