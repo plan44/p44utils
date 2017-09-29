@@ -129,6 +129,8 @@ I2CDevicePtr I2CManager::getDevice(int aBusNumber, const char *aDeviceID)
       dev = I2CDevicePtr(new PCF8574(deviceAddress, bus.get(), deviceOptions.c_str()));
     else if (typeString=="PCA9685")
       dev = I2CDevicePtr(new PCA9685(deviceAddress, bus.get(), deviceOptions.c_str()));
+    else if (typeString=="LM75")
+      dev = I2CDevicePtr(new LM75(deviceAddress, bus.get(), deviceOptions.c_str()));
     else if (typeString=="generic")
       dev = I2CDevicePtr(new I2CDevice(deviceAddress, bus.get(), deviceOptions.c_str()));
     // TODO: add more device types
@@ -220,12 +222,16 @@ bool I2CBus::SMBusReadByte(I2CDevice *aDeviceP, uint8_t aRegister, uint8_t &aByt
 }
 
 
-bool I2CBus::SMBusReadWord(I2CDevice *aDeviceP, uint8_t aRegister, uint16_t &aWord)
+bool I2CBus::SMBusReadWord(I2CDevice *aDeviceP, uint8_t aRegister, uint16_t &aWord, bool aMSBFirst)
 {
   if (!accessDevice(aDeviceP)) return false; // cannot read
   #if !DISABLE_I2C
   int res = i2c_smbus_read_word_data(busFD, aRegister);
   if (res<0) return false;
+  if (aMSBFirst) {
+    // swap
+    res = ((res&0xFF)<<8) + ((res>>8)&0xFF);
+  }
   #else
   int res = 0x4242; // dummy
   #endif
@@ -273,10 +279,14 @@ bool I2CBus::SMBusWriteByte(I2CDevice *aDeviceP, uint8_t aRegister, uint8_t aByt
 }
 
 
-bool I2CBus::SMBusWriteWord(I2CDevice *aDeviceP, uint8_t aRegister, uint16_t aWord)
+bool I2CBus::SMBusWriteWord(I2CDevice *aDeviceP, uint8_t aRegister, uint16_t aWord, bool aMSBFirst)
 {
   if (!accessDevice(aDeviceP)) return false; // cannot write
   #if !DISABLE_I2C
+  if (aMSBFirst) {
+    // swap
+    aWord = ((aWord&0xFF)<<8) + ((aWord>>8)&0xFF);
+  }
   int res = i2c_smbus_write_word_data(busFD, aRegister, aWord);
   #else
   int res = 1; // ok
@@ -780,38 +790,95 @@ double PCA9685::getPinValue(int aPinNo)
 
 void PCA9685::setPinValue(int aPinNo, double aValue)
 {
-  uint8_t leddata[4];
+  uint8_t pwmdata[4];
   // check special full on and full off cases first
   uint16_t v = (uint16_t)(aValue*40.96);
   if (v==0) {
-    leddata[0] = 0;
-    leddata[1] = 0x00; // not full ON
-    leddata[2] = 0;
-    leddata[3] = 0x10; // but full OFF
+    pwmdata[0] = 0;
+    pwmdata[1] = 0x00; // not full ON
+    pwmdata[2] = 0;
+    pwmdata[3] = 0x10; // but full OFF
   }
   else if (v>=0x0FFF) {
-    leddata[0] = 0;
-    leddata[1] = 0x10; // full ON
-    leddata[2] = 0;
-    leddata[3] = 0x00; // but not full OFF
+    pwmdata[0] = 0;
+    pwmdata[1] = 0x10; // full ON
+    pwmdata[2] = 0;
+    pwmdata[3] = 0x00; // but not full OFF
   }
   else {
     // minimize current by distributing switch on time of the pins
     // - set on time, staggered by pinNo
-    leddata[0] = 0x00; // LSB of start time is 0
-    leddata[1] = aPinNo; // each pin offsets onTime by 1/16 of 12-bit range: upper 4 bits = pinNo
+    pwmdata[0] = 0x00; // LSB of start time is 0
+    pwmdata[1] = aPinNo; // each pin offsets onTime by 1/16 of 12-bit range: upper 4 bits = pinNo
     uint16_t t = aPinNo<<8; // on time
     t = (t+v) & 0xFFF; // off time with wrap around
     // set off time
-    leddata[2] = t & 0xFF; // LSB of end time
-    leddata[3] = (t>>8) & 0xF; // 4 MSB of end time
+    pwmdata[2] = t & 0xFF; // LSB of end time
+    pwmdata[3] = (t>>8) & 0xF; // 4 MSB of end time
   }
   // send as one transaction
-  i2cbus->SMBusWriteBytes(this, 6+aPinNo*4, 4, leddata);
+  i2cbus->SMBusWriteBytes(this, 6+aPinNo*4, 4, pwmdata);
 }
 
 
-// MARK: ===== I2Cpin
+bool PCA9685::getPinRange(int aPinNo, double &aMin, double &aMax, double &aResolution)
+{
+  aMin = 0;
+  aMax = 100;
+  aResolution = 1.0/4096;
+  return true;
+}
+
+
+// MARK: ===== LM75 (A,B,C...)
+
+LM75::LM75(uint8_t aDeviceAddress, I2CBus *aBusP, const char *aDeviceOptions) :
+  inherited(aDeviceAddress, aBusP, aDeviceOptions),
+  bits(9) // default to 9 valid bits, most LM75 variants seem to have 9 bits, but some have 10 or 11
+{
+  // device options are number of bits
+  int b = atoi(aDeviceOptions);
+  if (b!=0) bits = b;
+}
+
+
+bool LM75::isKindOf(const char *aDeviceType)
+{
+  if (strcmp(deviceType(),aDeviceType)==0)
+    return true;
+  else
+    return inherited::isKindOf(aDeviceType);
+}
+
+
+double LM75::getPinValue(int aPinNo)
+{
+  uint16_t raw;
+  i2cbus->SMBusReadWord(this, 0x00, raw, true); // LM75A delivers MSB first
+  // result is a signed 16 bit value covering a range of -128..127 degree celsius, in 1/256 degree steps
+  // However, of these 16 bits, 5..7 LSBits (depending on LM75A versions with different ADC precision) are invalid
+  // For example LM75A from NXP has 11 bit precision, while most other LM75 variants (TI, Maxim...) have 9 bits
+  // So we mask out the invalid bits here
+  uint16_t mask = ~((1<<(16-bits))-1);
+  // see as 16 bit signed value of 1/256 degree celsius
+  int16_t temp256th = (int16_t)(raw & mask);
+  // return as celsius
+  return ((double)temp256th)/256;
+}
+
+
+bool LM75::getPinRange(int aPinNo, double &aMin, double &aMax, double &aResolution)
+{
+  aMin = -127;
+  aMax = 127;
+  aResolution = 256.0/(1<<bits);
+  return true;
+}
+
+
+
+
+// MARK: ===== AnalogI2Cpin
 
 
 AnalogI2CPin::AnalogI2CPin(int aBusNumber, const char *aDeviceId, int aPinNumber, bool aOutput, double aInitialValue) :
@@ -843,6 +910,14 @@ void AnalogI2CPin::setValue(double aValue)
   }
 }
 
+
+bool AnalogI2CPin::getRange(double &aMin, double &aMax, double &aResolution)
+{
+  if (analogPortDevice) {
+    return analogPortDevice->getPinRange(pinNumber, aMin, aMax, aResolution);
+  }
+  return false;
+}
 
 
 

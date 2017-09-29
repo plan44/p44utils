@@ -116,6 +116,16 @@ double PWMPin::getValue()
 }
 
 
+bool PWMPin::getRange(double &aMin, double &aMax, double &aResolution)
+{
+  aMin = 0;
+  aMax = 100;
+  aResolution = periodNs>0 ? 1/periodNs : 1;
+  return true;
+}
+
+
+
 //  Using PWMs with the sysfs interface
 //  -----------------------------------
 //

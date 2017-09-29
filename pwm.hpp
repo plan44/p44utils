@@ -62,6 +62,13 @@ namespace p44 {
     /// @param aValue new value to set output to
     virtual void setValue(double aValue) P44_OVERRIDE;
 
+    /// get range and resolution of this input
+    /// @param aMin minimum value
+    /// @param aMax maximum value
+    /// @param aResolution resolution (LSBit value)
+    /// @return false if no range information is available (arguments are not touched then)
+    virtual bool getRange(double &aMin, double &aMax, double &aResolution) P44_OVERRIDE;
+
   };
 
 
