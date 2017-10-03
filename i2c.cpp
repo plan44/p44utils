@@ -599,7 +599,7 @@ void PCF8574::updateDirection(int aForBitNo)
 
 
 
-// MARK: ===== MCP23S17
+// MARK: ===== MCP23017
 
 
 MCP23017::MCP23017(uint8_t aDeviceAddress, I2CBus *aBusP, const char *aDeviceOptions) :
