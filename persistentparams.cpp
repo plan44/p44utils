@@ -138,7 +138,7 @@ size_t PersistentParams::appendfieldList(string &sql, bool keyFields, bool aAppe
 }
 
 
-// helper for implementation of loadChildren()
+
 sqlite3pp::query *PersistentParams::newLoadAllQuery(const char *aParentIdentifier)
 {
   sqlite3pp::query * queryP = new sqlite3pp::query(paramStore);
@@ -148,7 +148,10 @@ sqlite3pp::query *PersistentParams::newLoadAllQuery(const char *aParentIdentifie
   // other fields
   appendfieldList(sql, false, true, false);
   // limit to entries linked to parent
-  string_format_append(sql, " FROM %s WHERE %s='%s'", tableName(), getKeyDef(0)->fieldName, aParentIdentifier);
+  string_format_append(sql, " FROM %s", tableName());
+  if (aParentIdentifier) {
+    string_format_append(sql, " WHERE %s='%s'", getKeyDef(0)->fieldName, aParentIdentifier);
+  }
   FOCUSLOG("newLoadAllQuery for parent='%s': %s", aParentIdentifier, sql.c_str());
   // now prepare query
   if (queryP->prepare(sql.c_str())!=SQLITE_OK) {
@@ -169,23 +172,24 @@ sqlite3pp::query *PersistentParams::newLoadAllQuery(const char *aParentIdentifie
 
 
 
-/// load values from passed row
 void PersistentParams::loadFromRow(sqlite3pp::query::iterator &aRow, int &aIndex, uint64_t *aCommonFlagsP)
+{
+  loadFromRowWithoutParentId(aRow, aIndex, aCommonFlagsP);
+  // - skip the row that identifies the parent (we don't need the data, because mathing parentId is a fetch criterium)
+  aIndex++;
+}
+
+
+void PersistentParams::loadFromRowWithoutParentId(sqlite3pp::query::iterator &aRow, int &aIndex, uint64_t *aCommonFlagsP)
 {
   // - load ROWID which is always there
   rowid = aRow->get<long long>(aIndex++);
   FOCUSLOG("loadFromRow: fetching ROWID=%lld", rowid);
-  // - skip the row that identifies the parent (because that's the fetch criteria)
-  aIndex++;
 }
 
 
 ErrorPtr PersistentParams::loadFromStore(const char *aParentIdentifier)
 {
-  if (aParentIdentifier==NULL) {
-    // no parent -> singeton, default to tableName as identifier
-    aParentIdentifier = tableName();
-  }
   ErrorPtr err;
   rowid = 0; // loading means that we'll get the rowid from the DB, so forget any previous one
   sqlite3pp::query *queryP = newLoadAllQuery(aParentIdentifier);
@@ -229,26 +233,30 @@ void PersistentParams::markClean()
 /// bind values to passed statement
 void PersistentParams::bindToStatement(sqlite3pp::statement &aStatement, int &aIndex, const char *aParentIdentifier, uint64_t aCommonFlags)
 {
-  // the parent identifier is the first column to bind
-  aStatement.bind(aIndex++, aParentIdentifier, false); // text not static
+  if (aParentIdentifier) {
+    // the parent identifier, if present, is the first column to bind
+    aStatement.bind(aIndex++, aParentIdentifier, false); // text not static
+  }
 }
 
 
-ErrorPtr PersistentParams::saveToStore(const char *aParentIdentifier, bool aMultipleChildrenAllowed)
+ErrorPtr PersistentParams::saveToStore(const char *aParentIdentifier, bool aMultipleInstancesAllowed)
 {
-  if (aParentIdentifier==NULL) {
-    // no parent -> singeton, default to tableName as identifier
-    aParentIdentifier = tableName();
-  }
   ErrorPtr err;
   if (dirty) {
     sqlite3pp::command cmd(paramStore);
     string sql;
     // cleanup: remove all previous records for that parent if not multiple children allowed
-    if (!aMultipleChildrenAllowed) {
-      sql = string_format("DELETE FROM %s WHERE %s='%s'", tableName(), getKeyDef(0)->fieldName, aParentIdentifier);
+    if (!aMultipleInstancesAllowed) {
+      string conj = "WHERE";
+      sql = string_format("DELETE FROM %s", tableName());
+      if (aParentIdentifier) {
+        string_format_append(sql, " %s %s='%s'", conj.c_str(), getKeyDef(0)->fieldName, aParentIdentifier);
+        conj = "AND";
+      }
       if (rowid!=0) {
-        string_format_append(sql, " AND ROWID!=%lld", rowid);
+        string_format_append(sql, " %s ROWID!=%lld", conj.c_str(), rowid);
+        conj = "AND";
       }
       FOCUSLOG("- cleanup before save: %s", sql.c_str());
       if (paramStore.execute(sql.c_str()) != SQLITE_OK) {
@@ -264,7 +272,7 @@ ErrorPtr PersistentParams::saveToStore(const char *aParentIdentifier, bool aMult
       appendfieldList(sql, false, true, true);
       string_format_append(sql, " WHERE ROWID=%lld", rowid);
       // now execute command
-      FOCUSLOG("saveToStore: update existing row for parent='%s': %s", aParentIdentifier, sql.c_str());
+      FOCUSLOG("saveToStore: update existing row for parent='%s': %s", aParentIdentifier ? aParentIdentifier : "<none>", sql.c_str());
       if (cmd.prepare(sql.c_str())!=SQLITE_OK) {
         // error on update is always a real error - if we loaded the params from the DB, schema IS ok!
         err = paramStore.error();
@@ -298,7 +306,7 @@ ErrorPtr PersistentParams::saveToStore(const char *aParentIdentifier, bool aMult
       }
       sql += ")";
       // prepare
-      FOCUSLOG("saveToStore: insert new row for parent='%s': %s", aParentIdentifier, sql.c_str());
+      FOCUSLOG("saveToStore: insert new row for parent='%s': %s", aParentIdentifier ? aParentIdentifier : "<none>", sql.c_str());
       if (cmd.prepare(sql.c_str())!=SQLITE_OK) {
         FOCUSLOG("- insert not successful - assume wrong schema -> calling checkAndUpdateSchema()");
         // - error on INSERT could mean schema is not up to date
