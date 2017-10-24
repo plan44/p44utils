@@ -5298,6 +5298,7 @@ struct mg_connection *mg_download_ex(const char *host, int port, int use_ssl,
         // 401 and we have user/pw and we haven't tried auth yet
         if (parse_wwwauth_header(conn, &wah)) {
           mg_close_connection(conn);
+          conn = NULL;
           if (!authorization) authorization = malloc(MG_BUF_LEN);
           if (create_authorization_header(wah, requesturi, method, username, password, authorization, MG_BUF_LEN)) {
             // try again with auth

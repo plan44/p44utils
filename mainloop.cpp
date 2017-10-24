@@ -585,7 +585,7 @@ bool MainLoop::handleIOPoll(MLMicroSeconds aTimeout)
     if (h.pollFlags) {
       // don't include handlers that are currently disabled (no flags set)
       struct pollfd *pollfdP = &pollFds[numFDsToTest];
-      pollfdP->fd = h.monitoredFD;
+      pollfdP->fd = h.monitoredFD; // analyzer: is wrong, pollfdP is always defined, because maxFDsToTest==ioPollHandlers.size()
       pollfdP->events = h.pollFlags;
       pollfdP->revents = 0; // no event returned so far
       ++numFDsToTest;

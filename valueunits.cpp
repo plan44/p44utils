@@ -120,7 +120,7 @@ ValueUnit p44::stringToValueUnit(const string aValueUnitName)
   UnitScale s = unitScaling_1;
   size_t n = 0;
   for (int i=0; i<numUnitScalings; i++) {
-    size_t n = strlen(valueScalingNames[i].name);
+    n = strlen(valueScalingNames[i].name);
     if (n>0 && aValueUnitName.substr(0,n)==valueScalingNames[i].name) {
       s = (UnitScale)i;
       break;
