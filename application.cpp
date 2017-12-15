@@ -79,6 +79,8 @@ Application::~Application()
 
 void Application::initializeInternal()
 {
+  resourcepath = "."; // current directory by default
+  // "publish" singleton
   sharedApplicationP = this;
   // register signal handlers
   handleSignal(SIGHUP);
@@ -180,6 +182,25 @@ void Application::terminateAppWith(ErrorPtr aError)
   }
 }
 
+
+string Application::resourcePath(const char *aResource)
+{
+  if (!aResource)
+    return resourcepath; // just return resource path
+  if (*aResource=='/')
+    return aResource; // argument is absolute path, use it as-is
+  // relative to resource directory
+  return resourcepath + "/" + aResource;
+}
+
+
+void Application::setResourcePath(const char *aResourcePath)
+{
+  resourcepath = aResourcePath;
+  if (resourcepath.size()>1 && resourcepath[resourcepath.size()-1]=='/') {
+    resourcepath.erase(resourcepath.size()-1);
+  }
+}
 
 
 void Application::daemonize()
@@ -517,6 +538,9 @@ bool CmdLineApp::processOption(const CmdLineOptionDescriptor &aOptionDescriptor,
   if (!aOptionDescriptor.withArgument && strcmp(aOptionDescriptor.longOptionName,"help")==0) {
     showUsage();
     terminateApp(EXIT_SUCCESS);
+  }
+  else if (aOptionDescriptor.withArgument && strcmp(aOptionDescriptor.longOptionName,"resourcepath")==0) {
+    setResourcePath(aOptionValue);
   }
   return false; // not processed
 }
