@@ -41,6 +41,7 @@ namespace p44 {
   protected:
 
     string resourcepath; ///< path to resources directory for this application
+    string datapath; ///< path to persistent r/w data for this application
 
   public:
     /// construct application with specific mainloop
@@ -79,11 +80,18 @@ namespace p44 {
     void terminateAppWith(ErrorPtr aError);
 
     /// get resource path
-    /// @param aResource if specified, and it is an absolute path, the the result will be just this path
+    /// @param aResource if not empty, and it is an absolute path, the the result will be just this path
     ///   if it is a relative path, the application's resource path will be prepended.
-    /// @return if aRelativePath is not set, result is the application's resource directory (no separator at end)
+    /// @return if aRelativePath is empty, result is the application's resource directory (no separator at end)
     ///   Otherwise, it is the absolute path to the resource specified with aResource
-    string resourcePath(const char *aResource = NULL);
+    string resourcePath(const string aResource = "");
+
+    /// get data path
+    /// @param aDataFile if not empty, and it is an absolute path, the the result will be just this path
+    ///   if it is a relative path, the application's data path will be prepended.
+    /// @return if aDataFile is empty, result is the application's data directory (no separator at end)
+    ///   Otherwise, it is the absolute path to the data file specified with aDataFile
+    string dataPath(const string aDataFile = "");
 
   protected:
 
@@ -106,6 +114,10 @@ namespace p44 {
     /// set the resource path
     /// @param aResourcePath path to resource directory, with or without path delimiter at end
     void setResourcePath(const char *aResourcePath);
+
+    /// set the resource path
+    /// @param aDataPath path to the r/w data directory for persistent app data
+    void setDataPath(const char *aDataPath);
 
   private:
 
