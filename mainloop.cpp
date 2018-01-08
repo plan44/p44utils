@@ -295,7 +295,7 @@ void MainLoop::waitForPid(WaitCB aCallback, pid_t aPid)
 extern char **environ;
 
 
-void MainLoop::fork_and_execve(ExecCB aCallback, const char *aPath, char *const aArgv[], char *const aEnvp[], bool aPipeBackStdOut)
+pid_t MainLoop::fork_and_execve(ExecCB aCallback, const char *aPath, char *const aArgv[], char *const aEnvp[], bool aPipeBackStdOut)
 {
   LOG(LOG_DEBUG, "fork_and_execve: preparing to fork for executing '%s' now", aPath);
   pid_t child_pid;
@@ -310,7 +310,7 @@ void MainLoop::fork_and_execve(ExecCB aCallback, const char *aPath, char *const 
     if(pipe(answerPipe)<0) {
       // pipe could not be created
       aCallback(SysError::errNo(),"");
-      return;
+      return -1;
     }
   }
   // fork child process
@@ -319,6 +319,7 @@ void MainLoop::fork_and_execve(ExecCB aCallback, const char *aPath, char *const 
     // fork successful
     if (child_pid==0) {
       // this is the child process (fork() returns 0 for the child process)
+      //setpgid(0, 0); // Linux: set group PID to this process' PID, allows killing the entire group
       LOG(LOG_DEBUG, "forked child process: preparing for execve");
       if (aPipeBackStdOut) {
         dup2(answerPipe[1],STDOUT_FILENO); // replace STDOUT by writing end of pipe
@@ -346,6 +347,7 @@ void MainLoop::fork_and_execve(ExecCB aCallback, const char *aPath, char *const 
       }
       LOG(LOG_DEBUG, "fork_and_execve: now calling waitForPid(%d)", child_pid);
       waitForPid(boost::bind(&MainLoop::execChildTerminated, this, aCallback, ans, _1, _2), child_pid);
+      return child_pid;
     }
   }
   else {
@@ -354,18 +356,18 @@ void MainLoop::fork_and_execve(ExecCB aCallback, const char *aPath, char *const 
       aCallback(SysError::errNo(),"");
     }
   }
-  return;
+  return -1;
 }
 
 
-void MainLoop::fork_and_system(ExecCB aCallback, const char *aCommandLine, bool aPipeBackStdOut)
+pid_t MainLoop::fork_and_system(ExecCB aCallback, const char *aCommandLine, bool aPipeBackStdOut)
 {
   char * args[4];
   args[0] = (char *)"sh";
   args[1] = (char *)"-c";
   args[2] = (char *)aCommandLine;
   args[3] = NULL;
-  fork_and_execve(aCallback, "/bin/sh", args, NULL, aPipeBackStdOut);
+  return fork_and_execve(aCallback, "/bin/sh", args, NULL, aPipeBackStdOut);
 }
 
 
@@ -585,7 +587,7 @@ bool MainLoop::handleIOPoll(MLMicroSeconds aTimeout)
     if (h.pollFlags) {
       // don't include handlers that are currently disabled (no flags set)
       struct pollfd *pollfdP = &pollFds[numFDsToTest];
-      pollfdP->fd = h.monitoredFD;
+      pollfdP->fd = h.monitoredFD; // analyzer: is wrong, pollfdP is always defined, because maxFDsToTest==ioPollHandlers.size()
       pollfdP->events = h.pollFlags;
       pollfdP->revents = 0; // no event returned so far
       ++numFDsToTest;

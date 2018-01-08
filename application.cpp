@@ -79,6 +79,8 @@ Application::~Application()
 
 void Application::initializeInternal()
 {
+  resourcepath = "."; // current directory by default
+  // "publish" singleton
   sharedApplicationP = this;
   // register signal handlers
   handleSignal(SIGHUP);
@@ -180,6 +182,45 @@ void Application::terminateAppWith(ErrorPtr aError)
   }
 }
 
+
+string Application::resourcePath(const string aResource)
+{
+  if (aResource.empty())
+    return resourcepath; // just return resource path
+  if (aResource[0]=='/')
+    return aResource; // argument is absolute path, use it as-is
+  // relative to resource directory
+  return resourcepath + "/" + aResource;
+}
+
+
+void Application::setResourcePath(const char *aResourcePath)
+{
+  resourcepath = aResourcePath;
+  if (resourcepath.size()>1 && resourcepath[resourcepath.size()-1]=='/') {
+    resourcepath.erase(resourcepath.size()-1);
+  }
+}
+
+
+string Application::dataPath(const string aDataFile)
+{
+  if (aDataFile.empty())
+    return datapath; // just return data path
+  if (aDataFile[0]=='/')
+    return aDataFile; // argument is absolute path, use it as-is
+  // relative to data directory
+  return datapath + "/" + aDataFile;
+}
+
+
+void Application::setDataPath(const char *aDataPath)
+{
+  datapath = aDataPath;
+  if (datapath.size()>1 && datapath[datapath.size()-1]=='/') {
+    datapath.erase(datapath.size()-1);
+  }
+}
 
 
 void Application::daemonize()
@@ -517,6 +558,12 @@ bool CmdLineApp::processOption(const CmdLineOptionDescriptor &aOptionDescriptor,
   if (!aOptionDescriptor.withArgument && strcmp(aOptionDescriptor.longOptionName,"help")==0) {
     showUsage();
     terminateApp(EXIT_SUCCESS);
+  }
+  else if (aOptionDescriptor.withArgument && strcmp(aOptionDescriptor.longOptionName,"resourcepath")==0) {
+    setResourcePath(aOptionValue);
+  }
+  else if (aOptionDescriptor.withArgument && strcmp(aOptionDescriptor.longOptionName,"datapath")==0) {
+    setDataPath(aOptionValue);
   }
   return false; // not processed
 }

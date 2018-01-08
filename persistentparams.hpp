@@ -89,8 +89,16 @@ namespace p44 {
     /// @param aIndex index of first column to load
     /// @param aCommonFlagsP flag word already containing flags from superclasses (which are included in a flagword saved by subclasses)
     /// @note the base class loads ROWID and the parent identifier (first item in keyDefs) automatically.
-    ///   subclasses should always call inherited loadFromRow() FIRST
+    ///   subclasses should always call inherited loadFromRow() FIRST, if they actually have a parent ID
+    ///   (otherwise, they should call loadFromRowWithoutParentId)
     virtual void loadFromRow(sqlite3pp::query::iterator &aRow, int &aIndex, uint64_t *aCommonFlagsP);
+
+    /// load values from passed row, which does not have a parentID
+    /// @param aRow result row to get parameter values from
+    /// @param aIndex index of first column to load
+    /// @param aCommonFlagsP flag word already containing flags from superclasses (which are included in a flagword saved by subclasses)
+    /// @note this method only loads ROWID but no parent identifier. This can be used instead of loadFromRow() for datasets with no parentId
+    void loadFromRowWithoutParentId(sqlite3pp::query::iterator &aRow, int &aIndex, uint64_t *aCommonFlagsP);
 
     /// bind values to passed statement
     /// @param aStatement statement to bind parameter values to
@@ -137,20 +145,23 @@ namespace p44 {
 
     /// get parameter set from persistent storage
     /// @param aParentIdentifier identifies the parent of this parameter set (a string (G)UID or the ROWID of a parent parameter set)
+    ///   (can be NULL when there is no parent parameter set)
     ErrorPtr loadFromStore(const char *aParentIdentifier);
 
     /// save parameter set to persistent storage if dirty
     /// @param aParentIdentifier identifies the parent of this parameter set (a string (G)UID or the ROWID of a parent parameter set)
-    /// @param aMultipleChildrenAllowed if true, multiple children of the same parent are allowed. If false, DB might be cleaned
-    ///   from additional childs for that parent that might exist from failed operations)
-    ErrorPtr saveToStore(const char *aParentIdentifier, bool aMultipleChildrenAllowed);
+    ///   (can be NULL when there is no parent parameter set)
+    /// @param aMultipleInstancesAllowed if true, multiple instances with the same parentIdentifier are allowed. If false, DB might be cleaned
+    ///   from additional instances for that parent that might exist from failed operations.
+    ErrorPtr saveToStore(const char *aParentIdentifier, bool aMultipleInstancesAllowed);
 
     /// delete this parameter set from the store
     ErrorPtr deleteFromStore();
 
     /// helper for implementation of loadChildren()
-    /// @return a prepared query set up to iterate through all records with a given parent identifier, or NULL on error
+    /// @return a prepared query set up to iterate through all records with a given parent identifier (if any), or NULL on error
     /// @param aParentIdentifier identifies the parent of this parameter set (a string (G)UID or the ROWID of a parent parameter set)
+    ///   (can be NULL when there is no parent parameter set, which will cause the entire table to be read)
     sqlite3pp::query *newLoadAllQuery(const char *aParentIdentifier);
 
   private:

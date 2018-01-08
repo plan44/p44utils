@@ -192,10 +192,12 @@ ErrorPtr SerialComm::establishConnection()
       struct hostent *server;
       server = gethostbyname(connectionPath.c_str());
       if (server == NULL) {
+        close(connectionFd);
         return ErrorPtr(new SerialCommError(SerialCommError::InvalidHost));
       }
       memcpy((void *)&conn_addr.sin_addr.s_addr, (void *)(server->h_addr), sizeof(in_addr_t));
       if ((res = connect(connectionFd, (struct sockaddr *)&conn_addr, sizeof(conn_addr))) < 0) {
+        close(connectionFd);
         return SysError::errNo("Cannot open socket: ");
       }
     }

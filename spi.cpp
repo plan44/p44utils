@@ -705,6 +705,15 @@ void AnalogSPIPin::setValue(double aValue)
 }
 
 
+bool AnalogSPIPin::getRange(double &aMin, double &aMax, double &aResolution)
+{
+  if (analogPortDevice) {
+    return analogPortDevice->getPinRange(pinNumber, aMin, aMax, aResolution);
+  }
+  return false;
+}
+
+
 
 //  SPI devices have a limited userspace API, supporting basic half-duplex
 //  read() and write() access to SPI slave devices.  Using ioctl() requests,

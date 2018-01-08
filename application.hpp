@@ -38,6 +38,11 @@ namespace p44 {
 
     MainLoop &mainLoop;
 
+  protected:
+
+    string resourcepath; ///< path to resources directory for this application
+    string datapath; ///< path to persistent r/w data for this application
+
   public:
     /// construct application with specific mainloop
     Application(MainLoop &aMainLoop);
@@ -74,6 +79,20 @@ namespace p44 {
     ///   otherwise, app will log aError's description at LOG_ERR level and then terminate with EXIT_FAILURE
     void terminateAppWith(ErrorPtr aError);
 
+    /// get resource path
+    /// @param aResource if not empty, and it is an absolute path, the the result will be just this path
+    ///   if it is a relative path, the application's resource path will be prepended.
+    /// @return if aRelativePath is empty, result is the application's resource directory (no separator at end)
+    ///   Otherwise, it is the absolute path to the resource specified with aResource
+    string resourcePath(const string aResource = "");
+
+    /// get data path
+    /// @param aDataFile if not empty, and it is an absolute path, the the result will be just this path
+    ///   if it is a relative path, the application's data path will be prepended.
+    /// @return if aDataFile is empty, result is the application's data directory (no separator at end)
+    ///   Otherwise, it is the absolute path to the data file specified with aDataFile
+    string dataPath(const string aDataFile = "");
+
   protected:
 
     /// daemonize
@@ -92,6 +111,14 @@ namespace p44 {
     /// @note only SIGHUP,SIGINT,SIGKILL and SIGTERM are handled here
     virtual void signalOccurred(int aSignal, siginfo_t *aSiginfo);
 
+    /// set the resource path
+    /// @param aResourcePath path to resource directory, with or without path delimiter at end
+    void setResourcePath(const char *aResourcePath);
+
+    /// set the resource path
+    /// @param aDataPath path to the r/w data directory for persistent app data
+    void setDataPath(const char *aDataPath);
+
   private:
 
     void initializeInternal();    
@@ -99,6 +126,7 @@ namespace p44 {
     static void sigaction_handler(int aSignal, siginfo_t *aSiginfo, void *aUap);
 
   };
+
 
 
   /// Command line option descriptor

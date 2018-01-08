@@ -52,6 +52,7 @@ namespace p44 {
       OK,
       NotOK
     };
+    typedef ErrorCode ErrorCodes;
 
     static const char *domain();
 

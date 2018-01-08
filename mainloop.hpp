@@ -300,13 +300,15 @@ namespace p44 {
     /// @param aArgv a NULL terminated array of arguments, first should be program name
     /// @param aEnvp a NULL terminated array of environment variables, or NULL to let child inherit parent's environment
     /// @param aPipeBackStdOut if true, stdout of the child is collected via a pipe by the parent and passed back in aCallBack
-    void fork_and_execve(ExecCB aCallback, const char *aPath, char *const aArgv[], char *const aEnvp[] = NULL, bool aPipeBackStdOut = false);
+    /// @return the child's PID (can be used to send signals to it), or -1 if fork fails
+    pid_t fork_and_execve(ExecCB aCallback, const char *aPath, char *const aArgv[], char *const aEnvp[] = NULL, bool aPipeBackStdOut = false);
 
     /// execute command line in external shell
     /// @param aCallback the functor to be called when execution is done (failed to start or completed)
     /// @param aCommandLine the command line to execute
     /// @param aPipeBackStdOut if true, stdout of the child is collected via a pipe by the parent and passed back in aCallBack
-    void fork_and_system(ExecCB aCallback, const char *aCommandLine, bool aPipeBackStdOut = false);
+    /// @return the child's PID (can be used to send signals to it), or -1 if fork fails
+    pid_t fork_and_system(ExecCB aCallback, const char *aCommandLine, bool aPipeBackStdOut = false);
 
 
     /// have handler called when a specific process delivers a state change
