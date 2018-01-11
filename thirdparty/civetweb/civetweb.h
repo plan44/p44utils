@@ -958,6 +958,11 @@ CIVETWEB_API long long mg_store_body(struct mg_connection *conn,
      < 0   read error. No more data could be read from the connection.
      > 0   number of bytes read into the buffer. */
 CIVETWEB_API int mg_read(struct mg_connection *, void *buf, size_t len);
+/* timeout can be 0 to just read what's ready right now, -1 to use timeout from config, -2 for no timeout, and >0 for timeout in seconds */
+CIVETWEB_API int mg_read_ex(struct mg_connection *, void *buf, size_t len, double timeout);
+
+
+
 
 
 /* Get the value of particular HTTP header.
@@ -1068,6 +1073,27 @@ mg_download(const char *host,
             size_t error_buffer_size,
             PRINTF_FORMAT_STRING(const char *request_fmt),
             ...) PRINTF_ARGS(6, 7);
+
+
+struct mg_client_options {
+  const char *host;
+  int port;
+  const char *client_cert;
+  const char *server_cert;
+  double timeout;
+  /* TODO: add more data */
+};
+
+
+CIVETWEB_API struct mg_connection *
+mg_download_secure(const struct mg_client_options *client_options,
+                   int use_ssl,
+                   const char *method, const char *requesturi,
+                   const char *username, const char *password, void **opaqueauthP,
+                   char *ebuf, size_t ebuf_len,
+                   PRINTF_FORMAT_STRING(const char *fmt),
+                   ...) PRINTF_ARGS(10, 11);
+
 
 
 /* Close the connection opened by mg_download(). */
@@ -1303,15 +1329,6 @@ CIVETWEB_API struct mg_connection *mg_connect_client(const char *host,
                                                      int use_ssl,
                                                      char *error_buffer,
                                                      size_t error_buffer_size);
-
-
-struct mg_client_options {
-	const char *host;
-	int port;
-	const char *client_cert;
-	const char *server_cert;
-	/* TODO: add more data */
-};
 
 
 CIVETWEB_API struct mg_connection *

@@ -1571,6 +1571,7 @@ typedef int socklen_t;
 typedef struct SSL SSL; /* dummy for SSL argument to push/pull */
 typedef struct SSL_CTX SSL_CTX;
 #else
+static int ssl_initialized = 0;
 #if defined(NO_SSL_DL)
 #include <openssl/ssl.h>
 #include <openssl/err.h>
@@ -2486,6 +2487,7 @@ struct mg_connection {
 	const char *host;         /* Host (HTTP/1.1 header or SNI) */
 	SSL *ssl;                 /* SSL descriptor */
 	SSL_CTX *client_ssl_ctx;  /* SSL context for client connections */
+  double client_timeout;    /* timeout for client connections */
 	struct socket client;     /* Connected client */
 	time_t conn_birth_time;   /* Time (wall clock) when connection was
 	                           * established */
@@ -6076,20 +6078,28 @@ pull_inner(FILE *fp,
 }
 
 
+/* note: timeout -2 means actually NO timeout. timeout -1 means using default timeout if one is specified in config */
 static int
-pull_all(FILE *fp, struct mg_connection *conn, char *buf, int len)
+pull_all(FILE *fp, struct mg_connection *conn, char *buf, int len, double timeout)
 {
 	int n, nread = 0;
-	double timeout = -1.0;
 	uint64_t start_time = 0, now = 0, timeout_ns = 0;
 
-	if (conn->dom_ctx->config[REQUEST_TIMEOUT]) {
-		timeout = atoi(conn->dom_ctx->config[REQUEST_TIMEOUT]) / 1000.0;
-	}
-	if (timeout >= 0.0) {
-		start_time = mg_get_current_time_ns();
-		timeout_ns = (uint64_t)(timeout * 1.0E9);
-	}
+    if (timeout==-1) {
+        // no call-level timeout, use connection level
+        timeout = conn->client_timeout;
+    }
+    if (timeout==-1 && conn->dom_ctx->config[REQUEST_TIMEOUT]) {
+        // no timeout defined so far, use domain config level timeout
+        timeout = atoi(conn->dom_ctx->config[REQUEST_TIMEOUT]) / 1000.0;
+    }
+    if (timeout >= 0.0) {
+        start_time = mg_get_current_time_ns();
+        timeout_ns = (uint64_t)(timeout * 1.0E9);
+    }
+    else if (timeout<0) {
+        timeout = -1; // unify, all negative values mean NO timeout at this point (which must be -1 for mg_poll)
+    }
 
 	while ((len > 0) && (conn->phys_ctx->stop_flag == 0)) {
 		n = pull_inner(fp, conn, buf + nread, len, timeout);
@@ -6161,7 +6171,7 @@ discard_unread_request_data(struct mg_connection *conn)
 
 
 static int
-mg_read_inner(struct mg_connection *conn, void *buf, size_t len)
+mg_read_inner(struct mg_connection *conn, void *buf, size_t len, double timeout)
 {
 	int64_t n, buffered_len, nread;
 	int64_t len64 =
@@ -6218,7 +6228,7 @@ mg_read_inner(struct mg_connection *conn, void *buf, size_t len)
 		/* We have returned all buffered data. Read new data from the remote
 		 * socket.
 		 */
-		if ((n = pull_all(NULL, conn, (char *)buf, (int)len64)) >= 0) {
+		if ((n = pull_all(NULL, conn, (char *)buf, (int)len64, timeout)) >= 0) {
 			nread += n;
 		} else {
 			nread = ((nread > 0) ? nread : n);
@@ -6235,7 +6245,7 @@ mg_getc(struct mg_connection *conn)
 	if (conn == NULL) {
 		return 0;
 	}
-	if (mg_read_inner(conn, &c, 1) <= 0) {
+	if (mg_read_inner(conn, &c, 1, -1) <= 0) {
 		return (char)0;
 	}
 	return c;
@@ -6243,7 +6253,13 @@ mg_getc(struct mg_connection *conn)
 
 
 int
-mg_read(struct mg_connection *conn, void *buf, size_t len)
+mg_read(struct mg_connection *conn, void *buf, size_t len) {
+  return mg_read_ex(conn, buf, len, 0);
+}
+
+
+int
+mg_read_ex(struct mg_connection *conn, void *buf, size_t len, double timeout)
 {
 	if (len > INT_MAX) {
 		len = INT_MAX;
@@ -6271,7 +6287,7 @@ mg_read(struct mg_connection *conn, void *buf, size_t len)
 
 				conn->content_len += (int)read_now;
 				read_ret =
-				    mg_read_inner(conn, (char *)buf + all_read, read_now);
+				    mg_read_inner(conn, (char *)buf + all_read, read_now, timeout);
 
 				if (read_ret < 1) {
 					/* read error */
@@ -6338,7 +6354,7 @@ mg_read(struct mg_connection *conn, void *buf, size_t len)
 
 		return (int)all_read;
 	}
-	return mg_read_inner(conn, buf, len);
+	return mg_read_inner(conn, buf, len, timeout);
 }
 
 
@@ -8293,6 +8309,7 @@ connect_socket(struct mg_context *ctx /* may be NULL */,
                const char *host,
                int port,
                int use_ssl,
+               double connect_timeout,
                char *ebuf,
                size_t ebuf_len,
                SOCKET *sock /* output: socket, must not be NULL */,
@@ -8453,8 +8470,9 @@ connect_socket(struct mg_context *ctx /* may be NULL */,
 
 		FD_ZERO(&fdset);
 		FD_SET(*sock, &fdset);
-		timeout.tv_sec = 10; /* 10 second timeout */
-		timeout.tv_usec = 0;
+        if (connect_timeout==-1) connect_timeout = 10.0; /* default: 10 second timeout */
+		timeout.tv_sec = (int)connect_timeout;
+		timeout.tv_usec = (connect_timeout-timeout.tv_sec)*1E6;
 
 		if (select((int)(*sock) + 1, NULL, &fdset, NULL, &timeout) != 1) {
 			/* Not connected */
@@ -10535,7 +10553,7 @@ handle_cgi_request(struct mg_connection *conn, const char *prog)
 
 		/* Could not parse the CGI response. Check if some error message on
 		 * stderr. */
-		i = pull_all(err, conn, buf, (int)buflen);
+		i = pull_all(err, conn, buf, (int)buflen, -1); // use default timeout
 		if (i > 0) {
 			mg_cry_internal(conn,
 			                "Error: CGI program \"%s\" sent error "
@@ -14539,6 +14557,7 @@ initialize_ssl(char *ebuf, size_t ebuf_len)
 	SSL_load_error_strings();
 #endif
 
+  ssl_initialized = 1;
 	return 1;
 }
 
@@ -15471,10 +15490,13 @@ mg_connect_client_impl(const struct mg_client_options *client_options,
 	conn->phys_ctx->context_type = CONTEXT_HTTP_CLIENT;
 	conn->dom_ctx = &(conn->phys_ctx->dd);
 
+    conn->client_timeout = client_options->timeout;
+
 	if (!connect_socket(&common_client_context,
 	                    client_options->host,
 	                    client_options->port,
 	                    use_ssl,
+                        client_options->timeout,
 	                    ebuf,
 	                    ebuf_len,
 	                    &sock,
@@ -15963,7 +15985,7 @@ get_request(struct mg_connection *conn, char *ebuf, size_t ebuf_len, int *err)
 	}
 
 	/* Do we know the content length? */
-	if ((cl = get_header(conn->request_info.http_headers,
+  if ((cl = get_header(conn->request_info.http_headers,
 	                     conn->request_info.num_headers,
 	                     "Content-Length")) != NULL) {
 		/* Request/response has content length set */
@@ -16170,6 +16192,277 @@ mg_download(const char *host,
 	va_end(ap);
 	return conn;
 }
+
+
+// Digest realm="Simulated VZug Test Device vzug/vzug", nonce="7V4cT0BMBQA=009c37264d0fa0beb3c4d1f826663ddd2263f567", algorithm=MD5, qop="auth"
+#define NONCE_MAX_SZ 256
+
+// Parsed WWW-Authenticate header (including buffer)
+struct wah {
+	char *realm, *domain, *nonce, *opaque, *algorithm, *stale, *qop;
+	int nc;
+	char new_nonce[NONCE_MAX_SZ];
+	size_t buflen;
+	char buf[1]; // actual size of memory block will be larger
+};
+
+// Return 1 on success. Allocates and returns wah structure on success, frees previous wah first.
+static int parse_wwwauth_header(struct mg_connection *conn, struct wah **wahP) {
+	char *name, *value, *s;
+	const char *wwwauth_header;
+	size_t bl;
+
+	if (!wahP) return 0;
+	if ((wwwauth_header = mg_get_header(conn, "WWW-Authenticate")) == NULL ||
+			mg_strncasecmp(wwwauth_header, "Digest ", 7) != 0) {
+		return 0;
+	}
+	if (*wahP) mg_free(*wahP);
+	bl = strlen(wwwauth_header)-7+1;
+	*wahP = mg_malloc(sizeof(struct wah)+bl);
+	(void) memset(*wahP, 0, sizeof(struct wah));
+	(*wahP)->buflen = bl;
+
+	// Make modifiable copy of the auth header
+	(void) mg_strlcpy((*wahP)->buf, wwwauth_header + 7, (*wahP)->buflen);
+	s = (*wahP)->buf;
+
+	// Parse authorization header
+	for (;;) {
+		// Gobble initial spaces
+		while (isspace(* (unsigned char *) s)) {
+			s++;
+		}
+		name = skip_quoted(&s, "=", " ", 0);
+		// Value is either quote-delimited, or ends at first comma or space.
+		if (s[0] == '\"') {
+			s++;
+			value = skip_quoted(&s, "\"", " ", '\\');
+			if (s[0] == ',') {
+				s++;
+			}
+		} else {
+			value = skip_quoted(&s, ", ", " ", 0);	// IE uses commas, FF uses spaces
+		}
+		if (*name == '\0') {
+			break;
+		}
+
+		if (!strcmp(name, "realm")) {
+			(*wahP)->realm = value;
+		} else if (!strcmp(name, "domain")) {
+			(*wahP)->domain = value;
+		} else if (!strcmp(name, "nonce")) {
+			(*wahP)->nonce = value;
+		} else if (!strcmp(name, "opaque")) {
+			(*wahP)->opaque = value;
+		} else if (!strcmp(name, "algorithm")) {
+			(*wahP)->algorithm = value;
+		} else if (!strcmp(name, "stale")) {
+			(*wahP)->stale = value;
+		} else if (!strcmp(name, "qop")) {
+			(*wahP)->qop = value;
+		}
+	}
+	return 1;
+}
+
+
+// Return 1 on success. Always initializes the wah structure.
+static int parse_authinfo_nextnonce(struct mg_connection *conn, char *buf, size_t buf_size) {
+	char *name, *value, *s;
+	const char *authinfo_header;
+	char abuf[MG_BUF_LEN];
+
+	if ((authinfo_header = mg_get_header(conn, "Authentication-Info")) == NULL) {
+		return 0;
+	}
+
+	// Make modifiable copy of the auth header
+	(void) mg_strlcpy(abuf, authinfo_header, MG_BUF_LEN);
+	s = abuf;
+
+	// Parse authorization header
+	for (;;) {
+		// Gobble initial spaces
+		while (isspace(* (unsigned char *) s)) {
+			s++;
+		}
+		name = skip_quoted(&s, "=", " ", 0);
+		// Value is either quote-delimited, or ends at first comma or space.
+		if (s[0] == '\"') {
+			s++;
+			value = skip_quoted(&s, "\"", " ", '\\');
+			if (s[0] == ',') {
+				s++;
+			}
+		} else {
+			value = skip_quoted(&s, ", ", " ", 0);	// IE uses commas, FF uses spaces
+		}
+		if (*name == '\0') {
+			break;
+		}
+
+		if (!strcmp(name, "nextnonce")) {
+			mg_strlcpy(buf, value, buf_size);
+			return 1;
+		}
+	}
+	// nextnonce not found
+	return 0;
+}
+
+
+
+int create_authorization_header(struct wah *wah, const char *uri, const char *method, const char *username, const char *password, char *buf, size_t buf_size) {
+	char ha1[32 + 1];
+	char ha2[32 + 1];
+	char response[32 + 1];
+	char nc[12];
+	char cnonce[12];
+	size_t n;
+
+	if (
+		!uri || !method || !username || !password ||
+		!wah->realm || !wah->nonce || !wah->qop || mg_strcasestr(wah->qop, "auth")==0
+	) {
+		return 0;
+	}
+
+	sprintf(cnonce, "%ld", (unsigned long) time(NULL));
+	wah->nc++;
+	sprintf(nc, "%08X", wah->nc);
+
+	mg_md5(ha1, username, ":", wah->realm, ":", password, NULL);
+	mg_md5(ha2, method, ":", uri, NULL);
+	mg_md5(response, ha1, ":", wah->nonce, ":", nc,
+				 ":", cnonce, ":", wah->qop, ":", ha2, NULL);
+
+	mg_snprintf(NULL, NULL, buf, buf_size,
+		"Authorization: Digest"
+		" username=\"%s\""
+		", realm=\"%s\""
+		", nonce=\"%s\""
+		", uri=\"%s\""
+		", response=\"%s\""
+		", algorithm=\"MD5\""
+		", cnonce=\"%s\""
+		", nc=%s"
+		", qop=\"auth\"", // regardless of what server requests, we just support this
+		username,
+		wah->realm,
+		wah->nonce,
+		uri,
+		response,
+		cnonce,
+		nc
+	);
+	n = strlen(buf);
+	if (wah->opaque) {
+		mg_snprintf(NULL, NULL, buf+n, buf_size-n, ", opaque=\"%s\"", wah->opaque);
+		n = strlen(buf);
+	}
+	mg_snprintf(NULL, NULL, buf+n, buf_size-n, "\r\n");
+	return 1;
+}
+
+
+
+
+
+struct mg_connection *
+mg_download_secure(const struct mg_client_options *client_options,
+									 int use_ssl,
+									 const char *method, const char *requesturi,
+									 const char *username, const char *password, void **opaqueauthP,
+									 char *ebuf, size_t ebuf_len,
+									 const char *fmt, ...)
+{
+	struct mg_connection *conn;
+	char *authorization = NULL;
+	int reused_auth = 0;
+	struct wah *wah = NULL;
+	char *reqText = NULL;
+	int httperr;
+	size_t reqLen = 0;
+	va_list ap;
+	va_start(ap, fmt);
+
+	if (use_ssl && !ssl_initialized) {
+		if (!initialize_ssl(ebuf, ebuf_len)) {
+			return NULL; // error
+		}
+	}
+
+	// if we already have www-auth infos from previous request, use it
+	if (opaqueauthP && *opaqueauthP) {
+		wah = (struct wah *)(*opaqueauthP);
+		*opaqueauthP = NULL; // take ownership for now
+		if (!authorization) authorization = mg_malloc(MG_BUF_LEN);
+		create_authorization_header(wah, requesturi, method, username, password, authorization, MG_BUF_LEN);
+		reused_auth = 1;
+	}
+	while (1) {
+		ebuf[0] = '\0';
+		// produce main message (so it will be sent with a single mg_printf/mg_write below)
+		reqText = NULL;
+		reqLen = alloc_vprintf(&reqText, NULL, 0, fmt, ap);
+		if ((conn = mg_connect_client_impl(client_options, use_ssl, ebuf, ebuf_len)) == NULL) {
+		} else if (
+			mg_printf(conn, "%s %s HTTP/1.1\r\nHost: %s\r\n%s%s", method, requesturi, client_options->host, authorization ? authorization : "", reqText) <= 0
+		) {
+			mg_snprintf(conn, NULL, ebuf, ebuf_len, "%s", "Error sending request");
+		} else {
+			get_response(conn, ebuf, ebuf_len, &httperr);
+		}
+		if (reqText) { mg_free(reqText); reqText = NULL; }
+		if (ebuf[0] != '\0' && conn != NULL) {
+			mg_close_connection(conn);
+			conn = NULL;
+		}
+		if (httperr!=0) {
+			mg_snprintf(conn, NULL, ebuf, ebuf_len, "Error parsing response: %d", httperr);
+			mg_close_connection(conn);
+			conn = NULL;
+		}
+		if (conn) {
+			// check for http auth
+			if (conn->response_info.status_code==401 && username && password && (!authorization || reused_auth)) {
+				// 401 and we have user/pw and we haven't tried auth yet
+				if (parse_wwwauth_header(conn, &wah)) {
+					mg_close_connection(conn);
+					conn = NULL;
+					if (!authorization) authorization = mg_malloc(MG_BUF_LEN);
+					if (create_authorization_header(wah, requesturi, method, username, password, authorization, MG_BUF_LEN)) {
+						// try again with auth
+						reused_auth = 0; // if this fails, do not retry
+						continue;
+					}
+				}
+			}
+		}
+		break;
+	}
+	if (authorization) mg_free(authorization);
+	if (wah && conn) {
+		if (opaqueauthP) {
+			// keep auth info for next request
+			*opaqueauthP = wah; // pass ownership back
+			if (parse_authinfo_nextnonce(conn, (char *)&(wah->new_nonce), NONCE_MAX_SZ)) {
+				wah->nonce = (char *)&(wah->new_nonce);
+			}
+		}
+		else {
+			// one-time use, forget auth info
+			mg_free(wah); // nobody to take ownership, free it
+		}
+	}
+	return conn;
+}
+
+
+
+
 
 
 struct websocket_client_thread_data {
@@ -16388,6 +16681,7 @@ init_connection(struct mg_connection *conn)
 	 * goes to crule42. */
 	conn->data_len = 0;
 	conn->handled_requests = 0;
+    conn->client_timeout = -1; // none, use default for context
 	mg_set_user_connection_data(conn, NULL);
 
 #if defined(USE_SERVER_STATS)
