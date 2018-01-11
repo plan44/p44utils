@@ -115,6 +115,13 @@ string Error::description() const
 }
 
 
+string Error::text(ErrorPtr aError)
+{
+  if (!aError) return "<none>";
+  return aError->description();
+}
+
+
 
 bool Error::isError(const char *aDomain, ErrorCode aErrorCode) const
 {
