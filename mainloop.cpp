@@ -634,8 +634,9 @@ bool MainLoop::handleIOPoll(MLMicroSeconds aTimeout)
 
 
 
-void MainLoop::startupMainLoop()
+void MainLoop::startupMainLoop(bool aRestart)
 {
+  if (aRestart) terminated = false;
   hasStarted = true;
 }
 
@@ -688,6 +689,10 @@ bool MainLoop::mainLoopCycle()
 
 int MainLoop::finalizeMainLoop()
 {
+  // clear all runtim handlers to release all possibly retained objects
+  timers.clear();
+  waitHandlers.clear();
+  ioPollHandlers.clear();
   // run mainloop termination handlers
   for (CleanupHandlersList::iterator pos = cleanupHandlers.begin(); pos!=cleanupHandlers.end(); ++pos) {
     SimpleCB cb = *pos;
@@ -698,9 +703,9 @@ int MainLoop::finalizeMainLoop()
 
 
 
-int MainLoop::run()
+int MainLoop::run(bool aRestart)
 {
-  startupMainLoop();
+  startupMainLoop(aRestart);
   // run
   while (!terminated) {
     bool couldSleep = mainLoopCycle();
