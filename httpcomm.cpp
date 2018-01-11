@@ -58,24 +58,6 @@ void HttpComm::terminate()
 }
 
 
-//  I used mg_download to establish the http connection and then mg_read to get the http response.
-//  You will have to create your HTTP header in the mg_download line:
-//
-//  connection = mg_download (
-//                 host,
-//                 port,
-//                 0,
-//                 ebuf,
-//                 sizeof(ebuf),
-//                 "GET /pgrest/%s HTTP/1.1\r\nHost: %s\r\nContent-Type: text/html; charset=UTF-8\r\n\r\n",
-//                 queryUrl,
-//                 host
-//              );
-//
-//  Then you can use the connection returned by mg_download in the mg_read().
-//  Others have used this to enable streaming also.
-
-
 
 void HttpComm::requestThread(ChildThreadWrapper &aThread)
 {
@@ -102,18 +84,21 @@ void HttpComm::requestThread(ChildThreadWrapper &aThread)
     // now issue request
     const size_t ebufSz = 100;
     char ebuf[ebufSz];
-    int tmo = timeout==Never ? -1 : (int)(timeout/MilliSecond);
     string extraHeaders;
     for (HttpHeaderMap::iterator pos=requestHeaders.begin(); pos!=requestHeaders.end(); ++pos) {
       extraHeaders += string_format("%s: %s\r\n", pos->first.c_str(), pos->second.c_str());
     }
+    struct mg_client_options copts;
+    copts.host = host.c_str();
+    copts.port = port;
+    copts.client_cert = NULL;
+    copts.server_cert = NULL;
+    copts.timeout = timeout==Never ? -2 : (double)timeout/Second;
     if (requestBody.length()>0) {
       // is a request which sends data in the HTTP message body (e.g. POST)
-      mgConn = mg_download_ex(
-        host.c_str(),
-        port,
+      mgConn = mg_download_secure(
+        &copts,
         useSSL,
-        tmo,
         method.c_str(),
         doc.c_str(),
         username.empty() ? NULL : username.c_str(),
@@ -133,11 +118,9 @@ void HttpComm::requestThread(ChildThreadWrapper &aThread)
     }
     else {
       // no request body (e.g. GET, DELETE)
-      mgConn = mg_download_ex(
-        host.c_str(),
-        port,
+      mgConn = mg_download_secure(
+        &copts,
         useSSL,
-        tmo,
         method.c_str(),
         doc.c_str(),
         username.empty() ? NULL : username.c_str(),
@@ -154,10 +137,9 @@ void HttpComm::requestThread(ChildThreadWrapper &aThread)
     }
     else {
       // successfully initiated connection
-      struct mg_request_info *requestInfo = mg_get_request_info(mgConn);
+      const struct mg_response_info *responseInfo = mg_get_response_info(mgConn);
       // - get status code (which is in uri)
-      int status = 0;
-      sscanf(requestInfo->uri, "%d", &status);
+      int status = responseInfo->status_code;
       // check for auth
       if (status==401) {
         LOG(LOG_DEBUG, "401 - http auth?")
@@ -168,9 +150,9 @@ void HttpComm::requestThread(ChildThreadWrapper &aThread)
       }
       // - get headers if requested
       if (responseHeaders) {
-        if (requestInfo) {
-          for (int i=0; i<requestInfo->num_headers; i++) {
-            (*responseHeaders)[requestInfo->http_headers[i].name] = requestInfo->http_headers[i].value;
+        if (responseInfo) {
+          for (int i=0; i<responseInfo->num_headers; i++) {
+            (*responseHeaders)[responseInfo->http_headers[i].name] = responseInfo->http_headers[i].value;
           }
         }
       }
@@ -179,11 +161,11 @@ void HttpComm::requestThread(ChildThreadWrapper &aThread)
         const size_t bufferSz = 2048;
         uint8_t *bufferP = new uint8_t[bufferSz];
         while (true) {
-          ssize_t res = mg_read_ex(mgConn, bufferP, bufferSz, (int)streamResult);
+          ssize_t res = mg_read_ex(mgConn, bufferP, bufferSz, streamResult ? 0 : copts.timeout);
           if (res==0) {
             // connection has closed, all bytes read
             if (streamResult) {
-              // when streaming, signal of stream condition by an empty data response
+              // when streaming, signal end-of-stream condition by an empty data response
               response.clear();
             }
             break;

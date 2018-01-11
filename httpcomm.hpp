@@ -24,7 +24,7 @@
 
 #include "p44utils_common.hpp"
 
-#include "mongoose.h"
+#include "civetweb.h"
 
 using namespace std;
 
