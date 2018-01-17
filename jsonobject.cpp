@@ -352,11 +352,25 @@ JsonObjectPtr JsonObject::newInt64(int64_t aInt64)
 
 int32_t JsonObject::int32Value()
 {
+  if (isType(json_type_string)) {
+    // check for hex
+    const char *xstr = c_strValue();
+    if (strncmp(xstr, "0x", 2)==0) {
+      return strtol(xstr, NULL, 0);
+    }
+  }
   return json_object_get_int(json_obj);
 }
 
 int64_t JsonObject::int64Value()
 {
+  if (isType(json_type_string)) {
+    // check for hex
+    const char *xstr = c_strValue();
+    if (strncmp(xstr, "0x", 2)==0) {
+      return strtoll(xstr, NULL, 0);
+    }
+  }
   return json_object_get_int64(json_obj);
 }
 
