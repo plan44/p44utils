@@ -74,8 +74,11 @@ JsonObjectPtr JsonObject::objFromFile(const char *aJsonFilePath, ErrorPtr *aErro
       read(fd, jsontext, fs.st_size);
       JsonObjectPtr json = JsonObject::objFromText(jsontext, fs.st_size, aErrorP);
       delete[] jsontext;
+      close(fd);
       return json;
     }
+    // file opened, but json object not created
+    close(fd);
   }
   // could not open
   if (aErrorP) {
