@@ -3391,13 +3391,13 @@ gmt_time_string(char *buf, size_t buf_len, time_t *t)
 	struct tm *tm;
 
 	tm = ((t != NULL) ? gmtime(t) : NULL);
-	if (tm != NULL) {
 #else
 	struct tm _tm;
 	struct tm *tm = &_tm;
-
-	if (t != NULL) {
-		gmtime_r(t, tm);
+#endif
+  if (t != NULL) {
+#ifdef REENTRANT_TIME
+    gmtime_r(t, tm);
 #endif
 		strftime(buf, buf_len, "%a, %d %b %Y %H:%M:%S GMT", tm);
 	} else {
@@ -13037,10 +13037,11 @@ handle_request(struct mg_connection *conn)
 /* 6.2. this request is a PUT/DELETE to a real file */
 /* 6.2.1. thus, the server must have real files */
 #if defined(NO_FILES)
-		if (1) {
+		if (1)
 #else
-		if (conn->dom_ctx->config[DOCUMENT_ROOT] == NULL) {
+		if (conn->dom_ctx->config[DOCUMENT_ROOT] == NULL)
 #endif
+    {
 			/* This server does not have any real files, thus the
 			 * PUT/DELETE methods are not valid. */
 			mg_send_http_error(conn,
@@ -15044,6 +15045,7 @@ uninitialize_ssl(void)
 		 * http://stackoverflow.com/questions/29845527/how-to-properly-uninitialize-openssl
 		 */
 		CONF_modules_unload(1);
+  }
 #else
 	int i;
 
@@ -15067,8 +15069,8 @@ uninitialize_ssl(void)
 		}
 		mg_free(ssl_mutexes);
 		ssl_mutexes = NULL;
+  }
 #endif /* OPENSSL_API_1_1 */
-	}
 }
 #endif /* !NO_SSL */
 
@@ -17237,13 +17239,14 @@ worker_thread_run(struct worker_thread_args *thread_args)
 
 #if defined(ALTERNATIVE_QUEUE)
 	while ((ctx->stop_flag == 0)
-	       && consume_socket(ctx, &conn->client, conn->thread_index)) {
+	       && consume_socket(ctx, &conn->client, conn->thread_index))
 #else
 	/* Call consume_socket() even when ctx->stop_flag > 0, to let it
 	 * signal sq_empty condvar to wake up the master waiting in
 	 * produce_socket() */
-	while (consume_socket(ctx, &conn->client, conn->thread_index)) {
+	while (consume_socket(ctx, &conn->client, conn->thread_index))
 #endif
+  {
 
 		conn->conn_birth_time = time(NULL);
 
