@@ -37,6 +37,7 @@ HttpComm::HttpComm(MainLoop &aMainLoop) :
   mgConn(NULL),
   httpAuthInfo(NULL),
   timeout(Never),
+  serverCertVfyDir("*"), // default to platform's generic certificate checking method / root cert store
   responseDataFd(-1),
   streamResult(false),
   dataProcessingPending(false)
@@ -91,8 +92,8 @@ void HttpComm::requestThread(ChildThreadWrapper &aThread)
     struct mg_client_options copts;
     copts.host = host.c_str();
     copts.port = port;
-    copts.client_cert = NULL;
-    copts.server_cert = NULL;
+    copts.client_cert = clientCertFile.empty() ? NULL : clientCertFile.c_str();
+    copts.server_cert = serverCertVfyDir.empty() ? NULL : serverCertVfyDir.c_str();
     copts.timeout = timeout==Never ? -2 : (double)timeout/Second;
     if (requestBody.length()>0) {
       // is a request which sends data in the HTTP message body (e.g. POST)
@@ -133,7 +134,7 @@ void HttpComm::requestThread(ChildThreadWrapper &aThread)
       );
     }
     if (!mgConn) {
-      requestError = Error::err_cstr<HttpCommError>(HttpCommError::mongooseError, ebuf);
+      requestError = Error::err_cstr<HttpCommError>(HttpCommError::civetwebError, ebuf);
     }
     else {
       // successfully initiated connection

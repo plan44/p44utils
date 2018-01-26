@@ -1652,6 +1652,8 @@ struct ssl_func {
 
 #ifdef OPENSSL_API_1_1
 
+/* OpenSSL >=1.1 */
+
 #define SSL_free (*(void (*)(SSL *))ssl_sw[0].ptr)
 #define SSL_accept (*(int (*)(SSL *))ssl_sw[1].ptr)
 #define SSL_connect (*(int (*)(SSL *))ssl_sw[2].ptr)
@@ -1819,7 +1821,10 @@ static struct ssl_func crypto_sw[] = {{"ERR_get_error", NULL},
                                       {"BN_free", NULL},
                                       {"CRYPTO_free", NULL},
                                       {NULL, NULL}};
+
 #else
+
+/* OpenSSL <1.1 */
 
 #define SSL_free (*(void (*)(SSL *))ssl_sw[0].ptr)
 #define SSL_accept (*(int (*)(SSL *))ssl_sw[1].ptr)
@@ -2004,6 +2009,7 @@ static struct ssl_func crypto_sw[] = {{"CRYPTO_num_locks", NULL},
                                       {"BN_free", NULL},
                                       {"CRYPTO_free", NULL},
                                       {NULL, NULL}};
+
 #endif /* OPENSSL_API_1_1 */
 #endif /* NO_SSL_DL */
 #endif /* NO_SSL */
@@ -2487,6 +2493,7 @@ struct mg_connection {
 	const char *host;         /* Host (HTTP/1.1 header or SNI) */
 	SSL *ssl;                 /* SSL descriptor */
 	SSL_CTX *client_ssl_ctx;  /* SSL context for client connections */
+  const char *clienthost;   /* host name for SSL verification, not owned by connection */
   double client_timeout;    /* timeout for client connections */
 	struct socket client;     /* Connected client */
 	time_t conn_birth_time;   /* Time (wall clock) when connection was
@@ -14166,10 +14173,19 @@ sslize(struct mg_connection *conn,
 	/* SSL functions may fail and require to be called again:
 	 * see https://www.openssl.org/docs/manmaster/ssl/SSL_get_error.html
 	 * Here "func" could be SSL_connect or SSL_accept. */
-	for (i = 16; i <= 1024; i *= 2) {
+
+  double timeout = 4; /* allow 4 seconds by default */
+  if (conn->phys_ctx && conn->phys_ctx->context_type==CONTEXT_HTTP_CLIENT && conn->client_timeout>0) {
+    timeout = conn->client_timeout;
+  }
+  struct timespec ssl_start_time;
+  clock_gettime(CLOCK_MONOTONIC, &ssl_start_time);
+  int waitms = 16;
+  while (1) {
 		ret = func(conn->ssl);
 		if (ret != 1) {
 			err = SSL_get_error(conn->ssl, ret);
+      //mg_cry_internal(conn, "%5d: SSL_connect ret=%d, SSL_get_error=%d", i, ret, err);
 			if ((err == SSL_ERROR_WANT_CONNECT)
 			    || (err == SSL_ERROR_WANT_ACCEPT)
 			    || (err == SSL_ERROR_WANT_READ) || (err == SSL_ERROR_WANT_WRITE)
@@ -14181,11 +14197,12 @@ sslize(struct mg_connection *conn,
 					/* Don't wait if the server is going to be stopped. */
 					break;
 				}
-				mg_sleep(i);
+				mg_sleep(waitms);
 
 			} else if (err == SSL_ERROR_SYSCALL) {
 				/* This is an IO error. Look at errno. */
 				err = errno;
+        mg_cry_internal(conn, "sslize error: SSL_ERROR_SYSCALL %d (%s)", err, strerror(err));
 				/* TODO: set some error message */
 				(void)err;
 				break;
@@ -14200,7 +14217,15 @@ sslize(struct mg_connection *conn,
 			/* success */
 			break;
 		}
-	}
+    /* check overall timeout */
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    if (timeout!=-2 && mg_difftimespec(&now, &ssl_start_time) > timeout) {
+      break;
+    }
+    /* increase wait time */
+    if (waitms<512) waitms *= 2;
+	};
 
 	if (ret != 1) {
 		SSL_free(conn->ssl);
@@ -15439,6 +15464,110 @@ mg_close_connection(struct mg_connection *conn)
 static struct mg_context common_client_context;
 
 
+
+#if !defined(NO_SSL) && defined(DEBUG)
+
+/* This prints the Common Name (CN), which is the "friendly" */
+/*   name displayed to users in many tools                   */
+void print_cn_name(const char* label, X509_NAME* const name)
+{
+  int idx = -1, success = 0;
+  unsigned char *utf8 = NULL;
+
+  do
+  {
+    if(!name) break; /* failed */
+
+    idx = X509_NAME_get_index_by_NID(name, NID_commonName, -1);
+    if(!(idx > -1))  break; /* failed */
+
+    X509_NAME_ENTRY* entry = X509_NAME_get_entry(name, idx);
+    if(!entry) break; /* failed */
+
+    ASN1_STRING* data = X509_NAME_ENTRY_get_data(entry);
+    if(!data) break; /* failed */
+
+    int length = ASN1_STRING_to_UTF8(&utf8, data);
+    if(!utf8 || !(length > 0))  break; /* failed */
+
+    fprintf(stdout, "%s: %s\n", label, utf8);
+    success = 1;
+
+  } while (0);
+
+  if(utf8)
+    OPENSSL_free(utf8);
+
+  if(!success)
+    fprintf(stdout, "  %s: <not available>\n", label);
+}
+
+#endif /* SSL and DEBUG enabled */
+
+
+#if !defined(NO_SSL)
+
+#ifndef OPENSSL_API_1_1
+/* pre-OpenSSL 1.1 cannot do host name verification automatically */
+#include "openssl_hostname_validation.inl"
+#endif
+
+
+int verify_callback(int preverify, X509_STORE_CTX* x509_ctx)
+{
+#if defined(DEBUG)
+  int depth = X509_STORE_CTX_get_error_depth(x509_ctx);
+  int err = X509_STORE_CTX_get_error(x509_ctx);
+
+  X509* cert = X509_STORE_CTX_get_current_cert(x509_ctx);
+  X509_NAME* iname = cert ? X509_get_issuer_name(cert) : NULL;
+  X509_NAME* sname = cert ? X509_get_subject_name(cert) : NULL;
+
+  print_cn_name("Issuer (cn)", iname);
+  print_cn_name("Subject (cn)", sname);
+#endif
+#ifndef OPENSSL_API_1_1
+  if (depth==0 && preverify==1) {
+    // this is the server cert
+    const SSL *ssl = X509_STORE_CTX_get_ex_data(x509_ctx, SSL_get_ex_data_X509_STORE_CTX_idx());
+    struct mg_connection *conn = (struct mg_connection *)SSL_get_app_data(ssl);
+    X509* cert = X509_STORE_CTX_get_current_cert(x509_ctx);
+    preverify = validate_hostname(conn->clienthost, cert)==MatchFound;
+  }
+#endif
+  return preverify;
+}
+
+
+//#ifndef OPENSSL_API_1_1
+//
+///* pre-OpenSSL 1.1 cannot do host name verification automatically */
+//#include "openssl_hostname_validation.inl"
+//
+///* See http://archives.seul.org/libevent/users/Jan-2013/msg00039.html */
+//static int cert_verify_callback(X509_STORE_CTX *x509_ctx, void *arg)
+//{
+//  const char *host = (const char *) arg;
+//
+//  /* This is the function that OpenSSL would call if we hadn't called
+//   * SSL_CTX_set_cert_verify_callback().  Therefore, we are "wrapping"
+//   * the default functionality, rather than replacing it. */
+//  int ok = X509_verify_cert(x509_ctx);
+//  /* now verify the name */
+//  if (ok) {
+//    X509 *server_cert = X509_STORE_CTX_get_current_cert(x509_ctx);
+//    ok = validate_hostname(host, server_cert)==MatchFound;
+//  }
+//  return ok;
+//}
+//
+//#endif /* OpenSSL <1.1 */
+//
+
+
+#endif /* SSL enabled */
+
+
 static struct mg_connection *
 mg_connect_client_impl(const struct mg_client_options *client_options,
                        int use_ssl,
@@ -15490,13 +15619,13 @@ mg_connect_client_impl(const struct mg_client_options *client_options,
 	conn->phys_ctx->context_type = CONTEXT_HTTP_CLIENT;
 	conn->dom_ctx = &(conn->phys_ctx->dd);
 
-    conn->client_timeout = client_options->timeout;
+  conn->client_timeout = client_options->timeout;
 
 	if (!connect_socket(&common_client_context,
 	                    client_options->host,
 	                    client_options->port,
 	                    use_ssl,
-                        client_options->timeout,
+                      client_options->timeout,
 	                    ebuf,
 	                    ebuf_len,
 	                    &sock,
@@ -15581,7 +15710,7 @@ mg_connect_client_impl(const struct mg_client_options *client_options,
 				            NULL, /* No truncation check for ebuf */
 				            ebuf,
 				            ebuf_len,
-				            "Can not use SSL client certificate");
+				            "Can not use SSL client certificate: %s", ERR_error_string(ERR_get_error(), NULL));
 				SSL_CTX_free(conn->client_ssl_ctx);
 				closesocket(sock);
 				mg_free(conn);
@@ -15590,12 +15719,46 @@ mg_connect_client_impl(const struct mg_client_options *client_options,
 		}
 
 		if (client_options->server_cert) {
-			SSL_CTX_load_verify_locations(conn->client_ssl_ctx,
-			                              client_options->server_cert,
-			                              NULL);
-			SSL_CTX_set_verify(conn->client_ssl_ctx, SSL_VERIFY_PEER, NULL);
+      if (strcmp(client_options->server_cert, "*")==0) {
+        // use default verification
+        if (SSL_CTX_set_default_verify_paths(conn->client_ssl_ctx)!=1) {
+          mg_snprintf(NULL,
+                      NULL, /* No truncation check for ebuf */
+                      ebuf,
+                      ebuf_len,
+                      "Error using default certificate verify paths: %s", ERR_error_string(ERR_get_error(), NULL));
+          SSL_CTX_free(conn->client_ssl_ctx);
+          closesocket(sock);
+          mg_free(conn);
+          return NULL;
+        }
+      }
+      else {
+        SSL_CTX_load_verify_locations(conn->client_ssl_ctx,
+                                      client_options->server_cert,
+                                      NULL);
+        mg_snprintf(NULL,
+                    NULL, /* No truncation check for ebuf */
+                    ebuf,
+                    ebuf_len,
+                    "Error setting CA file for server certificate verification: %s", ERR_error_string(ERR_get_error(), NULL));
+        SSL_CTX_free(conn->client_ssl_ctx);
+        closesocket(sock);
+        mg_free(conn);
+        return NULL;
+      }
+#ifdef OPENSSL_API_1_1
+      // OpenSSL 1.1 can do hostname validation
+      X509_VERIFY_PARAM *param = SSL_get0_param(conn->client_ssl_ctx);
+      X509_VERIFY_PARAM_set_hostflags(param, X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS);
+      X509_VERIFY_PARAM_set1_host(param, client_options->host, 0);
+#else
+      /* we need to do our own hostname verification, and thus need host in verify_callback */
+      conn->clienthost = client_options->host;
+#endif
+			SSL_CTX_set_verify(conn->client_ssl_ctx, SSL_VERIFY_PEER, verify_callback);
 		} else {
-			SSL_CTX_set_verify(conn->client_ssl_ctx, SSL_VERIFY_NONE, NULL);
+			SSL_CTX_set_verify(conn->client_ssl_ctx, SSL_VERIFY_NONE, verify_callback);
 		}
 
 		if (!sslize(conn,
@@ -16383,7 +16546,7 @@ mg_download_secure(const struct mg_client_options *client_options,
 	int reused_auth = 0;
 	struct wah *wah = NULL;
 	char *reqText = NULL;
-	int httperr;
+	int httperr = 0;
 	size_t reqLen = 0;
 	va_list ap;
 	va_start(ap, fmt);
@@ -16681,7 +16844,7 @@ init_connection(struct mg_connection *conn)
 	 * goes to crule42. */
 	conn->data_len = 0;
 	conn->handled_requests = 0;
-    conn->client_timeout = -1; // none, use default for context
+  conn->client_timeout = -1; // none, use default for context
 	mg_set_user_connection_data(conn, NULL);
 
 #if defined(USE_SERVER_STATS)

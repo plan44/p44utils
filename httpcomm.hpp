@@ -39,9 +39,9 @@ namespace p44 {
     enum {
       invalidParameters = 10000,
       noConnection = 10001,
-      read = 10002,
-      write = 10003,
-      mongooseError = 20000
+      read = 10002, // includes timeout
+      write = 10003, // includes timeout
+      civetwebError = 20000
     };
     typedef uint16_t ErrorCodes;
 
@@ -82,6 +82,8 @@ namespace p44 {
     string requestBody;
     string username;
     string password;
+    string clientCertFile;
+    string serverCertVfyDir;
     int responseDataFd;
     bool streamResult; ///< if set, result will be "streamed", meaning callback will be called multiple times as data chunks arrive
     MLMicroSeconds timeout; // timeout, Never = use default, do not set
@@ -123,6 +125,21 @@ namespace p44 {
     /// @param aPassword password
     void setHttpAuthCredentials(const string aUsername, const string aPassword) { username = aUsername; password = aPassword; };
 
+    /// explicitly set socket timeout to use
+    /// @param aTimeout set to timeout value or Never for no timeout at all
+    void setTimeout(MLMicroSeconds aTimeout) { timeout = aTimeout; };
+
+    /// explicitly set a client certificate path
+    /// @param aClientCertFile set file path to a client certificate to use with the connection.
+    ///   Use empty string to use no certificate.
+    void setClientCertFile(const string aClientCertFile) { clientCertFile = aClientCertFile; };
+
+    /// explicitly set a client certificate path
+    /// @param aServerCertVfyDir set file path to a client certificate to use with the connection.
+    ///   Use empty string to no verify server certificate, or "*" to use platform's default certificate checking
+    void setServerCertVfyDir(const string aServerCertVfyDir) { serverCertVfyDir = aServerCertVfyDir; };
+
+    
     /// send a HTTP or HTTPS request
     /// @param aURL the http or https URL to access
     /// @param aResponseCallback will be called when request completes, returning response or error
@@ -151,9 +168,6 @@ namespace p44 {
 
     /// terminate operation, no callbacks
     virtual void terminate();
-
-    /// explicitly set socket timeout to use
-    void setTimeout(MLMicroSeconds aTimeout) { timeout = aTimeout; };
 
 
     // Utilities
