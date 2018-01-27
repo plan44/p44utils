@@ -15517,14 +15517,11 @@ void print_cn_name(const char* label, X509_NAME* const name)
 
 int verify_callback(int preverify, X509_STORE_CTX* x509_ctx)
 {
-#if defined(DEBUG)
   int depth = X509_STORE_CTX_get_error_depth(x509_ctx);
-  int err = X509_STORE_CTX_get_error(x509_ctx);
-
+#if defined(DEBUG)
   X509* cert = X509_STORE_CTX_get_current_cert(x509_ctx);
   X509_NAME* iname = cert ? X509_get_issuer_name(cert) : NULL;
   X509_NAME* sname = cert ? X509_get_subject_name(cert) : NULL;
-
   print_cn_name("Issuer (cn)", iname);
   print_cn_name("Subject (cn)", sname);
 #endif
