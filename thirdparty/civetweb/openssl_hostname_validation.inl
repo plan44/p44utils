@@ -38,8 +38,14 @@ SOFTWARE.
  */
 
 
-#include <openssl/x509v3.h>
-#include <openssl/ssl.h>
+#if defined(NO_SSL_DL) || defined(USE_SSL_HEADERS)
+  #include <openssl/x509v3.h>
+  #include <openssl/ssl.h>
+#else
+  #error "To build hostname verification for OpenSSL 1.0.x, either link openssl (NO_SSL_DL=1) or allow using headers (USE_SSL_HEADERS=1)"
+#endif
+
+
 
 /* defs that originally were in openssl_hostname_validation.h */
 
@@ -103,6 +109,15 @@ static HostnameValidationResult matches_common_name(const char *hostname, const 
         }
 }
 
+
+#ifndef NO_SSL_DL
+/* needs to be here because function name is used in safestack macros in a way that need it to be a function name, not an expression */
+void GENERAL_NAME_free(GENERAL_NAME *g)
+{
+  /* using _impl suffix to address dynamically loaded function */
+  GENERAL_NAME_free_impl(g);
+}
+#endif
 
 /**
 * Tries to find a match for hostname in the certificate's Subject Alternative Name extension.

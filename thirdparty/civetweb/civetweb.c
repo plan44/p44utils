@@ -667,6 +667,9 @@ typedef unsigned short int in_port_t;
 #if !defined(NO_SSL_DL) && !defined(NO_SSL)
 #include <dlfcn.h>
 #endif
+#if !defined(USE_SSL_HEADERS) && !defined(NO_SSL_DL) && !defined(OPENSSL_API_1_1)
+#define USE_SSL_HEADERS 1 /* we need the real OpenSSL headers for host verification code, even when dynamically loading libssl/libcrypto */
+#endif
 #include <pthread.h>
 #if defined(__MACH__)
 #define SSL_LIB "libssl.dylib"
@@ -1572,7 +1575,7 @@ typedef struct SSL SSL; /* dummy for SSL argument to push/pull */
 typedef struct SSL_CTX SSL_CTX;
 #else
 static int ssl_initialized = 0;
-#if defined(NO_SSL_DL)
+#if defined(NO_SSL_DL) || defined(USE_SSL_HEADERS)
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 #include <openssl/crypto.h>
@@ -1583,8 +1586,11 @@ static int ssl_initialized = 0;
 #include <openssl/dh.h>
 #include <openssl/bn.h>
 #include <openssl/opensslv.h>
-#else
+#endif
 
+#if !defined(NO_SSL_DL)
+
+#if !defined(USE_SSL_HEADERS)
 /* SSL loaded dynamically from DLL.
  * I put the prototypes here to be independent from OpenSSL source
  * installation. */
@@ -1644,11 +1650,12 @@ typedef struct x509 X509;
 #define SSL_TLSEXT_ERR_ALERT_FATAL (2)
 #define SSL_TLSEXT_ERR_NOACK (3)
 
+#endif // !USE_SSL_HEADERS
+
 struct ssl_func {
 	const char *name;  /* SSL function name */
 	void (*ptr)(void); /* Function pointer */
 };
-
 
 #ifdef OPENSSL_API_1_1
 
@@ -1935,6 +1942,26 @@ static struct ssl_func crypto_sw[] = {{"ERR_get_error", NULL},
 #define BN_free (*(void (*)(const BIGNUM *a))crypto_sw[22].ptr)
 #define CRYPTO_free (*(void (*)(void *addr))crypto_sw[23].ptr)
 
+/* for host name verification in OpenSSL 1.0.x only */
+/* - libssl, from offset 37 */
+#define SSL_get_ex_data_X509_STORE_CTX_idx (*(int (*)(void))ssl_sw[38].ptr)
+/* - libcrypto, from offset 24 */
+#define ASN1_STRING_data (*(unsigned char *(*)(ASN1_STRING *))crypto_sw[24].ptr)
+#define ASN1_STRING_length (*(int (*)(const ASN1_STRING *))crypto_sw[25].ptr)
+#define X509_get_ext_d2i (*(void *(*)(X509 *, int, int *, int *))crypto_sw[26].ptr)
+#define X509_NAME_ENTRY_get_data (*(ASN1_STRING *(*)(X509_NAME_ENTRY *))crypto_sw[27].ptr)
+#define X509_NAME_get_entry (*(X509_NAME_ENTRY *(*)(X509_NAME *name, int loc))crypto_sw[28].ptr)
+#define X509_STORE_CTX_get_error_depth (*(int (*)(X509_STORE_CTX *ctx))crypto_sw[29].ptr)
+#define X509_NAME_get_index_by_NID (*(int (*)(X509_NAME *name, int nid, int lastpos))crypto_sw[30].ptr)
+#define X509_STORE_CTX_get_current_cert (*(X509 *(*)(X509_STORE_CTX *ctx))crypto_sw[31].ptr)
+#define X509_STORE_CTX_get_ex_data (*(void *(*)(X509_STORE_CTX *ctx, int idx))crypto_sw[32].ptr)
+#define sk_pop_free (*(void (*)(_STACK *, void (*) (void *)))crypto_sw[33].ptr)
+#define sk_num (*(int (*)(const _STACK *))crypto_sw[34].ptr)
+#define sk_value (*(void *(*)(const _STACK *, int))crypto_sw[35].ptr)
+#define GENERAL_NAME_free_impl (*(void (*)(GENERAL_NAME *))crypto_sw[36].ptr)
+#define ASN1_STRING_to_UTF8 (*(int (*)(unsigned char **out, ASN1_STRING *in))crypto_sw[37].ptr)
+
+
 #define OPENSSL_free(a) CRYPTO_free(a)
 
 /* init_ssl_ctx() function updates this array.
@@ -1979,6 +2006,8 @@ static struct ssl_func ssl_sw[] = {{"SSL_free", NULL},
                                    {"SSL_CTX_callback_ctrl", NULL},
                                    {"SSL_get_servername", NULL},
                                    {"SSL_set_SSL_CTX", NULL},
+                                   /* for host name verification in OpenSSL 1.0.x only */
+                                   {"SSL_get_ex_data_X509_STORE_CTX_idx", NULL},
                                    {NULL, NULL}};
 
 
@@ -2008,7 +2037,23 @@ static struct ssl_func crypto_sw[] = {{"CRYPTO_num_locks", NULL},
                                       {"ASN1_INTEGER_to_BN", NULL},
                                       {"BN_free", NULL},
                                       {"CRYPTO_free", NULL},
+                                      /* for host name verification in OpenSSL 1.0.x only */
+                                      {"ASN1_STRING_data", NULL},
+                                      {"ASN1_STRING_length", NULL},
+                                      {"X509_get_ext_d2i", NULL},
+                                      {"X509_NAME_ENTRY_get_data", NULL},
+                                      {"X509_NAME_get_entry", NULL},
+                                      {"X509_STORE_CTX_get_error_depth", NULL},
+                                      {"X509_NAME_get_index_by_NID", NULL},
+                                      {"X509_STORE_CTX_get_current_cert", NULL},
+                                      {"X509_STORE_CTX_get_ex_data", NULL},
+                                      {"sk_pop_free", NULL},
+                                      {"sk_num", NULL},
+                                      {"sk_value", NULL},
+                                      {"GENERAL_NAME_free", NULL},
+                                      {"ASN1_STRING_to_UTF8", NULL},
                                       {NULL, NULL}};
+
 
 #endif /* OPENSSL_API_1_1 */
 #endif /* NO_SSL_DL */

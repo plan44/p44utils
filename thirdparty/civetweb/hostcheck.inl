@@ -52,7 +52,7 @@ in this Software without prior written authorization of the copyright holder.
 #define CURL_HOST_NOMATCH 0
 #define CURL_HOST_MATCH   1
 
-#include <string.h>
+//#include <string.h>
 
 /* Portable, consistent toupper (remember EBCDIC). Do not use toupper() because
    its behavior is altered by the current locale. */

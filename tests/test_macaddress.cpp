@@ -57,7 +57,7 @@ TEST_CASE( "specific interface's MAC address", "[macaddress]" ) {
   }
 
   #ifdef __APPLE__
-  SECTION("asking for 'en0' interface (macOS) should return a MAC address + IP") {
+  SECTION("asking for 'en0' interface (macOS, WiFi must be on) should return a MAC address + IP") {
     uint64_t mymac = p44::macAddress("en0");
     uint32_t myipv4 = p44::ipv4Address("en0");
     REQUIRE( mymac != 0 );
