@@ -1580,6 +1580,7 @@ static int ssl_initialized = 0;
 #include <openssl/err.h>
 #include <openssl/crypto.h>
 #include <openssl/x509.h>
+#include <openssl/x509v3.h>
 #include <openssl/pem.h>
 #include <openssl/engine.h>
 #include <openssl/conf.h>
@@ -1717,11 +1718,9 @@ struct ssl_func {
 #define SSL_get_servername                                                     \
 	(*(const char *(*)(const SSL *, int type))ssl_sw[36].ptr)
 #define SSL_set_SSL_CTX (*(SSL_CTX * (*)(SSL *, SSL_CTX *))ssl_sw[37].ptr)
-
-#define SSL_CTX_clear_options(ctx, op)                                         \
-	SSL_CTX_ctrl((ctx), SSL_CTRL_CLEAR_OPTIONS, (op), NULL)
-#define SSL_CTX_set_ecdh_auto(ctx, onoff)                                      \
-	SSL_CTX_ctrl(ctx, SSL_CTRL_SET_ECDH_AUTO, onoff, NULL)
+#define SSL_CTX_clear_options                                                    \
+	(*(unsigned long (*)(SSL_CTX *, unsigned long))ssl_sw[38].ptr)
+#define SSL_CTX_get0_param (*(__owur X509_VERIFY_PARAM *(*)(SSL_CTX *ctx))ssl_sw[39].ptr)
 
 #define SSL_CTRL_SET_TLSEXT_SERVERNAME_CB 53
 #define SSL_CTRL_SET_TLSEXT_SERVERNAME_ARG 54
@@ -1760,6 +1759,9 @@ struct ssl_func {
 	(*(BIGNUM * (*)(const ASN1_INTEGER *ai, BIGNUM *bn))crypto_sw[13].ptr)
 #define BN_free (*(void (*)(const BIGNUM *a))crypto_sw[14].ptr)
 #define CRYPTO_free (*(void (*)(void *addr))crypto_sw[15].ptr)
+
+#define X509_VERIFY_PARAM_set_hostflags (*(void (*)(X509_VERIFY_PARAM *param, unsigned int flags))crypto_sw[16].ptr)
+#define X509_VERIFY_PARAM_set1_host (*(int (*)(X509_VERIFY_PARAM *param, const char *name, size_t namelen))crypto_sw[17].ptr)
 
 #define OPENSSL_free(a) CRYPTO_free(a)
 
@@ -1806,6 +1808,8 @@ static struct ssl_func ssl_sw[] = {{"SSL_free", NULL},
                                    {"SSL_CTX_callback_ctrl", NULL},
                                    {"SSL_get_servername", NULL},
                                    {"SSL_set_SSL_CTX", NULL},
+                                   {"SSL_CTX_clear_options", NULL },
+                                   {"SSL_CTX_get0_param", NULL},
                                    {NULL, NULL}};
 
 
@@ -1827,6 +1831,8 @@ static struct ssl_func crypto_sw[] = {{"ERR_get_error", NULL},
                                       {"ASN1_INTEGER_to_BN", NULL},
                                       {"BN_free", NULL},
                                       {"CRYPTO_free", NULL},
+                                      {"X509_VERIFY_PARAM_set_hostflags", NULL},
+                                      {"X509_VERIFY_PARAM_set1_host", NULL},
                                       {NULL, NULL}};
 
 #else
@@ -14179,7 +14185,6 @@ sslize(struct mg_connection *conn,
 {
 	int ret, err;
 	int short_trust;
-	unsigned i;
 
 	if (!conn) {
 		return 0;
@@ -14851,7 +14856,8 @@ init_ssl_ctx_impl(struct mg_context *phys_ctx,
 	SSL_CTX_set_options(dom_ctx->ssl_ctx,
 	                    SSL_OP_NO_SESSION_RESUMPTION_ON_RENEGOTIATION);
 	SSL_CTX_set_options(dom_ctx->ssl_ctx, SSL_OP_NO_COMPRESSION);
-#if !defined(NO_SSL_DL)
+#if !defined(NO_SSL_DL) && !defined(OPENSSL_API_1_1)
+  /* SSL_CTX_{get,set}_ecdh_auto has been removed in 1.1 */
 	SSL_CTX_set_ecdh_auto(dom_ctx->ssl_ctx, 1);
 #endif /* NO_SSL_DL */
 
@@ -15511,8 +15517,13 @@ mg_close_connection(struct mg_connection *conn)
 static struct mg_context common_client_context;
 
 
+#if !defined(NO_SSL)
 
-#if !defined(NO_SSL) && defined(DEBUG)
+#ifndef OPENSSL_API_1_1
+/* pre-OpenSSL 1.1 cannot do host name verification automatically */
+#include "openssl_hostname_validation.inl"
+
+#if defined(DEBUG)
 
 /* This prints the Common Name (CN), which is the "friendly" */
 /*   name displayed to users in many tools                   */
@@ -15549,15 +15560,7 @@ void print_cn_name(const char* label, X509_NAME* const name)
     fprintf(stdout, "  %s: <not available>\n", label);
 }
 
-#endif /* SSL and DEBUG enabled */
-
-
-#if !defined(NO_SSL)
-
-#ifndef OPENSSL_API_1_1
-/* pre-OpenSSL 1.1 cannot do host name verification automatically */
-#include "openssl_hostname_validation.inl"
-#endif
+#endif /* DEBUG enabled */
 
 
 int verify_callback(int preverify, X509_STORE_CTX* x509_ctx)
@@ -15570,7 +15573,6 @@ int verify_callback(int preverify, X509_STORE_CTX* x509_ctx)
   print_cn_name("Issuer (cn)", iname);
   print_cn_name("Subject (cn)", sname);
 #endif
-#ifndef OPENSSL_API_1_1
   if (depth==0 && preverify==1) {
     // this is the server cert
     const SSL *ssl = X509_STORE_CTX_get_ex_data(x509_ctx, SSL_get_ex_data_X509_STORE_CTX_idx());
@@ -15578,37 +15580,10 @@ int verify_callback(int preverify, X509_STORE_CTX* x509_ctx)
     X509* cert = X509_STORE_CTX_get_current_cert(x509_ctx);
     preverify = validate_hostname(conn->clienthost, cert)==MatchFound;
   }
-#endif
   return preverify;
 }
 
-
-//#ifndef OPENSSL_API_1_1
-//
-///* pre-OpenSSL 1.1 cannot do host name verification automatically */
-//#include "openssl_hostname_validation.inl"
-//
-///* See http://archives.seul.org/libevent/users/Jan-2013/msg00039.html */
-//static int cert_verify_callback(X509_STORE_CTX *x509_ctx, void *arg)
-//{
-//  const char *host = (const char *) arg;
-//
-//  /* This is the function that OpenSSL would call if we hadn't called
-//   * SSL_CTX_set_cert_verify_callback().  Therefore, we are "wrapping"
-//   * the default functionality, rather than replacing it. */
-//  int ok = X509_verify_cert(x509_ctx);
-//  /* now verify the name */
-//  if (ok) {
-//    X509 *server_cert = X509_STORE_CTX_get_current_cert(x509_ctx);
-//    ok = validate_hostname(host, server_cert)==MatchFound;
-//  }
-//  return ok;
-//}
-//
-//#endif /* OpenSSL <1.1 */
-//
-
-
+#endif /* !OPENSSL_API_1_1 */
 #endif /* SSL enabled */
 
 
@@ -15793,16 +15768,17 @@ mg_connect_client_impl(const struct mg_client_options *client_options,
       }
 #ifdef OPENSSL_API_1_1
       // OpenSSL 1.1 can do hostname validation
-      X509_VERIFY_PARAM *param = SSL_get0_param(conn->client_ssl_ctx);
+      X509_VERIFY_PARAM *param = SSL_CTX_get0_param(conn->client_ssl_ctx);
       X509_VERIFY_PARAM_set_hostflags(param, X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS);
       X509_VERIFY_PARAM_set1_host(param, client_options->host, 0);
+      SSL_CTX_set_verify(conn->client_ssl_ctx, SSL_VERIFY_PEER, NULL);
 #else
       /* we need to do our own hostname verification, and thus need host in verify_callback */
       conn->clienthost = client_options->host;
+      SSL_CTX_set_verify(conn->client_ssl_ctx, SSL_VERIFY_PEER, verify_callback);
 #endif
-			SSL_CTX_set_verify(conn->client_ssl_ctx, SSL_VERIFY_PEER, verify_callback);
 		} else {
-			SSL_CTX_set_verify(conn->client_ssl_ctx, SSL_VERIFY_NONE, verify_callback);
+			SSL_CTX_set_verify(conn->client_ssl_ctx, SSL_VERIFY_NONE, NULL);
 		}
 
 		if (!sslize(conn,

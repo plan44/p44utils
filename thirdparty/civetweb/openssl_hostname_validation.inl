@@ -37,7 +37,6 @@ SOFTWARE.
  *
  */
 
-
 #if defined(NO_SSL_DL) || defined(USE_SSL_HEADERS)
   #include <openssl/x509v3.h>
   #include <openssl/ssl.h>
