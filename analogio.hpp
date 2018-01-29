@@ -63,6 +63,14 @@ namespace p44 {
     /// @param aValue new state to set output to
     void setValue(double aValue);
 
+    /// get range and resolution of this input
+    /// @param aMin minimum value
+    /// @param aMax maximum value
+    /// @param aResolution resolution (LSBit value)
+    /// @return false if no range information is available (arguments are not touched then)
+    bool getRange(double &aMin, double &aMax, double &aResolution);
+
+
   };
   typedef boost::intrusive_ptr<AnalogIo> AnalogIoPtr;
 

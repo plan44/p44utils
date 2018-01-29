@@ -140,3 +140,9 @@ void AnalogIo::setValue(double aValue)
 {
   ioPin->setValue(aValue);
 }
+
+
+bool AnalogIo::getRange(double &aMin, double &aMax, double &aResolution)
+{
+  return ioPin->getRange(aMin, aMax, aResolution);
+}

@@ -195,6 +195,14 @@ namespace p44 {
     /// set value of pin (NOP for inputs)
     /// @param aValue new value to set output to
     virtual void setValue(double aValue) = 0;
+
+    /// get range and resolution of this input
+    /// @param aMin minimum value
+    /// @param aMax maximum value
+    /// @param aResolution resolution (LSBit value)
+    /// @return false if no range information is available (arguments are not touched then)
+    virtual bool getRange(double &aMin, double &aMax, double &aResolution) { return false; };
+
   };
   typedef boost::intrusive_ptr<AnalogIOPin> AnalogIOPinPtr;
 

@@ -109,8 +109,9 @@ namespace p44 {
     /// @param aDeviceP device to access
     /// @param aRegister register/command to access
     /// @param aWord will receive result
+    /// @param aMSBFirst if set, byte order on the bus is expected to be MSByte first (otherwise, LSByte first)
     /// @return true if successful
-    bool SMBusReadWord(I2CDevice *aDeviceP, uint8_t aRegister, uint16_t &aWord);
+    bool SMBusReadWord(I2CDevice *aDeviceP, uint8_t aRegister, uint16_t &aWord, bool aMSBFirst = false);
 
     /// SMBus read byte/word/block
     /// @param aDeviceP device to access
@@ -131,8 +132,9 @@ namespace p44 {
     /// @param aDeviceP device to access
     /// @param aRegister register/command to access
     /// @param aWord data to write
+    /// @param aMSBFirst if set, byte order on the bus is expected to be MSByte first (otherwise, LSByte first)
     /// @return true if successful
-    bool SMBusWriteWord(I2CDevice *aDeviceP, uint8_t aRegister, uint16_t aWord);
+    bool SMBusWriteWord(I2CDevice *aDeviceP, uint8_t aRegister, uint16_t aWord, bool aMSBFirst = false);
 
     /// SMBus write SMBus block
     /// @param aDeviceP device to access
@@ -217,10 +219,10 @@ namespace p44 {
     I2CBitPortDevice(uint8_t aDeviceAddress, I2CBus *aBusP, const char *aDeviceOptions);
 
     /// @return device type identifier
-    virtual const char *deviceType() { return "BitPort"; };
+    virtual const char *deviceType() P44_OVERRIDE { return "BitPort"; };
 
     /// @return true if this device or one of it's ancestors is of the given type
-    virtual bool isKindOf(const char *aDeviceType);
+    virtual bool isKindOf(const char *aDeviceType) P44_OVERRIDE;
 
     bool getBitState(int aBitNo);
     void setBitState(int aBitNo, bool aState);
@@ -237,9 +239,9 @@ namespace p44 {
 
   protected:
 
-    virtual void updateInputState(int aForBitNo);
-    virtual void updateOutputs(int aForBitNo);
-    virtual void updateDirection(int aForBitNo);
+    virtual void updateInputState(int aForBitNo) P44_OVERRIDE;
+    virtual void updateOutputs(int aForBitNo) P44_OVERRIDE;
+    virtual void updateDirection(int aForBitNo) P44_OVERRIDE;
 
 
   public:
@@ -251,10 +253,10 @@ namespace p44 {
     TCA9555(uint8_t aDeviceAddress, I2CBus *aBusP, const char *aDeviceOptions);
 
     /// @return device type identifier
-    virtual const char *deviceType() { return "TCA9555"; };
+    virtual const char *deviceType() P44_OVERRIDE { return "TCA9555"; };
 
     /// @return true if this device or one of it's ancestors is of the given type
-    virtual bool isKindOf(const char *aDeviceType);
+    virtual bool isKindOf(const char *aDeviceType) P44_OVERRIDE;
 
   };
 
@@ -266,9 +268,9 @@ namespace p44 {
 
   protected:
 
-    virtual void updateInputState(int aForBitNo);
-    virtual void updateOutputs(int aForBitNo);
-    virtual void updateDirection(int aForBitNo);
+    virtual void updateInputState(int aForBitNo) P44_OVERRIDE;
+    virtual void updateOutputs(int aForBitNo) P44_OVERRIDE;
+    virtual void updateDirection(int aForBitNo) P44_OVERRIDE;
 
 
   public:
@@ -280,10 +282,10 @@ namespace p44 {
     PCF8574(uint8_t aDeviceAddress, I2CBus *aBusP, const char *aDeviceOptions);
 
     /// @return device type identifier
-    virtual const char *deviceType() { return "PCF8574"; };
+    virtual const char *deviceType() P44_OVERRIDE { return "PCF8574"; };
 
     /// @return true if this device or one of it's ancestors is of the given type
-    virtual bool isKindOf(const char *aDeviceType);
+    virtual bool isKindOf(const char *aDeviceType) P44_OVERRIDE;
     
   };
   
@@ -294,9 +296,9 @@ namespace p44 {
 
   protected:
 
-    virtual void updateInputState(int aForBitNo);
-    virtual void updateOutputs(int aForBitNo);
-    virtual void updateDirection(int aForBitNo);
+    virtual void updateInputState(int aForBitNo) P44_OVERRIDE;
+    virtual void updateOutputs(int aForBitNo) P44_OVERRIDE;
+    virtual void updateDirection(int aForBitNo) P44_OVERRIDE;
 
 
   public:
@@ -308,10 +310,10 @@ namespace p44 {
     MCP23017(uint8_t aDeviceAddress, I2CBus *aBusP, const char *aDeviceOptions);
 
     /// @return device type identifier
-    virtual const char *deviceType() { return "MCP23017"; };
+    virtual const char *deviceType() P44_OVERRIDE { return "MCP23017"; };
 
     /// @return true if this device or one of it's ancestors is of the given type
-    virtual bool isKindOf(const char *aDeviceType);
+    virtual bool isKindOf(const char *aDeviceType) P44_OVERRIDE;
     
   };
 
@@ -334,11 +336,11 @@ namespace p44 {
 
     /// get state of pin
     /// @return current state (from actual GPIO pin for inputs, from last set state for outputs)
-    virtual bool getState();
+    virtual bool getState() P44_OVERRIDE;
 
     /// set state of pin (NOP for inputs)
     /// @param aState new state to set output to
-    virtual void setState(bool aState);
+    virtual void setState(bool aState) P44_OVERRIDE;
   };  
 
 
@@ -357,13 +359,14 @@ namespace p44 {
     I2CAnalogPortDevice(uint8_t aDeviceAddress, I2CBus *aBusP, const char *aDeviceOptions);
 
     /// @return device type identifier
-    virtual const char *deviceType() { return "AnalogPort"; };
+    virtual const char *deviceType() P44_OVERRIDE { return "AnalogPort"; };
 
     /// @return true if this device or one of it's ancestors is of the given type
-    virtual bool isKindOf(const char *aDeviceType);
+    virtual bool isKindOf(const char *aDeviceType) P44_OVERRIDE;
 
     virtual double getPinValue(int aPinNo) = 0;
     virtual void setPinValue(int aPinNo, double aValue) = 0;
+    virtual bool getPinRange(int aPinNo, double &aMin, double &aMax, double &aResolution) { return false; }
 
   };
   typedef boost::intrusive_ptr<I2CAnalogPortDevice> I2CAnalogPortDevicePtr;
@@ -383,15 +386,45 @@ namespace p44 {
     PCA9685(uint8_t aDeviceAddress, I2CBus *aBusP, const char *aDeviceOptions);
 
     /// @return device type identifier
-    virtual const char *deviceType() { return "PCA9685"; };
+    virtual const char *deviceType() P44_OVERRIDE { return "PCA9685"; };
 
     /// @return true if this device or one of it's ancestors is of the given type
-    virtual bool isKindOf(const char *aDeviceType);
+    virtual bool isKindOf(const char *aDeviceType) P44_OVERRIDE;
 
-    virtual double getPinValue(int aPinNo);
-    virtual void setPinValue(int aPinNo, double aValue);
+    virtual double getPinValue(int aPinNo) P44_OVERRIDE;
+    virtual void setPinValue(int aPinNo, double aValue) P44_OVERRIDE;
+    virtual bool getPinRange(int aPinNo, double &aMin, double &aMax, double &aResolution) P44_OVERRIDE;
+    
+  };
+
+
+  class LM75 : public I2CAnalogPortDevice
+  {
+    typedef I2CAnalogPortDevice inherited;
+
+    int bits;
+
+  public:
+
+    /// create device
+    /// @param aDeviceAddress slave address of the device
+    /// @param aBusP I2CBus object
+    /// @param aDeviceOptions optional device-level options
+    LM75(uint8_t aDeviceAddress, I2CBus *aBusP, const char *aDeviceOptions);
+
+    /// @return device type identifier
+    virtual const char *deviceType() P44_OVERRIDE { return "LM75"; };
+
+    /// @return true if this device or one of it's ancestors is of the given type
+    virtual bool isKindOf(const char *aDeviceType) P44_OVERRIDE;
+
+    virtual double getPinValue(int aPinNo) P44_OVERRIDE;
+    virtual void setPinValue(int aPinNo, double aValue) P44_OVERRIDE { /* dummy */ };
+    virtual bool getPinRange(int aPinNo, double &aMin, double &aMax, double &aResolution) P44_OVERRIDE;
 
   };
+
+
 
 
 
@@ -411,11 +444,19 @@ namespace p44 {
 
     /// get value of pin
     /// @return current value (from actual pin for inputs, from last set state for outputs)
-    virtual double getValue();
+    virtual double getValue() P44_OVERRIDE;
 
     /// set value of pin (NOP for inputs)
     /// @param aValue new value to set output to
-    virtual void setValue(double aValue);
+    virtual void setValue(double aValue) P44_OVERRIDE;
+
+    /// get range and resolution of this input
+    /// @param aMin minimum value
+    /// @param aMax maximum value
+    /// @param aResolution resolution (LSBit value)
+    /// @return false if no range information is available (arguments are not touched then)
+    virtual bool getRange(double &aMin, double &aMax, double &aResolution) P44_OVERRIDE;
+
   };
 
 
