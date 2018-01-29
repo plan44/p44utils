@@ -14863,8 +14863,8 @@ init_ssl_ctx_impl(struct mg_context *phys_ctx,
 	SSL_CTX_set_options(dom_ctx->ssl_ctx,
 	                    SSL_OP_NO_SESSION_RESUMPTION_ON_RENEGOTIATION);
 	SSL_CTX_set_options(dom_ctx->ssl_ctx, SSL_OP_NO_COMPRESSION);
-#if !defined(NO_SSL_DL) && !defined(OPENSSL_API_1_1)
-  /* SSL_CTX_{get,set}_ecdh_auto has been removed in 1.1 */
+#if !defined(NO_SSL_DL) && !defined(OPENSSL_API_1_1) && defined(SSL_CTRL_SET_ECDH_AUTO)
+  /* SSL_CTX_{get,set}_ecdh_auto has been added in 1.0.2 and removed again in 1.1 */
 	SSL_CTX_set_ecdh_auto(dom_ctx->ssl_ctx, 1);
 #endif /* NO_SSL_DL */
 
