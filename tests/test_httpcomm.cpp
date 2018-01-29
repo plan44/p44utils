@@ -42,6 +42,7 @@ public:
   ErrorPtr httpErr;
   string response;
   MLMicroSeconds tm;
+  int chunks;
 
   HttpFixture()
   {
@@ -51,9 +52,19 @@ public:
 
   void testRes(const string &aResponse, ErrorPtr aError)
   {
+    chunks += 1;
+    if (streamResult) {
+      if (aResponse.size()!=0) {
+        // not end of stream
+        response += aResponse;
+        return; // continue reading from stream
+      }
+    }
+    else {
+      response = aResponse;
+    }
     tm = MainLoop::now()-tm; // calculate duration
     httpErr = aError;
-    response = aResponse;
     MainLoop::currentMainLoop().terminate(EXIT_SUCCESS);
   };
 
@@ -61,6 +72,7 @@ public:
   void perform()
   {
     // start timing
+    chunks = 0;
     tm = MainLoop::now();
     // start request
     http->setTimeout(timeout);
@@ -110,6 +122,7 @@ public:
 #define ERR404_TEST_URL "plan44.ch/testing/BADhttptest.php"
 #define ERR500_TEST_URL "plan44.ch/testing/httptest.php?err=500"
 #define SLOWDATA_TEST_URL "plan44.ch/testing/httptest.php?delay=3"
+#define STREAMDATA_TEST_URL "plan44.ch/testing/httptest.php?stream=1"
 #define NOTRESPOND_TEST_URL "192.168.42.23"
 #define AUTH_TEST_URL "plan44.ch/testing/authenticated/httptest.php"
 #define AUTH_TEST_USER "testing"
@@ -220,7 +233,7 @@ TEST_CASE_METHOD(HttpFixture, "https GET test without checking to local server w
   REQUIRE(Error::isOK(httpErr));
 }
 
-TEST_CASE_METHOD(HttpFixture, "https GET test: request to working server with valid cert but wrong CN", "[https],[FOCUS]") {
+TEST_CASE_METHOD(HttpFixture, "https GET test: request to working server with valid cert but wrong CN", "[https]") {
   // default is platform cert checking, must error out even without using setServerCertVfyDir("*")!
   REQUIRE(runHttp("https://" WRONGCN_TEST_URL)==EXIT_SUCCESS);
   INFO(URL);
@@ -236,7 +249,7 @@ TEST_CASE_METHOD(HttpFixture, "https timeout test: not responding IPv4", "[https
   REQUIRE(tm < 2.1*Second);
 }
 
-TEST_CASE_METHOD(HttpFixture, "https auth: no credentials", "[https],[FOCUS]") {
+TEST_CASE_METHOD(HttpFixture, "https auth: no credentials", "[https]") {
   REQUIRE(runHttp("https://" AUTH_TEST_URL, "GET")==EXIT_SUCCESS);
   INFO(URL);
   INFO(Error::text(httpErr));
@@ -277,6 +290,24 @@ TEST_CASE_METHOD(HttpFixture, "https slow data", "[https]") {
   REQUIRE(Error::isOK(httpErr));
   REQUIRE(response.size()>0);
   REQUIRE(tm > 3*Second); /* SSL handshake takes too much to know exactly how long it will take */
+}
+
+TEST_CASE_METHOD(HttpFixture, "http stream data", "[http],[FOCUS]") {
+  REQUIRE(runHttp("http://" STREAMDATA_TEST_URL, "GET", Never, "", "", true)==EXIT_SUCCESS);
+  INFO(URL);
+  INFO(Error::text(httpErr));
+  REQUIRE(Error::isOK(httpErr));
+  REQUIRE(response.size()>0);
+  REQUIRE(chunks == 5); /* should be 4 chunks, plus empty terminating response */
+}
+
+TEST_CASE_METHOD(HttpFixture, "https stream data", "[https],[FOCUS]") {
+  REQUIRE(runHttp("https://" STREAMDATA_TEST_URL, "GET", Never, "", "", true)==EXIT_SUCCESS);
+  INFO(URL);
+  INFO(Error::text(httpErr));
+  REQUIRE(Error::isOK(httpErr));
+  REQUIRE(response.size()>0);
+  REQUIRE(chunks == 5); /* should be 4 chunks, plus empty terminating response */
 }
 
 

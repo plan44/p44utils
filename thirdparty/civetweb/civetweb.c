@@ -8534,7 +8534,8 @@ connect_socket(struct mg_context *ctx /* may be NULL */,
 
 		FD_ZERO(&fdset);
 		FD_SET(*sock, &fdset);
-        if (connect_timeout==-1) connect_timeout = 10.0; /* default: 10 second timeout */
+    if (connect_timeout==-2) connect_timeout = 60.0; /* even when entire request is set to "no timeout" (wait for data indefinitely), we dont want to wait forever for a connection */
+    else if (connect_timeout==-1) connect_timeout = 10.0; /* default: 10 second timeout */
 		timeout.tv_sec = (int)connect_timeout;
 		timeout.tv_usec = (connect_timeout-timeout.tv_sec)*1E6;
 
