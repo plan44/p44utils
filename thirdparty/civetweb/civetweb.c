@@ -5950,7 +5950,8 @@ pull_inner(FILE *fp,
            struct mg_connection *conn,
            char *buf,
            int len,
-           double timeout)
+           double timeout,
+           int *errCause)
 {
 	int nread, err = 0;
 
@@ -6068,6 +6069,7 @@ pull_inner(FILE *fp,
 			err = (nread < 0) ? ERRNO : 0;
 			if (nread <= 0) {
 				/* shutdown of the socket at client side */
+        if (nread==0 && errCause) *errCause = EC_CLOSED;
 				return -2;
 			}
 		} else if (pollres < 0) {
@@ -6132,13 +6134,14 @@ pull_inner(FILE *fp,
 	}
 
 	/* Timeout occured, but no data available. */
+  if (errCause) *errCause = EC_TIMEOUT;
 	return -1;
 }
 
 
 /* note: timeout -2 means actually NO timeout. timeout -1 means using default timeout if one is specified in config */
 static int
-pull_all(FILE *fp, struct mg_connection *conn, char *buf, int len, double timeout)
+pull_all(FILE *fp, struct mg_connection *conn, char *buf, int len, double timeout, int *errCause)
 {
 	int n, nread = 0;
 	uint64_t start_time = 0, now = 0, timeout_ns = 0;
@@ -6160,7 +6163,7 @@ pull_all(FILE *fp, struct mg_connection *conn, char *buf, int len, double timeou
     }
 
 	while ((len > 0) && (conn->phys_ctx->stop_flag == 0)) {
-		n = pull_inner(fp, conn, buf + nread, len, timeout);
+		n = pull_inner(fp, conn, buf + nread, len, timeout, errCause);
 		if (n == -2) {
 			if (nread == 0) {
 				nread = -1; /* Propagate the error */
@@ -6228,8 +6231,9 @@ discard_unread_request_data(struct mg_connection *conn)
 }
 
 
+/* return: 0 : connection closed/no more data, <0 : error, including timeout, >0 bytes read */
 static int
-mg_read_inner(struct mg_connection *conn, void *buf, size_t len, double timeout)
+mg_read_inner(struct mg_connection *conn, void *buf, size_t len, double timeout, int *errCause)
 {
 	int64_t n, buffered_len, nread;
 	int64_t len64 =
@@ -6286,7 +6290,7 @@ mg_read_inner(struct mg_connection *conn, void *buf, size_t len, double timeout)
 		/* We have returned all buffered data. Read new data from the remote
 		 * socket.
 		 */
-		if ((n = pull_all(NULL, conn, (char *)buf, (int)len64, timeout)) >= 0) {
+		if ((n = pull_all(NULL, conn, (char *)buf, (int)len64, timeout, errCause)) >= 0) {
 			nread += n;
 		} else {
 			nread = ((nread > 0) ? nread : n);
@@ -6303,7 +6307,7 @@ mg_getc(struct mg_connection *conn)
 	if (conn == NULL) {
 		return 0;
 	}
-	if (mg_read_inner(conn, &c, 1, -1) <= 0) {
+	if (mg_read_inner(conn, &c, 1, -1, NULL) <= 0) {
 		return (char)0;
 	}
 	return c;
@@ -6312,13 +6316,15 @@ mg_getc(struct mg_connection *conn)
 
 int
 mg_read(struct mg_connection *conn, void *buf, size_t len) {
-  return mg_read_ex(conn, buf, len, 0);
+  return mg_read_ex(conn, buf, len, 0, NULL);
 }
 
 
 int
-mg_read_ex(struct mg_connection *conn, void *buf, size_t len, double timeout)
+mg_read_ex(struct mg_connection *conn, void *buf, size_t len, double timeout, int *errCause)
 {
+  if (errCause) *errCause = EC_NORMAL; // no specific cause
+
 	if (len > INT_MAX) {
 		len = INT_MAX;
 	}
@@ -6345,7 +6351,7 @@ mg_read_ex(struct mg_connection *conn, void *buf, size_t len, double timeout)
 
 				conn->content_len += (int)read_now;
 				read_ret =
-				    mg_read_inner(conn, (char *)buf + all_read, read_now, timeout);
+				    mg_read_inner(conn, (char *)buf + all_read, read_now, timeout, errCause);
 
 				if (read_ret < 1) {
 					/* read error */
@@ -6412,7 +6418,7 @@ mg_read_ex(struct mg_connection *conn, void *buf, size_t len, double timeout)
 
 		return (int)all_read;
 	}
-	return mg_read_inner(conn, buf, len, timeout);
+	return mg_read_inner(conn, buf, len, timeout, errCause);
 }
 
 
@@ -9995,7 +10001,7 @@ read_message(FILE *fp,
 		}
 
 		n = pull_inner(
-		    fp, conn, buf + *nread, bufsiz - *nread, request_timeout);
+		    fp, conn, buf + *nread, bufsiz - *nread, request_timeout, NULL);
 		if (n == -2) {
 			/* Receive error */
 			return -1;
@@ -10094,7 +10100,7 @@ forward_body_data(struct mg_connection *conn, FILE *fp, SOCKET sock, SSL *ssl)
 			if ((int64_t)to_read > conn->content_len - conn->consumed_content) {
 				to_read = (int)(conn->content_len - conn->consumed_content);
 			}
-			nread = pull_inner(NULL, conn, buf, to_read, timeout);
+			nread = pull_inner(NULL, conn, buf, to_read, timeout, NULL);
 			if (nread == -2) {
 				/* error */
 				break;
@@ -10611,7 +10617,7 @@ handle_cgi_request(struct mg_connection *conn, const char *prog)
 
 		/* Could not parse the CGI response. Check if some error message on
 		 * stderr. */
-		i = pull_all(err, conn, buf, (int)buflen, -1); // use default timeout
+		i = pull_all(err, conn, buf, (int)buflen, -1, NULL); // use default timeout
 		if (i > 0) {
 			mg_cry_internal(conn,
 			                "Error: CGI program \"%s\" sent error "

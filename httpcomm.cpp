@@ -161,9 +161,10 @@ void HttpComm::requestThread(ChildThreadWrapper &aThread)
         // - read data
         const size_t bufferSz = 2048;
         uint8_t *bufferP = new uint8_t[bufferSz];
+        int errCause;
         while (true) {
-          ssize_t res = mg_read_ex(mgConn, bufferP, bufferSz, streamResult ? 0 : copts.timeout);
-          if (res==0) {
+          ssize_t res = mg_read_ex(mgConn, bufferP, bufferSz, streamResult ? 0 : copts.timeout, &errCause);
+          if (res==0 || (res<0 && errCause==EC_CLOSED)) {
             // connection has closed, all bytes read
             if (streamResult) {
               // when streaming, signal end-of-stream condition by an empty data response
@@ -173,7 +174,7 @@ void HttpComm::requestThread(ChildThreadWrapper &aThread)
           }
           else if (res<0) {
             // read error
-            requestError = Error::err<HttpCommError>(HttpCommError::read, "HTTP read error: %s", strerror(errno));
+            requestError = Error::err<HttpCommError>(HttpCommError::read, "HTTP read error: %s", errCause==EC_TIMEOUT ? "timeout" : strerror(errno));
             break;
           }
           else {
