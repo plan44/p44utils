@@ -123,6 +123,7 @@ public:
 #define ERR500_TEST_URL "plan44.ch/testing/httptest.php?err=500"
 #define SLOWDATA_TEST_URL "plan44.ch/testing/httptest.php?delay=3"
 #define STREAMDATA_TEST_URL "plan44.ch/testing/httptest.php?stream=1"
+#define BIGDATA_TEST_URL "plan44.ch/testing/httptest.php?size=4000000"
 #define NOTRESPOND_TEST_URL "192.168.42.23"
 #define AUTH_TEST_URL "plan44.ch/testing/authenticated/httptest.php"
 #define AUTH_TEST_USER "testing"
@@ -292,7 +293,7 @@ TEST_CASE_METHOD(HttpFixture, "https slow data", "[https]") {
   REQUIRE(tm > 3*Second); /* SSL handshake takes too much to know exactly how long it will take */
 }
 
-TEST_CASE_METHOD(HttpFixture, "http stream data", "[http],[FOCUS]") {
+TEST_CASE_METHOD(HttpFixture, "http stream data", "[http]") {
   REQUIRE(runHttp("http://" STREAMDATA_TEST_URL, "GET", Never, "", "", true)==EXIT_SUCCESS);
   INFO(URL);
   INFO(Error::text(httpErr));
@@ -301,13 +302,27 @@ TEST_CASE_METHOD(HttpFixture, "http stream data", "[http],[FOCUS]") {
   REQUIRE(chunks == 5); /* should be 4 chunks, plus empty terminating response */
 }
 
-TEST_CASE_METHOD(HttpFixture, "https stream data", "[https],[FOCUS]") {
+TEST_CASE_METHOD(HttpFixture, "https stream data", "[https]") {
   REQUIRE(runHttp("https://" STREAMDATA_TEST_URL, "GET", Never, "", "", true)==EXIT_SUCCESS);
   INFO(URL);
   INFO(Error::text(httpErr));
   REQUIRE(Error::isOK(httpErr));
   REQUIRE(response.size()>0);
   REQUIRE(chunks == 5); /* should be 4 chunks, plus empty terminating response */
+}
+
+TEST_CASE_METHOD(HttpFixture, "http 4MBytes GET test", "[http],[FOCUS]") {
+  REQUIRE(runHttp("http://" BIGDATA_TEST_URL)==EXIT_SUCCESS);
+  INFO(Error::text(httpErr));
+  REQUIRE(Error::isOK(httpErr));
+  REQUIRE(response.size()>4000000);
+}
+
+TEST_CASE_METHOD(HttpFixture, "https 4MBytes GET test", "[https],[FOCUS]") {
+  REQUIRE(runHttp("https://" BIGDATA_TEST_URL)==EXIT_SUCCESS);
+  INFO(Error::text(httpErr));
+  REQUIRE(Error::isOK(httpErr));
+  REQUIRE(response.size()>4000000);
 }
 
 
