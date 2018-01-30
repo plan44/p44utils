@@ -2176,6 +2176,7 @@ enum {
 	ERROR_LOG_FILE,
 	ENABLE_KEEP_ALIVE,
 	REQUEST_TIMEOUT,
+  FILES_CHANGED_AT_RESTART,
 	KEEP_ALIVE_TIMEOUT,
 #if defined(USE_WEBSOCKET)
 	WEBSOCKET_TIMEOUT,
@@ -2270,6 +2271,7 @@ static struct mg_option config_options[] = {
     {"error_log_file", MG_CONFIG_TYPE_FILE, NULL},
     {"enable_keep_alive", MG_CONFIG_TYPE_BOOLEAN, "no"},
     {"request_timeout_ms", MG_CONFIG_TYPE_NUMBER, "30000"},
+    {"files_changed_at_restart", MG_CONFIG_TYPE_BOOLEAN, "no"},
     {"keep_alive_timeout_ms", MG_CONFIG_TYPE_NUMBER, "500"},
 #if defined(USE_WEBSOCKET)
     {"websocket_timeout_ms", MG_CONFIG_TYPE_NUMBER, "30000"},
@@ -4909,7 +4911,7 @@ mg_stat(const struct mg_connection *conn,
 		 * runtime,
 		 * so every mg_fopen call may return different data */
 		/* last_modified = conn->phys_ctx.start_time;
-		 * May be used it the data does not change during runtime. This
+		 * May be used if the data does not change during runtime. This
 		 * allows
 		 * browser caching. Since we do not know, we have to assume the file
 		 * in memory may change. */
@@ -4932,7 +4934,13 @@ mg_stat(const struct mg_connection *conn,
 		if (creation_time > filep->last_modified) {
 			filep->last_modified = creation_time;
 		}
-
+    /* check option to force all files to appear new after a server restart */
+    if (conn->ctx && mg_strcasecmp(conn->ctx->config[FILES_CHANGED_AT_RESTART], "yes")==0) {
+      // consider all files not older than start of this server
+      if (filep->modification_time < conn->phys_ctx->start_time) {
+        filep->modification_time = conn->phys_ctx->start_time;
+      }
+    }
 		filep->is_directory = info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY;
 		/* If file name is fishy, reset the file structure and return
 		 * error.
@@ -5450,7 +5458,14 @@ mg_stat(const struct mg_connection *conn,
 	if (0 == stat(path, &st)) {
 		filep->size = (uint64_t)(st.st_size);
 		filep->last_modified = st.st_mtime;
-		filep->is_directory = S_ISDIR(st.st_mode);
+    /* check option to force all files to appear new after a server restart */
+    if (conn && conn->phys_ctx && mg_strcasecmp(conn->dom_ctx->config[FILES_CHANGED_AT_RESTART], "yes")==0) {
+      // consider all files not older than start of this server
+      if (filep->last_modified < conn->phys_ctx->start_time) {
+        filep->last_modified = conn->phys_ctx->start_time;
+      }
+    }
+    filep->is_directory = S_ISDIR(st.st_mode);
 		return 1;
 	}
 
