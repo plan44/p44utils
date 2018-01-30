@@ -6155,18 +6155,18 @@ pull_inner(FILE *fp,
 }
 
 
-/* note: timeout -2 means actually NO timeout. timeout -1 means using default timeout if one is specified in config */
+/* note: timeout TMO_NEVER means actually NO timeout. timeout TMO_DEFAULT means using default timeout if one is specified in config */
 static int
 pull_all(FILE *fp, struct mg_connection *conn, char *buf, int len, double timeout, int *errCause)
 {
 	int n, nread = 0;
 	uint64_t start_time = 0, now = 0, timeout_ns = 0;
 
-    if (timeout==-1) {
+    if (timeout==TMO_DEFAULT) {
         // no call-level timeout, use connection level
         timeout = conn->client_timeout;
     }
-    if (timeout==-1 && conn->dom_ctx->config[REQUEST_TIMEOUT]) {
+    if (timeout==TMO_DEFAULT && conn->dom_ctx->config[REQUEST_TIMEOUT]) {
         // no timeout defined so far, use domain config level timeout
         timeout = atoi(conn->dom_ctx->config[REQUEST_TIMEOUT]) / 1000.0;
     }
@@ -6175,7 +6175,7 @@ pull_all(FILE *fp, struct mg_connection *conn, char *buf, int len, double timeou
         timeout_ns = (uint64_t)(timeout * 1.0E9);
     }
     else if (timeout<0) {
-        timeout = -1; // unify, all negative values mean NO timeout at this point (which must be -1 for mg_poll)
+        timeout = -1; // unify, all negative values mean NEVER timeout at this point (which must be <0 for mg_poll)
     }
 
 	while ((len > 0) && (conn->phys_ctx->stop_flag == 0)) {
@@ -6337,7 +6337,7 @@ mg_getc(struct mg_connection *conn)
 
 int
 mg_read(struct mg_connection *conn, void *buf, size_t len) {
-  return mg_read_ex(conn, buf, len, 0, NULL);
+  return mg_read_ex(conn, buf, len, TMO_NEVER, NULL); /* no timeout */
 }
 
 
@@ -8555,8 +8555,8 @@ connect_socket(struct mg_context *ctx /* may be NULL */,
 
 		FD_ZERO(&fdset);
 		FD_SET(*sock, &fdset);
-    if (connect_timeout==-2) connect_timeout = 60.0; /* even when entire request is set to "no timeout" (wait for data indefinitely), we dont want to wait forever for a connection */
-    else if (connect_timeout==-1) connect_timeout = 10.0; /* default: 10 second timeout */
+    if (connect_timeout==TMO_NEVER) connect_timeout = 60.0; /* even when entire request is set to "no timeout" (wait for data indefinitely), we dont want to wait forever for a connection */
+    else if (connect_timeout==TMO_DEFAULT) connect_timeout = 10.0; /* default: 10 second timeout */
 		timeout.tv_sec = (int)connect_timeout;
 		timeout.tv_usec = (connect_timeout-timeout.tv_sec)*1E6;
 
@@ -10639,7 +10639,7 @@ handle_cgi_request(struct mg_connection *conn, const char *prog)
 
 		/* Could not parse the CGI response. Check if some error message on
 		 * stderr. */
-		i = pull_all(err, conn, buf, (int)buflen, -1, NULL); // use default timeout
+		i = pull_all(err, conn, buf, (int)buflen, TMO_DEFAULT, NULL); // use default timeout
 		if (i > 0) {
 			mg_cry_internal(conn,
 			                "Error: CGI program \"%s\" sent error "
@@ -14299,7 +14299,7 @@ sslize(struct mg_connection *conn,
     /* check overall timeout */
     struct timespec now;
     clock_gettime(CLOCK_MONOTONIC, &now);
-    if (timeout!=-2 && mg_difftimespec(&now, &ssl_start_time) > timeout) {
+    if (timeout!=TMO_NEVER && mg_difftimespec(&now, &ssl_start_time) > timeout) {
       break;
     }
     /* increase wait time */
@@ -19354,3 +19354,4 @@ mg_exit_library(void)
 
 
 /* End of civetweb.c */
+
