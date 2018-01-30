@@ -6046,7 +6046,8 @@ pull_inner(FILE *fp,
 			/* Error */
 			return -2;
 		} else {
-			/* pollres = 0 means timeout */
+			/* ONLY pollres = 0 really means timeout! other nread==0 cases can just mean "no data right now" */
+      if (errCause) *errCause = EC_TIMEOUT;
 			nread = 0;
 		}
 #endif
@@ -6076,7 +6077,8 @@ pull_inner(FILE *fp,
 			/* error callint poll */
 			return -2;
 		} else {
-			/* pollres = 0 means timeout */
+      /* ONLY pollres = 0 really means timeout! other nread==0 cases can just mean "no data right now" */
+      if (errCause) *errCause = EC_TIMEOUT;
 			nread = 0;
 		}
 	}
@@ -6134,7 +6136,6 @@ pull_inner(FILE *fp,
 	}
 
 	/* Timeout occured, but no data available. */
-  if (errCause) *errCause = EC_TIMEOUT;
 	return -1;
 }
 
@@ -6171,12 +6172,17 @@ pull_all(FILE *fp, struct mg_connection *conn, char *buf, int len, double timeou
 			break;
 		} else if (n == -1) {
 			/* timeout */
-			if (timeout >= 0.0) {
+      if (timeout < 0) {
+        continue; /* no timeout at all, keep pulling */
+      }
+			else if (timeout >= 0.0) {
 				now = mg_get_current_time_ns();
 				if ((now - start_time) <= timeout_ns) {
 					continue;
 				}
 			}
+      /* now, this is a real timeout */
+      if (errCause) *errCause = EC_TIMEOUT;
 			break;
 		} else if (n == 0) {
 			break; /* No more data to read */
