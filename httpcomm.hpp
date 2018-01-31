@@ -24,7 +24,11 @@
 
 #include "p44utils_common.hpp"
 
+#if USE_LIBMONGOOSE
+#include "mongoose.h"
+#else
 #include "civetweb.h"
+#endif
 
 using namespace std;
 

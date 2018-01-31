@@ -144,6 +144,7 @@ TEST_CASE_METHOD(HttpFixture, "DNS test: known not existing URL", "[http]") {
   REQUIRE(tm < 2.1*Second);
 }
 
+#if !USE_LIBMONGOOSE
 TEST_CASE_METHOD(HttpFixture, "http timeout test: not responding IPv4", "[http]") {
   REQUIRE(runHttp("http://" NOTRESPOND_TEST_URL, "GET", 2*Second)==EXIT_SUCCESS);
   INFO(URL);
@@ -151,6 +152,7 @@ TEST_CASE_METHOD(HttpFixture, "http timeout test: not responding IPv4", "[http]"
   REQUIRE(Error::isError(httpErr, HttpCommError::domain(), HttpCommError::civetwebError));
   REQUIRE(tm < 2.1*Second);
 }
+#endif
 
 TEST_CASE_METHOD(HttpFixture, "http auth: no credentials", "[http]") {
   REQUIRE(runHttp("http://" AUTH_TEST_URL, "GET")==EXIT_SUCCESS);
@@ -190,6 +192,9 @@ TEST_CASE_METHOD(HttpFixture, "test http Error 500", "[http]") {
   REQUIRE(Error::isError(httpErr, WebError::domain(), 500));
 }
 
+
+#if !USE_LIBMONGOOSE
+
 TEST_CASE_METHOD(HttpFixture, "http data timeout", "[http]") {
   REQUIRE(runHttp("http://" SLOWDATA_TEST_URL, "GET", 2*Second)==EXIT_SUCCESS);
   //WARN(string_format("time = %.3f", (double)tm/Second));
@@ -209,6 +214,9 @@ TEST_CASE_METHOD(HttpFixture, "http slow data", "[http]") {
   REQUIRE(tm == Approx(3*Second).epsilon(0.2));
 }
 
+#endif
+
+
 TEST_CASE_METHOD(HttpFixture, "https GET test: request to known-good server with valid cert", "[https]") {
   http->setServerCertVfyDir("*");
   REQUIRE(runHttp("https://" TEST_URL)==EXIT_SUCCESS);
@@ -217,6 +225,9 @@ TEST_CASE_METHOD(HttpFixture, "https GET test: request to known-good server with
   REQUIRE(Error::isOK(httpErr));
   REQUIRE(response.size()>0);
 }
+
+
+#if !USE_LIBMONGOOSE
 
 TEST_CASE_METHOD(HttpFixture, "https GET test: request to working server with no verifyable cert", "[https]") {
   // default is platform cert checking, must error out even without using setServerCertVfyDir("*")!
@@ -250,6 +261,8 @@ TEST_CASE_METHOD(HttpFixture, "https timeout test: not responding IPv4", "[https
   REQUIRE(tm < 2.1*Second);
 }
 
+#endif
+
 TEST_CASE_METHOD(HttpFixture, "https auth: no credentials", "[https]") {
   REQUIRE(runHttp("https://" AUTH_TEST_URL, "GET")==EXIT_SUCCESS);
   INFO(URL);
@@ -274,6 +287,9 @@ TEST_CASE_METHOD(HttpFixture, "https auth: correct credentials", "[https]") {
   REQUIRE(response.size()>0);
 }
 
+
+#if !USE_LIBMONGOOSE
+
 TEST_CASE_METHOD(HttpFixture, "https data timeout", "[https]") {
   REQUIRE(runHttp("https://" SLOWDATA_TEST_URL, "GET", 2*Second)==EXIT_SUCCESS);
   //WARN(string_format("time = %.3f", (double)tm/Second));
@@ -293,13 +309,16 @@ TEST_CASE_METHOD(HttpFixture, "https slow data", "[https]") {
   REQUIRE(tm > 3*Second); /* SSL handshake takes too much to know exactly how long it will take */
 }
 
+#endif
+
+
 TEST_CASE_METHOD(HttpFixture, "http stream data", "[http]") {
   REQUIRE(runHttp("http://" STREAMDATA_TEST_URL, "GET", Never, "", "", true)==EXIT_SUCCESS);
   INFO(URL);
   INFO(Error::text(httpErr));
   REQUIRE(Error::isOK(httpErr));
   REQUIRE(response.size()>0);
-  REQUIRE(chunks == 5); /* should be 4 chunks, plus empty terminating response */
+  REQUIRE(chunks >= 5); /* should be at least 4 chunks, plus empty terminating response */
 }
 
 TEST_CASE_METHOD(HttpFixture, "https stream data", "[https]") {
@@ -308,7 +327,7 @@ TEST_CASE_METHOD(HttpFixture, "https stream data", "[https]") {
   INFO(Error::text(httpErr));
   REQUIRE(Error::isOK(httpErr));
   REQUIRE(response.size()>0);
-  REQUIRE(chunks == 5); /* should be 4 chunks, plus empty terminating response */
+  REQUIRE(chunks >= 5); /* should be at least 4 chunks, plus empty terminating response */
 }
 
 TEST_CASE_METHOD(HttpFixture, "http 4MBytes GET test", "[http],[FOCUS]") {

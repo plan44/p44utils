@@ -89,6 +89,7 @@ void HttpComm::requestThread(ChildThreadWrapper &aThread)
     for (HttpHeaderMap::iterator pos=requestHeaders.begin(); pos!=requestHeaders.end(); ++pos) {
       extraHeaders += string_format("%s: %s\r\n", pos->first.c_str(), pos->second.c_str());
     }
+    #if !USE_LIBMONGOOSE
     struct mg_client_options copts;
     copts.host = host.c_str();
     copts.port = port;
@@ -133,14 +134,64 @@ void HttpComm::requestThread(ChildThreadWrapper &aThread)
         extraHeaders.c_str()
       );
     }
+    #else
+    int tmo = timeout==Never ? -1 : (int)(timeout/MilliSecond);
+    if (requestBody.length()>0) {
+      // is a request which sends data in the HTTP message body (e.g. POST)
+      mgConn = mg_download_ex(
+        host.c_str(),
+        port,
+        useSSL,
+        tmo,
+        method.c_str(),
+        doc.c_str(),
+        username.empty() ? NULL : username.c_str(),
+        password.empty() ? NULL : password.c_str(),
+        &httpAuthInfo,
+        ebuf, ebufSz,
+        "Content-Type: %s\r\n"
+        "Content-Length: %ld\r\n"
+        "%s"
+        "\r\n"
+        "%s",
+        contentType.c_str(),
+        requestBody.length(),
+        extraHeaders.c_str(),
+        requestBody.c_str()
+      );
+    }
+    else {
+      // no request body (e.g. GET, DELETE)
+      mgConn = mg_download_ex(
+        host.c_str(),
+        port,
+        useSSL,
+        tmo,
+        method.c_str(),
+        doc.c_str(),
+        username.empty() ? NULL : username.c_str(),
+        password.empty() ? NULL : password.c_str(),
+        &httpAuthInfo,
+        ebuf, ebufSz,
+        "%s"
+        "\r\n",
+        extraHeaders.c_str()
+      );
+    }
+    #endif
     if (!mgConn) {
       requestError = Error::err_cstr<HttpCommError>(HttpCommError::civetwebError, ebuf);
     }
     else {
       // successfully initiated connection
+      #if !USE_LIBMONGOOSE
       const struct mg_response_info *responseInfo = mg_get_response_info(mgConn);
-      // - get status code (which is in uri)
       int status = responseInfo->status_code;
+      #else
+      struct mg_request_info *responseInfo = mg_get_request_info(mgConn);
+      int status = 0;
+      sscanf(responseInfo->uri, "%d", &status);  // status code string is in uri
+      #endif
       // check for auth
       if (status==401) {
         LOG(LOG_DEBUG, "401 - http auth?")
@@ -163,6 +214,7 @@ void HttpComm::requestThread(ChildThreadWrapper &aThread)
         uint8_t *bufferP = new uint8_t[bufferSz];
         int errCause;
         while (true) {
+          #if !USE_LIBMONGOOSE
           ssize_t res = mg_read_ex(mgConn, bufferP, bufferSz, streamResult ? 0 : copts.timeout, &errCause);
           if (res==0 || (res<0 && errCause==EC_CLOSED)) {
             // connection has closed, all bytes read
@@ -177,6 +229,22 @@ void HttpComm::requestThread(ChildThreadWrapper &aThread)
             requestError = Error::err<HttpCommError>(HttpCommError::read, "HTTP read error: %s", errCause==EC_TIMEOUT ? "timeout" : strerror(errno));
             break;
           }
+          #else
+          ssize_t res = mg_read_ex(mgConn, bufferP, bufferSz, (int)streamResult);
+          if (res==0) {
+            // connection has closed, all bytes read
+            if (streamResult) {
+              // when streaming, signal of stream condition by an empty data response
+              response.clear();
+            }
+            break;
+          }
+          else if (res<0) {
+            // read error
+            requestError = Error::err<HttpCommError>(HttpCommError::read, "HTTP read error: %s", strerror(errno));
+            break;
+          }
+          #endif
           else {
             // data read
             if (responseDataFd>=0) {
