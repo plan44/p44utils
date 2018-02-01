@@ -11320,6 +11320,10 @@ handle_ssi_file_request(struct mg_connection *conn,
 		                   path,
 		                   strerror(ERRNO));
 	} else {
+        // determine mime type from ssi file's extension
+        struct vec mime_vec;
+        get_mime_type(conn, path, &mime_vec);
+        // deliver SSI file
 		conn->must_close = 1;
 		gmt_time_string(date, sizeof(date), &curtime);
 		fclose_on_exec(&filep->access, conn);
@@ -11329,12 +11333,13 @@ handle_ssi_file_request(struct mg_connection *conn,
 		mg_printf(conn,
 		          "%s%s%s"
 		          "Date: %s\r\n"
-		          "Content-Type: text/html\r\n"
+		          "Content-Type: %.*s\r\n"
 		          "Connection: %s\r\n\r\n",
 		          cors1,
 		          cors2,
 		          cors3,
 		          date,
+                  (int) mime_vec.len, mime_vec.ptr,
 		          suggest_connection_header(conn));
 		send_ssi_file(conn, path, filep, 0);
 		(void)mg_fclose(&filep->access); /* Ignore errors for readonly files */
