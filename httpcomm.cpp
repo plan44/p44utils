@@ -299,7 +299,7 @@ void HttpComm::requestThreadSignal(ChildThreadWrapper &aChildThread, ThreadSigna
     // data chunk ready in streamResult mode
     DBGLOG(LOG_DEBUG, "- HTTP subthread delivers chunk of data - request going on");
     // callback may NOT issue another request on this httpComm, so no need to copy it
-    if (responseCallback) responseCallback(response, ErrorPtr());
+    if (responseCallback) responseCallback(response, requestError);
     dataProcessingPending = false; // child thread can go on reading
   }
 }
