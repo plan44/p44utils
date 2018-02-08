@@ -213,10 +213,14 @@ void HttpComm::requestThread(ChildThreadWrapper &aThread)
         const size_t bufferSz = 2048;
         uint8_t *bufferP = new uint8_t[bufferSz];
         int errCause;
+        double to = streamResult ? TMO_SOMETHING : copts.timeout;
         while (true) {
           #if !USE_LIBMONGOOSE
-          ssize_t res = mg_read_ex(mgConn, bufferP, bufferSz, streamResult ? 0 : copts.timeout, &errCause);
-          if (res==0 || (res<0 && errCause==EC_CLOSED)) {
+          ssize_t res = mg_read_ex(mgConn, bufferP, bufferSz, to, &errCause);
+          if (streamResult && res<0 && errCause==EC_TIMEOUT) {
+            continue;
+          }
+          else if (res==0 || (res<0 && errCause==EC_CLOSED)) {
             // connection has closed, all bytes read
             if (streamResult) {
               // when streaming, signal end-of-stream condition by an empty data response
@@ -298,6 +302,7 @@ void HttpComm::requestThreadSignal(ChildThreadWrapper &aChildThread, ThreadSigna
   else if (aSignalCode==httpThreadSignalDataReady) {
     // data chunk ready in streamResult mode
     DBGLOG(LOG_DEBUG, "- HTTP subthread delivers chunk of data - request going on");
+    //DBGLOG(LOG_DEBUG, "- data: %s", response.c_str());
     // callback may NOT issue another request on this httpComm, so no need to copy it
     if (responseCallback) responseCallback(response, requestError);
     dataProcessingPending = false; // child thread can go on reading
