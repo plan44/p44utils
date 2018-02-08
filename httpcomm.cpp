@@ -37,6 +37,7 @@ HttpComm::HttpComm(MainLoop &aMainLoop) :
   mgConn(NULL),
   httpAuthInfo(NULL),
   timeout(Never),
+  bufferSz(2048),
   serverCertVfyDir("*"), // default to platform's generic certificate checking method / root cert store
   responseDataFd(-1),
   streamResult(false),
@@ -210,7 +211,6 @@ void HttpComm::requestThread(ChildThreadWrapper &aThread)
       }
       if (Error::isOK(requestError) || requestError->isDomain(WebError::domain())) {
         // - read data
-        const size_t bufferSz = 2048;
         uint8_t *bufferP = new uint8_t[bufferSz];
         int errCause;
         double to = streamResult ? TMO_SOMETHING : copts.timeout;

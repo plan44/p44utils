@@ -89,6 +89,7 @@ namespace p44 {
     string clientCertFile;
     string serverCertVfyDir;
     int responseDataFd;
+    size_t bufferSz; ///< buffer size for civetweb/mongoose data read operations
     bool streamResult; ///< if set, result will be "streamed", meaning callback will be called multiple times as data chunks arrive
     MLMicroSeconds timeout; // timeout, Never = use default, do not set
     struct mg_connection *mgConn; // mongoose connection
@@ -132,6 +133,11 @@ namespace p44 {
     /// explicitly set socket timeout to use
     /// @param aTimeout set to timeout value or Never for no timeout at all
     void setTimeout(MLMicroSeconds aTimeout) { timeout = aTimeout; };
+
+    /// explicitly set a receiving data buffer size
+    /// @param aBufferSize size of buffer for receiving data. Default is ok for API calls -
+    ///   only set a large buffer when you need more performance for receiving a lot of data.
+    void setBufferSize(size_t aBufferSize) { bufferSz = aBufferSize; };
 
     /// explicitly set a client certificate path
     /// @param aClientCertFile set file path to a client certificate to use with the connection.

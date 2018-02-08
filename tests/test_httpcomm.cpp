@@ -331,6 +331,7 @@ TEST_CASE_METHOD(HttpFixture, "https stream data", "[https]") {
 }
 
 TEST_CASE_METHOD(HttpFixture, "http 4MBytes GET test", "[http],[FOCUS]") {
+  http->setBufferSize(512*1024);
   REQUIRE(runHttp("http://" BIGDATA_TEST_URL, "GET", 15*Second)==EXIT_SUCCESS);
   INFO(Error::text(httpErr));
   REQUIRE(Error::isOK(httpErr));
@@ -338,6 +339,7 @@ TEST_CASE_METHOD(HttpFixture, "http 4MBytes GET test", "[http],[FOCUS]") {
 }
 
 TEST_CASE_METHOD(HttpFixture, "https 4MBytes GET test", "[https],[FOCUS]") {
+  http->setBufferSize(512*1024);
   REQUIRE(runHttp("https://" BIGDATA_TEST_URL, "GET", 15*Second)==EXIT_SUCCESS);
   INFO(Error::text(httpErr));
   REQUIRE(Error::isOK(httpErr));
