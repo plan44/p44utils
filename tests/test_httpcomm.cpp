@@ -122,7 +122,7 @@ public:
 #define ERR404_TEST_URL "plan44.ch/testing/BADhttptest.php"
 #define ERR500_TEST_URL "plan44.ch/testing/httptest.php?err=500"
 #define SLOWDATA_TEST_URL "plan44.ch/testing/httptest.php?delay=3"
-#define STREAMDATA_TEST_URL "plan44.ch/testing/httptest.php?stream=1"
+#define STREAMDATA_TEST_URL "plan44.ch/testing/httptest.php?stream=5&delay=1"
 #define BIGDATA_TEST_URL "plan44.ch/testing/httptest.php?size=4000000"
 #define NOTRESPOND_TEST_URL "192.168.42.23"
 #define AUTH_TEST_URL "plan44.ch/testing/authenticated/httptest.php"
@@ -331,14 +331,14 @@ TEST_CASE_METHOD(HttpFixture, "https stream data", "[https]") {
 }
 
 TEST_CASE_METHOD(HttpFixture, "http 4MBytes GET test", "[http],[FOCUS]") {
-  REQUIRE(runHttp("http://" BIGDATA_TEST_URL)==EXIT_SUCCESS);
+  REQUIRE(runHttp("http://" BIGDATA_TEST_URL, "GET", 15*Second)==EXIT_SUCCESS);
   INFO(Error::text(httpErr));
   REQUIRE(Error::isOK(httpErr));
   REQUIRE(response.size()>4000000);
 }
 
 TEST_CASE_METHOD(HttpFixture, "https 4MBytes GET test", "[https],[FOCUS]") {
-  REQUIRE(runHttp("https://" BIGDATA_TEST_URL)==EXIT_SUCCESS);
+  REQUIRE(runHttp("https://" BIGDATA_TEST_URL, "GET", 15*Second)==EXIT_SUCCESS);
   INFO(Error::text(httpErr));
   REQUIRE(Error::isOK(httpErr));
   REQUIRE(response.size()>4000000);

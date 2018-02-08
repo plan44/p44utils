@@ -1,0 +1,5 @@
+Require all denied
+AuthType Digest
+AuthName "p44utils httpcomm tests - testing/testing"
+AuthUserFile /home/plan44/www_plan44/access/testing
+Require valid-user
