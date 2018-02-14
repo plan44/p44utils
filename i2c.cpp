@@ -792,7 +792,11 @@ void PCA9685::setPinValue(int aPinNo, double aValue)
 {
   uint8_t pwmdata[4];
   // check special full on and full off cases first
-  uint16_t v = (uint16_t)(aValue*40.96);
+  // TODO: when we use shift, for some unknown reason, the PWM output flickers when the off time wraps around.
+  //   So for now, we do NOT shift the on time.
+  //int shift = aPinNo; // minimize current by distributing switch on time of the pins
+  int shift = 0; // no on-time shifting, all starting at 0
+  uint16_t v = (uint16_t)(aValue*40.96+0.5);
   if (v==0) {
     pwmdata[0] = 0;
     pwmdata[1] = 0x00; // not full ON
@@ -800,17 +804,16 @@ void PCA9685::setPinValue(int aPinNo, double aValue)
     pwmdata[3] = 0x10; // but full OFF
   }
   else if (v>=0x0FFF) {
-    pwmdata[0] = 0;
-    pwmdata[1] = 0x10; // full ON
+    pwmdata[0] = 0; // LSB of start time is 0
+    pwmdata[1] = 0x10+shift; // full ON, starting at pin's regular ON time
     pwmdata[2] = 0;
     pwmdata[3] = 0x00; // but not full OFF
   }
   else {
-    // minimize current by distributing switch on time of the pins
-    // - set on time, staggered by pinNo
+    // set on time, possibly shifted
     pwmdata[0] = 0x00; // LSB of start time is 0
-    pwmdata[1] = aPinNo; // each pin offsets onTime by 1/16 of 12-bit range: upper 4 bits = pinNo
-    uint16_t t = aPinNo<<8; // on time
+    pwmdata[1] = shift; // each pin offsets onTime by 1/16 of 12-bit range: upper 4 bits = pinNo
+    uint16_t t = shift<<8; // on time
     t = (t+v) & 0xFFF; // off time with wrap around
     // set off time
     pwmdata[2] = t & 0xFF; // LSB of end time

@@ -357,7 +357,8 @@ namespace p44 {
     /// @{
 
     /// Start running the main loop
-    void startupMainLoop();
+    /// @param aRestart if set, the mainloop will start again even if terminate() was called before
+    void startupMainLoop(bool aRestart = false);
 
     /// Run one mainloop cycle
     /// @return true if cycle had the chance to sleep. This can be used to sleep a bit extra between calls to throttle CPU usage
@@ -389,10 +390,11 @@ namespace p44 {
     void registerCleanupHandler(SimpleCB aCleanupHandler);
 
     /// run the mainloop until it terminates.
+    /// @param aRestart if set, the mainloop will start again even if terminate() was called before
     /// @note this essentially calls startupMainLoop(), mainLoopCycle() and finalizeMainLoop(). Use these
     ///   separately to integrate the mainloop into a higher level mainloop
     /// @return returns a exit code
-    int run();
+    int run(bool aRestart = false);
 
     /// description (shows some mainloop key numbers)
     string description();

@@ -144,6 +144,11 @@ namespace p44 {
     /// @return true if OK
     static bool isOK(ErrorPtr aError);
 
+    /// returns a error description in all cases, even if no error object is passed
+    /// @param aError error pointer to check
+    /// @return "<none>" if NULL error object, description of error otherwise
+    static string text(ErrorPtr aError);
+
     /// factory function to create a explicit OK error (object with ErrorCode==0)
     static ErrorPtr ok();
 

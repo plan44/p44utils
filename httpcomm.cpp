@@ -37,6 +37,8 @@ HttpComm::HttpComm(MainLoop &aMainLoop) :
   mgConn(NULL),
   httpAuthInfo(NULL),
   timeout(Never),
+  bufferSz(2048),
+  serverCertVfyDir("*"), // default to platform's generic certificate checking method / root cert store
   responseDataFd(-1),
   streamResult(false),
   dataProcessingPending(false)
@@ -56,24 +58,6 @@ void HttpComm::terminate()
   responseCallback.clear(); // prevent calling back now
   cancelRequest(); // make sure subthread is cancelled
 }
-
-
-//  I used mg_download to establish the http connection and then mg_read to get the http response.
-//  You will have to create your HTTP header in the mg_download line:
-//
-//  connection = mg_download (
-//                 host,
-//                 port,
-//                 0,
-//                 ebuf,
-//                 sizeof(ebuf),
-//                 "GET /pgrest/%s HTTP/1.1\r\nHost: %s\r\nContent-Type: text/html; charset=UTF-8\r\n\r\n",
-//                 queryUrl,
-//                 host
-//              );
-//
-//  Then you can use the connection returned by mg_download in the mg_read().
-//  Others have used this to enable streaming also.
 
 
 
@@ -102,11 +86,57 @@ void HttpComm::requestThread(ChildThreadWrapper &aThread)
     // now issue request
     const size_t ebufSz = 100;
     char ebuf[ebufSz];
-    int tmo = timeout==Never ? -1 : (int)(timeout/MilliSecond);
     string extraHeaders;
     for (HttpHeaderMap::iterator pos=requestHeaders.begin(); pos!=requestHeaders.end(); ++pos) {
       extraHeaders += string_format("%s: %s\r\n", pos->first.c_str(), pos->second.c_str());
     }
+    #if !USE_LIBMONGOOSE
+    struct mg_client_options copts;
+    copts.host = host.c_str();
+    copts.port = port;
+    copts.client_cert = clientCertFile.empty() ? NULL : clientCertFile.c_str();
+    copts.server_cert = serverCertVfyDir.empty() ? NULL : serverCertVfyDir.c_str();
+    copts.timeout = timeout==Never ? -2 : (double)timeout/Second;
+    if (requestBody.length()>0) {
+      // is a request which sends data in the HTTP message body (e.g. POST)
+      mgConn = mg_download_secure(
+        &copts,
+        useSSL,
+        method.c_str(),
+        doc.c_str(),
+        username.empty() ? NULL : username.c_str(),
+        password.empty() ? NULL : password.c_str(),
+        &httpAuthInfo,
+        ebuf, ebufSz,
+        "Content-Type: %s\r\n"
+        "Content-Length: %ld\r\n"
+        "%s"
+        "\r\n"
+        "%s",
+        contentType.c_str(),
+        requestBody.length(),
+        extraHeaders.c_str(),
+        requestBody.c_str()
+      );
+    }
+    else {
+      // no request body (e.g. GET, DELETE)
+      mgConn = mg_download_secure(
+        &copts,
+        useSSL,
+        method.c_str(),
+        doc.c_str(),
+        username.empty() ? NULL : username.c_str(),
+        password.empty() ? NULL : password.c_str(),
+        &httpAuthInfo,
+        ebuf, ebufSz,
+        "%s"
+        "\r\n",
+        extraHeaders.c_str()
+      );
+    }
+    #else
+    int tmo = timeout==Never ? -1 : (int)(timeout/MilliSecond);
     if (requestBody.length()>0) {
       // is a request which sends data in the HTTP message body (e.g. POST)
       mgConn = mg_download_ex(
@@ -149,15 +179,20 @@ void HttpComm::requestThread(ChildThreadWrapper &aThread)
         extraHeaders.c_str()
       );
     }
+    #endif
     if (!mgConn) {
-      requestError = Error::err_cstr<HttpCommError>(HttpCommError::mongooseError, ebuf);
+      requestError = Error::err_cstr<HttpCommError>(HttpCommError::civetwebError, ebuf);
     }
     else {
       // successfully initiated connection
-      struct mg_request_info *requestInfo = mg_get_request_info(mgConn);
-      // - get status code (which is in uri)
+      #if !USE_LIBMONGOOSE
+      const struct mg_response_info *responseInfo = mg_get_response_info(mgConn);
+      int status = responseInfo->status_code;
+      #else
+      struct mg_request_info *responseInfo = mg_get_request_info(mgConn);
       int status = 0;
-      sscanf(requestInfo->uri, "%d", &status);
+      sscanf(responseInfo->uri, "%d", &status);  // status code string is in uri
+      #endif
       // check for auth
       if (status==401) {
         LOG(LOG_DEBUG, "401 - http auth?")
@@ -168,17 +203,37 @@ void HttpComm::requestThread(ChildThreadWrapper &aThread)
       }
       // - get headers if requested
       if (responseHeaders) {
-        if (requestInfo) {
-          for (int i=0; i<requestInfo->num_headers; i++) {
-            (*responseHeaders)[requestInfo->http_headers[i].name] = requestInfo->http_headers[i].value;
+        if (responseInfo) {
+          for (int i=0; i<responseInfo->num_headers; i++) {
+            (*responseHeaders)[responseInfo->http_headers[i].name] = responseInfo->http_headers[i].value;
           }
         }
       }
       if (Error::isOK(requestError) || requestError->isDomain(WebError::domain())) {
         // - read data
-        const size_t bufferSz = 2048;
         uint8_t *bufferP = new uint8_t[bufferSz];
+        int errCause;
+        double to = streamResult ? TMO_SOMETHING : copts.timeout;
         while (true) {
+          #if !USE_LIBMONGOOSE
+          ssize_t res = mg_read_ex(mgConn, bufferP, bufferSz, to, &errCause);
+          if (streamResult && res<0 && errCause==EC_TIMEOUT) {
+            continue;
+          }
+          else if (res==0 || (res<0 && errCause==EC_CLOSED)) {
+            // connection has closed, all bytes read
+            if (streamResult) {
+              // when streaming, signal end-of-stream condition by an empty data response
+              response.clear();
+            }
+            break;
+          }
+          else if (res<0) {
+            // read error
+            requestError = Error::err<HttpCommError>(HttpCommError::read, "HTTP read error: %s", errCause==EC_TIMEOUT ? "timeout" : strerror(errno));
+            break;
+          }
+          #else
           ssize_t res = mg_read_ex(mgConn, bufferP, bufferSz, (int)streamResult);
           if (res==0) {
             // connection has closed, all bytes read
@@ -193,6 +248,7 @@ void HttpComm::requestThread(ChildThreadWrapper &aThread)
             requestError = Error::err<HttpCommError>(HttpCommError::read, "HTTP read error: %s", strerror(errno));
             break;
           }
+          #endif
           else {
             // data read
             if (responseDataFd>=0) {
@@ -246,8 +302,9 @@ void HttpComm::requestThreadSignal(ChildThreadWrapper &aChildThread, ThreadSigna
   else if (aSignalCode==httpThreadSignalDataReady) {
     // data chunk ready in streamResult mode
     DBGLOG(LOG_DEBUG, "- HTTP subthread delivers chunk of data - request going on");
+    //DBGLOG(LOG_DEBUG, "- data: %s", response.c_str());
     // callback may NOT issue another request on this httpComm, so no need to copy it
-    if (responseCallback) responseCallback(response, ErrorPtr());
+    if (responseCallback) responseCallback(response, requestError);
     dataProcessingPending = false; // child thread can go on reading
   }
 }
