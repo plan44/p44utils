@@ -33,7 +33,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 
-#if P44_BUILD_RPI
+#if ENABLE_RPIWS281X
 
 // we use the rpi_ws281x library to communicate with the WS2812 chain on RaspberryPi
 
@@ -48,7 +48,7 @@ extern "C" {
 
 }
 
-#endif // P44_BUILD_RPI
+#endif // ENABLE_RPIWS281X
 
 
 using namespace std;
@@ -83,7 +83,7 @@ namespace p44 {
     bool initialized;
     uint8_t numColorComponents; // depends on ledType
 
-    #if P44_BUILD_RPI
+    #if ENABLE_RPIWS281X
     ws2811_t ledstring; // the descriptor for the rpi_ws2811 library
     #else
     int ledFd; // the file descriptor for the LED device
