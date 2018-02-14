@@ -306,6 +306,10 @@ void HttpComm::requestThreadSignal(ChildThreadWrapper &aChildThread, ThreadSigna
     // callback may NOT issue another request on this httpComm, so no need to copy it
     if (responseCallback) responseCallback(response, requestError);
     dataProcessingPending = false; // child thread can go on reading
+  } else if (aSignalCode==threadSignalCancelled) {
+    if (mgConn) {
+      mg_close_connection(mgConn);
+    }
   }
 }
 

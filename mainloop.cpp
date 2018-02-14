@@ -927,6 +927,7 @@ void ChildThreadWrapper::cancel()
     if (parentSignalHandler) {
       parentSignalHandler(*this, threadSignalCancelled);
     }
+    selfRef.reset();
   }
 }
 
