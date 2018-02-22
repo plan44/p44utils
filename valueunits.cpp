@@ -67,6 +67,8 @@ static const ValueUnitDescriptor valueUnitNames[numValueUnits] = {
   { "minute", "min" },
   { "hour", "h" },
   { "day", "d" },
+  { "month", "mt" },
+  { "year", "yr" },
   { "watthour", "Wh" },
   { "literperminute", "l/min" },
   { "mired", "mired" },
@@ -137,5 +139,64 @@ ValueUnit p44::stringToValueUnit(const string aValueUnitName)
   }
   return unit_unknown;
 }
+
+
+typedef struct {
+  ValueBaseUnit unit;
+  double factor;
+} DurationUnitDescriptor;
+const int numDurationUnits = 6;
+static const DurationUnitDescriptor durationUnitDescriptors[numDurationUnits] = {
+  { valueUnit_second, 1 },
+  { valueUnit_minute, 60 },
+  { valueUnit_hour, 3600 },
+  { valueUnit_day, 86400 },
+  { valueUnit_month, 2628000 }, // approx, 1/12 year
+  { valueUnit_year, 365*86400 }, // year
+};
+
+
+string p44::format_duration(double aSeconds, int aComponents, bool aAsSymbol)
+{
+  string t;
+  format_duration_append(t, aSeconds, aComponents, aAsSymbol);
+}
+
+
+void p44::format_duration_append(string &aString, double aSeconds, int aComponents, bool aAsSymbol)
+{
+  // find largest unit to use
+  int uidx = numDurationUnits-1;
+  while (uidx>0) {
+    if (aSeconds>=durationUnitDescriptors[uidx].factor)
+      break; // this is the largest unit we need
+    uidx--;
+  }
+  // render
+  bool first = true;
+  while (aComponents>0 && uidx>=0 && aSeconds>0) {
+    const DurationUnitDescriptor &d = durationUnitDescriptors[uidx];
+    long v = (aSeconds/d.factor);
+    if (aAsSymbol && d.unit==valueUnit_minute) {
+      string_format_append(aString, "%ld'", v);
+    }
+    else if (aAsSymbol && d.unit==valueUnit_second) {
+      string_format_append(aString, "%ld\"", v);
+    }
+    else {
+      if (!first) aString+=" ";
+      string_format_append(aString, "%ld%s%s",
+        v,
+        aAsSymbol ? "" : " ",
+        valueUnitName(VALUE_UNIT(d.unit, unitScaling_1), aAsSymbol).c_str()
+      );
+    }
+    aSeconds -= v*d.factor;
+    first = false;
+    uidx--;
+    aComponents--;
+  }
+}
+
 
 
