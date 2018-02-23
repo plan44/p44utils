@@ -33,7 +33,7 @@
 using namespace p44;
 
 
-#if P44_BUILD_RPI
+#if ENABLE_RPIWS281X
 #define TARGET_FREQ WS2811_TARGET_FREQ // in Hz, default is 800kHz
 #define GPIO_PIN 18 // P1 Pin 12, GPIO 18 (PCM_CLK)
 #define GPIO_INVERT 0 // set to 1 if there is an inverting driver between GPIO 18 and the WS281x LEDs
@@ -64,7 +64,7 @@ LEDChainComm::LEDChainComm(LedType aLedType, const string aDeviceName, uint16_t 
   alternating = aAlternating;
   swapXY = aSwapXY;
   // prepare hardware related stuff
-  #if P44_BUILD_RPI
+  #if ENABLE_RPIWS281X
   // initialize the led string structure
   ledstring.freq = TARGET_FREQ;
   ledstring.dmanum = DMA;
@@ -118,7 +118,7 @@ uint16_t LEDChainComm::getSizeY()
 bool LEDChainComm::begin()
 {
   if (!initialized) {
-    #if P44_BUILD_RPI
+    #if ENABLE_RPIWS281X
     // initialize library
     initialized = ws2811_init(&ledstring)==0;
     #else
@@ -141,7 +141,7 @@ bool LEDChainComm::begin()
 void LEDChainComm::end()
 {
   if (initialized) {
-    #if P44_BUILD_RPI
+    #if ENABLE_RPIWS281X
     // deinitialize library
     ws2811_fini(&ledstring);
     #else
@@ -162,7 +162,7 @@ void LEDChainComm::end()
 void LEDChainComm::show()
 {
   if (!initialized) return;
-  #if P44_BUILD_RPI
+  #if ENABLE_RPIWS281X
   ws2811_render(&ledstring);
   #else
   write(ledFd, ledbuffer, numLeds*numColorComponents);
@@ -243,7 +243,7 @@ void LEDChainComm::setColorXY(uint16_t aX, uint16_t aY, uint8_t aRed, uint8_t aG
 {
   uint16_t ledindex = ledIndexFromXY(aX,aY);
   if (ledindex>=numLeds) return;
-  #if P44_BUILD_RPI
+  #if ENABLE_RPIWS281X
   ws2811_led_t pixel =
   (pwmtable[aRed] << 16) |
   (pwmtable[aGreen] << 8) |
@@ -295,7 +295,7 @@ void LEDChainComm::getColorXY(uint16_t aX, uint16_t aY, uint8_t &aRed, uint8_t &
 {
   uint16_t ledindex = ledIndexFromXY(aX,aY);
   if (ledindex>=numLeds) return;
-  #if P44_BUILD_RPI
+  #if ENABLE_RPIWS281X
   ws2811_led_t pixel = ledstring.channel[0].leds[ledindex];
   aRed = brightnesstable[(pixel>>16) & 0xFF];
   aGreen = brightnesstable[(pixel>>8) & 0xFF];

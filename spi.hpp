@@ -99,7 +99,8 @@ namespace p44 {
       uint8_t *out_buffer,
       unsigned int num_in_bytes,
       uint8_t *in_buffer,
-      bool writeWrite = false
+      bool writeWrite = false,
+      bool fullDuplex = false
     );
 
 
@@ -150,6 +151,17 @@ namespace p44 {
     /// @param aDataP data to write
     /// @return true if successful
     bool SPIRegWriteBytes(SPIDevice *aDeviceP, uint8_t aRegister, uint8_t aCount, const uint8_t *aDataP);
+
+    /// SPI raw transaction with read and write
+    /// @param aDeviceP device to access
+    /// @param aOutSz number of bytes to send
+    /// @param aOutP pointer to bytes to send
+    /// @param aInSz number of bytes to receive
+    /// @param aInP pointer to bytes to receive
+    /// @param aFullDuplex send and receive simultaneously (otherwise: first sent, then received)
+    /// @return true if successful
+    bool SPIRawWriteRead(SPIDevice *aDeviceP, unsigned int aOutSz, uint8_t *aOutP, unsigned int aInSz, uint8_t *aInP, bool aFullDuplex = false);
+
 
 
   private:
@@ -290,6 +302,7 @@ namespace p44 {
     /// create device
     /// @param aDeviceAddress slave address of the device
     /// @param aBusP SPIBus object
+    /// @param aDeviceOptions optional device-level options
     SPIAnalogPortDevice(uint8_t aDeviceAddress, SPIBus *aBusP, const char *aDeviceOptions);
 
     /// @return device type identifier
@@ -304,6 +317,32 @@ namespace p44 {
 
   };
   typedef boost::intrusive_ptr<SPIAnalogPortDevice> SPIAnalogPortDevicePtr;
+
+
+
+  class MCP3008 : public SPIAnalogPortDevice
+  {
+    typedef SPIAnalogPortDevice inherited;
+
+  public:
+
+    /// create device
+    /// @param aDeviceAddress slave address of the device
+    /// @param aBusP I2CBus object
+    /// @param aDeviceOptions optional device-level options
+    MCP3008(uint8_t aDeviceAddress, SPIBus *aBusP, const char *aDeviceOptions);
+
+    /// @return device type identifier
+    virtual const char *deviceType() P44_OVERRIDE { return "MCP3008"; };
+
+    /// @return true if this device or one of it's ancestors is of the given type
+    virtual bool isKindOf(const char *aDeviceType) P44_OVERRIDE;
+
+    virtual double getPinValue(int aPinNo) P44_OVERRIDE;
+    virtual void setPinValue(int aPinNo, double aValue) P44_OVERRIDE { /* dummy */ };
+    virtual bool getPinRange(int aPinNo, double &aMin, double &aMax, double &aResolution) P44_OVERRIDE;
+
+  };
 
 
 

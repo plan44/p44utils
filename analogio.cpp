@@ -39,6 +39,9 @@
 #if !DISABLE_I2C
 #include "i2c.hpp"
 #endif
+#if !DISABLE_SPI
+#include "spi.hpp"
+#endif
 
 #include "logger.hpp"
 #include "mainloop.hpp"
@@ -93,6 +96,15 @@ AnalogIo::AnalogIo(const char* aPinSpec, bool aOutput, double aInitialValue)
     int busNumber = atoi(busName.c_str()+3);
     int pinNumber = atoi(pinName.c_str());
     ioPin = AnalogIOPinPtr(new AnalogI2CPin(busNumber, deviceName.c_str(), pinNumber, output, aInitialValue));
+  }
+  else
+  #endif
+  #if !DISABLE_SPI
+  if (busName.substr(0,3)=="spi") {
+    // spi<interfaceno*10+chipselno>.<devicespec>.<pinnum>
+    int busNumber = atoi(busName.c_str()+3);
+    int pinNumber = atoi(pinName.c_str());
+    ioPin = AnalogIOPinPtr(new AnalogSPIPin(busNumber, deviceName.c_str(), pinNumber, output, aInitialValue));
   }
   else
   #endif
