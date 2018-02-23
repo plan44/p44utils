@@ -279,6 +279,22 @@ bool JsonObject::nextKeyValue(string &aKey, JsonObjectPtr &aValue)
 }
 
 
+JsonObjectPtr JsonObject::nextJsonObj()
+{
+  if (nextEntryP) {
+    json_object *weakObjRef = (struct json_object*)nextEntryP->v;
+    if (weakObjRef) {
+      json_object_get(weakObjRef);
+      JsonObjectPtr obj = newObj();
+      obj->add((const char*)nextEntryP->k, newObj(weakObjRef));
+      nextEntryP = nextEntryP->next;
+      return obj;
+    }
+  }
+  return JsonObjectPtr();
+}
+
+
 // MARK: ===== factories and value getters
 
 // private wrapper factory from newly created json_object (ownership passed in)

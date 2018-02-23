@@ -136,10 +136,17 @@ namespace p44 {
     /// @return false if object cannot be iterated
     bool resetKeyIteration();
 
-    /// reset object iterator
-    /// @return false if no more key/values
+    /// get next child object's key and value
+    /// @param aKey will be assigned the key (name) of the child object
+    /// @param aValue will be assigned the child object
+    /// @return false if there are no more key/values (aKey and aValue unchanged)
     bool nextKeyValue(string &aKey, JsonObjectPtr &aValue);
 
+    /// get next child object and wrap it into a parent object.
+    /// This is an alternative to get a key/value pair as a single C++ object instead of two
+    /// as provided by nextKeyValue(), e.g. for iterating purposes.
+    /// @return JSON object, containing a single named child, or null if no more objects
+    JsonObjectPtr nextJsonObj();
 
     /// create new empty object
     static JsonObjectPtr newObj();
