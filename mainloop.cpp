@@ -454,9 +454,6 @@ MLMicroSeconds MainLoop::checkTimers(MLMicroSeconds aTimeout)
         MLMicroSeconds late = now-nextTimer-pos->tolerance;
         if (late>maxTimerExecutionDelay) maxTimerExecutionDelay = late;
         #endif
-        if (timersChanged) {
-          break;
-        }
         // run this timer
         MLTimer runningTimer = *pos; // copy the timer object
         runningTimer.reinsert = false; // not re-inserting by default
