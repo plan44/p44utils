@@ -427,7 +427,11 @@ MLMicroSeconds MainLoop::checkTimers(MLMicroSeconds aTimeout)
     nextTimer = Never;
     TimerList::iterator pos = timers.begin();
     timersChanged = false; // detect changes happening from callbacks
-    while (pos!=timers.end()) {
+    // Note: it is essential to check timersChanged in the while loop condition, because when the loop
+    //   is actually taken, the runningTimer object can go out of scope and cause a
+    //   chain of destruction which in turn can cause timer changes AFTER the timer callback
+    //   has already returned.
+    while (!timersChanged && pos!=timers.end()) {
       nextTimer = pos->executionTime;
       MLMicroSeconds now = MainLoop::now();
       // check for executing next timer
@@ -462,10 +466,6 @@ MLMicroSeconds MainLoop::checkTimers(MLMicroSeconds aTimeout)
         if (runningTimer.reinsert) {
           // retriggering requested, do it now
           scheduleTimer(runningTimer);
-        }
-        if (timersChanged) {
-          // callback or retrigger has caused change of onetime handlers list, pos gets invalid
-          break; // quit loop now
         }
       }
     }

@@ -76,6 +76,8 @@ namespace p44 {
     valueUnit_minute,
     valueUnit_hour,
     valueUnit_day,
+    valueUnit_month,
+    valueUnit_year,
     valueUnit_watthour,
     valueUnit_literpermin,
     ValueUnit_mired,
@@ -126,6 +128,13 @@ namespace p44 {
   /// @return value unit (unit_unknown when string does not match)
   ValueUnit stringToValueUnit(const string aValueUnitName);
 
+
+  /// format a duration as seconds, minutes, hours, days, months, years
+  /// @param aSeconds the duration in seconds
+  /// @param aComponents how many components should be shown (1=only most significant, 2=e.g. hours and mins or years and months, etc.)
+  /// @return formatted duration: "4Mt, 3d"  or "2h 13'10""
+  string format_duration(double aSeconds, int aComponents=1, bool aAsSymbol=true);
+  void format_duration_append(string &aString, double aSeconds, int aComponents=1, bool aAsSymbol=true);
 
 
 } // namespace p44

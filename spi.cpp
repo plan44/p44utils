@@ -115,6 +115,8 @@ SPIDevicePtr SPIManager::getDevice(int aBusNumber, const char *aDeviceID)
     // create device from typestring
     if (typeString=="MCP23S17")
       dev = SPIDevicePtr(new MCP23S17(deviceAddress, bus.get(), deviceOptions.c_str()));
+    else if (typeString=="MCP3008")
+      dev = SPIDevicePtr(new MCP3008(deviceAddress, bus.get(), deviceOptions.c_str()));
     // TODO: add more device types
     // Register new device
     if (dev) {
@@ -202,7 +204,8 @@ int SPIBus::spidev_write_read(
   uint8_t *out_buffer,
   unsigned int num_in_bytes,
   uint8_t *in_buffer,
-  bool writeWrite
+  bool writeWrite,
+  bool fullDuplex
 )
 {
   #if !DISABLE_SPI
@@ -219,12 +222,18 @@ int SPIBus::spidev_write_read(
   // prepare output transfer, if any data provided
   if((out_buffer != NULL) && (num_out_bytes != 0)) {
     mesg[num_tr].tx_buf = (unsigned long)out_buffer;
-    mesg[num_tr].rx_buf = (unsigned long)NULL;
     mesg[num_tr].len = num_out_bytes;
+    if (fullDuplex) {
+      mesg[num_tr].rx_buf = (unsigned long)in_buffer;
+      if (num_in_bytes<num_out_bytes) return -1; // must be at least same number of input bytes as output
+    }
+    else {
+      mesg[num_tr].rx_buf = (unsigned long)NULL;
+    }
     num_tr++;
   }
   // prepare input (or second write) transfer, if buffer provided
-  if((in_buffer != NULL) && (num_in_bytes != 0)) {
+  if(!fullDuplex && (in_buffer != NULL) && (num_in_bytes != 0)) {
     if (writeWrite) {
       mesg[num_tr].tx_buf = (unsigned long)in_buffer;
       mesg[num_tr].rx_buf = (unsigned long)NULL;
@@ -300,7 +309,7 @@ bool SPIBus::SPIRegReadBytes(SPIDevice *aDeviceP, uint8_t aRegister, uint8_t aCo
 
 bool SPIBus::SPIRegWriteByte(SPIDevice *aDeviceP, uint8_t aRegister, uint8_t aByte)
 {
-  if (!accessDevice(aDeviceP)) return false; // cannot read
+  if (!accessDevice(aDeviceP)) return false; // cannot write
   uint8_t msg[3];
   msg[0] = SPI_WR(aDeviceP->deviceAddress);
   msg[1] = aRegister;
@@ -319,23 +328,31 @@ bool SPIBus::SPIRegWriteWord(SPIDevice *aDeviceP, uint8_t aRegister, uint16_t aW
   msg[1] = aRegister;
   *((uint16_t *)&(msg[2])) = aWord;
   int res = spidev_write_read(aDeviceP, 4, msg, 0, NULL);
-  DBGFOCUSLOG("SPIRegWriteWord(devaddr=0x%02X, reg=0x%02X, word=0x%04X), res=%d", aDeviceP->deviceAddress, aRegister, aWord, res);
+  FOCUSLOG("SPIRegWriteWord(devaddr=0x%02X, reg=0x%02X, word=0x%04X), res=%d", aDeviceP->deviceAddress, aRegister, aWord, res);
   return (res>=0);
 }
 
 
 bool SPIBus::SPIRegWriteBytes(SPIDevice *aDeviceP, uint8_t aRegister, uint8_t aCount, const uint8_t *aDataP)
 {
-  if (!accessDevice(aDeviceP)) return false; // cannot read
+  if (!accessDevice(aDeviceP)) return false; // cannot write
   uint8_t msg[2];
   msg[0] = SPI_WR(aDeviceP->deviceAddress);
   msg[1] = aRegister;
   int res = spidev_write_read(aDeviceP, 2, msg, aCount, (uint8_t *)aDataP, true);
-  // read is shown only in real Debug log, because button polling creates lots of accesses
-  DBGFOCUSLOG("SPIRegWriteBytes(devaddr=0x%02X, reg=0x%02X), %d bytes written (res=%d)", aDeviceP->deviceAddress, aRegister, aCount, res);
+  FOCUSLOG("SPIRegWriteBytes(devaddr=0x%02X, reg=0x%02X), %d bytes written (res=%d)", aDeviceP->deviceAddress, aRegister, aCount, res);
   return (res>=0);
 }
 
+
+bool SPIBus::SPIRawWriteRead(SPIDevice *aDeviceP, unsigned int aOutSz, uint8_t *aOutP, unsigned int aInSz, uint8_t *aInP, bool aFullDuplex)
+{
+  if (!accessDevice(aDeviceP)) return false; // cannot access
+  int res = spidev_write_read(aDeviceP, aOutSz, aOutP, aInSz, aInP, false, aFullDuplex);
+  // shown only in real Debug log, because polling creates lots of accesses
+  DBGFOCUSLOG("SPIRawWriteRead(devaddr=0x%02X), %d bytes written, %d bytes read (res=%d)", aDeviceP->deviceAddress, aOutSz, aFullDuplex ? aOutSz : aInSz, res);
+  return (res>=0);
+}
 
 
 
@@ -664,6 +681,64 @@ bool SPIAnalogPortDevice::isKindOf(const char *aDeviceType)
   else
     return inherited::isKindOf(aDeviceType);
 }
+
+
+
+// MARK: ===== MCP3008
+
+MCP3008::MCP3008(uint8_t aDeviceAddress, SPIBus *aBusP, const char *aDeviceOptions) :
+  inherited(aDeviceAddress, aBusP, aDeviceOptions)
+{
+  // currently no device options
+//  int b = atoi(aDeviceOptions);
+}
+
+
+bool MCP3008::isKindOf(const char *aDeviceType)
+{
+  if (strcmp(deviceType(),aDeviceType)==0)
+    return true;
+  else
+    return inherited::isKindOf(aDeviceType);
+}
+
+
+double MCP3008::getPinValue(int aPinNo)
+{
+  // MCP3008 needs to transfer 3 bytes in and out for one conversion
+  uint8_t out[3];
+  uint8_t in[3];
+  uint16_t raw = 0;
+  // - first byte is 7 zero dummy bits plus MSB==1==start bit
+  out[0] = 0x01;
+  // - second byte is 4 bit channel selection/differential vs single, plus 4 bit dummy
+  //   Bit 7     Bit 6    Bit 5    Bit 4
+  //   D/S       CHSEL3   CHSEL2   CHSEL1
+  //   0=Diff
+  //   1=Single
+  // - we invert the D/S bit to have 1:1 PinNo->Single ended channel assignments (0..7).
+  //   PinNo 8..15 then represent the differential modes, see data sheet.
+  out[1] = (aPinNo^0x08)<<4;
+  // - third byte is dummy
+  out[2] = 0;
+  if (spibus->SPIRawWriteRead(this, 3, out, 3, in)) {
+    // A/D output data are 10 LSB of data read back
+    raw = ((uint16_t)(in[1] & 0x03)<<8) + in[2];
+  }
+  // return raw value (no physical unit at this level known, and no scaling or offset either)
+  return raw;
+}
+
+
+bool MCP3008::getPinRange(int aPinNo, double &aMin, double &aMax, double &aResolution)
+{
+  // as we don't know what will be connected to the inputs, we return raw A/D value.
+  aMin = 0;
+  aMax = 1024;
+  aResolution = 1;
+  return true;
+}
+
 
 
 
