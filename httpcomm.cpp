@@ -306,7 +306,11 @@ void HttpComm::requestThreadSignal(ChildThreadWrapper &aChildThread, ThreadSigna
     // callback may NOT issue another request on this httpComm, so no need to copy it
     if (responseCallback) responseCallback(response, requestError);
     dataProcessingPending = false; // child thread can go on reading
-  } else if (aSignalCode==threadSignalCancelled) {
+  }
+  else if (aSignalCode==threadSignalCancelled) {
+    // Note: mgConn is owned by child thread and should NOT be accessed from other threads, normally.
+    //   This is an exception, because here the thread has been aborted, and if mgConn is still open,
+    //   it has to be closed to avoid leaking memory or file descriptors.
     if (mgConn) {
       mg_close_connection(mgConn);
     }
