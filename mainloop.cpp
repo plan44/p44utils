@@ -925,8 +925,12 @@ void ChildThreadWrapper::cancel()
     finalizeThreadExecution();
     // cancelled
     if (parentSignalHandler) {
+      ML_STAT_START_AT(parentThreadMainLoop.now());
       parentSignalHandler(*this, threadSignalCancelled);
+      ML_STAT_ADD_AT(parentThreadMainLoop.threadSignalHandlerTime, parentThreadMainLoop.now());
     }
+    // thread has ended now, object must not retain itself beyond this point
+    selfRef.reset();
   }
 }
 
