@@ -130,6 +130,7 @@ void HttpComm::requestThread(ChildThreadWrapper &aThread)
         password.empty() ? NULL : password.c_str(),
         &httpAuthInfo,
         ebuf, ebufSz,
+        "Content-Length: 0"
         "%s"
         "\r\n",
         extraHeaders.c_str()
