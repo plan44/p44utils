@@ -721,7 +721,7 @@ double MCP3008::getPinValue(int aPinNo)
   out[1] = (aPinNo^0x08)<<4;
   // - third byte is dummy
   out[2] = 0;
-  if (spibus->SPIRawWriteRead(this, 3, out, 3, in)) {
+  if (spibus->SPIRawWriteRead(this, 3, out, 3, in, true)) {
     // A/D output data are 10 LSB of data read back
     raw = ((uint16_t)(in[1] & 0x03)<<8) + in[2];
   }
