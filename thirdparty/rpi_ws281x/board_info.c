@@ -29,7 +29,7 @@ static void
 fatal(char *fmt, ...)
 {
    va_list ap;
-   
+
    va_start(ap, fmt);
    vfprintf(stderr, fmt, ap);
    va_end(ap);
@@ -106,7 +106,7 @@ int board_info_init(void)
       fatal("Unable to open /proc/cpuinfo: %m\n");
 
    while ((res = fgets(buf, 128, fp))) {
-      if (!strncasecmp("model name", buf, 8))
+      if (!strncasecmp("model name", buf, 10))
          memcpy(modelstr, buf, 128);
       else if (!strncasecmp(buf, "revision", 8))
          memcpy(revstr, buf, 128);
@@ -129,8 +129,18 @@ int board_info_init(void)
    board_revision = strtol(ptr, &end, 16);
    if (end != ptr + 2)
       fatal("Failed to parse Revision string\n");
-   if (board_revision < 1)
+   if (board_revision == 0) {
+      #if P44_BUILD_OW
+      /* for OpenWrt/LEDE builds, cpuinfo always returns 0. Assume that is is anything but NOT Model B Rev 1
+         see https://www.raspberrypi-spy.co.uk/2012/09/checking-your-raspberry-pi-board-version/ for
+         Rpi board revisions */
+      /* Also note that board_revision is not actually used, so the value is irrelevant */
+      board_revision = 2;
+      #else
+      /* must not happen on Raspian */
       fatal("Invalid board Revision\n");
+      #endif
+   }
    else if (board_revision < 4)
       board_revision = 1;
    else
