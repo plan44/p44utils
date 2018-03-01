@@ -30,7 +30,7 @@
 #include "spi.hpp"
 
 // locally disable actual functionality on unsupported platforms (but still provide console output dummies)
-#if !defined(DISABLE_SPI) && (defined(__APPLE__) || P44_BUILD_DIGI) && !P44_BUILD_RPI
+#if !defined(DISABLE_SPI) && (defined(__APPLE__) || P44_BUILD_DIGI) && !P44_BUILD_RPI && !P44_BUILD_OW
   #define DISABLE_SPI 1
 #endif
 
@@ -40,7 +40,7 @@ extern "C" {
   #include <linux/spi/spidev.h>
 }
 #else
-#warning "No SPI supported on this platform - just showing calls in focus debug output"
+  #warning "No SPI supported on this platform - just showing calls in focus debug output"
 #endif
 
 
