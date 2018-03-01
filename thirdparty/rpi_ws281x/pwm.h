@@ -15,7 +15,7 @@
  *         provided with the distribution.
  *     3.  Neither the name of the owner nor the names of its contributors may be used to endorse
  *         or promote products derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER BE
@@ -96,7 +96,7 @@ typedef struct
     uint32_t resvd_0x1c;
     uint32_t rng2;
     uint32_t dat2;
-} __attribute__((packed)) pwm_t;
+} __attribute__((packed, aligned(4))) pwm_t;
 
 
 #define PWM_OFFSET                               (0x0020c000)
@@ -109,7 +109,7 @@ typedef struct
     int altnum;
 } pwm_pin_table_t;
 
-typedef struct 
+typedef struct
 {
     const int count;
     const pwm_pin_table_t *pins;
