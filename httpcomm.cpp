@@ -214,7 +214,9 @@ void HttpComm::requestThread(ChildThreadWrapper &aThread)
         // - read data
         uint8_t *bufferP = new uint8_t[bufferSz];
         int errCause;
+        #if !USE_LIBMONGOOSE
         double to = streamResult ? TMO_SOMETHING : copts.timeout;
+        #endif
         while (true) {
           #if !USE_LIBMONGOOSE
           ssize_t res = mg_read_ex(mgConn, bufferP, bufferSz, to, &errCause);
