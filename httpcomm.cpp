@@ -198,7 +198,7 @@ void HttpComm::requestThread(ChildThreadWrapper &aThread)
       if (status==401) {
         LOG(LOG_DEBUG, "401 - http auth?")
       }
-      if (status<200 || status>=300) {
+      if (status!=200) {
         // Important: report status as WebError, not HttpCommError, because it is not technically an error on the HTTP transport level
         requestError = WebError::webErr(status,"HTTP non-ok status");
       }
@@ -276,7 +276,8 @@ void HttpComm::requestThread(ChildThreadWrapper &aThread)
           }
         }
         delete[] bufferP;
-      }
+      } // if content to read
+      // done, close connection
       mg_close_connection(mgConn);
     }
   }
