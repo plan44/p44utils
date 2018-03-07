@@ -75,7 +75,12 @@ LEDChainComm::LEDChainComm(LedType aLedType, const string aDeviceName, uint16_t 
   ledstring.channel[0].count = numLeds;
   ledstring.channel[0].invert = GPIO_INVERT;
   ledstring.channel[0].brightness = MAX_BRIGHTNESS;
-  ledstring.channel[0].strip_type = ledType==ledtype_sk6812 ? SK6812_STRIP_RGBW : WS2811_STRIP_GBR;
+  switch (ledType) {
+    case ledtype_sk6812: ledstring.channel[0].strip_type = SK6812_STRIP_RGBW; break; // our SK6812 means RGBW
+    case ledtype_p9823: ledstring.channel[0].strip_type = WS2811_STRIP_RGB; break; // some WS2811 might also use RGB order
+    default: ledstring.channel[0].strip_type = WS2812_STRIP; break; // most common order, such as in WS2812,12B,13
+  }
+  ledstring.channel[0].strip_type = ledType==ledtype_sk6812 ? SK6812_STRIP_RGBW : WS2812_STRIP;
   ledstring.channel[0].leds = NULL; // will be allocated by the library
   // channel 1 - unused
   ledstring.channel[1].gpionum = 0;
