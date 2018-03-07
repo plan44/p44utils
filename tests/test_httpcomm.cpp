@@ -121,6 +121,8 @@ public:
 #define WRONGCN_TEST_URL "plan442.nine.ch/testing/httptest.php"
 #define ERR404_TEST_URL "plan44.ch/testing/BADhttptest.php"
 #define ERR500_TEST_URL "plan44.ch/testing/httptest.php?err=500"
+#define NOCONTENT204_TEST_URL "plan44.ch/testing/httptest.php?err=204"
+#define NOTMODIFIED304_TEST_URL "plan44.ch/testing/httptest.php?err=304"
 #define SLOWDATA_TEST_URL "plan44.ch/testing/httptest.php?delay=3"
 #define STREAMDATA_TEST_URL "plan44.ch/testing/httptest.php?stream=5&delay=1"
 #define BIGDATA_TEST_URL "plan44.ch/testing/httptest.php?size=4000000"
@@ -330,7 +332,7 @@ TEST_CASE_METHOD(HttpFixture, "https stream data", "[https]") {
   REQUIRE(chunks >= 5); /* should be at least 4 chunks, plus empty terminating response */
 }
 
-TEST_CASE_METHOD(HttpFixture, "http 4MBytes GET test", "[http],[FOCUS]") {
+TEST_CASE_METHOD(HttpFixture, "http 4MBytes GET test", "[http]") {
   http->setBufferSize(512*1024);
   REQUIRE(runHttp("http://" BIGDATA_TEST_URL, "GET", 15*Second)==EXIT_SUCCESS);
   INFO(Error::text(httpErr));
@@ -338,12 +340,28 @@ TEST_CASE_METHOD(HttpFixture, "http 4MBytes GET test", "[http],[FOCUS]") {
   REQUIRE(response.size()>4000000);
 }
 
-TEST_CASE_METHOD(HttpFixture, "https 4MBytes GET test", "[https],[FOCUS]") {
+TEST_CASE_METHOD(HttpFixture, "https 4MBytes GET test", "[https]") {
   http->setBufferSize(512*1024);
   REQUIRE(runHttp("https://" BIGDATA_TEST_URL, "GET", 15*Second)==EXIT_SUCCESS);
   INFO(Error::text(httpErr));
   REQUIRE(Error::isOK(httpErr));
   REQUIRE(response.size()>4000000);
+}
+
+TEST_CASE_METHOD(HttpFixture, "http 204 no content test", "[http],[FOCUS]") {
+  http->setBufferSize(512*1024);
+  REQUIRE(runHttp("http://" NOCONTENT204_TEST_URL, "GET", 15*Second)==EXIT_SUCCESS);
+  INFO(Error::text(httpErr));
+  REQUIRE(Error::isError(httpErr, WebError::domain(), 204));
+  REQUIRE(response.size()==0);
+}
+
+TEST_CASE_METHOD(HttpFixture, "http 304 not modified test", "[http],[FOCUS]") {
+  http->setBufferSize(512*1024);
+  REQUIRE(runHttp("http://" NOTMODIFIED304_TEST_URL, "GET", 15*Second)==EXIT_SUCCESS);
+  INFO(Error::text(httpErr));
+  REQUIRE(Error::isError(httpErr, WebError::domain(), 304));
+  REQUIRE(response.size()==0);
 }
 
 

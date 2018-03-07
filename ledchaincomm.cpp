@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2016-2017 plan44.ch / Lukas Zeller, Zurich, Switzerland
+//  Copyright (c) 2016-2018 plan44.ch / Lukas Zeller, Zurich, Switzerland
 //
 //  Author: Lukas Zeller <luz@plan44.ch>
 //
@@ -65,6 +65,7 @@ LEDChainComm::LEDChainComm(LedType aLedType, const string aDeviceName, uint16_t 
   swapXY = aSwapXY;
   // prepare hardware related stuff
   #if ENABLE_RPIWS281X
+  memset(&ledstring, 0, sizeof(ledstring));
   // initialize the led string structure
   ledstring.freq = TARGET_FREQ;
   ledstring.dmanum = DMA;
@@ -74,6 +75,7 @@ LEDChainComm::LEDChainComm(LedType aLedType, const string aDeviceName, uint16_t 
   ledstring.channel[0].count = numLeds;
   ledstring.channel[0].invert = GPIO_INVERT;
   ledstring.channel[0].brightness = MAX_BRIGHTNESS;
+  ledstring.channel[0].strip_type = ledType==ledtype_sk6812 ? SK6812_STRIP_RGBW : WS2811_STRIP_GBR;
   ledstring.channel[0].leds = NULL; // will be allocated by the library
   // channel 1 - unused
   ledstring.channel[1].gpionum = 0;
@@ -120,7 +122,14 @@ bool LEDChainComm::begin()
   if (!initialized) {
     #if ENABLE_RPIWS281X
     // initialize library
-    initialized = ws2811_init(&ledstring)==0;
+    ws2811_return_t ret = ws2811_init(&ledstring);
+    if (ret==WS2811_SUCCESS) {
+      initialized = true;
+    }
+    else {
+      LOG(LOG_ERR, "Error: ws2811_init failed: %s", ws2811_get_return_t_str(ret));
+      initialized = false;
+    }
     #else
     ledbuffer = new uint8_t[numColorComponents*numLeds];
     memset(ledbuffer, 0, numColorComponents*numLeds);
@@ -245,9 +254,12 @@ void LEDChainComm::setColorXY(uint16_t aX, uint16_t aY, uint8_t aRed, uint8_t aG
   if (ledindex>=numLeds) return;
   #if ENABLE_RPIWS281X
   ws2811_led_t pixel =
-  (pwmtable[aRed] << 16) |
-  (pwmtable[aGreen] << 8) |
-  (pwmtable[aBlue]);
+    (pwmtable[aRed] << 16) |
+    (pwmtable[aGreen] << 8) |
+    (pwmtable[aBlue]);
+  if (numColorComponents>3) {
+    pixel |= (pwmtable[aWhite] << 24);
+  }
   ledstring.channel[0].leds[ledindex] = pixel;
   #else
   ledbuffer[numColorComponents*ledindex] = pwmtable[aRed];
@@ -300,6 +312,12 @@ void LEDChainComm::getColorXY(uint16_t aX, uint16_t aY, uint8_t &aRed, uint8_t &
   aRed = brightnesstable[(pixel>>16) & 0xFF];
   aGreen = brightnesstable[(pixel>>8) & 0xFF];
   aBlue = brightnesstable[pixel & 0xFF];
+  if (numColorComponents>3) {
+    aWhite = brightnesstable[(pixel>>24) & 0xFF];
+  }
+  else {
+    aWhite = 0;
+  }
   #else
   aRed = brightnesstable[ledbuffer[numColorComponents*ledindex]];
   aGreen = brightnesstable[ledbuffer[numColorComponents*ledindex+1]];

@@ -15,7 +15,7 @@
  *         provided with the distribution.
  *     3.  Neither the name of the owner nor the names of its contributors may be used to endorse
  *         or promote products derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER BE
@@ -46,7 +46,7 @@ typedef struct
     uint32_t stride;
     uint32_t nextconbk;
     uint32_t resvd_0x18[2];
-} __attribute__((packed)) dma_cb_t;
+} __attribute__((packed, aligned(4))) dma_cb_t;
 
 /*
  * DMA register set
@@ -58,7 +58,7 @@ typedef struct
 #define RPI_DMA_CS_ABORT                         (1 << 30)
 #define RPI_DMA_CS_DISDEBUG                      (1 << 29)
 #define RPI_DMA_CS_WAIT_OUTSTANDING_WRITES       (1 << 28)
-#define RPI_DMA_CS_PANIC_PRIORITY(val)           ((val & 0xf) << 20)                
+#define RPI_DMA_CS_PANIC_PRIORITY(val)           ((val & 0xf) << 20)
 #define RPI_DMA_CS_PRIORITY(val)                 ((val & 0xf) << 16)
 #define RPI_DMA_CS_ERROR                         (1 << 8)
 #define RPI_DMA_CS_WAITING_OUTSTANDING_WRITES    (1 << 6)
@@ -95,7 +95,7 @@ typedef struct
 #define RPI_DMA_STRIDE_S_STRIDE(val)             ((val & 0xffff) << 0)
     uint32_t nextconbk;
     uint32_t debug;
-} __attribute__((packed)) dma_t;
+} __attribute__((packed, aligned(4))) dma_t;
 
 
 #define DMA0_OFFSET                              (0x00007000)
@@ -121,6 +121,6 @@ typedef struct
 #define PAGE_OFFSET(page)                        (page & (PAGE_SIZE - 1))
 
 
-uint32_t dmanum_to_phys(int dmanum);
+uint32_t dmanum_to_offset(int dmanum);
 
 #endif /* __DMA_H__ */

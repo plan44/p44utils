@@ -15,7 +15,7 @@
  *         provided with the distribution.
  *     3.  Neither the name of the owner nor the names of its contributors may be used to endorse
  *         or promote products derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER BE
@@ -38,12 +38,11 @@
 #include <sys/stat.h>
 #include <sys/mman.h>
 
-#include "board_info.h"
 #include "dma.h"
 
 
 // DMA address mapping by DMA number index
-const static uint32_t dma_offset[] =
+static const uint32_t dma_offset[] =
 {
     DMA0_OFFSET,
     DMA1_OFFSET,
@@ -64,7 +63,7 @@ const static uint32_t dma_offset[] =
 };
 
 
-uint32_t dmanum_to_phys(int dmanum)
+uint32_t dmanum_to_offset(int dmanum)
 {
     int array_size = sizeof(dma_offset) / sizeof(dma_offset[0]);
 
@@ -73,7 +72,7 @@ uint32_t dmanum_to_phys(int dmanum)
         return 0;
     }
 
-    return dma_offset[dmanum] + board_info_peripheral_base_addr();
+    return dma_offset[dmanum];
 }
 
 

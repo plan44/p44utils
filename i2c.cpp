@@ -30,7 +30,7 @@
 #include "i2c.hpp"
 
 // locally disable actual functionality on unsupported platforms (but still provide console output dummies)
-#if !defined(DISABLE_I2C) && (defined(__APPLE__) || P44_BUILD_DIGI) && !P44_BUILD_RPI
+#if !defined(DISABLE_I2C) && (defined(__APPLE__) || P44_BUILD_DIGI) && !P44_BUILD_RPI && !P44_BUILD_OW
   #define DISABLE_I2C 1
 #endif
 

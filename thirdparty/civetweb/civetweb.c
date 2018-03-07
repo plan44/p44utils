@@ -16288,7 +16288,13 @@ get_response(struct mg_connection *conn, char *ebuf, size_t ebuf_len, int *err)
   /* Message is a valid response */
 
   /* Do we know the content length? */
-  if ((cl = get_header(conn->response_info.http_headers,
+	if (conn->response_info.status_code==304) {
+		/* 304/not modified responses MAY carry a Content-Length header
+		   indicating the length of the document, which is NOT sent.
+		   So we MUST ignore the content length for actual data transfer
+		   purposes and imply 0 here. */
+		conn->content_len = 0;
+	} else if ((cl = get_header(conn->response_info.http_headers,
                        conn->response_info.num_headers,
                        "Content-Length")) != NULL) {
     /* Request/response has content length set */
@@ -16307,7 +16313,7 @@ get_response(struct mg_connection *conn, char *ebuf, size_t ebuf_len, int *err)
     /* Publish the content length back to the response info. */
     conn->response_info.content_length = conn->content_len;
 
-    /* TODO: check if it is still used in response_info */
+    /* TODO: check if it is still used in request_info */
     conn->request_info.content_length = conn->content_len;
 
   } else if ((cl = get_header(conn->response_info.http_headers,
@@ -16316,9 +16322,13 @@ get_response(struct mg_connection *conn, char *ebuf, size_t ebuf_len, int *err)
              && !mg_strcasecmp(cl, "chunked")) {
     conn->is_chunked = 1;
     conn->content_len = -1; /* unknown content length */
-  } else {
-    conn->content_len = -1; /* unknown content length */
-  }
+	} else if (conn->response_info.status_code==204) {
+		/* 204 implies no content, unless explicit Content-Length
+		   header or Transfer-Encoding:chunked has indicated otherwise */
+		conn->content_len = 0;
+	} else {
+		conn->content_len = -1; /* unknown content length */
+	}
 
   conn->connection_type = CONNECTION_TYPE_RESPONSE; /* Valid response */
   return 1;

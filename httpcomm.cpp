@@ -198,7 +198,7 @@ void HttpComm::requestThread(ChildThreadWrapper &aThread)
       if (status==401) {
         LOG(LOG_DEBUG, "401 - http auth?")
       }
-      if (status<200 || status>=300) {
+      if (status!=200) {
         // Important: report status as WebError, not HttpCommError, because it is not technically an error on the HTTP transport level
         requestError = WebError::webErr(status,"HTTP non-ok status");
       }
@@ -214,7 +214,9 @@ void HttpComm::requestThread(ChildThreadWrapper &aThread)
         // - read data
         uint8_t *bufferP = new uint8_t[bufferSz];
         int errCause;
+        #if !USE_LIBMONGOOSE
         double to = streamResult ? TMO_SOMETHING : copts.timeout;
+        #endif
         while (true) {
           #if !USE_LIBMONGOOSE
           ssize_t res = mg_read_ex(mgConn, bufferP, bufferSz, to, &errCause);
@@ -274,7 +276,8 @@ void HttpComm::requestThread(ChildThreadWrapper &aThread)
           }
         }
         delete[] bufferP;
-      }
+      } // if content to read
+      // done, close connection
       mg_close_connection(mgConn);
     }
   }

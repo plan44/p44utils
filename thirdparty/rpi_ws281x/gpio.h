@@ -15,7 +15,7 @@
  *         provided with the distribution.
  *     3.  Neither the name of the owner nor the names of its contributors may be used to endorse
  *         or promote products derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER BE
@@ -59,7 +59,7 @@ typedef struct
     uint32_t pudclk[2];                          // GPIO Pin Pull up/down Enable Clock
     uint32_t resvd_0xa0[4];
     uint32_t test;
-} __attribute__((packed)) gpio_t;
+} __attribute__((packed, aligned(4))) gpio_t;
 
 
 #define GPIO_OFFSET                              (0x00200000)
