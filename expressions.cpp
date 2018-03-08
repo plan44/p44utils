@@ -244,7 +244,17 @@ ExpressionValue evaluateTerm(const char * &aText, ValueLookupCB aValueLookupCB, 
       }
     }
     else {
-      if (aValueLookupCB) {
+      // check some reserved values
+      if (term=="true" || term=="yes") {
+        res = ExpressionValue(1);
+      }
+      else if (term=="false" || term=="no") {
+        res = ExpressionValue(0);
+      }
+      else if (term=="null" || term=="undefined") {
+        res = ExpressionError::errValue(ExpressionError::Null, "%s", term.c_str());
+      }
+      else if (aValueLookupCB) {
         res = aValueLookupCB(term);
       }
       else {
