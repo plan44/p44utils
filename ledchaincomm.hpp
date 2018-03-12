@@ -62,8 +62,9 @@ namespace p44 {
   public:
 
     typedef enum {
-      ledtype_ws281x,  // RGB
-      ledtype_sk6812   // RGBW
+      ledtype_ws281x,  // RGB (with GRB subpixel order)
+      ledtype_p9823,   // RGB (with RGB subpixel order)
+      ledtype_sk6812   // RGBW (with RGBW subpixel order)
     } LedType;
 
   private:

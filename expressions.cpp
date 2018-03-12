@@ -26,8 +26,8 @@
 //   Note: must be before including "logger.hpp" (or anything that includes "logger.hpp")
 #define FOCUSLOGLEVEL 7
 
-
 #include "expressions.hpp"
+#include "math.h"
 
 using namespace p44;
 
@@ -47,7 +47,7 @@ ErrorPtr p44::substitutePlaceholders(string &aString, StringValueLookupCB aValue
     size_t e = aString.find("}",p+2);
     if (e==string::npos) {
       // syntactically incorrect, no closing "}"
-      err = TextError::err("unterminated placeholder: %s", aString.c_str()+p);
+      err = ExpressionError::err(ExpressionError::Syntax, "unterminated placeholder: %s", aString.c_str()+p);
       break;
     }
     string v = aString.substr(p+2,e-2-p);
@@ -120,11 +120,71 @@ ErrorPtr p44::substitutePlaceholders(string &aString, StringValueLookupCB aValue
 
 
 
+// MARK: ===== expression error
+
+
+ErrorPtr ExpressionError::err(ErrorCodes aErrCode, const char *aFmt, ...)
+{
+  Error *errP = new ExpressionError(aErrCode);
+  va_list args;
+  va_start(args, aFmt);
+  errP->setFormattedMessage(aFmt, args);
+  va_end(args);
+  return ErrorPtr(errP);
+}
+
+
+ExpressionValue ExpressionError::errValue(ErrorCodes aErrCode, const char *aFmt, ...)
+{
+  Error *errP = new ExpressionError(aErrCode);
+  va_list args;
+  va_start(args, aFmt);
+  errP->setFormattedMessage(aFmt, args);
+  va_end(args);
+  return ExpressionValue(ErrorPtr(errP));
+}
+
+
 
 // MARK: ===== numeric term evaluation
 
+ExpressionValue evaluateExpressionPrivate(const char * &aText, int aPrecedence, ValueLookupCB aValueLookupCB, FunctionLookupCB aFunctionLookpCB);
 
-ErrorPtr evaluateTerm(const char * &aText, double &aValue, DoubleValueLookupCB aValueLookupCB)
+
+ExpressionValue evaluateBuiltinFunction(const string &aName, const FunctionArgumentVector &aArgs)
+{
+  if (aName=="ifvalid" && aArgs.size()==2) {
+    // ifvalid(a, b)   if a is a valid value, return it, otherwise return the default as specified by b
+    return ExpressionValue(aArgs[0].isOk() ? aArgs[0] : aArgs[1]);
+  }
+  else if (aName=="if" && aArgs.size()==3) {
+    // if (c, a, b)    if c evaluates to true, return a, otherwise b
+    if (!aArgs[0].isOk()) return aArgs[0]; // return error from condition
+    return ExpressionValue(aArgs[0].v!=0 ? aArgs[1] : aArgs[2]);
+  }
+  else if (aName=="abs" && aArgs.size()==1) {
+    // abs (a)         absolute value of a
+    if (!aArgs[0].isOk()) return aArgs[0]; // return error from argument
+    return ExpressionValue(fabs(aArgs[0].v));
+  }
+  else if (aName=="round" && (aArgs.size()==1 || aArgs.size()==2)) {
+    // round (a)       round value to integer
+    // round (a, p)    round value to specified precision (1=integer, 0.5=halves, 100=hundreds, etc...)
+    if (!aArgs[0].isOk()) return aArgs[0]; // return error from argument
+    double precision = 1;
+    if (aArgs.size()>=2) {
+      if (!aArgs[1].isOk()) return aArgs[0]; // return error from argument
+      precision = aArgs[1].v;
+    }
+    return ExpressionValue(round(aArgs[0].v/precision)*precision);
+  }
+  // no such function
+  return ExpressionError::errValue(ExpressionError::NotFound, "Unknown function '%s' with %lu arguments", aName.c_str(), aArgs.size());
+}
+
+
+
+ExpressionValue evaluateTerm(const char * &aText, ValueLookupCB aValueLookupCB, FunctionLookupCB aFunctionLookpCB)
 {
   const char *a = aText;
   // a simple term can be
@@ -133,11 +193,11 @@ ErrorPtr evaluateTerm(const char * &aText, double &aValue, DoubleValueLookupCB a
   // Note: a parantesized expression can also be a term, but this is parsed by the caller, not here
   while (*aText==' ' || *aText=='\t') aText++; // skip whitespace
   // extract var name or number
-  double v = 0;
+  ExpressionValue res;
   const char *e = aText;
   while (*e && (isalnum(*e) || *e=='.' || *e=='_')) e++;
   if (e==aText) {
-    return TextError::err("missing term");
+    return ExpressionError::errValue(ExpressionError::Syntax, "missing term");
   }
   // must be simple term
   string term;
@@ -147,27 +207,78 @@ ErrorPtr evaluateTerm(const char * &aText, double &aValue, DoubleValueLookupCB a
   while (*aText==' ' || *aText=='\t') aText++; // skip whitespace
   // decode term
   if (isalpha(term[0])) {
-    // must be a variable
     ErrorPtr err;
-    if (aValueLookupCB) {
-      err = aValueLookupCB(term, v);
+    // must be a variable or function call
+    if (*aText=='(') {
+      // function call
+      aText++; // skip opening paranthesis
+      // - collect arguments
+      FunctionArgumentVector args;
+      while (true) {
+        while (*aText==' ' || *aText=='\t') aText++; // skip whitespace
+        if (*aText==')')
+          break; // no more arguments
+        if (args.size()!=0) {
+          if (*aText!=',')
+            return ExpressionError::errValue(ExpressionError::Syntax, "missing comma or closing ')'");
+          aText++; // skip comma
+        }
+        ExpressionValue arg = evaluateExpressionPrivate(aText, 0, aValueLookupCB, aFunctionLookpCB);
+        if (!arg.isOk() && arg.err->isError("ExpressionError", ExpressionError::Syntax))
+          return arg; // exit on syntax errors
+        args.push_back(arg);
+      }
+      aText++; // skip closing paranthesis
+      FOCUSLOG("Function '%s' called", term.c_str());
+      for (FunctionArgumentVector::iterator pos = args.begin(); pos!=args.end(); ++pos) {
+        FOCUSLOG("- argument: %lf (err=%s)", pos->v, Error::text(pos->err).c_str());
+      }
+      // run function
+      bool foundFunc = false;
+      if (aFunctionLookpCB) {
+        res = aFunctionLookpCB(term, args);
+        foundFunc = res.isOk() || !res.err->isError("ExpressionError", ExpressionError::NotFound);
+      }
+      if (!foundFunc) {
+        res = evaluateBuiltinFunction(term, args);
+      }
     }
     else {
-      // undefined
-      err = TextError::err("missing variable lookup func");
+      // check some reserved values
+      if (term=="true" || term=="yes") {
+        res = ExpressionValue(1);
+      }
+      else if (term=="false" || term=="no") {
+        res = ExpressionValue(0);
+      }
+      else if (term=="null" || term=="undefined") {
+        res = ExpressionError::errValue(ExpressionError::Null, "%s", term.c_str());
+      }
+      else if (aValueLookupCB) {
+        res = aValueLookupCB(term);
+      }
+      else {
+        // undefined
+        res = ExpressionError::errValue(ExpressionError::NotFound, "no variables");
+      }
     }
-    if (!Error::isOK(err)) return err;
   }
   else {
     // must be a numeric literal
+    double v;
     if (sscanf(term.c_str(), "%lf", &v)!=1) {
-      return TextError::err("'%s' is not a valid number", term.c_str());
+      return ExpressionError::errValue(ExpressionError::Syntax, "'%s' is not a valid number", term.c_str());
     }
+    res = ExpressionValue(v);
   }
   // valid term
-  FOCUSLOG("Term '%.*s' evaluation result: %lf", (int)(aText-a), a, v);
-  aValue = v;
-  return ErrorPtr();
+  if (res.isOk()) {
+    FOCUSLOG("Term '%.*s' evaluation result: %lf", (int)(aText-a), a, res.v);
+  }
+  else {
+    FOCUSLOG("Term '%.*s' evaluation error: %s", (int)(aText-a), a, res.err->description().c_str());
+  }
+  return res;
 }
 
 
@@ -237,16 +348,15 @@ static Operations parseOperator(const char * &aText)
 
 
 
-ErrorPtr evaluateExpressionPrivate(const char * &aText, double &aValue, int aPrecedence, DoubleValueLookupCB aValueLookupCB)
+ExpressionValue evaluateExpressionPrivate(const char * &aText, int aPrecedence, ValueLookupCB aValueLookupCB, FunctionLookupCB aFunctionLookpCB)
 {
   const char *a = aText;
-  ErrorPtr err;
-  double result = 0;
+  ExpressionValue res;
   // check for optional unary op
   Operations unaryop = parseOperator(aText);
   if (unaryop!=op_none) {
     if (unaryop!=op_subtract && unaryop!=op_not) {
-      return TextError::err("invalid unary operator");
+      return ExpressionError::errValue(ExpressionError::Syntax, "invalid unary operator");
     }
   }
   // evaluate term
@@ -254,22 +364,22 @@ ErrorPtr evaluateExpressionPrivate(const char * &aText, double &aValue, int aPre
   if (*aText=='(') {
     // term is expression in paranthesis
     aText++;
-    ErrorPtr err = evaluateExpressionPrivate(aText, result, 0, aValueLookupCB);
-    if (!Error::isOK(err)) return err;
+    res = evaluateExpressionPrivate(aText, 0, aValueLookupCB, aFunctionLookpCB);
+    if (!res.isOk()) return res;
     if (*aText!=')') {
-      return TextError::err("Missing ')'");
+      return ExpressionValue(ExpressionError::err(ExpressionError::Syntax, "Missing ')'"));
     }
     aText++;
   }
   else {
     // must be simple term
-    err = evaluateTerm(aText, result, aValueLookupCB);
-    if (!Error::isOK(err)) return err;
+    res = evaluateTerm(aText, aValueLookupCB, aFunctionLookpCB);
+    if (!res.isOk()) return res;
   }
   // apply unary ops if any
   switch (unaryop) {
-    case op_not : result = result > 0 ? 0 : 1; break;
-    case op_subtract : result = -result; break;
+    case op_not : res.v = res.v > 0 ? 0 : 1; break;
+    case op_subtract : res.v = -res.v; break;
     default: break;
   }
   while (*aText) {
@@ -277,49 +387,47 @@ ErrorPtr evaluateExpressionPrivate(const char * &aText, double &aValue, int aPre
     const char *optext = aText;
     Operations binaryop = parseOperator(optext);
     int precedence = binaryop & opmask_precedence;
-    // end parsing here if end of text reached or operator has a lower or same precedence as the passed in precedence
-    if (*optext==0 || *optext==')' || precedence<=aPrecedence) {
+    // end parsing here if end of text, paranthesis or argument reached or operator has a lower or same precedence as the passed in precedence
+    if (*optext==0 || *optext==')' || *optext==',' || precedence<=aPrecedence) {
       // what we have so far is the result
       break;
     }
     // must parse right side of operator as subexpression
     aText = optext; // advance past operator
-    double rightside;
-    err = evaluateExpressionPrivate(aText, rightside, precedence, aValueLookupCB);
-    if (!Error::isOK(err)) return err;
+    ExpressionValue rightside = evaluateExpressionPrivate(aText, precedence, aValueLookupCB, aFunctionLookpCB);
+    if (!rightside.isOk()) return rightside;
     // apply the operation between leftside and rightside
     switch (binaryop) {
       case op_not: {
-        return TextError::err("NOT operator not allowed here");
+        return ExpressionError::err(ExpressionError::Syntax, "NOT operator not allowed here");
       }
       case op_divide:
-        if (rightside==0) return TextError::err("division by zero");
-        result = result/rightside;
+        if (rightside.v==0) return ExpressionError::errValue(ExpressionError::DivisionByZero, "division by zero");
+        res.v = res.v/rightside.v;
         break;
-      case op_multiply: result = result*rightside; break;
-      case op_add: result = result+rightside; break;
-      case op_subtract: result = result-rightside; break;
-      case op_equal: result = result==rightside; break;
-      case op_notequal: result = result!=rightside; break;
-      case op_less: result = result < rightside; break;
-      case op_greater: result = result > rightside; break;
-      case op_leq: result = result <= rightside; break;
-      case op_geq: result = result >= rightside; break;
-      case op_and: result = result && rightside; break;
-      case op_or: result = result || rightside; break;
+      case op_multiply: res.v = res.v*rightside.v; break;
+      case op_add: res.v = res.v+rightside.v; break;
+      case op_subtract: res.v = res.v-rightside.v; break;
+      case op_equal: res.v = res.v==rightside.v; break;
+      case op_notequal: res.v = res.v!=rightside.v; break;
+      case op_less: res.v = res.v < rightside.v; break;
+      case op_greater: res.v = res.v > rightside.v; break;
+      case op_leq: res.v = res.v <= rightside.v; break;
+      case op_geq: res.v = res.v >= rightside.v; break;
+      case op_and: res.v = res.v && rightside.v; break;
+      case op_or: res.v = res.v || rightside.v; break;
       default: break;
     }
-    FOCUSLOG("Intermediate expression '%.*s' evaluation result: %lf", (int)(aText-a), a, result);
+    FOCUSLOG("Intermediate expression '%.*s' evaluation result: %lf", (int)(aText-a), a, res.v);
   }
   // done
-  aValue = result;
-  return ErrorPtr();
+  return res;
 }
 
 
-ErrorPtr p44::evaluateExpression(const string &aExpression, double &aResult, DoubleValueLookupCB aValueLookupCB)
+ExpressionValue p44::evaluateExpression(const string &aExpression, ValueLookupCB aValueLookupCB, FunctionLookupCB aFunctionLookpCB)
 {
   const char *p = aExpression.c_str();
-  return evaluateExpressionPrivate(p, aResult, 0, aValueLookupCB);
+  return evaluateExpressionPrivate(p, 0, aValueLookupCB, aFunctionLookpCB);
 }
 
