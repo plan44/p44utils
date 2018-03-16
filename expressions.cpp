@@ -365,7 +365,7 @@ ExpressionValue evaluateExpressionPrivate(const char * &aText, int aPrecedence, 
     // term is expression in paranthesis
     aText++;
     res = evaluateExpressionPrivate(aText, 0, aValueLookupCB, aFunctionLookpCB);
-    if (!res.isOk()) return res;
+    if (Error::isError(res.err, ExpressionError::domain(), ExpressionError::Syntax)) return res;
     if (*aText!=')') {
       return ExpressionValue(ExpressionError::err(ExpressionError::Syntax, "Missing ')'"));
     }
@@ -374,7 +374,7 @@ ExpressionValue evaluateExpressionPrivate(const char * &aText, int aPrecedence, 
   else {
     // must be simple term
     res = evaluateTerm(aText, aValueLookupCB, aFunctionLookpCB);
-    if (!res.isOk()) return res;
+    if (Error::isError(res.err, ExpressionError::domain(), ExpressionError::Syntax)) return res;
   }
   // apply unary ops if any
   switch (unaryop) {
@@ -395,30 +395,35 @@ ExpressionValue evaluateExpressionPrivate(const char * &aText, int aPrecedence, 
     // must parse right side of operator as subexpression
     aText = optext; // advance past operator
     ExpressionValue rightside = evaluateExpressionPrivate(aText, precedence, aValueLookupCB, aFunctionLookpCB);
-    if (!rightside.isOk()) return rightside;
-    // apply the operation between leftside and rightside
-    switch (binaryop) {
-      case op_not: {
-        return ExpressionError::err(ExpressionError::Syntax, "NOT operator not allowed here");
+    if (!rightside.isOk()) res=rightside;
+    if (res.isOk()) {
+      // apply the operation between leftside and rightside
+      switch (binaryop) {
+        case op_not: {
+          return ExpressionError::err(ExpressionError::Syntax, "NOT operator not allowed here");
+        }
+        case op_divide:
+          if (rightside.v==0) return ExpressionError::errValue(ExpressionError::DivisionByZero, "division by zero");
+          res.v = res.v/rightside.v;
+          break;
+        case op_multiply: res.v = res.v*rightside.v; break;
+        case op_add: res.v = res.v+rightside.v; break;
+        case op_subtract: res.v = res.v-rightside.v; break;
+        case op_equal: res.v = res.v==rightside.v; break;
+        case op_notequal: res.v = res.v!=rightside.v; break;
+        case op_less: res.v = res.v < rightside.v; break;
+        case op_greater: res.v = res.v > rightside.v; break;
+        case op_leq: res.v = res.v <= rightside.v; break;
+        case op_geq: res.v = res.v >= rightside.v; break;
+        case op_and: res.v = res.v && rightside.v; break;
+        case op_or: res.v = res.v || rightside.v; break;
+        default: break;
       }
-      case op_divide:
-        if (rightside.v==0) return ExpressionError::errValue(ExpressionError::DivisionByZero, "division by zero");
-        res.v = res.v/rightside.v;
-        break;
-      case op_multiply: res.v = res.v*rightside.v; break;
-      case op_add: res.v = res.v+rightside.v; break;
-      case op_subtract: res.v = res.v-rightside.v; break;
-      case op_equal: res.v = res.v==rightside.v; break;
-      case op_notequal: res.v = res.v!=rightside.v; break;
-      case op_less: res.v = res.v < rightside.v; break;
-      case op_greater: res.v = res.v > rightside.v; break;
-      case op_leq: res.v = res.v <= rightside.v; break;
-      case op_geq: res.v = res.v >= rightside.v; break;
-      case op_and: res.v = res.v && rightside.v; break;
-      case op_or: res.v = res.v || rightside.v; break;
-      default: break;
+      FOCUSLOG("Intermediate expression '%.*s' evaluation result: %lf", (int)(aText-a), a, res.v);
     }
-    FOCUSLOG("Intermediate expression '%.*s' evaluation result: %lf", (int)(aText-a), a, res.v);
+    else {
+      FOCUSLOG("Intermediate expression '%.*s' evaluation result is INVALID", (int)(aText-a), a);
+    }
   }
   // done
   return res;
