@@ -80,6 +80,7 @@ Application::~Application()
 void Application::initializeInternal()
 {
   resourcepath = "."; // current directory by default
+  datapath = "/tmp"; // tmp by default
   // "publish" singleton
   sharedApplicationP = this;
   // register signal handlers
