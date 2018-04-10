@@ -11171,6 +11171,7 @@ do_ssi_include(struct mg_connection *conn,
 
 
 #if !defined(NO_POPEN)
+
 static void
 do_ssi_exec(struct mg_connection *conn, char *tag)
 {
@@ -11180,8 +11181,55 @@ do_ssi_exec(struct mg_connection *conn, char *tag)
   if (sscanf(tag, " \"%1023[^\"]\"", cmd) != 1) {
     mg_cry_internal(conn, "Bad SSI #exec: [%s]", tag);
   } else {
-    cmd[1023] = 0;
-    if ((file.access.fp = popen(cmd, "r")) == NULL) {
+    // susbstitute $P with path and $Q with query string
+    char scmd[1024] = "";
+    char *sP = scmd;
+    const char *cP = cmd;
+    size_t room = 1023;
+    while (*cP) {
+      const char *iP = strchr(cP, '$');
+      size_t n;
+      if (iP) {
+        n = iP-cP; if (n>room) n=room;
+        strncpy(sP, cP, n); sP += n; room -= n; cP += n;
+        iP++;
+        if (*iP=='P') {
+          if (conn->request_info.request_uri) {
+            // replace $P by request uri
+            n = strlen(conn->request_info.request_uri); if (n>room) n=room;
+            strncpy(sP, conn->request_info.request_uri, n); sP += n; room -= n;
+          }
+          cP += 2;
+        }
+        else if (*iP=='Q') {
+          if (conn->request_info.query_string) {
+            // replace $Q by query string, and replace '&' by ':'
+            n = strlen(conn->request_info.query_string); if (n>room) n=room;
+            const char *qP = conn->request_info.query_string;
+            for (size_t i=0; i<n; i++) {
+              if (*qP=='&')
+                *sP++ = ':';
+              else
+                *sP++ = *qP;
+              qP++;
+              room--;
+            }
+          }
+          cP += 2;
+        }
+        else {
+          *(sP++) = '$'; room--;
+          cP++;
+        }
+      }
+      else {
+        n = strlen(cP); if (n>room) n=room;
+        strncpy(sP, cP, n); sP += n; room -= n; cP += n;
+        break;
+      }
+    }
+    *sP = 0;
+    if ((file.access.fp = popen(scmd, "r")) == NULL) {
       mg_cry_internal(conn,
                       "Cannot SSI #exec: [%s]: %s",
                       cmd,
@@ -16288,7 +16336,13 @@ get_response(struct mg_connection *conn, char *ebuf, size_t ebuf_len, int *err)
   /* Message is a valid response */
 
   /* Do we know the content length? */
-  if ((cl = get_header(conn->response_info.http_headers,
+	if (conn->response_info.status_code==304) {
+		/* 304/not modified responses MAY carry a Content-Length header
+		   indicating the length of the document, which is NOT sent.
+		   So we MUST ignore the content length for actual data transfer
+		   purposes and imply 0 here. */
+		conn->content_len = 0;
+	} else if ((cl = get_header(conn->response_info.http_headers,
                        conn->response_info.num_headers,
                        "Content-Length")) != NULL) {
     /* Request/response has content length set */
@@ -16307,7 +16361,7 @@ get_response(struct mg_connection *conn, char *ebuf, size_t ebuf_len, int *err)
     /* Publish the content length back to the response info. */
     conn->response_info.content_length = conn->content_len;
 
-    /* TODO: check if it is still used in response_info */
+    /* TODO: check if it is still used in request_info */
     conn->request_info.content_length = conn->content_len;
 
   } else if ((cl = get_header(conn->response_info.http_headers,
@@ -16316,9 +16370,13 @@ get_response(struct mg_connection *conn, char *ebuf, size_t ebuf_len, int *err)
              && !mg_strcasecmp(cl, "chunked")) {
     conn->is_chunked = 1;
     conn->content_len = -1; /* unknown content length */
-  } else {
-    conn->content_len = -1; /* unknown content length */
-  }
+	} else if (conn->response_info.status_code==204) {
+		/* 204 implies no content, unless explicit Content-Length
+		   header or Transfer-Encoding:chunked has indicated otherwise */
+		conn->content_len = 0;
+	} else {
+		conn->content_len = -1; /* unknown content length */
+	}
 
   conn->connection_type = CONNECTION_TYPE_RESPONSE; /* Valid response */
   return 1;

@@ -30,7 +30,7 @@
 #include "spi.hpp"
 
 // locally disable actual functionality on unsupported platforms (but still provide console output dummies)
-#if !defined(DISABLE_SPI) && (defined(__APPLE__) || P44_BUILD_DIGI) && !P44_BUILD_RPI
+#if !defined(DISABLE_SPI) && (defined(__APPLE__) || P44_BUILD_DIGI) && !P44_BUILD_RPI && !P44_BUILD_OW
   #define DISABLE_SPI 1
 #endif
 
@@ -40,7 +40,7 @@ extern "C" {
   #include <linux/spi/spidev.h>
 }
 #else
-#warning "No SPI supported on this platform - just showing calls in focus debug output"
+  #warning "No SPI supported on this platform - just showing calls in focus debug output"
 #endif
 
 
@@ -721,7 +721,7 @@ double MCP3008::getPinValue(int aPinNo)
   out[1] = (aPinNo^0x08)<<4;
   // - third byte is dummy
   out[2] = 0;
-  if (spibus->SPIRawWriteRead(this, 3, out, 3, in)) {
+  if (spibus->SPIRawWriteRead(this, 3, out, 3, in, true)) {
     // A/D output data are 10 LSB of data read back
     raw = ((uint16_t)(in[1] & 0x03)<<8) + in[2];
   }

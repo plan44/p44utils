@@ -29,27 +29,63 @@ using namespace std;
 
 namespace p44 {
 
-/// callback function for obtaining string variables
-/// @param aValue the contents of this is looked up and possibly replaced
-/// @return ok or error
-typedef boost::function<ErrorPtr (const string aName, string &aValue)> StringValueLookupCB;
+  /// callback function for obtaining string variables
+  /// @param aValue the contents of this is looked up and possibly replaced
+  /// @return ok or error
+  typedef boost::function<ErrorPtr (const string aName, string &aValue)> StringValueLookupCB;
 
-/// substitute "@{xxx}" type placeholders in string
-/// @param aString string to replace placeholders in
-/// @param aValueLookupCB this will be called to get variables resolved into values
-ErrorPtr substitutePlaceholders(string &aString, StringValueLookupCB aValueLookupCB);
-
-
-/// callback function for obtaining numeric variables
-/// @param aValue the contents of this is looked up and possibly replaced
-/// @return ok or error
-typedef boost::function<ErrorPtr (const string aName, double &aValue)> DoubleValueLookupCB;
-
-/// evaluate expression with numeric result
-/// @param aExpression the expression text
-/// @param aResult the numeric result
+  /// substitute "@{xxx}" type placeholders in string
+  /// @param aString string to replace placeholders in
   /// @param aValueLookupCB this will be called to get variables resolved into values
-ErrorPtr evaluateExpression(const string &aExpression, double &aResult, DoubleValueLookupCB aValueLookupCB);
+  ErrorPtr substitutePlaceholders(string &aString, StringValueLookupCB aValueLookupCB);
+
+  /// expression value, consisting of a value and an error to indicate non-value and reason for it
+  class ExpressionValue {
+  public:
+    double v;
+    ErrorPtr err;
+    ExpressionValue() { v = 0; };
+    ExpressionValue(ErrorPtr aError, double aValue = 0) { err = aError; v = aValue; };
+    ExpressionValue(double aValue) { v = aValue; };
+    bool isOk() const { return Error::isOK(err); }
+  };
+
+
+  /// Expression Error
+  class ExpressionError : public Error
+  {
+  public:
+    // Errors
+    typedef enum {
+      OK,
+      Null,
+      Syntax,
+      DivisionByZero,
+      NotFound, ///< variable, object, function not found (for callback)
+    } ErrorCodes;
+    static const char *domain() { return "ExpressionError"; }
+    virtual const char *getErrorDomain() const { return ExpressionError::domain(); };
+    ExpressionError(ErrorCodes aError) : Error(ErrorCode(aError)) {};
+    /// factory method to create string error fprint style
+    static ErrorPtr err(ErrorCodes aErrCode, const char *aFmt, ...) __printflike(2,3);
+    static ExpressionValue errValue(ErrorCodes aErrCode, const char *aFmt, ...) __printflike(2,3);
+  };
+
+  /// callback function for obtaining numeric variables
+  /// @param aName the name of the value/variable to look up
+  /// @return Expression value (with error when value is not available)
+  typedef boost::function<ExpressionValue (const string aName)> ValueLookupCB;
+
+  /// callback function for function evaluation
+  typedef std::vector<ExpressionValue> FunctionArgumentVector;
+  typedef boost::function<ExpressionValue (const string aFunctionName, const FunctionArgumentVector &aArguments)> FunctionLookupCB;
+
+  /// evaluate expression with numeric result
+  /// @param aExpression the expression text
+  /// @param aValueLookupCB this will be called to get variables resolved into values
+  /// @param aFunctionLookpCB this will be called to execute functions that are not built-in
+  /// @return the result of the expression
+  ExpressionValue evaluateExpression(const string &aExpression, ValueLookupCB aValueLookupCB, FunctionLookupCB aFunctionLookpCB);
 
 
 } // namespace p44

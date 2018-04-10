@@ -178,13 +178,20 @@ void MainLoop::scheduleTimer(MLTimer &aTimer)
   #endif
 	// insert in queue before first item that has a higher execution time
 	TimerList::iterator pos = timers.begin();
-  while (pos!=timers.end()) {
-    if (pos->executionTime>aTimer.executionTime) {
-      timers.insert(pos, aTimer);
-      timersChanged = true;
-      return;
+  // optimization: if no timers, just append
+  if (pos!=timers.end()) {
+    // optimization: if new timer is later than all others, just append
+    if (aTimer.executionTime<timers.back().executionTime) {
+      // is somewhere between current timers, need to find position
+      do {
+        if (pos->executionTime>aTimer.executionTime) {
+          timers.insert(pos, aTimer);
+          timersChanged = true;
+          return;
+        }
+        ++pos;
+      } while (pos!=timers.end());
     }
-    ++pos;
   }
   // none executes later than this one, just append
   timers.push_back(aTimer);

@@ -41,7 +41,7 @@ namespace p44 {
   protected:
 
     string resourcepath; ///< path to resources directory for this application
-    string datapath; ///< path to persistent r/w data for this application
+    string datapath; ///< path to (usually persistent) r/w data for this application
 
   public:
     /// construct application with specific mainloop

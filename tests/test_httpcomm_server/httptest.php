@@ -45,7 +45,10 @@
   if (intval($_REQUEST['err'])>0) {
     $err = intval($_REQUEST['err']);
     header(sprintf('HTTP/1.1 %d Simulated Error', $err));
-    printf('<html><body><h1>Simulated error %d</h1></body></html>', $err);
+    if ($err!=204 && $err!=304) {
+      // body only if not 204 or 304
+      printf('<html><body><h1>Simulated error %d</h1></body></html>', $err);
+    }
   }
   else if (intval($_REQUEST['stream'])>0) {
     disable_ob();

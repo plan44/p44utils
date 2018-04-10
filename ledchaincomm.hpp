@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2016-2017 plan44.ch / Lukas Zeller, Zurich, Switzerland
+//  Copyright (c) 2016-2018 plan44.ch / Lukas Zeller, Zurich, Switzerland
 //
 //  Author: Lukas Zeller <luz@plan44.ch>
 //
@@ -35,7 +35,7 @@
 
 #if ENABLE_RPIWS281X
 
-// we use the rpi_ws281x library to communicate with the WS2812 chain on RaspberryPi
+// we use the rpi_ws281x library to communicate with the LED chains on RaspberryPi
 
 extern "C" {
 
@@ -60,10 +60,11 @@ namespace p44 {
   class LEDChainComm : public P44Obj
   {
   public:
-  
+
     typedef enum {
-      ledtype_ws281x,  // RGB
-      ledtype_sk6812   // RGBW
+      ledtype_ws281x,  // RGB (with GRB subpixel order)
+      ledtype_p9823,   // RGB (with RGB subpixel order)
+      ledtype_sk6812   // RGBW (with RGBW subpixel order)
     } LedType;
 
   private:
@@ -158,7 +159,7 @@ namespace p44 {
   private:
 
     uint16_t ledIndexFromXY(uint16_t aX, uint16_t aY);
-    
+
   };
   typedef boost::intrusive_ptr<LEDChainComm> LEDChainCommPtr;
 
