@@ -79,7 +79,6 @@ const static char levelChars[8] = {
 void Logger::log(int aErrLevel, const char *aFmt, ... )
 {
   if (logEnabled(aErrLevel)) {
-    pthread_mutex_lock(&reportMutex);
     va_list args;
     va_start(args, aFmt);
     // format the message
@@ -94,6 +93,7 @@ void Logger::log(int aErrLevel, const char *aFmt, ... )
 void Logger::logStr(int aErrLevel, string aMessage)
 {
   if (logEnabled(aErrLevel)) {
+    pthread_mutex_lock(&reportMutex);
     // create date + level
     char tsbuf[42];
     char *p = tsbuf;
