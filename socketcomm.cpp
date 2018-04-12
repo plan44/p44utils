@@ -445,8 +445,8 @@ ErrorPtr SocketComm::connectNextAddress()
       }
       else {
         // TCP: initiate connection
+        LOG(LOG_DEBUG, "- Attempting connection with address family = %d, protocol = %d, addrlen=%d/sizeof=%d", currentAddressInfo->ai_family, currentAddressInfo->ai_protocol, currentAddressInfo->ai_addrlen, sizeof(*(currentAddressInfo->ai_addr)));
         res = connect(socketFD, currentAddressInfo->ai_addr, currentAddressInfo->ai_addrlen);
-        LOG(LOG_DEBUG, "- Attempting connection with address family = %d, protocol = %d", currentAddressInfo->ai_family, currentAddressInfo->ai_protocol);
         if (res==0 || errno==EINPROGRESS) {
           // connection initiated (or already open, but connectionMonitorHandler will take care in both cases)
           startedConnecting = true;
