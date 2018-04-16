@@ -160,6 +160,7 @@ string p44::format_duration(double aSeconds, int aComponents, bool aAsSymbol)
 {
   string t;
   format_duration_append(t, aSeconds, aComponents, aAsSymbol);
+  return t;
 }
 
 

@@ -76,12 +76,12 @@ namespace p44 {
 
     /// get type
     /// @return type code
-    json_type type();
+    json_type type() const;
 
     /// check type
     /// @param aRefType type to check for
     /// @return true if object matches given type
-    bool isType(json_type aRefType);
+    bool isType(json_type aRefType) const;
 
     /// string representation of object.
     const char *json_c_str(int aFlags=0);
@@ -115,7 +115,7 @@ namespace p44 {
 
     /// get array length
     /// @return length of array. Returns 0 for empty arrays and all non-array objects
-    int arrayLength();
+    int arrayLength() const;
 
     /// append to array
     /// @param aObj object to append to the array
@@ -171,29 +171,29 @@ namespace p44 {
     /// create new boolean object
     static JsonObjectPtr newBool(bool aBool);
     /// get boolean value
-    bool boolValue();
+    bool boolValue() const;
 
     /// create int objects
     static JsonObjectPtr newInt32(int32_t aInt32);
     static JsonObjectPtr newInt64(int64_t aInt64);
     /// get int values
-    int32_t int32Value();
-    int64_t int64Value();
+    int32_t int32Value() const;
+    int64_t int64Value() const;
 
     /// create double object
     static JsonObjectPtr newDouble(double aDouble);
     /// get double value
-    double doubleValue();
+    double doubleValue() const;
 
     /// create new string object
     static JsonObjectPtr newString(const char *aCStr);
     static JsonObjectPtr newString(const char *aCStr, size_t aLen);
     static JsonObjectPtr newString(const string &aString, bool aEmptyIsNull = false);
     /// get string value
-    const char *c_strValue();
-    size_t stringLength();
-    string stringValue();
-    string lowercaseStringValue();
+    const char *c_strValue() const;
+    size_t stringLength() const;
+    string stringValue() const;
+    string lowercaseStringValue() const;
 
   };
 
