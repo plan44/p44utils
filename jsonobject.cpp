@@ -110,13 +110,13 @@ ErrorPtr JsonObject::saveToFile(const char *aJsonFilePath)
 // MARK: ===== type
 
 
-json_type JsonObject::type()
+json_type JsonObject::type() const
 {
   return json_object_get_type(json_obj);
 }
 
 
-bool JsonObject::isType(json_type aRefType)
+bool JsonObject::isType(json_type aRefType) const
 {
   return json_object_is_type(json_obj, aRefType);
 }
@@ -197,7 +197,7 @@ void JsonObject::del(const char *aKey)
 // MARK: ===== arrays
 
 
-int JsonObject::arrayLength()
+int JsonObject::arrayLength() const
 {
   if (type()!=json_type_array)
     return 0; // normal objects don't have a length
@@ -353,7 +353,7 @@ JsonObjectPtr JsonObject::newBool(bool aBool)
   return newObj(json_object_new_boolean(aBool));
 }
 
-bool JsonObject::boolValue()
+bool JsonObject::boolValue() const
 {
   return json_object_get_boolean(json_obj);
 }
@@ -369,7 +369,7 @@ JsonObjectPtr JsonObject::newInt64(int64_t aInt64)
   return newObj(json_object_new_int64(aInt64));
 }
 
-int32_t JsonObject::int32Value()
+int32_t JsonObject::int32Value() const
 {
   if (isType(json_type_string)) {
     // check for hex
@@ -381,7 +381,7 @@ int32_t JsonObject::int32Value()
   return json_object_get_int(json_obj);
 }
 
-int64_t JsonObject::int64Value()
+int64_t JsonObject::int64Value() const
 {
   if (isType(json_type_string)) {
     // check for hex
@@ -399,7 +399,7 @@ JsonObjectPtr JsonObject::newDouble(double aDouble)
   return newObj(json_object_new_double(aDouble));
 }
 
-double JsonObject::doubleValue()
+double JsonObject::doubleValue() const
 {
   return json_object_get_double(json_obj);
 }
@@ -424,22 +424,22 @@ JsonObjectPtr JsonObject::newString(const string &aString, bool aEmptyIsNull)
   return JsonObject::newString(aString.c_str());
 }
 
-const char *JsonObject::c_strValue()
+const char *JsonObject::c_strValue() const
 {
   return json_object_get_string(json_obj);
 }
 
-size_t JsonObject::stringLength()
+size_t JsonObject::stringLength() const
 {
   return (size_t)json_object_get_string_len(json_obj);
 }
 
-string JsonObject::stringValue()
+string JsonObject::stringValue() const
 {
   return string(c_strValue());
 }
 
-string JsonObject::lowercaseStringValue()
+string JsonObject::lowercaseStringValue() const
 {
   return lowerCase(c_strValue());
 }
