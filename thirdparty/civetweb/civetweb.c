@@ -11204,9 +11204,10 @@ do_ssi_exec(struct mg_connection *conn, char *tag)
         else if (*iP=='Q') {
           if (conn->request_info.query_string) {
             // replace $Q by query string, and replace '&' by ':'
-            n = strlen(conn->request_info.query_string); if (n>room) n=room;
             const char *qP = conn->request_info.query_string;
-            for (size_t i=0; i<n; i++) {
+            size_t i;
+            n = strlen(conn->request_info.query_string); if (n>room) n=room;
+            for (i=0; i<n; i++) {
               if (*qP=='&')
                 *sP++ = ':';
               else
