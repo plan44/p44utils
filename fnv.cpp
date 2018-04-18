@@ -47,6 +47,12 @@ Fnv32::Fnv32()
 }
 
 
+Fnv32::Fnv32(uint32_t aBasedOn)
+{
+  hash = aBasedOn; // continue a previously calculated hash
+}
+
+
 void Fnv32::reset()
 {
   hash = FNV32_offset_basis;
@@ -88,6 +94,12 @@ static const uint64_t FNV64_offset_basis = 14695981039346656037ull;
 Fnv64::Fnv64()
 {
   reset();
+}
+
+
+Fnv64::Fnv64(uint64_t aBasedOn)
+{
+  hash = aBasedOn; // continue a previously calculated hash
 }
 
 

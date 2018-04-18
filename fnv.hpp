@@ -34,6 +34,7 @@ namespace p44 {
     uint32_t hash;
   public:
     Fnv32();
+    Fnv32(uint32_t aBasedOn);
     void reset();
     void addByte(uint8_t aByte);
     void addBytes(size_t aNumBytes, const uint8_t *aBytesP);
@@ -47,6 +48,7 @@ namespace p44 {
     uint64_t hash;
   public:
     Fnv64();
+    Fnv64(uint64_t aBasedOn);
     void reset();
     void addByte(uint8_t aByte);
     void addBytes(size_t aNumBytes, const uint8_t *aBytesP);
