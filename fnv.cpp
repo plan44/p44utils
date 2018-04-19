@@ -73,6 +73,13 @@ void Fnv32::addBytes(size_t aNumBytes, const uint8_t *aBytesP)
 }
 
 
+void Fnv32::addString(const string aString)
+{
+  addBytes(aString.size(), (uint8_t *)aString.c_str());
+}
+
+
+
 void Fnv32::addCStr(const char *aCStr)
 {
   while (char c = *aCStr++)
@@ -129,6 +136,11 @@ void Fnv64::addCStr(const char *aCStr)
     addByte(c);
 }
 
+
+void Fnv64::addString(const string aString)
+{
+  addBytes(aString.size(), (uint8_t *)aString.c_str());
+}
 
 
 uint64_t Fnv64::getHash() const
