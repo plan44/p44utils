@@ -45,7 +45,8 @@ using namespace p44;
 // time reference in microseconds
 MLMicroSeconds MainLoop::now()
 {
-  #ifdef __APPLE__
+  #if defined(__APPLE__) && __DARWIN_C_LEVEL < 199309L
+  // pre-10.12 MacOS does not yet have clock_gettime
   static bool timeInfoKnown = false;
   static mach_timebase_info_data_t tb;
   if (!timeInfoKnown) {
@@ -54,6 +55,7 @@ MLMicroSeconds MainLoop::now()
   double t = mach_absolute_time();
   return t * (double)tb.numer / (double)tb.denom / 1e3; // uS
   #else
+  // platform has clock_gettime
   struct timespec tsp;
   clock_gettime(CLOCK_MONOTONIC, &tsp);
   // return microseconds
@@ -62,9 +64,37 @@ MLMicroSeconds MainLoop::now()
 }
 
 
+MLMicroSeconds MainLoop::unixtime()
+{
+  #if defined(__APPLE__) && __DARWIN_C_LEVEL < 199309L
+  // pre-10.12 MacOS does not yet have clock_gettime
+  // FIXME: Q&D approximation with seconds resolution only
+  return time(NULL)*Second;
+  #else
+  struct timespec tsp;
+  clock_gettime(CLOCK_REALTIME, &tsp);
+  // return unix epoch microseconds
+  return ((uint64_t)(tsp.tv_sec))*1000000ll + tsp.tv_nsec/1000; // uS
+  #endif
+}
+
+
+
+MLMicroSeconds MainLoop::mainLoopTimeToUnixTime(MLMicroSeconds aMLTime)
+{
+  return aMLTime-now()+unixtime();
+}
+
+
+MLMicroSeconds MainLoop::unixTimeToMainLoopTime(const MLMicroSeconds aUnixTime)
+{
+  return aUnixTime-unixtime()+now();
+}
+
+
 void MainLoop::sleep(MLMicroSeconds aSleepTime)
 {
-  // Linux has nanosleep in nanoseconds
+  // Linux/MacOS has nanosleep in nanoseconds
   timespec sleeptime;
   sleeptime.tv_sec=aSleepTime/Second;
   sleeptime.tv_nsec=(aSleepTime % Second)*1000L; // nS = 1000 uS
