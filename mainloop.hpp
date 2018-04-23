@@ -48,6 +48,7 @@ namespace p44 {
   const MLMicroSeconds MilliSecond = 1000;
   const MLMicroSeconds Second = 1000*MilliSecond;
   const MLMicroSeconds Minute = 60*Second;
+  const MLMicroSeconds Hour = 60*Minute;
 
 
   /// subthread/maintthread communication signals (sent via pipe)

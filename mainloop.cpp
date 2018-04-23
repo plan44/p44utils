@@ -69,7 +69,7 @@ MLMicroSeconds MainLoop::unixtime()
   #if defined(__APPLE__) && __DARWIN_C_LEVEL < 199309L
   // pre-10.12 MacOS does not yet have clock_gettime
   // FIXME: Q&D approximation with seconds resolution only
-  return time(NULL)*Second;
+  return ((MLMicroSeconds)time(NULL))*Second;
   #else
   struct timespec tsp;
   clock_gettime(CLOCK_REALTIME, &tsp);
