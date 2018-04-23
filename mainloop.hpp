@@ -48,6 +48,7 @@ namespace p44 {
   const MLMicroSeconds MilliSecond = 1000;
   const MLMicroSeconds Second = 1000*MilliSecond;
   const MLMicroSeconds Minute = 60*Second;
+  const MLMicroSeconds Hour = 60*Minute;
 
 
   /// subthread/maintthread communication signals (sent via pipe)
@@ -203,10 +204,26 @@ namespace p44 {
   public:
 
     /// returns or creates the current thread's mainloop
+    /// @return the mainloop for this thread
     static MainLoop &currentMainLoop();
 
-    /// returns the current microsecond
+    /// returns the current microsecond in "Mainloop" time (monotonic as long as app runs, but not necessarily anchored with real time)
+    /// @return mainloop time in microseconds
     static MLMicroSeconds now();
+
+    /// returns the Unix epoch time in mainloop time scaling (microseconds)
+    /// @return unix epoch time, in microseconds
+    static MLMicroSeconds unixtime();
+
+    /// convert a mainloop timestamp to unix epoch time
+    /// @param aMLTime a mainloop timestamp in MLMicroSeconds
+    /// @return Unix epoch time (in microseconds)
+    static MLMicroSeconds mainLoopTimeToUnixTime(MLMicroSeconds aMLTime);
+
+    /// convert a unix epoch time to mainloop timestamp
+    /// @param aUnixTime Unix epoch time (in microseconds)
+    /// @return mainloop timestamp in MLMicroSeconds
+    static MLMicroSeconds unixTimeToMainLoopTime(const MLMicroSeconds aUnixTime);
 
     /// sleeps for given number of microseconds
     static void sleep(MLMicroSeconds aSleepTime);

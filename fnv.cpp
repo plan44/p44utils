@@ -47,6 +47,12 @@ Fnv32::Fnv32()
 }
 
 
+Fnv32::Fnv32(uint32_t aBasedOn)
+{
+  hash = aBasedOn; // continue a previously calculated hash
+}
+
+
 void Fnv32::reset()
 {
   hash = FNV32_offset_basis;
@@ -65,6 +71,13 @@ void Fnv32::addBytes(size_t aNumBytes, const uint8_t *aBytesP)
     addByte(aBytesP[i]);
   }
 }
+
+
+void Fnv32::addString(const string aString)
+{
+  addBytes(aString.size(), (uint8_t *)aString.c_str());
+}
+
 
 
 void Fnv32::addCStr(const char *aCStr)
@@ -88,6 +101,12 @@ static const uint64_t FNV64_offset_basis = 14695981039346656037ull;
 Fnv64::Fnv64()
 {
   reset();
+}
+
+
+Fnv64::Fnv64(uint64_t aBasedOn)
+{
+  hash = aBasedOn; // continue a previously calculated hash
 }
 
 
@@ -117,6 +136,11 @@ void Fnv64::addCStr(const char *aCStr)
     addByte(c);
 }
 
+
+void Fnv64::addString(const string aString)
+{
+  addBytes(aString.size(), (uint8_t *)aString.c_str());
+}
 
 
 uint64_t Fnv64::getHash() const
