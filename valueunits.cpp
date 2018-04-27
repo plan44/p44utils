@@ -61,9 +61,9 @@ static const ValueUnitDescriptor valueUnitNames[numValueUnits] = {
   { "bequerelpercubicmeter", "Bq/m3" },
   { "grampercubicmeter", "Bq/m3" },
   { "meterpersecond", "m/s" },
+  { "mperm2", "m/m2" },
   { "literpersecond", "l/s" },
   // non-SI scaled units
-  { "mperm2", "m/m2" },
   { "minute", "min" },
   { "hour", "h" },
   { "day", "d" },
