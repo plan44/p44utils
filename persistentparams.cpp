@@ -175,7 +175,7 @@ sqlite3pp::query *PersistentParams::newLoadAllQuery(const char *aParentIdentifie
 void PersistentParams::loadFromRow(sqlite3pp::query::iterator &aRow, int &aIndex, uint64_t *aCommonFlagsP)
 {
   loadFromRowWithoutParentId(aRow, aIndex, aCommonFlagsP);
-  // - skip the row that identifies the parent (we don't need the data, because mathing parentId is a fetch criterium)
+  // - skip the row that identifies the parent (we don't need the data, because matching parentId is a fetch criterium)
   aIndex++;
 }
 
