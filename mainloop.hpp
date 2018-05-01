@@ -148,7 +148,7 @@ namespace p44 {
     ~MLTicketGuard();
 
     // conversion operator, get as MLTicket (number only)
-    const operator MLTicket();
+    operator MLTicket() const;
 
     // assign ticket number (cancels previous ticket, if any)
     MLTicket operator= (MLTicket aTicketNo);

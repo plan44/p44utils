@@ -55,7 +55,7 @@ MLTicketGuard::~MLTicketGuard()
 }
 
 
-const MLTicketGuard::operator MLTicket()
+MLTicketGuard::operator MLTicket() const
 {
   return ticketNo;
 }
@@ -71,6 +71,7 @@ MLTicket MLTicketGuard::operator=(MLTicket aTicketNo)
 {
   cancel();
   ticketNo = aTicketNo;
+  return ticketNo;
 }
 
 
