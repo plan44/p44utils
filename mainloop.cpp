@@ -38,9 +38,59 @@
 #define MAINLOOP_DEFAULT_WAIT_CHECK_INTERVAL (100*MilliSecond) // assuming no really tight timing when using external processes
 #define MAINLOOP_DEFAULT_MAX_COALESCING (1*Second) // keep timing within second precision by default
 
-// MARK: ===== MainLoop
-
 using namespace p44;
+
+
+// MARK: ===== MLTicketGuard
+
+MLTicketGuard::MLTicketGuard() :
+  ticketNo(0)
+{
+}
+
+
+MLTicketGuard::~MLTicketGuard()
+{
+  cancel();
+}
+
+
+const MLTicketGuard::operator MLTicket()
+{
+  return ticketNo;
+}
+
+
+void MLTicketGuard::cancel()
+{
+  MainLoop::currentMainLoop().cancelExecutionTicket(ticketNo);
+}
+
+
+MLTicket MLTicketGuard::operator=(MLTicket aTicketNo)
+{
+  cancel();
+  ticketNo = aTicketNo;
+}
+
+
+bool MLTicketGuard::reschedule(MLMicroSeconds aDelay, MLMicroSeconds aTolerance)
+{
+  MLMicroSeconds executionTime = MainLoop::currentMainLoop().now()+aDelay;
+  return rescheduleAt(executionTime, aTolerance);
+}
+
+
+bool MLTicketGuard::rescheduleAt(MLMicroSeconds aExecutionTime, MLMicroSeconds aTolerance)
+{
+  if (ticketNo==0) return false; // no ticket, no reschedule
+  return MainLoop::currentMainLoop().rescheduleExecutionTicketAt(ticketNo, aExecutionTime, aTolerance);
+}
+
+
+
+
+// MARK: ===== MainLoop
 
 // time reference in microseconds
 MLMicroSeconds MainLoop::now()
@@ -199,6 +249,21 @@ void MainLoop::executeTicketOnce(MLTicket &aTicketNo, TimerCB aTimerCallback, ML
 
 
 
+void MainLoop::executeTicketOnceAt(MLTicketGuard &aTicket, TimerCB aTimerCallback, MLMicroSeconds aExecutionTime, MLMicroSeconds aTolerance)
+{
+  aTicket.cancel();
+  aTicket = executeOnceAt(aTimerCallback, aExecutionTime);
+}
+
+
+void MainLoop::executeTicketOnce(MLTicketGuard &aTicket, TimerCB aTimerCallback, MLMicroSeconds aDelay, MLMicroSeconds aTolerance)
+{
+  aTicket.cancel();
+  aTicket = executeOnce(aTimerCallback, aDelay, aTolerance);
+}
+
+
+
 
 void MainLoop::scheduleTimer(MLTimer &aTimer)
 {
@@ -226,6 +291,14 @@ void MainLoop::scheduleTimer(MLTimer &aTimer)
   // none executes later than this one, just append
   timers.push_back(aTimer);
 }
+
+
+
+void MainLoop::cancelExecutionTicket(MLTicketGuard &aTicket)
+{
+  aTicket.cancel();
+}
+
 
 
 void MainLoop::cancelExecutionTicket(MLTicket &aTicketNo)
