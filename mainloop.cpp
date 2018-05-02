@@ -41,33 +41,61 @@
 using namespace p44;
 
 
-// MARK: ===== MLTicketGuard
+// MARK: ===== MLTicket
 
-MLTicketGuard::MLTicketGuard() :
+MLTicket::MLTicket() :
   ticketNo(0)
 {
 }
 
 
-MLTicketGuard::~MLTicketGuard()
+MLTicket::MLTicket(MLTicket &aTicket) : ticketNo(0)
+{
+  // should not happen!
+  // But if it does, we do not copy the ticket number
+}
+
+
+
+MLTicket::~MLTicket()
 {
   cancel();
 }
 
 
-MLTicketGuard::operator MLTicket() const
+MLTicket::operator MLTicketNo() const
 {
   return ticketNo;
 }
 
 
-void MLTicketGuard::cancel()
+MLTicket::operator bool() const
 {
-  MainLoop::currentMainLoop().cancelExecutionTicket(ticketNo);
+  return ticketNo!=0;
 }
 
 
-MLTicket MLTicketGuard::operator=(MLTicket aTicketNo)
+void MLTicket::cancel()
+{
+  if (ticketNo!=0) {
+    MainLoop::currentMainLoop().cancelExecutionTicket(*this);
+  }
+}
+
+
+void MLTicket::executeOnceAt(TimerCB aTimerCallback, MLMicroSeconds aExecutionTime, MLMicroSeconds aTolerance)
+{
+  MainLoop::currentMainLoop().executeTicketOnceAt(*this, aTimerCallback, aExecutionTime, aTolerance);
+}
+
+
+void MLTicket::executeOnce(TimerCB aTimerCallback, MLMicroSeconds aDelay, MLMicroSeconds aTolerance)
+{
+  MainLoop::currentMainLoop().executeTicketOnce(*this, aTimerCallback, aDelay, aTolerance);
+}
+
+
+MLTicketNo MLTicket::operator=(MLTicketNo aTicketNo)
 {
   cancel();
   ticketNo = aTicketNo;
@@ -75,14 +103,14 @@ MLTicket MLTicketGuard::operator=(MLTicket aTicketNo)
 }
 
 
-bool MLTicketGuard::reschedule(MLMicroSeconds aDelay, MLMicroSeconds aTolerance)
+bool MLTicket::reschedule(MLMicroSeconds aDelay, MLMicroSeconds aTolerance)
 {
   MLMicroSeconds executionTime = MainLoop::currentMainLoop().now()+aDelay;
   return rescheduleAt(executionTime, aTolerance);
 }
 
 
-bool MLTicketGuard::rescheduleAt(MLMicroSeconds aExecutionTime, MLMicroSeconds aTolerance)
+bool MLTicket::rescheduleAt(MLMicroSeconds aExecutionTime, MLMicroSeconds aTolerance)
 {
   if (ticketNo==0) return false; // no ticket, no reschedule
   return MainLoop::currentMainLoop().rescheduleExecutionTicketAt(ticketNo, aExecutionTime, aTolerance);
@@ -215,14 +243,16 @@ MainLoop::MainLoop() :
 
 
 
-MLTicket MainLoop::executeOnce(TimerCB aTimerCallback, MLMicroSeconds aDelay, MLMicroSeconds aTolerance)
+// private implementation
+MLTicketNo MainLoop::executeOnce(TimerCB aTimerCallback, MLMicroSeconds aDelay, MLMicroSeconds aTolerance)
 {
 	MLMicroSeconds executionTime = now()+aDelay;
 	return executeOnceAt(aTimerCallback, executionTime, aTolerance);
 }
 
 
-MLTicket MainLoop::executeOnceAt(TimerCB aTimerCallback, MLMicroSeconds aExecutionTime, MLMicroSeconds aTolerance)
+// private implementation
+MLTicketNo MainLoop::executeOnceAt(TimerCB aTimerCallback, MLMicroSeconds aExecutionTime, MLMicroSeconds aTolerance)
 {
 	MLTimer tmr;
   tmr.reinsert = false;
@@ -235,35 +265,24 @@ MLTicket MainLoop::executeOnceAt(TimerCB aTimerCallback, MLMicroSeconds aExecuti
 }
 
 
-void MainLoop::executeTicketOnceAt(MLTicket &aTicketNo, TimerCB aTimerCallback, MLMicroSeconds aExecutionTime, MLMicroSeconds aTolerance)
-{
-  cancelExecutionTicket(aTicketNo);
-  aTicketNo = executeOnceAt(aTimerCallback, aExecutionTime);
-}
-
-
-void MainLoop::executeTicketOnce(MLTicket &aTicketNo, TimerCB aTimerCallback, MLMicroSeconds aDelay, MLMicroSeconds aTolerance)
-{
-  cancelExecutionTicket(aTicketNo);
-  aTicketNo = executeOnce(aTimerCallback, aDelay, aTolerance);
-}
-
-
-
-void MainLoop::executeTicketOnceAt(MLTicketGuard &aTicket, TimerCB aTimerCallback, MLMicroSeconds aExecutionTime, MLMicroSeconds aTolerance)
+void MainLoop::executeTicketOnceAt(MLTicket &aTicket, TimerCB aTimerCallback, MLMicroSeconds aExecutionTime, MLMicroSeconds aTolerance)
 {
   aTicket.cancel();
-  aTicket = executeOnceAt(aTimerCallback, aExecutionTime);
+  aTicket = (MLTicketNo)executeOnceAt(aTimerCallback, aExecutionTime, aTolerance);
 }
 
 
-void MainLoop::executeTicketOnce(MLTicketGuard &aTicket, TimerCB aTimerCallback, MLMicroSeconds aDelay, MLMicroSeconds aTolerance)
+void MainLoop::executeTicketOnce(MLTicket &aTicket, TimerCB aTimerCallback, MLMicroSeconds aDelay, MLMicroSeconds aTolerance)
 {
   aTicket.cancel();
   aTicket = executeOnce(aTimerCallback, aDelay, aTolerance);
 }
 
 
+void MainLoop::executeNow(TimerCB aTimerCallback)
+{
+  executeOnce(aTimerCallback, 0, 0);
+}
 
 
 void MainLoop::scheduleTimer(MLTimer &aTimer)
@@ -295,36 +314,35 @@ void MainLoop::scheduleTimer(MLTimer &aTimer)
 
 
 
-void MainLoop::cancelExecutionTicket(MLTicketGuard &aTicket)
+void MainLoop::cancelExecutionTicket(MLTicket &aTicket)
 {
-  aTicket.cancel();
+  cancelExecutionTicket((MLTicketNo)aTicket);
 }
 
 
-
-void MainLoop::cancelExecutionTicket(MLTicket &aTicketNo)
+// private implementation
+bool MainLoop::cancelExecutionTicket(MLTicketNo aTicketNo)
 {
-  if (aTicketNo==0) return; // no ticket, NOP
+  if (aTicketNo==0) return false; // no ticket, NOP
   for (TimerList::iterator pos = timers.begin(); pos!=timers.end(); ++pos) {
 		if (pos->ticketNo==aTicketNo) {
 			pos = timers.erase(pos);
       timersChanged = true;
-      break;
+      return true; // ticket found and cancelled
 		}
 	}
-  // reset the ticket
-  aTicketNo = 0;
+  return false; // no such ticket
 }
 
 
-bool MainLoop::rescheduleExecutionTicket(MLTicket aTicketNo, MLMicroSeconds aDelay, MLMicroSeconds aTolerance)
+bool MainLoop::rescheduleExecutionTicket(MLTicketNo aTicketNo, MLMicroSeconds aDelay, MLMicroSeconds aTolerance)
 {
 	MLMicroSeconds executionTime = now()+aDelay;
 	return rescheduleExecutionTicketAt(aTicketNo, executionTime, aTolerance);
 }
 
 
-bool MainLoop::rescheduleExecutionTicketAt(MLTicket aTicketNo, MLMicroSeconds aExecutionTime, MLMicroSeconds aTolerance)
+bool MainLoop::rescheduleExecutionTicketAt(MLTicketNo aTicketNo, MLMicroSeconds aExecutionTime, MLMicroSeconds aTolerance)
 {
   if (aTicketNo==0) return false; // no ticket, no reschedule
   for (TimerList::iterator pos = timers.begin(); pos!=timers.end(); ++pos) {

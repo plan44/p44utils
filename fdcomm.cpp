@@ -183,7 +183,7 @@ bool FdComm::receiveDelimitedString(string &aString)
   receiveBuffer.erase(0, eraseSz);
   delimiterPos = string::npos; // consumed this one, ready for next
   // check for more delimited strings that might already be in the buffer
-  mainLoop.executeOnce(boost::bind(&FdComm::checkReceiveData, this));
+  mainLoop.executeNow(boost::bind(&FdComm::checkReceiveData, this));
   return true;
 }
 

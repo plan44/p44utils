@@ -88,6 +88,7 @@ namespace p44 {
     struct termios oldTermIO;
     bool serialConnection;
     bool reconnecting;
+    MLTicket reconnectTicket;
 
   public:
 

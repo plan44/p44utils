@@ -218,7 +218,7 @@ bool SerialComm::requestConnection()
     if (!reconnecting) {
       LOG(LOG_ERR, "SerialComm: requestConnection() could not open connection now: %s -> entering background retry mode", err->description().c_str());
       reconnecting = true;
-      MainLoop::currentMainLoop().executeOnce(boost::bind(&SerialComm::reconnectHandler, this), 5*Second);
+      reconnectTicket.executeOnce(boost::bind(&SerialComm::reconnectHandler, this), 5*Second);
     }
     return false;
   }
@@ -320,7 +320,7 @@ void SerialComm::reconnectHandler()
     if (!Error::isOK(err)) {
       LOG(LOG_ERR, "SerialComm: re-connect failed: %s -> retry again later", err->description().c_str());
       reconnecting = true;
-      MainLoop::currentMainLoop().executeOnce(boost::bind(&SerialComm::reconnectHandler, this), 15*Second);
+      reconnectTicket.executeOnce(boost::bind(&SerialComm::reconnectHandler, this), 15*Second);
     }
     else {
       LOG(LOG_NOTICE, "SerialComm: successfully reconnected to %s", connectionPath.c_str());

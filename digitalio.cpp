@@ -209,8 +209,7 @@ bool DigitalIo::setInputChangedHandler(InputChangedCB aInputChangedCB, MLMicroSe
 
 ButtonInput::ButtonInput(const char* aPinSpec) :
   DigitalIo(aPinSpec, false, false),
-  repeatActiveReport(Never),
-  activeReportTicket(0)
+  repeatActiveReport(Never)
 {
   lastChangeTime = MainLoop::now();
 }
@@ -218,7 +217,7 @@ ButtonInput::ButtonInput(const char* aPinSpec) :
 
 ButtonInput::~ButtonInput()
 {
-  MainLoop::currentMainLoop().cancelExecutionTicket(activeReportTicket);
+  activeReportTicket.cancel();
 }
 
 
@@ -239,7 +238,7 @@ void ButtonInput::setButtonHandler(ButtonHandlerCB aButtonHandler, bool aPressAn
   else {
     // unregister
     setInputChangedHandler(NULL, 0, 0);
-    MainLoop::currentMainLoop().cancelExecutionTicket(activeReportTicket);
+    activeReportTicket.cancel();
   }
 }
 
@@ -255,11 +254,11 @@ void ButtonInput::inputChanged(bool aNewState)
   lastChangeTime = now;
   // active state reported now
   if (aNewState && repeatActiveReport!=Never) {
-    MainLoop::currentMainLoop().executeTicketOnce(activeReportTicket, boost::bind(&ButtonInput::repeatStateReport, this), repeatActiveReport);
+    activeReportTicket.executeOnce(boost::bind(&ButtonInput::repeatStateReport, this), repeatActiveReport);
   }
   else {
     // no longer active, cancel repeating active state if any
-    MainLoop::currentMainLoop().cancelExecutionTicket(activeReportTicket);
+    activeReportTicket.cancel();
   }
 }
 
@@ -267,7 +266,7 @@ void ButtonInput::inputChanged(bool aNewState)
 void ButtonInput::repeatStateReport()
 {
   if (buttonHandler) buttonHandler(true, false, MainLoop::now()-lastChangeTime);
-  MainLoop::currentMainLoop().executeTicketOnce(activeReportTicket, boost::bind(&ButtonInput::repeatStateReport, this), repeatActiveReport);
+  activeReportTicket.executeOnce(boost::bind(&ButtonInput::repeatStateReport, this), repeatActiveReport);
 }
 
 
@@ -279,8 +278,7 @@ IndicatorOutput::IndicatorOutput(const char* aPinSpec, bool aInitiallyOn) :
   blinkOnTime(Never),
   blinkOffTime(Never),
   blinkUntilTime(Never),
-  nextTimedState(false),
-  timedOpTicket(0)
+  nextTimedState(false)
 {
 }
 
@@ -296,7 +294,7 @@ void IndicatorOutput::stop()
   blinkOnTime = Never;
   blinkOffTime = Never;
   blinkUntilTime = Never;
-  MainLoop::currentMainLoop().cancelExecutionTicket(timedOpTicket);
+  timedOpTicket.cancel();
 }
 
 
@@ -306,7 +304,7 @@ void IndicatorOutput::onFor(MLMicroSeconds aOnTime)
   set(true);
   if (aOnTime>0) {
     nextTimedState = false; // ..turn off
-    MainLoop::currentMainLoop().executeTicketOnce(timedOpTicket, boost::bind(&IndicatorOutput::timer, this, _1), aOnTime); // ..after given time
+    timedOpTicket.executeOnce(boost::bind(&IndicatorOutput::timer, this, _1), aOnTime); // ..after given time
   }
 }
 
@@ -319,7 +317,7 @@ void IndicatorOutput::blinkFor(MLMicroSeconds aOnTime, MLMicroSeconds aBlinkPeri
   blinkUntilTime = aOnTime>0 ? MainLoop::now()+aOnTime : Never;
   set(true); // ..start with on
   nextTimedState = false; // ..then turn off..
-  MainLoop::currentMainLoop().executeTicketOnce(timedOpTicket, boost::bind(&IndicatorOutput::timer, this, _1), blinkOnTime); // ..after blinkOn time
+  timedOpTicket.executeOnce(boost::bind(&IndicatorOutput::timer, this, _1), blinkOnTime); // ..after blinkOn time
 }
 
 

@@ -31,8 +31,7 @@ using namespace p44;
 
 // MARK: ===== console key
 
-ConsoleKey::ConsoleKey(char aKeyCode, const char *aDescription, bool aInitialState) :
-  keyHandlerTicket(0)
+ConsoleKey::ConsoleKey(char aKeyCode, const char *aDescription, bool aInitialState)
 {
   // check type of key
   initialState = aInitialState;
@@ -60,7 +59,7 @@ ConsoleKey::ConsoleKey(char aKeyCode, const char *aDescription, bool aInitialSta
 
 ConsoleKey::~ConsoleKey()
 {
-  MainLoop::currentMainLoop().cancelExecutionTicket(keyHandlerTicket);
+  keyHandlerTicket.cancel();
 }
 
 
@@ -78,7 +77,7 @@ void ConsoleKey::setConsoleKeyHandler(ConsoleKeyHandlerCB aHandler)
 
 void ConsoleKey::setState(bool aState)
 {
-  MainLoop::currentMainLoop().cancelExecutionTicket(keyHandlerTicket);
+  keyHandlerTicket.cancel();
   state = aState;
   printf("- Console input '%s' - changed to %d\n", description.c_str(), state);
   reportState();
@@ -87,7 +86,7 @@ void ConsoleKey::setState(bool aState)
 
 void ConsoleKey::toggle()
 {
-  MainLoop::currentMainLoop().cancelExecutionTicket(keyHandlerTicket);
+  keyHandlerTicket.cancel();
   state = !state;
   printf("- Console input '%s' - toggled to %d\n", description.c_str(), state);
   reportState();
@@ -96,7 +95,7 @@ void ConsoleKey::toggle()
 
 void ConsoleKey::pulse()
 {
-  MainLoop::currentMainLoop().executeTicketOnce(keyHandlerTicket, boost::bind(&ConsoleKey::pulseEnd, this), 200*MilliSecond);
+  keyHandlerTicket.executeOnce(boost::bind(&ConsoleKey::pulseEnd, this), 200*MilliSecond);
   if (state==initialState) {
     state = !initialState;
     reportState();
@@ -141,13 +140,12 @@ ConsoleKeyManager::ConsoleKeyManager() :
   termInitialized(false)
 {
   // install polling
-  keyPollTicket = MainLoop::currentMainLoop().executeOnce(boost::bind(&ConsoleKeyManager::consoleKeyPoll, this, _1));
+  keyPollTicket.executeOnce(boost::bind(&ConsoleKeyManager::consoleKeyPoll, this, _1));
 }
 
 
 ConsoleKeyManager::~ConsoleKeyManager()
 {
-  MainLoop::currentMainLoop().cancelExecutionTicket(keyPollTicket);
 }
 
 
