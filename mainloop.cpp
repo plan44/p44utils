@@ -78,7 +78,8 @@ MLTicket::operator bool() const
 void MLTicket::cancel()
 {
   if (ticketNo!=0) {
-    MainLoop::currentMainLoop().cancelExecutionTicket(*this);
+    MainLoop::currentMainLoop().cancelExecutionTicket(ticketNo);
+    ticketNo = 0;
   }
 }
 
@@ -316,7 +317,7 @@ void MainLoop::scheduleTimer(MLTimer &aTimer)
 
 void MainLoop::cancelExecutionTicket(MLTicket &aTicket)
 {
-  cancelExecutionTicket((MLTicketNo)aTicket);
+  aTicket.cancel();
 }
 
 

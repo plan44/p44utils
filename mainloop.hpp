@@ -196,6 +196,7 @@ namespace p44 {
   class MainLoop : public P44Obj
   {
     friend class ChildThreadWrapper;
+    friend class MLTicket;
 
     // clean up handlers
     typedef std::list<SimpleCB> CleanupHandlersList;
