@@ -186,7 +186,6 @@ namespace p44 {
     /// @param aTimerCallback the functor to be called when timer fires
     /// @param aDelay delay from now when to execute (approximately)
     /// @param aTolerance how precise the timer should be, default=0=as precise as possible (for timer coalescing)
-    /// @return ticket number which can be used to cancel this specific execution request
     void executeOnce(TimerCB aTimerCallback, MLMicroSeconds aDelay = 0, MLMicroSeconds aTolerance = 0);
 
   };
