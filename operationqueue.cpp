@@ -210,7 +210,7 @@ OperationQueue::OperationQueue(MainLoop &aMainLoop) :
   processingQueue(false)
 {
   // register with mainloop
-  recheckTicket = mainLoop.executeOnce(boost::bind(&OperationQueue::queueRecheck, this, _1));
+  mainLoop.executeTicketOnce(recheckTicket, boost::bind(&OperationQueue::queueRecheck, this, _1));
 }
 
 

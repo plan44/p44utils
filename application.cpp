@@ -152,7 +152,7 @@ void Application::signalOccurred(int aSignal, siginfo_t *aSiginfo)
 int Application::run()
 {
 	// schedule the initialize() method as first mainloop method
-	mainLoop.executeOnce(boost::bind(&Application::initialize, this));
+	mainLoop.executeNow(boost::bind(&Application::initialize, this));
 	// run the mainloop
 	int exitCode = mainLoop.run();
   // show the statistic

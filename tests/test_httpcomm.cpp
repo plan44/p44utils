@@ -107,7 +107,7 @@ public:
     contentType = aContentType;
     streamResult = aStreamResult;
     // schedule execution
-    MainLoop::currentMainLoop().executeOnce(boost::bind(&HttpFixture::perform, this));
+    MainLoop::currentMainLoop().executeNow(boost::bind(&HttpFixture::perform, this));
     // now let mainloop run (and terminate)
     return MainLoop::currentMainLoop().run(true);
   };

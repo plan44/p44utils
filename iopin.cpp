@@ -29,8 +29,6 @@ using namespace p44;
 IOPin::IOPin() :
   currentState(false),
   invertedReporting(false),
-  pollTicket(0),
-  debounceTicket(0),
   pollInterval(Never),
   lastReportedChange(Never)
 {
@@ -47,8 +45,8 @@ void IOPin::clearChangeHandling()
 {
   inputChangedCB = NULL;
   pollInterval = Never;
-  MainLoop::currentMainLoop().cancelExecutionTicket(pollTicket);
-  MainLoop::currentMainLoop().cancelExecutionTicket(debounceTicket);
+  pollTicket.cancel();
+  debounceTicket.cancel();
 }
 
 
@@ -74,7 +72,7 @@ bool IOPin::setInputChangedHandler(InputChangedCB aInputChangedCB, bool aInverte
       pollInterval = IOPIN_DEFAULT_POLL_INTERVAL;
     }
     // schedule first poll
-    MainLoop::currentMainLoop().executeTicketOnce(pollTicket, boost::bind(&IOPin::timedpoll, this, _1));
+    pollTicket.executeOnce(boost::bind(&IOPin::timedpoll, this, _1));
   }
   return true; // successful
 }
@@ -83,7 +81,7 @@ bool IOPin::setInputChangedHandler(InputChangedCB aInputChangedCB, bool aInverte
 void IOPin::inputHasChangedTo(bool aNewState)
 {
   if (aNewState!=currentState) {
-    MainLoop::currentMainLoop().cancelExecutionTicket(debounceTicket);
+    debounceTicket.cancel();
     MLMicroSeconds now = MainLoop::now();
     // optional debouncing
     if (debounceTime>0 && lastReportedChange!=Never) {
@@ -91,7 +89,7 @@ void IOPin::inputHasChangedTo(bool aNewState)
       if (lastReportedChange+debounceTime>now) {
         LOG(LOG_DEBUG, "- debouncing holdoff, will resample after debouncing time");
         // debounce time not yet over, schedule an extra re-sample later and suppress reporting for now
-        debounceTicket = MainLoop::currentMainLoop().executeOnce(boost::bind(&IOPin::debounceSample, this), debounceTime);
+        debounceTicket.executeOnce(boost::bind(&IOPin::debounceSample, this), debounceTime);
         return;
       }
     }
