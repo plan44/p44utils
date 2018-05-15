@@ -1658,6 +1658,10 @@ struct ssl_func {
   void (*ptr)(void); /* Function pointer */
 };
 
+#if OPENSSL_VERSION_NUMBER >= 0x10100000L
+#define OPENSSL_API_1_1
+#endif
+
 #ifdef OPENSSL_API_1_1
 
 /* OpenSSL >=1.1 */
