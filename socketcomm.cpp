@@ -153,9 +153,15 @@ ErrorPtr SocketComm::startServer(ServerConnectionCB aServerConnectionHandler, in
         err = SysError::errNo("Cannot setsockopt(SO_REUSEADDR): ");
       }
       else {
+        #ifdef __APPLE__
+        if (!interface.empty()) {
+          err = TextError::err("SO_BINDTODEVICE not supported on macOS");
+        }
+        #else
         if (!interface.empty() && setsockopt(socketFD, SOL_SOCKET, SO_BINDTODEVICE, interface.c_str(), interface.size()) == -1) {
           err = SysError::errNo("Cannot setsockopt(SO_BINDTODEVICE): ");
         }
+        #endif
         else {
           // options ok, bind to address
           if (::bind(socketFD, saP, saLen) < 0) {
