@@ -1087,8 +1087,8 @@ mg_download(const char *host,
 struct mg_client_options {
   const char *host;
   int port;
-  const char *client_cert;
-  const char *server_cert;
+  const char *client_cert; /* path to client certificate file, or NULL if none */
+  const char *server_cert; /* CAPath (to OpenSSL CA certificates dir), or CAFile path prefixed with "=", or "*" to use default cert checking, or NULL for no checking */
   double timeout;
   /* TODO: add more data */
 };

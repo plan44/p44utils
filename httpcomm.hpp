@@ -145,8 +145,13 @@ namespace p44 {
     void setClientCertFile(const string aClientCertFile) { clientCertFile = aClientCertFile; };
 
     /// explicitly set a client certificate path
-    /// @param aServerCertVfyDir set file path to a client certificate to use with the connection.
-    ///   Use empty string to no verify server certificate, or "*" to use platform's default certificate checking
+    /// @param aServerCertVfyDir set file path to the root certificate file or directory for checking
+    ///   the server's certificate.
+    ///   - Use empty string to not verify server certificate at all
+    ///   - Use "*" to use platform's default certificate checking (usually CA files in /etc/ssl/cert)
+    ///   - Specify a path (such as "/etc/ssl/cert") to specify a certs directory
+    ///     (which must contain OpenSSL style certs and hash links created with c_rehash utility)
+    ///   - prefix a file name with "=" to specify a CAFile (multiple certs in one file)
     void setServerCertVfyDir(const string aServerCertVfyDir) { serverCertVfyDir = aServerCertVfyDir; };
 
     
