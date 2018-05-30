@@ -83,6 +83,7 @@ namespace p44 {
     int protocolFamily;
     int socketType;
     int protocol;
+    string interface;
     bool nonLocal;
     bool connectionLess;
     bool broadcast;
@@ -117,7 +118,8 @@ namespace p44 {
     /// @param aSocketType defaults to SOCK_STREAM (TCP)
     /// @param aProtocolFamily defaults to PF_UNSPEC, means that address family is derived from host name and/or service name (starting with slash means PF_LOCAL)
     /// @param aProtocol defaults to 0
-    void setConnectionParams(const char* aHostNameOrAddress, const char* aServiceOrPortOrSocket, int aSocketType = SOCK_STREAM, int aProtocolFamily = PF_UNSPEC, int aProtocol = 0);
+    /// @param aInterface specific network interface to be used, defaults to NULL
+    void setConnectionParams(const char* aHostNameOrAddress, const char* aServiceOrPortOrSocket, int aSocketType = SOCK_STREAM, int aProtocolFamily = PF_UNSPEC, int aProtocol = 0, const char* aInterface = NULL);
 
     /// Enable/disable socket for broadcast (SO_BROADCAST)
     /// @param aEnable if true, socket will be configured to be ready for broadcast

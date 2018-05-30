@@ -57,7 +57,7 @@ SocketComm::~SocketComm()
 }
 
 
-void SocketComm::setConnectionParams(const char* aHostNameOrAddress, const char* aServiceOrPortOrSocket, int aSocketType, int aProtocolFamily, int aProtocol)
+void SocketComm::setConnectionParams(const char* aHostNameOrAddress, const char* aServiceOrPortOrSocket, int aSocketType, int aProtocolFamily, int aProtocol, const char* aInterface)
 {
   closeConnection();
   hostNameOrAddress = nonNullCStr(aHostNameOrAddress);
@@ -65,6 +65,7 @@ void SocketComm::setConnectionParams(const char* aHostNameOrAddress, const char*
   protocolFamily = aProtocolFamily;
   socketType = aSocketType;
   protocol = aProtocol;
+  interface = nonNullCStr(aInterface);
   connectionLess = socketType==SOCK_DGRAM;
 }
 
@@ -152,9 +153,20 @@ ErrorPtr SocketComm::startServer(ServerConnectionCB aServerConnectionHandler, in
         err = SysError::errNo("Cannot setsockopt(SO_REUSEADDR): ");
       }
       else {
-        // options ok, bind to address
-        if (::bind(socketFD, saP, saLen) < 0) {
-          err = SysError::errNo("Cannot bind socket (server already running?): ");
+        #ifdef __APPLE__
+        if (!interface.empty()) {
+          err = TextError::err("SO_BINDTODEVICE not supported on macOS");
+        }
+        #else
+        if (!interface.empty() && setsockopt(socketFD, SOL_SOCKET, SO_BINDTODEVICE, interface.c_str(), interface.size()) == -1) {
+          err = SysError::errNo("Cannot setsockopt(SO_BINDTODEVICE): ");
+        }
+        #endif
+        else {
+          // options ok, bind to address
+          if (::bind(socketFD, saP, saLen) < 0) {
+            err = SysError::errNo("Cannot bind socket (server already running?): ");
+          }
         }
       }
     }

@@ -49,6 +49,7 @@ namespace p44 {
   const MLMicroSeconds Second = 1000*MilliSecond;
   const MLMicroSeconds Minute = 60*Second;
   const MLMicroSeconds Hour = 60*Minute;
+  const MLMicroSeconds Day = 24*Hour;
 
 
   /// subthread/maintthread communication signals (sent via pipe)
@@ -62,7 +63,7 @@ namespace p44 {
   typedef uint8_t ThreadSignals;
 
 
-  typedef long MLTicket; ///< Mainloop timer ticket number
+  typedef long MLTicketNo; ///< Mainloop timer ticket number
   class MLTimer;
 
 
@@ -129,21 +130,72 @@ namespace p44 {
 
   class MLTimer P44_FINAL {
     friend class MainLoop;
-    MLTicket ticketNo;
+    MLTicketNo ticketNo;
     MLMicroSeconds executionTime;
     MLMicroSeconds tolerance;
     TimerCB callback;
     bool reinsert; // if set after running a callback, the timer was re-triggered and must be re-inserted into the timer queue
   public:
-    MLTicket getTicket() { return ticketNo; };
+    MLTicketNo getTicket() { return ticketNo; };
   };
 
+
+  class MLTicket
+  {
+    MLTicketNo ticketNo;
+
+    MLTicket(MLTicket &aTicket); ///< private copy constructor, must not be used
+
+  public:
+    MLTicket();
+    ~MLTicket();
+
+    // conversion operator, get as MLTicket (number only)
+    operator MLTicketNo() const;
+
+    // get as bool to check if ticket is running
+    operator bool() const;
+
+    // assign ticket number (cancels previous ticket, if any)
+    MLTicketNo operator= (MLTicketNo aTicketNo);
+
+    // cancel current ticket
+    void cancel();
+
+    /// reschedule existing execution request
+    /// @param aDelay delay from now when to reschedule execution (approximately)
+    /// @param aTolerance how precise the timer should be, 0=as precise as possible (for timer coalescing)
+    /// @return true if the execution specified with aTicketNo was still pending and could be rescheduled
+    bool reschedule(MLMicroSeconds aDelay, MLMicroSeconds aTolerance = 0);
+
+    /// reschedule existing execution request
+    /// @param aExecutionTime to when to reschedule execution (approximately), in now() timescale
+    /// @param aTolerance how precise the timer should be, 0=as precise as possible (for timer coalescing)
+    /// @return true if the execution specified with aTicketNo was still pending and could be rescheduled
+    bool rescheduleAt(MLMicroSeconds aExecutionTime, MLMicroSeconds aTolerance = 0);
+
+    /// have handler called from the mainloop once with an optional delay from now.
+    /// If ticket was already active, it will be cancelled before
+    /// @param aTimerCallback the functor to be called when timer fires
+    /// @param aExecutionTime when to execute (approximately), in now() timescale
+    /// @param aTolerance how precise the timer should be, default=0=as precise as possible (for timer coalescing)
+    void executeOnceAt(TimerCB aTimerCallback, MLMicroSeconds aExecutionTime, MLMicroSeconds aTolerance = 0);
+
+    /// have handler called from the mainloop once with an optional delay from now
+    /// If ticket was already active, it will be cancelled before
+    /// @param aTimerCallback the functor to be called when timer fires
+    /// @param aDelay delay from now when to execute (approximately)
+    /// @param aTolerance how precise the timer should be, default=0=as precise as possible (for timer coalescing)
+    void executeOnce(TimerCB aTimerCallback, MLMicroSeconds aDelay = 0, MLMicroSeconds aTolerance = 0);
+
+  };
 
 
   /// A main loop for a thread
   class MainLoop : public P44Obj
   {
     friend class ChildThreadWrapper;
+    friend class MLTicket;
 
     // clean up handlers
     typedef std::list<SimpleCB> CleanupHandlersList;
@@ -153,7 +205,7 @@ namespace p44 {
     typedef std::list<MLTimer> TimerList;
     TimerList timers;
     bool timersChanged;
-    MLTicket ticketNo;
+    MLTicketNo ticketNo;
 
     // wait handlers
     typedef struct {
@@ -233,36 +285,32 @@ namespace p44 {
     /// @{
 
     /// have handler called from the mainloop once with an optional delay from now
+    /// @param aTicket this ticket will be cancelled if active beforehand. On exit, this contains the new ticket
     /// @param aTimerCallback the functor to be called when timer fires
     /// @param aExecutionTime when to execute (approximately), in now() timescale
     /// @param aTolerance how precise the timer should be, default=0=as precise as possible (for timer coalescing)
-    /// @return ticket number which can be used to cancel this specific execution request
-    MLTicket executeOnceAt(TimerCB aTimerCallback, MLMicroSeconds aExecutionTime, MLMicroSeconds aTolerance = 0);
+    void executeTicketOnceAt(MLTicket &aTicket, TimerCB aTimerCallback, MLMicroSeconds aExecutionTime, MLMicroSeconds aTolerance = 0);
 
     /// have handler called from the mainloop once with an optional delay from now
-    /// @param aTimerCallback the functor to be called when timer fires
-    /// @param aDelay delay from now when to execute (approximately)
-    /// @param aTolerance how precise the timer should be, default=0=as precise as possible (for timer coalescing)
-    /// @return ticket number which can be used to cancel this specific execution request
-    MLTicket executeOnce(TimerCB aTimerCallback, MLMicroSeconds aDelay = 0, MLMicroSeconds aTolerance = 0);
-
-    /// have handler called from the mainloop once with an optional delay from now
-    /// @param aTicketNo if not 0 on entry, this ticket will be cancelled beforehand. On exit, this contains the new ticket
-    /// @param aTimerCallback the functor to be called when timer fires
-    /// @param aExecutionTime when to execute (approximately), in now() timescale
-    /// @param aTolerance how precise the timer should be, default=0=as precise as possible (for timer coalescing)
-    void executeTicketOnceAt(MLTicket &aTicketNo, TimerCB aTimerCallback, MLMicroSeconds aExecutionTime, MLMicroSeconds aTolerance = 0);
-
-    /// have handler called from the mainloop once with an optional delay from now
-    /// @param aTicketNo if not 0 on entry, this ticket will be cancelled beforehand. On exit, this contains the new ticket
+    /// @param aTicket this ticket will be cancelled if active beforehand. On exit, this contains the new ticket
     /// @param aTimerCallback the functor to be called when timer fires
     /// @param aDelay delay from now when to execute (approximately)
     /// @param aTolerance how precise the timer should be, default=0=as precise as possible (for timer coalescing)
     void executeTicketOnce(MLTicket &aTicketNo, TimerCB aTimerCallback, MLMicroSeconds aDelay = 0, MLMicroSeconds aTolerance = 0);
 
+
+    /// execute something on the mainloop without delay, usually to unwind call stack in long chains of operations
+    /// @note: this is the only call we allow to start w/o a ticket. It still can go wrong if the object which calls
+    ///   it immediately gets destroyed *before* the mainloop executes the callback, but probability is low.
+    /// @param aTimerCallback the functor to be called from mainloop
+    void executeNow(TimerCB aTimerCallback);
+
     /// cancel pending execution by ticket number
-    /// @param aTicketNo ticket of execution to cancel. Will be set to 0 on return
-    void cancelExecutionTicket(MLTicket &aTicketNo);
+    /// @param aTicket ticket of pending execution to cancel. Will be reset on return
+    void cancelExecutionTicket(MLTicket &aTicket); // use ticket.cancel() instead
+
+
+
 
     /// special values for retriggerTimer() aSkip parameter
     enum {
@@ -296,14 +344,14 @@ namespace p44 {
     /// @param aDelay delay from now when to reschedule execution (approximately)
     /// @param aTolerance how precise the timer should be, 0=as precise as possible (for timer coalescing)
     /// @return true if the execution specified with aTicketNo was still pending and could be rescheduled
-    bool rescheduleExecutionTicket(MLTicket aTicketNo, MLMicroSeconds aDelay, MLMicroSeconds aTolerance = 0);
+    bool rescheduleExecutionTicket(MLTicketNo aTicketNo, MLMicroSeconds aDelay, MLMicroSeconds aTolerance = 0);
 
     /// reschedule existing execution request
     /// @param aTicketNo ticket of execution to reschedule.
     /// @param aExecutionTime to when to reschedule execution (approximately), in now() timescale
     /// @param aTolerance how precise the timer should be, 0=as precise as possible (for timer coalescing)
     /// @return true if the execution specified with aTicketNo was still pending and could be rescheduled
-    bool rescheduleExecutionTicketAt(MLTicket aTicketNo, MLMicroSeconds aExecutionTime, MLMicroSeconds aTolerance = 0);
+    bool rescheduleExecutionTicketAt(MLTicketNo aTicketNo, MLMicroSeconds aExecutionTime, MLMicroSeconds aTolerance = 0);
 
     /// @}
 
@@ -421,6 +469,11 @@ namespace p44 {
 
 
   private:
+
+    // we don't want timers to be used without a MLTicket taking care of cancelling when the called object is deleted
+    MLTicketNo executeOnceAt(TimerCB aTimerCallback, MLMicroSeconds aExecutionTime, MLMicroSeconds aTolerance);
+    MLTicketNo executeOnce(TimerCB aTimerCallback, MLMicroSeconds aDelay, MLMicroSeconds aTolerance);
+    bool cancelExecutionTicket(MLTicketNo aTicketNo);
 
     MLMicroSeconds checkTimers(MLMicroSeconds aTimeout);
     void scheduleTimer(MLTimer &aTimer);

@@ -107,7 +107,7 @@ public:
     contentType = aContentType;
     streamResult = aStreamResult;
     // schedule execution
-    MainLoop::currentMainLoop().executeOnce(boost::bind(&HttpFixture::perform, this));
+    MainLoop::currentMainLoop().executeNow(boost::bind(&HttpFixture::perform, this));
     // now let mainloop run (and terminate)
     return MainLoop::currentMainLoop().run(true);
   };
@@ -219,7 +219,7 @@ TEST_CASE_METHOD(HttpFixture, "http slow data", "[http]") {
 #endif
 
 
-TEST_CASE_METHOD(HttpFixture, "https GET test: request to known-good server with valid cert", "[https]") {
+TEST_CASE_METHOD(HttpFixture, "https GET test: request to known-good server with valid cert", "[https],[ssl]") {
   http->setServerCertVfyDir("*");
   REQUIRE(runHttp("https://" TEST_URL)==EXIT_SUCCESS);
   INFO(URL);
@@ -231,7 +231,7 @@ TEST_CASE_METHOD(HttpFixture, "https GET test: request to known-good server with
 
 #if !USE_LIBMONGOOSE
 
-TEST_CASE_METHOD(HttpFixture, "https GET test: request to working server with no verifyable cert", "[https]") {
+TEST_CASE_METHOD(HttpFixture, "https GET test: request to working server with no verifyable cert", "[https],[ssl]") {
   // default is platform cert checking, must error out even without using setServerCertVfyDir("*")!
   REQUIRE(runHttp("https://" NOCERT_TEST_URL)==EXIT_SUCCESS);
   INFO(URL);
@@ -239,7 +239,7 @@ TEST_CASE_METHOD(HttpFixture, "https GET test: request to working server with no
   REQUIRE(!Error::isOK(httpErr));
 }
 
-TEST_CASE_METHOD(HttpFixture, "https GET test without checking to local server w/o cert", "[https]") {
+TEST_CASE_METHOD(HttpFixture, "https GET test without checking to local server w/o cert", "[https],[ssl]") {
   http->setServerCertVfyDir(""); // no checking
   REQUIRE(runHttp("https://" NOCERT_TEST_URL)==EXIT_SUCCESS);
   INFO(URL);
@@ -247,7 +247,7 @@ TEST_CASE_METHOD(HttpFixture, "https GET test without checking to local server w
   REQUIRE(Error::isOK(httpErr));
 }
 
-TEST_CASE_METHOD(HttpFixture, "https GET test: request to working server with valid cert but wrong CN", "[https]") {
+TEST_CASE_METHOD(HttpFixture, "https GET test: request to working server with valid cert but wrong CN", "[https],[ssl]") {
   // default is platform cert checking, must error out even without using setServerCertVfyDir("*")!
   REQUIRE(runHttp("https://" WRONGCN_TEST_URL)==EXIT_SUCCESS);
   INFO(URL);

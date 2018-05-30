@@ -117,7 +117,7 @@ void SsdpSearch::socketStatusHandler(ErrorPtr aError)
     );
     transmitString(ssdpSearch);
     // start timer (wait 1.5 the MX for answers)
-    timeoutTicket = MainLoop::currentMainLoop().executeOnce(boost::bind(&SsdpSearch::searchTimedOut, this), SSDP_MX*1500*MilliSecond);
+    timeoutTicket.executeOnce(boost::bind(&SsdpSearch::searchTimedOut, this), SSDP_MX*1500*MilliSecond);
   }
   else {
     // error starting search
@@ -140,7 +140,7 @@ void SsdpSearch::searchTimedOut()
 
 void SsdpSearch::stopSearch()
 {
-  MainLoop::currentMainLoop().cancelExecutionTicket(timeoutTicket);
+  timeoutTicket.cancel();
   closeConnection();
 }
 
