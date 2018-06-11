@@ -39,6 +39,7 @@ namespace p44 {
   /// @param aValueLookupCB this will be called to get variables resolved into values
   ErrorPtr substitutePlaceholders(string &aString, StringValueLookupCB aValueLookupCB);
 
+
   /// expression value, consisting of a value and an error to indicate non-value and reason for it
   class ExpressionValue {
   public:
@@ -48,6 +49,7 @@ namespace p44 {
     ExpressionValue(ErrorPtr aError, double aValue = 0) { err = aError; v = aValue; };
     ExpressionValue(double aValue) { v = aValue; };
     bool isOk() const { return Error::isOK(err); }
+    string stringValue();
   };
 
 
@@ -86,6 +88,11 @@ namespace p44 {
   /// @param aFunctionLookpCB this will be called to execute functions that are not built-in
   /// @return the result of the expression
   ExpressionValue evaluateExpression(const string &aExpression, ValueLookupCB aValueLookupCB, FunctionLookupCB aFunctionLookpCB);
+
+  /// substitute "@{xxx}" type expression placeholders in string
+  /// @param aString string to replace placeholders in
+  /// @param aValueLookupCB this will be called to get variables resolved into values
+  ErrorPtr substituteExpressionPlaceholders(string &aString, ValueLookupCB aValueLookupCB, FunctionLookupCB aFunctionLookpCB);
 
 
 } // namespace p44

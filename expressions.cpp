@@ -119,6 +119,19 @@ ErrorPtr p44::substitutePlaceholders(string &aString, StringValueLookupCB aValue
 }
 
 
+// MARK: ===== expression value
+
+string ExpressionValue::stringValue()
+{
+  if (isOk()) {
+    return string_format("%lg", v);
+  }
+  else {
+    return "unknown";
+  }
+}
+
+
 
 // MARK: ===== expression error
 
@@ -435,4 +448,34 @@ ExpressionValue p44::evaluateExpression(const string &aExpression, ValueLookupCB
   const char *p = aExpression.c_str();
   return evaluateExpressionPrivate(p, 0, aValueLookupCB, aFunctionLookpCB);
 }
+
+
+ErrorPtr p44::substituteExpressionPlaceholders(string &aString, ValueLookupCB aValueLookupCB, FunctionLookupCB aFunctionLookpCB)
+{
+  ErrorPtr err;
+  size_t p = 0;
+  // Syntax of placeholders:
+  //   @{expression}
+  while ((p = aString.find("@{",p))!=string::npos) {
+    size_t e = aString.find("}",p+2);
+    if (e==string::npos) {
+      // syntactically incorrect, no closing "}"
+      err = ExpressionError::err(ExpressionError::Syntax, "unterminated placeholder: %s", aString.c_str()+p);
+      break;
+    }
+    string expr = aString.substr(p+2,e-2-p);
+    // evaluate expression
+    ExpressionValue result = evaluateExpression(expr, aValueLookupCB, aFunctionLookpCB);
+    string rep;
+    if (result.isOk()) {
+      rep = result.stringValue();
+    }
+    // replace, even if rep is empty
+    aString.replace(p, e-p+1, rep);
+    p+=rep.size();
+  }
+  return err;
+}
+
+
 
