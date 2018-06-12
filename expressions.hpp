@@ -92,7 +92,11 @@ namespace p44 {
   /// substitute "@{xxx}" type expression placeholders in string
   /// @param aString string to replace placeholders in
   /// @param aValueLookupCB this will be called to get variables resolved into values
-  ErrorPtr substituteExpressionPlaceholders(string &aString, ValueLookupCB aValueLookupCB, FunctionLookupCB aFunctionLookpCB);
+  /// @param aFunctionLookpCB this will be called to execute functions that are not built-in
+  /// @param aNullText this will be used as substitution for expressions with errors or null value
+  /// @return returns first error occurred during substitutions. Note that only unbalanced substitution brackets @{xxx} abort substitution,
+  ///    other errors just cause substitution result to be aNullText.
+  ErrorPtr substituteExpressionPlaceholders(string &aString, ValueLookupCB aValueLookupCB, FunctionLookupCB aFunctionLookpCB, string aNullText = "null");
 
 
 } // namespace p44

@@ -150,7 +150,10 @@ namespace p44 {
     static string text(ErrorPtr aError);
 
     /// factory function to create a explicit OK error (object with ErrorCode==0)
-    static ErrorPtr ok();
+    /// @param aError if set and is !isOK(), then aError will be returned instead of OK
+    ///    This can be used to make sure an explicit OK is returned even of aError is NULL
+    /// @return OK error object if aError is OK or NULL, aError otherwise
+    static ErrorPtr ok(ErrorPtr aError = ErrorPtr());
 
   };
 

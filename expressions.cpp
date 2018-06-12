@@ -450,7 +450,7 @@ ExpressionValue p44::evaluateExpression(const string &aExpression, ValueLookupCB
 }
 
 
-ErrorPtr p44::substituteExpressionPlaceholders(string &aString, ValueLookupCB aValueLookupCB, FunctionLookupCB aFunctionLookpCB)
+ErrorPtr p44::substituteExpressionPlaceholders(string &aString, ValueLookupCB aValueLookupCB, FunctionLookupCB aFunctionLookpCB, string aNullText)
 {
   ErrorPtr err;
   size_t p = 0;
@@ -469,6 +469,10 @@ ErrorPtr p44::substituteExpressionPlaceholders(string &aString, ValueLookupCB aV
     string rep;
     if (result.isOk()) {
       rep = result.stringValue();
+    }
+    else {
+      rep = aNullText;
+      if (Error::isOK(err)) err = result.err; // only report first error
     }
     // replace, even if rep is empty
     aString.replace(p, e-p+1, rep);

@@ -151,9 +151,10 @@ bool Error::isError(ErrorPtr aError, const char *aDomain, ErrorCode aErrorCode)
 }
 
 
-ErrorPtr Error::ok()
+ErrorPtr Error::ok(ErrorPtr aError)
 {
-  return ErrorPtr(new Error(OK, "OK"));
+  if (aError) return aError; // whatever it is, return it
+  return ErrorPtr(new Error(OK, "OK")); // aError is NULL, return an explicit OK
 }
 
 
