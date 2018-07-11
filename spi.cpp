@@ -117,6 +117,8 @@ SPIDevicePtr SPIManager::getDevice(int aBusNumber, const char *aDeviceID)
       dev = SPIDevicePtr(new MCP23S17(deviceAddress, bus.get(), deviceOptions.c_str()));
     else if (typeString=="MCP3008")
       dev = SPIDevicePtr(new MCP3008(deviceAddress, bus.get(), deviceOptions.c_str()));
+    else if (typeString=="generic")
+      dev = SPIDevicePtr(new SPIDevice(deviceAddress, bus.get(), deviceOptions.c_str()));
     // TODO: add more device types
     // Register new device
     if (dev) {

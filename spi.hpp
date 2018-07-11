@@ -49,6 +49,9 @@ namespace p44 {
     /// @return fully qualified device identifier (deviceType@hexaddress)
     string deviceID();
 
+    /// @return the bus object, allows directly communicating with a device
+    SPIBus &getBus() { return *spibus; };
+
     /// @return device type identifier
     virtual const char *deviceType() { return "generic"; };
 
