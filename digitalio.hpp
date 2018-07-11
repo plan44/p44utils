@@ -54,8 +54,17 @@ namespace p44 {
     ///   "gpioNS9XXXX.NAME" : DigiESP Linux GPIO named NAME
     ///   "i2cN.DEVICE@i2caddr.pinNumber" : numbered pin of DEVICE at i2caddr on i2c bus N
     ///     (DEVICE is name of chip, such as PCF8574 or TCA9555)
-    ///   "spiXY.DEVICE@spiaddr.pinNumber" : numbered pin of DEVICE at spiaddr on spidevX.Y
+    ///   "spiXY.DEVICE[-options]@spiaddr.pinNumber" : numbered pin of DEVICE at spiaddr on spidevX.Y
     ///     (DEVICE is name of chip, such as MCP23S17)
+    ///     possible options are:
+    ///     H: use inverted phase (compared to original microwire SPI)
+    ///     P: use inverted polarity (compared to original microwire SPI)
+    ///     C: chip select high
+    ///     N: no chip select
+    ///     3: 3 wire
+    ///     R: SPI ready, slave pulls low to pause
+    ///     S: slow speed (1/10 of bus' normal speed)
+    ///     s: very slow speed (1/100 of bus' normal speed)
     DigitalIo(const char* aPinSpec, bool aOutput, bool aInitialState = false);
     virtual ~DigitalIo();
 
