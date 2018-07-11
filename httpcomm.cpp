@@ -278,7 +278,10 @@ void HttpComm::requestThread(ChildThreadWrapper &aThread)
         delete[] bufferP;
       } // if content to read
       // done, close connection
-      mg_close_connection(mgConn);
+      if (mgConn) {
+        mg_close_connection(mgConn);
+        mgConn = NULL;
+      }
     }
   }
   // ending the thread function will call the requestThreadSignal on the main thread
@@ -317,6 +320,7 @@ void HttpComm::requestThreadSignal(ChildThreadWrapper &aChildThread, ThreadSigna
     //   it has to be closed to avoid leaking memory or file descriptors.
     if (mgConn) {
       mg_close_connection(mgConn);
+      mgConn = NULL;
     }
   }
 }
