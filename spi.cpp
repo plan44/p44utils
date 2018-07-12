@@ -220,7 +220,7 @@ int SPIBus::spidev_write_read(
   // init all fields of the struct, important for spi_bcm2835 driver (not relevant for spi_bcm2708)
   for (int i=0; i<2; ++i) {
     memset(&mesg[i], 0, sizeof (spi_ioc_transfer));
-    mesg[i].bits_per_word = 8; // 8 bits
+    mesg[i].bits_per_word = 0; // means 8 -> From SPI_IOC_WR_BITS_PER_WORD docs: "The value zero signifies eight bits"
     mesg[i].speed_hz = aDeviceP->speedHz; // current speed
   }
   // prepare output transfer, if any data provided
@@ -401,7 +401,7 @@ bool SPIBus::accessBus()
     return false;
   }
   // - at this time, we only support 8-bit words
-  uint8_t bpw = 8;
+  uint8_t bpw = 0; // means 8 -> From SPI_IOC_WR_BITS_PER_WORD docs: "The value zero signifies eight bits"
   if (ioctl(busFD, SPI_IOC_WR_BITS_PER_WORD, &bpw) < 0) {
     LOG(LOG_ERR, "Error: Cannot SPI_IOC_WR_BITS_PER_WORD for bus %d", busNumber);
     return false;
@@ -784,15 +784,17 @@ double MCP3002::getPinValue(int aPinNo)
   //   PinNo 2,3 then represent the differential modes, see data sheet.
   out[0] =
     0x08 | // start bit
-    ((aPinNo^0x02)<<1) | // channel and mode selection
+    (((aPinNo&0x03)^0x02)<<1) | // channel and mode selection
     0x01; // MSB first
   // - second and third byte is dummy
   out[1] = 0;
   out[2] = 0;
+  DBGFOCUSLOG("MCP3002 write: 0x%02X, 0x%02X, 0x%02X", out[0], out[1], out[2]);
   if (spibus->SPIRawWriteRead(this, 3, out, 3, in, true)) {
     // first byte returned is broken anyway on MT7688, no data there
     // second byte contains a 0 in Bit7, Bit6..0 = Bit9..3 of result
     // third byte contains Bit7..5 = Bit2..0 of result, rest is dummy
+    DBGFOCUSLOG("MCP3002 read: 0x%02X, 0x%02X, 0x%02X", in[0], in[1], in[2]);
     raw = ((uint16_t)(in[1] & 0x7F)<<3) + (in[2]>>5);
   }
   // return raw value (no physical unit at this level known, and no scaling or offset either)
