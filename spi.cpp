@@ -746,7 +746,7 @@ bool MCP3008::getPinRange(int aPinNo, double &aMin, double &aMax, double &aResol
 
 // MARK: ===== MCP3002
 
-MCP3008::MCP3002(uint8_t aDeviceAddress, SPIBus *aBusP, const char *aDeviceOptions) :
+MCP3002::MCP3002(uint8_t aDeviceAddress, SPIBus *aBusP, const char *aDeviceOptions) :
   inherited(aDeviceAddress, aBusP, aDeviceOptions)
 {
   // currently no device options
