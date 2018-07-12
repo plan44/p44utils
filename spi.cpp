@@ -117,6 +117,8 @@ SPIDevicePtr SPIManager::getDevice(int aBusNumber, const char *aDeviceID)
       dev = SPIDevicePtr(new MCP23S17(deviceAddress, bus.get(), deviceOptions.c_str()));
     else if (typeString=="MCP3008")
       dev = SPIDevicePtr(new MCP3008(deviceAddress, bus.get(), deviceOptions.c_str()));
+    else if (typeString=="MCP3002")
+      dev = SPIDevicePtr(new MCP3002(deviceAddress, bus.get(), deviceOptions.c_str()));
     else if (typeString=="generic")
       dev = SPIDevicePtr(new SPIDevice(deviceAddress, bus.get(), deviceOptions.c_str()));
     // TODO: add more device types
@@ -711,7 +713,7 @@ double MCP3008::getPinValue(int aPinNo)
   uint8_t out[3];
   uint8_t in[3];
   uint16_t raw = 0;
-  // - first byte is 7 zero dummy bits plus MSB==1==start bit
+  // - first byte is 7 zero dummy bits plus LSB==1==start bit
   out[0] = 0x01;
   // - second byte is 4 bit channel selection/differential vs single, plus 4 bit dummy
   //   Bit 7     Bit 6    Bit 5    Bit 4
@@ -740,6 +742,73 @@ bool MCP3008::getPinRange(int aPinNo, double &aMin, double &aMax, double &aResol
   aResolution = 1;
   return true;
 }
+
+
+// MARK: ===== MCP3002
+
+MCP3008::MCP3002(uint8_t aDeviceAddress, SPIBus *aBusP, const char *aDeviceOptions) :
+  inherited(aDeviceAddress, aBusP, aDeviceOptions)
+{
+  // currently no device options
+  //  int b = atoi(aDeviceOptions);
+}
+
+
+bool MCP3002::isKindOf(const char *aDeviceType)
+{
+  if (strcmp(deviceType(),aDeviceType)==0)
+    return true;
+  else
+    return inherited::isKindOf(aDeviceType);
+}
+
+
+double MCP3002::getPinValue(int aPinNo)
+{
+  // MCP3002 needs to transfer 3 bytes in and out for one conversion
+  // Note: with a correctly working SPI (not the case in MT7688),
+  //   2 bytes would be sufficient. But as the first returned byte
+  //   is flawed in MT7688 (see @wdu's comment in Onion forum:
+  //   "In full duplex, I have observed errors in the second bit (always
+  //   1 or 0, don't remember exactly), depending on the state of the
+  //   first bit. This makes the first transmitted byte unreliable."),
+  //   this implementation shifts the bit such that first returned byte
+  //   can be discarded entirely.
+  uint8_t out[3];
+  uint8_t in[3];
+  uint16_t raw = 0;
+  // - first byte is 4 zero dummy bits, then 1==start bit, then:
+  //   Bit 2     Bit 1    Bit 0
+  //   D/S       CHSEL    MSBFirst
+  // - we invert the D/S bit to have 1:1 PinNo->Single ended channel assignments (0,1).
+  //   PinNo 2,3 then represent the differential modes, see data sheet.
+  out[0] =
+    0x08 | // start bit
+    ((aPinNo^0x02)<<1) | // channel and mode selection
+    0x01; // MSB first
+  // - second and third byte is dummy
+  out[1] = 0;
+  out[2] = 0;
+  if (spibus->SPIRawWriteRead(this, 3, out, 3, in, true)) {
+    // first byte returned is broken anyway on MT7688, no data there
+    // second byte contains a 0 in Bit7, Bit6..0 = Bit9..3 of result
+    // third byte contains Bit7..5 = Bit2..0 of result, rest is dummy
+    raw = ((uint16_t)(in[1] & 0x7F)<<3) + (in[2]>>5);
+  }
+  // return raw value (no physical unit at this level known, and no scaling or offset either)
+  return raw;
+}
+
+
+bool MCP3002::getPinRange(int aPinNo, double &aMin, double &aMax, double &aResolution)
+{
+  // as we don't know what will be connected to the inputs, we return raw A/D value.
+  aMin = 0;
+  aMax = 1024;
+  aResolution = 1;
+  return true;
+}
+
 
 
 
