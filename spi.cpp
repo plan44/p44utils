@@ -117,6 +117,8 @@ SPIDevicePtr SPIManager::getDevice(int aBusNumber, const char *aDeviceID)
       dev = SPIDevicePtr(new MCP23S17(deviceAddress, bus.get(), deviceOptions.c_str()));
     else if (typeString=="MCP3008")
       dev = SPIDevicePtr(new MCP3008(deviceAddress, bus.get(), deviceOptions.c_str()));
+    else if (typeString=="MCP3002")
+      dev = SPIDevicePtr(new MCP3002(deviceAddress, bus.get(), deviceOptions.c_str()));
     else if (typeString=="generic")
       dev = SPIDevicePtr(new SPIDevice(deviceAddress, bus.get(), deviceOptions.c_str()));
     // TODO: add more device types
@@ -741,6 +743,59 @@ bool MCP3008::getPinRange(int aPinNo, double &aMin, double &aMax, double &aResol
   return true;
 }
 
+
+// MARK: ===== MCP3002
+
+MCP3002::MCP3002(uint8_t aDeviceAddress, SPIBus *aBusP, const char *aDeviceOptions) :
+  inherited(aDeviceAddress, aBusP, aDeviceOptions)
+{
+  // currently no device options
+//  int b = atoi(aDeviceOptions);
+}
+
+
+bool MCP3002::isKindOf(const char *aDeviceType)
+{
+  if (strcmp(deviceType(),aDeviceType)==0)
+    return true;
+  else
+    return inherited::isKindOf(aDeviceType);
+}
+
+
+double MCP3002::getPinValue(int aPinNo)
+{
+  // MCP3002 needs to transfer 2 bytes in and out for one conversion
+  uint8_t out[2];
+  uint8_t in[2];
+  uint16_t raw = 0;
+  // - first byte is start bit, differential vs single, channel selection
+  //   Bit 6       Bit 5       Bit 4         Bit 3
+  //   Start       D/S         ODD/SIGN      MSB/LSB-first
+  //   bit         0=Diff      0=Channel0    1=MSB
+  //               1=Single    1=Channel1    0=LSB
+  // - we invert the D/S bit to have 1:1 PinNo->Single ended channel assignments (0..7).
+  //   PinNo 8..15 then represent the differential modes, see data sheet.
+  out[0] = 0x48 | (aPinNo^0x08)<<4;
+  // - second byte is dummy
+  out[1] = 0;
+  if (spibus->SPIRawWriteRead(this, 2, out, 2, in, true)) {
+    // A/D output data are 10 LSB of data read back
+    raw = ((uint16_t)(in[0] & 0x03)<<8) + in[1];
+  }
+  // return raw value (no physical unit at this level known, and no scaling or offset either)
+  return raw;
+}
+
+
+bool MCP3002::getPinRange(int aPinNo, double &aMin, double &aMax, double &aResolution)
+{
+  // as we don't know what will be connected to the inputs, we return raw A/D value.
+  aMin = 0;
+  aMax = 1024;
+  aResolution = 1;
+  return true;
+}
 
 
 
