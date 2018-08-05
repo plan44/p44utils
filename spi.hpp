@@ -291,7 +291,7 @@ namespace p44 {
     /// set state of pin (NOP for inputs)
     /// @param aState new state to set output to
     virtual void setState(bool aState) P44_OVERRIDE;
-  };
+  };  
 
 
   // MARK: ===== analog IO
@@ -349,29 +349,6 @@ namespace p44 {
 
 
 
-  class MCP3002 : public SPIAnalogPortDevice
-  {
-    typedef SPIAnalogPortDevice inherited;
-
-  public:
-
-    /// create device
-    /// @param aDeviceAddress slave address of the device
-    /// @param aBusP I2CBus object
-    /// @param aDeviceOptions optional device-level options
-    MCP3002(uint8_t aDeviceAddress, SPIBus *aBusP, const char *aDeviceOptions);
-
-    /// @return device type identifier
-    virtual const char *deviceType() P44_OVERRIDE { return "MCP3002"; };
-
-    /// @return true if this device or one of it's ancestors is of the given type
-    virtual bool isKindOf(const char *aDeviceType) P44_OVERRIDE;
-
-    virtual double getPinValue(int aPinNo) P44_OVERRIDE;
-    virtual void setPinValue(int aPinNo, double aValue) P44_OVERRIDE { /* dummy */ };
-    virtual bool getPinRange(int aPinNo, double &aMin, double &aMax, double &aResolution) P44_OVERRIDE;
-
-  };
 
   /// wrapper class for analog I/O pin
   class AnalogSPIPin : public AnalogIOPin
