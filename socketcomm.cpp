@@ -123,6 +123,37 @@ ErrorPtr SocketComm::startServer(ServerConnectionCB aServerConnectionHandler, in
     else
       proto = protocol;
   }
+  if (protocolFamily==PF_INET6) {
+    // IPv6 socket
+    struct servent *pse;
+    // - create suitable socket address
+    struct sockaddr_in6 *sinP = new struct sockaddr_in6;
+    saLen = sizeof(struct sockaddr_in6);
+    saP = (struct sockaddr *)sinP;
+    memset((char *)saP, 0, saLen);
+    // - set listening socket address
+    sinP->sin6_family = (sa_family_t)protocolFamily;
+    if (nonLocal)
+      sinP->sin6_addr = in6addr_any;
+    else
+      sinP->sin6_addr = in6addr_loopback;
+    // get service / port
+    if ((pse = getservbyname(serviceOrPortOrSocket.c_str(), NULL)) != NULL)
+      sinP->sin6_port = htons(ntohs((in_port_t)pse->s_port));
+    else if ((sinP->sin6_port = htons((in_port_t)atoi(serviceOrPortOrSocket.c_str()))) == 0) {
+      err = Error::err<SocketCommError>(SocketCommError::CannotResolve, "Unknown service/port name");
+    }
+    // - protocol derived from socket type
+    if (protocol==0) {
+      // determine protocol automatically from socket type
+      if (socketType==SOCK_STREAM)
+        proto = IPPROTO_TCP;
+      else
+        proto = IPPROTO_UDP;
+    }
+    else
+      proto = protocol;
+  }
   else if (protocolFamily==PF_LOCAL) {
     // Local (UNIX) socket
     // - create suitable socket address
@@ -138,7 +169,7 @@ ErrorPtr SocketComm::startServer(ServerConnectionCB aServerConnectionHandler, in
     proto = 0;
   }
   else {
-    // TODO: implement other portocol families, in particular PF_INET6
+    // TODO: implement other portocol families
     err = Error::err<SocketCommError>(SocketCommError::Unsupported, "Unsupported protocol family");
   }
   // now create and configure socket
@@ -794,4 +825,3 @@ void SocketComm::dataExceptionHandler(int aFd, int aPollFlags)
     internalCloseConnection();
   }
 }
-
