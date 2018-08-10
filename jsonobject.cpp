@@ -21,7 +21,7 @@
 
 #include "jsonobject.hpp"
 
-#include "json_object_private.h"
+//#include "json_object_private.h"
 
 #include <sys/stat.h> // for fstat
 

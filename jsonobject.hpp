@@ -24,7 +24,7 @@
 
 #include "p44utils_common.hpp"
 
-#include "json.h"
+#include <json-c/json.h>
 
 using namespace std;
 
