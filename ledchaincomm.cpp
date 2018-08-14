@@ -42,6 +42,7 @@ using namespace p44;
 #endif
 
 
+
 LEDChainComm::LEDChainComm(LedType aLedType, const string aDeviceName, uint16_t aNumLeds, uint16_t aLedsPerRow, bool aXReversed, bool aAlternating, bool aSwapXY, bool aYReversed) :
   initialized(false)
 {
@@ -184,6 +185,7 @@ void LEDChainComm::show()
 }
 
 
+
 // brightness to PWM value conversion
 static const uint8_t pwmtable[256] = {
   0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2,
@@ -221,6 +223,17 @@ const uint8_t brightnesstable[256] = {
   252, 252, 253, 253, 253, 253, 254, 254, 254, 254, 255, 255, 255, 255
 };
 
+
+uint8_t p44::pwmToBrightness(uint8_t aPWM)
+{
+  return brightnesstable[aPWM];
+}
+
+
+uint8_t p44::brightnessToPwm(uint8_t aBrightness)
+{
+  return pwmtable[aBrightness];
+}
 
 
 uint8_t LEDChainComm::getMinVisibleColorIntensity()
