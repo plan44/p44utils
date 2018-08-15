@@ -292,7 +292,7 @@ namespace p44 {
     void executeTicketOnceAt(MLTicket &aTicket, TimerCB aTimerCallback, MLMicroSeconds aExecutionTime, MLMicroSeconds aTolerance = 0);
 
     /// have handler called from the mainloop once with an optional delay from now
-    /// @param aTicket this ticket will be cancelled if active beforehand. On exit, this contains the new ticket
+    /// @param aTicketNo this ticket will be cancelled if active beforehand. On exit, this contains the new ticket
     /// @param aTimerCallback the functor to be called when timer fires
     /// @param aDelay delay from now when to execute (approximately)
     /// @param aTolerance how precise the timer should be, default=0=as precise as possible (for timer coalescing)
@@ -315,7 +315,8 @@ namespace p44 {
     /// special values for retriggerTimer() aSkip parameter
     enum {
       from_now_if_late = -1, ///< automatically use from_now when we're already too late to trigger relative to last execution
-      from_now = -2 ///< reschedule next trigger time at aInterval from now (rather than from pervious execution time)
+      from_now = -2, ///< reschedule next trigger time at aInterval from now (rather than from pervious execution time)
+      absolute = -3 ///< treat aInterval as absolute MainLoop::now() time when to reschedule. If this is in the past, reschedule ASAP
     };
 
     /// re-arm timer to fire again after a given interval relative to the time of the currently scheduled (or being executed right now)
@@ -328,6 +329,8 @@ namespace p44 {
     /// @param aSkip if set to from_now_if_late (default) timer is recheduled from current time into the future if we are too late
     ///   to schedule the interval relative to the last execution time of the timer.
     ///   If set to from_now, timer is always rescheduled from current time.
+    ///   If set to absolute, aInterval is taken as the absolute (MainLoop::now()) time when to fire the timer next. If the
+    ///   specified point in time has already passed, the timer is fired ASAP again.
     ///   Otherwise, if >=0, aSKIP determines how many extra aInterval periods can be inserted maximally to reach an execution point in the future.
     /// @return returns the number of aIntervals that were left out to reach a time in the future.
     ///   Return value < 0 means that the timer could not be set to re-trigger for the future within the aMaxSkip limits.
@@ -335,6 +338,8 @@ namespace p44 {
     ///   calling retriggerTimer to find an execution point in the future.
     ///   When aSkip is set to from_now_if_late, result is 0 when the next interval could be scheduled without delaying, and 1 if
     ///   the interval had to be added from current time rather than last timer execution.
+    ///   When aSkip is set to absolute, result is 0 when the specified absolute time is in the future, and 1 if
+    ///   the time is in the past and the timer will fire ASAP.
     /// @note This is different from rescheduleExecutionTicket as the retrigger time is relative to the previous execution
     ///   time of the ticket.
     int retriggerTimer(MLTimer &aTimer, MLMicroSeconds aInterval, MLMicroSeconds aTolerance = 0, int aSkip = MainLoop::from_now_if_late);

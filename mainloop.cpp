@@ -368,7 +368,18 @@ int MainLoop::retriggerTimer(MLTimer &aTimer, MLMicroSeconds aInterval, MLMicroS
   MLMicroSeconds now = MainLoop::now();
   int skipped = 0;
   aTimer.tolerance = aTolerance;
-  if (aSkip==from_now_if_late) {
+  if (aSkip==absolute) {
+    if (aInterval<now+aTimer.tolerance) {
+      skipped = 1; // signal we skipped some time
+      aTimer.executionTime = now; // ASAP
+    }
+    else {
+      aTimer.executionTime = aInterval; // aInterval is absolute time to fire timer next
+    }
+    aTimer.reinsert = true;
+    return skipped;
+  }
+  else if (aSkip==from_now_if_late) {
     aTimer.executionTime += aInterval;
     if (aTimer.executionTime+aTimer.tolerance < now) {
       // too late (even taking allowed tolerance into account)
