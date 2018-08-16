@@ -162,6 +162,8 @@ namespace p44 {
     /// destructor
     virtual ~CmdLineApp();
 
+    static CmdLineApp *sharedCmdLineApp();
+
   protected:
 
     /// set command description constants (option definitions and synopsis)
@@ -200,6 +202,8 @@ namespace p44 {
     /// @return application invocation name (argv[0])
     /// @note parseCommandLine() must be called before using this method
     const char *getInvocationName();
+
+  public:
 
     /// get option
     /// @param aOptionName the name of the option (longOptionName if exists, shortOptionChar if no longOptionName exists)

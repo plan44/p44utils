@@ -287,6 +287,11 @@ CmdLineApp::~CmdLineApp()
 }
 
 
+CmdLineApp *CmdLineApp::sharedCmdLineApp()
+{
+  return dynamic_cast<CmdLineApp *>(Application::sharedApplication());
+}
+
 
 void CmdLineApp::setCommandDescriptors(const char *aSynopsis, const CmdLineOptionDescriptor *aOptionDescriptors)
 {
