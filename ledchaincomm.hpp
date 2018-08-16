@@ -106,7 +106,8 @@ namespace p44 {
     /// @param aLedType type of LEDs
     /// @param aDeviceName the name of the LED chain device (if any, depends on platform)
     /// @param aNumLeds number of LEDs in the chain
-    /// @param aLedsPerRow number of consecutive LEDs in the WS2812 chain that build a row (usually x direction, y if swapXY was set)
+    /// @param aLedsPerRow number of consecutive LEDs in the WS2812 chain that build a row
+    ///   (usually x direction, y if swapXY was set). Set to 0 for single line of LEDs
     /// @param aXReversed X direction is reversed
     /// @param aAlternating X direction is reversed in first row, normal in second, reversed in third etc..
     /// @param aSwapXY X and Y reversed (for up/down wiring)
