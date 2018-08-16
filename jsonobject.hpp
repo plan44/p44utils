@@ -101,8 +101,9 @@ namespace p44 {
     /// get object by key
     /// @param aKey key of object
     /// @param aJsonObject will be set to the value of the key when return value is true
+    /// @param aNonNull if set, existing keys with NULL values will return false
     /// @return true if key exists (but aJsonObject might still be empty in case of a NULL object)
-    bool get(const char *aKey, JsonObjectPtr &aJsonObject);
+    bool get(const char *aKey, JsonObjectPtr &aJsonObject, bool aNonNull = false);
 
     /// get object's string value by key
     /// @return NULL if key does not exists or actually has NULL value, string object otherwise

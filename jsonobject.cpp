@@ -149,12 +149,13 @@ void JsonObject::add(const char* aKey, JsonObjectPtr aObj)
 }
 
 
-bool JsonObject::get(const char *aKey, JsonObjectPtr &aJsonObject)
+bool JsonObject::get(const char *aKey, JsonObjectPtr &aJsonObject, bool aNonNull)
 {
   json_object *weakObjRef = NULL;
   if (json_object_object_get_ex(json_obj, aKey, &weakObjRef)) {
     // found object, but can be the NULL object (which will return no JsonObjectPtr
     if (weakObjRef==NULL) {
+      if (aNonNull) return false; // we don't want a NULL value returned
       aJsonObject = JsonObjectPtr(); // no object
     }
     else {
