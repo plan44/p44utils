@@ -128,6 +128,9 @@ namespace p44 {
     /// with setColor() and/or setColorDimmed()
     void show();
 
+    /// clear all LEDs to off (but must call show() to actually show it
+    void clear();
+
     /// get minimal color intensity that does not completely switch off the color channel of the LED
     /// @return minimum r,g,b value
     uint8_t getMinVisibleColorIntensity();

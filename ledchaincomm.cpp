@@ -137,6 +137,10 @@ bool LEDChainComm::begin()
       initialized = false;
     }
     #else
+    if (ledbuffer) {
+      delete[] ledbuffer;
+      ledbuffer = NULL;
+    }
     ledbuffer = new uint8_t[numColorComponents*numLeds];
     memset(ledbuffer, 0, numColorComponents*numLeds);
     ledFd = open(deviceName.c_str(), O_RDWR);
@@ -150,6 +154,13 @@ bool LEDChainComm::begin()
     #endif
   }
   return initialized;
+}
+
+
+void LEDChainComm::clear()
+{
+  if (!initialized) return;
+  memset(ledbuffer, 0, numColorComponents*numLeds);
 }
 
 
