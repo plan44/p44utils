@@ -22,6 +22,10 @@
 #ifndef __p44utils__common__
 #define __p44utils__common__
 
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
 #include <list>
 #include <vector>
 #include <map>
