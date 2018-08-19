@@ -93,6 +93,9 @@ namespace p44 {
     ///   Otherwise, it is the absolute path to the data file specified with aDataFile
     string dataPath(const string aDataFile = "");
 
+    /// @return version of this application
+    virtual string version() const;
+
   protected:
 
     /// daemonize

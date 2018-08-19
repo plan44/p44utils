@@ -224,6 +224,18 @@ void Application::setDataPath(const char *aDataPath)
 }
 
 
+string Application::version() const
+{
+  #if defined(P44_APPLICATION_VERSION)
+  return P44_APPLICATION_VERSION; // specific version number
+  #elif defined(PACKAGE_VERSION)
+  return PACKAGE_VERSION; // automake package version number
+  #else
+  return "unknown_version"; // none known
+  #endif
+}
+
+
 void Application::daemonize()
 {
   pid_t pid, sid;
@@ -450,7 +462,6 @@ void CmdLineApp::showUsage()
 }
 
 
-
 void CmdLineApp::parseCommandLine(int aArgc, char **aArgv)
 {
   if (aArgc>0) {
@@ -563,6 +574,10 @@ bool CmdLineApp::processOption(const CmdLineOptionDescriptor &aOptionDescriptor,
   // directly process "help" option (long name must be "help", short name can be anything but usually is 'h')
   if (!aOptionDescriptor.withArgument && strcmp(aOptionDescriptor.longOptionName,"help")==0) {
     showUsage();
+    terminateApp(EXIT_SUCCESS);
+  }
+  else if (!aOptionDescriptor.withArgument && strcmp(aOptionDescriptor.longOptionName,"version")==0) {
+    fprintf(stdout, "%s\n", version().c_str());
     terminateApp(EXIT_SUCCESS);
   }
   else if (aOptionDescriptor.withArgument && strcmp(aOptionDescriptor.longOptionName,"resourcepath")==0) {
