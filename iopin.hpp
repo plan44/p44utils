@@ -93,8 +93,8 @@ namespace p44 {
 
   };
   typedef boost::intrusive_ptr<IOPin> IOPinPtr;
-  
-  
+
+
 
   /// simulated digital I/O pin
   class SimPin : public IOPin
@@ -287,10 +287,33 @@ namespace p44 {
     string valueSetCommand(double aValue);
     void applyValue(double aValue);
     void valueUpdated(ErrorPtr aError, const string &aOutputString);
-    
+
   };
 
   #endif // !DISABLE_SYSTEMCMDIO
+
+  /// simulated I/O pin via file device
+  class AnalogSimPinFd : public AnalogIOPin
+  {
+    typedef AnalogIOPin inherited;
+
+    bool output;
+    string name;
+    int fd;
+    double pinValue;
+
+  public:
+    // create a simulated pin (using console I/O)
+    AnalogSimPinFd(const char *aName, bool aOutput, double aInitialValue);
+
+    /// get value of pin
+    /// @return current value (from actual pin for inputs, from last set state for outputs)
+    virtual double getValue();
+
+    /// set value of pin (NOP for inputs)
+    /// @param aValue new value to set output to
+    virtual void setValue(double aValue);
+  };
 
 
 } // namespace

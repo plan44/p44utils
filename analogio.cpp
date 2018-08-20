@@ -130,6 +130,10 @@ AnalogIo::AnalogIo(const char* aPinSpec, bool aOutput, double aInitialValue)
     }
     ioPin = AnalogIOPinPtr(new PWMPin(chipNumber, channelNumber, inverted, aInitialValue, periodNs));
   }
+  if (busName=="sim") {
+    // analog I/O from simulated fd
+    ioPin = AnalogIOPinPtr(new AnalogSimPinFd(pinName.c_str(), output, aInitialValue));
+  }
   else {
     // all other/unknown bus names default to simulated pin
     ioPin = AnalogIOPinPtr(new AnalogSimPin(pinspec.c_str(), output, aInitialValue));

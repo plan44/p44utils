@@ -377,4 +377,38 @@ void AnalogSysCommandPin::valueUpdated(ErrorPtr aError, const string &aOutputStr
 
 #endif // !DISABLE_SYSTEMCMDIO
 
+// MARK: ===== analog I/O simulation from fd
 
+
+AnalogSimPinFd::AnalogSimPinFd(const char *aName, bool aOutput, double aInitialValue) :
+  name(aName),
+  output(aOutput),
+  pinValue(aInitialValue)
+{
+  LOG(LOG_ALERT, "Initialized AnalogSimPinFd \"%s\" as %s with initial value %.2f", name.c_str(), aOutput ? "output" : "input", pinValue);
+  fd = open(aName, O_RDWR);
+}
+
+
+double AnalogSimPinFd::getValue()
+{
+  char buf[20];
+  lseek(fd, 0, SEEK_SET);
+  if (read(fd, buf, 20) > 0) {
+    pinValue = atof(buf);
+  }
+  return pinValue;
+}
+
+
+void AnalogSimPinFd::setValue(double aValue)
+{
+  if (!output) return; // non-outputs cannot be set
+  if (pinValue!=aValue) {
+    pinValue = aValue;
+    char buf[20];
+    sprintf(buf, "%f\n", pinValue);
+    lseek(fd, 0, SEEK_SET);
+    write(fd, buf, strlen(buf));
+  }
+}
