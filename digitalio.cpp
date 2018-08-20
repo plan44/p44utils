@@ -144,7 +144,7 @@ DigitalIo::DigitalIo(const char* aPinSpec, bool aOutput, bool aInitialState) :
   else
   #endif
   {
-    // all other/unknown bus names default to simulated pin
+    // all other/unknown bus names, including "sim", default to simulated pin operated from console
     ioPin = IOPinPtr(new SimPin(pinSpec.c_str(), output, initialPinState));
   }
 }

@@ -130,12 +130,13 @@ AnalogIo::AnalogIo(const char* aPinSpec, bool aOutput, double aInitialValue)
     }
     ioPin = AnalogIOPinPtr(new PWMPin(chipNumber, channelNumber, inverted, aInitialValue, periodNs));
   }
-  if (busName=="sim") {
-    // analog I/O from simulated fd
+  else if (busName=="fdsim") {
+    // analog I/O from file descriptor (should be non-blocking or at least minimal-delay files such
+    // as quickly served pipes or /sys/class/* files)
     ioPin = AnalogIOPinPtr(new AnalogSimPinFd(pinName.c_str(), output, aInitialValue));
   }
   else {
-    // all other/unknown bus names default to simulated pin
+    // all other/unknown bus names, including "sim", default to simulated pin operated from console
     ioPin = AnalogIOPinPtr(new AnalogSimPin(pinspec.c_str(), output, aInitialValue));
   }
 }
