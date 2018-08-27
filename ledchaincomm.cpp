@@ -160,7 +160,11 @@ bool LEDChainComm::begin()
 void LEDChainComm::clear()
 {
   if (!initialized) return;
+  #if ENABLE_RPIWS281X
+  for (uint16_t i=0; i<numLeds; i++) ledstring.channel[0].leds[i] = 0;
+  #else
   memset(ledbuffer, 0, numColorComponents*numLeds);
+  #endif
 }
 
 
