@@ -24,7 +24,11 @@
 
 #include "p44utils_common.hpp"
 
-#include <json-c/json.h>
+#if P44_BUILD_DIGI
+  #include "json.h"
+#else
+  #include <json-c/json.h>
+#endif
 
 using namespace std;
 
@@ -42,8 +46,8 @@ namespace p44 {
     virtual const char *getErrorDomain() const { return JsonError::domain(); };
     JsonError(ErrorCodes aError) : Error(ErrorCode(aError), json_tokener_error_desc(aError)) {};
   };
-  
-  
+
+
 
   class JsonObject;
 

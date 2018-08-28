@@ -21,7 +21,10 @@
 
 #include "jsonobject.hpp"
 
-//#include "json_object_private.h"
+#if P44_BUILD_DIGI
+  // still using older json-c
+  #include "json_object_private.h"
+#endif
 
 #include <sys/stat.h> // for fstat
 
