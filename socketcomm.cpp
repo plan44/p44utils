@@ -249,6 +249,11 @@ bool SocketComm::connectionAcceptHandler(int aFd, int aPollFlags)
         }
       }
       // actually accepted
+      // - establish keepalive checks, so we'll detect eventually when client connection breaks w/o FIN
+      int one = 1;
+      if (setsockopt(clientFD, SOL_SOCKET, SO_KEEPALIVE, (char *)&one, (int)sizeof(one)) == -1) {
+        LOG(LOG_WARNING, "Cannot set SO_KEEPALIVE for new connection");
+      }
       // - call handler to create child connection
       SocketCommPtr clientComm;
       if (serverConnectionHandler) {
