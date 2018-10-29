@@ -63,12 +63,12 @@ SPIManager::~SPIManager()
 }
 
 
-SPIManager *SPIManager::sharedManager()
+SPIManager &SPIManager::sharedManager()
 {
   if (!sharedSPIManager) {
     sharedSPIManager = new SPIManager();
   }
-  return sharedSPIManager;
+  return *sharedSPIManager;
 }
 
 
@@ -634,7 +634,7 @@ SPIPin::SPIPin(int aBusNumber, const char *aDeviceId, int aPinNumber, bool aOutp
 {
   pinNumber = aPinNumber;
   output = aOutput;
-  SPIDevicePtr dev = SPIManager::sharedManager()->getDevice(aBusNumber, aDeviceId);
+  SPIDevicePtr dev = SPIManager::sharedManager().getDevice(aBusNumber, aDeviceId);
   bitPortDevice = boost::dynamic_pointer_cast<SPIBitPortDevice>(dev);
   if (bitPortDevice) {
     bitPortDevice->setAsOutput(pinNumber, output, aInitialState, aPullUp);
@@ -824,7 +824,7 @@ AnalogSPIPin::AnalogSPIPin(int aBusNumber, const char *aDeviceId, int aPinNumber
 {
   pinNumber = aPinNumber;
   output = aOutput;
-  SPIDevicePtr dev = SPIManager::sharedManager()->getDevice(aBusNumber, aDeviceId);
+  SPIDevicePtr dev = SPIManager::sharedManager().getDevice(aBusNumber, aDeviceId);
   analogPortDevice = boost::dynamic_pointer_cast<SPIAnalogPortDevice>(dev);
   if (analogPortDevice && output) {
     analogPortDevice->setPinValue(pinNumber, aInitialValue);
