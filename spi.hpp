@@ -188,7 +188,7 @@ namespace p44 {
     virtual ~SPIManager();
 
     /// get shared instance of manager
-    static SPIManager *sharedManager();
+    static SPIManager &sharedManager();
 
     /// get device
     /// @param aBusNumber the spi bus number in the system to use
