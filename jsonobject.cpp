@@ -206,7 +206,7 @@ int JsonObject::arrayLength() const
   if (type()!=json_type_array)
     return 0; // normal objects don't have a length
   else
-    return json_object_array_length(json_obj);
+    return (int)json_object_array_length(json_obj);
 }
 
 
@@ -379,7 +379,7 @@ int32_t JsonObject::int32Value() const
     // check for hex
     const char *xstr = c_strValue();
     if (strncmp(xstr, "0x", 2)==0) {
-      return strtol(xstr, NULL, 0);
+      return (int32_t)strtol(xstr, NULL, 0);
     }
   }
   return json_object_get_int(json_obj);
@@ -391,7 +391,7 @@ int64_t JsonObject::int64Value() const
     // check for hex
     const char *xstr = c_strValue();
     if (strncmp(xstr, "0x", 2)==0) {
-      return strtoll(xstr, NULL, 0);
+      return (int64_t)strtoll(xstr, NULL, 0);
     }
   }
   return json_object_get_int64(json_obj);
