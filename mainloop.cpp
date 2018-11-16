@@ -436,7 +436,7 @@ void MainLoop::waitForPid(WaitCB aCallback, pid_t aPid)
 extern char **environ;
 
 
-pid_t MainLoop::fork_and_execve(ExecCB aCallback, const char *aPath, char *const aArgv[], char *const aEnvp[], bool aPipeBackStdOut)
+pid_t MainLoop::fork_and_execve(ExecCB aCallback, const char *aPath, char *const aArgv[], char *const aEnvp[], bool aPipeBackStdOut, int* aPipeBackFdP)
 {
   LOG(LOG_DEBUG, "fork_and_execve: preparing to fork for executing '%s' now", aPath);
   pid_t child_pid;
@@ -483,8 +483,15 @@ pid_t MainLoop::fork_and_execve(ExecCB aCallback, const char *aPath, char *const
         LOG(LOG_DEBUG, "fork_and_execve: parent will now set up pipe string collector");
         close(answerPipe[1]); // close parent's writing end (child uses it!)
         // set up collector for data returned from child process
-        ans = FdStringCollectorPtr(new FdStringCollector(MainLoop::currentMainLoop()));
-        ans->setFd(answerPipe[0]);
+        if (aPipeBackFdP) {
+          // caller wants to handle the pipe end, return file descriptor
+          *aPipeBackFdP = answerPipe[0];
+        }
+        else {
+          // collect output in a string
+          ans = FdStringCollectorPtr(new FdStringCollector(MainLoop::currentMainLoop()));
+          ans->setFd(answerPipe[0]);
+        }
       }
       LOG(LOG_DEBUG, "fork_and_execve: now calling waitForPid(%d)", child_pid);
       waitForPid(boost::bind(&MainLoop::execChildTerminated, this, aCallback, ans, _1, _2), child_pid);
@@ -501,14 +508,14 @@ pid_t MainLoop::fork_and_execve(ExecCB aCallback, const char *aPath, char *const
 }
 
 
-pid_t MainLoop::fork_and_system(ExecCB aCallback, const char *aCommandLine, bool aPipeBackStdOut)
+pid_t MainLoop::fork_and_system(ExecCB aCallback, const char *aCommandLine, bool aPipeBackStdOut, int* aPipeBackFdP)
 {
   char * args[4];
   args[0] = (char *)"sh";
   args[1] = (char *)"-c";
   args[2] = (char *)aCommandLine;
   args[3] = NULL;
-  return fork_and_execve(aCallback, "/bin/sh", args, NULL, aPipeBackStdOut);
+  return fork_and_execve(aCallback, "/bin/sh", args, NULL, aPipeBackStdOut, aPipeBackFdP);
 }
 
 
