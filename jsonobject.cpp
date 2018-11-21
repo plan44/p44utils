@@ -61,33 +61,55 @@ JsonObject::~JsonObject()
 // MARK: ===== read and write from files
 
 
-#define MAX_JSON_FILE_SIZE 200000
+#define MAX_JSON_BUF_SIZE 20000
 
 // factory method, create JSON object from file
 JsonObjectPtr JsonObject::objFromFile(const char *aJsonFilePath, ErrorPtr *aErrorP)
 {
+  JsonObjectPtr obj;
+  size_t bufSize = MAX_JSON_BUF_SIZE;
   // read file into string
   int fd = open(aJsonFilePath, O_RDONLY);
   if (fd>=0) {
-    // opened, now read
+    // opened, check buffer needs
     struct stat fs;
     fstat(fd, &fs);
-    if (fs.st_size<MAX_JSON_FILE_SIZE) {
-      char *jsontext = new char[fs.st_size];
-      read(fd, jsontext, fs.st_size);
-      JsonObjectPtr json = JsonObject::objFromText(jsontext, fs.st_size, aErrorP);
-      delete[] jsontext;
-      close(fd);
-      return json;
+    if (fs.st_size<bufSize) bufSize = fs.st_size; // don't need the entire buffer
+    // decode
+    struct json_tokener* tokener = json_tokener_new();
+    char *jsontext = new char[bufSize];
+    ssize_t n;
+    while((n = read(fd, jsontext, bufSize))>0) {
+      struct json_object *o = json_tokener_parse_ex(tokener, jsontext, (int)n);
+      if (o==NULL) {
+        // error (or incomplete JSON, which is fine)
+        JsonError::ErrorCodes jerr = json_tokener_get_error(tokener);
+        if (jerr!=json_tokener_continue) {
+          // real error
+          if (aErrorP) {
+            *aErrorP = ErrorPtr(new JsonError(jerr));
+            (*aErrorP)->prefixMessage("at offset %d: ", tokener->char_offset);
+          }
+          json_tokener_reset(tokener);
+          break;
+        }
+      }
+      else {
+        // got JSON object
+        obj = JsonObject::newObj(o);
+        break;
+      }
     }
-    // file opened, but json object not created
+    delete[] jsontext;
+    json_tokener_free(tokener);
     close(fd);
   }
-  // could not open
-  if (aErrorP) {
-    *aErrorP = TextError::err("cannot open file '%s'", aJsonFilePath);
+  else {
+    if (aErrorP) {
+      *aErrorP = TextError::err("cannot open file '%s'", aJsonFilePath);
+    }
   }
-  return JsonObjectPtr(); // nothing read
+  return obj;
 }
 
 
