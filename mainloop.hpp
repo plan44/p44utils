@@ -321,7 +321,7 @@ namespace p44 {
 
     /// re-arm timer to fire again after a given interval relative to the time of the currently scheduled (or being executed right now)
     /// ticket.
-    /// @note This is indended to be called exclusively from TimerCB callbacks, in particular to implement periodic timer callbacks.
+    /// @note This is intended to be called exclusively from TimerCB callbacks, in particular to implement periodic timer callbacks.
     /// @param aTimer the timer handler as passed to TimerCB
     /// @param aInterval the interval for re-triggering, relative to the scheduled execution time of the timer (which might be
     ///   in the past, due to time spent for code execution between the scheduled time, the callback and the call to this method)
