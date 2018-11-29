@@ -177,10 +177,11 @@ bool p44::string_fgetfile(FILE *aFile, string &aData)
   while (!feof(aFile)) {
     size_t n = fread(buf, 1, bufLen-1, aFile);
     if (n>0) {
-      // eof or error
+      // got data
       aData.append(buf, n);
     }
     else {
+      // error or eof
       if (ferror(aFile))
         return false;
     }
