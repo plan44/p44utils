@@ -93,6 +93,13 @@ namespace p44 {
     ///   Otherwise, it is the absolute path to the data file specified with aDataFile
     string dataPath(const string aDataFile = "");
 
+    /// get temp path
+    /// @param aTempFile if not empty, and it is an absolute path, the the result will be just this path
+    ///   if it is a relative path, the application's temp path will be prepended.
+    /// @return if aTempFile is empty, result is the application's temp directory (no separator at end)
+    ///   Otherwise, it is the absolute path to the temp file specified with aTempFile
+    string tempPath(const string aTempFile = "");
+
     /// @return version of this application
     virtual string version() const;
 

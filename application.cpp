@@ -25,6 +25,8 @@
 #include <sys/stat.h> // for umask
 #include <sys/signal.h>
 
+#define TEMP_DIR_PATH "/tmp"
+
 using namespace p44;
 
 // MARK: ===== Application base class
@@ -80,7 +82,7 @@ Application::~Application()
 void Application::initializeInternal()
 {
   resourcepath = "."; // current directory by default
-  datapath = "/tmp"; // tmp by default
+  datapath = TEMP_DIR_PATH; // tmp by default
   // "publish" singleton
   sharedApplicationP = this;
   // register signal handlers
@@ -222,6 +224,18 @@ void Application::setDataPath(const char *aDataPath)
     datapath.erase(datapath.size()-1);
   }
 }
+
+
+string Application::tempPath(const string aTempFile)
+{
+  if (aTempFile.empty())
+    return TEMP_DIR_PATH; // just return data path
+  if (aTempFile[0]=='/')
+    return aTempFile; // argument is absolute path, use it as-is
+  // relative to temp directory
+  return TEMP_DIR_PATH "/" + aTempFile;
+}
+
 
 
 string Application::version() const
