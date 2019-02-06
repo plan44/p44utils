@@ -405,6 +405,10 @@ ExpressionValue evaluateExpressionPrivate(const char * &aText, int aPrecedence, 
       // what we have so far is the result
       break;
     }
+    // prevent loop
+    if (binaryop==op_none) {
+      return ExpressionError::err(ExpressionError::Syntax, "Invalid operator: '%s'", optext);
+    }
     // must parse right side of operator as subexpression
     aText = optext; // advance past operator
     ExpressionValue rightside = evaluateExpressionPrivate(aText, precedence, aValueLookupCB, aFunctionLookpCB);
