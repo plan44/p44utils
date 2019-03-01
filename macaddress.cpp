@@ -197,6 +197,11 @@ bool p44::getMacAddressByIpv4(uint32_t aIPv4Address, uint64_t &aMacAddress)
 #include <linux/sockios.h>
 #include <errno.h>
 
+#define LL_DEBUG 0 // set to 1 to allow low level debug info printed to stdout
+
+#if LL_DEBUG
+#include <stdio.h>
+#endif
 
 bool p44::getIfInfo(uint64_t *aMacAddressP, uint32_t *aIPv4AddressP, int *aIfIndex, const char *aIfName)
 {
@@ -206,7 +211,10 @@ bool p44::getIfInfo(uint64_t *aMacAddressP, uint32_t *aIPv4AddressP, int *aIfInd
   int res;
   uint64_t mac = 0;
   uint32_t ip = 0;
-  bool found = false;
+  bool foundIf = false;
+  bool foundMAC = false;
+  bool foundIPv4 = false;
+  bool foundRequested = false;
 
   if (aIfName && *aIfName==0) aIfName = NULL;
   // any socket type will do
@@ -221,7 +229,7 @@ bool p44::getIfInfo(uint64_t *aMacAddressP, uint32_t *aIPv4AddressP, int *aIfInd
       ifr.ifr_ifindex = ifIndex;
       res = ioctl(sock, SIOCGIFNAME, &ifr);
       if (res<0) {
-        if (ifIndex>20 || res!=ENODEV) break; // error or no more names -> end
+        if (ifIndex>20 || errno!=ENODEV) break; // error or no more names -> end
         ifIndex++; continue; // otherwise, just skip (indices aren't necessarily contiguous)
       }
       // got name for index
@@ -229,31 +237,31 @@ bool p44::getIfInfo(uint64_t *aMacAddressP, uint32_t *aIPv4AddressP, int *aIfInd
         // name must match
         if (strcmp(aIfName, ifr.ifr_name)==0) {
           // name matches, use this and only this interface
-          found = true;
+          foundIf = true;
         }
       }
       // - get flags for it
       if (ioctl(sock, SIOCGIFFLAGS, &ifr)>=0) {
         // skip loopback interfaces (unless specified by name)
-        if (found || (!aIfName && (ifr.ifr_flags & IFF_LOOPBACK)==0)) {
+        if (foundIf || (!aIfName && (ifr.ifr_flags & IFF_LOOPBACK)==0)) {
           // found by name or not loopback
           // - now get HWADDR
-          if (aMacAddressP && ioctl(sock, SIOCGIFHWADDR, &ifr)>=0) {
+          if (!foundMAC && aMacAddressP && ioctl(sock, SIOCGIFHWADDR, &ifr)>=0) {
             // compose int64
             for (int i=0; i<6; ++i) {
               mac = (mac<<8) + ((uint8_t *)(ifr.ifr_hwaddr.sa_data))[i];
             }
-            // this is our MAC unless it is zero
-            if (mac!=0) {
+            // this is our MAC unless it is zero (or interface name was specified)
+            if (mac!=0 || foundIf) {
               // save the interface index
               if (aIfIndex) *aIfIndex = ifIndex;
               // save the mac address
               *aMacAddressP = mac; // found, return it
-              found = true; // done, use it (even if IP is 0)
+              foundMAC = true; // done, use it (even if IP is 0)
             }
           }
           // - also get IPv4
-          if (aIPv4AddressP) {
+          if (!foundIPv4 && aIPv4AddressP) {
             if (ioctl(sock, SIOCGIFADDR, &ifr)>=0) {
               if (ifr.ifr_addr.sa_family==AF_INET) {
                 // is IPv4
@@ -263,29 +271,32 @@ bool p44::getIfInfo(uint64_t *aMacAddressP, uint32_t *aIPv4AddressP, int *aIfInd
                 }
               }
             }
-            else {
-              if (found) {
-                // we want IP from exactly this if, but it does not have any -> no IP
-                found = false; // nothing found
-                break;
-              }
-            }
-            if (ip!=0 || found) {
+            // when interface is specified, we want IP only from this interface
+            if (ip!=0 || foundIf) {
               *aIPv4AddressP = ip;
-              found = true;
+              foundIPv4 = true;
             }
           }
         }
       }
-      // done if found something
-      if (found)
+      foundRequested =
+        foundIf || ( // specified interface name found aborts any further search
+          (!aIPv4AddressP || foundIPv4) &&
+          (!aMacAddressP || foundMAC)
+        );
+      #if LL_DEBUG
+      printf("ifIndex=%d, name='%s', flags=%X: foundIf=%d, foundMAC=%d, foundIPv4=%d, foundRequested=%d, ip=%04X, mac=%06llX\n", ifIndex, ifr.ifr_name, ifr.ifr_flags, foundIf, foundMAC, foundIPv4, foundRequested, ip, mac);
+      #endif
+      if (foundRequested) {
+        // found everything that was requested
         break;
+      }
       // next
       ifIndex++;
     } while(true);
     close(sock);
   }
-  return found;
+  return foundRequested;
 }
 
 

@@ -41,6 +41,7 @@ namespace p44 {
   /// @param aMacAddressP if not NULL: is set to the (a) MAC address of this machine
   /// @param aIPv4AddressP if not NULL: is set to the (a) current IPv4 address of this machine
   /// @param aIfIndexP if not NULL: is set to interface index of the interface which returned the MAC address
+  ///   (which is NOT necessarily the interface that returns the IP address, unless specified by name!)
   /// @return true if MAC (optionally along with the IP of that MAC if any is set) was found, or,
   ///   when querying only IPv4, if a IPv4 address was found.
   /// @note: On Linux, the first non-loopback interface's MAC will be used (as enumerated by ifr_ifindex 1..n)
