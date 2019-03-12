@@ -24,8 +24,10 @@
 
 #include "p44utils_common.hpp"
 
+#ifndef ESP32
 #include <poll.h>
 #include <pthread.h>
+#endif
 
 // if set to non-zero, mainloop will have some code to record statistics
 #define MAINLOOP_STATISTICS 1
@@ -411,7 +413,7 @@ namespace p44 {
     /// unregister poll handlers for this file descriptor
     /// @param aFD the file descriptor
     void unregisterPollHandler(int aFD);
-    
+
     /// @}
 
 
