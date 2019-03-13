@@ -35,7 +35,7 @@
 #include <errno.h>
 #include <sys/select.h>
 #include <sys/param.h>
-#ifndef ESP32
+#ifndef ESP_PLATFORM
 #include <termios.h>
 #endif
 

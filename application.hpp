@@ -24,7 +24,7 @@
 
 #include "p44utils_common.hpp"
 
-#ifdef ESP32
+#ifdef ESP_PLATFORM
 #else
 #include <signal.h>
 #endif
@@ -120,7 +120,7 @@ namespace p44 {
     /// called when mainloop terminates
     virtual void cleanup(int aExitCode);
 
-    #ifndef ESP32
+    #ifndef ESP_PLATFORM
     /// called when a signal occurs
     /// @note only SIGHUP,SIGINT,SIGKILL and SIGTERM are handled here
     virtual void signalOccurred(int aSignal, siginfo_t *aSiginfo);
@@ -138,7 +138,7 @@ namespace p44 {
 
     void initializeInternal();    
 
-    #ifndef ESP32
+    #ifndef ESP_PLATFORM
     void handleSignal(int aSignal);
     static void sigaction_handler(int aSignal, siginfo_t *aSiginfo, void *aUap);
     #endif
@@ -146,7 +146,7 @@ namespace p44 {
   };
 
 
-  #ifndef ESP32
+  #ifndef ESP_PLATFORM
 
   /// Command line option descriptor
   /// @note a descriptor with both longOptionName==NULL and shortOptionChar=0 terminates a list of option descriptors
@@ -268,7 +268,7 @@ namespace p44 {
 
   };
 
-  #endif // !ESP32
+  #endif // !ESP_PLATFORM
 
 } // namespace p44
 

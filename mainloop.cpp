@@ -27,7 +27,7 @@
   #include <unistd.h>
   #include <sys/param.h>
   #include <sys/wait.h>
-#ifdef ESP32
+#ifdef ESP_PLATFORM
   #include "freertos/FreeRTOS.h"
   #include "freertos/task.h"
   #include "esp_system.h"
@@ -48,9 +48,9 @@
 using namespace p44;
 
 
-#ifdef ESP32
+#ifdef ESP_PLATFORM
 
-// this would be in a library we don't link for ESP32, so we need to implement it here
+// this would be in a library we don't link for ESP_PLATFORM, so we need to implement it here
 void boost::throw_exception(std::exception const & e){
   // log and exit
   LOG(LOG_ERR, "Exception thrown -> exit");
@@ -153,7 +153,7 @@ MLMicroSeconds MainLoop::now()
   }
   double t = mach_absolute_time();
   return t * (double)tb.numer / (double)tb.denom / 1e3; // uS
-  #elif defined(ESP32)
+  #elif defined(ESP_PLATFORM)
   return esp_timer_get_time(); // just fits, is high precision timer in uS since boot
   #else
   // platform has clock_gettime
@@ -170,9 +170,9 @@ MLMicroSeconds MainLoop::unixtime()
   // pre-10.12 MacOS does not yet have clock_gettime
   // FIXME: Q&D approximation with seconds resolution only
   return ((MLMicroSeconds)time(NULL))*Second;
-  #elif defined(ESP32)
+  #elif defined(ESP_PLATFORM)
   // TODO: implement getting actual time from RTC
-  #warning "Fake unixtime() on ESP32 for now"
+  #warning "Fake unixtime() on ESP_PLATFORM for now"
   return 2222*365*Day+now();
   #else
   struct timespec tsp;
@@ -198,7 +198,7 @@ MLMicroSeconds MainLoop::unixTimeToMainLoopTime(const MLMicroSeconds aUnixTime)
 
 void MainLoop::sleep(MLMicroSeconds aSleepTime)
 {
-  #ifdef ESP32
+  #ifdef ESP_PLATFORM
   vTaskDelay(aSleepTime/MilliSecond/portTICK_PERIOD_MS);
   #else
   // Linux/MacOS has nanosleep in nanoseconds
@@ -440,7 +440,7 @@ int MainLoop::retriggerTimer(MLTimer &aTimer, MLMicroSeconds aInterval, MLMicroS
 }
 
 
-#ifndef ESP32
+#ifndef ESP_PLATFORM
 
 void MainLoop::waitForPid(WaitCB aCallback, pid_t aPid)
 {
@@ -579,7 +579,7 @@ void MainLoop::childAnswerCollected(ExecCB aCallback, FdStringCollectorPtr aAnsw
   aCallback(aError, answer);
 }
 
-#endif // !ESP32
+#endif // !ESP_PLATFORM
 
 
 
@@ -656,7 +656,7 @@ done:
 }
 
 
-#ifndef ESP32
+#ifndef ESP_PLATFORM
 
 bool MainLoop::checkWait()
 {
@@ -754,7 +754,7 @@ void MainLoop::unregisterPollHandler(int aFD)
 
 bool MainLoop::handleIOPoll(MLMicroSeconds aTimeout)
 {
-  #ifdef ESP32
+  #ifdef ESP_PLATFORM
   // use select(), more modern poll() is not available
   fd_set readfs; // file descriptor set for read
   fd_set writefs; // file descriptor set for write
@@ -894,7 +894,7 @@ bool MainLoop::mainLoopCycle()
     // run timers
     MLMicroSeconds nextWake = checkTimers(maxRun);
     if (terminated) break;
-    #ifndef ESP32
+    #ifndef ESP_PLATFORM
     // check
     if (!checkWait()) {
       // still need to check for terminating processes
@@ -902,7 +902,7 @@ bool MainLoop::mainLoopCycle()
         nextWake = cycleStarted+waitCheckInterval;
       }
     }
-    #endif // !ESP32
+    #endif // !ESP_PLATFORM
     if (terminated) break;
     // limit sleeping time
     if (maxSleep!=Infinite && (nextWake==Never || nextWake>cycleStarted+maxSleep)) {

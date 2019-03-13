@@ -24,7 +24,7 @@
 
 #include "p44utils_common.hpp"
 
-#ifdef ESP32
+#ifdef ESP_PLATFORM
   #define POLLIN  0x0001 // any readable data available
   #define POLLOUT 0x0004 // file descriptor is writeable
   #define POLLERR 0x0008 // some poll error occurred
@@ -368,7 +368,7 @@ namespace p44 {
     /// @}
 
 
-    #ifndef ESP32
+    #ifndef ESP_PLATFORM
     /// @name start subprocesses and register handlers for returning subprocess status
     /// @{
 
@@ -399,7 +399,7 @@ namespace p44 {
     void waitForPid(WaitCB aCallback, pid_t aPid);
 
     /// @}
-    #endif // !ESP32
+    #endif // !ESP_PLATFORM
 
 
     /// @name register handlers for I/O events
@@ -499,11 +499,11 @@ namespace p44 {
     bool handleIOPoll(MLMicroSeconds aTimeout);
     void IOPollHandlerForFd(int aFD, IOPollHandler &h);
 
-    #ifndef ESP32
+    #ifndef ESP_PLATFORM
     bool checkWait();
     void execChildTerminated(ExecCB aCallback, FdStringCollectorPtr aAnswerCollector, pid_t aPid, int aStatus);
     void childAnswerCollected(ExecCB aCallback, FdStringCollectorPtr aAnswerCollector, ErrorPtr aError);
-    #endif // !ESP32
+    #endif // !ESP_PLATFORM
 
   };
 

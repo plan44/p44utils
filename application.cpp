@@ -85,7 +85,7 @@ void Application::initializeInternal()
   datapath = TEMP_DIR_PATH; // tmp by default
   // "publish" singleton
   sharedApplicationP = this;
-  #ifndef ESP32
+  #ifndef ESP_PLATFORM
   // register signal handlers
   handleSignal(SIGHUP);
   handleSignal(SIGINT);
@@ -101,7 +101,7 @@ void Application::initializeInternal()
 }
 
 
-#ifndef ESP32
+#ifndef ESP_PLATFORM
 
 void Application::sigaction_handler(int aSignal, siginfo_t *aSiginfo, void *aUap)
 {
@@ -299,7 +299,7 @@ void Application::daemonize()
 
 
 
-#ifndef ESP32
+#ifndef ESP_PLATFORM
 
 // MARK: ===== CmdLineApp command line application
 
@@ -691,5 +691,5 @@ size_t CmdLineApp::numArguments()
   return arguments.size();
 }
 
-#endif // !ESP32
+#endif // !ESP_PLATFORM
 

@@ -30,7 +30,7 @@
 #include <vector>
 #include <map>
 
-#ifdef ESP32
+#ifdef ESP_PLATFORM
   #define BOOST_NO_EXCEPTIONS
   #include <boost/throw_exception.hpp>
 #endif
@@ -43,7 +43,7 @@
 #ifndef __printflike
 #define __printflike(...)
 #endif
-#ifdef ESP32
+#ifdef ESP_PLATFORM
   #define __printflike_template(...)
 #else
   #define __printflike_template(...) __printflike(__VA_ARGS__)
