@@ -28,7 +28,12 @@
 #include "p44obj.hpp"
 
 #ifndef __printflike
-#define __printflike(...)
+  #define __printflike(...)
+#endif
+#ifdef ESP32
+  #define __printflike_template(...)
+#else
+  #define __printflike_template(...) __printflike(__VA_ARGS__)
 #endif
 
 using namespace std;
@@ -68,7 +73,7 @@ namespace p44 {
     /// create a Error subclass object with printf-style formatted error
     /// @param aErrorCode error code. aErrorCode==0 from any domain means OK.
     /// @param aFmt ... error message format string and arguments
-    template<typename T> static ErrorPtr err(ErrorCode aErrorCode, const char *aFmt, ...) __printflike(2,3)
+    template<typename T> static ErrorPtr err(ErrorCode aErrorCode, const char *aFmt, ...) __printflike_template(2,3)
     {
       Error *errP = new T(static_cast<typename T::ErrorCodes>(aErrorCode));
       va_list args;

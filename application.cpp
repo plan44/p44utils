@@ -85,6 +85,7 @@ void Application::initializeInternal()
   datapath = TEMP_DIR_PATH; // tmp by default
   // "publish" singleton
   sharedApplicationP = this;
+  #ifndef ESP32
   // register signal handlers
   handleSignal(SIGHUP);
   handleSignal(SIGINT);
@@ -96,8 +97,11 @@ void Application::initializeInternal()
   //   does not restore SIGCHLD to SIG_DFL and execs us, we could be in SIG_IGN
   //   state now - that's why we set it now!
   signal(SIGCHLD, SIG_DFL);
+  #endif
 }
 
+
+#ifndef ESP32
 
 void Application::sigaction_handler(int aSignal, siginfo_t *aSiginfo, void *aUap)
 {
@@ -118,6 +122,23 @@ void Application::handleSignal(int aSignal)
 }
 
 
+void Application::signalOccurred(int aSignal, siginfo_t *aSiginfo)
+{
+  if (aSignal==SIGUSR1) {
+    // default for SIGUSR1 is showing mainloop statistics
+    LOG(LOG_NOTICE, "SIGUSR1 requests %s", mainLoop.description().c_str());
+    mainLoop.statistics_reset();
+    return;
+  }
+  // default action for all other signals is terminating the program
+  LOG(LOG_ERR, "Terminating because pid %d sent signal %d", aSiginfo->si_pid, aSignal);
+  mainLoop.terminate(EXIT_FAILURE);
+}
+
+#endif
+
+
+
 int Application::main(int argc, char **argv)
 {
 	// NOP application
@@ -134,20 +155,6 @@ void Application::initialize()
 void Application::cleanup(int aExitCode)
 {
   // NOP in base class
-}
-
-
-void Application::signalOccurred(int aSignal, siginfo_t *aSiginfo)
-{
-  if (aSignal==SIGUSR1) {
-    // default for SIGUSR1 is showing mainloop statistics
-    LOG(LOG_NOTICE, "SIGUSR1 requests %s", mainLoop.description().c_str());
-    mainLoop.statistics_reset();
-    return;
-  }
-  // default action for all other signals is terminating the program
-  LOG(LOG_ERR, "Terminating because pid %d sent signal %d", aSiginfo->si_pid, aSignal);
-  mainLoop.terminate(EXIT_FAILURE);
 }
 
 
@@ -290,6 +297,9 @@ void Application::daemonize()
   freopen( "/dev/null", "w", stderr);
 }
 
+
+
+#ifndef ESP32
 
 // MARK: ===== CmdLineApp command line application
 
@@ -681,5 +691,5 @@ size_t CmdLineApp::numArguments()
   return arguments.size();
 }
 
-
+#endif // !ESP32
 

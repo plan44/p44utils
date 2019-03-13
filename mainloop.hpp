@@ -24,9 +24,14 @@
 
 #include "p44utils_common.hpp"
 
-#ifndef ESP32
-#include <poll.h>
-#include <pthread.h>
+#ifdef ESP32
+  #define POLLIN  0x0001 // any readable data available
+  #define POLLOUT 0x0004 // file descriptor is writeable
+  #define POLLERR 0x0008 // some poll error occurred
+  #define POLLHUP 0x0010 // file descriptor was "hung up"
+#else
+  #include <poll.h>
+  #include <pthread.h>
 #endif
 
 // if set to non-zero, mainloop will have some code to record statistics
@@ -363,6 +368,7 @@ namespace p44 {
     /// @}
 
 
+    #ifndef ESP32
     /// @name start subprocesses and register handlers for returning subprocess status
     /// @{
 
@@ -393,6 +399,7 @@ namespace p44 {
     void waitForPid(WaitCB aCallback, pid_t aPid);
 
     /// @}
+    #endif // !ESP32
 
 
     /// @name register handlers for I/O events
@@ -488,12 +495,15 @@ namespace p44 {
 
     MLMicroSeconds checkTimers(MLMicroSeconds aTimeout);
     void scheduleTimer(MLTimer &aTimer);
-    bool checkWait();
-    bool handleIOPoll(MLMicroSeconds aTimeout);
 
+    bool handleIOPoll(MLMicroSeconds aTimeout);
+    void IOPollHandlerForFd(int aFD, IOPollHandler &h);
+
+    #ifndef ESP32
+    bool checkWait();
     void execChildTerminated(ExecCB aCallback, FdStringCollectorPtr aAnswerCollector, pid_t aPid, int aStatus);
     void childAnswerCollected(ExecCB aCallback, FdStringCollectorPtr aAnswerCollector, ErrorPtr aError);
-    void IOPollHandlerForFd(int aFD, IOPollHandler &h);
+    #endif // !ESP32
 
   };
 

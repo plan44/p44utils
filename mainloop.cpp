@@ -22,11 +22,18 @@
 #include "mainloop.hpp"
 
 #ifdef __APPLE__
-#include <mach/mach_time.h>
+  #include <mach/mach_time.h>
 #endif
-#include <unistd.h>
-#include <sys/param.h>
-#include <sys/wait.h>
+  #include <unistd.h>
+  #include <sys/param.h>
+  #include <sys/wait.h>
+#ifdef ESP32
+  #include "freertos/FreeRTOS.h"
+  #include "freertos/task.h"
+  #include "esp_system.h"
+  #include "esp_timer.h"
+#endif
+
 
 #include "fdcomm.hpp"
 
@@ -39,6 +46,18 @@
 #define MAINLOOP_DEFAULT_MAX_COALESCING (1*Second) // keep timing within second precision by default
 
 using namespace p44;
+
+
+#ifdef ESP32
+
+// this would be in a library we don't link for ESP32, so we need to implement it here
+void boost::throw_exception(std::exception const & e){
+  // log and exit
+  LOG(LOG_ERR, "Exception thrown -> exit");
+  exit(EXIT_FAILURE);
+}
+#endif
+
 
 
 // MARK: ===== MLTicket
@@ -134,6 +153,8 @@ MLMicroSeconds MainLoop::now()
   }
   double t = mach_absolute_time();
   return t * (double)tb.numer / (double)tb.denom / 1e3; // uS
+  #elif defined(ESP32)
+  return esp_timer_get_time(); // just fits, is high precision timer in uS since boot
   #else
   // platform has clock_gettime
   struct timespec tsp;
@@ -143,13 +164,16 @@ MLMicroSeconds MainLoop::now()
   #endif
 }
 
-
 MLMicroSeconds MainLoop::unixtime()
 {
   #if defined(__APPLE__) && __DARWIN_C_LEVEL < 199309L
   // pre-10.12 MacOS does not yet have clock_gettime
   // FIXME: Q&D approximation with seconds resolution only
   return ((MLMicroSeconds)time(NULL))*Second;
+  #elif defined(ESP32)
+  // TODO: implement getting actual time from RTC
+  #warning "Fake unixtime() on ESP32 for now"
+  return 2222*365*Day+now();
   #else
   struct timespec tsp;
   clock_gettime(CLOCK_REALTIME, &tsp);
@@ -174,11 +198,15 @@ MLMicroSeconds MainLoop::unixTimeToMainLoopTime(const MLMicroSeconds aUnixTime)
 
 void MainLoop::sleep(MLMicroSeconds aSleepTime)
 {
+  #ifdef ESP32
+  vTaskDelay(aSleepTime/MilliSecond/portTICK_PERIOD_MS);
+  #else
   // Linux/MacOS has nanosleep in nanoseconds
   timespec sleeptime;
   sleeptime.tv_sec=aSleepTime/Second;
   sleeptime.tv_nsec=(aSleepTime % Second)*1000L; // nS = 1000 uS
   nanosleep(&sleeptime,NULL);
+  #endif
 }
 
 
@@ -412,6 +440,7 @@ int MainLoop::retriggerTimer(MLTimer &aTimer, MLMicroSeconds aInterval, MLMicroS
 }
 
 
+#ifndef ESP32
 
 void MainLoop::waitForPid(WaitCB aCallback, pid_t aPid)
 {
@@ -550,6 +579,8 @@ void MainLoop::childAnswerCollected(ExecCB aCallback, FdStringCollectorPtr aAnsw
   aCallback(aError, answer);
 }
 
+#endif // !ESP32
+
 
 
 void MainLoop::registerCleanupHandler(SimpleCB aCleanupHandler)
@@ -625,6 +656,8 @@ done:
 }
 
 
+#ifndef ESP32
+
 bool MainLoop::checkWait()
 {
   if (waitHandlers.size()>0) {
@@ -673,6 +706,8 @@ bool MainLoop::checkWait()
   return true; // all checked
 }
 
+#endif
+
 
 
 
@@ -719,7 +754,65 @@ void MainLoop::unregisterPollHandler(int aFD)
 
 bool MainLoop::handleIOPoll(MLMicroSeconds aTimeout)
 {
-  // create poll structure
+  #ifdef ESP32
+  // use select(), more modern poll() is not available
+  fd_set readfs; // file descriptor set for read
+  fd_set writefs; // file descriptor set for write
+  fd_set errorfs; // file descriptor set for errors
+  // Create bitmap for select call
+  int numFDsToTest = 0; // number of file descriptors to test (max+1 of all used FDs)
+  IOPollHandlerMap::iterator pos = ioPollHandlers.begin();
+  if (pos!=ioPollHandlers.end()) {
+    FD_ZERO(&readfs);
+    FD_ZERO(&writefs);
+    FD_ZERO(&errorfs);
+    // collect FDs
+    while (pos!=ioPollHandlers.end()) {
+      IOPollHandler h = pos->second;
+      numFDsToTest = MAX(h.monitoredFD+1, numFDsToTest);
+      if (h.pollFlags & POLLIN) FD_SET(h.monitoredFD, &readfs);
+      if (h.pollFlags & POLLOUT) FD_SET(h.monitoredFD, &writefs);
+      if (h.pollFlags & (POLLERR+POLLHUP)) FD_SET(h.monitoredFD, &errorfs);
+      ++pos;
+    }
+  }
+  // block until input becomes available or timeout
+  int numReadyFDs = 0;
+  if (numFDsToTest>0) {
+    // actual FDs to test
+    struct timeval tv;
+    tv.tv_sec = aTimeout / 1000000;
+    tv.tv_usec = aTimeout % 1000000;
+    numReadyFDs = select(numFDsToTest, &readfs, &writefs, &errorfs, &tv);
+  }
+  else {
+    // nothing to test, just await timeout
+    if (aTimeout>0) {
+      usleep((useconds_t)aTimeout);
+    }
+  }
+  if (numReadyFDs>0) {
+    // check the descriptor sets and call handlers when needed
+    for (int i = 0; i<numFDsToTest; i++) {
+      int pollflags = 0;
+      if (FD_ISSET(i, &readfs)) pollflags |= POLLIN;
+      if (FD_ISSET(i, &writefs)) pollflags |= POLLOUT;
+      if (FD_ISSET(i, &errorfs)) pollflags |= POLLERR;
+      if (pollflags!=0) {
+        ML_STAT_START
+        // an event has occurred for this FD
+        // - get handler, note that it might have been deleted in the meantime
+        IOPollHandler h = ioPollHandlers[i];
+        // - call handler
+        h.pollHandler(h.monitoredFD, pollflags);
+        ML_STAT_ADD(ioHandlerTime);
+      }
+    }
+  }
+  // return true if we actually handled some I/O
+  return numReadyFDs>0;
+  #else
+  // use poll() - create poll structure
   struct pollfd *pollFds = NULL;
   size_t maxFDsToTest = ioPollHandlers.size();
   if (maxFDsToTest>0) {
@@ -777,6 +870,7 @@ bool MainLoop::handleIOPoll(MLMicroSeconds aTimeout)
   delete[] pollFds;
   // return true if poll actually reported something (not just timed out)
   return numReadyFDs>0;
+  #endif
 }
 
 
@@ -800,6 +894,7 @@ bool MainLoop::mainLoopCycle()
     // run timers
     MLMicroSeconds nextWake = checkTimers(maxRun);
     if (terminated) break;
+    #ifndef ESP32
     // check
     if (!checkWait()) {
       // still need to check for terminating processes
@@ -807,6 +902,7 @@ bool MainLoop::mainLoopCycle()
         nextWake = cycleStarted+waitCheckInterval;
       }
     }
+    #endif // !ESP32
     if (terminated) break;
     // limit sleeping time
     if (maxSleep!=Infinite && (nextWake==Never || nextWake>cycleStarted+maxSleep)) {

@@ -30,6 +30,11 @@
 #include <vector>
 #include <map>
 
+#ifdef ESP32
+  #define BOOST_NO_EXCEPTIONS
+  #include <boost/throw_exception.hpp>
+#endif
+
 #include <boost/intrusive_ptr.hpp>
 #include <boost/shared_ptr.hpp>
 #include <boost/function.hpp>
@@ -37,6 +42,11 @@
 
 #ifndef __printflike
 #define __printflike(...)
+#endif
+#ifdef ESP32
+  #define __printflike_template(...)
+#else
+  #define __printflike_template(...) __printflike(__VA_ARGS__)
 #endif
 
 #if __cplusplus >= 201103L

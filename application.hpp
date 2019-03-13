@@ -24,7 +24,10 @@
 
 #include "p44utils_common.hpp"
 
+#ifdef ESP32
+#else
 #include <signal.h>
+#endif
 
 using namespace std;
 
@@ -117,9 +120,11 @@ namespace p44 {
     /// called when mainloop terminates
     virtual void cleanup(int aExitCode);
 
+    #ifndef ESP32
     /// called when a signal occurs
     /// @note only SIGHUP,SIGINT,SIGKILL and SIGTERM are handled here
     virtual void signalOccurred(int aSignal, siginfo_t *aSiginfo);
+    #endif
 
     /// set the resource path
     /// @param aResourcePath path to resource directory, with or without path delimiter at end
@@ -132,12 +137,16 @@ namespace p44 {
   private:
 
     void initializeInternal();    
+
+    #ifndef ESP32
     void handleSignal(int aSignal);
     static void sigaction_handler(int aSignal, siginfo_t *aSiginfo, void *aUap);
+    #endif
 
   };
 
 
+  #ifndef ESP32
 
   /// Command line option descriptor
   /// @note a descriptor with both longOptionName==NULL and shortOptionChar=0 terminates a list of option descriptors
@@ -259,6 +268,7 @@ namespace p44 {
 
   };
 
+  #endif // !ESP32
 
 } // namespace p44
 
