@@ -34,11 +34,11 @@ using namespace p44;
 
 
 #if ENABLE_RPIWS281X
-#define TARGET_FREQ WS2811_TARGET_FREQ // in Hz, default is 800kHz
-#define GPIO_PIN 18 // P1 Pin 12, GPIO 18 (PCM_CLK)
-#define GPIO_INVERT 0 // set to 1 if there is an inverting driver between GPIO 18 and the WS281x LEDs
-#define DMA 5 // don't change unless you know why
-#define MAX_BRIGHTNESS 255 // full brightness range
+  #define TARGET_FREQ WS2811_TARGET_FREQ // in Hz, default is 800kHz
+  #define GPIO_PIN 18 // P1 Pin 12, GPIO 18 (PCM_CLK)
+  #define GPIO_INVERT 0 // set to 1 if there is an inverting driver between GPIO 18 and the WS281x LEDs
+  #define DMA 5 // don't change unless you know why
+  #define MAX_BRIGHTNESS 255 // full brightness range
 #endif
 
 
@@ -65,7 +65,13 @@ LEDChainComm::LEDChainComm(LedType aLedType, const string aDeviceName, uint16_t 
   alternating = aAlternating;
   swapXY = aSwapXY;
   // prepare hardware related stuff
-  #if ENABLE_RPIWS281X
+  #ifdef ESP_PLATFORM
+  gpioNo = 18; // sensible default
+  if (aDeviceName.substr(0,4)=="gpio") {
+    sscanf(aDeviceName.c_str()+4, "%d", &gpioNo);
+  }
+  pixels = NULL;
+  #elif ENABLE_RPIWS281X
   memset(&ledstring, 0, sizeof(ledstring));
   // initialize the led string structure
   ledstring.freq = TARGET_FREQ;
@@ -126,7 +132,17 @@ uint16_t LEDChainComm::getSizeY()
 bool LEDChainComm::begin()
 {
   if (!initialized) {
-    #if ENABLE_RPIWS281X
+    #ifdef ESP_PLATFORM
+    // prepare buffer and initialize library
+    if (pixels) {
+      delete[] pixels;
+      pixels = NULL;
+    }
+    pixels = new rgbVal[numLeds];
+    ws281x_init(gpioNo);
+    initialized = true;
+    clear();
+    #elif ENABLE_RPIWS281X
     // initialize library
     ws2811_return_t ret = ws2811_init(&ledstring);
     if (ret==WS2811_SUCCESS) {
@@ -137,6 +153,7 @@ bool LEDChainComm::begin()
       initialized = false;
     }
     #else
+    // prepare buffer and open device
     if (ledbuffer) {
       delete[] ledbuffer;
       ledbuffer = NULL;
@@ -160,7 +177,9 @@ bool LEDChainComm::begin()
 void LEDChainComm::clear()
 {
   if (!initialized) return;
-  #if ENABLE_RPIWS281X
+  #ifdef ESP_PLATFORM
+  for (uint16_t i=0; i<numLeds; i++) pixels[i].num = 0;
+  #elif ENABLE_RPIWS281X
   for (uint16_t i=0; i<numLeds; i++) ledstring.channel[0].leds[i] = 0;
   #else
   memset(ledbuffer, 0, numColorComponents*numLeds);
@@ -171,7 +190,12 @@ void LEDChainComm::clear()
 void LEDChainComm::end()
 {
   if (initialized) {
-    #if ENABLE_RPIWS281X
+    #ifdef ESP_PLATFORM
+    if (pixels) {
+      delete[] pixels;
+      pixels = NULL;
+    }
+    #elif ENABLE_RPIWS281X
     // deinitialize library
     ws2811_fini(&ledstring);
     #else
@@ -192,7 +216,9 @@ void LEDChainComm::end()
 void LEDChainComm::show()
 {
   if (!initialized) return;
-  #if ENABLE_RPIWS281X
+  #ifdef ESP_PLATFORM
+  ws281x_setColors(numLeds, pixels);
+  #elif ENABLE_RPIWS281X
   ws2811_render(&ledstring);
   #else
   write(ledFd, ledbuffer, numLeds*numColorComponents);
@@ -285,7 +311,9 @@ void LEDChainComm::setColorXY(uint16_t aX, uint16_t aY, uint8_t aRed, uint8_t aG
 {
   uint16_t ledindex = ledIndexFromXY(aX,aY);
   if (ledindex>=numLeds) return;
-  #if ENABLE_RPIWS281X
+  #ifdef ESP_PLATFORM
+  pixels[ledindex] = makeRGBVal(aRed, aGreen, aBlue);
+  #elif ENABLE_RPIWS281X
   ws2811_led_t pixel =
     (pwmtable[aRed] << 16) |
     (pwmtable[aGreen] << 8) |
@@ -340,7 +368,13 @@ void LEDChainComm::getColorXY(uint16_t aX, uint16_t aY, uint8_t &aRed, uint8_t &
 {
   uint16_t ledindex = ledIndexFromXY(aX,aY);
   if (ledindex>=numLeds) return;
-  #if ENABLE_RPIWS281X
+  #ifdef ESP_PLATFORM
+  rgbVal &pixel = pixels[ledindex];
+  aRed = brightnesstable[pixel.r];
+  aGreen = brightnesstable[pixel.g];
+  aBlue = brightnesstable[pixel.b];
+  aWhite = 0;
+  #elif ENABLE_RPIWS281X
   ws2811_led_t pixel = ledstring.channel[0].leds[ledindex];
   aRed = brightnesstable[(pixel>>16) & 0xFF];
   aGreen = brightnesstable[(pixel>>8) & 0xFF];

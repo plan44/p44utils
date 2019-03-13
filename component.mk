@@ -3,6 +3,7 @@
 #
 
 #COMPONENT_SRCDIRS := . slre sqlite3pp
+COMPONENT_SRCDIRS := . thirdparty/esp32_ws281x
 
 COMPONENT_OBJS:= \
   application.o \
@@ -11,12 +12,12 @@ COMPONENT_OBJS:= \
   utils.o \
   error.o \
   mainloop.o \
-  $(call compile_only_if,$(CONFIG_P44UTILS_ENABLE_LEDCHAIN),ledchaincomm.o)
+  $(call compile_only_if,$(CONFIG_P44UTILS_ENABLE_LEDCHAIN),ledchaincomm.o thirdparty/esp32_ws281x/esp32_ws281x.o)
 
 # %%%ugly hack for now%%% just take a boost checkout we already have
 COMPONENT_ADD_INCLUDEDIRS = \
   . \
-  /Volumes/CaseSens/openwrt/build_dir/target-mipsel_24kc_musl/boost_1_67_0
+  thirdparty/esp32_ws281x
 
 CPPFLAGS += \
   -Wno-reorder \

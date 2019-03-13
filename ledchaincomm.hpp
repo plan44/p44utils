@@ -24,7 +24,6 @@
 
 #include "p44utils_common.hpp"
 
-
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -33,19 +32,22 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 
-#if ENABLE_RPIWS281X
+#ifdef ESP_PLATFORM
+
+// we use the esp32_ws281x code using RMT peripheral to generate correct timing
+extern "C" {
+  #include "esp32_ws281x.h"
+}
+
+#elif ENABLE_RPIWS281X
 
 // we use the rpi_ws281x library to communicate with the LED chains on RaspberryPi
-
 extern "C" {
-
-#include "clk.h"
-#include "gpio.h"
-#include "dma.h"
-#include "pwm.h"
-
-#include "ws2811.h"
-
+  #include "clk.h"
+  #include "gpio.h"
+  #include "dma.h"
+  #include "pwm.h"
+  #include "ws2811.h"
 }
 
 #endif // ENABLE_RPIWS281X
@@ -94,7 +96,10 @@ namespace p44 {
     bool initialized;
     uint8_t numColorComponents; // depends on ledType
 
-    #if ENABLE_RPIWS281X
+    #ifdef ESP_PLATFORM
+    int gpioNo; // the GPIO to be used
+    rgbVal *pixels; // the pixel buffer
+    #elif ENABLE_RPIWS281X
     ws2811_t ledstring; // the descriptor for the rpi_ws2811 library
     #else
     int ledFd; // the file descriptor for the LED device
@@ -105,6 +110,9 @@ namespace p44 {
     /// create driver for a WS2812 LED chain
     /// @param aLedType type of LEDs
     /// @param aDeviceName the name of the LED chain device (if any, depends on platform)
+    /// - ledchain device: full path like /dev/ledchain1
+    /// - ESP32: name must be "gpioX" with X being the output pin to be used
+    /// - RPi library (ENABLE_RPIWS281X): unused
     /// @param aNumLeds number of LEDs in the chain
     /// @param aLedsPerRow number of consecutive LEDs in the WS2812 chain that build a row
     ///   (usually x direction, y if swapXY was set). Set to 0 for single line of LEDs
