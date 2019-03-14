@@ -22,7 +22,11 @@
 #include "socketcomm.hpp"
 
 #include <sys/ioctl.h>
+#ifdef ESP_PLATFORM
+const struct in6_addr in6addr_loopback = IN6ADDR_LOOPBACK_INIT;
+#else
 #include <sys/poll.h>
+#endif
 
 using namespace p44;
 
@@ -86,10 +90,15 @@ ErrorPtr SocketComm::startServer(ServerConnectionCB aServerConnectionHandler, in
   // check for protocolfamily auto-choice
   if (protocolFamily==PF_UNSPEC) {
     // not specified, choose default
-    if (serviceOrPortOrSocket.size()>1 && serviceOrPortOrSocket[0]=='/')
+    #ifndef ESP_PLATFORM
+    if (serviceOrPortOrSocket.size()>1 && serviceOrPortOrSocket[0]=='/') {
       protocolFamily = PF_LOCAL; // absolute paths are considered local sockets
+    }
     else
+    #endif  // !ESP_PLATFORM
+    {
       protocolFamily = PF_INET; // otherwise, default to IPv4 for now
+    }
   }
   // - protocol derived from socket type
   if (protocol==0) {
@@ -117,9 +126,15 @@ ErrorPtr SocketComm::startServer(ServerConnectionCB aServerConnectionHandler, in
     else
       sinP->sin_addr.s_addr = htonl(INADDR_LOOPBACK);
     // get service / port
-    if ((pse = getservbyname(serviceOrPortOrSocket.c_str(), NULL)) != NULL)
+    #ifndef ESP_PLATFORM
+    // - look up port/service by name
+    if ((pse = getservbyname(serviceOrPortOrSocket.c_str(), NULL)) != NULL) {
       sinP->sin_port = htons(ntohs((in_port_t)pse->s_port));
-    else if ((sinP->sin_port = htons((in_port_t)atoi(serviceOrPortOrSocket.c_str()))) == 0) {
+    }
+    else
+    #endif  // !ESP_PLATFORM
+    // - numeric port number
+    if ((sinP->sin_port = htons((in_port_t)atoi(serviceOrPortOrSocket.c_str()))) == 0) {
       err = Error::err<SocketCommError>(SocketCommError::CannotResolve, "Unknown service/port name");
     }
   } else if (protocolFamily==PF_INET6) {
@@ -137,12 +152,17 @@ ErrorPtr SocketComm::startServer(ServerConnectionCB aServerConnectionHandler, in
     else
       sinP->sin6_addr = in6addr_loopback;
     // get service / port
-    if ((pse = getservbyname(serviceOrPortOrSocket.c_str(), NULL)) != NULL)
+    #ifndef ESP_PLATFORM
+    if ((pse = getservbyname(serviceOrPortOrSocket.c_str(), NULL)) != NULL) {
       sinP->sin6_port = htons(ntohs((in_port_t)pse->s_port));
-    else if ((sinP->sin6_port = htons((in_port_t)atoi(serviceOrPortOrSocket.c_str()))) == 0) {
+    }
+    else
+    #endif  // !ESP_PLATFORM
+    if ((sinP->sin6_port = htons((in_port_t)atoi(serviceOrPortOrSocket.c_str()))) == 0) {
       err = Error::err<SocketCommError>(SocketCommError::CannotResolve, "Unknown service/port name");
     }
   }
+  #ifndef ESP_PLATFORM
   else if (protocolFamily==PF_LOCAL) {
     // Local (UNIX) socket
     // - create suitable socket address
@@ -157,6 +177,7 @@ ErrorPtr SocketComm::startServer(ServerConnectionCB aServerConnectionHandler, in
     // - protocol for local socket is not specific
     proto = 0;
   }
+  #endif // !ESP_PLATFORM
   else {
     // TODO: implement other portocol families
     err = Error::err<SocketCommError>(SocketCommError::Unsupported, "Unsupported protocol family");
@@ -173,7 +194,7 @@ ErrorPtr SocketComm::startServer(ServerConnectionCB aServerConnectionHandler, in
         err = SysError::errNo("Cannot setsockopt(SO_REUSEADDR): ");
       }
       else {
-        #ifdef __APPLE__
+        #if defined(ESP_PLATFORM) || defined(__APPLE__)
         if (!interface.empty()) {
           err = TextError::err("SO_BINDTODEVICE not supported on macOS");
         }
@@ -231,19 +252,28 @@ bool SocketComm::connectionAcceptHandler(int aFd, int aPollFlags)
     if (clientFD>0) {
       // get address and port of incoming connection
       char hbuf[NI_MAXHOST], sbuf[NI_MAXSERV];
+      #ifndef ESP_PLATFORM
       if (protocolFamily==PF_LOCAL) {
         // no real address and port
         strcpy(hbuf,"local");
         strcpy(sbuf,"local_socket");
       }
-      else {
+      else
+      #endif // !ESP_PLATFORM
+      {
+        #ifdef ESP_PLATFORM
+        #warning "%%% ESP32 version of getnameinfo missing"
+        // TODO: find how to use getnameinfo on ESP32
+        #else
         int s = getnameinfo(
           &fsin, fsinlen,
           hbuf, sizeof hbuf,
           sbuf, sizeof sbuf,
           NI_NUMERICHOST | NI_NUMERICSERV
         );
-        if (s!=0) {
+        if (s!=0)
+        #endif
+        {
           strcpy(hbuf,"<unknown>");
           strcpy(sbuf,"<unknown>");
         }
@@ -265,7 +295,7 @@ bool SocketComm::connectionAcceptHandler(int aFd, int aPollFlags)
         clientComm->serviceOrPortOrSocket = sbuf;
         // - remember
         clientConnections.push_back(clientComm);
-        LOG(LOG_DEBUG, "New client connection accepted from %s:%s (now %lu connections)", hostNameOrAddress.c_str(), serviceOrPortOrSocket.c_str(), clientConnections.size());
+        LOG(LOG_DEBUG, "New client connection accepted from %s:%s (now %zu connections)", hostNameOrAddress.c_str(), serviceOrPortOrSocket.c_str(), clientConnections.size());
         // - pass connection to child
         clientComm->passClientConnection(clientFD, this);
       }
@@ -316,7 +346,7 @@ SocketCommPtr SocketComm::returnClientConnection(SocketCommPtr aClientConnection
       break;
     }
   }
-  LOG(LOG_DEBUG, "Client connection terminated (now %lu connections)", clientConnections.size());
+  LOG(LOG_DEBUG, "Client connection terminated (now %zu connections)", clientConnections.size());
   // return connection object to prevent premature deletion
   return endingConnection;
 }
@@ -344,9 +374,13 @@ ErrorPtr SocketComm::initiateConnection()
     // check for protocolfamily auto-choice
     if (protocolFamily==PF_UNSPEC) {
       // not specified, choose local socket if service spec begins with slash
-      if (serviceOrPortOrSocket.size()>1 && serviceOrPortOrSocket[0]=='/')
+      #ifndef ESP_PLATFORM
+      if (serviceOrPortOrSocket.size()>1 && serviceOrPortOrSocket[0]=='/') {
         protocolFamily = PF_LOCAL; // absolute paths are considered local sockets
+      }
+      #endif  // !ESP_PLATFORM
     }
+    #ifndef ESP_PLATFORM
     if (protocolFamily==PF_LOCAL) {
       // local socket -> just connect, no lists to try
       LOG(LOG_DEBUG, "Initiating local socket %s connection", serviceOrPortOrSocket.c_str());
@@ -365,7 +399,9 @@ ErrorPtr SocketComm::initiateConnection()
       strncpy(sunP->sun_path, serviceOrPortOrSocket.c_str(), sizeof (sunP->sun_path));
       sunP->sun_path[sizeof (sunP->sun_path) - 1] = '\0'; // emergency terminator
     }
-    else {
+    else
+    #endif // !ESP_PLATFORM
+    {
       // assume internet connection -> get list of possible addresses and try them
       if (hostNameOrAddress.empty()) {
         err = Error::err<SocketCommError>(SocketCommError::NoParams, "Missing connection parameters");
@@ -381,7 +417,11 @@ ErrorPtr SocketComm::initiateConnection()
       res = getaddrinfo(hostNameOrAddress.c_str(), serviceOrPortOrSocket.c_str(), &hint, &addressInfoList);
       if (res!=0) {
         // error
+        #ifdef ESP_PLATFORM
+        err = Error::err<SocketCommError>(SocketCommError::CannotResolve, "getaddrinfo error %d", res);
+        #else
         err = Error::err<SocketCommError>(SocketCommError::CannotResolve, "getaddrinfo error %d: %s", res, gai_strerror(res));
+        #endif
         DBGLOG(LOG_DEBUG, "SocketComm: getaddrinfo failed: %s", err->description().c_str());
         goto done;
       }
@@ -445,6 +485,11 @@ ErrorPtr SocketComm::connectNextAddress()
           }
           else {
             // to receive answers, we also need to bind to INADDR_ANY
+            #ifdef ESP_PLATFORM
+            #warning "%%% ESP32 version of getnameinfo missing"
+            // TODO: find how to use getnameinfo on ESP32
+            err = TextError::err("ESP32: Cannot determine port and thus cannot bind to INADDR_ANY");
+            #else
             // - get port number
             char sbuf[NI_MAXSERV];
             int s = getnameinfo(
@@ -468,6 +513,7 @@ ErrorPtr SocketComm::connectNextAddress()
                 }
               }
             }
+            #endif
           }
         }
         if (Error::isOK(err)) {
@@ -482,7 +528,7 @@ ErrorPtr SocketComm::connectNextAddress()
       }
       else {
         // TCP: initiate connection
-        LOG(LOG_DEBUG, "- Attempting connection with address family = %d, protocol = %d, addrlen=%d/sizeof=%lu", currentAddressInfo->ai_family, currentAddressInfo->ai_protocol, currentAddressInfo->ai_addrlen, sizeof(*(currentAddressInfo->ai_addr)));
+        LOG(LOG_DEBUG, "- Attempting connection with address family = %d, protocol = %d, addrlen=%d/sizeof=%zu", currentAddressInfo->ai_family, currentAddressInfo->ai_protocol, currentAddressInfo->ai_addrlen, sizeof(*(currentAddressInfo->ai_addr)));
         res = connect(socketFD, currentAddressInfo->ai_addr, currentAddressInfo->ai_addrlen);
         if (res==0 || errno==EINPROGRESS) {
           // connection initiated (or already open, but connectionMonitorHandler will take care in both cases)
@@ -755,6 +801,10 @@ bool SocketComm::getDatagramOrigin(string &aAddress, string &aPort)
 {
   if (peerSockAddrP) {
     // get address and port of incoming connection
+    #ifdef ESP_PLATFORM
+    #warning "%%% ESP32 version of getnameinfo missing"
+    // TODO: find how to use getnameinfo on ESP32
+    #else
     char hbuf[NI_MAXHOST], sbuf[NI_MAXSERV];
     int s = getnameinfo(
       peerSockAddrP, peerSockAddrLen,
@@ -767,6 +817,7 @@ bool SocketComm::getDatagramOrigin(string &aAddress, string &aPort)
       aPort = sbuf;
       return true;
     }
+    #endif
   }
   return false;
 }

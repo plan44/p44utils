@@ -12,6 +12,8 @@ COMPONENT_OBJS:= \
   utils.o \
   error.o \
   mainloop.o \
+  fdcomm.o \
+  socketcomm.o \
   $(call compile_only_if,$(CONFIG_P44UTILS_ENABLE_LEDCHAIN),ledchaincomm.o thirdparty/esp32_ws281x/esp32_ws281x.o)
 
 # %%%ugly hack for now%%% just take a boost checkout we already have

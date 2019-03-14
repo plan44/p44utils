@@ -29,7 +29,10 @@
 #include "fdcomm.hpp"
 
 #include <sys/ioctl.h>
+
+#ifndef ESP_PLATFORM
 #include <sys/poll.h>
+#endif
 
 using namespace p44;
 

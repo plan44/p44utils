@@ -28,7 +28,12 @@
 
 // unix I/O and network
 #include <sys/socket.h>
-#include <sys/un.h>
+#ifdef ESP_PLATFORM
+  #define  NI_MAXHOST  1025
+  #define  NI_MAXSERV  32
+#else
+  #include <sys/un.h>
+#endif
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <netdb.h>
