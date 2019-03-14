@@ -1,4 +1,13 @@
+menu "p44utils"
+
 config P44UTILS_ENABLE_LEDCHAIN
-    bool "p44utils: Enable WS28xx ledchain support"
+    bool "Enable WS28xx ledchain support"
     help
         This enables the LedChain support in p44utils.
+
+config P44UTILS_ENABLE_JSON
+    bool "Enable JSON support"
+    help
+        This enables the JSON support in p44utils.
+
+endmenu
