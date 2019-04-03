@@ -37,6 +37,9 @@ namespace p44 {
   class ParamStore : public SQLite3Persistence
   {
     typedef SQLite3Persistence inherited;
+
+  public:
+    uint32_t writeOpsCount = 0; ///< global number of write operations (INSERT, UPDATE, DELETE)
   };
 
 
