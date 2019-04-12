@@ -91,6 +91,10 @@ namespace p44 {
     const char *json_c_str(int aFlags=0);
     string json_str(int aFlags=0);
 
+    /// Note: should only be used to pass object to other json-c native APIs
+    /// Note: Ownership of the jsonobject remains with this JsonObject
+    /// @return pointer the embedded json-c object structure
+    const struct json_object *jsoncObj() const { return json_obj; }
 
     /// add object for key
     void add(const char* aKey, JsonObjectPtr aObj);

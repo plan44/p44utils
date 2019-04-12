@@ -65,6 +65,16 @@ namespace p44 {
     /// @param aErrorMessage error message
     Error(ErrorCode aErrorCode, const std::string &aErrorMessage);
 
+
+    /// create a Error subclass object
+    /// @param aErrorCode error code. aErrorCode==0 from any domain means OK.
+    template<typename T> static ErrorPtr err(ErrorCode aErrorCode)
+    {
+      Error *errP = new T(static_cast<typename T::ErrorCodes>(aErrorCode));
+      return ErrorPtr(errP);
+    };
+
+
     /// create a Error subclass object with printf-style formatted error
     /// @param aErrorCode error code. aErrorCode==0 from any domain means OK.
     /// @param aFmt ... error message format string and arguments
