@@ -48,19 +48,37 @@ SerialComm::~SerialComm()
 
 
 
-void SerialComm::setConnectionSpecification(const char* aConnectionSpec, uint16_t aDefaultPort, const char *aDefaultCommParams)
+bool SerialComm::parseConnectionSpecification(
+  const char* aConnectionSpec, uint16_t aDefaultPort, const char *aDefaultCommParams,
+  string &aConnectionPath,
+  int &aBaudRate,
+  int &aCharSize,
+  bool &aParityEnable,
+  bool &aEvenParity,
+  bool &aTwoStopBits,
+  bool &aHardwareHandshake,
+  uint16_t &aConnectionPort
+)
 {
   // device or IP host?
+  aConnectionPort = 0; // means: serial
+  aConnectionPath.clear();
+  aBaudRate = 9600;
+  aCharSize = 8;
+  aParityEnable = false;
+  aEvenParity = false;
+  aTwoStopBits = false;
+  aHardwareHandshake = false;
   if (aConnectionSpec && *aConnectionSpec) {
+    aConnectionPath = aConnectionSpec;
     if (aConnectionSpec[0]=='/') {
       // serial device
-      connectionPath = aConnectionSpec;
       string opt = nonNullCStr(aDefaultCommParams);
-      size_t n = connectionPath.find(":");
+      size_t n = aConnectionPath.find(":");
       if (n!=string::npos) {
         // explicit specification of communication params: baudrate, bits, parity
-        string opt = connectionPath.substr(n+1,string::npos);
-        connectionPath.erase(n,string::npos);
+        opt = aConnectionPath.substr(n+1,string::npos);
+        aConnectionPath.erase(n,string::npos);
       }
       if (opt.size()>0) {
         // get communication options: [baud rate][,[bits][,[parity][,[stopbits][,[H]]]]]
@@ -68,32 +86,32 @@ void SerialComm::setConnectionSpecification(const char* aConnectionSpec, uint16_
         const char *p = opt.c_str();
         if (nextPart(p, part, ',')) {
           // baud rate
-          sscanf(part.c_str(), "%d", &baudRate);
+          sscanf(part.c_str(), "%d", &aBaudRate);
           if (nextPart(p, part, ',')) {
             // bits
-            sscanf(part.c_str(), "%d", &charSize);
+            sscanf(part.c_str(), "%d", &aCharSize);
             if (nextPart(p, part, ',')) {
               // parity: O,E,N
               if (part.size()>0) {
-                parityEnable = false;
+                aParityEnable = false;
                 if (part[0]=='E') {
-                  parityEnable = true;
-                  evenParity = true;
+                  aParityEnable = true;
+                  aEvenParity = true;
                 }
                 else if (part[0]=='O') {
-                  parityEnable = false;
-                  evenParity = false;
+                  aParityEnable = false;
+                  aEvenParity = false;
                 }
               }
               if (nextPart(p, part, ',')) {
                 // stopbits: 1 or 2
                 if (part.size()>0) {
-                  twoStopBits = part[0]=='2';
+                  aTwoStopBits = part[0]=='2';
                 }
                 if (nextPart(p, part, ',')) {
                   // hardware handshake?
                   if (part.size()>0) {
-                    hardwareHandshake = part[0]=='H';
+                    aHardwareHandshake = part[0]=='H';
                   }
                 }
               }
@@ -101,13 +119,33 @@ void SerialComm::setConnectionSpecification(const char* aConnectionSpec, uint16_
           }
         }
       }
+      return true; // real serial
     }
     else {
       // IP host
-      connectionPort = aDefaultPort; // set default in case aConnectionSpec does not have a path number
-      splitHost(aConnectionSpec, &connectionPath, &connectionPort);
+      aConnectionPort = aDefaultPort; // set default in case aConnectionSpec does not have a path number
+      splitHost(aConnectionSpec, &aConnectionPath, &aConnectionPort);
+      return false; // no real serial
     }
   }
+  return false; // no real serial either
+}
+
+
+
+void SerialComm::setConnectionSpecification(const char* aConnectionSpec, uint16_t aDefaultPort, const char *aDefaultCommParams)
+{
+  parseConnectionSpecification(
+    aConnectionSpec, aDefaultPort, aDefaultCommParams,
+    connectionPath,
+    baudRate,
+    charSize,
+    parityEnable,
+    evenParity,
+    twoStopBits,
+    hardwareHandshake,
+    connectionPort
+  );
   closeConnection();
 }
 

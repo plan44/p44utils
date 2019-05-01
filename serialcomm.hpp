@@ -101,6 +101,19 @@ namespace p44 {
     /// @param aDefaultCommParams default communication parameters (in case spec does not contain :commParams)
     void setConnectionSpecification(const char* aConnectionSpec, uint16_t aDefaultPort, const char *aDefaultCommParams);
 
+    /// @return true if local serial port, false otherwise (none or IP)
+    static bool parseConnectionSpecification(
+      const char* aConnectionSpec, uint16_t aDefaultPort, const char *aDefaultCommParams,
+      string &aConnectionPath,
+      int &aBaudRate,
+      int &aCharSize,
+      bool &aParityEnable,
+      bool &aEvenParity,
+      bool &aTwoStopBits,
+      bool &aHardwareHandshake,
+      uint16_t &aConnectionPort
+    );
+
     /// @return connection path (IP address or device path)
     string getConnectionPath() { return connectionPath; };
 
