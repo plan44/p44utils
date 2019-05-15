@@ -202,13 +202,13 @@ ExpressionValue evaluateTerm(const char * &aText, ValueLookupCB aValueLookupCB, 
   const char *a = aText;
   // a simple term can be
   // - a variable reference or
-  // - a literal number
+  // - a literal number or timespec (h:m or h:m:s)
   // Note: a parantesized expression can also be a term, but this is parsed by the caller, not here
   while (*aText==' ' || *aText=='\t') aText++; // skip whitespace
   // extract var name or number
   ExpressionValue res;
   const char *e = aText;
-  while (*e && (isalnum(*e) || *e=='.' || *e=='_')) e++;
+  while (*e && (isalnum(*e) || *e=='.' || *e=='_' || *e==':')) e++;
   if (e==aText) {
     return ExpressionError::errValue(ExpressionError::Syntax, "missing term");
   }
@@ -277,10 +277,35 @@ ExpressionValue evaluateTerm(const char * &aText, ValueLookupCB aValueLookupCB, 
     }
   }
   else {
-    // must be a numeric literal
+    // must be a numeric literal (can also be a time literal in hh:mm:ss or hh:mm form)
     double v;
-    if (sscanf(term.c_str(), "%lf", &v)!=1) {
+    int i;
+    if (sscanf(term.c_str(), "%lf%n", &v, &i)!=1) {
       return ExpressionError::errValue(ExpressionError::Syntax, "'%s' is not a valid number", term.c_str());
+    }
+    else {
+      // check for time literals (returned as seconds)
+      // - these are in the form h:m or h:m:s, where all parts are allowed to be fractional
+      if (term.size()>i && term[i]==':') {
+        // we have 'v:'
+        double t;
+        int j;
+        if (sscanf(term.c_str()+i+1, "%lf%n", &t, &j)!=1) {
+          return ExpressionError::errValue(ExpressionError::Syntax, "'%s' is not a valid time specification (hh:mm or hh:mm:ss)", term.c_str());
+        }
+        else {
+          // we have v:t, take these as hours and minutes
+          v = (v*60+t)*60; // in seconds
+          j += i+1;
+          if (term.size()>j && term[j]==':') {
+            // apparently we also have seconds
+            if (sscanf(term.c_str()+j+1, "%lf", &t)!=1) {
+              return ExpressionError::errValue(ExpressionError::Syntax, "'%s' time specification has invalid seconds (hh:mm:ss)", term.c_str());
+            }
+            v += t; // add the seconds
+          }
+        }
+      }
     }
     res = ExpressionValue(v);
   }
