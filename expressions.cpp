@@ -237,8 +237,8 @@ ExpressionValue evaluateTerm(const char * &aText, ValueLookupCB aValueLookupCB, 
           aText++; // skip comma
         }
         ExpressionValue arg = evaluateExpressionPrivate(aText, 0, aValueLookupCB, aFunctionLookpCB);
-        if (!arg.isOk() && arg.err->isError("ExpressionError", ExpressionError::Syntax))
-          return arg; // exit on syntax errors
+        if (!arg.isOk() && !arg.err->isError("ExpressionError", ExpressionError::Null))
+          return arg; // exit, except on null which is ok as a function argument
         args.push_back(arg);
       }
       aText++; // skip closing paranthesis
