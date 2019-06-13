@@ -70,7 +70,7 @@ void SocketComm::setConnectionParams(const char* aHostNameOrAddress, const char*
 }
 
 
-// MARK: ===== becoming a server
+// MARK: - becoming a server
 
 ErrorPtr SocketComm::startServer(ServerConnectionCB aServerConnectionHandler, int aMaxConnections)
 {
@@ -324,7 +324,7 @@ SocketCommPtr SocketComm::returnClientConnection(SocketCommPtr aClientConnection
 
 
 
-// MARK: ===== connecting to a client
+// MARK: - connecting to a client
 
 
 bool SocketComm::connectable()
@@ -537,7 +537,7 @@ ErrorPtr SocketComm::connectNextAddress()
 }
 
 
-// MARK: ===== general connection handling
+// MARK: - general connection handling
 
 
 ErrorPtr SocketComm::socketError(int aSocketFd)
@@ -699,7 +699,7 @@ bool SocketComm::connecting()
 }
 
 
-// MARK: ===== connectionless data exchange
+// MARK: - connectionless data exchange
 
 
 size_t SocketComm::transmitBytes(size_t aNumBytes, const uint8_t *aBytes, ErrorPtr &aError)
@@ -772,7 +772,7 @@ bool SocketComm::getDatagramOrigin(string &aAddress, string &aPort)
 }
 
 
-// MARK: ===== handling data exception
+// MARK: - handling data exception
 
 
 void SocketComm::dataExceptionHandler(int aFd, int aPollFlags)

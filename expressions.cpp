@@ -32,7 +32,7 @@
 using namespace p44;
 
 
-// MARK: ===== placeholder substitution
+// MARK: - placeholder substitution
 
 ErrorPtr p44::substitutePlaceholders(string &aString, StringValueLookupCB aValueLookupCB)
 {
@@ -119,7 +119,7 @@ ErrorPtr p44::substitutePlaceholders(string &aString, StringValueLookupCB aValue
 }
 
 
-// MARK: ===== expression value
+// MARK: - expression value
 
 string ExpressionValue::stringValue()
 {
@@ -133,7 +133,7 @@ string ExpressionValue::stringValue()
 
 
 
-// MARK: ===== expression error
+// MARK: - expression error
 
 
 ErrorPtr ExpressionError::err(ErrorCodes aErrCode, const char *aFmt, ...)
@@ -159,7 +159,7 @@ ExpressionValue ExpressionError::errValue(ErrorCodes aErrCode, const char *aFmt,
 
 
 
-// MARK: ===== numeric term evaluation
+// MARK: - numeric term evaluation
 
 ExpressionValue evaluateExpressionPrivate(const char * &aText, int aPrecedence, ValueLookupCB aValueLookupCB, FunctionLookupCB aFunctionLookpCB);
 

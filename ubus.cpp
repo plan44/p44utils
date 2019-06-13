@@ -127,7 +127,7 @@ void UbusServer::registerObject(UbusObjectPtr aUbusObject)
 
 
 
-// MARK: ===== UbusRequest
+// MARK: - UbusRequest
 
 UbusRequest::UbusRequest(UbusServerPtr aUbusServer, struct ubus_request_data *aReq) :
   ubusServer(aUbusServer),
@@ -216,7 +216,7 @@ int UbusServer::methodHandler(
 }
 
 
-// MARK: ===== convert blob message to json
+// MARK: - convert blob message to json
 // NOTE: other way around (json -> blobmsg) exists in blobmsg_json already, also using json-C
 
 

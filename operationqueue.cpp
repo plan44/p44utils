@@ -198,7 +198,7 @@ void Operation::abortOperation(ErrorPtr aError)
 
 
 
-// MARK: ===== OperationQueue
+// MARK: - OperationQueue
 
 
 #define QUEUE_RECHECK_INTERVAL (30*MilliSecond)

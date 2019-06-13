@@ -29,7 +29,7 @@
 
 using namespace p44;
 
-// MARK: ===== Application base class
+// MARK: - Application base class
 
 static Application *sharedApplicationP = NULL;
 
@@ -291,7 +291,7 @@ void Application::daemonize()
 }
 
 
-// MARK: ===== CmdLineApp command line application
+// MARK: - CmdLineApp command line application
 
 
 /// constructor

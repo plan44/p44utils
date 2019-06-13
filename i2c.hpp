@@ -195,7 +195,7 @@ namespace p44 {
   };
 
 
-  // MARK: ===== digital IO
+  // MARK: - digital IO
 
 
   class I2CBitPortDevice : public I2CDevice
@@ -344,7 +344,7 @@ namespace p44 {
   };  
 
 
-  // MARK: ===== analog IO
+  // MARK: - analog IO
 
 
   class I2CAnalogPortDevice : public I2CDevice

@@ -49,7 +49,7 @@
 
 using namespace p44;
 
-// MARK: ===== I2C Manager
+// MARK: - I2C Manager
 
 static I2CManager *sharedI2CManager = NULL;
 
@@ -143,7 +143,7 @@ I2CDevicePtr I2CManager::getDevice(int aBusNumber, const char *aDeviceID)
 }
 
 
-// MARK: ===== I2CBus
+// MARK: - I2CBus
 
 
 I2CBus::I2CBus(int aBusNumber) :
@@ -392,7 +392,7 @@ void I2CBus::closeBus()
 
 
 
-// MARK: ===== I2CDevice
+// MARK: - I2CDevice
 
 
 I2CDevice::I2CDevice(uint8_t aDeviceAddress, I2CBus *aBusP, const char *aDeviceOptions)
@@ -417,7 +417,7 @@ bool I2CDevice::isKindOf(const char *aDeviceType)
 
 
 
-// MARK: ===== I2CBitPortDevice
+// MARK: - I2CBitPortDevice
 
 
 I2CBitPortDevice::I2CBitPortDevice(uint8_t aDeviceAddress, I2CBus *aBusP, const char *aDeviceOptions) :
@@ -491,7 +491,7 @@ void I2CBitPortDevice::setAsOutput(int aBitNo, bool aOutput, bool aInitialState,
 
 
 
-// MARK: ===== TCA9555
+// MARK: - TCA9555
 
 
 TCA9555::TCA9555(uint8_t aDeviceAddress, I2CBus *aBusP, const char *aDeviceOptions) :
@@ -547,7 +547,7 @@ void TCA9555::updateDirection(int aForBitNo)
 }
 
 
-// MARK: ===== PCF8574
+// MARK: - PCF8574
 
 
 PCF8574::PCF8574(uint8_t aDeviceAddress, I2CBus *aBusP, const char *aDeviceOptions) :
@@ -599,7 +599,7 @@ void PCF8574::updateDirection(int aForBitNo)
 
 
 
-// MARK: ===== MCP23017
+// MARK: - MCP23017
 
 
 MCP23017::MCP23017(uint8_t aDeviceAddress, I2CBus *aBusP, const char *aDeviceOptions) :
@@ -666,7 +666,7 @@ void MCP23017::updateDirection(int aForBitNo)
 
 
 
-// MARK: ===== I2Cpin
+// MARK: - I2Cpin
 
 
 /// create i2c based digital input or output pin
@@ -710,7 +710,7 @@ void I2CPin::setState(bool aState)
 
 
 
-// MARK: ===== I2CAnalogPortDevice
+// MARK: - I2CAnalogPortDevice
 
 
 I2CAnalogPortDevice::I2CAnalogPortDevice(uint8_t aDeviceAddress, I2CBus *aBusP, const char *aDeviceOptions) :
@@ -730,7 +730,7 @@ bool I2CAnalogPortDevice::isKindOf(const char *aDeviceType)
 
 
 
-// MARK: ===== PCA9685
+// MARK: - PCA9685
 
 
 PCA9685::PCA9685(uint8_t aDeviceAddress, I2CBus *aBusP, const char *aDeviceOptions) :
@@ -833,7 +833,7 @@ bool PCA9685::getPinRange(int aPinNo, double &aMin, double &aMax, double &aResol
 }
 
 
-// MARK: ===== LM75 (A,B,C...)
+// MARK: - LM75 (A,B,C...)
 
 LM75::LM75(uint8_t aDeviceAddress, I2CBus *aBusP, const char *aDeviceOptions) :
   inherited(aDeviceAddress, aBusP, aDeviceOptions),
@@ -881,7 +881,7 @@ bool LM75::getPinRange(int aPinNo, double &aMin, double &aMax, double &aResoluti
 
 
 
-// MARK: ===== AnalogI2Cpin
+// MARK: - AnalogI2Cpin
 
 
 AnalogI2CPin::AnalogI2CPin(int aBusNumber, const char *aDeviceId, int aPinNumber, bool aOutput, double aInitialValue) :

@@ -37,7 +37,7 @@
 using namespace p44;
 
 
-// MARK: ===== LEDs via modern kernel support
+// MARK: - LEDs via modern kernel support
 
 #define GPIO_LED_CLASS_PATH "/sys/class/leds"
 
@@ -88,7 +88,7 @@ void GpioLedPin::setState(bool aState)
 
 
 
-// MARK: ===== GPIO via modern kernel support
+// MARK: - GPIO via modern kernel support
 
 #define GPIO_SYS_CLASS_PATH "/sys/class/gpio"
 
@@ -382,7 +382,7 @@ void GpioPin::setState(bool aState)
 
 
 
-// MARK: ===== GPIO for NS9xxx (Digi ME 9210 LX)
+// MARK: - GPIO for NS9xxx (Digi ME 9210 LX)
 
 GpioNS9XXXPin::GpioNS9XXXPin(const char* aGpioName, bool aOutput, bool aInitialState) :
   gpioFD(-1),

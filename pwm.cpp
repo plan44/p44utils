@@ -35,7 +35,7 @@
 using namespace p44;
 
 
-// MARK: ===== PWM via modern kernel support
+// MARK: - PWM via modern kernel support
 
 #define PWM_SYS_CLASS_PATH "/sys/class/pwm"
 

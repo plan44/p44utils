@@ -49,7 +49,7 @@ extern "C" {
 
 using namespace p44;
 
-// MARK: ===== I2C Manager
+// MARK: - I2C Manager
 
 static SPIManager *sharedSPIManager = NULL;
 
@@ -131,7 +131,7 @@ SPIDevicePtr SPIManager::getDevice(int aBusNumber, const char *aDeviceID)
 }
 
 
-// MARK: ===== SPIBus
+// MARK: - SPIBus
 
 
 SPIBus::SPIBus(int aBusNumber) :
@@ -427,7 +427,7 @@ void SPIBus::closeBus()
 
 
 
-// MARK: ===== SPIDevice
+// MARK: - SPIDevice
 
 
 //  #define SPI_CPHA		0x01
@@ -482,7 +482,7 @@ bool SPIDevice::isKindOf(const char *aDeviceType)
 
 
 
-// MARK: ===== SPIBitPortDevice
+// MARK: - SPIBitPortDevice
 
 
 SPIBitPortDevice::SPIBitPortDevice(uint8_t aDeviceAddress, SPIBus *aBusP, const char *aDeviceOptions) :
@@ -557,7 +557,7 @@ void SPIBitPortDevice::setAsOutput(int aBitNo, bool aOutput, bool aInitialState,
 
 
 
-// MARK: ===== MCP23S17
+// MARK: - MCP23S17
 
 
 MCP23S17::MCP23S17(uint8_t aDeviceAddress, SPIBus *aBusP, const char *aDeviceOptions) :
@@ -624,7 +624,7 @@ void MCP23S17::updateDirection(int aForBitNo)
 
 
 
-// MARK: ===== SPIpin
+// MARK: - SPIpin
 
 
 /// create SPI based digital input or output pin
@@ -668,7 +668,7 @@ void SPIPin::setState(bool aState)
 
 
 
-// MARK: ===== SPIAnalogPortDevice
+// MARK: - SPIAnalogPortDevice
 
 
 SPIAnalogPortDevice::SPIAnalogPortDevice(uint8_t aDeviceAddress, SPIBus *aBusP, const char *aDeviceOptions) :
@@ -688,7 +688,7 @@ bool SPIAnalogPortDevice::isKindOf(const char *aDeviceType)
 
 
 
-// MARK: ===== MCP3008
+// MARK: - MCP3008
 
 MCP3008::MCP3008(uint8_t aDeviceAddress, SPIBus *aBusP, const char *aDeviceOptions) :
   inherited(aDeviceAddress, aBusP, aDeviceOptions)
@@ -744,7 +744,7 @@ bool MCP3008::getPinRange(int aPinNo, double &aMin, double &aMax, double &aResol
 }
 
 
-// MARK: ===== MCP3002
+// MARK: - MCP3002
 
 MCP3002::MCP3002(uint8_t aDeviceAddress, SPIBus *aBusP, const char *aDeviceOptions) :
   inherited(aDeviceAddress, aBusP, aDeviceOptions)
@@ -815,7 +815,7 @@ bool MCP3002::getPinRange(int aPinNo, double &aMin, double &aMax, double &aResol
 
 
 
-// MARK: ===== AnalogSPIpin
+// MARK: - AnalogSPIpin
 
 
 /// create spi based digital input or output pin

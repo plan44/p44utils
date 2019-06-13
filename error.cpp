@@ -28,7 +28,7 @@
 
 using namespace p44;
 
-// MARK: ===== error base class
+// MARK: - error base class
 
 Error::Error(ErrorCode aErrorCode)
 {
@@ -158,7 +158,7 @@ ErrorPtr Error::ok(ErrorPtr aError)
 }
 
 
-// MARK: ===== system error
+// MARK: - system error
 
 
 const char *SysError::domain()
@@ -206,7 +206,7 @@ ErrorPtr SysError::err(int aErrNo, const char *aContextMessage)
 }
 
 
-// MARK: ===== web error
+// MARK: - web error
 
 
 ErrorPtr WebError::webErr(uint16_t aHTTPError, const char *aFmt, ... )
@@ -222,7 +222,7 @@ ErrorPtr WebError::webErr(uint16_t aHTTPError, const char *aFmt, ... )
 }
 
 
-// MARK: ===== text error
+// MARK: - text error
 
 
 ErrorPtr TextError::err(const char *aFmt, ...)

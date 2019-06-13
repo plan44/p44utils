@@ -30,7 +30,7 @@
 
 #include "fdcomm.hpp"
 
-// MARK: ===== MainLoop default parameters
+// MARK: - MainLoop default parameters
 
 #define MAINLOOP_DEFAULT_MAXSLEEP Infinite // if really nothing to do, we can sleep
 #define MAINLOOP_DEFAULT_MAXRUN (100*MilliSecond) // noticeable reaction time
@@ -41,7 +41,7 @@
 using namespace p44;
 
 
-// MARK: ===== MLTicket
+// MARK: - MLTicket
 
 MLTicket::MLTicket() :
   ticketNo(0)
@@ -120,7 +120,7 @@ bool MLTicket::rescheduleAt(MLMicroSeconds aExecutionTime, MLMicroSeconds aToler
 
 
 
-// MARK: ===== MainLoop
+// MARK: - MainLoop
 
 // time reference in microseconds
 MLMicroSeconds MainLoop::now()
@@ -930,7 +930,7 @@ void MainLoop::statistics_reset()
 }
 
 
-// MARK: ===== execution in subthreads
+// MARK: - execution in subthreads
 
 
 ChildThreadWrapperPtr MainLoop::executeInThread(ThreadRoutine aThreadRoutine, ThreadSignalHandler aThreadSignalHandler)
@@ -939,7 +939,7 @@ ChildThreadWrapperPtr MainLoop::executeInThread(ThreadRoutine aThreadRoutine, Th
 }
 
 
-// MARK: ===== ChildThreadWrapper
+// MARK: - ChildThreadWrapper
 
 
 static void *thread_start_function(void *arg)

@@ -35,7 +35,7 @@ using namespace p44;
 #define DEFAULT_RECEIVE_TIMEOUT (3*Second) // [uS] = 3 seconds
 
 
-// MARK: ===== SerialOperation
+// MARK: - SerialOperation
 
 
 // set transmitter
@@ -52,7 +52,7 @@ ssize_t SerialOperation::acceptBytes(size_t aNumBytes, uint8_t *aBytes)
 }
 
 
-// MARK: ===== SerialOperationSend
+// MARK: - SerialOperationSend
 
 
 SerialOperationSend::SerialOperationSend() :
@@ -131,7 +131,7 @@ bool SerialOperationSend::initiate()
 
 
 
-// MARK: ===== SerialOperationReceive
+// MARK: - SerialOperationReceive
 
 
 SerialOperationReceive::SerialOperationReceive() :
@@ -200,7 +200,7 @@ void SerialOperationReceive::abortOperation(ErrorPtr aError)
 }
 
 
-// MARK: ===== SerialOperationQueue
+// MARK: - SerialOperationQueue
 
 
 // Link into mainloop
@@ -389,7 +389,7 @@ size_t SerialOperationQueue::acceptBytes(size_t aNumBytes, uint8_t *aBytes)
 };
 
 
-// MARK: ===== standard transmitter and receivers
+// MARK: - standard transmitter and receivers
 
 
 

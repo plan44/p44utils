@@ -31,7 +31,7 @@
 using namespace p44;
 
 
-// MARK: ===== private constructors / destructor
+// MARK: - private constructors / destructor
 
 
 // construct from raw json_object, passing ownership
@@ -58,7 +58,7 @@ JsonObject::~JsonObject()
 }
 
 
-// MARK: ===== read and write from files
+// MARK: - read and write from files
 
 
 #define MAX_JSON_BUF_SIZE 20000
@@ -132,7 +132,7 @@ ErrorPtr JsonObject::saveToFile(const char *aJsonFilePath)
 }
 
 
-// MARK: ===== type
+// MARK: - type
 
 
 json_type JsonObject::type() const
@@ -148,7 +148,7 @@ bool JsonObject::isType(json_type aRefType) const
 
 
 
-// MARK: ===== conversion to string
+// MARK: - conversion to string
 
 const char *JsonObject::json_c_str(int aFlags)
 {
@@ -162,7 +162,7 @@ string JsonObject::json_str(int aFlags)
 }
 
 
-// MARK: ===== add, get and delete by key
+// MARK: - add, get and delete by key
 
 void JsonObject::add(const char* aKey, JsonObjectPtr aObj)
 {
@@ -220,7 +220,7 @@ void JsonObject::del(const char *aKey)
 }
 
 
-// MARK: ===== arrays
+// MARK: - arrays
 
 
 int JsonObject::arrayLength() const
@@ -267,7 +267,7 @@ void JsonObject::arrayPut(int aAtIndex, JsonObjectPtr aObj)
 }
 
 
-// MARK: ===== object key/value iteration
+// MARK: - object key/value iteration
 
 
 bool JsonObject::resetKeyIteration()
@@ -321,7 +321,7 @@ JsonObjectPtr JsonObject::nextJsonObj()
 }
 
 
-// MARK: ===== factories and value getters
+// MARK: - factories and value getters
 
 // private wrapper factory from newly created json_object (ownership passed in)
 JsonObjectPtr JsonObject::newObj(struct json_object *aObjPassingOwnership)

@@ -203,7 +203,7 @@ bool DigitalIo::setInputChangedHandler(InputChangedCB aInputChangedCB, MLMicroSe
 }
 
 
-// MARK: ===== Button input
+// MARK: - Button input
 
 #define BUTTON_DEBOUNCE_TIME (80*MilliSecond)
 
@@ -271,7 +271,7 @@ void ButtonInput::repeatStateReport()
 
 
 
-// MARK: ===== Indicator output
+// MARK: - Indicator output
 
 IndicatorOutput::IndicatorOutput(const char* aPinSpec, bool aInitiallyOn) :
   DigitalIo(aPinSpec, true, aInitiallyOn),

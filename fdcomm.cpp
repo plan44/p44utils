@@ -336,7 +336,7 @@ void FdComm::makeNonBlocking(int aFd)
 }
 
 
-// MARK: ===== FdStringCollector
+// MARK: - FdStringCollector
 
 
 FdStringCollector::FdStringCollector(MainLoop &aMainLoop) :
