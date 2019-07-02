@@ -60,15 +60,12 @@ typedef struct _modbus_rtu {
     /* Save old termios settings */
     struct termios old_tios;
 #endif
-#if HAVE_DECL_TIOCSRS485
     int serial_mode;
-#endif
-#if HAVE_DECL_TIOCM_RTS
     int rts;
     int rts_delay;
     int onebyte_time;
-    void (*set_rts) (modbus_t *ctx, int on);
-#endif
+    void (*set_rts_ex) (modbus_t *ctx, int on, void *cbctx);
+    void *set_rts_cbctx;
     /* To handle many slaves on the same link */
     int confirmation_to_ignore;
 } modbus_rtu_t;

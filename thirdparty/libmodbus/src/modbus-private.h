@@ -56,13 +56,6 @@ typedef enum {
     MSG_CONFIRMATION
 } msg_type_t;
 
-/* This structure reduces the number of params in functions and so
- * optimizes the speed of execution (~ 37%). */
-typedef struct _sft {
-    int slave;
-    int function;
-    int t_id;
-} sft_t;
 
 typedef struct _modbus_backend {
     unsigned int backend_type;
