@@ -99,6 +99,9 @@ namespace p44 {
     /// @param aConnectionSpec "/dev[:commParams]" or "hostname[:port]"
     /// @param aDefaultPort default port number for TCP connection (irrelevant for direct serial device connection)
     /// @param aDefaultCommParams default communication parameters (in case spec does not contain :commParams)
+    /// @note commParams syntax is: [baud rate][,[bits][,[parity][,[stopbits][,[H]]]]]
+    ///   - parity can be O, E or N
+    ///   - H means hardware handshake enabled
     void setConnectionSpecification(const char* aConnectionSpec, uint16_t aDefaultPort, const char *aDefaultCommParams);
 
     /// @return true if local serial port, false otherwise (none or IP)
