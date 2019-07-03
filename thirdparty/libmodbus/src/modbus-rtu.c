@@ -19,7 +19,7 @@
 #include "modbus-rtu.h"
 #include "modbus-rtu-private.h"
 
-#if HAVE_DECL_TIOCSRS485 || HAVE_DECL_TIOCM_RTS
+#if HAVE_DECL_TIOCSRS485 || HAVE_DECL_TIOCM_RTS || defined(__APPLE__)
 #include <sys/ioctl.h>
 #endif
 
@@ -253,10 +253,13 @@ static int win32_ser_read(struct win32_ser *ws, uint8_t *p_msg,
 
 static void _modbus_rtu_ioctl_rts_ex(modbus_t *ctx, int on, void *cbctx)
 {
-#if HAVE_DECL_TIOCM_RTS
+#if HAVE_DECL_TIOCM_RTS || defined(TIOCM_RTS)
     int fd = ctx->s;
     int flags;
-
+#if defined(TIOCMBIS) && defined(TIOCMBIC)
+    flags = TIOCM_RTS;
+    ioctl(fd, on ? TIOCMBIS : TIOCMBIC, &flags);
+#else
     ioctl(fd, TIOCMGET, &flags);
     if (on) {
         flags |= TIOCM_RTS;
@@ -264,6 +267,7 @@ static void _modbus_rtu_ioctl_rts_ex(modbus_t *ctx, int on, void *cbctx)
         flags &= ~TIOCM_RTS;
     }
     ioctl(fd, TIOCMSET, &flags);
+#endif
 #endif
 }
 
@@ -934,6 +938,7 @@ int modbus_rtu_set_serial_mode(modbus_t *ctx, int mode)
         }
 #else
         if (mode == MODBUS_RTU_RS485) {
+#if !HAVE_DECL_TIOCM_RTS && !defined(TIOCM_RTS)
             if (ctx_rtu->set_rts_ex==_modbus_rtu_ioctl_rts_ex) {
                 if (ctx->debug) {
                     fprintf(stderr, "This function only works on this platform when using custom RTS handler (set_rts/set_rts_ex)\n");
@@ -941,6 +946,7 @@ int modbus_rtu_set_serial_mode(modbus_t *ctx, int mode)
                 errno = ENOTSUP;
                 return -1;
             }
+#endif
             ctx_rtu->serial_mode = MODBUS_RTU_RS485;
             return 0;
         } else if (mode == MODBUS_RTU_RS232) {
@@ -995,6 +1001,7 @@ int modbus_rtu_set_rts(modbus_t *ctx, int mode)
 
     if (ctx->backend->backend_type == _MODBUS_BACKEND_TYPE_RTU) {
         modbus_rtu_t *ctx_rtu = ctx->backend_data;
+#if !HAVE_DECL_TIOCM_RTS && !defined(TIOCM_RTS)
         if (ctx_rtu->set_rts_ex==_modbus_rtu_ioctl_rts_ex) {
             if (ctx->debug) {
                 fprintf(stderr, "This function isn't supported on your platform\n");
@@ -1002,6 +1009,7 @@ int modbus_rtu_set_rts(modbus_t *ctx, int mode)
             errno = ENOTSUP;
             return -1;
         }
+#endif
         if (mode == MODBUS_RTU_RTS_NONE || mode == MODBUS_RTU_RTS_UP ||
             mode == MODBUS_RTU_RTS_DOWN) {
             ctx_rtu->rts = mode;
