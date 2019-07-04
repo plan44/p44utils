@@ -671,7 +671,7 @@ size_t CmdLineApp::numOptions()
 
 const char *CmdLineApp::getArgument(size_t aArgumentIndex)
 {
-  if (aArgumentIndex>arguments.size()) return NULL;
+  if (aArgumentIndex>=arguments.size()) return NULL;
   return arguments[aArgumentIndex].c_str();
 }
 
