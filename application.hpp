@@ -138,6 +138,16 @@ namespace p44 {
   };
 
 
+  /// standard option texts, can be used as part of setCommandDescriptors() string
+  /// - logging options matching processStandardLogOptions()
+  #define CMDLINE_APPLICATION_LOGOPTIONS \
+    { 'l', "loglevel",        true,  "level;set max level of log message detail to show on stderr" }, \
+    { 0  , "deltatstamps",    false, "show timestamp delta between log lines" }
+  /// - standard options every CmdLineApp understands
+  #define CMDLINE_APPLICATION_STDOPTIONS \
+    { 'V', "version",         false, "show version" }, \
+    { 'h', "help",            false, "show this text" }
+
 
   /// Command line option descriptor
   /// @note a descriptor with both longOptionName==NULL and shortOptionChar=0 terminates a list of option descriptors
@@ -179,6 +189,8 @@ namespace p44 {
     /// set command description constants (option definitions and synopsis)
     /// @param aSynopsis short usage description, used in showUsage(). %1$s will be replaced by invocationName
     /// @param aOptionDescriptors pointer to array of descriptors for the options
+    /// @note you can use CMDLINE_APPLICATION_STDOPTIONS and CMDLINE_APPLICATION_LOGOPTIONS as part of the
+    ///   aOptionDescriptors list
     void setCommandDescriptors(const char *aSynopsis, const CmdLineOptionDescriptor *aOptionDescriptors);
 
     /// show usage, consisting of invocationName + synopsis + option descriptions
@@ -213,6 +225,14 @@ namespace p44 {
     /// @note parseCommandLine() must be called before using this method
     const char *getInvocationName();
 
+    /// parse standard logging options and configure logger
+    /// @param aForDaemon if set, logger is configured for daemon (rather than command line utility)
+    /// @note - daemon standard is LOG_NOTICE level by default, logging to stdout and logging LOG_ERR and higher also to stderr
+    ///   - utility standard is LOG_CRIT level by default, logging only to stderr
+    /// @note this is a convenience function to reduce boilerplate. You can also use
+    ///   CMDLINE_APPLICATION_LOGOPTIONS as part of the option descriptors passed to setCommandDescriptors().
+    void processStandardLogOptions(bool aForDaemon);
+
   public:
 
     /// get option
@@ -226,6 +246,7 @@ namespace p44 {
     /// @param aInteger will be set with the integer value of the option, if any
     /// @return true if option was specified and had a valid integer argument, false otherwise (aInteger will be untouched then)
     /// @note parseCommandLine() must be called before using this method
+    /// @note integer option can be specified as decimal (NO leading zeroes!!), hex ('0x' prefix) or octal ('0' prefix)
     bool getIntOption(const char *aOptionName, int &aInteger);
 
     /// @param aOptionName the name of the option (longOptionName if exists, shortOptionChar if no longOptionName exists)
@@ -251,6 +272,19 @@ namespace p44 {
     /// @return NULL if aArgumentIndex>=numArguments(), argument otherwise
     /// @note parseCommandLine() must be called before using this method
     const char *getArgument(size_t aArgumentIndex);
+
+    /// get non-option string argument
+    /// @param aArgumentIndex the index of the argument (0=first non-option argument, 1=second non-option argument, etc.)
+    /// @param aStr string to store the argument, if any
+    /// @return true if argument indicated by aArgumentIndex exists and is assigned to aStr, false otherwise
+    bool getStringArgument(size_t aArgumentIndex, string &aArg);
+
+    /// get non-option integer argument
+    /// @param aArgumentIndex the index of the argument (0=first non-option argument, 1=second non-option argument, etc.)
+    /// @param aInteger integer to store the argument, if any
+    /// @return true if argument indicated by aArgumentIndex exists, is valid and is assigned to aInteger , false otherwise
+    /// @note integer argument can be specified as decimal (NO leading zeroes!!), hex ('0x' prefix) or octal ('0' prefix)
+    bool getIntArgument(size_t aArgumentIndex, int &aInteger);
 
     /// get number of (non-processed) arguments
     /// @return number of arguments not already processed by processArgument() returning true

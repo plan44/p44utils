@@ -22,6 +22,7 @@
 
 #include "mainloop.hpp"
 
+#include <stdlib.h> // for strtol
 #include <sys/stat.h> // for umask
 #include <sys/signal.h>
 
@@ -180,7 +181,15 @@ void Application::terminateAppWith(ErrorPtr aError)
     mainLoop.terminate(EXIT_SUCCESS);
   }
   else {
-    LOG(LOG_ERR, "Terminating because of error: %s", aError->description().c_str());
+    if (!LOGENABLED(LOG_ERR)) {
+      // if even error logging is off, which is standard case for command line utilies (not daemons),
+      // just output the error message to stderr, with no logging adornments
+      const char *msg = aError->getErrorMessage();
+      if (msg && *msg) fprintf(stderr, "Error: %s\n", msg);
+    }
+    else {
+      LOG(LOG_ERR, "Terminating because of error: %s", aError->description().c_str());
+    }
     mainLoop.terminate(EXIT_FAILURE);
   }
 }
@@ -292,7 +301,6 @@ void Application::daemonize()
 
 
 // MARK: - CmdLineApp command line application
-
 
 /// constructor
 CmdLineApp::CmdLineApp(MainLoop &aMainLoop) :
@@ -634,7 +642,12 @@ bool CmdLineApp::getIntOption(const char *aOptionName, int &aInteger)
 {
   const char *opt = getOption(aOptionName);
   if (opt) {
-    return sscanf(opt, "%d", &aInteger)==1;
+    char *e = NULL;
+    long i = strtol(opt, &e, 0);
+    if (e && *e==0) {
+      aInteger = (int)i;
+      return true;
+    }
   }
   return false; // no such option
 }
@@ -676,10 +689,52 @@ const char *CmdLineApp::getArgument(size_t aArgumentIndex)
 }
 
 
+bool CmdLineApp::getStringArgument(size_t aArgumentIndex, string &aArg)
+{
+  const char *a = getArgument(aArgumentIndex);
+  if (!a) return false;
+  aArg = a;
+  return true;
+}
+
+
+bool CmdLineApp::getIntArgument(size_t aArgumentIndex, int &aInteger)
+{
+  const char *a = getArgument(aArgumentIndex);
+  if (!a || *a==0) return false;
+  char *e = NULL;
+  long i = strtol(a, &e, 0);
+  if (e && *e==0) {
+    aInteger = (int)i;
+    return true;
+  }
+  return false;
+}
+
+
+
+
+
 size_t CmdLineApp::numArguments()
 {
   return arguments.size();
 }
 
 
+void CmdLineApp::processStandardLogOptions(bool aForDaemon)
+{
+  if (aForDaemon) {
+    int loglevel = LOG_NOTICE;
+    getIntOption("loglevel", loglevel);
+    SETLOGLEVEL(loglevel);
+    SETERRLEVEL(LOG_ERR, true); // errors and more serious go to stderr, all log goes to stdout
+  }
+  else {
+    int loglevel = LOG_CRIT;
+    getIntOption("loglevel", loglevel);
+    SETLOGLEVEL(loglevel);
+    SETERRLEVEL(loglevel, false); // all log goes to stderr and stderr only
+  }
+  SETDELTATIME(getOption("deltatstamps"));
+}
 
