@@ -69,7 +69,9 @@ typedef struct _modbus_backend {
     int (*prepare_response_tid) (const uint8_t *req, int *req_length);
     int (*send_msg_pre) (uint8_t *req, int req_length);
     ssize_t (*send) (modbus_t *ctx, const uint8_t *req, int req_length);
-    int (*receive) (modbus_t *ctx, uint8_t *req);
+//    int (*receive) (modbus_t *ctx, uint8_t *req);
+    modbus_rcv_t* (*receive_new) (modbus_t *ctx, uint8_t *req);
+    void (*receive_finish) (modbus_rcv_t* rcvctx);
     ssize_t (*recv) (modbus_t *ctx, uint8_t *rsp, int rsp_length);
     int (*check_integrity) (modbus_t *ctx, uint8_t *msg,
                             const int msg_length);
@@ -93,11 +95,31 @@ struct _modbus {
     struct timeval byte_timeout;
     const modbus_backend_t *backend;
     void *backend_data;
+    const char* slave_id;
+};
+
+/* 3 steps are used to parse the query */
+typedef enum {
+    _STEP_FUNCTION,
+    _STEP_META,
+    _STEP_DATA
+} _step_t;
+
+/* the receiving context (for non-blocking receiving) */
+struct _modbus_rcv {
+    modbus_t *ctx;
+    uint8_t *msg;
+    msg_type_t msg_type;
+    int msg_length;
+    struct timeval tv;
+    _step_t step;
+    int length_to_read;
 };
 
 void _modbus_init_common(modbus_t *ctx);
 void _error_print(modbus_t *ctx, const char *context);
 int _modbus_receive_msg(modbus_t *ctx, uint8_t *msg, msg_type_t msg_type);
+modbus_rcv_t* _modbus_receive_new(modbus_t *a_ctx, uint8_t *a_msg, msg_type_t a_msg_type);
 
 #ifndef HAVE_STRLCPY
 size_t strlcpy(char *dest, const char *src, size_t dest_size);

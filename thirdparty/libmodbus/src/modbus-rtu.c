@@ -301,7 +301,65 @@ static ssize_t _modbus_rtu_send(modbus_t *ctx, const uint8_t *req, int req_lengt
 #endif
 }
 
-static int _modbus_rtu_receive(modbus_t *ctx, uint8_t *req)
+static modbus_rcv_t* _modbus_rtu_receive_new(modbus_t *ctx, uint8_t *req)
+{
+    int rc;
+    modbus_rtu_t* ctx_rtu = ctx->backend_data;
+    modbus_rcv_t* rcvctx = NULL;
+
+    if (ctx_rtu->confirmation_to_ignore) {
+        rcvctx = _modbus_receive_new(ctx, req, MSG_CONFIRMATION);
+    } else {
+        rcvctx = _modbus_receive_new(ctx, req, MSG_INDICATION);
+    }
+    return rcvctx;
+}
+
+
+static void _modbus_rtu_receive_finish(modbus_rcv_t* rcvctx)
+{
+    int rc;
+    modbus_rtu_t *ctx_rtu = rcvctx->ctx->backend_data;
+
+    if (ctx_rtu->confirmation_to_ignore) {
+        /* Ignore errors and reset the flag */
+        ctx_rtu->confirmation_to_ignore = FALSE;
+        rc = 0;
+        if (rcvctx->ctx->debug) {
+            printf("Confirmation to ignore\n");
+        }
+    } else {
+        /* The next expected message is a confirmation to ignore */
+        ctx_rtu->confirmation_to_ignore = TRUE;
+    }
+}
+
+
+//static int _modbus_rtu_receive(modbus_t *ctx, uint8_t *req)
+//{
+//    int rc;
+//    modbus_rtu_t *ctx_rtu = ctx->backend_data;
+//
+//    if (ctx_rtu->confirmation_to_ignore) {
+//        _modbus_receive_msg(ctx, req, MSG_CONFIRMATION);
+//        /* Ignore errors and reset the flag */
+//        ctx_rtu->confirmation_to_ignore = FALSE;
+//        rc = 0;
+//        if (ctx->debug) {
+//            printf("Confirmation to ignore\n");
+//        }
+//    } else {
+//        rc = _modbus_receive_msg(ctx, req, MSG_INDICATION);
+//        if (rc == 0) {
+//            /* The next expected message is a confirmation to ignore */
+//            ctx_rtu->confirmation_to_ignore = TRUE;
+//        }
+//    }
+//    return rc;
+//}
+
+
+static int _modbus_rtu_receive_init(modbus_t *ctx, uint8_t *req)
 {
     int rc;
     modbus_rtu_t *ctx_rtu = ctx->backend_data;
@@ -323,6 +381,9 @@ static int _modbus_rtu_receive(modbus_t *ctx, uint8_t *req)
     }
     return rc;
 }
+
+
+
 
 static ssize_t _modbus_rtu_recv(modbus_t *ctx, uint8_t *rsp, int rsp_length)
 {
@@ -1182,7 +1243,8 @@ const modbus_backend_t _modbus_rtu_backend = {
     _modbus_rtu_prepare_response_tid,
     _modbus_rtu_send_msg_pre,
     _modbus_rtu_send,
-    _modbus_rtu_receive,
+    _modbus_rtu_receive_new,
+    _modbus_rtu_receive_finish,
     _modbus_rtu_recv,
     _modbus_rtu_check_integrity,
     _modbus_rtu_pre_check_confirmation,

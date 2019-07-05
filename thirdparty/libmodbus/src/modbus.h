@@ -153,6 +153,7 @@ extern const unsigned int libmodbus_version_minor;
 extern const unsigned int libmodbus_version_micro;
 
 typedef struct _modbus modbus_t;
+typedef struct _modbus_rcv modbus_rcv_t;
 
 /* This structure reduces the number of params in functions and so
  * optimizes the speed of execution (~ 37%). */
@@ -177,6 +178,28 @@ typedef struct {
     uint16_t *tab_registers;
 } modbus_mapping_t;
 
+typedef enum {
+    read_input_bit,
+    read_bit,
+    write_bit,
+    read_input_reg,
+    read_reg,
+    write_reg
+} modbus_data_access_t;
+
+typedef union {
+    uint8_t *bits;
+    uint16_t *regs;
+} modbus_data_t;
+
+typedef int (*modbus_access_handler_t)(modbus_t* ctx, modbus_mapping_t* mappings, modbus_data_access_t access, int addr, int cnt, modbus_data_t dataP, void *user_ctx);
+
+typedef struct {
+  modbus_mapping_t* mappings;
+  modbus_access_handler_t access_handler;
+  void* access_handler_user_ctx;
+} modbus_mapping_ex_t;
+
 typedef int (*modbus_function_handler_t)(modbus_t* ctx, sft_t *sft, int offset, const uint8_t *req, int req_length, uint8_t *rsp, void *user_ctx);
 
 typedef enum
@@ -187,6 +210,7 @@ typedef enum
 } modbus_error_recovery_mode;
 
 MODBUS_API int modbus_set_slave(modbus_t* ctx, int slave);
+MODBUS_API int modbus_set_slave_id(modbus_t* ctx, const char* idtext);
 MODBUS_API int modbus_set_error_recovery(modbus_t *ctx, modbus_error_recovery_mode error_recovery);
 MODBUS_API int modbus_set_socket(modbus_t *ctx, int s);
 MODBUS_API int modbus_get_socket(modbus_t *ctx);
@@ -235,7 +259,15 @@ MODBUS_API void modbus_mapping_free(modbus_mapping_t *mb_mapping);
 
 MODBUS_API int modbus_send_raw_request(modbus_t *ctx, uint8_t *raw_req, int raw_req_length);
 
+
+MODBUS_API int modbus_get_receive_fd(modbus_t *ctx);
+MODBUS_API modbus_rcv_t* modbus_receive_new(modbus_t *ctx, uint8_t *req);
+MODBUS_API void modbus_receive_free(modbus_rcv_t *rcvctx);
+MODBUS_API int modbus_receive_step(modbus_rcv_t *rcvctx);
+MODBUS_API struct timeval* modbus_get_select_timeout(modbus_rcv_t *rcvctx);
+
 MODBUS_API int modbus_receive(modbus_t *ctx, uint8_t *req);
+
 
 MODBUS_API int modbus_receive_confirmation(modbus_t *ctx, uint8_t *rsp);
 
@@ -243,10 +275,11 @@ MODBUS_API int modbus_process_request(modbus_t *ctx,
                                       const uint8_t *req, int req_length,
                                       uint8_t *rsp,
                                       modbus_function_handler_t func_handler, void *func_handler_context);
-MODBUS_API int reg_mapping_handler(modbus_t* ctx,
+MODBUS_API int modbus_reg_mapping_handler(modbus_t* ctx,
                                    sft_t *sft, int offset,
                                    const uint8_t *req, int req_length,
-                                   uint8_t *rsp, void *user_ctx);
+                                   uint8_t *rsp, modbus_mapping_ex_t* mapping_ex);
+MODBUS_API int modbus_send_msg(modbus_t *ctx, uint8_t *msg, int msg_length);
 MODBUS_API int modbus_reply(modbus_t *ctx, const uint8_t *req,
                             int req_length, modbus_mapping_t *mb_mapping);
 MODBUS_API int modbus_reply_exception(modbus_t *ctx, const uint8_t *req,

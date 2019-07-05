@@ -34,13 +34,6 @@ const unsigned int libmodbus_version_micro = LIBMODBUS_VERSION_MICRO;
 /* Max between RTU and TCP max adu length (so TCP) */
 #define MAX_MESSAGE_LENGTH 260
 
-/* 3 steps are used to parse the query */
-typedef enum {
-    _STEP_FUNCTION,
-    _STEP_META,
-    _STEP_DATA
-} _step_t;
-
 const char *modbus_strerror(int errnum) {
     switch (errnum) {
     case EMBXILFUN:
@@ -163,7 +156,7 @@ static unsigned int compute_response_length_from_request(modbus_t *ctx, uint8_t 
 }
 
 /* Sends a request/response */
-static int send_msg(modbus_t *ctx, uint8_t *msg, int msg_length)
+int modbus_send_msg(modbus_t *ctx, uint8_t *msg, int msg_length)
 {
     int rc;
     int i;
@@ -239,7 +232,7 @@ int modbus_send_raw_request(modbus_t *ctx, uint8_t *raw_req, int raw_req_length)
         req_length += raw_req_length - 2;
     }
 
-    return send_msg(ctx, req, req_length);
+    return modbus_send_msg(ctx, req, req_length);
 }
 
 /*
@@ -324,6 +317,217 @@ static int compute_data_length_after_meta(modbus_t *ctx, uint8_t *msg,
 }
 
 
+modbus_rcv_t* _modbus_receive_new(modbus_t *a_ctx, uint8_t *a_msg, msg_type_t a_msg_type)
+{
+    if (!a_ctx) return NULL;
+
+    modbus_rcv_t* rcvctx = (modbus_rcv_t *)malloc(sizeof(modbus_rcv_t));
+    if (!rcvctx) return NULL;
+
+    rcvctx->ctx = a_ctx;
+    rcvctx->msg = a_msg;
+    rcvctx->msg_type = a_msg_type;
+    rcvctx->msg_length = 0;
+
+    if (rcvctx->ctx->debug) {
+        if (rcvctx->msg_type == MSG_INDICATION) {
+            printf("Waiting for a indication...\n");
+        } else {
+            printf("Waiting for a confirmation...\n");
+        }
+    }
+
+    /* We need to analyse the message step by step.  At the first step, we want
+     * to reach the function code because all packets contain this
+     * information. */
+    rcvctx->step = _STEP_FUNCTION;
+    rcvctx->length_to_read = rcvctx->ctx->backend->header_length + 1;
+
+    if (rcvctx->msg_type != MSG_INDICATION) {
+        rcvctx->tv.tv_sec = rcvctx->ctx->response_timeout.tv_sec;
+        rcvctx->tv.tv_usec = rcvctx->ctx->response_timeout.tv_usec;
+    }
+    return rcvctx;
+}
+
+
+/* an external select must await this timeout */
+struct timeval* modbus_get_select_timeout(modbus_rcv_t *rcvctx)
+{
+    if (rcvctx->msg_type == MSG_INDICATION) {
+        /* Wait for a message, we don't know when the message will be received */
+        return NULL;
+    } else {
+        return &rcvctx->tv;
+    }
+}
+
+
+/* when an external select times out, it must await this timeout and then flush */
+struct timeval* modbus_get_recovery_timeout(modbus_rcv_t *rcvctx)
+{
+  if (rcvctx->ctx->error_recovery & MODBUS_ERROR_RECOVERY_LINK) {
+    return &(rcvctx->ctx->response_timeout);
+  }
+  else {
+    return NULL; /* no recovery, no timeout */
+  }
+}
+
+
+
+
+/* an external select must wait for events on this file descriptor */
+int modbus_get_receive_fd(modbus_t *ctx)
+{
+    return ctx->s;
+}
+
+
+
+/* returns rc and errno of backend's select, handles error recovery if any
+ */
+static int _modbus_receive_select(modbus_rcv_t *rcvctx)
+{
+    fd_set rset;
+    int rc;
+
+    /* Add a file descriptor to the set */
+    FD_ZERO(&rset);
+    FD_SET(modbus_get_receive_fd(rcvctx->ctx), &rset);
+
+    rc = rcvctx->ctx->backend->select(rcvctx->ctx, &rset, modbus_get_select_timeout(rcvctx), rcvctx->length_to_read);
+    if (rc == -1) {
+        int saved_errno = errno;
+        _error_print(rcvctx->ctx, "select");
+        if (rcvctx->ctx->error_recovery & MODBUS_ERROR_RECOVERY_LINK) {
+            if (errno == ETIMEDOUT) {
+                _sleep_response_timeout(rcvctx->ctx);
+                modbus_flush(rcvctx->ctx);
+            } else if (errno == EBADF) {
+                modbus_close(rcvctx->ctx);
+                modbus_connect(rcvctx->ctx);
+            }
+            errno = saved_errno;
+        }
+    }
+    return rc;
+}
+
+
+
+/* must only be called when select (or epoll) indicates that we have data
+ * returns:
+ * - >=0 length of request received. Can be 0 when received request does not apply to us (e.g. wrong slaveID)
+ * - -1 and errno==EAGAIN: must _modbus_receive_select (or functionally equivalent external routine) and then call again
+ * - -1 and other errno: failed receiving
+ */
+int modbus_receive_step(modbus_rcv_t *rcvctx)
+{
+    int rc = 0;
+
+    if (!rcvctx) return -1;
+
+    if (rcvctx->length_to_read != 0) {
+
+        rc = (int)rcvctx->ctx->backend->recv(rcvctx->ctx, rcvctx->msg + rcvctx->msg_length, rcvctx->length_to_read);
+        if (rc == 0) {
+            errno = ECONNRESET;
+            rc = -1;
+        }
+
+        if (rc == -1) {
+            int saved_errno = errno;
+            _error_print(rcvctx->ctx, "read");
+            if ((rcvctx->ctx->error_recovery & MODBUS_ERROR_RECOVERY_LINK) &&
+                (saved_errno == ECONNRESET || saved_errno == ECONNREFUSED ||
+                 saved_errno == EBADF))
+            {
+                modbus_close(rcvctx->ctx);
+                modbus_connect(rcvctx->ctx);
+            }
+            errno = saved_errno;
+            return -1;
+        }
+
+        /* Display the hex code of each character received */
+        if (rcvctx->ctx->debug) {
+            int i;
+            for (i=0; i < rc; i++)
+                printf("<%.2X>", rcvctx->msg[rcvctx->msg_length + i]);
+        }
+
+        /* Sums bytes received */
+        rcvctx->msg_length += rc;
+        /* Computes remaining bytes */
+        rcvctx->length_to_read -= rc;
+
+        if (rcvctx->length_to_read == 0) {
+            switch (rcvctx->step) {
+                case _STEP_FUNCTION:
+                    /* Function code position */
+                    rcvctx->length_to_read = compute_meta_length_after_function(
+                        rcvctx->msg[rcvctx->ctx->backend->header_length],
+                        rcvctx->msg_type
+                    );
+                    if (rcvctx->length_to_read != 0) {
+                        rcvctx->step = _STEP_META;
+                        break;
+                    } /* else switches straight to the next step */
+                case _STEP_META:
+                    rcvctx->length_to_read = compute_data_length_after_meta(rcvctx->ctx, rcvctx->msg, rcvctx->msg_type);
+                    if ((rcvctx->msg_length + rcvctx->length_to_read) > (int)rcvctx->ctx->backend->max_adu_length) {
+                        _error_print(rcvctx->ctx, "too many data");
+                        errno = EMBBADDATA;
+                        return -1;
+                    }
+                    rcvctx->step = _STEP_DATA;
+                    break;
+                default:
+                    break;
+            }
+        }
+
+        if (rcvctx->length_to_read > 0) {
+            /* not yet complete */
+            errno = EAGAIN;
+            rc = -1;
+        }
+
+        if (rcvctx->length_to_read > 0 &&
+            (rcvctx->ctx->byte_timeout.tv_sec > 0 || rcvctx->ctx->byte_timeout.tv_usec > 0)) {
+            /* If there is no character in the buffer, the allowed timeout
+             interval between two consecutive bytes is defined by
+             byte_timeout */
+            rcvctx->tv.tv_sec = rcvctx->ctx->byte_timeout.tv_sec;
+            rcvctx->tv.tv_usec = rcvctx->ctx->byte_timeout.tv_usec;
+        }
+        /* else timeout isn't set again, the full response must be read before
+         expiration of response timeout (for CONFIRMATION only) */
+    }
+
+    if (rc>=0) {
+        if (rcvctx->ctx->debug)
+            printf("\n");
+        rc = rcvctx->ctx->backend->check_integrity(rcvctx->ctx, rcvctx->msg, rcvctx->msg_length);
+    }
+
+    return rc;
+}
+
+static int _modbus_receive_dosteps(modbus_rcv_t* rcvctx)
+{
+    int rc;
+    do {
+        rc = _modbus_receive_select(rcvctx);
+        if (rc == -1) return -1;
+        rc = modbus_receive_step(rcvctx);
+    } while (rc==-1 && errno==EAGAIN);
+    modbus_receive_free(rcvctx);
+    return rc;
+}
+
+
 /* Waits a response from a modbus server or a request from a modbus client.
    This function blocks if there is no replies (3 timeouts).
 
@@ -336,6 +540,21 @@ static int compute_data_length_after_meta(modbus_t *ctx, uint8_t *msg,
    - ETIMEDOUT
    - read() or recv() error codes
 */
+
+#define USE_OLD_RCV_CODE 0
+
+#if !USE_OLD_RCV_CODE
+
+int _modbus_receive_msg(modbus_t *ctx, uint8_t *msg, msg_type_t msg_type)
+{
+    int rc;
+
+    modbus_rcv_t* rcvctx = _modbus_receive_new(ctx, msg, msg_type);
+    if (!rcvctx) return -1;
+    return _modbus_receive_dosteps(rcvctx);
+}
+
+#else
 
 int _modbus_receive_msg(modbus_t *ctx, uint8_t *msg, msg_type_t msg_type)
 {
@@ -471,15 +690,43 @@ int _modbus_receive_msg(modbus_t *ctx, uint8_t *msg, msg_type_t msg_type)
     return ctx->backend->check_integrity(ctx, msg, msg_length);
 }
 
-/* Receive the request from a modbus master */
-int modbus_receive(modbus_t *ctx, uint8_t *req)
+#endif // USE_OLD_RCV_CODE
+
+
+/* Prepare receiving the request from a modbus master */
+modbus_rcv_t* modbus_receive_new(modbus_t *ctx, uint8_t *req)
 {
     if (ctx == NULL) {
         errno = EINVAL;
+        return NULL;
+    }
+    return ctx->backend->receive_new(ctx, req);
+}
+
+
+/* Finish receiving the request from a modbus master */
+void modbus_receive_free(modbus_rcv_t *rcvctx)
+{
+    if (rcvctx) {
+        rcvctx->ctx->backend->receive_finish(rcvctx);
+        free(rcvctx);
+    }
+}
+
+
+/* Receive the request from a modbus master */
+int modbus_receive(modbus_t *ctx, uint8_t *req)
+{
+    int rc;
+
+    modbus_rcv_t* rcvctx = modbus_receive_new(ctx, req);
+    if (!rcvctx) {
+        errno = EINVAL;
         return -1;
     }
-
-    return ctx->backend->receive(ctx, req);
+    rc =  _modbus_receive_dosteps(rcvctx);
+    modbus_receive_free(rcvctx);
+    return rc;
 }
 
 /* Receives the confirmation.
@@ -499,6 +746,7 @@ int modbus_receive_confirmation(modbus_t *ctx, uint8_t *rsp)
 
     return _modbus_receive_msg(ctx, rsp, MSG_CONFIRMATION);
 }
+
 
 static int check_confirmation(modbus_t *ctx, uint8_t *req,
                               uint8_t *rsp, int rsp_length)
@@ -720,15 +968,20 @@ int modbus_process_request(modbus_t *ctx,
 }
 
 
-
-int reg_mapping_handler(modbus_t* ctx, sft_t *sft, int offset, const uint8_t *req, int req_length, uint8_t *rsp, void *user_ctx)
+/* standard register mapping handler, with optional callback for access notification
+ * user_ctx must be a modbus_mapping_ex_t
+ */
+static int reg_mapping_handler_ex(modbus_t* ctx, sft_t *sft, int offset, const uint8_t *req, int req_length, uint8_t *rsp, void *user_ctx)
 {
     uint16_t address;
     int rsp_length = 0;
     int function = sft->function;
 
-    modbus_mapping_t* mb_mapping = (modbus_mapping_t*)user_ctx;
+    modbus_mapping_ex_t* mb_mapping_ex = (modbus_mapping_ex_t*)user_ctx;
+    if (mb_mapping_ex==NULL) return -1;
+    modbus_mapping_t *mb_mapping = mb_mapping_ex->mappings;
     if (mb_mapping==NULL) return -1;
+    modbus_access_handler_t accesshandler = mb_mapping_ex->access_handler;
 
     /* note: payload[0]==function code, altough already contained in sft */
     address = (req[offset + 1] << 8) + req[offset + 2];
@@ -758,6 +1011,9 @@ int reg_mapping_handler(modbus_t* ctx, sft_t *sft, int offset, const uint8_t *re
                 "Illegal data address 0x%0X in %s\n",
                 mapping_address < 0 ? address : address + nb, name);
         } else {
+            if (accesshandler) {
+                accesshandler(ctx, mb_mapping, is_input ? read_input_bit : read_bit, mapping_address, nb, (modbus_data_t)tab_bits, mb_mapping_ex->access_handler_user_ctx);
+            }
             rsp_length = ctx->backend->build_response_basis(sft, rsp);
             rsp[rsp_length++] = (nb / 8) + ((nb % 8) ? 1 : 0);
             rsp_length = response_io_status(tab_bits, mapping_address, nb,
@@ -789,7 +1045,9 @@ int reg_mapping_handler(modbus_t* ctx, sft_t *sft, int offset, const uint8_t *re
                 mapping_address < 0 ? address : address + nb, name);
         } else {
             int i;
-
+            if (accesshandler) {
+                accesshandler(ctx, mb_mapping, is_input ? read_input_reg : read_reg, mapping_address, nb, (modbus_data_t)tab_registers, mb_mapping_ex->access_handler_user_ctx);
+            }
             rsp_length = ctx->backend->build_response_basis(sft, rsp);
             rsp[rsp_length++] = nb << 1;
             for (i = mapping_address; i < mapping_address + nb; i++) {
@@ -811,6 +1069,9 @@ int reg_mapping_handler(modbus_t* ctx, sft_t *sft, int offset, const uint8_t *re
             int data = (req[offset + 3] << 8) + req[offset + 4];
 
             if (data == 0xFF00 || data == 0x0) {
+                if (accesshandler) {
+                    accesshandler(ctx, mb_mapping, write_bit, mapping_address, 1, (modbus_data_t)mb_mapping->tab_bits, mb_mapping_ex->access_handler_user_ctx);
+                }
                 mb_mapping->tab_bits[mapping_address] = data ? ON : OFF;
                 memcpy(rsp, req, req_length);
                 rsp_length = req_length;
@@ -836,6 +1097,9 @@ int reg_mapping_handler(modbus_t* ctx, sft_t *sft, int offset, const uint8_t *re
         } else {
             int data = (req[offset + 3] << 8) + req[offset + 4];
 
+            if (accesshandler) {
+                accesshandler(ctx, mb_mapping, write_reg, mapping_address, 1, (modbus_data_t)mb_mapping->tab_registers, mb_mapping_ex->access_handler_user_ctx);
+            }
             mb_mapping->tab_registers[mapping_address] = data;
             memcpy(rsp, req, req_length);
             rsp_length = req_length;
@@ -865,7 +1129,9 @@ int reg_mapping_handler(modbus_t* ctx, sft_t *sft, int offset, const uint8_t *re
             /* 6 = byte count */
             modbus_set_bits_from_bytes(mb_mapping->tab_bits, mapping_address, nb,
                                        &req[offset + 6]);
-
+            if (accesshandler) {
+                accesshandler(ctx, mb_mapping, write_bit, mapping_address, nb, (modbus_data_t)mb_mapping->tab_bits, mb_mapping_ex->access_handler_user_ctx);
+            }
             rsp_length = ctx->backend->build_response_basis(sft, rsp);
             /* 4 to copy the bit address (2) and the quantity of bits */
             memcpy(rsp + rsp_length, req + rsp_length, 4);
@@ -896,6 +1162,9 @@ int reg_mapping_handler(modbus_t* ctx, sft_t *sft, int offset, const uint8_t *re
                     (req[offset + j] << 8) + req[offset + j + 1];
             }
 
+            if (accesshandler) {
+                accesshandler(ctx, mb_mapping, write_reg, mapping_address, nb, (modbus_data_t)mb_mapping->tab_registers, mb_mapping_ex->access_handler_user_ctx);
+            }
             rsp_length = ctx->backend->build_response_basis(sft, rsp);
             /* 4 to copy the address (2) and the no. of registers */
             memcpy(rsp + rsp_length, req + rsp_length, 4);
@@ -904,7 +1173,7 @@ int reg_mapping_handler(modbus_t* ctx, sft_t *sft, int offset, const uint8_t *re
     }
         break;
     case MODBUS_FC_REPORT_SLAVE_ID: {
-        int str_len;
+        size_t str_len;
         int byte_count_pos;
 
         rsp_length = ctx->backend->build_response_basis(sft, rsp);
@@ -914,8 +1183,8 @@ int reg_mapping_handler(modbus_t* ctx, sft_t *sft, int offset, const uint8_t *re
         /* Run indicator status to ON */
         rsp[rsp_length++] = 0xFF;
         /* LMB + length of LIBMODBUS_VERSION_STRING */
-        str_len = 3 + strlen(LIBMODBUS_VERSION_STRING);
-        memcpy(rsp + rsp_length, "LMB" LIBMODBUS_VERSION_STRING, str_len);
+        str_len = strlen(ctx->slave_id);
+        memcpy(rsp + rsp_length, ctx->slave_id, str_len);
         rsp_length += str_len;
         rsp[byte_count_pos] = rsp_length - byte_count_pos - 1;
     }
@@ -942,6 +1211,10 @@ int reg_mapping_handler(modbus_t* ctx, sft_t *sft, int offset, const uint8_t *re
 
             data = (data & and) | (or & (~and));
             mb_mapping->tab_registers[mapping_address] = data;
+
+            if (accesshandler) {
+                accesshandler(ctx, mb_mapping, write_reg, mapping_address, 1, (modbus_data_t)mb_mapping->tab_registers, mb_mapping_ex->access_handler_user_ctx);
+            }
             memcpy(rsp, req, req_length);
             rsp_length = req_length;
         }
@@ -983,7 +1256,12 @@ int reg_mapping_handler(modbus_t* ctx, sft_t *sft, int offset, const uint8_t *re
                 mb_mapping->tab_registers[i] =
                     (req[offset + j] << 8) + req[offset + j + 1];
             }
-
+            if (accesshandler) {
+                /* report write first */
+                accesshandler(ctx, mb_mapping, write_reg, mapping_address_write, nb_write, (modbus_data_t)mb_mapping->tab_registers, mb_mapping_ex->access_handler_user_ctx);
+                /* then announce reading */
+                accesshandler(ctx, mb_mapping, read_reg, mapping_address, nb, (modbus_data_t)mb_mapping->tab_registers, mb_mapping_ex->access_handler_user_ctx);
+            }
             /* and read the data for the response */
             for (i = mapping_address; i < mapping_address + nb; i++) {
                 rsp[rsp_length++] = mb_mapping->tab_registers[i] >> 8;
@@ -1005,6 +1283,13 @@ int reg_mapping_handler(modbus_t* ctx, sft_t *sft, int offset, const uint8_t *re
 }
 
 
+/* public API for using standard register mapping as part of custom request handling
+ */
+int modbus_reg_mapping_handler(modbus_t* ctx, sft_t *sft, int offset, const uint8_t *req, int req_length, uint8_t *rsp, modbus_mapping_ex_t* mapping_ex)
+{
+    return reg_mapping_handler_ex(ctx, sft, offset, req, req_length, rsp, mapping_ex);
+}
+
 
 
 /* Send a response to the received request.
@@ -1020,10 +1305,14 @@ int modbus_reply(modbus_t *ctx, const uint8_t *req,
     int rsp_length = 0;
 
     /* standard processing via mapping to registers */
-    rsp_length = modbus_process_request(ctx, req, req_length, rsp, reg_mapping_handler, mb_mapping);
+    modbus_mapping_ex_t map;
+    map.mappings = mb_mapping;
+    map.access_handler = NULL;
+    map.access_handler_user_ctx = NULL;
+    rsp_length = modbus_process_request(ctx, req, req_length, rsp, reg_mapping_handler_ex, &map);
 
     /* Send response, if any */
-    return (rsp_length > 0) ? send_msg(ctx, rsp, rsp_length) : 0;
+    return (rsp_length > 0) ? modbus_send_msg(ctx, rsp, rsp_length) : 0;
 }
 
 
@@ -1056,7 +1345,7 @@ int modbus_reply_exception(modbus_t *ctx, const uint8_t *req,
     /* Positive exception code */
     if (exception_code < MODBUS_EXCEPTION_MAX) {
         rsp[rsp_length++] = exception_code;
-        return send_msg(ctx, rsp, rsp_length);
+        return modbus_send_msg(ctx, rsp, rsp_length);
     } else {
         errno = EINVAL;
         return -1;
@@ -1075,7 +1364,7 @@ static int read_io_status(modbus_t *ctx, int function,
 
     req_length = ctx->backend->build_request_basis(ctx, function, addr, nb, req);
 
-    rc = send_msg(ctx, req, req_length);
+    rc = modbus_send_msg(ctx, req, req_length);
     if (rc > 0) {
         int i, temp, bit;
         int pos = 0;
@@ -1186,7 +1475,7 @@ static int read_registers(modbus_t *ctx, int function, int addr, int nb,
 
     req_length = ctx->backend->build_request_basis(ctx, function, addr, nb, req);
 
-    rc = send_msg(ctx, req, req_length);
+    rc = modbus_send_msg(ctx, req, req_length);
     if (rc > 0) {
         int offset;
         int i;
@@ -1277,7 +1566,7 @@ static int write_single(modbus_t *ctx, int function, int addr, int value)
 
     req_length = ctx->backend->build_request_basis(ctx, function, addr, value, req);
 
-    rc = send_msg(ctx, req, req_length);
+    rc = modbus_send_msg(ctx, req, req_length);
     if (rc > 0) {
         /* Used by write_bit and write_register */
         uint8_t rsp[MAX_MESSAGE_LENGTH];
@@ -1363,7 +1652,7 @@ int modbus_write_bits(modbus_t *ctx, int addr, int nb, const uint8_t *src)
         req_length++;
     }
 
-    rc = send_msg(ctx, req, req_length);
+    rc = modbus_send_msg(ctx, req, req_length);
     if (rc > 0) {
         uint8_t rsp[MAX_MESSAGE_LENGTH];
 
@@ -1413,7 +1702,7 @@ int modbus_write_registers(modbus_t *ctx, int addr, int nb, const uint16_t *src)
         req[req_length++] = src[i] & 0x00FF;
     }
 
-    rc = send_msg(ctx, req, req_length);
+    rc = modbus_send_msg(ctx, req, req_length);
     if (rc > 0) {
         uint8_t rsp[MAX_MESSAGE_LENGTH];
 
@@ -1448,7 +1737,7 @@ int modbus_mask_write_register(modbus_t *ctx, int addr, uint16_t and_mask, uint1
     req[req_length++] = or_mask >> 8;
     req[req_length++] = or_mask & 0x00ff;
 
-    rc = send_msg(ctx, req, req_length);
+    rc = modbus_send_msg(ctx, req, req_length);
     if (rc > 0) {
         /* Used by write_bit and write_register */
         uint8_t rsp[MAX_MESSAGE_LENGTH];
@@ -1519,7 +1808,7 @@ int modbus_write_and_read_registers(modbus_t *ctx,
         req[req_length++] = src[i] & 0x00FF;
     }
 
-    rc = send_msg(ctx, req, req_length);
+    rc = modbus_send_msg(ctx, req, req_length);
     if (rc > 0) {
         int offset;
 
@@ -1561,7 +1850,7 @@ int modbus_report_slave_id(modbus_t *ctx, int max_dest, uint8_t *dest)
     /* HACKISH, addr and count are not used */
     req_length -= 4;
 
-    rc = send_msg(ctx, req, req_length);
+    rc = modbus_send_msg(ctx, req, req_length);
     if (rc > 0) {
         int i;
         int offset;
@@ -1592,6 +1881,7 @@ void _modbus_init_common(modbus_t *ctx)
     /* Slave and socket are initialized to -1 */
     ctx->slave = -1;
     ctx->s = -1;
+    ctx->slave_id = "LMB" LIBMODBUS_VERSION_STRING; // default ID
 
     ctx->debug = FALSE;
     ctx->error_recovery = MODBUS_ERROR_RECOVERY_NONE;
@@ -1613,6 +1903,18 @@ int modbus_set_slave(modbus_t *ctx, int slave)
 
     return ctx->backend->set_slave(ctx, slave);
 }
+
+int modbus_set_slave_id(modbus_t* ctx, const char* idtext)
+{
+    if (ctx == NULL) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    ctx->slave_id = idtext;
+    return 0;
+}
+
 
 int modbus_set_error_recovery(modbus_t *ctx,
                               modbus_error_recovery_mode error_recovery)

@@ -169,9 +169,13 @@ static ssize_t _modbus_tcp_send(modbus_t *ctx, const uint8_t *req, int req_lengt
     return send(ctx->s, (const char *)req, req_length, MSG_NOSIGNAL);
 }
 
-static int _modbus_tcp_receive(modbus_t *ctx, uint8_t *req) {
-    return _modbus_receive_msg(ctx, req, MSG_INDICATION);
+static modbus_rcv_t* _modbus_tcp_receive_new(modbus_t *ctx, uint8_t *req) {
+    return _modbus_receive_new(ctx, req, MSG_INDICATION);
 }
+
+static void _modbus_tcp_receive_finish(modbus_rcv_t *rcvctx) {
+}
+
 
 static ssize_t _modbus_tcp_recv(modbus_t *ctx, uint8_t *rsp, int rsp_length) {
     return recv(ctx->s, (char *)rsp, rsp_length, 0);
@@ -743,7 +747,8 @@ const modbus_backend_t _modbus_tcp_backend = {
     _modbus_tcp_prepare_response_tid,
     _modbus_tcp_send_msg_pre,
     _modbus_tcp_send,
-    _modbus_tcp_receive,
+    _modbus_tcp_receive_new,
+    _modbus_tcp_receive_finish,
     _modbus_tcp_recv,
     _modbus_tcp_check_integrity,
     _modbus_tcp_pre_check_confirmation,
@@ -766,7 +771,8 @@ const modbus_backend_t _modbus_tcp_pi_backend = {
     _modbus_tcp_prepare_response_tid,
     _modbus_tcp_send_msg_pre,
     _modbus_tcp_send,
-    _modbus_tcp_receive,
+    _modbus_tcp_receive_new,
+    _modbus_tcp_receive_finish,
     _modbus_tcp_recv,
     _modbus_tcp_check_integrity,
     _modbus_tcp_pre_check_confirmation,
