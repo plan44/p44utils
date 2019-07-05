@@ -83,7 +83,7 @@ namespace p44 {
       Error *errP = new T(static_cast<typename T::ErrorCodes>(aErrorCode));
       va_list args;
       va_start(args, aFmt);
-      errP->setFormattedMessage(aFmt, args);
+      errP->setFormattedMessage(aFmt, args, false);
       va_end(args);
       return ErrorPtr(errP);
     };
@@ -113,7 +113,8 @@ namespace p44 {
     /// set formatted error message
     /// @param aFmt error message format string
     /// @param aArgs argument list for formatting
-    void setFormattedMessage(const char *aFmt, va_list aArgs);
+    /// @param aAppend if set, append to message rather than replacing it
+    void setFormattedMessage(const char *aFmt, va_list aArgs, bool aAppend = true);
 
     /// insert additional message context
     void prefixMessage(const char *aFmt, ...) __printflike(2,3);

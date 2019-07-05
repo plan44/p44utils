@@ -44,10 +44,10 @@ Error::Error(ErrorCode aErrorCode, const std::string &aErrorMessage)
 }
 
 
-void Error::setFormattedMessage(const char *aFmt, va_list aArgs)
+void Error::setFormattedMessage(const char *aFmt, va_list aArgs, bool aAppend)
 {
   // now make the string
-  string_format_v(errorMessage, true, aFmt, aArgs);
+  string_format_v(errorMessage, aAppend, aFmt, aArgs);
 }
 
 
@@ -216,7 +216,7 @@ ErrorPtr WebError::webErr(uint16_t aHTTPError, const char *aFmt, ... )
   Error *errP = new WebError(aHTTPError);
   va_list args;
   va_start(args, aFmt);
-  errP->setFormattedMessage(aFmt, args);
+  errP->setFormattedMessage(aFmt, args, false);
   va_end(args);
   return ErrorPtr(errP);
 }
@@ -230,7 +230,7 @@ ErrorPtr TextError::err(const char *aFmt, ...)
   Error *errP = new TextError();
   va_list args;
   va_start(args, aFmt);
-  errP->setFormattedMessage(aFmt, args);
+  errP->setFormattedMessage(aFmt, args, false);
   va_end(args);
   return ErrorPtr(errP);
 }
