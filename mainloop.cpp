@@ -172,6 +172,14 @@ MLMicroSeconds MainLoop::unixTimeToMainLoopTime(const MLMicroSeconds aUnixTime)
 }
 
 
+MLMicroSeconds MainLoop::timeValToMainLoopTime(struct timeval *aTimeValP)
+{
+  if (!aTimeValP) return Never;
+  return aTimeValP->tv_sec*Second + aTimeValP->tv_usec;
+}
+
+
+
 void MainLoop::sleep(MLMicroSeconds aSleepTime)
 {
   // Linux/MacOS has nanosleep in nanoseconds

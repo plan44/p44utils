@@ -277,6 +277,12 @@ namespace p44 {
     /// @return mainloop timestamp in MLMicroSeconds
     static MLMicroSeconds unixTimeToMainLoopTime(const MLMicroSeconds aUnixTime);
 
+    /// convert a struct timeval to mainloop timestamp
+    /// @param aTimeValP pointer to a struct timeval
+    /// @return mainloop time in MLMicroSeconds
+    static MLMicroSeconds timeValToMainLoopTime(struct timeval *aTimeValP);
+
+
     /// sleeps for given number of microseconds
     static void sleep(MLMicroSeconds aSleepTime);
 
