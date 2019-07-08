@@ -47,14 +47,18 @@ namespace p44 {
   class ModBusError : public Error
   {
   public:
+    // Note: errorCodes are as follows
+    //  up to 999 : native system errnos
+    // 1000..1999 : modbus protocol exception codes, followed by libmodbus internal errors
+    // 2000..     : p44 ModBus errors
     enum {
-      // adding to internal libmodbus errors + 100
-      InvalidConnParams = EMBXGTAR+100, ///< invalid connection parameters
+      InvalidConnParams = 2000, ///< invalid connection parameters
       NoContext, ///< no valid modbus context
+      InvalidSlaveAddr, ///< invalid slave address/address range
     };
     static const char *domain() { return "Modbus"; }
     virtual const char *getErrorDomain() const { return ModBusError::domain(); };
-    ModBusError(ErrorCode aError) : Error(aError>0 ? aError-MODBUS_ENOBASE : aError, modbus_strerror((int)aError)) {
+    ModBusError(ErrorCode aError) : Error(aError>MODBUS_ENOBASE ? aError-MODBUS_ENOBASE+1000 : aError, modbus_strerror((int)aError)) {
       prefixMessage("Modbus: ");
     };
   };
@@ -64,6 +68,8 @@ namespace p44 {
     void setRts(modbus_t* ctx, int on, void* cbctx);
   }
 
+
+  typedef uint8_t ModBusPDU[MODBUS_MAX_PDU_LENGTH]; ///< a buffer large enough for a modbus PDU
 
   class ModbusConnection : public P44Obj
   {
@@ -159,6 +165,36 @@ namespace p44 {
     /// @note the byte order in the registers must match the mode set with setFloatMode()
     void setAsDouble(uint16_t *aTwoRegs, double aDouble);
 
+    /// build a exception response message
+    /// @param aSft the slaveid/function/transactionid info
+    /// @param aExceptionCode the modbus exception code
+    /// @param aErrorText the error text (for log)
+    /// @param aRsp response will be created in this buffer
+    /// @param aRspLen the length of the response will be stored here
+    void buildExceptionResponse(sft_t &aSft, int aExceptionCode, const char* aErrorText, ModBusPDU& aRsp, int& aRspLen);
+
+    /// build a exception response message
+    /// @param aSft the slaveid/function/transactionid info
+    /// @param aError a error object. If it is a ModBusError, its modbus exception code will be used, otherwise, SLAVE_OR_SERVER_FAILURE will be used
+    /// @param aRsp response will be created in this buffer
+    /// @param aRspLen the length of the response will be stored here
+    void buildExceptionResponse(sft_t &aSft, ErrorPtr aError, ModBusPDU& aRsp, int& aRspLen);
+
+
+    /// build a exception response message
+    /// @param aSft the slaveid/function/transactionid info
+    /// @param aRsp response will be created in this buffer
+    /// @param aRspLen the length of the response will be stored here
+    void buildResponseBase(sft_t &aSft, ModBusPDU& aRsp, int& aRspLen);
+
+    /// append message data
+    /// @param aDataP data to append, can be NULL to just append 0x00 bytes
+    /// @param aNumBytes number of bytes to append
+    /// @param aRsp append to response in this buffer
+    /// @param aRspLen on input: size of the reponse so far, will be updated
+    /// @return false if too much data
+    bool appendToMessage(const uint8_t *aDataP, int aNumBytes, ModBusPDU& aMsg, int& aMsgLen);
+
 
   protected:
 
@@ -182,11 +218,131 @@ namespace p44 {
 
 
 
+  class ModbusFileHandler : public P44Obj
+  {
+    int fileNo; ///< the file number. For large files with multiple segments, subsequent numbers might be in use, too
+    int maxSegments; ///< the number of segments, i.e. consecutive file numbers after fileNo + 1 which belong to the same file
+    int numFiles; ///< number of files at the same path (with fileno appended)
+    string filePath; ///< the local path of the file(s)
+    bool useP44Header; ///< set if this file uses a P44 header
+
+    /// ongoing transfer parameters
+    uint16_t openBaseFileNo; ///< the currently open file (base number for segmented files)
+    int openFd; ///< the open file descriptor
+
+    /// data for/from P44 header
+    bool validP44Header; ///< if set, internal P44 header info is valid
+    /// the size of a addressed record (in uint16_t quantities).
+    /// @note
+    /// - Traditional Modbus interpretations use 1 for this, meaning that records are register-sized.
+    ///   In this case, using a "Record Length" > 1 in the read/write commands just reads multiple subsequent registers
+    /// - Setting this to a larger value means that each record consists of MORE THAN ONE uint_t of the entire file.
+    ///   In this case, if the "Record Length" in a read/write command is less than singleRecordLength, only part of the record is
+    ///   actually transferred.
+    /// - if useP44Header is set, this value is included in the header.
+    /// - the implementation uses 1 for this quantity when the size of the file allows it,
+    ///   i.e. when the file size is below <maxrecordno>*2 = 0xFFFF*2 = 128kB.
+    uint8_t singleRecordLength;
+    uint8_t neededSegments; ///< the number of segments needed for the current file
+    uint16_t firstDataRecord; ///< the number of the first actual data record
+    uint16_t nextFailedRecord; ///< next failed record to retransmit (in multicast mode), 0 = none
+    uint32_t localSize; ///< the local file size, as obtained by readLocalFileInfo
+    uint32_t localCRC32; ///< the local file's CRC32, as obtained by readLocalFileInfo
+    uint32_t expectedCRC32; ///< on write, this is the CRC32 expected as extracted from the p44header
+    uint32_t expectedSize; ///< on write, this is the CRC32 expected as extracted from the p44header
+
+  public:
+
+    /// @param aFileNo the modbus file number for the first (maybe only) file handled by this handler
+    /// @param aMaxSegments max number of segments (consecutive file numbers reserved for belonging to the same file), If 0, as many segments as needed are read/written
+    /// @param aNumFiles number of consecutive files (or groups of filenos of segmented files) the same path, differentiated by appended fileno
+    /// @param aP44Header if set, first 8 16bit "registers" or "records" of the file are a file header containing overall file size and CRC
+    /// @param aFilePath the local pathname of the file. If aNumFiles>1, the actual file number will have the file number appended
+    ModbusFileHandler(int aFileNo, int aMaxSegments, int aNumFiles, bool aP44Header, const string aFilePath);
+
+    virtual ~ModbusFileHandler();
+
+    /// check if a particular file number is handled by this filehandler
+    /// @param aFileNo the file number to check
+    /// @return true if the handler will handle this fileno
+    bool handlesFileNo(uint16_t aFileNo);
+
+    /// Write data to a file
+    /// @param aFileNo the file number
+    /// @param aRecordNo the record number within the file
+    /// @param aDataP the data to be written
+    /// @param aDataLen the number of bytes (not records!) to be written
+    /// @return Ok or error
+    ErrorPtr writeFile(uint16_t aFileNo, uint16_t aRecordNo, const uint8_t* aDataP, size_t aDataLen);
+
+    /// Read data from file
+    /// @param aFileNo the file number
+    /// @param aRecordNo the record number within the file
+    /// @param aDataP the data buffer to be read into
+    /// @param aDataLen the number of bytes (not records!) to be read
+    /// @return Ok or error
+    ErrorPtr readFile(uint16_t aFileNo, uint16_t aRecordNo, uint8_t* aDataP, size_t aDataLen);
+
+    /// open local file for given file number and obtain needed file info
+    /// @param aFileNo the file to access (one handler might be responsible for multiple files when numFiles>1)
+    /// @param aForWrite if set, file will be open for write after this call
+    ErrorPtr openLocalFile(uint16_t aFileNo, bool aForWrite);
+
+    /// close the current local file, header info gets invalid
+    void closeLocalFile();
+
+    /// read info (size, CRC if using P44header) from local file
+    /// @return Ok or error
+    ErrorPtr readLocalFileInfo();
+
+    /// @return max number records to be transferred in a single request/response
+    /// @note the return value is chosen to fit *and* be a nice number. Absolute max might be a bit higher.
+    uint16_t maxRecordsPerRequest();
+
+    /// generate P44 header from local information
+    /// @param aDataP where to generate the header to
+    /// @param aMaxDataLen size of buffer at aDataP
+    /// @return size of header data generated, -1 on error, or 0 if this handler is not enabled for P44 header at all
+    int generateP44Header(uint8_t* aDataP, int aMaxDataLen);
+
+    /// parse P44 header sent by remote peer to set up parameters of this file handler
+    /// @param aDataP data to be parsed withing (at aParsePos)
+    /// @param aPos index into aDataP where to start parsing, will be updated after parsing
+    /// @param aDataLen size of data at aDataP (parser will not read further)
+    /// @return ok if no header expected or successfully parsed one, error otherwise
+    ErrorPtr parseP44Header(const uint8_t* aDataP, int& aPos, int aDataLen);
+
+    /// @param aChunkIndex an index (in terms of chunks as big as possible for one PDU) starting at 0
+    /// @param aFileNo receives the file number (base number plus possible segment offset)
+    /// @param aRecordNo receives the record number
+    /// @param aNumRecords receives the number of records (not bytes!)
+    /// @return true if not EOF
+    bool addressForMaxChunk(uint32_t aChunkIndex, uint16_t& aFileNo, uint16_t& aRecordNo, uint16_t& aNumRecords);
+
+// TODO: remove unused ones of these
+//    uint32_t getLocalSize() { return localSize; };
+//    uint32_t getExpectedSize() { return expectedSize; };
+//    uint16_t getFirstDataRecord() { return firstDataRecord; };
+//    uint8_t getSingleRecordLength() { return singleRecordLength; };
+//    uint8_t getNeededSegments() { return neededSegments; };
+
+  private:
+
+    string filePathFor(uint16_t aFileNo);
+    uint16_t baseFileNoFor(uint16_t aFileNo);
+
+
+  };
+  typedef boost::intrusive_ptr<ModbusFileHandler> ModbusFileHandlerPtr;
+
+
   class ModbusMaster : public ModbusConnection
   {
     typedef ModbusConnection inherited;
 
   public:
+
+    typedef std::list<uint8_t> SlaveAddrList;
 
     ModbusMaster();
     virtual ~ModbusMaster();
@@ -243,8 +399,70 @@ namespace p44 {
     /// @note the id is device specific - usually it is a string but it could be any sequence of bytes
     ErrorPtr readSlaveInfo(string& aId, bool& aRunIndicator);
 
+    /// find slaves matching slaveInfo on the bus and return list
+    /// @param aSlaveAddrList will receive the list of slaves
+    /// @param aMatchString if not empty, only slaves where this is contained in the slave's iD string are returned
+    /// @param aFirstAddr first slave address to try
+    /// @param aLastAddr last slave address to try
+    /// @return OK or error
+    /// @note implementation will block, probably for a long time with large files and/or unreliable connection.
+    ///   Not suitable to run from mainloop, use a thread!
+    ErrorPtr findSlaves(SlaveAddrList& aSlaveAddrList, string aMatchString, int aFirstAddr=1, int aLastAddr=0xFF);
+
+    /// write file records
+    /// @param aFileNo the file number
+    /// @param aFirstRecordNo the starting (or only) record number
+    /// @param aNumRecords the number of (16bit) records to write to remote party
+    /// @param aDataP the data (must have at least aNumRecords*2 bytes)
+    /// @return ok or error
+    ErrorPtr writeFileRecords(uint16_t aFileNo, uint16_t aFirstRecordNo, uint16_t aNumRecords, const uint8_t* aDataP);
+
+    /// read file records
+    /// @param aFileNo the file number
+    /// @param aFirstRecordNo the starting (or only) record number
+    /// @param aNumRecords the number of (16bit) records to read from remote party
+    /// @param aDataP buffer for received data (must have at least aNumRecords*2 bytes)
+    /// @return ok or error
+    ErrorPtr readFileRecords(uint16_t aFileNo, uint16_t aFirstRecordNo, uint16_t aNumRecords, uint8_t* aDataP);
+
+    /// send entire file via modbus
+    /// @param aLocalFilePath the local file to be sent
+    /// @param aFileNo the file number in the remote slave device (or devices, when sending as broadcast)
+    /// @param aUseP44Header if set, the P44 header containing file size and a CRC is sent first, to allow the
+    ///   remote party to check file integrity and exact file length (modbus length is always a multiple of 2).
+    ///   For broadcast transfers with P44 header, the remote will track successfully received.
+    /// @return OK or error
+    /// @note implementation will block, probably for a long time with large files and/or unreliable connection.
+    ///   Not suitable to run from mainloop, use a thread!
+    ErrorPtr sendFile(const string& aLocalFilePath, int aFileNo, bool aUseP44Header);
+
+    /// read a file via modbus
+    /// @param aLocalFilePath the local file to store the file read from remote
+    /// @param aFileNo the file number in the remote slave device
+    /// @param aUseP44Header if set, the remote file is expected to have a P44 header, which is read first to get
+    ///    file size and
+    /// @return OK or error
+    /// @note implementation will block, probably for a long time with large files and/or unreliable connection.
+    ///   Not suitable to run from mainloop, use a thread!
+    ErrorPtr receiveFile(const string& aLocalFilePath, int aFileNo, bool aUseP44Header);
+
+    /// broadcast a file via modbus to more than one slave
+    /// @param aSlaveAddrList list of slaves to send file to
+    /// @param aLocalFilePath the local file to be sent
+    /// @param aFileNo the file number in the remote slave devices
+    /// @param aUseP44Header if set, the P44 header containing file size and a CRC is sent first, to allow the
+    ///   remote parties to check file integrity. This also allows sending the actual file data via broadcast requests
+    ///   and check for missing parts with each client afterwards.
+    /// @return OK or error
+    /// @note implementation will block, probably for a long time with large files and/or unreliable connection.
+    ///   Not suitable to run from mainloop, use a thread!
+    ErrorPtr broadcastFile(const SlaveAddrList& aSlaveAddrList, const string& aLocalFilePath, int aFileNo, bool aUseP44Header);
+
   };
   typedef boost::intrusive_ptr<ModbusMaster> ModbusMasterPtr;
+
+
+
 
 
   /// callback for accessed registers in the register model
@@ -257,15 +475,8 @@ namespace p44 {
   /// @note use the register model accessor functions to update/read the registers
   typedef boost::function<ErrorPtr (int aAddress, bool aBit, bool aInput, bool aWrite)> ModbusValueAccessCB;
 
-
   /// Raw modbus request handler
-  typedef boost::function<bool (sft_t *sft, int offset, const uint8_t *req, int req_length, uint8_t *rsp, int &rsp_length)> ModbusReqCB;
-
-
-  extern "C" {
-    int modbus_slave_function_handler(modbus_t* ctx, sft_t *sft, int offset, const uint8_t *req, int req_length, uint8_t *rsp, void *user_ctx);
-    const char *modbus_access_handler(modbus_t* ctx, modbus_mapping_t* mappings, modbus_data_access_t access, int addr, int cnt, modbus_data_t dataP, void *user_ctx);
-  }
+  typedef boost::function<bool (sft_t &sft, int offset, const ModBusPDU& req, int req_length, ModBusPDU& rsp, int &rsp_length)> ModbusReqCB;
 
   class ModbusSlave : public ModbusConnection
   {
@@ -277,11 +488,15 @@ namespace p44 {
     ModbusReqCB rawRequestHandler;
 
     modbus_rcv_t *modbusRcv;
-    uint8_t modbusReq[MODBUS_MAX_PDU_LENGTH];
-    uint8_t modbusRsp[MODBUS_MAX_PDU_LENGTH];
+
+    ModBusPDU modbusReq;
+    ModBusPDU modbusRsp;
     MLTicket rcvTimeoutTicket;
 
     string errStr; ///< holds error string for libmodbus to access a c_str after handler returns
+
+    typedef std::list<ModbusFileHandlerPtr> FileHandlersList;
+    FileHandlersList fileHandlers;
 
   public:
 
@@ -302,10 +517,14 @@ namespace p44 {
     /// free the register model
     void freeRegisterModel();
 
+    /// add a file handler
+    /// @param aFileHandler a file handler object to be used for handling READ_FILE_RECORD/WRITE_FILE_RECORD requests
+    void addFileHandler(ModbusFileHandlerPtr aFileHandler);
+
     /// close the modbus connection
     virtual void close() P44_OVERRIDE;
 
-    /// stop receiving messages
+    /// stop listening for incoming messages
     void stopServing();
 
     /// set a register model access handler
@@ -389,15 +608,21 @@ namespace p44 {
     void modbusTimeoutHandler();
     void modbusRecoveryHandler();
 
+    bool handleFileAccess(sft_t &aSft, int aOffset, const ModBusPDU& aReq, int aReqLen, ModBusPDU& aRsp, int &aRspLen);
+
   public:
 
     // stuff that needs to be public because friend declaration does not work in gcc (does in clang)
-    int handleRawRequest(sft_t *sft, int offset, const uint8_t *req, int req_length, uint8_t *rsp);
-    const char* accessHandler(modbus_data_access_t access, int addr, int cnt, modbus_data_t dataP);
+    int handleRawRequest(sft_t &aSft, int aOffset, const ModBusPDU& aReq, int aReqLen, ModBusPDU& aRsp);
+    const char* accessHandler(modbus_data_access_t aAccess, int aAddr, int aCnt, modbus_data_t aDataP);
 
   };
   typedef boost::intrusive_ptr<ModbusSlave> ModbusSlavePtr;
 
+  extern "C" {
+    int modbus_slave_function_handler(modbus_t* ctx, sft_t *sft, int offset, const uint8_t *req, int req_length, uint8_t *rsp, void *user_ctx);
+    const char *modbus_access_handler(modbus_t* ctx, modbus_mapping_t* mappings, modbus_data_access_t access, int addr, int cnt, modbus_data_t dataP, void *user_ctx);
+  }
 
 
 } // namespace p44
