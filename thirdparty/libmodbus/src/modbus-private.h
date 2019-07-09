@@ -44,18 +44,6 @@ typedef enum {
     _MODBUS_BACKEND_TYPE_TCP
 } modbus_backend_type_t;
 
-/*
- *  ---------- Request     Indication ----------
- *  | Client | ---------------------->| Server |
- *  ---------- Confirmation  Response ----------
- */
-typedef enum {
-    /* Request message on the server side */
-    MSG_INDICATION,
-    /* Request message on the client side */
-    MSG_CONFIRMATION
-} msg_type_t;
-
 
 typedef struct _modbus_backend {
     unsigned int backend_type;
@@ -63,8 +51,7 @@ typedef struct _modbus_backend {
     unsigned int checksum_length;
     unsigned int max_adu_length;
     int (*set_slave) (modbus_t *ctx, int slave);
-    int (*build_request_basis) (modbus_t *ctx, int function, int addr,
-                                int nb, uint8_t *req);
+    int (*build_request_basis) (modbus_t *ctx, int function, uint8_t *req);
     int (*build_response_basis) (sft_t *sft, uint8_t *rsp);
     int (*prepare_response_tid) (const uint8_t *req, int *req_length);
     int (*send_msg_pre) (uint8_t *req, int req_length);
@@ -118,7 +105,7 @@ struct _modbus_rcv {
 
 void _modbus_init_common(modbus_t *ctx);
 void _error_print(modbus_t *ctx, const char *context);
-int _modbus_receive_msg(modbus_t *ctx, uint8_t *msg, msg_type_t msg_type);
+int modbus_receive_msg(modbus_t *ctx, uint8_t *msg, msg_type_t msg_type);
 modbus_rcv_t* _modbus_receive_new(modbus_t *a_ctx, uint8_t *a_msg, msg_type_t a_msg_type);
 
 #ifndef HAVE_STRLCPY

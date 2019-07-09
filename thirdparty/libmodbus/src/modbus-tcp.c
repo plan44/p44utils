@@ -90,7 +90,6 @@ static int _modbus_set_slave(modbus_t *ctx, int slave)
 
 /* Builds a TCP request header */
 static int _modbus_tcp_build_request_basis(modbus_t *ctx, int function,
-                                           int addr, int nb,
                                            uint8_t *req)
 {
     modbus_tcp_t *ctx_tcp = ctx->backend_data;
@@ -112,10 +111,6 @@ static int _modbus_tcp_build_request_basis(modbus_t *ctx, int function,
 
     req[6] = ctx->slave;
     req[7] = function;
-    req[8] = addr >> 8;
-    req[9] = addr & 0x00ff;
-    req[10] = nb >> 8;
-    req[11] = nb & 0x00ff;
 
     return _MODBUS_TCP_PRESET_REQ_LENGTH;
 }

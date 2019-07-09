@@ -165,6 +165,19 @@ typedef struct _sft {
     int t_id;
 } sft_t;
 
+/*
+ *  ---------- Request     Indication ----------
+ *  | Client | ---------------------->| Server |
+ *  ---------- Confirmation  Response ----------
+ */
+typedef enum {
+    /* Request message on the server side */
+    MSG_INDICATION,
+    /* Request message on the client side */
+    MSG_CONFIRMATION
+} msg_type_t;
+
+
 typedef struct {
     int nb_bits;
     int start_bits;
@@ -261,11 +274,18 @@ MODBUS_API void modbus_mapping_free(modbus_mapping_t *mb_mapping);
 
 MODBUS_API int modbus_send_raw_request(modbus_t *ctx, uint8_t *raw_req, int raw_req_length);
 
+MODBUS_API int modbus_build_request_basis(modbus_t *ctx, int function, uint8_t *req);
+MODBUS_API int modbus_build_reg_request_basis(modbus_t *ctx, int function, int addr,
+                                   int nb, uint8_t *req);
 
 MODBUS_API modbus_rcv_t* modbus_receive_new(modbus_t *ctx, uint8_t *req);
 MODBUS_API void modbus_receive_free(modbus_rcv_t *rcvctx);
 MODBUS_API int modbus_receive_step(modbus_rcv_t *rcvctx);
 MODBUS_API struct timeval* modbus_get_select_timeout(modbus_rcv_t *rcvctx);
+
+MODBUS_API int modbus_receive_msg(modbus_t *ctx, uint8_t *msg, msg_type_t msg_type);
+MODBUS_API int modbus_pre_check_confirmation(modbus_t *ctx, uint8_t *req,
+                                  uint8_t *rsp, int rsp_length);
 
 MODBUS_API int modbus_receive(modbus_t *ctx, uint8_t *req);
 

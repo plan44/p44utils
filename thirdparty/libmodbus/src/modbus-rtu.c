@@ -104,16 +104,11 @@ static int _modbus_set_slave(modbus_t *ctx, int slave)
 
 /* Builds a RTU request header */
 static int _modbus_rtu_build_request_basis(modbus_t *ctx, int function,
-                                           int addr, int nb,
                                            uint8_t *req)
 {
     assert(ctx->slave != -1);
     req[0] = ctx->slave;
     req[1] = function;
-    req[2] = addr >> 8;
-    req[3] = addr & 0x00ff;
-    req[4] = nb >> 8;
-    req[5] = nb & 0x00ff;
 
     return _MODBUS_RTU_PRESET_REQ_LENGTH;
 }

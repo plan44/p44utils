@@ -531,10 +531,8 @@ static int _modbus_receive_dosteps(modbus_rcv_t* rcvctx)
    - read() or recv() error codes
 */
 
-int _modbus_receive_msg(modbus_t *ctx, uint8_t *msg, msg_type_t msg_type)
+int modbus_receive_msg(modbus_t *ctx, uint8_t *msg, msg_type_t msg_type)
 {
-    int rc;
-
     modbus_rcv_t* rcvctx = _modbus_receive_new(ctx, msg, msg_type);
     if (!rcvctx) return -1;
     return _modbus_receive_dosteps(rcvctx);
@@ -593,30 +591,28 @@ int modbus_receive_confirmation(modbus_t *ctx, uint8_t *rsp)
         return -1;
     }
 
-    return _modbus_receive_msg(ctx, rsp, MSG_CONFIRMATION);
+    return modbus_receive_msg(ctx, rsp, MSG_CONFIRMATION);
 }
 
 
-static int check_confirmation(modbus_t *ctx, uint8_t *req,
-                              uint8_t *rsp, int rsp_length)
+/* returns offset of function code, or -1 on error */
+int modbus_pre_check_confirmation(modbus_t *ctx, uint8_t *req,
+                                  uint8_t *rsp, int rsp_length)
 {
-    int rc;
-    int rsp_length_computed;
-    const int offset = ctx->backend->header_length;
+    int offset = ctx->backend->header_length;
     const int function = rsp[offset];
 
     if (ctx->backend->pre_check_confirmation) {
-        rc = ctx->backend->pre_check_confirmation(ctx, req, rsp, rsp_length);
+        int rc = ctx->backend->pre_check_confirmation(ctx, req, rsp, rsp_length);
         if (rc == -1) {
             if (ctx->error_recovery & MODBUS_ERROR_RECOVERY_PROTOCOL) {
                 _sleep_response_timeout(ctx);
                 modbus_flush(ctx);
             }
+            errno = EMBBADEXC;
             return -1;
         }
     }
-
-    rsp_length_computed = compute_response_length_from_request(ctx, req);
 
     /* Exception code */
     if (function >= 0x80) {
@@ -639,27 +635,47 @@ static int check_confirmation(modbus_t *ctx, uint8_t *req,
         }
     }
 
+    /* Check function code */
+    if (function != req[offset]) {
+        if (ctx->debug) {
+            fprintf(stderr,
+                    "Received function not corresponding to the request (0x%X != 0x%X)\n",
+                    function, req[offset]);
+        }
+        if (ctx->error_recovery & MODBUS_ERROR_RECOVERY_PROTOCOL) {
+            _sleep_response_timeout(ctx);
+            modbus_flush(ctx);
+        }
+        errno = EMBBADDATA;
+        return -1;
+    }
+
+    /* offset to function code field */
+    return offset;
+}
+
+
+int check_confirmation(modbus_t *ctx, uint8_t *req,
+                              uint8_t *rsp, int rsp_length)
+{
+    int rc;
+    int rsp_length_computed;
+    int function;
+
+    /* check basic confirmation format */
+    int offset = modbus_pre_check_confirmation(ctx, req, rsp, rsp_length);
+    if (offset<0) {
+        return -1;
+    }
+    function = rsp[offset];
+    rsp_length_computed = compute_response_length_from_request(ctx, req);
+
     /* Check length */
     if ((rsp_length == rsp_length_computed ||
          rsp_length_computed == MSG_LENGTH_UNDEFINED) &&
         function < 0x80) {
         int req_nb_value;
         int rsp_nb_value;
-
-        /* Check function code */
-        if (function != req[offset]) {
-            if (ctx->debug) {
-                fprintf(stderr,
-                        "Received function not corresponding to the request (0x%X != 0x%X)\n",
-                        function, req[offset]);
-            }
-            if (ctx->error_recovery & MODBUS_ERROR_RECOVERY_PROTOCOL) {
-                _sleep_response_timeout(ctx);
-                modbus_flush(ctx);
-            }
-            errno = EMBBADDATA;
-            return -1;
-        }
 
         /* Check the number of values is corresponding to the request */
         switch (function) {
@@ -756,11 +772,33 @@ static int response_io_status(uint8_t *tab_io_status,
 
 
 
-/* Build a base response */
+/* Build the base for a response */
 int modbus_build_response_basis(modbus_t *ctx, sft_t *sft, uint8_t *rsp)
 {
-    return modbus_build_response_basis(ctx, sft, rsp);
+    return ctx->backend->build_response_basis(sft, rsp);
 }
+
+
+/* Build the base for a request */
+int modbus_build_request_basis(modbus_t *ctx, int function, uint8_t *req)
+{
+    return ctx->backend->build_request_basis(ctx, function, req);
+}
+
+
+/* Build the base for a register access request */
+int modbus_build_reg_request_basis(modbus_t *ctx, int function, int addr,
+                                   int nb, uint8_t *req)
+{
+    int reqLen = ctx->backend->build_request_basis(ctx, function, req);
+    req[reqLen++] = addr >> 8;
+    req[reqLen++] = addr & 0x00ff;
+    req[reqLen++] = nb >> 8;
+    req[reqLen++] = nb & 0x00ff;
+    return reqLen;
+}
+
+
 
 
 
@@ -1245,7 +1283,7 @@ static int read_io_status(modbus_t *ctx, int function,
     uint8_t req[_MIN_REQ_LENGTH];
     uint8_t rsp[MAX_MESSAGE_LENGTH];
 
-    req_length = ctx->backend->build_request_basis(ctx, function, addr, nb, req);
+    req_length = modbus_build_reg_request_basis(ctx, function, addr, nb, req);
 
     rc = modbus_send_msg(ctx, req, req_length);
     if (rc > 0) {
@@ -1254,7 +1292,7 @@ static int read_io_status(modbus_t *ctx, int function,
         int offset;
         int offset_end;
 
-        rc = _modbus_receive_msg(ctx, rsp, MSG_CONFIRMATION);
+        rc = modbus_receive_msg(ctx, rsp, MSG_CONFIRMATION);
         if (rc == -1)
             return -1;
 
@@ -1356,14 +1394,14 @@ static int read_registers(modbus_t *ctx, int function, int addr, int nb,
         return -1;
     }
 
-    req_length = ctx->backend->build_request_basis(ctx, function, addr, nb, req);
+    req_length = modbus_build_reg_request_basis(ctx, function, addr, nb, req);
 
     rc = modbus_send_msg(ctx, req, req_length);
     if (rc > 0) {
         int offset;
         int i;
 
-        rc = _modbus_receive_msg(ctx, rsp, MSG_CONFIRMATION);
+        rc = modbus_receive_msg(ctx, rsp, MSG_CONFIRMATION);
         if (rc == -1)
             return -1;
 
@@ -1447,14 +1485,14 @@ static int write_single(modbus_t *ctx, int function, int addr, int value)
         return -1;
     }
 
-    req_length = ctx->backend->build_request_basis(ctx, function, addr, value, req);
+    req_length = modbus_build_reg_request_basis(ctx, function, addr, value, req);
 
     rc = modbus_send_msg(ctx, req, req_length);
     if (rc > 0) {
         /* Used by write_bit and write_register */
         uint8_t rsp[MAX_MESSAGE_LENGTH];
 
-        rc = _modbus_receive_msg(ctx, rsp, MSG_CONFIRMATION);
+        rc = modbus_receive_msg(ctx, rsp, MSG_CONFIRMATION);
         if (rc == -1)
             return -1;
 
@@ -1512,9 +1550,9 @@ int modbus_write_bits(modbus_t *ctx, int addr, int nb, const uint8_t *src)
         return -1;
     }
 
-    req_length = ctx->backend->build_request_basis(ctx,
-                                                   MODBUS_FC_WRITE_MULTIPLE_COILS,
-                                                   addr, nb, req);
+    req_length = modbus_build_reg_request_basis(ctx,
+                                                MODBUS_FC_WRITE_MULTIPLE_COILS,
+                                                addr, nb, req);
     byte_count = (nb / 8) + ((nb % 8) ? 1 : 0);
     req[req_length++] = byte_count;
 
@@ -1539,7 +1577,7 @@ int modbus_write_bits(modbus_t *ctx, int addr, int nb, const uint8_t *src)
     if (rc > 0) {
         uint8_t rsp[MAX_MESSAGE_LENGTH];
 
-        rc = _modbus_receive_msg(ctx, rsp, MSG_CONFIRMATION);
+        rc = modbus_receive_msg(ctx, rsp, MSG_CONFIRMATION);
         if (rc == -1)
             return -1;
 
@@ -1574,9 +1612,9 @@ int modbus_write_registers(modbus_t *ctx, int addr, int nb, const uint16_t *src)
         return -1;
     }
 
-    req_length = ctx->backend->build_request_basis(ctx,
-                                                   MODBUS_FC_WRITE_MULTIPLE_REGISTERS,
-                                                   addr, nb, req);
+    req_length = modbus_build_reg_request_basis(ctx,
+                                                MODBUS_FC_WRITE_MULTIPLE_REGISTERS,
+                                                addr, nb, req);
     byte_count = nb * 2;
     req[req_length++] = byte_count;
 
@@ -1589,7 +1627,7 @@ int modbus_write_registers(modbus_t *ctx, int addr, int nb, const uint16_t *src)
     if (rc > 0) {
         uint8_t rsp[MAX_MESSAGE_LENGTH];
 
-        rc = _modbus_receive_msg(ctx, rsp, MSG_CONFIRMATION);
+        rc = modbus_receive_msg(ctx, rsp, MSG_CONFIRMATION);
         if (rc == -1)
             return -1;
 
@@ -1608,9 +1646,9 @@ int modbus_mask_write_register(modbus_t *ctx, int addr, uint16_t and_mask, uint1
      * (2 bytes) which is not used. */
     uint8_t req[_MIN_REQ_LENGTH + 2];
 
-    req_length = ctx->backend->build_request_basis(ctx,
-                                                   MODBUS_FC_MASK_WRITE_REGISTER,
-                                                   addr, 0, req);
+    req_length = modbus_build_reg_request_basis(ctx,
+                                                MODBUS_FC_MASK_WRITE_REGISTER,
+                                                addr, 0, req);
 
     /* HACKISH, count is not used */
     req_length -= 2;
@@ -1625,7 +1663,7 @@ int modbus_mask_write_register(modbus_t *ctx, int addr, uint16_t and_mask, uint1
         /* Used by write_bit and write_register */
         uint8_t rsp[MAX_MESSAGE_LENGTH];
 
-        rc = _modbus_receive_msg(ctx, rsp, MSG_CONFIRMATION);
+        rc = modbus_receive_msg(ctx, rsp, MSG_CONFIRMATION);
         if (rc == -1)
             return -1;
 
@@ -1675,9 +1713,9 @@ int modbus_write_and_read_registers(modbus_t *ctx,
         errno = EMBMDATA;
         return -1;
     }
-    req_length = ctx->backend->build_request_basis(ctx,
-                                                   MODBUS_FC_WRITE_AND_READ_REGISTERS,
-                                                   read_addr, read_nb, req);
+    req_length = modbus_build_reg_request_basis(ctx,
+                                                MODBUS_FC_WRITE_AND_READ_REGISTERS,
+                                                read_addr, read_nb, req);
 
     req[req_length++] = write_addr >> 8;
     req[req_length++] = write_addr & 0x00ff;
@@ -1695,7 +1733,7 @@ int modbus_write_and_read_registers(modbus_t *ctx,
     if (rc > 0) {
         int offset;
 
-        rc = _modbus_receive_msg(ctx, rsp, MSG_CONFIRMATION);
+        rc = modbus_receive_msg(ctx, rsp, MSG_CONFIRMATION);
         if (rc == -1)
             return -1;
 
@@ -1727,8 +1765,8 @@ int modbus_report_slave_id(modbus_t *ctx, int max_dest, uint8_t *dest)
         return -1;
     }
 
-    req_length = ctx->backend->build_request_basis(ctx, MODBUS_FC_REPORT_SLAVE_ID,
-                                                   0, 0, req);
+    req_length = modbus_build_reg_request_basis(ctx, MODBUS_FC_REPORT_SLAVE_ID,
+                                                0, 0, req);
 
     /* HACKISH, addr and count are not used */
     req_length -= 4;
@@ -1739,7 +1777,7 @@ int modbus_report_slave_id(modbus_t *ctx, int max_dest, uint8_t *dest)
         int offset;
         uint8_t rsp[MAX_MESSAGE_LENGTH];
 
-        rc = _modbus_receive_msg(ctx, rsp, MSG_CONFIRMATION);
+        rc = modbus_receive_msg(ctx, rsp, MSG_CONFIRMATION);
         if (rc == -1)
             return -1;
 
