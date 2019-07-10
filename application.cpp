@@ -727,7 +727,11 @@ void CmdLineApp::processStandardLogOptions(bool aForDaemon)
     int loglevel = LOG_NOTICE;
     getIntOption("loglevel", loglevel);
     SETLOGLEVEL(loglevel);
-    SETERRLEVEL(LOG_ERR, true); // errors and more serious go to stderr, all log goes to stdout
+    int errLevel = LOG_ERR;
+    getIntOption("errlevel", errLevel);
+    bool dontLogErrors = false;
+    if (getOption("dontlogerrors")) dontLogErrors = true;
+    SETERRLEVEL(errLevel, !dontLogErrors); // errors and more serious go to stderr, all log goes to stdout
   }
   else {
     int loglevel = LOG_CRIT;

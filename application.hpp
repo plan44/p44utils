@@ -139,14 +139,25 @@ namespace p44 {
 
 
   /// standard option texts, can be used as part of setCommandDescriptors() string
+
   /// - logging options matching processStandardLogOptions()
+  /// - for all apps
   #define CMDLINE_APPLICATION_LOGOPTIONS \
     { 'l', "loglevel",        true,  "level;set max level of log message detail to show on stderr" }, \
     { 0  , "deltatstamps",    false, "show timestamp delta between log lines" }
+  /// - for daemon apps
+  #define DAEMON_APPLICATION_LOGOPTIONS \
+    CMDLINE_APPLICATION_LOGOPTIONS, \
+    { 0  , "errlevel",      true,  "level;set max level for log messages to go to stderr as well" }, \
+    { 0  , "dontlogerrors", false, "don't duplicate error messages (see --errlevel) on stdout" }
+
   /// - standard options every CmdLineApp understands
   #define CMDLINE_APPLICATION_STDOPTIONS \
     { 'V', "version",         false, "show version" }, \
     { 'h', "help",            false, "show this text" }
+  #define CMDLINE_APPLICATION_PATHOPTIONS \
+    { 'r', "resourcepath",   true,  "path;path to application resources" }, \
+    { 'd', "datapath",       true,  "path;path to the r/w persistent data" }
 
 
   /// Command line option descriptor
