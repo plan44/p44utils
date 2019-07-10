@@ -184,11 +184,11 @@ void Application::terminateAppWith(ErrorPtr aError)
     if (!LOGENABLED(LOG_ERR)) {
       // if even error logging is off, which is standard case for command line utilies (not daemons),
       // just output the error message to stderr, with no logging adornments
-      const char *msg = aError->getErrorMessage();
-      if (msg && *msg) fprintf(stderr, "Error: %s\n", msg);
+      const char *msg = aError->text();
+      if (*msg) fprintf(stderr, "Error: %s\n", msg);
     }
     else {
-      LOG(LOG_ERR, "Terminating because of error: %s", aError->description().c_str());
+      LOG(LOG_ERR, "Terminating because of error: %s", aError->text());
     }
     mainLoop.terminate(EXIT_FAILURE);
   }

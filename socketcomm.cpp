@@ -382,7 +382,7 @@ ErrorPtr SocketComm::initiateConnection()
       if (res!=0) {
         // error
         err = Error::err<SocketCommError>(SocketCommError::CannotResolve, "getaddrinfo error %d: %s", res, gai_strerror(res));
-        DBGLOG(LOG_DEBUG, "SocketComm: getaddrinfo failed: %s", err->description().c_str());
+        DBGLOG(LOG_DEBUG, "SocketComm: getaddrinfo failed: %s", err->text());
         goto done;
       }
     }
@@ -500,7 +500,7 @@ ErrorPtr SocketComm::connectNextAddress()
   if (!startedConnecting) {
     // exhausted addresses without starting to connect
     if (!err) err = Error::err<SocketCommError>(SocketCommError::NoConnection, "No connection could be established");
-    LOG(LOG_DEBUG, "Cannot initiate connection to %s:%s - %s", hostNameOrAddress.c_str(), serviceOrPortOrSocket.c_str(), err->description().c_str());
+    LOG(LOG_DEBUG, "Cannot initiate connection to %s:%s - %s", hostNameOrAddress.c_str(), serviceOrPortOrSocket.c_str(), err->text());
   }
   else {
     if (!connectionLess) {
@@ -588,12 +588,12 @@ bool SocketComm::connectionMonitorHandler(int aFd, int aPollFlags)
   }
   else {
     // this attempt has failed, try next (if any)
-    LOG(LOG_DEBUG, "- Connection attempt failed: %s", err->description().c_str());
+    LOG(LOG_DEBUG, "- Connection attempt failed: %s", err->text());
     // this will return no error if we have another address to try
     err = connectNextAddress();
     if (err) {
       // no next attempt started, report error
-      LOG(LOG_WARNING, "Connection to %s:%s failed: %s", hostNameOrAddress.c_str(), serviceOrPortOrSocket.c_str(), err->description().c_str());
+      LOG(LOG_WARNING, "Connection to %s:%s failed: %s", hostNameOrAddress.c_str(), serviceOrPortOrSocket.c_str(), err->text());
       if (connectionStatusHandler) {
         connectionStatusHandler(this, err);
       }
@@ -794,7 +794,7 @@ void SocketComm::dataExceptionHandler(int aFd, int aPollFlags)
       ErrorPtr err = socketError(aFd);
       if (Error::isOK(err))
         err = Error::err<SocketCommError>(SocketCommError::HungUp, "Connection closed (POLLIN but no data -> interpreted as HUP)");
-      DBGLOG(LOG_DEBUG, "Connection to %s:%s has POLLIN but no data; error: %s", hostNameOrAddress.c_str(), serviceOrPortOrSocket.c_str(), err->description().c_str());
+      DBGLOG(LOG_DEBUG, "Connection to %s:%s has POLLIN but no data; error: %s", hostNameOrAddress.c_str(), serviceOrPortOrSocket.c_str(), err->text());
       // - report
       if (connectionStatusHandler) {
         // report reason for closing
@@ -804,7 +804,7 @@ void SocketComm::dataExceptionHandler(int aFd, int aPollFlags)
     else if (aPollFlags & POLLERR) {
       // error
       ErrorPtr err = socketError(aFd);
-      LOG(LOG_WARNING, "Connection to %s:%s reported error: %s", hostNameOrAddress.c_str(), serviceOrPortOrSocket.c_str(), err->description().c_str());
+      LOG(LOG_WARNING, "Connection to %s:%s reported error: %s", hostNameOrAddress.c_str(), serviceOrPortOrSocket.c_str(), err->text());
       // - report
       if (connectionStatusHandler) {
         // report reason for closing

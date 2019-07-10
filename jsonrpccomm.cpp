@@ -136,7 +136,7 @@ ErrorPtr JsonRpcComm::sendError(const char *aJsonRpcId, uint32_t aErrorCode, con
 ErrorPtr JsonRpcComm::sendError(const char *aJsonRpcId, ErrorPtr aErrorToSend)
 {
   if (!Error::isOK(aErrorToSend)) {
-    return sendError(aJsonRpcId, (uint32_t)aErrorToSend->getErrorCode(), aErrorToSend->getErrorMessage());
+    return sendError(aJsonRpcId, (uint32_t)aErrorToSend->getErrorCode(), aErrorToSend->text());
   }
   return ErrorPtr();
 }
@@ -266,7 +266,7 @@ void JsonRpcComm::gotJson(ErrorPtr aError, JsonObjectPtr aJsonObject)
     if (safeError || reportAllErrors)
       sendError(idString, respErr);
     else
-      LOG(LOG_WARNING, "Received data that generated error which can't be sent back: Code=%ld, Message='%s'", respErr->getErrorCode(), respErr->description().c_str());
+      LOG(LOG_WARNING, "Received data that generated error which can't be sent back: Code=%ld, Message='%s'", respErr->getErrorCode(), respErr->text());
   }
 }
 

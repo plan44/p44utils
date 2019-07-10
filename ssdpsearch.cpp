@@ -98,7 +98,7 @@ void SsdpSearch::startSearchForTarget(SsdpSearchCB aSearchResultHandler, const c
 
 void SsdpSearch::socketStatusHandler(ErrorPtr aError)
 {
-  FOCUSLOG("SSDP socket status: %s", aError ? aError->description().c_str() : "<no error>");
+  FOCUSLOG("SSDP socket status: %s", Error::text(aError));
   if (Error::isOK(aError)) {
     FOCUSLOG("### sending UDP M-SEARCH");
     // unregister socket status handler (or we'll get called when connection closes)

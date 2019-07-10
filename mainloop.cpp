@@ -548,7 +548,7 @@ void MainLoop::execChildTerminated(ExecCB aCallback, FdStringCollectorPtr aAnswe
 
 void MainLoop::childAnswerCollected(ExecCB aCallback, FdStringCollectorPtr aAnswerCollector, ErrorPtr aError)
 {
-  LOG(LOG_DEBUG, "childAnswerCollected: error = %s", Error::isOK(aError) ? "none" : aError->description().c_str());
+  LOG(LOG_DEBUG, "childAnswerCollected: error = %s", Error::text(aError));
   // close my end of the pipe
   aAnswerCollector->stopMonitoringAndClose();
   // now get answer

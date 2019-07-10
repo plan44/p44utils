@@ -339,7 +339,7 @@ ErrorPtr PersistentParams::saveToStore(const char *aParentIdentifier, bool aMult
       }
     }
     if (!Error::isOK(err)) {
-      LOG(LOG_ERR, "saveToStore: %s - failed: %s", sql.c_str(), err->description().c_str());
+      LOG(LOG_ERR, "saveToStore: %s - failed: %s", sql.c_str(), err->text());
     }
   }
   // anyway, have children checked
@@ -368,7 +368,7 @@ ErrorPtr PersistentParams::deleteFromStore()
     err = deleteChildren();
   }
   if (!Error::isOK(err)) {
-    LOG(LOG_ERR, "deleteFromStore: table=%s, ROWID=%lld - failed: %s", tableName(), rowid, err->description().c_str());
+    LOG(LOG_ERR, "deleteFromStore: table=%s, ROWID=%lld - failed: %s", tableName(), rowid, err->text());
   }
   return err;
 }

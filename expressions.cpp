@@ -244,7 +244,7 @@ ExpressionValue evaluateTerm(const char * &aText, ValueLookupCB aValueLookupCB, 
       aText++; // skip closing paranthesis
       FOCUSLOG("Function '%s' called", term.c_str());
       for (FunctionArgumentVector::iterator pos = args.begin(); pos!=args.end(); ++pos) {
-        FOCUSLOG("- argument: %lf (err=%s)", pos->v, Error::text(pos->err).c_str());
+        FOCUSLOG("- argument: %lf (err=%s)", pos->v, Error::text(pos->err));
       }
       // run function
       bool foundFunc = false;
@@ -314,7 +314,7 @@ ExpressionValue evaluateTerm(const char * &aText, ValueLookupCB aValueLookupCB, 
     FOCUSLOG("Term '%.*s' evaluation result: %lf", (int)(aText-a), a, res.v);
   }
   else {
-    FOCUSLOG("Term '%.*s' evaluation error: %s", (int)(aText-a), a, res.err->description().c_str());
+    FOCUSLOG("Term '%.*s' evaluation error: %s", (int)(aText-a), a, res.err->text());
   }
   return res;
 }
