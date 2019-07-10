@@ -369,7 +369,7 @@ ErrorPtr ModbusMaster::readSlaveInfo(string& aId, bool& aRunIndicator)
       aRunIndicator = true; // FIXME: actually get the value
     }
   }
-  if (wasConnected) close();
+  if (!wasConnected) close();
   return err;
 }
 
@@ -403,7 +403,7 @@ ErrorPtr ModbusMaster::findSlaves(SlaveAddrList& aSlaveAddrList, string aMatchSt
       }
     }
   }
-  if (wasConnected) close();
+  if (!wasConnected) close();
   return err;
 }
 
@@ -442,7 +442,7 @@ ErrorPtr ModbusMaster::readRegisters(int aRegAddr, int aNumRegs, uint16_t *aRegs
       err = ModBusError::err<ModBusError>(errno);
     }
   }
-  if (wasConnected) close();
+  if (!wasConnected) close();
   return err;
 }
 
@@ -473,7 +473,7 @@ ErrorPtr ModbusMaster::writeRegisters(int aRegAddr, int aNumRegs, const uint16_t
       err = ModBusError::err<ModBusError>(errno);
     }
   }
-  if (wasConnected) close();
+  if (!wasConnected) close();
   return err;
 }
 
@@ -531,7 +531,7 @@ ErrorPtr ModbusMaster::writeFileRecords(uint16_t aFileNo, uint16_t aFirstRecordN
       }
     }
   }
-  if (wasConnected) close();
+  if (!wasConnected) close();
   return err;
 }
 
@@ -583,7 +583,7 @@ ErrorPtr ModbusMaster::readFileRecords(uint16_t aFileNo, uint16_t aFirstRecordNo
       }
     }
   }
-  if (wasConnected) close();
+  if (!wasConnected) close();
   return err;
 }
 
