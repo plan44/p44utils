@@ -55,6 +55,7 @@ namespace p44 {
       InvalidConnParams = 2000, ///< invalid connection parameters
       NoContext, ///< no valid modbus context
       InvalidSlaveAddr, ///< invalid slave address/address range
+      P44HeaderError, ///< invalid P44 header
     };
     static const char *domain() { return "Modbus"; }
     virtual const char *getErrorDomain() const { return ModBusError::domain(); };
@@ -244,12 +245,13 @@ namespace p44 {
     ///   i.e. when the file size is below <maxrecordno>*2 = 0xFFFF*2 = 128kB.
     uint8_t singleRecordLength;
     uint8_t neededSegments; ///< the number of segments needed for the current file
+    uint8_t recordsPerChunk; ///< the number of records that are be transmitted in a chunk
     uint16_t firstDataRecord; ///< the number of the first actual data record
-    uint16_t nextFailedRecord; ///< next failed record to retransmit (in multicast mode), 0 = none
-    uint32_t localSize; ///< the local file size, as obtained by readLocalFileInfo
+    uint32_t nextFailedRecord; ///< next failed DATA record (32bit, over all segments of the file) to retransmit (in multicast mode), 0 = none
+    uint32_t localFileSize; ///< the local file size, as obtained by readLocalFileInfo
     uint32_t localCRC32; ///< the local file's CRC32, as obtained by readLocalFileInfo
-    uint32_t expectedCRC32; ///< on write, this is the CRC32 expected as extracted from the p44header
-    uint32_t expectedSize; ///< on write, this is the CRC32 expected as extracted from the p44header
+    uint32_t remoteCRC32; ///< on write, this is the CRC32 expected as extracted from the p44header
+    uint32_t remoteFileSize; ///< on write, this is the CRC32 expected as extracted from the p44header
 
   public:
 
@@ -273,7 +275,7 @@ namespace p44 {
     /// @param aDataP the data to be written
     /// @param aDataLen the number of bytes (not records!) to be written
     /// @return Ok or error
-    ErrorPtr writeFile(uint16_t aFileNo, uint16_t aRecordNo, const uint8_t* aDataP, size_t aDataLen);
+    ErrorPtr writeLocalFile(uint16_t aFileNo, uint16_t aRecordNo, const uint8_t* aDataP, size_t aDataLen);
 
     /// Read data from file
     /// @param aFileNo the file number
@@ -281,19 +283,21 @@ namespace p44 {
     /// @param aDataP the data buffer to be read into
     /// @param aDataLen the number of bytes (not records!) to be read
     /// @return Ok or error
-    ErrorPtr readFile(uint16_t aFileNo, uint16_t aRecordNo, uint8_t* aDataP, size_t aDataLen);
+    ErrorPtr readLocalFile(uint16_t aFileNo, uint16_t aRecordNo, uint8_t* aDataP, size_t aDataLen);
 
     /// open local file for given file number and obtain needed file info
     /// @param aFileNo the file to access (one handler might be responsible for multiple files when numFiles>1)
-    /// @param aForWrite if set, file will be open for write after this call
-    ErrorPtr openLocalFile(uint16_t aFileNo, bool aForWrite);
+    /// @param aForLocalWrite if set, file will be open for write after this call
+    ErrorPtr openLocalFile(uint16_t aFileNo, bool aForLocalWrite);
 
     /// close the current local file, header info gets invalid
     void closeLocalFile();
 
     /// read info (size, CRC if using P44header) from local file
+    /// @param aInitialize if true, file layout info (segments, single record length...) will be initialized,
+    ///    if false, only size and CRC are updated
     /// @return Ok or error
-    ErrorPtr readLocalFileInfo();
+    ErrorPtr readLocalFileInfo(bool aInitialize);
 
     /// @return max number records to be transferred in a single request/response
     /// @note the return value is chosen to fit *and* be a nice number. Absolute max might be a bit higher.
@@ -307,10 +311,12 @@ namespace p44 {
 
     /// parse P44 header sent by remote peer to set up parameters of this file handler
     /// @param aDataP data to be parsed withing (at aParsePos)
-    /// @param aPos index into aDataP where to start parsing, will be updated after parsing
+    /// @param aPos index into aDataP where to start parsing
     /// @param aDataLen size of data at aDataP (parser will not read further)
+    /// @param aInitialize if true, file layout info (segments, single record length...) will be initialized,
+    ///    if false, the layout info is checked to match our version
     /// @return ok if no header expected or successfully parsed one, error otherwise
-    ErrorPtr parseP44Header(const uint8_t* aDataP, int& aPos, int aDataLen);
+    ErrorPtr parseP44Header(const uint8_t* aDataP, int aPos, int aDataLen, bool aInitialize);
 
     /// @param aChunkIndex an index (in terms of chunks as big as possible for one PDU) starting at 0
     /// @param aFileNo receives the file number (base number plus possible segment offset)
@@ -318,6 +324,22 @@ namespace p44 {
     /// @param aNumRecords receives the number of records (not bytes!)
     /// @return true if not EOF
     bool addressForMaxChunk(uint32_t aChunkIndex, uint16_t& aFileNo, uint16_t& aRecordNo, uint16_t& aNumRecords);
+
+    /// @return number of records (16-bit quantities) in the P44 header
+    uint16_t numP44HeaderRecords();
+
+    /// get address data for next block to retransmit from p44header
+    /// @param aFileNo receives the file number (base number plus possible segment offset)
+    /// @param aRecordNo receives the record number
+    /// @param aNumRecords receives the number of records (not bytes!)
+    /// @return true if there is a block to re-transmit, false if not (or no p44header)
+    bool addrForNextRetransmit(uint16_t& aFileNo, uint16_t& aRecordNo, uint16_t& aNumRecords);
+
+    /// Check if the file integrity is ok (by comparing remote and local sizes and CRCs)
+    /// @return true if integrity can be assumed
+    bool fileIntegrityOK();
+
+
 
 // TODO: remove unused ones of these
 //    uint32_t getLocalSize() { return localSize; };
