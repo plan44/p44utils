@@ -46,6 +46,7 @@ namespace p44 {
   {
     ErrorCode errorCode;
     string errorMessage;
+    string textCache; // only created on demand
   public:
 
     enum {
@@ -108,8 +109,6 @@ namespace p44 {
       return ErrorPtr(errP);
     };
 
-
-
     /// set formatted error message
     /// @param aFmt error message format string
     /// @param aArgs argument list for formatting
@@ -127,7 +126,7 @@ namespace p44 {
     ///   error code 0 from any domain means OK.
     ErrorCode getErrorCode() const;
 
-    /// get error domain
+    /// get error message
     /// @return the explicitly set error message, empty string if none is set.
     /// @note use description() to get a text at least showing the error domain and code if no message is set
     virtual const char *getErrorMessage() const;
@@ -139,6 +138,9 @@ namespace p44 {
     /// get the description of the error
     /// @return a description string. If an error message was not set, a standard string with the error domain and number will be shown
     virtual std::string description() const;
+
+    /// returns the error text c_str which is safe to use as long as the error object lives
+    const char* text();
 
     /// check for a specific error
     /// @param aDomain the domain or NULL to match any domain
@@ -155,10 +157,10 @@ namespace p44 {
     /// @return true if OK
     static bool isOK(ErrorPtr aError);
 
-    /// returns a error description in all cases, even if no error object is passed
+    /// returns a error description text in all cases, even if no error object is passed
     /// @param aError error pointer to check
-    /// @return "<none>" if NULL error object, description of error otherwise
-    static string text(ErrorPtr aError);
+    /// @return "<none>" if NULL error object, text() of error otherwise
+    static const char* text(ErrorPtr aError);
 
     /// factory function to create a explicit OK error (object with ErrorCode==0)
     /// @param aError if set and is !isOK(), then aError will be returned instead of OK

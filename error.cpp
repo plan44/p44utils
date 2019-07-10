@@ -30,14 +30,15 @@ using namespace p44;
 
 // MARK: - error base class
 
-Error::Error(ErrorCode aErrorCode)
+Error::Error(ErrorCode aErrorCode) :
+  errorCode(aErrorCode)
 {
-  errorCode = aErrorCode;
-  errorMessage.clear();
 }
 
 
-Error::Error(ErrorCode aErrorCode, const std::string &aErrorMessage)
+Error::Error(ErrorCode aErrorCode, const std::string &aErrorMessage) :
+  errorCode(aErrorCode),
+  errorMessage(aErrorMessage)
 {
   errorCode = aErrorCode;
   errorMessage = aErrorMessage;
@@ -47,12 +48,14 @@ Error::Error(ErrorCode aErrorCode, const std::string &aErrorMessage)
 void Error::setFormattedMessage(const char *aFmt, va_list aArgs, bool aAppend)
 {
   // now make the string
+  textCache.clear();
   string_format_v(errorMessage, aAppend, aFmt, aArgs);
 }
 
 
 void Error::prefixMessage(const char *aFmt, ...)
 {
+  textCache.clear();
   string s;
   va_list args;
   va_start(args, aFmt);
@@ -64,6 +67,7 @@ void Error::prefixMessage(const char *aFmt, ...)
 
 ErrorPtr Error::withPrefix(const char *aFmt, ...)
 {
+  textCache.clear();
   string s;
   va_list args;
   va_start(args, aFmt);
@@ -72,8 +76,6 @@ ErrorPtr Error::withPrefix(const char *aFmt, ...)
   errorMessage.insert(0, s);
   return ErrorPtr(this);
 }
-
-
 
 
 
@@ -115,10 +117,20 @@ string Error::description() const
 }
 
 
-string Error::text(ErrorPtr aError)
+const char* Error::text()
+{
+  if (textCache.empty()) {
+    textCache = description();
+  }
+  return textCache.c_str(); // is safe to return, as desc lives as error object member
+}
+
+
+
+const char* Error::text(ErrorPtr aError)
 {
   if (!aError) return "<none>";
-  return aError->description();
+  return aError->text();
 }
 
 
