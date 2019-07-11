@@ -52,14 +52,17 @@ namespace p44 {
     // 1000..1999 : modbus protocol exception codes, followed by libmodbus internal errors
     // 2000..     : p44 ModBus errors
     enum {
-      InvalidConnParams = 2000, ///< invalid connection parameters
+      SysErr = 0, ///< offset for syserrors
+      MBErr = 1000, ///< offset for modbus protocol exceptions (EMBX...) and libmodbus internal errors (EMB...)
+      P44Err = 2000, ///< offset for the P44 specific errors below
+      InvalidConnParams = P44Err, ///< invalid connection parameters
       NoContext, ///< no valid modbus context
       InvalidSlaveAddr, ///< invalid slave address/address range
       P44HeaderError, ///< invalid P44 header
     };
     static const char *domain() { return "Modbus"; }
     virtual const char *getErrorDomain() const { return ModBusError::domain(); };
-    ModBusError(ErrorCode aError) : Error(aError>MODBUS_ENOBASE ? aError-MODBUS_ENOBASE+1000 : aError, modbus_strerror((int)aError)) {
+    ModBusError(ErrorCode aError) : Error(aError>MODBUS_ENOBASE ? aError-MODBUS_ENOBASE+MBErr : aError, modbus_strerror((int)aError)) {
       prefixMessage("Modbus: ");
     };
   };
@@ -166,6 +169,17 @@ namespace p44 {
     /// @note the byte order in the registers must match the mode set with setFloatMode()
     void setAsDouble(uint16_t *aTwoRegs, double aDouble);
 
+    /// append message data
+    /// @param aDataP data to append, can be NULL to just append 0x00 bytes
+    /// @param aNumBytes number of bytes to append
+    /// @param aRsp append to response in this buffer
+    /// @param aRspLen on input: size of the reponse so far, will be updated
+    /// @return false if too much data
+    bool appendToMessage(const uint8_t *aDataP, int aNumBytes, ModBusPDU& aMsg, int& aMsgLen);
+
+
+  protected:
+
     /// build a exception response message
     /// @param aSft the slaveid/function/transactionid info
     /// @param aExceptionCode the modbus exception code
@@ -205,6 +219,10 @@ namespace p44 {
     /// start receiving messages as server/slave if possible
     virtual void startServing() { /* NOP in base class */ };
 
+    /// check if error is a communication error, that is, if resending a request might make sense
+    /// @return true if the error is a comm error (timeout, CRC, connection broken, etc.)
+    static bool isCommErr(ErrorPtr aError);
+
   private:
 
     void clearModbusContext();
@@ -226,6 +244,7 @@ namespace p44 {
     int numFiles; ///< number of files at the same path (with fileno appended)
     string filePath; ///< the local path of the file(s)
     bool useP44Header; ///< set if this file uses a P44 header
+    bool readOnly; ///< set if file is read-only
 
     /// ongoing transfer parameters
     uint16_t openBaseFileNo; ///< the currently open file (base number for segmented files)
@@ -260,7 +279,8 @@ namespace p44 {
     /// @param aNumFiles number of consecutive files (or groups of filenos of segmented files) the same path, differentiated by appended fileno
     /// @param aP44Header if set, first 8 16bit "registers" or "records" of the file are a file header containing overall file size and CRC
     /// @param aFilePath the local pathname of the file. If aNumFiles>1, the actual file number will have the file number appended
-    ModbusFileHandler(int aFileNo, int aMaxSegments, int aNumFiles, bool aP44Header, const string aFilePath);
+    /// @param aReadOnly if set, the file is read-only
+    ModbusFileHandler(int aFileNo, int aMaxSegments, int aNumFiles, bool aP44Header, const string aFilePath, bool aReadOnly = false);
 
     virtual ~ModbusFileHandler();
 
