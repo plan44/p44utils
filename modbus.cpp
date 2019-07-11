@@ -30,8 +30,10 @@
 
 #if ENABLE_MODBUS
 
+#include "application.hpp" // for temp dir path
 #include "serialcomm.hpp" // for parameter parsing
 #include "crc32.hpp"
+#include "utils.hpp"
 
 using namespace p44;
 
@@ -238,9 +240,11 @@ ErrorPtr ModbusConnection::connect()
     else {
       // act as TCP client or just serial connection
       if (modbus_connect(modbus)<0) {
-        err = ModBusError::err<ModBusError>(errno);
+        if (errno!=EINPROGRESS) {
+          err = ModBusError::err<ModBusError>(errno)->withPrefix("connecting: ");
+        }
       }
-      else {
+      if (Error::isOK(err)) {
         startServing(); // start serving in case this is a Modbus server
         connected = true;
       }
@@ -326,14 +330,14 @@ void ModbusConnection::buildExceptionResponse(sft_t &aSft, int aExceptionCode, c
 
 void ModbusConnection::buildExceptionResponse(sft_t &aSft, ErrorPtr aError, ModBusPDU& aRsp, int& aRspLen)
 {
-  if (!Error::isOK(aError) && aError->isDomain(ModBusError::domain())) {
+  if (Error::notOK(aError) && aError->isDomain(ModBusError::domain())) {
     int ex = (int)aError->getErrorCode()-ModBusError::MBErr;
     if (ex<MODBUS_EXCEPTION_MAX) {
       buildExceptionResponse(aSft, ex, aError->text(), aRsp, aRspLen);
     }
   }
   else {
-    buildExceptionResponse(aSft, MODBUS_EXCEPTION_SLAVE_OR_SERVER_FAILURE, "undefined error", aRsp, aRspLen);
+    buildExceptionResponse(aSft, MODBUS_EXCEPTION_SLAVE_OR_SERVER_FAILURE, Error::text(aError), aRsp, aRspLen);
   }
 }
 
@@ -523,11 +527,18 @@ ErrorPtr ModbusMaster::writeFileRecords(uint16_t aFileNo, uint16_t aFirstRecordN
     else {
       // add actual data
       appendToMessage(aDataP, bytes, req, reqLen);
-      req[lenIdx] = reqLen;
+      req[lenIdx] = reqLen-lenIdx-1;
       // send it
-      int rc = modbus_send_msg(modbus, req, reqLen);
+      int rc;
+      do {
+        rc = modbus_send_msg(modbus, req, reqLen);
+        // might return EAGAIN when broadcasting w/o waiting very fast
+      } while (isBroadCast() && rc<0 && errno==EAGAIN);
       if (rc<0) {
         err = Error::err<ModBusError>(errno)->withPrefix("sending write file record request: ");
+      }
+      else if (isBroadCast()) {
+        // TODO: might need some pacing here
       }
       else {
         ModBusPDU rsp;
@@ -538,14 +549,12 @@ ErrorPtr ModbusMaster::writeFileRecords(uint16_t aFileNo, uint16_t aFirstRecordN
         else if (rspLen>0) {
           rc = modbus_pre_check_confirmation(modbus, req, rsp, rspLen);
           if (rc>0) {
-            if (rsp[rc++]!=MODBUS_FC_WRITE_FILE_RECORD) rc = EMBBADEXC;
+            if (rsp[rc++]!=MODBUS_FC_WRITE_FILE_RECORD) { rc = -1; errno = EMBBADEXC; }
             else {
-              if (rsp[rc]+rc != rspLen) rc = EMBBADDATA; // wrong length
+              if (rsp[rc]+rc+1 != rspLen) { rc = -1; errno = EMBBADDATA; }
               else {
                 // everything following, including length must be equal to request
-                if (memcmp(req+lenIdx, rsp+rc, (size_t)req[lenIdx])!=0) {
-                  rc = EMBBADDATA;
-                }
+                if (memcmp(req+lenIdx, rsp+rc, (size_t)req[lenIdx])!=0) { rc = -1; errno = EMBBADDATA; }
               }
             }
           }
@@ -569,7 +578,7 @@ ErrorPtr ModbusMaster::readFileRecords(uint16_t aFileNo, uint16_t aFirstRecordNo
   if (Error::isOK(err)) {
     ModBusPDU req;
     int reqLen = modbus_build_request_basis(modbus, MODBUS_FC_READ_FILE_RECORD, req);
-    int lenIdx = reqLen;
+    int lenIdx = reqLen++;
     req[reqLen++] = 0x06; // subrecord reference type
     req[reqLen++] = aFileNo>>8;
     req[reqLen++] = aFileNo & 0xFF;
@@ -582,11 +591,11 @@ ErrorPtr ModbusMaster::readFileRecords(uint16_t aFileNo, uint16_t aFirstRecordNo
       err = Error::err<ModBusError>(EMBBADEXC, "read file record response would exceed PDU size");
     }
     else {
-      req[lenIdx] = reqLen;
+      req[lenIdx] = reqLen-lenIdx-1;
       // send the read request
       int rc = modbus_send_msg(modbus, req, reqLen);
       if (rc<0) {
-        err = Error::err<ModBusError>(errno)->withPrefix("sending write file record request: ");
+        err = Error::err<ModBusError>(errno)->withPrefix("sending read file record request: ");
       }
       else {
         ModBusPDU rsp;
@@ -597,14 +606,18 @@ ErrorPtr ModbusMaster::readFileRecords(uint16_t aFileNo, uint16_t aFirstRecordNo
         else if (rspLen>0) {
           rc = modbus_pre_check_confirmation(modbus, req, rsp, rspLen);
           if (rc>0) {
-            if (rsp[rc++]!=MODBUS_FC_READ_FILE_RECORD) rc = EMBBADEXC;
+            if (
+              (rsp[rc++]!=MODBUS_FC_READ_FILE_RECORD) ||
+              (rsp[rc++]!=bytes+2) ||
+              (rsp[rc++]!=bytes+1) ||
+              (rsp[rc++]!=0x06)
+            ) {
+              rc = -1;
+              errno = EMBBADDATA;
+            }
             else {
-              // check length
-              if (bytes!=rsp[rc++]) rc = EMBBADDATA; // wrong length
-              else {
-                // get the data
-                memcpy(aDataP, rsp+rc, bytes);
-              }
+              // get the data
+              memcpy(aDataP, rsp+rc, bytes);
             }
           }
         }
@@ -624,17 +637,29 @@ ErrorPtr ModbusMaster::readFileRecords(uint16_t aFileNo, uint16_t aFirstRecordNo
 
 #define WRITE_RECORD_RETRIES 3
 #define READ_RECORD_RETRIES 3
+#define WRITE_RETRY_DELAY (500*MilliSecond)
+#define READ_RETRY_DELAY (500*MilliSecond)
+#define READ_TIMEDOUT_RETRY_DELAY (10*Second)
 
 ErrorPtr ModbusMaster::sendFile(const string& aLocalFilePath, int aFileNo, bool aUseP44Header)
 {
-  ErrorPtr err;
-
   // create a file handler
   ModbusFileHandlerPtr handler = ModbusFileHandlerPtr(new ModbusFileHandler(aFileNo, 0, 1, aUseP44Header, aLocalFilePath));
-  err = handler->openLocalFile(aFileNo, false); // for local read
+  // send the file
+  LOG(LOG_NOTICE, "Sending file '%s' to fileNo %d in slave %d", aLocalFilePath.c_str(), aFileNo, getSlaveAddress());
+  return sendFile(handler, aFileNo);
+}
+
+
+
+ErrorPtr ModbusMaster::sendFile(ModbusFileHandlerPtr aHandler, int aFileNo)
+{
+  ErrorPtr err;
+
+  err = aHandler->openLocalFile(aFileNo, false); // for local read
   if (Error::isOK(err)) {
     uint8_t p44hdr[32];
-    int hdrSz = handler->generateP44Header(p44hdr, 32);
+    int hdrSz = aHandler->generateP44Header(p44hdr, 32);
     if (hdrSz<0) {
       err = Error::err<ModBusError>(EMBBADEXC, "cannot generate header");
     }
@@ -645,7 +670,9 @@ ErrorPtr ModbusMaster::sendFile(const string& aLocalFilePath, int aFileNo, bool 
         err = writeFileRecords(aFileNo, 0, (hdrSz+1)/2, p44hdr);
         if (!isCommErr(err)) break;
         retries--;
-        if (retries<=0) return err;
+        if (retries<=0) break;
+        MainLoop::sleep(WRITE_RETRY_DELAY);
+        modbus_flush(modbus);
       };
     }
     if (Error::isOK(err)) {
@@ -657,10 +684,11 @@ ErrorPtr ModbusMaster::sendFile(const string& aLocalFilePath, int aFileNo, bool 
       if (Error::isOK(err)) {
         while (true) {
           uint16_t fileNo, recordNo, recordLen;
-          if (!handler->addressForMaxChunk(chunkIndex, fileNo, recordNo, recordLen)) break; // done
+          if (aHandler->isEOFforChunk(chunkIndex, false)) break; // local EOF reached
+          aHandler->addressForMaxChunk(chunkIndex, fileNo, recordNo, recordLen);
           // get data from local file
-          err = handler->readLocalFile(fileNo, recordNo, buf, recordLen*2);
-          if (!Error::isOK(err)) return err;
+          err = aHandler->readLocalFile(fileNo, recordNo, buf, recordLen*2);
+          if (Error::notOK(err)) break;
           chunkIndex++;
           // write to the remote
           int retries = WRITE_RECORD_RETRIES;
@@ -668,8 +696,11 @@ ErrorPtr ModbusMaster::sendFile(const string& aLocalFilePath, int aFileNo, bool 
             err = writeFileRecords(fileNo, recordNo, recordLen, buf);
             if (!isCommErr(err)) break;
             retries--;
-            if (retries<=0) return err;
+            if (retries<=0) break;
+            MainLoop::sleep(WRITE_RETRY_DELAY);
+            modbus_flush(modbus);
           }
+          if (Error::notOK(err)) break;
         }
       }
       if (!wasConnected) close();
@@ -681,8 +712,69 @@ ErrorPtr ModbusMaster::sendFile(const string& aLocalFilePath, int aFileNo, bool 
 
 ErrorPtr ModbusMaster::receiveFile(const string& aLocalFilePath, int aFileNo, bool aUseP44Header)
 {
-  // TODO: implement
-  return Error::err<ModBusError>(EMBXILFUN, "%%%% not yet implemented");
+  ErrorPtr err;
+
+  bool wasConnected = isConnected();
+  if (!wasConnected) err = connect();
+  if (Error::isOK(err)) {
+    // create a file handler
+    ModbusFileHandlerPtr handler = ModbusFileHandlerPtr(new ModbusFileHandler(aFileNo, 0, 1, aUseP44Header, aLocalFilePath));
+    ModBusPDU buf;
+    if (aUseP44Header) {
+      // read p44header first
+      int retries = READ_RECORD_RETRIES;
+      while (retries--) {
+        err = readFileRecords(aFileNo, 0, handler->numP44HeaderRecords(), buf);
+        if (!isCommErr(err)) break;
+        if (Error::isError(err, ModBusError::domain(), ETIMEDOUT)) {
+          // extra wait, because this is most likely CRC calculation at the other end
+          MainLoop::sleep(READ_TIMEDOUT_RETRY_DELAY);
+        }
+        MainLoop::sleep(READ_RETRY_DELAY);
+        modbus_flush(modbus);
+      }
+      if (Error::isOK(err)) {
+        // "write" header (i.e. set up handler for receiving)
+        err = handler->writeLocalFile(aFileNo, 0, buf, handler->numP44HeaderRecords()*2);
+      }
+    }
+    if (Error::isOK(err)) {
+      // header received or none required, now received data
+      ModBusPDU buf;
+      uint32_t chunkIndex = 0;
+      if (Error::isOK(err)) {
+        while (true) {
+          uint16_t fileNo, recordNo, recordLen;
+          if (handler->isEOFforChunk(chunkIndex, true)) break; // remote EOF reached (known via p44Header)
+          handler->addressForMaxChunk(chunkIndex, fileNo, recordNo, recordLen);
+          // read from the remote
+          int retries = READ_RECORD_RETRIES;
+          while (true) {
+            err = readFileRecords(fileNo, recordNo, recordLen, buf);
+            if (!isCommErr(err)) break;
+            retries--;
+            if (retries<=0) break;
+            MainLoop::sleep(READ_RETRY_DELAY);
+            modbus_flush(modbus);
+          }
+          if (!aUseP44Header && Error::isError(err, ModBusError::domain(), ModBusError::MBErr+MODBUS_EXCEPTION_ILLEGAL_DATA_ADDRESS)) {
+            // EMBXILADD signals EOF
+            err.reset();
+            break;
+          }
+          if (Error::notOK(err)) break;
+          // store data in the local file
+          err = handler->writeLocalFile(fileNo, recordNo, buf, recordLen*2);
+          if (Error::notOK(err)) return err;
+          chunkIndex++;
+        }
+        ErrorPtr ferr = handler->finalize();
+        if (Error::isOK(err)) err = ferr;
+      }
+    }
+  }
+  if (!wasConnected) close();
+  return err;
 }
 
 
@@ -693,12 +785,15 @@ ErrorPtr ModbusMaster::broadcastFile(const SlaveAddrList& aSlaveAddrList, const 
   bool wasConnected = isConnected();
   if (!wasConnected) err = connect();
   if (Error::isOK(err)) {
+    ModbusFileHandlerPtr handler = ModbusFileHandlerPtr(new ModbusFileHandler(aFileNo, 0, 1, aUseP44Header, aLocalFilePath));
     if (!aUseP44Header) {
       // simple one-by-one transfer, not real broadcast
+      LOG(LOG_NOTICE, "Sending file '%s' to fileNo %d in %d slaves, no broadcast (no p44header)", aLocalFilePath.c_str(), aFileNo, aSlaveAddrList.size());
       for (SlaveAddrList::const_iterator pos = aSlaveAddrList.begin(); pos!=aSlaveAddrList.end(); ++pos) {
         setSlaveAddress(*pos);
-        ErrorPtr fileErr = sendFile(aLocalFilePath, aFileNo, false);
-        if (!Error::isOK(fileErr)) {
+        LOG(LOG_NOTICE, "- sending file to slave %d", *pos);
+        ErrorPtr fileErr = sendFile(handler, aFileNo);
+        if (Error::notOK(fileErr)) {
           LOG(LOG_ERR, "Error sending file '%s' to fileNo %d in slave %d: %s", aLocalFilePath.c_str(), aFileNo, *pos, fileErr->text());
           err = fileErr; // return most recent error
         }
@@ -708,11 +803,10 @@ ErrorPtr ModbusMaster::broadcastFile(const SlaveAddrList& aSlaveAddrList, const 
       // with p44header, we can do real broadcast of the data
       LOG(LOG_NOTICE, "Sending file '%s' to fileNo %d as broadcast", aLocalFilePath.c_str(), aFileNo);
       setSlaveAddress(MODBUS_BROADCAST_ADDRESS);
-      err = sendFile(aLocalFilePath, aFileNo, true);
+      err = sendFile(handler, aFileNo);
       if (Error::isOK(err)) {
         // query each slave for possibly missing records, send them
         LOG(LOG_NOTICE, "Broadcast complete - now verifying successful transmission");
-        ModbusFileHandlerPtr handler = ModbusFileHandlerPtr(new ModbusFileHandler(aFileNo, 0, 1, true, ""));
         for (SlaveAddrList::const_iterator pos = aSlaveAddrList.begin(); pos!=aSlaveAddrList.end(); ++pos) {
           ErrorPtr slerr;
           LOG(LOG_NOTICE, "- Verifying with slave %d", *pos);
@@ -724,37 +818,44 @@ ErrorPtr ModbusMaster::broadcastFile(const SlaveAddrList& aSlaveAddrList, const 
             while (retries--) {
               slerr = readFileRecords(aFileNo, 0, handler->numP44HeaderRecords(), buf);
               if (!isCommErr(slerr)) break;
-            }
-            if (Error::isOK(slerr)) {
-              // retransmit failed block, if any
-              slerr = handler->parseP44Header(buf, 0, MODBUS_MAX_PDU_LENGTH, false);
-              if (Error::isOK(slerr)) {
-                uint16_t fileNo, recordNo, recordLen;
-                if (handler->addrForNextRetransmit(fileNo, recordNo, recordLen)) {
-                  // retransmit that block
-                  handler->readLocalFile(fileNo, recordNo, buf, recordLen);
-                  retries = WRITE_RECORD_RETRIES;
-                  while (retries--) {
-                    slerr = writeFileRecords(fileNo, recordNo, recordLen, buf);
-                    if (!isCommErr(slerr)) break;
-                  }
-                }
-                else {
-                  // no more retransmits pending for this slave
-                  if (handler->fileIntegrityOK()) {
-                    LOG(LOG_NOTICE, "- Sending file '%s' to fileNo %d in slave %d confirmed SUCCESSFUL!", aLocalFilePath.c_str(), aFileNo, *pos);
-                  }
-                  else {
-                    err = Error::err<ModBusError>(EMBBADCRC, "CRC or size mismatch after retransmitting all blocks");
-                  }
-                  break; // done with this slave
-                }
+              if (Error::isError(slerr, ModBusError::domain(), ETIMEDOUT)) {
+                // extra wait, because this is most likely CRC calculation at the other end
+                MainLoop::sleep(READ_TIMEDOUT_RETRY_DELAY);
               }
+              MainLoop::sleep(READ_RETRY_DELAY);
+              modbus_flush(modbus);
+            }
+            if (Error::notOK(slerr)) break; // failed, done with this slave
+            // retransmit failed block, if any
+            slerr = handler->parseP44Header(buf, 0, MODBUS_MAX_PDU_LENGTH, false);
+            if (Error::notOK(slerr)) break; // failed, done with this slave
+            uint16_t fileNo, recordNo, recordLen;
+            if (handler->addrForNextRetransmit(fileNo, recordNo, recordLen)) {
+              // retransmit that block
+              handler->readLocalFile(fileNo, recordNo, buf, recordLen*2);
+              retries = WRITE_RECORD_RETRIES;
+              while (retries--) {
+                slerr = writeFileRecords(fileNo, recordNo, recordLen, buf);
+                if (!isCommErr(slerr)) break;
+                MainLoop::sleep(WRITE_RETRY_DELAY);
+                modbus_flush(modbus);
+              }
+              if (Error::notOK(slerr)) break; // failed, done with this slave
+            }
+            else {
+              // no more retransmits pending for this slave
+              if (handler->fileIntegrityOK()) {
+                LOG(LOG_NOTICE, "- Sending file '%s' to fileNo %d in slave %d confirmed SUCCESSFUL!", aLocalFilePath.c_str(), aFileNo, *pos);
+              }
+              else {
+                err = Error::err<ModBusError>(EMBBADCRC, "CRC or size mismatch after retransmitting all blocks");
+              }
+              break; // done with this slave
             }
           } // while bad blocks
           if (slerr) {
-            LOG(LOG_ERR, "Failed sending file '%s' to fileNo %d in slave %d: %s", aLocalFilePath.c_str(), aFileNo, *pos, err->text());
-            err = slerr;
+            LOG(LOG_ERR, "Failed sending file No %d in slave %d: %s", aFileNo, *pos, slerr->text());
+            err = slerr->withPrefix("Slave %d: ", *pos);
           }
         } // for all slaves
       } // if broadcast ok
@@ -874,12 +975,16 @@ bool ModbusSlave::modbusFdPollHandler(int aFD, int aPollFlags)
     if (reqLen<0 && errno==EAGAIN) {
       // no complete message yet
       MLMicroSeconds timeout = MainLoop::timeValToMainLoopTime(modbus_get_select_timeout(modbusRcv));
-      if (timeout!=Never) rcvTimeoutTicket.executeOnce(boost::bind(&ModbusSlave::modbusTimeoutHandler, this), timeout);
+      if (timeout==Never)
+        rcvTimeoutTicket.cancel();
+      else
+        rcvTimeoutTicket.executeOnce(boost::bind(&ModbusSlave::modbusTimeoutHandler, this), timeout);
       return true;
     }
     if (reqLen>0) {
+      rcvTimeoutTicket.cancel();
       // got request
-      LOG(LOG_NOTICE, "Modbus received request, %d bytes", reqLen);
+      FOCUSLOG("Modbus received request, %d bytes", reqLen);
       // - process it
       int rspLen = modbus_process_request(modbus, modbusReq, reqLen, modbusRsp, modbus_slave_function_handler, this);
       /* Send response, if any */
@@ -887,16 +992,16 @@ bool ModbusSlave::modbusFdPollHandler(int aFD, int aPollFlags)
         int rc = modbus_send_msg(modbus, modbusRsp, rspLen);
         if (rc<0) {
           ErrorPtr err = Error::err<ModBusError>(errno)->withPrefix("sending response: ");
-          LOG(LOG_ERR, "Modbus response sending error: %s", Error::text(err));
+          LOG(LOG_ERR, "Error sending Modbus response: %s", Error::text(err));
         }
       }
     }
     else if (reqLen<0) {
       ErrorPtr err = Error::err<ModBusError>(errno);
-      if (errno!=ECONNRESET) LOG(LOG_ERR, "Modbus request receiving error: %s", Error::text(err));
+      if (errno!=ECONNRESET) LOG(LOG_ERR, "Error receiving Modbus request: %s", Error::text(err));
     }
     else {
-      LOG(LOG_DEBUG, "Modbus - message for other slave - ignored, reqLen = %d", reqLen);
+      FOCUSLOG("Modbus - message for other slave - ignored, reqLen = %d", reqLen);
     }
     // done with this message
     if (aPollFlags & POLLHUP) {
@@ -924,7 +1029,7 @@ bool ModbusSlave::modbusFdPollHandler(int aFD, int aPollFlags)
 
 void ModbusSlave::modbusTimeoutHandler()
 {
-  LOG(LOG_DEBUG, "modbus timeout");
+  FOCUSLOG("modbus timeout");
   if (modbus) {
     MLMicroSeconds timeout = MainLoop::timeValToMainLoopTime(modbus_get_select_timeout(modbusRcv));
     if (timeout!=Never) rcvTimeoutTicket.executeOnce(boost::bind(&ModbusSlave::modbusRecoveryHandler, this), timeout);
@@ -934,7 +1039,7 @@ void ModbusSlave::modbusTimeoutHandler()
 
 void ModbusSlave::modbusRecoveryHandler()
 {
-  LOG(LOG_DEBUG, "modbus recovery timeout");
+  FOCUSLOG("modbus recovery timeout");
   if (modbus) modbus_flush(modbus);
   startMsgReception();
 }
@@ -961,7 +1066,7 @@ extern "C" {
 
 int ModbusSlave::handleRawRequest(sft_t &aSft, int aOffset, const ModBusPDU& aReq, int aReqLen, ModBusPDU& aRsp)
 {
-  LOG(LOG_NOTICE, "Received request with FC=%d/0x%02x, for slaveid=%d, transactionId=%d", aSft.function, aSft.function, aSft.slave, aSft.t_id);
+  FOCUSLOG("Received request with FC=%d/0x%02x, for slaveid=%d, transactionId=%d", aSft.function, aSft.function, aSft.slave, aSft.t_id);
   int rspLen = 0;
   // allow custom request handling to override anything
   if (rawRequestHandler) {
@@ -1017,7 +1122,7 @@ const char* ModbusSlave::accessHandler(modbus_data_access_t access, int addr, in
       }
     }
   }
-  if (!Error::isOK(err)) {
+  if (Error::notOK(err)) {
     errStr = err->description();
     return errStr.c_str(); // return error text to be returned with
   }
@@ -1124,17 +1229,30 @@ void ModbusSlave::setBit(int aAddress, bool aInput, bool aBitValue)
 // MARK: - File transfer handling
 
 
+ModbusFileHandlerPtr ModbusSlave::addFileHandler(ModbusFileHandlerPtr aFileHandler)
+{
+  fileHandlers.push_back(aFileHandler);
+  return aFileHandler;
+}
+
+
+#if DEBUG
+  // simulate file blocks
+  #define SIMULATE_MISSING_RECORDS_FROM 210
+  #define SIMULATE_MISSING_RECORDS_COUNT 100
+#endif
+
 bool ModbusSlave::handleFileAccess(sft_t &aSft, int aOffset, const ModBusPDU& aReq, int aReqLen, ModBusPDU& aRsp, int &aRspLen)
 {
   ErrorPtr err;
   // req[aOffset] is the function code = first byte of actual request
   int e = aOffset+2+aReq[aOffset+1]; // first byte outside
   int i = aOffset+2; // first subrecord
-  // - prepare response base
+  // - prepare response base (up to and including function code)
   buildResponseBase(aSft, aRsp, aRspLen);
-  aRsp[aRspLen++] = aSft.function;
   int lenIdx = aRspLen++; // actual length will be filled when all subrecords are processed
-  // - prepare response header (before subrecords)
+  // - process subrecords
+  bool pendingFinalisations = false;
   while (i<e) {
     // read the subrecord
     int subRecordIdx = i;
@@ -1158,7 +1276,6 @@ bool ModbusSlave::handleFileAccess(sft_t &aSft, int aOffset, const ModBusPDU& aR
     }
     else {
       // process request with handler
-      ErrorPtr err;
       uint16_t recordno = (aReq[i]<<8) + aReq[i+1]; i += 2;
       uint16_t recordlen = (aReq[i]<<8) + aReq[i+1]; i += 2;
       uint16_t dataBytes = recordlen*2;
@@ -1166,10 +1283,23 @@ bool ModbusSlave::handleFileAccess(sft_t &aSft, int aOffset, const ModBusPDU& aR
         // Write to file
         const uint8_t* writeDataP = aReq+i;
         i += dataBytes;
+        #if SIMULATE_MISSING_RECORDS_FROM && SIMULATE_MISSING_RECORDS_COUNT
+        // simulate missing blocks in brodcast mode
+        if (
+          aSft.slave==0 &&
+          recordno>=SIMULATE_MISSING_RECORDS_FROM &&
+          recordno<SIMULATE_MISSING_RECORDS_FROM+SIMULATE_MISSING_RECORDS_COUNT
+        ) {
+          LOG(LOG_WARNING, "**** SIMULATING MISSING recordNo %d", recordno);
+          err = TextError::err("simulated missing recordNo %d", recordno);
+          break;
+        }
+        #endif
         err = handler->writeLocalFile(fileno, recordno, writeDataP, dataBytes);
-        if (!Error::isOK(err)) break; // error
-        // echoe the subrequest
-        appendToMessage(aRsp+subRecordIdx, i-subRecordIdx, aRsp, aRspLen);
+        if (Error::notOK(err)) break; // error
+        // echo the subrequest
+        appendToMessage(aReq+subRecordIdx, i-subRecordIdx, aRsp, aRspLen);
+        if (handler->needFinalizing()) pendingFinalisations = true;
       }
       else if (aSft.function==MODBUS_FC_READ_FILE_RECORD) {
         // Read from file
@@ -1184,7 +1314,7 @@ bool ModbusSlave::handleFileAccess(sft_t &aSft, int aOffset, const ModBusPDU& aR
           break;
         }
         err = handler->readLocalFile(fileno, recordno, readDataP, dataBytes);
-        if (!Error::isOK(err)) break; // error
+        if (Error::notOK(err)) break; // error
       }
       else {
         return false; // unknown function code
@@ -1193,11 +1323,35 @@ bool ModbusSlave::handleFileAccess(sft_t &aSft, int aOffset, const ModBusPDU& aR
   } // all subrequests
   if (Error::isOK(err)) {
     // complete response
-    aRsp[lenIdx] = aRspLen-lenIdx; // set length of data
+    aRsp[lenIdx] = aRspLen-lenIdx-1; // set length of data
+    // return the answer BEFORE possibly doing finalisations
+    if (aSft.slave!=MODBUS_BROADCAST_ADDRESS && aRspLen>0) {
+      int rc = modbus_send_msg(modbus, aRsp, aRspLen);
+      if (rc>=0) {
+        aRspLen = 0; // sent, caller must not send a result!
+      }
+      else {
+        err = Error::err<ModBusError>(errno)->withPrefix("sending file record response: ");
+        LOG(LOG_ERR, "Modbus error sending response for file record request: %s", Error::text(err));
+      }
+    }
+    // do finalisations that might need more time than modbus request timeout now
+    if (pendingFinalisations) {
+      for (FileHandlersList::iterator pos = fileHandlers.begin(); pos!=fileHandlers.end(); ++pos) {
+        ModbusFileHandlerPtr handler = *pos;
+        if (handler->needFinalizing()) {
+          err = handler->finalize();
+          if (Error::notOK(err)) {
+            LOG(LOG_ERR, "Error finalizing file: %s", err->text());
+          }
+        }
+      }
+    }
   }
   else {
     // failed
-    buildExceptionResponse(aSft, err, aRsp, aRspLen, true); // rebuild, we've started response already above
+    LOG(LOG_INFO, "file access (FC=0x%02x) failed: %s", aSft.function, err->text());
+    buildExceptionResponse(aSft, err, aRsp, aRspLen);
   }
   return true; // handled
 }
@@ -1205,17 +1359,28 @@ bool ModbusSlave::handleFileAccess(sft_t &aSft, int aOffset, const ModBusPDU& aR
 
 // MARK: - ModbusFileHandler
 
-ModbusFileHandler::ModbusFileHandler(int aFileNo, int aMaxSegments, int aNumFiles, bool aP44Header, const string aFilePath, bool aReadOnly) :
+ModbusFileHandler::ModbusFileHandler(int aFileNo, int aMaxSegments, int aNumFiles, bool aP44Header, const string aFilePath, bool aReadOnly, const string aFinalBasePath) :
   fileNo(aFileNo),
   maxSegments(aMaxSegments),
   numFiles(aNumFiles),
   useP44Header(aP44Header),
   filePath(aFilePath),
+  finalBasePath(aFinalBasePath),
   readOnly(aReadOnly),
-  openBaseFileNo(0),
+  currentBaseFileNo(0),
   openFd(-1),
   validP44Header(false),
-  nextFailedRecord(false)
+  singleRecordLength(0),
+  neededSegments(1),
+  recordsPerChunk(1),
+  firstDataRecord(0),
+  remoteMissingRecord(noneMissing),
+  remoteCRC32(0),
+  remoteFileSize(0),
+  localFileSize(0),
+  localCRC32(invalidCRC),
+  nextExpectedDataRecord(0), // expect start at very beginning
+  pendingFinalisation(false)
 {
 }
 
@@ -1232,26 +1397,180 @@ bool ModbusFileHandler::handlesFileNo(uint16_t aFileNo)
 }
 
 
-
 ErrorPtr ModbusFileHandler::writeLocalFile(uint16_t aFileNo, uint16_t aRecordNo, const uint8_t *aDataP, size_t aDataLen)
 {
-  ErrorPtr err;
+  LOG(LOG_INFO, "writeFile: #%d, record=%d, bytes=%zu, starting with 0x%02X", aFileNo, aRecordNo, aDataLen, *aDataP);
   if (readOnly) {
-    err = Error::err<ModBusError>(EMBXILFUN, "read only file");
+    return Error::err<ModBusError>(EMBXILFUN, "read only file");
   }
-  // TODO: actually implememnt - dummy only for now
-  LOG(LOG_DEBUG, "writeFile: #%d, record=%d, bytes=%zu, starting with 0x%02X", aFileNo, aRecordNo, aDataLen, *aDataP);
-  return err;
+  ErrorPtr err = openLocalFile(aFileNo, true);
+  if (Error::notOK(err)) return err;
+  uint32_t recordNo =
+    ((aFileNo-currentBaseFileNo)<<16) +
+    aRecordNo;
+  // check for writing header
+  if (useP44Header) {
+    if (!validP44Header || recordNo<firstDataRecord) {
+      // accessing header
+      if (recordNo>=numP44HeaderRecords()) {
+        return Error::err<ModBusError>(EMBXILADD, "must write P44 header before writing data records");
+      }
+      if (recordNo!=0 && aDataLen<numP44HeaderRecords()*2) {
+        return Error::err<ModBusError>(EMBXILADD, "p44 header must be written in one piece, records 0..%d", numP44HeaderRecords()-1);
+      }
+      // complete header present, parse it to init data receiving state
+      err = parseP44Header(aDataP, 0, (int)aDataLen, true);
+      if (Error::notOK(err)) return err;
+      if (!finalBasePath.empty()) {
+        // writing to temp file, remove previous version first
+        FOCUSLOG("- writing to temp file, erasing it first");
+        closeLocalFile();
+        if (unlink(filePathFor(aFileNo, true).c_str())<0) {
+          return Error::err<ModBusError>(errno)->withPrefix("erasing temp file before writing: ");
+        }
+        err = openLocalFile(aFileNo, true);
+        if (Error::notOK(err)) return err->withPrefix("re-creating temp file after erasing: ");
+      }
+      // truncate file to size found in header if it is bigger
+      readLocalFileInfo(false);
+      if (localFileSize>remoteFileSize) {
+        FOCUSLOG("- local file is already bigger than p44header declares -> truncating from %u to %u", localFileSize, remoteFileSize);
+        if (ftruncate(openFd, remoteFileSize)<0) {
+          return Error::err<ModBusError>(errno)->withPrefix("truncating file");
+        }
+        localFileSize = remoteFileSize;
+      }
+      return ErrorPtr();
+    }
+    // not accessing header data
+    recordNo -= firstDataRecord;
+  }
+  // now recordno is relative to the file DATA beginning (i.e., excluding header, if any)
+  if (useP44Header && validP44Header && nextExpectedDataRecord==noneMissing && fileIntegrityOK()) {
+    LOG(LOG_WARNING, "fileNo %d already completely written -> suppress writing", currentBaseFileNo);
+    closeLocalFile();
+    return ErrorPtr();
+  }
+  // - seek to position
+  uint32_t filePos = recordNo*singleRecordLength*2;
+  if (lseek(openFd, filePos , SEEK_SET)<0) {
+    return Error::err<ModBusError>(errno)->withPrefix("seeking write position");
+  }
+  // - check for writing over actual file length
+  if (useP44Header && filePos+aDataLen>remoteFileSize) {
+    LOG(LOG_INFO, "last chunk of file: ignoring %lu excessive bytes in chunk", filePos+aDataLen-remoteFileSize);
+    aDataLen = remoteFileSize-filePos; // only write as much as the actual file size allows, ignore rest of chunk
+  }
+  // - write date to file
+  ssize_t by = write(openFd, aDataP, aDataLen);
+  if (by<0) {
+    return Error::err<ModBusError>(errno)->withPrefix("writing to local file");
+  }
+  else if (by!=aDataLen) {
+    return Error::err<ModBusError>(EMBBADEXC, "could only write %zd/%zu bytes", by, aDataLen);
+  }
+  // File writing is successful
+  // - update file size
+  filePos += aDataLen;
+  if (filePos>localFileSize) localFileSize = filePos;
+  if (useP44Header) {
+    // - update missing record state
+    if (recordNo>=nextExpectedDataRecord) {
+      // if there are some missing in between, track them
+      while (nextExpectedDataRecord<recordNo) {
+        missingDataRecords.push_back(nextExpectedDataRecord);
+        LOG(LOG_INFO, "- missing DATA recordNo %u -> added to list (total missing=%zu)", nextExpectedDataRecord, missingDataRecords.size());
+        nextExpectedDataRecord += recordAddrsPerChunk();
+      }
+      // update expected next record
+      nextExpectedDataRecord = recordNo+(((uint32_t)aDataLen+2*singleRecordLength-1)/2/singleRecordLength);
+    }
+    else if (recordNo<nextExpectedDataRecord) {
+      // is a re-write of an earlier block, remove it from our list if present
+      for (RecordNoList::iterator pos = missingDataRecords.begin(); pos!=missingDataRecords.end(); ++pos) {
+        if (*pos==recordNo) {
+          missingDataRecords.erase(pos);
+          LOG(LOG_INFO, "- successful retransmit of previously missing DATA recordNo %u -> removed from list (remaining missing=%zu)", recordNo, missingDataRecords.size());
+          if (missingDataRecords.size()==0) {
+            LOG(LOG_NOTICE, "- all missing blocks now retransmitted. File size=%u (expected=%u)", localFileSize, remoteFileSize);
+          }
+          break;
+        }
+      }
+    }
+    if (nextExpectedDataRecord*singleRecordLength*2>=remoteFileSize && missingDataRecords.empty()) {
+      // file is complete
+      nextExpectedDataRecord = noneMissing;
+      pendingFinalisation = true;
+      // - update info (CRC)
+      err = readLocalFileInfo(false);
+      if (Error::notOK(err)) return err;
+      LOG(LOG_NOTICE, "Successful p44header-controlled file transfer - ready for finalizing");
+    }
+  }
+  return ErrorPtr();
 }
 
 
 ErrorPtr ModbusFileHandler::readLocalFile(uint16_t aFileNo, uint16_t aRecordNo, uint8_t *aDataP, size_t aDataLen)
 {
-  // TODO: actually implememnt - dummy only for now
-  LOG(LOG_DEBUG, "readFile: #%d, record=%d, bytes=%zu, returning all 0x42", aFileNo, aRecordNo, aDataLen);
-  memset(aDataP, 0x42, aDataLen);
+  ErrorPtr err;
+
+  LOG(LOG_INFO, "readFile: #%d, record=%d, bytes=%zu", aFileNo, aRecordNo, aDataLen);
+  uint16_t baseFileNo = baseFileNoFor(aFileNo);
+  if (baseFileNo!=currentBaseFileNo) {
+    // new file, need to re-open early
+    err = openLocalFile(aFileNo, false);
+    if (Error::notOK(err)) return err;
+  }
+  uint32_t recordNo =
+    ((aFileNo-currentBaseFileNo)<<16) +
+    aRecordNo;
+  // check for reading header
+  // Note: we want to avoid reading from opening the file if it still has valid P44header info,
+  //   because reading the header after finalisation must return the finalized status
+  //   of the written file (which might be a temp file)
+  if (useP44Header) {
+    if (!validP44Header) {
+      openLocalFile(aFileNo, false);
+      if (Error::notOK(err)) return err;
+    }
+    if (recordNo<firstDataRecord) {
+      if (recordNo+aDataLen>numP44HeaderRecords()*2) {
+        return Error::err<ModBusError>(EMBXILADD, "out of header record range 0..%d", numP44HeaderRecords()-1);
+      }
+      ModBusPDU buf;
+      generateP44Header(buf, MODBUS_MAX_PDU_LENGTH);
+      memcpy(aDataP, buf+recordNo*2, aDataLen);
+      return ErrorPtr();
+    }
+    // not accessing header data
+    recordNo -= firstDataRecord;
+  }
+  // now latest we need the file to be open
+  openLocalFile(aFileNo, false);
+  if (Error::notOK(err)) return err;
+  // now recordno is relative to the file DATA beginning (i.e., excluding header, if any)
+  // - seek to position
+  uint32_t filePos = recordNo*singleRecordLength*2;
+  if (filePos>=localFileSize) {
+    return Error::err<ModBusError>(EMBXILADD, "cannot read past file end");
+  }
+  if (lseek(openFd, filePos , SEEK_SET)<0) {
+    return Error::err<ModBusError>(errno)->withPrefix("seeking read position: ");
+  }
+  // - read
+  ssize_t by = read(openFd, aDataP, aDataLen);
+  if (by<0) {
+    return Error::err<ModBusError>(errno)->withPrefix("reading from local file: ");
+  }
+  if (by<aDataLen) {
+    // fill rest of data with 0xFF
+    memset(aDataP+by, 0xFF, aDataLen-by);
+  }
   return ErrorPtr();
 }
+
 
 
 uint16_t ModbusFileHandler::baseFileNoFor(uint16_t aFileNo)
@@ -1261,10 +1580,23 @@ uint16_t ModbusFileHandler::baseFileNoFor(uint16_t aFileNo)
 }
 
 
-string ModbusFileHandler::filePathFor(uint16_t aFileNo)
+string ModbusFileHandler::filePathFor(uint16_t aFileNo, bool aTemp)
 {
-  if (numFiles==1) return filePath;
-  return string_format("%s%05u", filePath.c_str(), aFileNo);
+  string path;
+  if (!finalBasePath.empty()) {
+    if (aTemp) {
+      path = Application::sharedApplication()->tempPath(filePath);
+    }
+    else {
+      path = finalBasePath + filePath.c_str();
+    }
+  }
+  else {
+    path = filePath;
+  }
+  if (numFiles==1) return path;
+  // path must contain a % specifier for rendering aFileNo
+  return string_format(path.c_str(), aFileNo);
 }
 
 
@@ -1272,15 +1604,21 @@ ErrorPtr ModbusFileHandler::openLocalFile(uint16_t aFileNo, bool aForLocalWrite)
 {
   ErrorPtr err;
   uint16_t baseFileNo = baseFileNoFor(aFileNo);
-  string path = filePathFor(baseFileNo);
-  if (baseFileNo!=openBaseFileNo) {
+  if (baseFileNo!=currentBaseFileNo) {
+    // Note: switching files invalidates the header, just re-opening must NOT invalidate it!
+    if (currentBaseFileNo!=0) {
+      validP44Header = false;
+    }
     closeLocalFile();
-    openFd = open(path.c_str(), aForLocalWrite ? O_RDWR : O_RDONLY);
+  }
+  if (openFd<0) {
+    string path = filePathFor(baseFileNo, aForLocalWrite); // writing occurs on temp version of the file (if any is set)
+    openFd = open(path.c_str(), aForLocalWrite ? O_RDWR|O_CREAT : O_RDONLY, S_IRUSR|S_IWUSR|S_IRGRP|S_IROTH);
     if (openFd<0) {
       err = SysError::errNo("cannot open local file: ");
     }
     else {
-      openBaseFileNo = baseFileNo;
+      currentBaseFileNo = baseFileNo;
       if (!aForLocalWrite) {
         // reading local file info for sending to remote
         err = readLocalFileInfo(true);
@@ -1296,7 +1634,6 @@ void ModbusFileHandler::closeLocalFile()
   if (openFd>=0) {
     close(openFd);
     openFd = -1;
-    validP44Header = false;
   }
 }
 
@@ -1306,6 +1643,12 @@ uint16_t ModbusFileHandler::maxRecordsPerRequest()
   // The PDU max size is MODBUS_MAX_PDU_LENGTH (253).
   // A nice payload size below that is 200 = 100 records
   return 100;
+}
+
+
+uint16_t ModbusFileHandler::recordAddrsPerChunk()
+{
+  return maxRecordsPerRequest()/singleRecordLength;
 }
 
 
@@ -1319,7 +1662,6 @@ uint16_t ModbusFileHandler::maxRecordsPerRequest()
 //   6    12     1  uint8_t   (MSByte) number of segments (consecutive file numbers for the same file)
 //   6    13     1  uint8_t   (LSByte) number of uint16_t quantities addressed by a record number
 //   7    14     2  uint16_t  record number of first actual file data record. Only from this record number onwards singleRecordLength>0 is active
-static const uint16_t p44HeaderNextFailedBlockOffset = 16;
 //   8    16     4  uint32_t  number of first failed record (over all segments!) in multicast write. 0=none (because record 0 is always in header)
 //  10    20                  HEADER SIZE
 static const uint16_t p44HeaderSize = 20;
@@ -1361,11 +1703,16 @@ int ModbusFileHandler::generateP44Header(uint8_t* aDataP, int aMaxDataLen)
   // record number of first actual file data record
   aDataP[i++] = (firstDataRecord>>8) & 0xFF;
   aDataP[i++] = (firstDataRecord) & 0xFF;
-  // number of next failed record in multicast write. 0=none
-  aDataP[i++] = (nextFailedRecord>>24) & 0xFF;
-  aDataP[i++] = (nextFailedRecord>>16) & 0xFF;
-  aDataP[i++] = (nextFailedRecord>>8) & 0xFF;
-  aDataP[i++] = (nextFailedRecord) & 0xFF;
+  // number of first missing record in multicast write, or noneMissing if all complete
+  uint32_t localMissingRecord = noneMissing;
+  if (!missingDataRecords.empty()) {
+    // report first missing record
+    localMissingRecord = missingDataRecords.front();
+  }
+  aDataP[i++] = (localMissingRecord>>24) & 0xFF;
+  aDataP[i++] = (localMissingRecord>>16) & 0xFF;
+  aDataP[i++] = (localMissingRecord>>8) & 0xFF;
+  aDataP[i++] = (localMissingRecord) & 0xFF;
   // done
   return i;
 }
@@ -1380,7 +1727,6 @@ ErrorPtr ModbusFileHandler::parseP44Header(const uint8_t* aDataP, int aPos, int 
     }
     // check magic
     if (
-      aPos+p44HeaderSize>aDataLen ||
       aDataP[aPos]!=p44HeaderMagic[0] ||
       aDataP[aPos+1]!=p44HeaderMagic[1] ||
       aDataP[aPos+2]!=p44HeaderMagic[2] ||
@@ -1415,8 +1761,13 @@ ErrorPtr ModbusFileHandler::parseP44Header(const uint8_t* aDataP, int aPos, int 
       singleRecordLength = srl;
       firstDataRecord = fdr;
       // derive recordsPerChunk
-      int recordAddrsPerChunk = maxRecordsPerRequest()/singleRecordLength; // how many record *addresses* are in a chunk
-      recordsPerChunk = recordAddrsPerChunk*singleRecordLength; // how many records (2-byte data items) are in a chunk
+      recordsPerChunk = recordAddrsPerChunk()*singleRecordLength; // how many records (2-byte data items) are in a chunk
+      // reset missing records tracking
+      missingDataRecords.clear();
+      nextExpectedDataRecord = 0; // no data received yet (header not counted in DATA record numbers
+      localCRC32 = invalidCRC;
+      pendingFinalisation = false;
+      validP44Header = true;
     }
     else {
       if (nseg!=neededSegments || srl!=singleRecordLength || firstDataRecord!=fdr) {
@@ -1427,48 +1778,95 @@ ErrorPtr ModbusFileHandler::parseP44Header(const uint8_t* aDataP, int aPos, int 
         );
       }
     }
-    // number of next failed record in multicast write. 0=none
-    nextFailedRecord =
+    // number of next remotely detected missing record in multicast write. 0=none
+    remoteMissingRecord =
       (aDataP[aPos]<<24) +
       (aDataP[aPos+1]<<16) +
       (aDataP[aPos+2]<<8) +
       (aDataP[aPos+3]);
     aPos += 4;
+    FOCUSLOG(
+      "File no %d / '%s' successfully read p44 header:\n"
+      "- remoteFileSize = %u, CRC=0x%08x\n"
+      "- neededSegments=%u, maxSegments=%u\n"
+      "- firstDataRecord=%u, singleRecordLength=%u, recordsPerChunk=%u, maxRecordsPerRequest=%hu\n"
+      "- remoteMissingRecord=%u/0x%x",
+      fileNo, filePathFor(fileNo, true).c_str(),
+      remoteFileSize, remoteCRC32,
+      neededSegments, maxSegments,
+      firstDataRecord, singleRecordLength, recordsPerChunk, maxRecordsPerRequest(),
+      remoteMissingRecord, remoteMissingRecord
+    );
   }
   return ErrorPtr();
 }
 
 
+ErrorPtr ModbusFileHandler::updateLocalCRC()
+{
+  localCRC32 = invalidCRC;
+  if (openFd<0) return TextError::err("finalize: file not open");
+  // also obtain the CRC
+  lseek(openFd, 0, SEEK_SET);
+  Crc32 crc;
+  uint32_t bytes = localFileSize;
+  size_t crcBufSz = 8*1024;
+  uint8_t crcbuf[crcBufSz];
+  while (bytes>0) {
+    int rc = (int)read(openFd, crcbuf, bytes>crcBufSz ? crcBufSz : bytes);
+    if (rc<0) {
+      return SysError::errNo("cannot read file data for CRC: ");
+    }
+    crc.addBytes(rc, crcbuf);
+    bytes -= rc;
+  }
+  localCRC32 = crc.getCRC();
+  return ErrorPtr();
+}
+
+
+ErrorPtr ModbusFileHandler::finalize()
+{
+  if (pendingFinalisation && useP44Header) {
+    updateLocalCRC();
+    pendingFinalisation = false;
+    LOG(LOG_NOTICE,
+        "Successful p44header-controlled file transfer finalisation:\n"
+        "- path='%s'\n"
+        "- finalpath='%s'\n"
+        "- local: size=%u, CRC=0x%08x\n"
+        "- remote: size=%u, CRC=0x%08x",
+        filePathFor(currentBaseFileNo, true).c_str(),
+        filePathFor(currentBaseFileNo, false).c_str(),
+        localFileSize, localCRC32,
+        remoteFileSize, remoteCRC32
+    );
+    // make sure file is properly closed before executing callback
+    closeLocalFile();
+    if (fileWriteCompleteCB) {
+      fileWriteCompleteCB(
+        currentBaseFileNo, // the fileNo accessed
+        filePathFor(currentBaseFileNo, false), // the final path
+        finalBasePath.empty() ? "" : filePathFor(currentBaseFileNo, true) // the temp path, if any
+      );
+    }
+  }
+  else {
+    closeLocalFile();
+  }
+  return (!useP44Header || fileIntegrityOK()) ? ErrorPtr() : Error::err<ModBusError>(EMBBADCRC, "File CRC mismatch in p44header");
+}
 
 
 ErrorPtr ModbusFileHandler::readLocalFileInfo(bool aInitialize)
 {
   if (openFd<0) return TextError::err("readLocalFileInfo: file not open");
-  validP44Header = false; // forget current header info
+  if (aInitialize) validP44Header = false; // forget current header info
   struct stat s;
   fstat(openFd, &s);
   localFileSize = (uint32_t)s.st_size;
-  remoteFileSize = localFileSize; // by default, assume the remote file will be same size
-  localCRC32 = 0;
-  if (useP44Header) {
-    // also obtain the CRC
-    lseek(openFd, 0, SEEK_SET);
-    Crc32 crc;
-    uint32_t bytes = localFileSize;
-    size_t crcBufSz = 8*1024;
-    uint8_t crcbuf[crcBufSz];
-    while (bytes>0) {
-      int rc = (int)read(openFd, crcbuf, bytes>crcBufSz ? crcBufSz : bytes);
-      if (rc<0) {
-        return SysError::errNo("cannot read file data for CRC: ");
-        break;
-      }
-      crc.addBytes(rc, crcbuf);
-      bytes -= rc;
-    }
-    localCRC32 = crc.getCRC();
-  }
   if (aInitialize) {
+    updateLocalCRC();
     // most compatible mode, ok for small files
     singleRecordLength = 1;
     neededSegments = 1;
@@ -1488,36 +1886,42 @@ ErrorPtr ModbusFileHandler::readLocalFileInfo(bool aInitialize)
         return Error::err<ModBusError>(EMBXILVAL, "file exceeds max allowed segments");
       }
     }
+    validP44Header = true; // is valid now
   }
-  validP44Header = true; // is valid now
   return ErrorPtr();
 }
 
 
-bool ModbusFileHandler::addressForMaxChunk(uint32_t aChunkIndex, uint16_t& aFileNo, uint16_t& aRecordNo, uint16_t& aNumRecords)
+bool ModbusFileHandler::isEOFforChunk(uint32_t aChunkIndex, bool aRemotely)
 {
-  if (openBaseFileNo==0) return false; // no file is open
-  // check for EOF
-  if (remoteFileSize>0 && aChunkIndex*recordsPerChunk>=remoteFileSize) return false;
+  if (currentBaseFileNo==0) return true; // no file is current -> EOF
+  if (!validP44Header) return false; // we don't know where the EOF is -> assume NOT EOF
+  return (aChunkIndex*recordsPerChunk*2) >= (aRemotely ? remoteFileSize : localFileSize);
+}
+
+
+void ModbusFileHandler::addressForMaxChunk(uint32_t aChunkIndex, uint16_t& aFileNo, uint16_t& aRecordNo, uint16_t& aNumRecords)
+{
+  if (currentBaseFileNo==0) return; // no file is current
   // now calculate record and file no out of chunk no
   int recordAddrsPerChunk = recordsPerChunk/singleRecordLength; // how many record *addresses* are in a chunk
   uint32_t rawRecordNo = firstDataRecord + aChunkIndex*recordAddrsPerChunk;
   uint16_t segmentOffset = rawRecordNo>>16; // recordno only has 16 bits
   // assign results
-  aFileNo = openBaseFileNo+segmentOffset;
+  aFileNo = currentBaseFileNo+segmentOffset;
   aRecordNo = rawRecordNo & 0xFFFF;
   aNumRecords = recordsPerChunk;
-  return true;
 }
 
 
 bool ModbusFileHandler::addrForNextRetransmit(uint16_t& aFileNo, uint16_t& aRecordNo, uint16_t& aNumRecords)
 {
-  if (!validP44Header || nextFailedRecord) return false;
-  uint16_t seg = (nextFailedRecord>>16) & 0xFFFF;
+  if (!validP44Header || remoteMissingRecord==noneMissing) return false;
+  uint32_t rec = remoteMissingRecord+firstDataRecord;
+  uint16_t seg = (rec>>16) & 0xFFFF;
   if (seg>=neededSegments) return false;
   aFileNo = fileNo + seg;
-  aRecordNo = nextFailedRecord & 0xFFFF;
+  aRecordNo = rec & 0xFFFF;
   aNumRecords = recordsPerChunk;
   return true;
 }

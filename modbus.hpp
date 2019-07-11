@@ -130,6 +130,9 @@ namespace p44 {
     /// @return the currently set slave address
     int getSlaveAddress() { return slaveAddress; };
 
+    /// @return true if slave address is set to broadcast
+    bool isBroadCast() { return slaveAddress == MODBUS_BROADCAST_ADDRESS; };
+
     /// enable accepting connections (TCP only)
     /// @param aAccept true if TCP servere
     void acceptConnections(bool aAccept) { doAcceptConnections = aAccept; };
@@ -168,15 +171,6 @@ namespace p44 {
     /// @param aDouble the new floating point value
     /// @note the byte order in the registers must match the mode set with setFloatMode()
     void setAsDouble(uint16_t *aTwoRegs, double aDouble);
-
-    /// append message data
-    /// @param aDataP data to append, can be NULL to just append 0x00 bytes
-    /// @param aNumBytes number of bytes to append
-    /// @param aRsp append to response in this buffer
-    /// @param aRspLen on input: size of the reponse so far, will be updated
-    /// @return false if too much data
-    bool appendToMessage(const uint8_t *aDataP, int aNumBytes, ModBusPDU& aMsg, int& aMsgLen);
-
 
   protected:
 
@@ -236,6 +230,15 @@ namespace p44 {
   };
 
 
+  class ModbusFileHandler;
+  typedef boost::intrusive_ptr<ModbusFileHandler> ModbusFileHandlerPtr;
+
+  /// Callback executed when a file writing completes
+  /// @param aFileNo the file number that was written
+  /// @param aFinalFilePath the final destination path of the file (not yet valid if aTempFilePath is non-empty)
+  /// @param aTempFilePath if the file was written to a temp file, this is the file path of the temp file.
+  ///   The handler usually wants to copy or move the temp file to the final destination path
+  typedef boost::function<void (uint16_t aFileNo, const string aFinalFilePath, const string aTempFilePath)> ModbusFileWriteCompleteCB;
 
   class ModbusFileHandler : public P44Obj
   {
@@ -243,11 +246,12 @@ namespace p44 {
     int maxSegments; ///< the number of segments, i.e. consecutive file numbers after fileNo + 1 which belong to the same file
     int numFiles; ///< number of files at the same path (with fileno appended)
     string filePath; ///< the local path of the file(s)
+    string finalBasePath; ///< final base path (including final separator, if any)
     bool useP44Header; ///< set if this file uses a P44 header
     bool readOnly; ///< set if file is read-only
 
     /// ongoing transfer parameters
-    uint16_t openBaseFileNo; ///< the currently open file (base number for segmented files)
+    uint16_t currentBaseFileNo; ///< the currently open file (base number for segmented files)
     int openFd; ///< the open file descriptor
 
     /// data for/from P44 header
@@ -266,11 +270,19 @@ namespace p44 {
     uint8_t neededSegments; ///< the number of segments needed for the current file
     uint8_t recordsPerChunk; ///< the number of records that are be transmitted in a chunk
     uint16_t firstDataRecord; ///< the number of the first actual data record
-    uint32_t nextFailedRecord; ///< next failed DATA record (32bit, over all segments of the file) to retransmit (in multicast mode), 0 = none
-    uint32_t localFileSize; ///< the local file size, as obtained by readLocalFileInfo
-    uint32_t localCRC32; ///< the local file's CRC32, as obtained by readLocalFileInfo
+    uint32_t remoteMissingRecord; ///< next missing record number (32bit, over all segments of the file) to retransmit (in multicast mode), or noneMissing
+    static const uint32_t noneMissing = 0xFFFFFFFF; ///< signals no missing record in remoteMissingRecord and file complete in nextExpectedDataRecord
     uint32_t remoteCRC32; ///< on write, this is the CRC32 expected as extracted from the p44header
     uint32_t remoteFileSize; ///< on write, this is the CRC32 expected as extracted from the p44header
+    // local info
+    uint32_t localFileSize; ///< the local file size, as obtained by readLocalFileInfo
+    static const uint32_t invalidCRC = 0xFFFFFFFF; ///< signals invalid CRC
+    uint32_t localCRC32; ///< the local file's CRC32, as obtained by readLocalFileInfo
+    typedef std::list<uint32_t> RecordNoList;
+    RecordNoList missingDataRecords; ///< list of DATA record numbers of chunks that were missing in the ongoing file receive (chunk might be more than 1 record!)
+    uint32_t nextExpectedDataRecord; ///< the next DATA record number we expect to get. If next received is >nextExpectedRecord, the records in between are saved into missingRecords
+    bool pendingFinalisation; ///< set if file must be finalized (CRC updated)
+    ModbusFileWriteCompleteCB fileWriteCompleteCB; ///< called when a file writing completes
 
   public:
 
@@ -280,9 +292,16 @@ namespace p44 {
     /// @param aP44Header if set, first 8 16bit "registers" or "records" of the file are a file header containing overall file size and CRC
     /// @param aFilePath the local pathname of the file. If aNumFiles>1, the actual file number will have the file number appended
     /// @param aReadOnly if set, the file is read-only
-    ModbusFileHandler(int aFileNo, int aMaxSegments, int aNumFiles, bool aP44Header, const string aFilePath, bool aReadOnly = false);
+    /// @param aFinalBasePath if set, writing the file is done in temp dir at /tmp/<aFilePath>,
+    ///   and only when complete the file is copied to <aFinalBasePath><aFilePath> (note that there is no delimiter inserted automatically in between!)
+    ModbusFileHandler(int aFileNo, int aMaxSegments, int aNumFiles, bool aP44Header, const string aFilePath, bool aReadOnly = false, const string aFinalBasePath = "");
 
     virtual ~ModbusFileHandler();
+
+    /// set callback to be executed when a file write completes successfully
+    /// @param aFileWriteCompleteCB the callback
+    /// @note the callback is called AFTER the modbus request completing the file has been answered
+    void setFileWriteCompleteCB(ModbusFileWriteCompleteCB aFileWriteCompleteCB) { fileWriteCompleteCB = aFileWriteCompleteCB; };
 
     /// check if a particular file number is handled by this filehandler
     /// @param aFileNo the file number to check
@@ -313,15 +332,32 @@ namespace p44 {
     /// close the current local file, header info gets invalid
     void closeLocalFile();
 
-    /// read info (size, CRC if using P44header) from local file
+    /// @return true when file needs finalisation
+    bool needFinalizing() { return pendingFinalisation; }
+
+
+    /// Update the local CRC
+    /// @return Ok or error
+    /// @note file must be open
+    ErrorPtr updateLocalCRC();
+
+    /// Finalize the local file (update CRC...)
+    /// @return Ok or error
+    /// @note file must be open, will be closed afterwards
+    ErrorPtr finalize();
+
+    /// read info (size) from local file
     /// @param aInitialize if true, file layout info (segments, single record length...) will be initialized,
-    ///    if false, only size and CRC are updated
+    ///    if false, only size is updated
     /// @return Ok or error
     ErrorPtr readLocalFileInfo(bool aInitialize);
 
     /// @return max number records to be transferred in a single request/response
     /// @note the return value is chosen to fit *and* be a nice number. Absolute max might be a bit higher.
     uint16_t maxRecordsPerRequest();
+
+    /// @return number of record addresses covered by a single chunk
+    uint16_t recordAddrsPerChunk();
 
     /// generate P44 header from local information
     /// @param aDataP where to generate the header to
@@ -338,12 +374,18 @@ namespace p44 {
     /// @return ok if no header expected or successfully parsed one, error otherwise
     ErrorPtr parseP44Header(const uint8_t* aDataP, int aPos, int aDataLen, bool aInitialize);
 
+
+    /// @param aChunkIndex an index (in terms of chunks as big as possible for one PDU) starting at 0
+    /// @param aRemotely if set, remote file size is the reference
+    /// @return true if chunk indicates at or past EOF, false otherwise (also if file size is unknown)
+    /// @note only works for remote when a valid p44header has been parsed before
+    bool isEOFforChunk(uint32_t aChunkIndex, bool aRemotely);
+
     /// @param aChunkIndex an index (in terms of chunks as big as possible for one PDU) starting at 0
     /// @param aFileNo receives the file number (base number plus possible segment offset)
     /// @param aRecordNo receives the record number
     /// @param aNumRecords receives the number of records (not bytes!)
-    /// @return true if not EOF
-    bool addressForMaxChunk(uint32_t aChunkIndex, uint16_t& aFileNo, uint16_t& aRecordNo, uint16_t& aNumRecords);
+    void addressForMaxChunk(uint32_t aChunkIndex, uint16_t& aFileNo, uint16_t& aRecordNo, uint16_t& aNumRecords);
 
     /// @return number of records (16-bit quantities) in the P44 header
     uint16_t numP44HeaderRecords();
@@ -359,23 +401,13 @@ namespace p44 {
     /// @return true if integrity can be assumed
     bool fileIntegrityOK();
 
-
-
-// TODO: remove unused ones of these
-//    uint32_t getLocalSize() { return localSize; };
-//    uint32_t getExpectedSize() { return expectedSize; };
-//    uint16_t getFirstDataRecord() { return firstDataRecord; };
-//    uint8_t getSingleRecordLength() { return singleRecordLength; };
-//    uint8_t getNeededSegments() { return neededSegments; };
-
   private:
 
-    string filePathFor(uint16_t aFileNo);
+    string filePathFor(uint16_t aFileNo, bool aTemp);
     uint16_t baseFileNoFor(uint16_t aFileNo);
 
 
   };
-  typedef boost::intrusive_ptr<ModbusFileHandler> ModbusFileHandlerPtr;
 
 
   class ModbusMaster : public ModbusConnection
@@ -500,10 +532,13 @@ namespace p44 {
     ///   Not suitable to run from mainloop, use a thread!
     ErrorPtr broadcastFile(const SlaveAddrList& aSlaveAddrList, const string& aLocalFilePath, int aFileNo, bool aUseP44Header);
 
+  private:
+
+    ErrorPtr sendFile(ModbusFileHandlerPtr aHandler, int aFileNo);
+
+
   };
   typedef boost::intrusive_ptr<ModbusMaster> ModbusMasterPtr;
-
-
 
 
 
@@ -561,7 +596,8 @@ namespace p44 {
 
     /// add a file handler
     /// @param aFileHandler a file handler object to be used for handling READ_FILE_RECORD/WRITE_FILE_RECORD requests
-    void addFileHandler(ModbusFileHandlerPtr aFileHandler);
+    /// @return the file handler added (same as aFileHandler)
+    ModbusFileHandlerPtr addFileHandler(ModbusFileHandlerPtr aFileHandler);
 
     /// close the modbus connection
     virtual void close() P44_OVERRIDE;
