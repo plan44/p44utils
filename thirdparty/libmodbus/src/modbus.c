@@ -544,6 +544,9 @@ static int _modbus_receive_dosteps(modbus_rcv_t* rcvctx)
 
 int modbus_receive_msg(modbus_t *ctx, uint8_t *msg, msg_type_t msg_type)
 {
+    if (ctx->slave == MODBUS_BROADCAST_ADDRESS) {
+        return 0; // do not wait for confirmation
+    }
     modbus_rcv_t* rcvctx = _modbus_receive_new(ctx, msg, msg_type);
     if (!rcvctx) return -1;
     return _modbus_receive_dosteps(rcvctx);
@@ -672,6 +675,8 @@ int check_confirmation(modbus_t *ctx, uint8_t *req,
     int rc;
     int rsp_length_computed;
     int function;
+
+    if (rsp_length == 0) return 0; /* empty confirmation message (=none, in broadcast case) is ok */
 
     /* check basic confirmation format */
     int offset = modbus_pre_check_confirmation(ctx, req, rsp, rsp_length);
@@ -876,7 +881,10 @@ int modbus_process_request(modbus_t *ctx,
         return -1;
     }
 
-    return func_handler(ctx, &sft, offset, req, req_length, rsp, func_handler_context);
+    int rsp_length = func_handler(ctx, &sft, offset, req, req_length, rsp, func_handler_context);
+
+    /* Suppress any responses when the request was a broadcast */
+    return (sft.slave == MODBUS_BROADCAST_ADDRESS) ? 0 : rsp_length;
 }
 
 
@@ -1210,8 +1218,7 @@ static int reg_mapping_handler_ex(modbus_t* ctx, sft_t *sft, int offset, const u
             errTxt);
     }
 
-    /* Suppress any responses when the request was a broadcast */
-    return (sft->slave == MODBUS_BROADCAST_ADDRESS) ? 0 : rsp_length;
+    return rsp_length;
 }
 
 
