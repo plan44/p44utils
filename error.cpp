@@ -40,8 +40,6 @@ Error::Error(ErrorCode aErrorCode, const std::string &aErrorMessage) :
   errorCode(aErrorCode),
   errorMessage(aErrorMessage)
 {
-  errorCode = aErrorCode;
-  errorMessage = aErrorMessage;
 }
 
 
@@ -78,13 +76,6 @@ ErrorPtr Error::withPrefix(const char *aFmt, ...)
 }
 
 
-
-ErrorCode Error::getErrorCode() const
-{
-  return errorCode;
-}
-
-
 const char *Error::domain()
 {
   return "Error_baseClass";
@@ -101,7 +92,6 @@ const char *Error::getErrorMessage() const
 {
   return errorMessage.c_str();
 }
-
 
 
 string Error::description() const
@@ -122,9 +112,8 @@ const char* Error::text()
   if (textCache.empty()) {
     textCache = description();
   }
-  return textCache.c_str(); // is safe to return, as desc lives as error object member
+  return textCache.c_str(); // is safe to return, as textCache lives as error object member
 }
-
 
 
 const char* Error::text(ErrorPtr aError)
@@ -134,26 +123,16 @@ const char* Error::text(ErrorPtr aError)
 }
 
 
-
 bool Error::isError(const char *aDomain, ErrorCode aErrorCode) const
 {
   return aErrorCode==errorCode && (aDomain==NULL || isDomain(aDomain));
 }
 
 
-
 bool Error::isDomain(const char *aDomain) const
 {
   return strcmp(aDomain, getErrorDomain())==0;
 }
-
-
-
-bool Error::isOK(ErrorPtr aError)
-{
-  return (aError==NULL || aError->getErrorCode()==0);
-}
-
 
 
 bool Error::isError(ErrorPtr aError, const char *aDomain, ErrorCode aErrorCode)

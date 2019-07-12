@@ -124,7 +124,14 @@ namespace p44 {
     /// get error code
     /// @return the error code. Note that error codes are unique only within the same error domain.
     ///   error code 0 from any domain means OK.
-    ErrorCode getErrorCode() const;
+    inline ErrorCode getErrorCode() const { return errorCode; }
+
+    /// @return true if error is OK code (= no error)
+    inline bool isOK() { return errorCode==OK; };
+
+    /// @return true if error is a real error (not the OK code)
+    inline bool notOK() { return errorCode!=OK; };
+
 
     /// get error message
     /// @return the explicitly set error message, empty string if none is set.
@@ -155,7 +162,12 @@ namespace p44 {
     /// checks for OK condition, which means either no error object assigned at all to the smart ptr, or ErrorCode==0
     /// @param aError error pointer to check
     /// @return true if OK
-    static bool isOK(ErrorPtr aError);
+    static inline bool isOK(ErrorPtr aError) { return (aError==NULL || aError->isOK()); };
+
+    /// checks for error (not OK) condition, which means aError assigned but not == 0 == OK
+    /// @param aError error pointer to check
+    /// @return true if this is a real error
+    static inline bool notOK(ErrorPtr aError) { return aError && aError->notOK(); }
 
     /// returns a error description text in all cases, even if no error object is passed
     /// @param aError error pointer to check
