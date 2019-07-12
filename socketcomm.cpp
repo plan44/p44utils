@@ -394,7 +394,7 @@ ErrorPtr SocketComm::initiateConnection()
     err = connectNextAddress();
   }
 done:
-  if (!Error::isOK(err) && connectionStatusHandler) {
+  if (Error::notOK(err) && connectionStatusHandler) {
     connectionStatusHandler(this, err);
   }
   // return it

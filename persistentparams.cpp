@@ -338,7 +338,7 @@ ErrorPtr PersistentParams::saveToStore(const char *aParentIdentifier, bool aMult
         }
       }
     }
-    if (!Error::isOK(err)) {
+    if (Error::notOK(err)) {
       LOG(LOG_ERR, "saveToStore: %s - failed: %s", sql.c_str(), err->text());
     }
   }
@@ -367,7 +367,7 @@ ErrorPtr PersistentParams::deleteFromStore()
   if (Error::isOK(err)) {
     err = deleteChildren();
   }
-  if (!Error::isOK(err)) {
+  if (Error::notOK(err)) {
     LOG(LOG_ERR, "deleteFromStore: table=%s, ROWID=%lld - failed: %s", tableName(), rowid, err->text());
   }
   return err;

@@ -259,7 +259,7 @@ bool FdComm::transmitString(const string &aString)
 {
   ErrorPtr err;
   size_t res = transmitBytes(aString.length(), (uint8_t *)aString.c_str(), err);
-  if (!Error::isOK(err)) {
+  if (Error::notOK(err)) {
     FOCUSLOG("FdComm: Error sending data: %s", err->text());
   }
   return Error::isOK(err) && res==aString.length(); // ok if no error and all bytes sent

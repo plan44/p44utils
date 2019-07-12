@@ -93,7 +93,7 @@ void UbusServer::restartServer()
 void UbusServer::retryStartServer()
 {
   ErrorPtr err = startServer();
-  if (!Error::isOK(err)) {
+  if (Error::notOK(err)) {
     restartServer();
   }
 }

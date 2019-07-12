@@ -239,7 +239,7 @@ void SysCommandPin::applyState(bool aState)
 
 void SysCommandPin::stateUpdated(ErrorPtr aError, const string &aOutputString)
 {
-  if (!Error::isOK(aError)) {
+  if (Error::notOK(aError)) {
     LOG(LOG_WARNING, "SysCommandPin set state=%d: command (%s) execution failed: %s", pinState, stateSetCommand(pinState).c_str(), aError->text());
   }
   else {
@@ -361,7 +361,7 @@ void AnalogSysCommandPin::applyValue(double aValue)
 
 void AnalogSysCommandPin::valueUpdated(ErrorPtr aError, const string &aOutputString)
 {
-  if (!Error::isOK(aError)) {
+  if (Error::notOK(aError)) {
     LOG(LOG_WARNING, "AnalogSysCommandPin set value=%.2f: command (%s) execution failed: %s", pinValue, valueSetCommand(pinValue).c_str(), aError->text());
   }
   else {

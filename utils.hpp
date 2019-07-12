@@ -66,6 +66,9 @@ namespace p44 {
   /// @note if the path is not empty, and does not yet end in a path delimiter, a path delimiter will be appended first
   void pathstring_format_append(std::string &aPathToAppendTo, const char *aFormat, ...) __printflike(2,3);
 
+  /// make path a directory, i.e. make sure it ends in a path delimiter
+  /// @param aPathToMakeDir
+  void pathstring_make_dir(std::string &aPathToMakeDir);
 
   /// strftime with output to std::string
   /// @param aFormat strftime-style format string

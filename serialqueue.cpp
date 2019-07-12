@@ -403,7 +403,7 @@ size_t SerialOperationQueue::standardTransmitter(size_t aNumBytes, const uint8_t
   if (Error::isOK(err)) {
     while (aNumBytes>0) {
       res = serialComm->transmitBytes(aNumBytes, aBytes+numWritten, err);
-      if (!Error::isOK(err)) {
+      if (Error::notOK(err)) {
         FOCUSLOG("Error writing serial data: %s", err->text());
         break;
       }
@@ -442,7 +442,7 @@ size_t SerialOperationQueue::standardReceiver(size_t aMaxBytes, uint8_t *aBytes)
 		// get number of bytes available
     ErrorPtr err;
     gotBytes = serialComm->receiveBytes(aMaxBytes, aBytes, err);
-    if (!Error::isOK(err)) {
+    if (Error::notOK(err)) {
       FOCUSLOG("- Error reading serial: %s", err->text());
       return 0;
     }

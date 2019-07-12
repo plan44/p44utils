@@ -252,7 +252,7 @@ ErrorPtr SerialComm::establishConnection()
 bool SerialComm::requestConnection()
 {
   ErrorPtr err = establishConnection();
-  if (!Error::isOK(err)) {
+  if (Error::notOK(err)) {
     if (!reconnecting) {
       LOG(LOG_ERR, "SerialComm: requestConnection() could not open connection now: %s -> entering background retry mode", err->text());
       reconnecting = true;
@@ -355,7 +355,7 @@ void SerialComm::reconnectHandler()
 {
   if (reconnecting) {
     ErrorPtr err = establishConnection();
-    if (!Error::isOK(err)) {
+    if (Error::notOK(err)) {
       LOG(LOG_ERR, "SerialComm: re-connect failed: %s -> retry again later", err->text());
       reconnecting = true;
       reconnectTicket.executeOnce(boost::bind(&SerialComm::reconnectHandler, this), 15*Second);

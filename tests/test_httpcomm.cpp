@@ -236,7 +236,7 @@ TEST_CASE_METHOD(HttpFixture, "https GET test: request to working server with no
   REQUIRE(runHttp("https://" NOCERT_TEST_URL)==EXIT_SUCCESS);
   INFO(URL);
   INFO(Error::text(httpErr));
-  REQUIRE(!Error::isOK(httpErr));
+  REQUIRE(Error::notOK(httpErr));
 }
 
 TEST_CASE_METHOD(HttpFixture, "https GET test without checking to local server w/o cert", "[https],[ssl]") {
@@ -252,7 +252,7 @@ TEST_CASE_METHOD(HttpFixture, "https GET test: request to working server with va
   REQUIRE(runHttp("https://" WRONGCN_TEST_URL)==EXIT_SUCCESS);
   INFO(URL);
   INFO(Error::text(httpErr));
-  REQUIRE(!Error::isOK(httpErr));
+  REQUIRE(Error::notOK(httpErr));
 }
 
 TEST_CASE_METHOD(HttpFixture, "https timeout test: not responding IPv4", "[https]") {

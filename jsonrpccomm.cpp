@@ -135,7 +135,7 @@ ErrorPtr JsonRpcComm::sendError(const char *aJsonRpcId, uint32_t aErrorCode, con
 
 ErrorPtr JsonRpcComm::sendError(const char *aJsonRpcId, ErrorPtr aErrorToSend)
 {
-  if (!Error::isOK(aErrorToSend)) {
+  if (Error::notOK(aErrorToSend)) {
     return sendError(aJsonRpcId, (uint32_t)aErrorToSend->getErrorCode(), aErrorToSend->text());
   }
   return ErrorPtr();
@@ -262,7 +262,7 @@ void JsonRpcComm::gotJson(ErrorPtr aError, JsonObjectPtr aJsonObject)
     }
   }
   // auto-generate error response for internally created errors
-  if (!Error::isOK(respErr)) {
+  if (Error::notOK(respErr)) {
     if (safeError || reportAllErrors)
       sendError(idString, respErr);
     else

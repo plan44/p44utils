@@ -52,7 +52,7 @@ void JsonWebClient::requestThreadSignal(ChildThreadWrapper &aChildThread, Thread
           JsonError::ErrorCodes err = json_tokener_get_error(tokener);
           if (err!=json_tokener_continue) {
             // real JSON error - however, if we already have a http level error, just annotate
-            if (!Error::isOK(requestError))
+            if (Error::notOK(requestError))
               requestError->prefixMessage("JSON cannot be decoded, probably due to: ");
             else
               requestError = ErrorPtr(new JsonError(err));

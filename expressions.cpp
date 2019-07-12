@@ -92,7 +92,7 @@ ErrorPtr p44::substitutePlaceholders(string &aString, StringValueLookupCB aValue
     if (aValueLookupCB) {
       // if no replacement is found, original text is used
       err = aValueLookupCB(rep, rep);
-      if (!Error::isOK(err))
+      if (Error::notOK(err))
         break; // abort
     }
     // apply calculations if any

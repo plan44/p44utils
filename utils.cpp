@@ -86,14 +86,21 @@ void p44::string_format_append(std::string &aStringToAppendTo, const char *aForm
 
 
 
+
+void p44::pathstring_make_dir(std::string &aPathToMakeDir)
+{
+  if (!aPathToMakeDir.empty() && aPathToMakeDir[aPathToMakeDir.length()-1]!='/') {
+    aPathToMakeDir.append("/");
+  }
+}
+
+
 void p44::pathstring_format_append(std::string &aPathToAppendTo, const char *aFormat, ...)
 {
   va_list args;
 
   va_start(args, aFormat);
-  if (!aPathToAppendTo.empty() && aPathToAppendTo[aPathToAppendTo.length()-1]!='/') {
-    aPathToAppendTo.append("/");
-  }
+  pathstring_make_dir(aPathToAppendTo);
   // now append the path element string
   string_format_v(aPathToAppendTo, true, aFormat, args);
   va_end(args);
