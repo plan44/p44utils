@@ -224,7 +224,7 @@ int modbus_send_raw_request(modbus_t *ctx, uint8_t *raw_req, int raw_req_length)
     /* The t_id is left to zero */
     sft.t_id = 0;
     /* This response function only set the header so it's convenient here */
-    req_length = ctx->backend->build_response_basis(&sft, req);
+    req_length = modbus_build_response_basis(ctx, &sft, req);
 
     if (raw_req_length > 2) {
         /* Copy data after function code */
@@ -754,11 +754,21 @@ static int response_io_status(uint8_t *tab_io_status,
     return offset;
 }
 
-/* Build the exception response */
-static int response_exception(modbus_t *ctx, sft_t *sft,
-                              int exception_code, uint8_t *rsp,
-                              unsigned int to_flush,
-                              const char* template, ...)
+
+
+/* Build a base response */
+int modbus_build_response_basis(modbus_t *ctx, sft_t *sft, uint8_t *rsp)
+{
+    return modbus_build_response_basis(ctx, sft, rsp);
+}
+
+
+
+/* Build an exception response */
+int modbus_build_exception_response(modbus_t *ctx, sft_t *sft,
+                                    int exception_code, uint8_t *rsp,
+                                    unsigned int to_flush,
+                                    const char* tmpl, ...)
 {
     int rsp_length;
 
@@ -766,8 +776,8 @@ static int response_exception(modbus_t *ctx, sft_t *sft,
     if (ctx->debug) {
         va_list ap;
 
-        va_start(ap, template);
-        vfprintf(stderr, template, ap);
+        va_start(ap, tmpl);
+        vfprintf(stderr, tmpl, ap);
         va_end(ap);
     }
 
@@ -779,11 +789,15 @@ static int response_exception(modbus_t *ctx, sft_t *sft,
 
     /* Build exception response */
     sft->function = sft->function + 0x80;
-    rsp_length = ctx->backend->build_response_basis(sft, rsp);
+    rsp_length = modbus_build_response_basis(ctx, sft, rsp);
     rsp[rsp_length++] = exception_code;
 
     return rsp_length;
 }
+
+
+
+
 
 
 /* process request and generate response
@@ -834,6 +848,8 @@ static int reg_mapping_handler_ex(modbus_t* ctx, sft_t *sft, int offset, const u
     modbus_access_handler_t accesshandler = mb_mapping_ex->access_handler;
 
     /* note: payload[0]==function code, altough already contained in sft */
+    // 00 01 00 00 00 06 01 03 00 65 00 14
+    //                      ^^=0=FC
     address = (req[offset + 1] << 8) + req[offset + 2];
 
     switch (function) {
@@ -850,12 +866,12 @@ static int reg_mapping_handler_ex(modbus_t* ctx, sft_t *sft, int offset, const u
         int mapping_address = address - start_bits;
 
         if (nb < 1 || MODBUS_MAX_READ_BITS < nb) {
-            rsp_length = response_exception(
+            rsp_length = modbus_build_exception_response(
                 ctx, sft, MODBUS_EXCEPTION_ILLEGAL_DATA_VALUE, rsp, TRUE,
                 "Illegal nb of values %d in %s (max %d)\n",
                 nb, name, MODBUS_MAX_READ_BITS);
         } else if (mapping_address < 0 || (mapping_address + nb) > nb_bits) {
-            rsp_length = response_exception(
+            rsp_length = modbus_build_exception_response(
                 ctx, sft,
                 MODBUS_EXCEPTION_ILLEGAL_DATA_ADDRESS, rsp, FALSE,
                 "Illegal data address 0x%0X in %s\n",
@@ -865,7 +881,7 @@ static int reg_mapping_handler_ex(modbus_t* ctx, sft_t *sft, int offset, const u
                 errTxt = accesshandler(ctx, mb_mapping, is_input ? read_input_bit : read_bit, mapping_address, nb, (modbus_data_t)tab_bits, mb_mapping_ex->access_handler_user_ctx);
                 if (errTxt) break;
             }
-            rsp_length = ctx->backend->build_response_basis(sft, rsp);
+            rsp_length = modbus_build_response_basis(ctx, sft, rsp);
             rsp[rsp_length++] = (nb / 8) + ((nb % 8) ? 1 : 0);
             rsp_length = response_io_status(tab_bits, mapping_address, nb,
                                             rsp, rsp_length);
@@ -885,12 +901,12 @@ static int reg_mapping_handler_ex(modbus_t* ctx, sft_t *sft, int offset, const u
         int mapping_address = address - start_registers;
 
         if (nb < 1 || MODBUS_MAX_READ_REGISTERS < nb) {
-            rsp_length = response_exception(
+            rsp_length = modbus_build_exception_response(
                 ctx, sft, MODBUS_EXCEPTION_ILLEGAL_DATA_VALUE, rsp, TRUE,
                 "Illegal nb of values %d in %s (max %d)\n",
                 nb, name, MODBUS_MAX_READ_REGISTERS);
         } else if (mapping_address < 0 || (mapping_address + nb) > nb_registers) {
-            rsp_length = response_exception(
+            rsp_length = modbus_build_exception_response(
                 ctx, sft, MODBUS_EXCEPTION_ILLEGAL_DATA_ADDRESS, rsp, FALSE,
                 "Illegal data address 0x%0X in %s\n",
                 mapping_address < 0 ? address : address + nb, name);
@@ -900,7 +916,7 @@ static int reg_mapping_handler_ex(modbus_t* ctx, sft_t *sft, int offset, const u
                 errTxt = accesshandler(ctx, mb_mapping, is_input ? read_input_reg : read_reg, mapping_address, nb, (modbus_data_t)tab_registers, mb_mapping_ex->access_handler_user_ctx);
                 if (errTxt) break;
             }
-            rsp_length = ctx->backend->build_response_basis(sft, rsp);
+            rsp_length = modbus_build_response_basis(ctx, sft, rsp);
             rsp[rsp_length++] = nb << 1;
             for (i = mapping_address; i < mapping_address + nb; i++) {
                 rsp[rsp_length++] = tab_registers[i] >> 8;
@@ -913,7 +929,7 @@ static int reg_mapping_handler_ex(modbus_t* ctx, sft_t *sft, int offset, const u
         int mapping_address = address - mb_mapping->start_bits;
 
         if (mapping_address < 0 || mapping_address >= mb_mapping->nb_bits) {
-            rsp_length = response_exception(
+            rsp_length = modbus_build_exception_response(
                 ctx, sft, MODBUS_EXCEPTION_ILLEGAL_DATA_ADDRESS, rsp, FALSE,
                 "Illegal data address 0x%0X in write_bit\n",
                 address);
@@ -929,7 +945,7 @@ static int reg_mapping_handler_ex(modbus_t* ctx, sft_t *sft, int offset, const u
                 memcpy(rsp, req, req_length);
                 rsp_length = req_length;
             } else {
-                rsp_length = response_exception(
+                rsp_length = modbus_build_exception_response(
                     ctx, sft,
                     MODBUS_EXCEPTION_ILLEGAL_DATA_VALUE, rsp, FALSE,
                     "Illegal data value 0x%0X in write_bit request at address %0X\n",
@@ -942,7 +958,7 @@ static int reg_mapping_handler_ex(modbus_t* ctx, sft_t *sft, int offset, const u
         int mapping_address = address - mb_mapping->start_registers;
 
         if (mapping_address < 0 || mapping_address >= mb_mapping->nb_registers) {
-            rsp_length = response_exception(
+            rsp_length = modbus_build_exception_response(
                 ctx, sft,
                 MODBUS_EXCEPTION_ILLEGAL_DATA_ADDRESS, rsp, FALSE,
                 "Illegal data address 0x%0X in write_register\n",
@@ -968,13 +984,13 @@ static int reg_mapping_handler_ex(modbus_t* ctx, sft_t *sft, int offset, const u
             /* May be the indication has been truncated on reading because of
              * invalid address (eg. nb is 0 but the request contains values to
              * write) so it's necessary to flush. */
-            rsp_length = response_exception(
+            rsp_length = modbus_build_exception_response(
                 ctx, sft, MODBUS_EXCEPTION_ILLEGAL_DATA_VALUE, rsp, TRUE,
                 "Illegal number of values %d in write_bits (max %d)\n",
                 nb, MODBUS_MAX_WRITE_BITS);
         } else if (mapping_address < 0 ||
                    (mapping_address + nb) > mb_mapping->nb_bits) {
-            rsp_length = response_exception(
+            rsp_length = modbus_build_exception_response(
                 ctx, sft,
                 MODBUS_EXCEPTION_ILLEGAL_DATA_ADDRESS, rsp, FALSE,
                 "Illegal data address 0x%0X in write_bits\n",
@@ -987,7 +1003,7 @@ static int reg_mapping_handler_ex(modbus_t* ctx, sft_t *sft, int offset, const u
                 errTxt = accesshandler(ctx, mb_mapping, write_bit, mapping_address, nb, (modbus_data_t)mb_mapping->tab_bits, mb_mapping_ex->access_handler_user_ctx);
                 if (errTxt) break;
             }
-            rsp_length = ctx->backend->build_response_basis(sft, rsp);
+            rsp_length = modbus_build_response_basis(ctx, sft, rsp);
             /* 4 to copy the bit address (2) and the quantity of bits */
             memcpy(rsp + rsp_length, req + rsp_length, 4);
             rsp_length += 4;
@@ -999,13 +1015,13 @@ static int reg_mapping_handler_ex(modbus_t* ctx, sft_t *sft, int offset, const u
         int mapping_address = address - mb_mapping->start_registers;
 
         if (nb < 1 || MODBUS_MAX_WRITE_REGISTERS < nb) {
-            rsp_length = response_exception(
+            rsp_length = modbus_build_exception_response(
                 ctx, sft, MODBUS_EXCEPTION_ILLEGAL_DATA_VALUE, rsp, TRUE,
                 "Illegal number of values %d in write_registers (max %d)\n",
                 nb, MODBUS_MAX_WRITE_REGISTERS);
         } else if (mapping_address < 0 ||
                    (mapping_address + nb) > mb_mapping->nb_registers) {
-            rsp_length = response_exception(
+            rsp_length = modbus_build_exception_response(
                 ctx, sft, MODBUS_EXCEPTION_ILLEGAL_DATA_ADDRESS, rsp, FALSE,
                 "Illegal data address 0x%0X in write_registers\n",
                 mapping_address < 0 ? address : address + nb);
@@ -1021,7 +1037,7 @@ static int reg_mapping_handler_ex(modbus_t* ctx, sft_t *sft, int offset, const u
                 errTxt = accesshandler(ctx, mb_mapping, write_reg, mapping_address, nb, (modbus_data_t)mb_mapping->tab_registers, mb_mapping_ex->access_handler_user_ctx);
                 if (errTxt) break;
             }
-            rsp_length = ctx->backend->build_response_basis(sft, rsp);
+            rsp_length = modbus_build_response_basis(ctx, sft, rsp);
             /* 4 to copy the address (2) and the no. of registers */
             memcpy(rsp + rsp_length, req + rsp_length, 4);
             rsp_length += 4;
@@ -1032,7 +1048,7 @@ static int reg_mapping_handler_ex(modbus_t* ctx, sft_t *sft, int offset, const u
         size_t str_len;
         int byte_count_pos;
 
-        rsp_length = ctx->backend->build_response_basis(sft, rsp);
+        rsp_length = modbus_build_response_basis(ctx, sft, rsp);
         /* Skip byte count for now */
         byte_count_pos = rsp_length++;
         rsp[rsp_length++] = _REPORT_SLAVE_ID;
@@ -1056,7 +1072,7 @@ static int reg_mapping_handler_ex(modbus_t* ctx, sft_t *sft, int offset, const u
         int mapping_address = address - mb_mapping->start_registers;
 
         if (mapping_address < 0 || mapping_address >= mb_mapping->nb_registers) {
-            rsp_length = response_exception(
+            rsp_length = modbus_build_exception_response(
                 ctx, sft, MODBUS_EXCEPTION_ILLEGAL_DATA_ADDRESS, rsp, FALSE,
                 "Illegal data address 0x%0X in write_register\n",
                 address);
@@ -1088,7 +1104,7 @@ static int reg_mapping_handler_ex(modbus_t* ctx, sft_t *sft, int offset, const u
         if (nb_write < 1 || MODBUS_MAX_WR_WRITE_REGISTERS < nb_write ||
             nb < 1 || MODBUS_MAX_WR_READ_REGISTERS < nb ||
             nb_write_bytes != nb_write * 2) {
-            rsp_length = response_exception(
+            rsp_length = modbus_build_exception_response(
                 ctx, sft, MODBUS_EXCEPTION_ILLEGAL_DATA_VALUE, rsp, TRUE,
                 "Illegal nb of values (W%d, R%d) in write_and_read_registers (max W%d, R%d)\n",
                 nb_write, nb, MODBUS_MAX_WR_WRITE_REGISTERS, MODBUS_MAX_WR_READ_REGISTERS);
@@ -1096,14 +1112,14 @@ static int reg_mapping_handler_ex(modbus_t* ctx, sft_t *sft, int offset, const u
                    (mapping_address + nb) > mb_mapping->nb_registers ||
                    mapping_address < 0 ||
                    (mapping_address_write + nb_write) > mb_mapping->nb_registers) {
-            rsp_length = response_exception(
+            rsp_length = modbus_build_exception_response(
                 ctx, sft, MODBUS_EXCEPTION_ILLEGAL_DATA_ADDRESS, rsp, FALSE,
                 "Illegal data read address 0x%0X or write address 0x%0X write_and_read_registers\n",
                 mapping_address < 0 ? address : address + nb,
                 mapping_address_write < 0 ? address_write : address_write + nb_write);
         } else {
             int i, j;
-            rsp_length = ctx->backend->build_response_basis(sft, rsp);
+            rsp_length = modbus_build_response_basis(ctx, sft, rsp);
             rsp[rsp_length++] = nb << 1;
 
             /* Write first.
@@ -1131,14 +1147,14 @@ static int reg_mapping_handler_ex(modbus_t* ctx, sft_t *sft, int offset, const u
         break;
 
     default:
-        rsp_length = response_exception(
+        rsp_length = modbus_build_exception_response(
             ctx, sft, MODBUS_EXCEPTION_ILLEGAL_FUNCTION, rsp, TRUE,
             "Unknown Modbus function code: 0x%0X\n", function);
         break;
     }
     /* handle error from value access handler */
     if (errTxt) {
-        rsp_length = response_exception(
+        rsp_length = modbus_build_exception_response(
             ctx, sft,
             MODBUS_EXCEPTION_ILLEGAL_DATA_VALUE, rsp, FALSE,
             "Error accessing data: %-100s\n",
@@ -1207,7 +1223,7 @@ int modbus_reply_exception(modbus_t *ctx, const uint8_t *req,
     sft.slave = slave;
     sft.function = function + 0x80;;
     sft.t_id = ctx->backend->prepare_response_tid(req, &dummy_length);
-    rsp_length = ctx->backend->build_response_basis(&sft, rsp);
+    rsp_length = modbus_build_response_basis(ctx, &sft, rsp);
 
     /* Positive exception code */
     if (exception_code < MODBUS_EXCEPTION_MAX) {

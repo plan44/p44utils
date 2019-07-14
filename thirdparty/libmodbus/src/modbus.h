@@ -274,6 +274,12 @@ MODBUS_API int modbus_process_request(modbus_t *ctx,
                                       const uint8_t *req, int req_length,
                                       uint8_t *rsp,
                                       modbus_function_handler_t func_handler, void *func_handler_context);
+MODBUS_API int modbus_build_response_basis(modbus_t *ctx, sft_t *sft, uint8_t *rsp);
+MODBUS_API int modbus_build_exception_response(modbus_t *ctx, sft_t *sft,
+                                         int exception_code, uint8_t *rsp,
+                                         unsigned int to_flush,
+                                         const char* tmpl, ...);
+
 MODBUS_API int modbus_reg_mapping_handler(modbus_t* ctx,
                                    sft_t *sft, int offset,
                                    const uint8_t *req, int req_length,
