@@ -192,7 +192,7 @@ typedef union {
     uint16_t *regs;
 } modbus_data_t;
 
-typedef int (*modbus_access_handler_t)(modbus_t* ctx, modbus_mapping_t* mappings, modbus_data_access_t access, int addr, int cnt, modbus_data_t dataP, void *user_ctx);
+typedef const char* (*modbus_access_handler_t)(modbus_t* ctx, modbus_mapping_t* mappings, modbus_data_access_t access, int addr, int cnt, modbus_data_t dataP, void *user_ctx);
 
 typedef struct {
   modbus_mapping_t* mappings;
@@ -260,7 +260,6 @@ MODBUS_API void modbus_mapping_free(modbus_mapping_t *mb_mapping);
 MODBUS_API int modbus_send_raw_request(modbus_t *ctx, uint8_t *raw_req, int raw_req_length);
 
 
-MODBUS_API int modbus_get_receive_fd(modbus_t *ctx);
 MODBUS_API modbus_rcv_t* modbus_receive_new(modbus_t *ctx, uint8_t *req);
 MODBUS_API void modbus_receive_free(modbus_rcv_t *rcvctx);
 MODBUS_API int modbus_receive_step(modbus_rcv_t *rcvctx);

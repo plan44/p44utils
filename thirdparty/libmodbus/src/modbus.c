@@ -343,10 +343,9 @@ modbus_rcv_t* _modbus_receive_new(modbus_t *a_ctx, uint8_t *a_msg, msg_type_t a_
     rcvctx->step = _STEP_FUNCTION;
     rcvctx->length_to_read = rcvctx->ctx->backend->header_length + 1;
 
-    if (rcvctx->msg_type != MSG_INDICATION) {
-        rcvctx->tv.tv_sec = rcvctx->ctx->response_timeout.tv_sec;
-        rcvctx->tv.tv_usec = rcvctx->ctx->response_timeout.tv_usec;
-    }
+    /* prepare response timeout - in case it is a indication, modbus_get_select_timeout() will return NULL */
+    rcvctx->tv.tv_sec = rcvctx->ctx->response_timeout.tv_sec;
+    rcvctx->tv.tv_usec = rcvctx->ctx->response_timeout.tv_usec;
     return rcvctx;
 }
 
@@ -354,8 +353,8 @@ modbus_rcv_t* _modbus_receive_new(modbus_t *a_ctx, uint8_t *a_msg, msg_type_t a_
 /* an external select must await this timeout */
 struct timeval* modbus_get_select_timeout(modbus_rcv_t *rcvctx)
 {
-    if (rcvctx->msg_type == MSG_INDICATION) {
-        /* Wait for a message, we don't know when the message will be received */
+    if (rcvctx->msg_length==0 && rcvctx->msg_type == MSG_INDICATION) {
+        /* Wait for first byte of an indication message, we don't know when the message will be received */
         return NULL;
     } else {
         return &rcvctx->tv;
@@ -375,16 +374,6 @@ struct timeval* modbus_get_recovery_timeout(modbus_rcv_t *rcvctx)
 }
 
 
-
-
-/* an external select must wait for events on this file descriptor */
-int modbus_get_receive_fd(modbus_t *ctx)
-{
-    return ctx->s;
-}
-
-
-
 /* returns rc and errno of backend's select, handles error recovery if any
  */
 static int _modbus_receive_select(modbus_rcv_t *rcvctx)
@@ -394,7 +383,7 @@ static int _modbus_receive_select(modbus_rcv_t *rcvctx)
 
     /* Add a file descriptor to the set */
     FD_ZERO(&rset);
-    FD_SET(modbus_get_receive_fd(rcvctx->ctx), &rset);
+    FD_SET(rcvctx->ctx->s, &rset);
 
     rc = rcvctx->ctx->backend->select(rcvctx->ctx, &rset, modbus_get_select_timeout(rcvctx), rcvctx->length_to_read);
     if (rc == -1) {
@@ -510,6 +499,7 @@ int modbus_receive_step(modbus_rcv_t *rcvctx)
         if (rcvctx->ctx->debug)
             printf("\n");
         rc = rcvctx->ctx->backend->check_integrity(rcvctx->ctx, rcvctx->msg, rcvctx->msg_length);
+        if (rc==0) rcvctx->msg_length = 0; // ignored because slave ID does not match
     }
 
     return rc;
@@ -541,10 +531,6 @@ static int _modbus_receive_dosteps(modbus_rcv_t* rcvctx)
    - read() or recv() error codes
 */
 
-#define USE_OLD_RCV_CODE 0
-
-#if !USE_OLD_RCV_CODE
-
 int _modbus_receive_msg(modbus_t *ctx, uint8_t *msg, msg_type_t msg_type)
 {
     int rc;
@@ -554,143 +540,6 @@ int _modbus_receive_msg(modbus_t *ctx, uint8_t *msg, msg_type_t msg_type)
     return _modbus_receive_dosteps(rcvctx);
 }
 
-#else
-
-int _modbus_receive_msg(modbus_t *ctx, uint8_t *msg, msg_type_t msg_type)
-{
-    int rc;
-    fd_set rset;
-    struct timeval tv;
-    struct timeval *p_tv;
-    int length_to_read;
-    int msg_length = 0;
-    _step_t step;
-
-    if (ctx->debug) {
-        if (msg_type == MSG_INDICATION) {
-            printf("Waiting for a indication...\n");
-        } else {
-            printf("Waiting for a confirmation...\n");
-        }
-    }
-
-    /* Add a file descriptor to the set */
-    FD_ZERO(&rset);
-    FD_SET(ctx->s, &rset);
-
-    /* We need to analyse the message step by step.  At the first step, we want
-     * to reach the function code because all packets contain this
-     * information. */
-    step = _STEP_FUNCTION;
-    length_to_read = ctx->backend->header_length + 1;
-
-    if (msg_type == MSG_INDICATION) {
-        /* Wait for a message, we don't know when the message will be
-         * received */
-        p_tv = NULL;
-    } else {
-        tv.tv_sec = ctx->response_timeout.tv_sec;
-        tv.tv_usec = ctx->response_timeout.tv_usec;
-        p_tv = &tv;
-    }
-
-    while (length_to_read != 0) {
-        rc = ctx->backend->select(ctx, &rset, p_tv, length_to_read);
-        if (rc == -1) {
-            _error_print(ctx, "select");
-            if (ctx->error_recovery & MODBUS_ERROR_RECOVERY_LINK) {
-                int saved_errno = errno;
-
-                if (errno == ETIMEDOUT) {
-                    _sleep_response_timeout(ctx);
-                    modbus_flush(ctx);
-                } else if (errno == EBADF) {
-                    modbus_close(ctx);
-                    modbus_connect(ctx);
-                }
-                errno = saved_errno;
-            }
-            return -1;
-        }
-
-        rc = (int)ctx->backend->recv(ctx, msg + msg_length, length_to_read);
-        if (rc == 0) {
-            errno = ECONNRESET;
-            rc = -1;
-        }
-
-        if (rc == -1) {
-            _error_print(ctx, "read");
-            if ((ctx->error_recovery & MODBUS_ERROR_RECOVERY_LINK) &&
-                (errno == ECONNRESET || errno == ECONNREFUSED ||
-                 errno == EBADF)) {
-                int saved_errno = errno;
-                modbus_close(ctx);
-                modbus_connect(ctx);
-                /* Could be removed by previous calls */
-                errno = saved_errno;
-            }
-            return -1;
-        }
-
-        /* Display the hex code of each character received */
-        if (ctx->debug) {
-            int i;
-            for (i=0; i < rc; i++)
-                printf("<%.2X>", msg[msg_length + i]);
-        }
-
-        /* Sums bytes received */
-        msg_length += rc;
-        /* Computes remaining bytes */
-        length_to_read -= rc;
-
-        if (length_to_read == 0) {
-            switch (step) {
-            case _STEP_FUNCTION:
-                /* Function code position */
-                length_to_read = compute_meta_length_after_function(
-                    msg[ctx->backend->header_length],
-                    msg_type);
-                if (length_to_read != 0) {
-                    step = _STEP_META;
-                    break;
-                } /* else switches straight to the next step */
-            case _STEP_META:
-                length_to_read = compute_data_length_after_meta(
-                    ctx, msg, msg_type);
-                if ((msg_length + length_to_read) > (int)ctx->backend->max_adu_length) {
-                    errno = EMBBADDATA;
-                    _error_print(ctx, "too many data");
-                    return -1;
-                }
-                step = _STEP_DATA;
-                break;
-            default:
-                break;
-            }
-        }
-
-        if (length_to_read > 0 &&
-            (ctx->byte_timeout.tv_sec > 0 || ctx->byte_timeout.tv_usec > 0)) {
-            /* If there is no character in the buffer, the allowed timeout
-               interval between two consecutive bytes is defined by
-               byte_timeout */
-            tv.tv_sec = ctx->byte_timeout.tv_sec;
-            tv.tv_usec = ctx->byte_timeout.tv_usec;
-            p_tv = &tv;
-        }
-        /* else timeout isn't set again, the full response must be read before
-           expiration of response timeout (for CONFIRMATION only) */
-    }
-
-    if (ctx->debug)
-        printf("\n");
-
-    return ctx->backend->check_integrity(ctx, msg, msg_length);
-}
-
-#endif // USE_OLD_RCV_CODE
 
 
 /* Prepare receiving the request from a modbus master */
@@ -974,6 +823,7 @@ int modbus_process_request(modbus_t *ctx,
 static int reg_mapping_handler_ex(modbus_t* ctx, sft_t *sft, int offset, const uint8_t *req, int req_length, uint8_t *rsp, void *user_ctx)
 {
     uint16_t address;
+    const char *errTxt = NULL;
     int rsp_length = 0;
     int function = sft->function;
 
@@ -1012,7 +862,8 @@ static int reg_mapping_handler_ex(modbus_t* ctx, sft_t *sft, int offset, const u
                 mapping_address < 0 ? address : address + nb, name);
         } else {
             if (accesshandler) {
-                accesshandler(ctx, mb_mapping, is_input ? read_input_bit : read_bit, mapping_address, nb, (modbus_data_t)tab_bits, mb_mapping_ex->access_handler_user_ctx);
+                errTxt = accesshandler(ctx, mb_mapping, is_input ? read_input_bit : read_bit, mapping_address, nb, (modbus_data_t)tab_bits, mb_mapping_ex->access_handler_user_ctx);
+                if (errTxt) break;
             }
             rsp_length = ctx->backend->build_response_basis(sft, rsp);
             rsp[rsp_length++] = (nb / 8) + ((nb % 8) ? 1 : 0);
@@ -1046,7 +897,8 @@ static int reg_mapping_handler_ex(modbus_t* ctx, sft_t *sft, int offset, const u
         } else {
             int i;
             if (accesshandler) {
-                accesshandler(ctx, mb_mapping, is_input ? read_input_reg : read_reg, mapping_address, nb, (modbus_data_t)tab_registers, mb_mapping_ex->access_handler_user_ctx);
+                errTxt = accesshandler(ctx, mb_mapping, is_input ? read_input_reg : read_reg, mapping_address, nb, (modbus_data_t)tab_registers, mb_mapping_ex->access_handler_user_ctx);
+                if (errTxt) break;
             }
             rsp_length = ctx->backend->build_response_basis(sft, rsp);
             rsp[rsp_length++] = nb << 1;
@@ -1070,7 +922,8 @@ static int reg_mapping_handler_ex(modbus_t* ctx, sft_t *sft, int offset, const u
 
             if (data == 0xFF00 || data == 0x0) {
                 if (accesshandler) {
-                    accesshandler(ctx, mb_mapping, write_bit, mapping_address, 1, (modbus_data_t)mb_mapping->tab_bits, mb_mapping_ex->access_handler_user_ctx);
+                    errTxt = accesshandler(ctx, mb_mapping, write_bit, mapping_address, 1, (modbus_data_t)mb_mapping->tab_bits, mb_mapping_ex->access_handler_user_ctx);
+                    if (errTxt) break;
                 }
                 mb_mapping->tab_bits[mapping_address] = data ? ON : OFF;
                 memcpy(rsp, req, req_length);
@@ -1098,7 +951,8 @@ static int reg_mapping_handler_ex(modbus_t* ctx, sft_t *sft, int offset, const u
             int data = (req[offset + 3] << 8) + req[offset + 4];
 
             if (accesshandler) {
-                accesshandler(ctx, mb_mapping, write_reg, mapping_address, 1, (modbus_data_t)mb_mapping->tab_registers, mb_mapping_ex->access_handler_user_ctx);
+                errTxt = accesshandler(ctx, mb_mapping, write_reg, mapping_address, 1, (modbus_data_t)mb_mapping->tab_registers, mb_mapping_ex->access_handler_user_ctx);
+                if (errTxt) break;
             }
             mb_mapping->tab_registers[mapping_address] = data;
             memcpy(rsp, req, req_length);
@@ -1130,7 +984,8 @@ static int reg_mapping_handler_ex(modbus_t* ctx, sft_t *sft, int offset, const u
             modbus_set_bits_from_bytes(mb_mapping->tab_bits, mapping_address, nb,
                                        &req[offset + 6]);
             if (accesshandler) {
-                accesshandler(ctx, mb_mapping, write_bit, mapping_address, nb, (modbus_data_t)mb_mapping->tab_bits, mb_mapping_ex->access_handler_user_ctx);
+                errTxt = accesshandler(ctx, mb_mapping, write_bit, mapping_address, nb, (modbus_data_t)mb_mapping->tab_bits, mb_mapping_ex->access_handler_user_ctx);
+                if (errTxt) break;
             }
             rsp_length = ctx->backend->build_response_basis(sft, rsp);
             /* 4 to copy the bit address (2) and the quantity of bits */
@@ -1163,7 +1018,8 @@ static int reg_mapping_handler_ex(modbus_t* ctx, sft_t *sft, int offset, const u
             }
 
             if (accesshandler) {
-                accesshandler(ctx, mb_mapping, write_reg, mapping_address, nb, (modbus_data_t)mb_mapping->tab_registers, mb_mapping_ex->access_handler_user_ctx);
+                errTxt = accesshandler(ctx, mb_mapping, write_reg, mapping_address, nb, (modbus_data_t)mb_mapping->tab_registers, mb_mapping_ex->access_handler_user_ctx);
+                if (errTxt) break;
             }
             rsp_length = ctx->backend->build_response_basis(sft, rsp);
             /* 4 to copy the address (2) and the no. of registers */
@@ -1213,7 +1069,8 @@ static int reg_mapping_handler_ex(modbus_t* ctx, sft_t *sft, int offset, const u
             mb_mapping->tab_registers[mapping_address] = data;
 
             if (accesshandler) {
-                accesshandler(ctx, mb_mapping, write_reg, mapping_address, 1, (modbus_data_t)mb_mapping->tab_registers, mb_mapping_ex->access_handler_user_ctx);
+                errTxt = accesshandler(ctx, mb_mapping, write_reg, mapping_address, 1, (modbus_data_t)mb_mapping->tab_registers, mb_mapping_ex->access_handler_user_ctx);
+                if (errTxt) break;
             }
             memcpy(rsp, req, req_length);
             rsp_length = req_length;
@@ -1258,9 +1115,11 @@ static int reg_mapping_handler_ex(modbus_t* ctx, sft_t *sft, int offset, const u
             }
             if (accesshandler) {
                 /* report write first */
-                accesshandler(ctx, mb_mapping, write_reg, mapping_address_write, nb_write, (modbus_data_t)mb_mapping->tab_registers, mb_mapping_ex->access_handler_user_ctx);
+                errTxt = accesshandler(ctx, mb_mapping, write_reg, mapping_address_write, nb_write, (modbus_data_t)mb_mapping->tab_registers, mb_mapping_ex->access_handler_user_ctx);
+                if (errTxt) break;
                 /* then announce reading */
-                accesshandler(ctx, mb_mapping, read_reg, mapping_address, nb, (modbus_data_t)mb_mapping->tab_registers, mb_mapping_ex->access_handler_user_ctx);
+                errTxt = accesshandler(ctx, mb_mapping, read_reg, mapping_address, nb, (modbus_data_t)mb_mapping->tab_registers, mb_mapping_ex->access_handler_user_ctx);
+                if (errTxt) break;
             }
             /* and read the data for the response */
             for (i = mapping_address; i < mapping_address + nb; i++) {
@@ -1276,6 +1135,14 @@ static int reg_mapping_handler_ex(modbus_t* ctx, sft_t *sft, int offset, const u
             ctx, sft, MODBUS_EXCEPTION_ILLEGAL_FUNCTION, rsp, TRUE,
             "Unknown Modbus function code: 0x%0X\n", function);
         break;
+    }
+    /* handle error from value access handler */
+    if (errTxt) {
+        rsp_length = response_exception(
+            ctx, sft,
+            MODBUS_EXCEPTION_ILLEGAL_DATA_VALUE, rsp, FALSE,
+            "Error accessing data: %-100s\n",
+            errTxt);
     }
 
     /* Suppress any responses when the request was a broadcast */
