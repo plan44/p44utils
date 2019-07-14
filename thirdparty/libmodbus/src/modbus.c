@@ -856,7 +856,8 @@ int modbus_build_exception_response(modbus_t *ctx, sft_t *sft,
 
 /* process request and generate response
  *
- * returns size of response
+ * returns size of response. Will return 0 when no response is to be sent. This is when request was a broadcast, or when
+ * the answer has been sent already as part of the processing
  */
 int modbus_process_request(modbus_t *ctx,
                            const uint8_t *req, int req_length,
