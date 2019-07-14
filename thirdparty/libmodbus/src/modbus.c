@@ -257,6 +257,9 @@ static uint8_t compute_meta_length_after_function(int function,
             length = 6;
         } else if (function == MODBUS_FC_WRITE_AND_READ_REGISTERS) {
             length = 9;
+        } else if (function == MODBUS_FC_READ_FILE_RECORD ||
+                   function == MODBUS_FC_WRITE_FILE_RECORD) {
+            length = 1; /* the length byte */
         } else {
             /* MODBUS_FC_READ_EXCEPTION_STATUS, MODBUS_FC_REPORT_SLAVE_ID */
             length = 0;
@@ -273,8 +276,10 @@ static uint8_t compute_meta_length_after_function(int function,
         case MODBUS_FC_MASK_WRITE_REGISTER:
             length = 6;
             break;
+        case MODBUS_FC_READ_FILE_RECORD:
+        case MODBUS_FC_WRITE_FILE_RECORD:
         default:
-            length = 1;
+            length = 1; /* a length byte immediately following the function code */
         }
     }
 
@@ -297,6 +302,10 @@ static int compute_data_length_after_meta(modbus_t *ctx, uint8_t *msg,
         case MODBUS_FC_WRITE_AND_READ_REGISTERS:
             length = msg[ctx->backend->header_length + 9];
             break;
+        case MODBUS_FC_READ_FILE_RECORD:
+        case MODBUS_FC_WRITE_FILE_RECORD:
+            length = msg[ctx->backend->header_length + 1];
+            break;
         default:
             length = 0;
         }
@@ -304,8 +313,10 @@ static int compute_data_length_after_meta(modbus_t *ctx, uint8_t *msg,
         /* MSG_CONFIRMATION */
         if (function <= MODBUS_FC_READ_INPUT_REGISTERS ||
             function == MODBUS_FC_REPORT_SLAVE_ID ||
-            function == MODBUS_FC_WRITE_AND_READ_REGISTERS) {
-            length = msg[ctx->backend->header_length + 1];
+            function == MODBUS_FC_WRITE_AND_READ_REGISTERS ||
+            function == MODBUS_FC_READ_FILE_RECORD ||
+            function == MODBUS_FC_WRITE_FILE_RECORD) {
+            length = msg[ctx->backend->header_length + 1]; /* length byte immediately follows the function code */
         } else {
             length = 0;
         }
