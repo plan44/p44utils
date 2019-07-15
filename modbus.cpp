@@ -92,7 +92,7 @@ extern "C" {
 
 ErrorPtr ModbusConnection::setConnectionSpecification(
   const char* aConnectionSpec, uint16_t aDefaultPort, const char *aDefaultCommParams,
-  const char *aTransmitEnableSpec, MLMicroSeconds aTxDisableDelay
+  const char *aTransmitEnableSpec, MLMicroSeconds aTxDisableDelay, int aByteTimeNs
 )
 {
   ErrorPtr err;
@@ -143,6 +143,10 @@ ErrorPtr ModbusConnection::setConnectionSpecification(
         mberr = errno;
       }
       else {
+        if (aByteTimeNs>0) {
+          LOG(LOG_DEBUG, "Setting explicit byte time: %d nS, calculated value is %d nS", aByteTimeNs, modbus_rtu_get_byte_time(modbus));
+          modbus_rtu_set_byte_time(modbus, (int)aByteTimeNs);
+        }
         if (rs232) {
           if (modbus_rtu_set_serial_mode(modbus, MODBUS_RTU_RS232)<0) mberr = errno;
         }
@@ -382,7 +386,7 @@ ErrorPtr ModbusMaster::readSlaveInfo(string& aId, bool& aRunIndicator)
   bool wasConnected = isConnected();
   if (!wasConnected) err = connect();
   if (Error::isOK(err)) {
-    uint8_t slaveid[MODBUS_MAX_PDU_LENGTH];
+    ModBusPDU slaveid;
     int bytes = modbus_report_slave_id(modbus, MODBUS_MAX_PDU_LENGTH, slaveid);
     if (bytes<0) {
       err = ModBusError::err<ModBusError>(errno);
@@ -406,6 +410,7 @@ ErrorPtr ModbusMaster::findSlaves(SlaveAddrList& aSlaveAddrList, string aMatchSt
   bool wasConnected = isConnected();
   if (!wasConnected) err = connect();
   if (Error::isOK(err)) {
+    int currentSlave = getSlaveAddress();
     aSlaveAddrList.clear();
     string id;
     bool runs;
@@ -425,6 +430,7 @@ ErrorPtr ModbusMaster::findSlaves(SlaveAddrList& aSlaveAddrList, string aMatchSt
         LOG(LOG_INFO, "Slave %d returns error for slaveid query: %s", sa, err->text());
       }
     }
+    setSlaveAddress(currentSlave);
   }
   if (!wasConnected) close();
   return err;
@@ -551,7 +557,7 @@ ErrorPtr ModbusMaster::writeFileRecords(uint16_t aFileNo, uint16_t aFirstRecordN
           if (rc>0) {
             if (rsp[rc++]!=MODBUS_FC_WRITE_FILE_RECORD) { rc = -1; errno = EMBBADEXC; }
             else {
-              if (rsp[rc]+rc+1 != rspLen) { rc = -1; errno = EMBBADDATA; }
+              if (rsp[rc]!=req[lenIdx] || rspLen<rsp[rc]+rc) { rc = -1; errno = EMBBADDATA; }
               else {
                 // everything following, including length must be equal to request
                 if (memcmp(req+lenIdx, rsp+rc, (size_t)req[lenIdx])!=0) { rc = -1; errno = EMBBADDATA; }
@@ -658,49 +664,51 @@ ErrorPtr ModbusMaster::sendFile(ModbusFileHandlerPtr aHandler, int aFileNo)
 
   err = aHandler->openLocalFile(aFileNo, false); // for local read
   if (Error::isOK(err)) {
-    uint8_t p44hdr[32];
-    int hdrSz = aHandler->generateP44Header(p44hdr, 32);
-    if (hdrSz<0) {
-      err = Error::err<ModBusError>(EMBBADEXC, "cannot generate header");
-    }
-    else if (hdrSz>0) {
-      int retries = WRITE_RECORD_RETRIES;
-      while (true) {
-        // we actually have a p44 header, send it
-        err = writeFileRecords(aFileNo, 0, (hdrSz+1)/2, p44hdr);
-        if (!isCommErr(err)) break;
-        retries--;
-        if (retries<=0) break;
-        MainLoop::sleep(WRITE_RETRY_DELAY);
-        modbus_flush(modbus);
-      };
-    }
+    bool wasConnected = isConnected();
+    if (!wasConnected) err = connect();
     if (Error::isOK(err)) {
-      // header sent or none required, now send data
-      ModBusPDU buf;
-      uint32_t chunkIndex = 0;
-      bool wasConnected = isConnected();
-      if (!wasConnected) err = connect();
-      if (Error::isOK(err)) {
+      uint8_t p44hdr[32];
+      int hdrSz = aHandler->generateP44Header(p44hdr, 32);
+      if (hdrSz<0) {
+        err = Error::err<ModBusError>(EMBBADEXC, "cannot generate header");
+      }
+      else if (hdrSz>0) {
+        int retries = WRITE_RECORD_RETRIES;
         while (true) {
-          uint16_t fileNo, recordNo, recordLen;
-          if (aHandler->isEOFforChunk(chunkIndex, false)) break; // local EOF reached
-          aHandler->addressForMaxChunk(chunkIndex, fileNo, recordNo, recordLen);
-          // get data from local file
-          err = aHandler->readLocalFile(fileNo, recordNo, buf, recordLen*2);
-          if (Error::notOK(err)) break;
-          chunkIndex++;
-          // write to the remote
-          int retries = WRITE_RECORD_RETRIES;
+          // we actually have a p44 header, send it
+          err = writeFileRecords(aFileNo, 0, (hdrSz+1)/2, p44hdr);
+          if (!isCommErr(err)) break;
+          retries--;
+          if (retries<=0) break;
+          MainLoop::sleep(WRITE_RETRY_DELAY);
+          modbus_flush(modbus);
+        };
+      }
+      if (Error::isOK(err)) {
+        // header sent or none required, now send data
+        ModBusPDU buf;
+        uint32_t chunkIndex = 0;
+        if (Error::isOK(err)) {
           while (true) {
-            err = writeFileRecords(fileNo, recordNo, recordLen, buf);
-            if (!isCommErr(err)) break;
-            retries--;
-            if (retries<=0) break;
-            MainLoop::sleep(WRITE_RETRY_DELAY);
-            modbus_flush(modbus);
+            uint16_t fileNo, recordNo, recordLen;
+            if (aHandler->isEOFforChunk(chunkIndex, false)) break; // local EOF reached
+            aHandler->addressForMaxChunk(chunkIndex, fileNo, recordNo, recordLen);
+            // get data from local file
+            err = aHandler->readLocalFile(fileNo, recordNo, buf, recordLen*2);
+            if (Error::notOK(err)) break;
+            chunkIndex++;
+            // write to the remote
+            int retries = WRITE_RECORD_RETRIES;
+            while (true) {
+              err = writeFileRecords(fileNo, recordNo, recordLen, buf);
+              if (!isCommErr(err)) break;
+              retries--;
+              if (retries<=0) break;
+              MainLoop::sleep(WRITE_RETRY_DELAY);
+              modbus_flush(modbus);
+            }
+            if (Error::notOK(err)) break;
           }
-          if (Error::notOK(err)) break;
         }
       }
       if (!wasConnected) close();
@@ -788,7 +796,7 @@ ErrorPtr ModbusMaster::broadcastFile(const SlaveAddrList& aSlaveAddrList, const 
     ModbusFileHandlerPtr handler = ModbusFileHandlerPtr(new ModbusFileHandler(aFileNo, 0, 1, aUseP44Header, aLocalFilePath));
     if (!aUseP44Header) {
       // simple one-by-one transfer, not real broadcast
-      LOG(LOG_NOTICE, "Sending file '%s' to fileNo %d in %d slaves, no broadcast (no p44header)", aLocalFilePath.c_str(), aFileNo, aSlaveAddrList.size());
+      LOG(LOG_NOTICE, "Sending file '%s' to fileNo %d in %lu slaves, no broadcast (no p44header)", aLocalFilePath.c_str(), aFileNo, aSlaveAddrList.size());
       for (SlaveAddrList::const_iterator pos = aSlaveAddrList.begin(); pos!=aSlaveAddrList.end(); ++pos) {
         setSlaveAddress(*pos);
         LOG(LOG_NOTICE, "- sending file to slave %d", *pos);
@@ -952,10 +960,21 @@ void ModbusSlave::cancelMsgReception()
 }
 
 
+void ModbusSlave::startTimeout()
+{
+  MLMicroSeconds timeout = MainLoop::timeValToMainLoopTime(modbus_get_select_timeout(modbusRcv));
+  if (timeout==Never)
+    rcvTimeoutTicket.cancel();
+  else
+    rcvTimeoutTicket.executeOnce(boost::bind(&ModbusSlave::modbusTimeoutHandler, this), timeout);
+}
+
+
 void ModbusSlave::startMsgReception()
 {
   cancelMsgReception(); // stop previous, if any
   modbusRcv = modbus_receive_new(modbus, modbusReq);
+  startTimeout();
 }
 
 
@@ -974,11 +993,8 @@ bool ModbusSlave::modbusFdPollHandler(int aFD, int aPollFlags)
     int reqLen = modbus_receive_step(modbusRcv);
     if (reqLen<0 && errno==EAGAIN) {
       // no complete message yet
-      MLMicroSeconds timeout = MainLoop::timeValToMainLoopTime(modbus_get_select_timeout(modbusRcv));
-      if (timeout==Never)
-        rcvTimeoutTicket.cancel();
-      else
-        rcvTimeoutTicket.executeOnce(boost::bind(&ModbusSlave::modbusTimeoutHandler, this), timeout);
+      // - re-start timeout
+      startTimeout();
       return true;
     }
     if (reqLen>0) {
@@ -1029,19 +1045,11 @@ bool ModbusSlave::modbusFdPollHandler(int aFD, int aPollFlags)
 
 void ModbusSlave::modbusTimeoutHandler()
 {
-  FOCUSLOG("modbus timeout");
+  FOCUSLOG("modbus timeout - flushing received data");
   if (modbus) {
-    MLMicroSeconds timeout = MainLoop::timeValToMainLoopTime(modbus_get_select_timeout(modbusRcv));
-    if (timeout!=Never) rcvTimeoutTicket.executeOnce(boost::bind(&ModbusSlave::modbusRecoveryHandler, this), timeout);
+    if (modbus) modbus_flush(modbus);
+    startMsgReception();
   }
-}
-
-
-void ModbusSlave::modbusRecoveryHandler()
-{
-  FOCUSLOG("modbus recovery timeout");
-  if (modbus) modbus_flush(modbus);
-  startMsgReception();
 }
 
 
@@ -1068,27 +1076,37 @@ int ModbusSlave::handleRawRequest(sft_t &aSft, int aOffset, const ModBusPDU& aRe
 {
   FOCUSLOG("Received request with FC=%d/0x%02x, for slaveid=%d, transactionId=%d", aSft.function, aSft.function, aSft.slave, aSft.t_id);
   int rspLen = 0;
+  bool handled = false;
   // allow custom request handling to override anything
   if (rawRequestHandler) {
-    if (rawRequestHandler(aSft, aOffset, aReq, aReqLen, aRsp, rspLen)) return rspLen; // handled
+    handled = rawRequestHandler(aSft, aOffset, aReq, aReqLen, aRsp, rspLen);
   }
-  // handle files
-  if (aSft.function==MODBUS_FC_READ_FILE_RECORD || aSft.function==MODBUS_FC_WRITE_FILE_RECORD) {
-    if (handleFileAccess(aSft, aOffset, aReq, aReqLen, aRsp, rspLen)) return rspLen; // handled
+  if (!handled) {
+    // handle files
+    if (aSft.function==MODBUS_FC_READ_FILE_RECORD || aSft.function==MODBUS_FC_WRITE_FILE_RECORD) {
+      handled = handleFileAccess(aSft, aOffset, aReq, aReqLen, aRsp, rspLen);
+    }
   }
-  // handle registers and bits
-  if (registerModel) {
-    modbus_mapping_ex_t map;
-    map.mappings = registerModel;
-    if (valueAccessHandler) {
-      map.access_handler = modbus_access_handler;
-      map.access_handler_user_ctx = this;
+  if (!handled) {
+    // handle registers and bits
+    if (registerModel) {
+      modbus_mapping_ex_t map;
+      map.mappings = registerModel;
+      if (valueAccessHandler) {
+        map.access_handler = modbus_access_handler;
+        map.access_handler_user_ctx = this;
+      }
+      else {
+        map.access_handler = NULL;
+        map.access_handler_user_ctx = NULL;
+      }
+      rspLen = modbus_reg_mapping_handler(modbus, &aSft, aOffset, aReq, aReqLen, aRsp, &map);
+      handled = true;
     }
-    else {
-      map.access_handler = NULL;
-      map.access_handler_user_ctx = NULL;
-    }
-    return modbus_reg_mapping_handler(modbus, &aSft, aOffset, aReq, aReqLen, aRsp, &map);
+  }
+  if (handled) {
+    FOCUSLOG("Handled request with FC=%d/0x%02x, for slaveid=%d, transactionId=%d: response length=%d", aSft.function, aSft.function, aSft.slave, aSft.t_id, rspLen);
+    return rspLen;
   }
   LOG(LOG_CRIT, "no request handlers installed at all");
   return -1; // should not happen

@@ -112,13 +112,15 @@ namespace p44 {
     ///    If set to NULL or "RTS", the RTS line enables the RS485 drivers.
     ///    If set to "RS232", the connection is a plain two-point serial connection
     /// @param aTxDisableDelay if>0, time delay in uS before disabling Tx driver after sending
+    /// @param aByteTimeNs if>0, byte time in nanoseconds, in case UART does not have precise baud rate
     /// @return error in case the connection context cannot be created from these parameters
     /// @note commParams syntax is: [baud rate][,[bits][,[parity][,[stopbits][,[H]]]]]
     ///   - parity can be O, E or N
     ///   - H means hardware handshake enabled
     ErrorPtr setConnectionSpecification(
       const char* aConnectionSpec, uint16_t aDefaultPort, const char *aDefaultCommParams,
-      const char *aTransmitEnableSpec = NULL, MLMicroSeconds aTxDisableDelay = Never
+      const char *aTransmitEnableSpec = NULL, MLMicroSeconds aTxDisableDelay = Never,
+      int aByteTimeNs = 0
     );
 
     /// set the slave address (when RTU endpoints are involved)
@@ -681,10 +683,10 @@ namespace p44 {
     uint16_t* getRegisterAddress(int aAddress, bool aInput, int aRegs);
 
     void cancelMsgReception();
+    void startTimeout();
     void startMsgReception();
     bool modbusFdPollHandler(int aFD, int aPollFlags);
     void modbusTimeoutHandler();
-    void modbusRecoveryHandler();
 
     bool handleFileAccess(sft_t &aSft, int aOffset, const ModBusPDU& aReq, int aReqLen, ModBusPDU& aRsp, int &aRspLen);
 
