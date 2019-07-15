@@ -286,7 +286,7 @@ static ssize_t _modbus_rtu_send(modbus_t *ctx, const uint8_t *req, int req_lengt
 
         size = write(ctx->s, req, req_length);
 
-        usleep(ctx_rtu->onebyte_time * req_length + ctx_rtu->rts_delay);
+        usleep((ctx_rtu->onebyte_time_10nS * req_length + ctx_rtu->rts_delay*100)/100);
         ctx_rtu->set_rts_ex(ctx, ctx_rtu->rts != MODBUS_RTU_RTS_UP, ctx_rtu->set_rts_cbctx);
 
         return size;
@@ -1127,6 +1127,44 @@ int modbus_rtu_set_rts_delay(modbus_t *ctx, int us)
     }
 }
 
+
+int modbus_rtu_get_byte_time(modbus_t *ctx)
+{
+    if (ctx == NULL) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    if (ctx->backend->backend_type == _MODBUS_BACKEND_TYPE_RTU) {
+        modbus_rtu_t *ctx_rtu;
+        ctx_rtu = (modbus_rtu_t *)ctx->backend_data;
+        return ctx_rtu->onebyte_time_10nS*10;
+    } else {
+        errno = EINVAL;
+        return -1;
+    }
+}
+
+int modbus_rtu_set_byte_time(modbus_t *ctx, int ns)
+{
+    if (ctx == NULL || ns < 0) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    if (ctx->backend->backend_type == _MODBUS_BACKEND_TYPE_RTU) {
+        modbus_rtu_t *ctx_rtu;
+        ctx_rtu = (modbus_rtu_t *)ctx->backend_data;
+        ctx_rtu->onebyte_time_10nS = ns/10;
+        return 0;
+    } else {
+        errno = EINVAL;
+        return -1;
+    }
+}
+
+
+
 static void _modbus_rtu_close(modbus_t *ctx)
 {
     /* Restore line settings and close file descriptor in RTU mode */
@@ -1280,14 +1318,16 @@ modbus_t* modbus_new_rtu(const char *device,
     /* The RTS use has been set by default */
     ctx_rtu->rts = MODBUS_RTU_RTS_NONE;
 
-    /* Calculate estimated time in micro second to send one byte */
-    ctx_rtu->onebyte_time = 1000000 * (1 + data_bit + (parity == 'N' ? 0 : 1) + stop_bit) / baud;
+    /* Calculate estimated time in 10nS steps to send one byte.
+       The 1/100 uS precision is important for large PDUs,
+       otherwise txenable will be early due to rounding errors */
+    ctx_rtu->onebyte_time_10nS = 1000000ll* 100 * (1 + data_bit + (parity == 'N' ? 0 : 1) + stop_bit) / baud;
 
     /* The internal function is used by default to set RTS */
     ctx_rtu->set_rts_ex = _modbus_rtu_ioctl_rts_ex;
 
     /* The delay before and after transmission when toggling the RTS pin */
-    ctx_rtu->rts_delay = ctx_rtu->onebyte_time;
+    ctx_rtu->rts_delay = ctx_rtu->onebyte_time_10nS / 100;
 
     ctx_rtu->confirmation_to_ignore = FALSE;
 

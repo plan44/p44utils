@@ -63,7 +63,7 @@ typedef struct _modbus_rtu {
     int serial_mode;
     int rts;
     int rts_delay;
-    int onebyte_time;
+    int onebyte_time_10nS; // in 10nS units (1/100 uS)
     void (*set_rts_ex) (modbus_t *ctx, int on, void *cbctx);
     void *set_rts_cbctx;
     /* To handle many slaves on the same link */

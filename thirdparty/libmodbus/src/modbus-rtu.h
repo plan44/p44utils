@@ -38,6 +38,10 @@ MODBUS_API int modbus_rtu_set_custom_rts_ex(modbus_t *ctx, void (*set_rts_ex) (m
 MODBUS_API int modbus_rtu_set_rts_delay(modbus_t *ctx, int us);
 MODBUS_API int modbus_rtu_get_rts_delay(modbus_t *ctx);
 
+MODBUS_API int modbus_rtu_set_byte_time(modbus_t *ctx, int ns);
+MODBUS_API int modbus_rtu_get_byte_time(modbus_t *ctx);
+
+
 MODBUS_END_DECLS
 
 #endif /* MODBUS_RTU_H */
