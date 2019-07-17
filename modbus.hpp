@@ -1,3 +1,8 @@
+//
+//  Copyright (c) 2019 plan44.ch / Lukas Zeller, Zurich, Switzerland
+//
+//  Author: Lukas Zeller <luz@plan44.ch>
+//
 //  This file is part of p44utils.
 //
 //  p44utils is free software: you can redistribute it and/or modify
