@@ -22,6 +22,23 @@
 #ifndef __p44utils__mainloop__
 #define __p44utils__mainloop__
 
+/* MARK: - C and C++ interfaces */
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+long long _p44_now();
+unsigned long _p44_millis();
+
+#ifdef __cplusplus
+};
+#endif
+
+#ifdef __cplusplus
+
+// MARK: - C++ only interface
+
 #include "p44utils_common.hpp"
 
 #include <poll.h>
@@ -578,5 +595,7 @@ namespace p44 {
 
 
 } // namespace p44
+
+#endif // C++ only interface
 
 #endif /* defined(__p44utils__mainloop__) */
