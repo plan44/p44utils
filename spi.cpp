@@ -481,6 +481,13 @@ bool SPIDevice::isKindOf(const char *aDeviceType)
 }
 
 
+bool SPIDevice::SPIRawWriteRead(unsigned int aOutSz, uint8_t *aOutP, unsigned int aInSz, uint8_t *aInP, bool aFullDuplex)
+{
+  return spibus->SPIRawWriteRead(this, aOutSz, aOutP, aInSz, aInP, aFullDuplex);
+}
+
+
+
 
 // MARK: - SPIBitPortDevice
 
