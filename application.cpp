@@ -721,13 +721,13 @@ size_t CmdLineApp::numArguments()
 }
 
 
-void CmdLineApp::processStandardLogOptions(bool aForDaemon)
+void CmdLineApp::processStandardLogOptions(bool aForDaemon, int aDefaultErrLevel)
 {
   if (aForDaemon) {
     int loglevel = LOG_NOTICE;
     getIntOption("loglevel", loglevel);
     SETLOGLEVEL(loglevel);
-    int errLevel = LOG_ERR;
+    int errLevel = aDefaultErrLevel;
     getIntOption("errlevel", errLevel);
     bool dontLogErrors = false;
     if (getOption("dontlogerrors")) dontLogErrors = true;

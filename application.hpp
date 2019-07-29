@@ -238,11 +238,12 @@ namespace p44 {
 
     /// parse standard logging options and configure logger
     /// @param aForDaemon if set, logger is configured for daemon (rather than command line utility)
+    /// @param aDefaultErrLevel sets the default error level for daemons (usually LOG_ERR)
     /// @note - daemon standard is LOG_NOTICE level by default, logging to stdout and logging LOG_ERR and higher also to stderr
     ///   - utility standard is LOG_CRIT level by default, logging only to stderr
     /// @note this is a convenience function to reduce boilerplate. You can also use
     ///   CMDLINE_APPLICATION_LOGOPTIONS as part of the option descriptors passed to setCommandDescriptors().
-    void processStandardLogOptions(bool aForDaemon);
+    void processStandardLogOptions(bool aForDaemon, int aDefaultErrLevel = LOG_ERR);
 
   public:
 
