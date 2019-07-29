@@ -753,8 +753,8 @@ bool MainLoop::handleIOPoll(MLMicroSeconds aTimeout)
   // block until input becomes available or timeout
   int numReadyFDs = 0;
   if (numFDsToTest>0) {
-    // actual FDs to test
-    numReadyFDs = poll(pollFds, (int)numFDsToTest, (int)(aTimeout/MilliSecond));
+    // actual FDs to test. Note: while in Linux timeout<0 means block forever, ONLY exactly -1 means block in macOS!
+    numReadyFDs = poll(pollFds, (int)numFDsToTest, aTimeout==Infinite ? -1 : (int)(aTimeout/MilliSecond));
   }
   else {
     // nothing to test, just await timeout
@@ -832,7 +832,7 @@ bool MainLoop::mainLoopCycle()
     }
     else {
       // nothing due before timeout
-      handleIOPoll(nextWake==Never ? -1 : pollTimeout); // negative timeout means blocking forever
+      handleIOPoll(nextWake==Never ? Infinite : pollTimeout);
       return true; // we had the chance to sleep
     }
     // otherwise, continue processing
