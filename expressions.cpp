@@ -32,7 +32,7 @@
 using namespace p44;
 
 
-// MARK: - placeholder substitution
+// MARK: - legacy @{placeholder} substitution
 
 ErrorPtr p44::substitutePlaceholders(string &aString, StringValueLookupCB aValueLookupCB)
 {
@@ -159,12 +159,114 @@ ExpressionValue ExpressionError::errValue(ErrorCodes aErrCode, const char *aFmt,
 
 
 
-// MARK: - numeric term evaluation
-
-ExpressionValue evaluateExpressionPrivate(const char * &aText, int aPrecedence, ValueLookupCB aValueLookupCB, FunctionLookupCB aFunctionLookpCB);
+// MARK: - EvaluationContext
 
 
-ExpressionValue evaluateBuiltinFunction(const string &aName, const FunctionArgumentVector &aArgs)
+EvaluationContext::EvaluationContext() :
+  evalMode(evalmode_initial),
+  evaluating(false),
+  nextEvaluation(Never)
+{
+}
+
+
+EvaluationContext::~EvaluationContext()
+{
+}
+
+
+void EvaluationContext::setEvaluationResultHandler(EvaluationResultCB aEvaluationResultHandler)
+{
+  evaluationResultHandler = aEvaluationResultHandler;
+}
+
+
+void EvaluationContext::unfreezeAll()
+{
+  frozenResults.clear(); // changing expression unfreezes everything
+}
+
+
+bool EvaluationContext::setExpression(const string aExpression)
+{
+  if (aExpression!=expression) {
+    unfreezeAll(); // changing expression unfreezes everything
+    expression = aExpression;
+    return true;
+  }
+  return false;
+}
+
+
+ExpressionValue EvaluationContext::evaluateNow(EvalMode aEvalMode, bool aScheduleReEval)
+{
+  if (aEvalMode!=evalmode_current)
+    evalMode = aEvalMode;
+  nextEvaluation = Never;
+  size_t pos = 0;
+  ExpressionValue res = evaluateExpressionPrivate(expression.c_str(), pos, 0);
+  if (nextEvaluation!=Never) {
+    FOCUSLOG("Expression demands re-evaluation at %s: %s", MainLoop::string_fmltime("%H:%M:%S", nextEvaluation).c_str(), expression.c_str());
+  }
+  if (aScheduleReEval) {
+    scheduleReEvaluation(nextEvaluation);
+  }
+  return res;
+}
+
+
+void EvaluationContext::scheduleReEvaluation(MLMicroSeconds aAtTime)
+{
+  nextEvaluation = aAtTime;
+  if (nextEvaluation!=Never) {
+    reEvaluationTicket.executeOnceAt(boost::bind(&EvaluationContext::reEvaluationHandler, this, _1, _2), nextEvaluation);
+  }
+  else {
+    reEvaluationTicket.cancel();
+  }
+}
+
+
+void EvaluationContext::scheduleLatestEvaluation(MLMicroSeconds aAtTime)
+{
+  if (updateNextEval(aAtTime)) {
+    scheduleReEvaluation(nextEvaluation);
+  }
+}
+
+
+
+
+bool EvaluationContext::triggerEvaluation(EvalMode aEvalMode)
+{
+  if (evaluating) {
+    LOG(LOG_WARNING, "Apparently cyclic reference in evaluation of expression -> not retriggering: %s", expression.c_str());
+    return false;
+  }
+  else {
+    evaluating = true;
+    ExpressionValue res = evaluateNow(aEvalMode, true);
+    if (evaluationResultHandler) {
+      // this is where cyclic references could cause re-evaluation, which is protected by evaluating==true
+      evaluationResultHandler(res, *this);
+    }
+    evaluating = false;
+  }
+  return true;
+}
+
+
+void EvaluationContext::reEvaluationHandler(MLTimer &aTimer, MLMicroSeconds aNow)
+{
+  // trigger another evaluation
+  FOCUSLOG("Timed re-evaluation of expression starting now: %s", expression.c_str());
+  triggerEvaluation(evalmode_timed);
+}
+
+
+
+// standard functions available in every context
+ExpressionValue EvaluationContext::evaluateFunction(const string &aName, const FunctionArgumentVector &aArgs)
 {
   if (aName=="ifvalid" && aArgs.size()==2) {
     // ifvalid(a, b)   if a is a valid value, return it, otherwise return the default as specified by b
@@ -196,65 +298,65 @@ ExpressionValue evaluateBuiltinFunction(const string &aName, const FunctionArgum
 }
 
 
-
-ExpressionValue evaluateTerm(const char * &aText, ValueLookupCB aValueLookupCB, FunctionLookupCB aFunctionLookpCB)
+// no variables in base class
+ExpressionValue EvaluationContext::valueLookup(const string &aName)
 {
-  const char *a = aText;
+  // no variables by default
+  return ExpressionError::errValue(ExpressionError::NotFound, "no variable named '%s'", aName.c_str());
+}
+
+
+ExpressionValue EvaluationContext::evaluateTerm(const char *aExpr, size_t &aPos)
+{
+  size_t a = aPos;
   // a simple term can be
   // - a variable reference or
   // - a literal number or timespec (h:m or h:m:s)
   // Note: a parantesized expression can also be a term, but this is parsed by the caller, not here
-  while (*aText==' ' || *aText=='\t') aText++; // skip whitespace
+  while (aExpr[aPos]==' ' || aExpr[aPos]=='\t') aPos++; // skip whitespace
   // extract var name or number
   ExpressionValue res;
-  const char *e = aText;
-  while (*e && (isalnum(*e) || *e=='.' || *e=='_' || *e==':')) e++;
-  if (e==aText) {
+  size_t e = aPos;
+  while (aExpr[e] && (isalnum(aExpr[e]) || aExpr[e]=='.' || aExpr[e]=='_' || aExpr[e]==':')) e++;
+  if (e==aPos) {
     return ExpressionError::errValue(ExpressionError::Syntax, "missing term");
   }
   // must be simple term
   string term;
-  term.assign(aText, e-aText);
-  aText = e; // advance cursor
+  term.assign(aExpr+aPos, e-aPos);
+  aPos = e; // advance cursor
   // skip trailing whitespace
-  while (*aText==' ' || *aText=='\t') aText++; // skip whitespace
+  while (aExpr[aPos]==' ' || aExpr[aPos]=='\t') aPos++; // skip whitespace
   // decode term
   if (isalpha(term[0])) {
     ErrorPtr err;
     // must be a variable or function call
-    if (*aText=='(') {
+    if (aExpr[aPos]=='(') {
       // function call
-      aText++; // skip opening paranthesis
+      aPos++; // skip opening paranthesis
       // - collect arguments
       FunctionArgumentVector args;
       while (true) {
-        while (*aText==' ' || *aText=='\t') aText++; // skip whitespace
-        if (*aText==')')
+        while (aExpr[aPos]==' ' || aExpr[aPos]=='\t') aPos++; // skip whitespace
+        if (aExpr[aPos]==')')
           break; // no more arguments
         if (args.size()!=0) {
-          if (*aText!=',')
+          if (aExpr[aPos]!=',')
             return ExpressionError::errValue(ExpressionError::Syntax, "missing comma or closing ')'");
-          aText++; // skip comma
+          aPos++; // skip comma
         }
-        ExpressionValue arg = evaluateExpressionPrivate(aText, 0, aValueLookupCB, aFunctionLookpCB);
+        ExpressionValue arg = evaluateExpressionPrivate(aExpr, aPos, 0);
         if (!arg.isOk() && !arg.err->isError("ExpressionError", ExpressionError::Null))
           return arg; // exit, except on null which is ok as a function argument
         args.push_back(arg);
       }
-      aText++; // skip closing paranthesis
+      aPos++; // skip closing paranthesis
       FOCUSLOG("Function '%s' called", term.c_str());
       for (FunctionArgumentVector::iterator pos = args.begin(); pos!=args.end(); ++pos) {
         FOCUSLOG("- argument: %lf (err=%s)", pos->v, Error::text(pos->err));
       }
       // run function
-      bool foundFunc = false;
-      if (aFunctionLookpCB) {
-        res = aFunctionLookpCB(term, args);
-        foundFunc = res.isOk() || !res.err->isError("ExpressionError", ExpressionError::NotFound);
-      }
-      if (!foundFunc) {
-        res = evaluateBuiltinFunction(term, args);
-      }
+      res = evaluateFunction(term, args);
     }
     else {
       // check some reserved values
@@ -267,12 +369,9 @@ ExpressionValue evaluateTerm(const char * &aText, ValueLookupCB aValueLookupCB, 
       else if (term=="null" || term=="undefined") {
         res = ExpressionError::errValue(ExpressionError::Null, "%s", term.c_str());
       }
-      else if (aValueLookupCB) {
-        res = aValueLookupCB(term);
-      }
       else {
-        // undefined
-        res = ExpressionError::errValue(ExpressionError::NotFound, "no variables");
+        // must be identifier representing a variable value
+        res = valueLookup(term);
       }
     }
   }
@@ -284,6 +383,7 @@ ExpressionValue evaluateTerm(const char * &aText, ValueLookupCB aValueLookupCB, 
       return ExpressionError::errValue(ExpressionError::Syntax, "'%s' is not a valid number", term.c_str());
     }
     else {
+      // TODO: date literals in form yyyy_mm_dd or just mm_dd
       // check for time literals (returned as seconds)
       // - these are in the form h:m or h:m:s, where all parts are allowed to be fractional
       if (term.size()>i && term[i]==':') {
@@ -311,10 +411,10 @@ ExpressionValue evaluateTerm(const char * &aText, ValueLookupCB aValueLookupCB, 
   }
   // valid term
   if (res.isOk()) {
-    FOCUSLOG("Term '%.*s' evaluation result: %lf", (int)(aText-a), a, res.v);
+    FOCUSLOG("Term '%.*s' evaluation result: %lf", (int)(aPos-a), aExpr+a, res.v);
   }
   else {
-    FOCUSLOG("Term '%.*s' evaluation error: %s", (int)(aText-a), a, res.err->text());
+    FOCUSLOG("Term '%.*s' evaluation error: %s", (int)(aPos-a), aExpr+a, res.err->text());
   }
   return res;
 }
@@ -342,12 +442,12 @@ typedef enum {
 
 // a + 3 * 4
 
-static Operations parseOperator(const char * &aText)
+static Operations parseOperator(const char *aExpr, size_t &aPos)
 {
-  while (*aText==' ' || *aText=='\t') aText++; // skip whitespace
+  while (aExpr[aPos]==' ' || aExpr[aPos]=='\t') aPos++; // skip whitespace
   // check for operator
   Operations op = op_none;
-  switch (*aText++) {
+  switch (aExpr[aPos++]) {
     case '*': op = op_multiply; break;
     case '/': op = op_divide; break;
     case '+': op = op_add; break;
@@ -356,42 +456,54 @@ static Operations parseOperator(const char * &aText)
     case '|': op = op_or; break;
     case '=': op = op_equal; break;
     case '<': {
-      if (*aText=='=') {
-        aText++; op = op_leq; break;
+      if (aExpr[aPos]=='=') {
+        aPos++; op = op_leq; break;
       }
-      else if (*aText=='>') {
-        aText++; op = op_notequal; break;
+      else if (aExpr[aPos]=='>') {
+        aPos++; op = op_notequal; break;
       }
       op = op_less; break;
     }
     case '>': {
-      if (*aText=='=') {
-        aText++; op = op_geq; break;
+      if (aExpr[aPos]=='=') {
+        aPos++; op = op_geq; break;
       }
       op = op_greater; break;
     }
     case '!': {
-      if (*aText=='=') {
-        aText++; op = op_notequal; break;
+      if (aExpr[aPos]=='=') {
+        aPos++; op = op_notequal; break;
       }
       op = op_not; break;
       break;
     }
-    default: --aText; // no expression char
+    default: --aPos; // no expression char
   }
-  while (*aText==' ' || *aText=='\t') aText++; // skip whitespace
+  while (aExpr[aPos]==' ' || aExpr[aPos]=='\t') aPos++; // skip whitespace
   return op;
+}
+
+
+bool EvaluationContext::updateNextEval(const MLMicroSeconds aLatestEval)
+{
+  if (aLatestEval==Never) return false; // no next evaluation needed, no need to update
+  if (nextEvaluation==Never || aLatestEval<nextEvaluation) {
+    // new time is more recent than previous, update
+    nextEvaluation = aLatestEval;
+    return true;
+  }
+  return false;
 }
 
 
 
 
-ExpressionValue evaluateExpressionPrivate(const char * &aText, int aPrecedence, ValueLookupCB aValueLookupCB, FunctionLookupCB aFunctionLookpCB)
+ExpressionValue EvaluationContext::evaluateExpressionPrivate(const char *aExpr, size_t &aPos, int aPrecedence)
 {
-  const char *a = aText;
   ExpressionValue res;
+  size_t a = aPos;
   // check for optional unary op
-  Operations unaryop = parseOperator(aText);
+  Operations unaryop = parseOperator(aExpr, aPos);
   if (unaryop!=op_none) {
     if (unaryop!=op_subtract && unaryop!=op_not) {
       return ExpressionError::errValue(ExpressionError::Syntax, "invalid unary operator");
@@ -399,19 +511,19 @@ ExpressionValue evaluateExpressionPrivate(const char * &aText, int aPrecedence, 
   }
   // evaluate term
   // - check for paranthesis term
-  if (*aText=='(') {
+  if (aExpr[aPos]=='(') {
     // term is expression in paranthesis
-    aText++;
-    res = evaluateExpressionPrivate(aText, 0, aValueLookupCB, aFunctionLookpCB);
+    aPos++;
+    res = evaluateExpressionPrivate(aExpr, aPos, 0);
     if (Error::isError(res.err, ExpressionError::domain(), ExpressionError::Syntax)) return res;
-    if (*aText!=')') {
+    if (aExpr[aPos]!=')') {
       return ExpressionValue(ExpressionError::err(ExpressionError::Syntax, "Missing ')'"));
     }
-    aText++;
+    aPos++;
   }
   else {
     // must be simple term
-    res = evaluateTerm(aText, aValueLookupCB, aFunctionLookpCB);
+    res = evaluateTerm(aExpr, aPos);
     if (Error::isError(res.err, ExpressionError::domain(), ExpressionError::Syntax)) return res;
   }
   // apply unary ops if any
@@ -420,23 +532,23 @@ ExpressionValue evaluateExpressionPrivate(const char * &aText, int aPrecedence, 
     case op_subtract : res.v = -res.v; break;
     default: break;
   }
-  while (*aText) {
+  while (aExpr[aPos]) {
     // now check for operator and precedence
-    const char *optext = aText;
-    Operations binaryop = parseOperator(optext);
+    size_t opIdx = aPos;
+    Operations binaryop = parseOperator(aExpr, opIdx);
     int precedence = binaryop & opmask_precedence;
     // end parsing here if end of text, paranthesis or argument reached or operator has a lower or same precedence as the passed in precedence
-    if (*optext==0 || *optext==')' || *optext==',' || precedence<=aPrecedence) {
+    if (aExpr[opIdx]==0 || aExpr[opIdx]==')' || aExpr[opIdx]==',' || precedence<=aPrecedence) {
       // what we have so far is the result
       break;
     }
     // prevent loop
     if (binaryop==op_none) {
-      return ExpressionError::err(ExpressionError::Syntax, "Invalid operator: '%s'", optext);
+      return ExpressionError::err(ExpressionError::Syntax, "Invalid operator: '%s'", aExpr+opIdx);
     }
     // must parse right side of operator as subexpression
-    aText = optext; // advance past operator
-    ExpressionValue rightside = evaluateExpressionPrivate(aText, precedence, aValueLookupCB, aFunctionLookpCB);
+    aPos = opIdx; // advance past operator
+    ExpressionValue rightside = evaluateExpressionPrivate(aExpr, aPos, precedence);
     if (!rightside.isOk()) res=rightside;
     if (res.isOk()) {
       // apply the operation between leftside and rightside
@@ -461,10 +573,10 @@ ExpressionValue evaluateExpressionPrivate(const char * &aText, int aPrecedence, 
         case op_or: res.v = res.v || rightside.v; break;
         default: break;
       }
-      FOCUSLOG("Intermediate expression '%.*s' evaluation result: %lf", (int)(aText-a), a, res.v);
+      FOCUSLOG("Intermediate expression '%.*s' evaluation result: %lf", (int)(aPos-a), aExpr+a, res.v);
     }
     else {
-      FOCUSLOG("Intermediate expression '%.*s' evaluation result is INVALID", (int)(aText-a), a);
+      FOCUSLOG("Intermediate expression '%.*s' evaluation result is INVALID", (int)(aPos-a), aExpr+a);
     }
   }
   // done
@@ -472,17 +584,82 @@ ExpressionValue evaluateExpressionPrivate(const char * &aText, int aPrecedence, 
 }
 
 
+bool EvaluationContext::checkFrozen(ExpressionValue &aResult, size_t aAtPos, MLMicroSeconds aFreezeUntil)
+{
+  // TODO: implement
+  return false;
+}
+
+
+bool EvaluationContext::unfreeze(size_t aAtPos)
+{
+  // TODO: implement
+  return false;
+}
+
+
+
+
+// MARK: - ad hoc expression evaluation
+
+/// helper class for ad-hoc expression evaluation
+class AdHocEvaluationContext : public EvaluationContext
+{
+  typedef EvaluationContext inherited;
+  ValueLookupCB valueLookUp;
+  FunctionLookupCB functionLookUp;
+
+public:
+  AdHocEvaluationContext(ValueLookupCB aValueLookupCB, FunctionLookupCB aFunctionLookpCB) :
+    valueLookUp(aValueLookupCB),
+    functionLookUp(aFunctionLookpCB)
+  {
+  };
+
+  virtual ~AdHocEvaluationContext() {};
+
+  ExpressionValue evaluateExpression(const string &aExpression)
+  {
+    setExpression(aExpression);
+    return evaluateNow();
+  };
+
+protected:
+
+  virtual ExpressionValue valueLookup(const string &aName) P44_OVERRIDE
+  {
+    if (valueLookUp) return valueLookUp(aName, nextEvaluation);
+    return inherited::valueLookup(aName);
+  };
+
+  virtual ExpressionValue evaluateFunction(const string &aFunctionName, const FunctionArgumentVector &aArguments) P44_OVERRIDE
+  {
+    if (functionLookUp) return functionLookUp(aFunctionName, aArguments, nextEvaluation);
+    return inherited::evaluateFunction(aFunctionName, aArguments);
+  };
+
+};
+typedef boost::intrusive_ptr<AdHocEvaluationContext> AdHocEvaluationContextPtr;
+
+
 ExpressionValue p44::evaluateExpression(const string &aExpression, ValueLookupCB aValueLookupCB, FunctionLookupCB aFunctionLookpCB)
 {
-  const char *p = aExpression.c_str();
-  return evaluateExpressionPrivate(p, 0, aValueLookupCB, aFunctionLookpCB);
+  AdHocEvaluationContext ctx(aValueLookupCB, aFunctionLookpCB);
+  ctx.isMemberVariable();
+  return ctx.evaluateExpression(aExpression);
 }
+
+
+
+// MARK: - placeholder expression substitution - @{expression}
 
 
 ErrorPtr p44::substituteExpressionPlaceholders(string &aString, ValueLookupCB aValueLookupCB, FunctionLookupCB aFunctionLookpCB, string aNullText)
 {
   ErrorPtr err;
   size_t p = 0;
+  AdHocEvaluationContextPtr ctx; // create it lazily when actually required, prevent allocation when aString has no substitutions at all
+
   // Syntax of placeholders:
   //   @{expression}
   while ((p = aString.find("@{",p))!=string::npos) {
@@ -494,7 +671,8 @@ ErrorPtr p44::substituteExpressionPlaceholders(string &aString, ValueLookupCB aV
     }
     string expr = aString.substr(p+2,e-2-p);
     // evaluate expression
-    ExpressionValue result = evaluateExpression(expr, aValueLookupCB, aFunctionLookpCB);
+    if (!ctx) ctx = AdHocEvaluationContextPtr(new AdHocEvaluationContext(aValueLookupCB, aFunctionLookpCB));
+    ExpressionValue result = ctx->evaluateExpression(expr);
     string rep;
     if (result.isOk()) {
       rep = result.stringValue();
@@ -512,3 +690,52 @@ ErrorPtr p44::substituteExpressionPlaceholders(string &aString, ValueLookupCB aV
 
 
 
+// MARK: - TimedEvaluationContext
+
+TimedEvaluationContext::TimedEvaluationContext()
+{
+
+}
+
+
+TimedEvaluationContext::~TimedEvaluationContext()
+{
+
+}
+
+
+#define MIN_RETRIGGER_SECONDS 10
+
+ExpressionValue TimedEvaluationContext::evaluateFunction(const string &aFunctionName, const FunctionArgumentVector &aArguments)
+{
+  if (aFunctionName=="testlater" && aArguments.size()>=2 && aArguments.size()<=3) {
+    // testlater(seconds, timedtest [, retrigger])   return "invalid" now, re-evaluate after given seconds and return value of test then. If repeat is true then, the timer will be re-scheduled
+    bool retrigger = false;
+    if (aArguments.size()>=3) retrigger = aArguments[2].isOk() && aArguments[2].v>0;
+    if (evalMode!=evalmode_timed || retrigger) {
+      // (re-)setup timer
+      double secs = aArguments[0].v;
+      if (retrigger && secs<MIN_RETRIGGER_SECONDS) {
+        // prevent too frequent re-triggering that could eat up too much cpu
+        LOG(LOG_WARNING, "testlater() requests too fast retriggering (%.1f seconds), allowed minimum is %.1f seconds", secs, (double)MIN_RETRIGGER_SECONDS);
+        secs = MIN_RETRIGGER_SECONDS;
+      }
+      updateNextEval(MainLoop::now()+secs*Second);
+    }
+    if (evalMode==evalmode_timed) {
+      // evaluation runs because timer has expired, return test result
+      return ExpressionValue(aArguments[1].v);
+    }
+    else {
+      // timer not yet expired, return undefined
+      return ExpressionError::errValue(ExpressionError::Null, "testlater() not yet ready");
+    }
+  }
+  else if (aFunctionName=="initial" && aArguments.size()==0) {
+    // initial()  returns true if this is a "initial" run of the evaluator, meaning after startup or expression changes
+    return ExpressionValue(evalMode==evalmode_initial);
+  }
+  else {
+    return inhertited::evaluateFunction(aFunctionName, aArguments);
+  }
+}

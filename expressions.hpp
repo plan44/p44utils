@@ -43,11 +43,12 @@ namespace p44 {
   /// expression value, consisting of a value and an error to indicate non-value and reason for it
   class ExpressionValue {
   public:
+    size_t pos; ///< starting position in expression string (for function arguments and subexpressions)
     double v;
     ErrorPtr err;
-    ExpressionValue() { v = 0; };
-    ExpressionValue(ErrorPtr aError, double aValue = 0) { err = aError; v = aValue; };
-    ExpressionValue(double aValue) { v = aValue; };
+    ExpressionValue() { v = 0; pos = 0; };
+    ExpressionValue(ErrorPtr aError, double aValue = 0, size_t aPos = 0) { err = aError; v = aValue; pos = aPos; };
+    ExpressionValue(double aValue, size_t aPos = 0) { v = aValue; pos = aPos; };
     bool isOk() const { return Error::isOK(err); }
     string stringValue();
   };
@@ -73,16 +74,22 @@ namespace p44 {
     static ExpressionValue errValue(ErrorCodes aErrCode, const char *aFmt, ...) __printflike(2,3);
   };
 
-  /// callback function for obtaining numeric variables
+  /// callback function for obtaining variables
   /// @param aName the name of the value/variable to look up
+  /// @param aNextEval Input: time of next re-evaluation that will happen, or Never.
+  ///   Output: reduced to more recent time when this value demands more recent re-evaulation, untouched otherwise
   /// @return Expression value (with error when value is not available)
-  typedef boost::function<ExpressionValue (const string aName)> ValueLookupCB;
+  typedef boost::function<ExpressionValue (const string &aName, MLMicroSeconds &aNextEval)> ValueLookupCB;
 
   /// callback function for function evaluation
+  /// @param aFunctionName the name of the function to execute
+  /// @param aArguments vector of function arguments, tuple contains expression starting position and value
+  /// @param aNextEval Input: time of next re-evaluation that will happen, or Never.
+  ///   Output: reduced to more recent time when evaluating subexpression demands more recent re-evaulation, untouched otherwise
   typedef std::vector<ExpressionValue> FunctionArgumentVector;
-  typedef boost::function<ExpressionValue (const string aFunctionName, const FunctionArgumentVector &aArguments)> FunctionLookupCB;
+  typedef boost::function<ExpressionValue (const string &aFunctionName, const FunctionArgumentVector &aArguments, MLMicroSeconds &aNextEval)> FunctionLookupCB;
 
-  /// evaluate expression with numeric result
+  /// evaluate expression
   /// @param aExpression the expression text
   /// @param aValueLookupCB this will be called to get variables resolved into values
   /// @param aFunctionLookpCB this will be called to execute functions that are not built-in
@@ -97,6 +104,170 @@ namespace p44 {
   /// @return returns first error occurred during substitutions. Note that only unbalanced substitution brackets @{xxx} abort substitution,
   ///    other errors just cause substitution result to be aNullText.
   ErrorPtr substituteExpressionPlaceholders(string &aString, ValueLookupCB aValueLookupCB, FunctionLookupCB aFunctionLookpCB, string aNullText = "null");
+
+
+
+  class EvaluationContext;
+
+  /// Expression Evaluation Callback
+  typedef boost::function<void (ExpressionValue aEvaluationResult, EvaluationContext &aContext)> EvaluationResultCB;
+
+
+  typedef enum {
+    evalmode_current, ///< input value for not changing the evaluation mode
+    evalmode_initial, ///< initial evaluator run
+    evalmode_externaltrigger, ///< externally triggered evaluation
+    evalmode_timed, ///< timed evaluation by timed retrigger
+  } EvalMode;
+
+  /// Basic Expression Evaluation Context
+  class EvaluationContext : public P44Obj
+  {
+  protected:
+
+    EvalMode evalMode; ///< evaluation mode
+
+    class FrozenResult
+    {
+      ExpressionValue frozenResult; ///< the frozen result
+      MLMicroSeconds frozenUntil; ///< until when the value remains frozen, Infinite if forever (until explicitly unfrozen)
+    };
+
+    typedef std::map<size_t, FrozenResult> FrozenResultsMap;
+    FrozenResultsMap frozenResults; ///< map of expression starting indices and associated frozen results
+
+    string expression; ///< the expression
+    EvaluationResultCB evaluationResultHandler; ///< called when evaluation completes
+    MLMicroSeconds nextEvaluation; ///< next automatic re-evaluation
+    MLTicket reEvaluationTicket; ///< ticket for re-evaluation timer
+    bool evaluating; ///< protection against cyclic references
+
+  public:
+
+    EvaluationContext();
+    virtual ~EvaluationContext();
+
+    /// set evaluation callback
+    /// @param aEvaluationResultHandler is called whenever a evaluation completes.
+    /// @note Evaluations can be triggered by evaluate(), but the callback mechanism also allows for contexts that
+    ///   automatically re-trigger their own evaluation depending on internally changing factors such as time
+    void setEvaluationResultHandler(EvaluationResultCB aEvaluationResultHandler);
+
+    /// set expression to evaluate
+    /// @param aExpression set the expression to be evaluated in this context
+    /// @note setting an expression that differs from the current one unfreezes any frozen arguments
+    /// @return true if expression actually changed (not just set same expession again)
+    bool setExpression(const string aExpression);
+
+    /// get current expression
+    string getExpression() { return expression; };
+
+    /// @return current evaluation mode
+    EvalMode getEvalMode() { return evalMode; };
+
+    /// evaluate expression right now, return result
+    /// @param aEvalMode if specified, the evaluation mode for this evaluation. Defaults to current evaluation mode.
+    /// @param aScheduleReEval if true, re-evaluations as demanded by evaluated expression are scheduled
+    /// @return expression result
+    /// @note does NOT trigger the evaluation result handler, and does not schedule re-evaluation
+    ExpressionValue evaluateNow(EvalMode aEvalMode = evalmode_current, bool aScheduleReEval = false);
+
+    /// trigger a (re-)evaluation
+    /// @param aEvalMode if specified, the evaluation mode for this evaluation. Defaults to current evaluation mode.
+    /// @note evaluation result handler will be called when complete
+    /// @note if evaluation demands a re-evaluation, this will be scheduled and result handler will be called again whenever re-evaluation occurs
+    /// @return true if evaluation triggered, false if triggering was inhibited due to cyclic reference
+    bool triggerEvaluation(EvalMode aEvalMode = evalmode_current);
+
+    /// @return true if currently evaluating an expression.
+    bool isEvaluating() { return evaluating; }
+
+
+    /// schedule latest re-evaluation time. If an earlier evaluation time is already scheduled, nothing will happen
+    /// @note this will cancel a possibly already scheduled re-evaluation unconditionally
+    void scheduleLatestEvaluation(MLMicroSeconds aAtTime);
+
+    /// schedule a re-evaluation at given time
+    /// @note this will cancel a possibly already scheduled re-evaluation unconditionally
+    void scheduleReEvaluation(MLMicroSeconds aAtTime);
+
+  protected:
+
+    /// unfreeze all frozen subexpression results
+    void unfreezeAll();
+
+    /// check for frozen result
+    /// @param aResult Input: the current result of the expression at aAtPos
+    ///   Output: if there is an already non-expired frozen result at aAtPos, aResult is set to its value. Otherwise, aResult remains untouched
+    /// @param aAtPos the starting character index of the subexpression that might already be frozen or should be frozen if not.
+    /// @param aUntil the result will be unfrozen at that time, specify Infinite to freeze indefinitely, Never to release any previous freeze
+    /// @note if the value is not yet frozen, aResult will be stored in the freezer and future calls will return it
+    /// @note next evaluation time will be updated to make sure a re-evaluation occurs at the end of the freeze
+    /// @return true if aResult was replaced by an earlier frozen result
+    bool checkFrozen(ExpressionValue &aResult, size_t aAtPos, MLMicroSeconds aFreezeUntil);
+
+    /// unfreeze frozen value at aAtPos
+    /// @param aAtPos the starting character index of the subexpression to unfreeze
+    /// @return true if there was a frozen result at aAtPos
+    bool unfreeze(size_t aAtPos);
+
+    /// Set time when next evaluation must happen, latest
+    /// @param aLatestEval new time when evaluation must happen latest, Never if no next evaluation is needed
+    /// @return true if aNextEval was updated
+    bool updateNextEval(const MLMicroSeconds aLatestEval);
+
+    /// @name to be overridden and enhanced in subclasses
+    /// @{
+
+    /// lookup variables by name
+    /// @param aName the name of the value/variable to look up
+    /// @param aNextEval Input: time of next re-evaluation that will happen, or Never.
+    ///   Output: reduced to more recent time when this value demands more recent re-evaulation, untouched otherwise
+    /// @return Expression value (with error when value is not available)
+    virtual ExpressionValue valueLookup(const string &aName);
+
+    /// function evaluation
+    /// @param aFunctionName the name of the function to execute
+    /// @return Expression value or error.
+    /// @param aNextEval will be adjusted to the most recent point in time when a re-evaluation should occur. Inital call should pass Never.
+    /// @note must return ExpressionError::NotFound only if function name is unknown
+    virtual ExpressionValue evaluateFunction(const string &aFunctionName, const FunctionArgumentVector &aArguments);
+
+    /// @}
+
+    /// evaluate (sub)expression
+    /// @param aExpr the beginning of the entire expression (important for freezing subexpressions via their string position)
+    /// @param aPos the current position of evaluation within aExpr
+    /// @param aNextEval Input: time of next re-evaluation that will happen, or Never.
+    ///   Output: reduced to more recent time when evaluating subexpression demands more recent re-evaulation, untouched otherwise
+    /// @return expression result
+    ExpressionValue evaluateExpressionPrivate(const char *aExpr, size_t &aPos, int aPrecedence);
+
+  private:
+
+    ExpressionValue evaluateTerm(const char *aExpr, size_t &aPos);
+    void reEvaluationHandler(MLTimer &aTimer, MLMicroSeconds aNow);
+
+  };
+  typedef boost::intrusive_ptr<EvaluationContext> EvaluationContextPtr;
+
+
+  // evaluation with time related functions that must trigger re-evaluations when used
+  class TimedEvaluationContext : public EvaluationContext
+  {
+    typedef EvaluationContext inhertited;
+
+  public:
+
+    TimedEvaluationContext();
+    virtual ~TimedEvaluationContext();
+
+  protected:
+
+    virtual ExpressionValue evaluateFunction(const string &aFunctionName, const FunctionArgumentVector &aArguments) P44_OVERRIDE;
+
+  };
+  typedef boost::intrusive_ptr<TimedEvaluationContext> TimedEvaluationContextPtr;
 
 
 } // namespace p44
