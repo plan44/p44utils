@@ -164,8 +164,7 @@ ExpressionValue ExpressionError::errValue(ErrorCodes aErrCode, const char *aFmt,
 
 EvaluationContext::EvaluationContext() :
   evalMode(evalmode_initial),
-  evaluating(false),
-  nextEvaluation(Never)
+  evaluating(false)
 {
 }
 
@@ -175,22 +174,16 @@ EvaluationContext::~EvaluationContext()
 }
 
 
-void EvaluationContext::setEvaluationResultHandler(EvaluationResultCB aEvaluationResultHandler)
+void EvaluationContext::setReEvaluationHandler(ReEvaluationCB aEvaluationResultHandler)
 {
-  evaluationResultHandler = aEvaluationResultHandler;
-}
-
-
-void EvaluationContext::unfreezeAll()
-{
-  frozenResults.clear(); // changing expression unfreezes everything
+  reEvaluationHandler = aEvaluationResultHandler;
 }
 
 
 bool EvaluationContext::setExpression(const string aExpression)
 {
   if (aExpression!=expression) {
-    unfreezeAll(); // changing expression unfreezes everything
+    releaseState(); // changing expression unfreezes everything
     expression = aExpression;
     return true;
   }
@@ -200,41 +193,10 @@ bool EvaluationContext::setExpression(const string aExpression)
 
 ExpressionValue EvaluationContext::evaluateNow(EvalMode aEvalMode, bool aScheduleReEval)
 {
-  if (aEvalMode!=evalmode_current)
-    evalMode = aEvalMode;
-  nextEvaluation = Never;
+  if (aEvalMode!=evalmode_current) evalMode = aEvalMode;
   size_t pos = 0;
-  ExpressionValue res = evaluateExpressionPrivate(expression.c_str(), pos, 0);
-  if (nextEvaluation!=Never) {
-    FOCUSLOG("Expression demands re-evaluation at %s: %s", MainLoop::string_fmltime("%H:%M:%S", nextEvaluation).c_str(), expression.c_str());
-  }
-  if (aScheduleReEval) {
-    scheduleReEvaluation(nextEvaluation);
-  }
-  return res;
+  return evaluateExpressionPrivate(expression.c_str(), pos, 0);
 }
-
-
-void EvaluationContext::scheduleReEvaluation(MLMicroSeconds aAtTime)
-{
-  nextEvaluation = aAtTime;
-  if (nextEvaluation!=Never) {
-    reEvaluationTicket.executeOnceAt(boost::bind(&EvaluationContext::reEvaluationHandler, this, _1, _2), nextEvaluation);
-  }
-  else {
-    reEvaluationTicket.cancel();
-  }
-}
-
-
-void EvaluationContext::scheduleLatestEvaluation(MLMicroSeconds aAtTime)
-{
-  if (updateNextEval(aAtTime)) {
-    scheduleReEvaluation(nextEvaluation);
-  }
-}
-
-
 
 
 bool EvaluationContext::triggerEvaluation(EvalMode aEvalMode)
@@ -246,23 +208,14 @@ bool EvaluationContext::triggerEvaluation(EvalMode aEvalMode)
   else {
     evaluating = true;
     ExpressionValue res = evaluateNow(aEvalMode, true);
-    if (evaluationResultHandler) {
+    if (reEvaluationHandler) {
       // this is where cyclic references could cause re-evaluation, which is protected by evaluating==true
-      evaluationResultHandler(res, *this);
+      reEvaluationHandler(res, *this);
     }
     evaluating = false;
   }
   return true;
 }
-
-
-void EvaluationContext::reEvaluationHandler(MLTimer &aTimer, MLMicroSeconds aNow)
-{
-  // trigger another evaluation
-  FOCUSLOG("Timed re-evaluation of expression starting now: %s", expression.c_str());
-  triggerEvaluation(evalmode_timed);
-}
-
 
 
 // standard functions available in every context
@@ -274,21 +227,21 @@ ExpressionValue EvaluationContext::evaluateFunction(const string &aName, const F
   }
   else if (aName=="if" && aArgs.size()==3) {
     // if (c, a, b)    if c evaluates to true, return a, otherwise b
-    if (!aArgs[0].isOk()) return aArgs[0]; // return error from condition
+    if (aArgs[0].notOk()) return aArgs[0]; // return error from condition
     return ExpressionValue(aArgs[0].v!=0 ? aArgs[1] : aArgs[2]);
   }
   else if (aName=="abs" && aArgs.size()==1) {
     // abs (a)         absolute value of a
-    if (!aArgs[0].isOk()) return aArgs[0]; // return error from argument
+    if (aArgs[0].notOk()) return aArgs[0]; // return error from argument
     return ExpressionValue(fabs(aArgs[0].v));
   }
   else if (aName=="round" && (aArgs.size()==1 || aArgs.size()==2)) {
     // round (a)       round value to integer
     // round (a, p)    round value to specified precision (1=integer, 0.5=halves, 100=hundreds, etc...)
-    if (!aArgs[0].isOk()) return aArgs[0]; // return error from argument
+    if (aArgs[0].notOk()) return aArgs[0]; // return error from argument
     double precision = 1;
     if (aArgs.size()>=2) {
-      if (!aArgs[1].isOk()) return aArgs[0]; // return error from argument
+      if (aArgs[1].notOk()) return aArgs[0]; // return error from argument
       precision = aArgs[1].v;
     }
     return ExpressionValue(round(aArgs[0].v/precision)*precision);
@@ -346,7 +299,7 @@ ExpressionValue EvaluationContext::evaluateTerm(const char *aExpr, size_t &aPos)
           aPos++; // skip comma
         }
         ExpressionValue arg = evaluateExpressionPrivate(aExpr, aPos, 0);
-        if (!arg.isOk() && !arg.err->isError("ExpressionError", ExpressionError::Null))
+        if (arg.notOk() && !arg.err->isError("ExpressionError", ExpressionError::Null))
           return arg; // exit, except on null which is ok as a function argument
         args.push_back(arg);
       }
@@ -484,20 +437,6 @@ static Operations parseOperator(const char *aExpr, size_t &aPos)
 }
 
 
-bool EvaluationContext::updateNextEval(const MLMicroSeconds aLatestEval)
-{
-  if (aLatestEval==Never) return false; // no next evaluation needed, no need to update
-  if (nextEvaluation==Never || aLatestEval<nextEvaluation) {
-    // new time is more recent than previous, update
-    nextEvaluation = aLatestEval;
-    return true;
-  }
-  return false;
-}
-
-
-
-
 ExpressionValue EvaluationContext::evaluateExpressionPrivate(const char *aExpr, size_t &aPos, int aPrecedence)
 {
   ExpressionValue res;
@@ -549,7 +488,7 @@ ExpressionValue EvaluationContext::evaluateExpressionPrivate(const char *aExpr, 
     // must parse right side of operator as subexpression
     aPos = opIdx; // advance past operator
     ExpressionValue rightside = evaluateExpressionPrivate(aExpr, aPos, precedence);
-    if (!rightside.isOk()) res=rightside;
+    if (rightside.notOk()) res=rightside;
     if (res.isOk()) {
       // apply the operation between leftside and rightside
       switch (binaryop) {
@@ -584,19 +523,30 @@ ExpressionValue EvaluationContext::evaluateExpressionPrivate(const char *aExpr, 
 }
 
 
-bool EvaluationContext::checkFrozen(ExpressionValue &aResult, size_t aAtPos, MLMicroSeconds aFreezeUntil)
+bool TimedEvaluationContext::updateNextEval(const MLMicroSeconds aLatestEval)
 {
-  // TODO: implement
+  if (aLatestEval==Never) return false; // no next evaluation needed, no need to update
+  if (nextEvaluation==Never || aLatestEval<nextEvaluation) {
+    // new time is more recent than previous, update
+    nextEvaluation = aLatestEval;
+    return true;
+  }
   return false;
 }
 
 
-bool EvaluationContext::unfreeze(size_t aAtPos)
+ExpressionValue TimedEvaluationContext::evaluateNow(EvalMode aEvalMode, bool aScheduleReEval)
 {
-  // TODO: implement
-  return false;
+  nextEvaluation = Never;
+  ExpressionValue res = inherited::evaluateNow(aEvalMode, aScheduleReEval);
+  if (nextEvaluation!=Never) {
+    FOCUSLOG("Expression demands re-evaluation at %s: %s", MainLoop::string_fmltime("%H:%M:%S", nextEvaluation).c_str(), expression.c_str());
+  }
+  if (aScheduleReEval) {
+    scheduleReEvaluation(nextEvaluation);
+  }
+  return res;
 }
-
 
 
 
@@ -628,13 +578,13 @@ protected:
 
   virtual ExpressionValue valueLookup(const string &aName) P44_OVERRIDE
   {
-    if (valueLookUp) return valueLookUp(aName, nextEvaluation);
+    if (valueLookUp) return valueLookUp(aName);
     return inherited::valueLookup(aName);
   };
 
   virtual ExpressionValue evaluateFunction(const string &aFunctionName, const FunctionArgumentVector &aArguments) P44_OVERRIDE
   {
-    if (functionLookUp) return functionLookUp(aFunctionName, aArguments, nextEvaluation);
+    if (functionLookUp) return functionLookUp(aFunctionName, aArguments);
     return inherited::evaluateFunction(aFunctionName, aArguments);
   };
 
@@ -692,7 +642,8 @@ ErrorPtr p44::substituteExpressionPlaceholders(string &aString, ValueLookupCB aV
 
 // MARK: - TimedEvaluationContext
 
-TimedEvaluationContext::TimedEvaluationContext()
+TimedEvaluationContext::TimedEvaluationContext() :
+  nextEvaluation(Never)
 {
 
 }
@@ -704,7 +655,68 @@ TimedEvaluationContext::~TimedEvaluationContext()
 }
 
 
+void TimedEvaluationContext::releaseState()
+{
+  frozenResults.clear(); // changing expression unfreezes everything
+}
+
+
+void TimedEvaluationContext::scheduleReEvaluation(MLMicroSeconds aAtTime)
+{
+  nextEvaluation = aAtTime;
+  if (nextEvaluation!=Never) {
+    reEvaluationTicket.executeOnceAt(boost::bind(&TimedEvaluationContext::timedEvaluationHandler, this, _1, _2), nextEvaluation);
+  }
+  else {
+    reEvaluationTicket.cancel();
+  }
+}
+
+
+void TimedEvaluationContext::timedEvaluationHandler(MLTimer &aTimer, MLMicroSeconds aNow)
+{
+  // trigger another evaluation
+  FOCUSLOG("Timed re-evaluation of expression starting now: %s", expression.c_str());
+  triggerEvaluation(evalmode_timed);
+}
+
+
+void TimedEvaluationContext::scheduleLatestEvaluation(MLMicroSeconds aAtTime)
+{
+  if (updateNextEval(aAtTime)) {
+    scheduleReEvaluation(nextEvaluation);
+  }
+}
+
+
+bool TimedEvaluationContext::checkFrozen(ExpressionValue &aResult, size_t aAtPos, MLMicroSeconds aFreezeUntil)
+{
+  // TODO: implement
+  return false;
+}
+
+
+bool TimedEvaluationContext::unfreeze(size_t aAtPos)
+{
+  // TODO: implement
+  return false;
+}
+
+
+
 #define MIN_RETRIGGER_SECONDS 10
+
+// TODO: - %%%
+
+// 1) testlater() should freeze its own result until the re-evaluation (because there could be multiple testlater()s in the expression)
+//    -> we might need pos to get passed to function evaluation
+//    Rationale:
+//    - all testlaters() must re-arm at evalmode_externaltrigger evaluations
+//    - HOWEVER, at evalmode_timed evaluations, only actually expired testlaters() must return the timedtest result.
+//      -> freezing the result can help here - probably we need separate APIs for checking / updating frozen values to implement this.
+
+// 2) extend freezing to keeping statuses at specific positions of the expression: not only frozen values, but also accumulators/filters/integrators/counters...
+//    - make frozenResult a P44Obj?
 
 ExpressionValue TimedEvaluationContext::evaluateFunction(const string &aFunctionName, const FunctionArgumentVector &aArguments)
 {
@@ -736,6 +748,6 @@ ExpressionValue TimedEvaluationContext::evaluateFunction(const string &aFunction
     return ExpressionValue(evalMode==evalmode_initial);
   }
   else {
-    return inhertited::evaluateFunction(aFunctionName, aArguments);
+    return inherited::evaluateFunction(aFunctionName, aArguments);
   }
 }
