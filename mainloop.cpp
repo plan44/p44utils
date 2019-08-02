@@ -179,6 +179,43 @@ MLMicroSeconds MainLoop::timeValToMainLoopTime(struct timeval *aTimeValP)
 }
 
 
+void MainLoop::mainLoopTimeTolocalTime(MLMicroSeconds aMLTime, struct tm& aLocalTime)
+{
+  time_t t = mainLoopTimeToUnixTime(aMLTime)/Second;
+  localtime_r(&t, &aLocalTime);
+}
+
+
+MLMicroSeconds MainLoop::localTimeToMainLoopTime(const struct tm& aLocalTime)
+{
+  time_t u = mktime((struct tm*) &aLocalTime);
+  return unixTimeToMainLoopTime(u*Second);
+}
+
+
+void MainLoop::getLocalTime(struct tm& aLocalTime, double* aFractionalSecondsP)
+{
+  double unixsecs = unixtime()/Second;
+  time_t t = unixsecs;
+  localtime_r(&t, &aLocalTime);
+  if (aFractionalSecondsP) {
+    *aFractionalSecondsP = unixsecs-floor(unixsecs);
+  }
+}
+
+
+
+string MainLoop::string_fmltime(const char *aFormat, MLMicroSeconds aTime)
+{
+  struct tm tim;
+  mainLoopTimeTolocalTime(aTime, tim);
+  string ts;
+  string_ftime_append(ts, aFormat, &tim);
+  return ts;
+}
+
+
+
 
 void MainLoop::sleep(MLMicroSeconds aSleepTime)
 {
@@ -210,15 +247,15 @@ MainLoop &MainLoop::currentMainLoop()
 
 
 #if MAINLOOP_STATISTICS
-#define ML_STAT_START_AT(nw) MLMicroSeconds t = (nw);
-#define ML_STAT_ADD_AT(tmr, nw) tmr += (nw)-t;
-#define ML_STAT_START ML_STAT_START_AT(now());
-#define ML_STAT_ADD(tmr) ML_STAT_ADD_AT(tmr, now());
+  #define ML_STAT_START_AT(nw) MLMicroSeconds t = (nw);
+  #define ML_STAT_ADD_AT(tmr, nw) tmr += (nw)-t;
+  #define ML_STAT_START ML_STAT_START_AT(now());
+  #define ML_STAT_ADD(tmr) ML_STAT_ADD_AT(tmr, now());
 #else
-#define ML_STAT_START_AT(now)
-#define ML_STAT_ADD_AT(tmr, nw);
-#define ML_STAT_START
-#define ML_STAT_ADD(tmr)
+  #define ML_STAT_START_AT(now)
+  #define ML_STAT_ADD_AT(tmr, nw);
+  #define ML_STAT_START
+  #define ML_STAT_ADD(tmr)
 #endif
 
 
