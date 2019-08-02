@@ -246,6 +246,13 @@ ExpressionValue EvaluationContext::evaluateFunction(const string &aName, const F
     }
     return ExpressionValue(round(aArgs[0].v/precision)*precision);
   }
+  else if (aName=="random" && aArgs.size()==2) {
+    // random (a,b)     integer random value from a up to and including b
+    if (aArgs[0].notOk()) return aArgs[0]; // return error from argument
+    if (aArgs[1].notOk()) return aArgs[1]; // return error from argument
+    // rand(): returns a pseudo-random integer value between ​0​ and RAND_MAX (0 and RAND_MAX included).
+    return ExpressionValue(aArgs[0].v + (double)rand()*(aArgs[1].v-aArgs[0].v)/((double)RAND_MAX));
+  }
   // no such function
   return ExpressionError::errValue(ExpressionError::NotFound, "Unknown function '%s' with %lu arguments", aName.c_str(), aArgs.size());
 }
