@@ -24,7 +24,7 @@
 #define ALWAYS_DEBUG 0
 // - set FOCUSLOGLEVEL to non-zero log level (usually, 5,6, or 7==LOG_DEBUG) to get focus (extensive logging) for this file
 //   Note: must be before including "logger.hpp" (or anything that includes "logger.hpp")
-#define FOCUSLOGLEVEL 7
+#define FOCUSLOGLEVEL 6
 
 #include "expressions.hpp"
 #include "math.h"
@@ -121,7 +121,7 @@ ErrorPtr p44::substitutePlaceholders(string &aString, StringValueLookupCB aValue
 
 // MARK: - expression value
 
-string ExpressionValue::stringValue()
+string ExpressionValue::stringValue() const
 {
   if (isOk()) {
     return string_format("%lg", v);
@@ -560,7 +560,7 @@ ExpressionValue EvaluationContext::evaluateExpressionPrivate(const char *aExpr, 
 
 bool TimedEvaluationContext::updateNextEval(const MLMicroSeconds aLatestEval)
 {
-  if (aLatestEval==Never) return false; // no next evaluation needed, no need to update
+  if (aLatestEval==Never || aLatestEval==Infinite) return false; // no next evaluation needed, no need to update
   if (nextEvaluation==Never || aLatestEval<nextEvaluation) {
     // new time is more recent than previous, update
     nextEvaluation = aLatestEval;
@@ -582,8 +582,19 @@ ExpressionValue TimedEvaluationContext::evaluateNow(EvalMode aEvalMode, bool aSc
 {
   nextEvaluation = Never;
   ExpressionValue res = inherited::evaluateNow(aEvalMode, aScheduleReEval);
+  // take unfreeze time of frozen results into account for next evaluation
+  FrozenResultsMap::iterator pos = frozenResults.begin();
+  while (pos!=frozenResults.end()) {
+    if (pos->second.frozenUntil==Never) {
+      // already detected expired -> erase (Note: just expired ones in terms of now() MUST wait until checked in next evaluation!)
+      pos = frozenResults.erase(pos);
+      continue;
+    }
+    updateNextEval(pos->second.frozenUntil);
+    pos++;
+  }
   if (nextEvaluation!=Never) {
-    FOCUSLOG("Expression demands re-evaluation at %s: %s", MainLoop::string_fmltime("%Y-%m-%d %H:%M:%S", nextEvaluation).c_str(), expression.c_str());
+    FOCUSLOG("Expression demands re-evaluation at %s: %s", MainLoop::string_mltime(nextEvaluation).c_str(), expression.c_str());
   }
   if (aScheduleReEval) {
     scheduleReEvaluation(nextEvaluation);
@@ -701,6 +712,7 @@ TimedEvaluationContext::~TimedEvaluationContext()
 
 void TimedEvaluationContext::releaseState()
 {
+  FOCUSLOG("All frozen state is released now for expression: %s", expression.c_str());
   frozenResults.clear(); // changing expression unfreezes everything
 }
 
@@ -733,16 +745,65 @@ void TimedEvaluationContext::scheduleLatestEvaluation(MLMicroSeconds aAtTime)
 }
 
 
-bool TimedEvaluationContext::checkFrozen(ExpressionValue &aResult, size_t aAtPos, MLMicroSeconds aFreezeUntil)
+TimedEvaluationContext::FrozenResult* TimedEvaluationContext::getFrozen(ExpressionValue &aResult)
 {
-  // TODO: implement
-  return false;
+  FrozenResultsMap::iterator frozenVal = frozenResults.find(aResult.pos);
+  FrozenResult* frozenResultP = NULL;
+  if (frozenVal!=frozenResults.end()) {
+    frozenResultP = &(frozenVal->second);
+    // there is a frozen result for this position in the expression
+    FOCUSLOG("- frozen result (%s) for actual result (%s) at char pos %zu exists - will expire %s",
+      frozenResultP->frozenResult.stringValue().c_str(),
+      aResult.stringValue().c_str(),
+      aResult.pos,
+      frozenResultP->frozen() ? MainLoop::string_mltime(frozenResultP->frozenUntil).c_str() : "NOW"
+    );
+    aResult = frozenVal->second.frozenResult;
+    if (!frozenResultP->frozen()) frozenVal->second.frozenUntil = Never; // mark expired
+  }
+  return frozenResultP;
+}
+
+
+bool TimedEvaluationContext::FrozenResult::frozen()
+{
+  return frozenUntil==Infinite || (frozenUntil!=Never && frozenUntil>MainLoop::now());
+}
+
+
+TimedEvaluationContext::FrozenResult* TimedEvaluationContext::newFreeze(FrozenResult* aExistingFreeze, const ExpressionValue &aNewResult, MLMicroSeconds aFreezeUntil, bool aUpdate)
+{
+  if (!aExistingFreeze) {
+    // nothing frozen yet, freeze it now
+    FrozenResult newFreeze;
+    newFreeze.frozenResult = aNewResult; // full copy, including pos
+    newFreeze.frozenUntil = aFreezeUntil;
+    frozenResults[aNewResult.pos] = newFreeze;
+    FOCUSLOG("- new result (%s) frozen for pos %zu until %s", aNewResult.stringValue().c_str(), aNewResult.pos, MainLoop::string_mltime(newFreeze.frozenUntil).c_str());
+    return &frozenResults[aNewResult.pos];
+  }
+  else if (!aExistingFreeze->frozen() || aUpdate || aFreezeUntil==Never) {
+    FOCUSLOG("- existing freeze updated to value %s and to expire %s",
+      aNewResult.stringValue().c_str(),
+      aFreezeUntil==Never ? "IMMEDIATELY" : MainLoop::string_mltime(aFreezeUntil).c_str()
+    );
+    aExistingFreeze->frozenResult.withValue(aNewResult);
+    aExistingFreeze->frozenUntil = aFreezeUntil;
+  }
+  else {
+    FOCUSLOG("- no freeze created/updated");
+  }
+  return aExistingFreeze;
 }
 
 
 bool TimedEvaluationContext::unfreeze(size_t aAtPos)
 {
-  // TODO: implement
+  FrozenResultsMap::iterator frozenVal = frozenResults.find(aAtPos);
+  if (frozenVal!=frozenResults.end()) {
+    frozenResults.erase(frozenVal);
+    return true;
+  }
   return false;
 }
 
@@ -751,41 +812,39 @@ bool TimedEvaluationContext::unfreeze(size_t aAtPos)
 #define MIN_RETRIGGER_SECONDS 10 ///< how soon testlater() is allowed to re-trigger
 #define IS_TIME_TOLERANCE_SECONDS 5 ///< matching window for is_time() function
 
-// TODO: - %%%
-
-// 1) testlater() should freeze its own result until the re-evaluation (because there could be multiple testlater()s in the expression)
-//    -> we might need pos to get passed to function evaluation
-//    Rationale:
-//    - all testlaters() must re-arm at evalmode_externaltrigger evaluations
-//    - HOWEVER, at evalmode_timed evaluations, only actually expired testlaters() must return the timedtest result.
-//      -> freezing the result can help here - probably we need separate APIs for checking / updating frozen values to implement this.
-
-// 2) extend freezing to keeping statuses at specific positions of the expression: not only frozen values, but also accumulators/filters/integrators/counters...
-//    - make frozenResult a P44Obj?
-
 ExpressionValue TimedEvaluationContext::evaluateFunction(const string &aFunctionName, const FunctionArgumentVector &aArguments)
 {
-  bool b;
   if (aFunctionName=="testlater" && aArguments.size()>=2 && aArguments.size()<=3) {
     // testlater(seconds, timedtest [, retrigger])   return "invalid" now, re-evaluate after given seconds and return value of test then. If repeat is true then, the timer will be re-scheduled
     bool retrigger = false;
     if (aArguments.size()>=3) retrigger = aArguments[2].isOk() && aArguments[2].v>0;
-    if (evalMode!=evalmode_timed || retrigger) {
-      // (re-)setup timer
-      double secs = aArguments[0].v;
-      if (retrigger && secs<MIN_RETRIGGER_SECONDS) {
-        // prevent too frequent re-triggering that could eat up too much cpu
-        LOG(LOG_WARNING, "testlater() requests too fast retriggering (%.1f seconds), allowed minimum is %.1f seconds", secs, (double)MIN_RETRIGGER_SECONDS);
-        secs = MIN_RETRIGGER_SECONDS;
-      }
-      updateNextEval(MainLoop::now()+secs*Second);
+    ExpressionValue secs = aArguments[0];
+    if (retrigger && secs.v<MIN_RETRIGGER_SECONDS) {
+      // prevent too frequent re-triggering that could eat up too much cpu
+      LOG(LOG_WARNING, "testlater() requests too fast retriggering (%.1f seconds), allowed minimum is %.1f seconds", secs.v, (double)MIN_RETRIGGER_SECONDS);
+      secs.v = MIN_RETRIGGER_SECONDS;
     }
-    if (evalMode==evalmode_timed) {
-      // evaluation runs because timer has expired, return test result
+    ExpressionValue currentSecs = secs;
+    FrozenResult* frozenP = getFrozen(currentSecs);
+    if (evalMode!=evalmode_timed) {
+      if (evalMode!=evalmode_initial) {
+        // evaluating non-timed, non-initial means "not yet ready" and must start or extend freeze period
+        newFreeze(frozenP, secs, MainLoop::now()+secs.v*Second, true);
+      }
+      frozenP = NULL;
+    }
+    else {
+      // evaluating timed after frozen period means "now is later" and if retrigger is set, must start a new freeze
+      if (frozenP && retrigger) {
+        newFreeze(frozenP, secs, MainLoop::now()+secs.v*Second);
+      }
+    }
+    if (frozenP && !frozenP->frozen()) {
+      // evaluation runs because freeze is over, return test result
       return ExpressionValue(aArguments[1].v);
     }
     else {
-      // timer not yet expired, return undefined
+      // still frozen, return undefined
       return ExpressionValue::errValue(ExpressionError::Null, "testlater() not yet ready");
     }
   }
@@ -795,50 +854,63 @@ ExpressionValue TimedEvaluationContext::evaluateFunction(const string &aFunction
   }
   else if (aFunctionName=="is_weekday" && aArguments.size()>0) {
     struct tm loctim; MainLoop::getLocalTime(loctim);
-    // next check: next day 0:00:00
-    loctim.tm_mday++;
-    loctim.tm_hour = 0;
-    loctim.tm_min = 0;
-    loctim.tm_sec = 0;
-    updateNextEval(loctim);
     // check if any of the weekdays match
     int weekday = loctim.tm_wday; // 0..6, 0=sunday
+    ExpressionValue newRes(0);
+    newRes.pos = aArguments[0].pos; // Note: we use pos of first argument for freezing the function's result (no need to freeze every single weekday)
     for (int i = 0; i<aArguments.size(); i++) {
       int w = (int)aArguments[i].v;
       if (w==7) w=0; // treat both 0 and 7 as sunday
       if (w==weekday) {
         // today is one of the days listed
-        return ExpressionValue(1);
+        newRes.v = 1;
+        break;
       }
     }
-    // none of the specified days
-    return ExpressionValue(0);
+    // freeze until next check: next day 0:00:00
+    loctim.tm_mday++;
+    loctim.tm_hour = 0;
+    loctim.tm_min = 0;
+    loctim.tm_sec = 0;
+    ExpressionValue res = newRes;
+    FrozenResult* frozenP = getFrozen(res);
+    newFreeze(frozenP, newRes, MainLoop::localTimeToMainLoopTime(loctim));
+    return res; // freeze time over, use actual, newly calculated result
   }
-  else if ((b=aFunctionName=="after_time" || aFunctionName=="is_time") && aArguments.size()>=1) {
+  else if ((aFunctionName=="after_time" || aFunctionName=="is_time") && aArguments.size()>=1) {
     struct tm loctim; MainLoop::getLocalTime(loctim);
-    // precision to the second
-    int32_t secs;
+    ExpressionValue newSecs;
+    newSecs.pos = aArguments[0].pos; // Note: we use pos of first argument for freezing the seconds
     if (aArguments.size()==2) {
       // legacy spec
-      secs = ((int32_t)aArguments[0].v * 60 + (int32_t)aArguments[1].v) * 60;
+      newSecs.v = ((int32_t)aArguments[0].v * 60 + (int32_t)aArguments[1].v) * 60;
     }
     else {
       // specification in seconds, usually using time literal
-      secs = (int32_t)(aArguments[0].v);
+      newSecs.v = (int32_t)(aArguments[0].v);
     }
+    ExpressionValue secs = newSecs;
+    FrozenResult* frozenP = getFrozen(secs);
     int32_t daySecs = ((loctim.tm_hour*60)+loctim.tm_min)*60+loctim.tm_sec;
-    bool met = daySecs>=secs;
+    bool met = daySecs>=secs.v;
     // next check at specified time, today if not yet met, tomorrow if already met for today
-    loctim.tm_hour = 0;
-    loctim.tm_min = 0;
-    loctim.tm_sec = (int)secs;
-    if (met) loctim.tm_mday++; // already met today, check again tomorrow
-    updateNextEval(loctim);
+    loctim.tm_hour = 0; loctim.tm_min = 0; loctim.tm_sec = (int)secs.v;
+    FOCUSLOG("is/after_time() reference time for current check is: %s", MainLoop::string_mltime(MainLoop::localTimeToMainLoopTime(loctim)).c_str());
+    bool res = met;
     // limit to a few secs around target if it's is_time
-    if (!b && met && daySecs>secs+IS_TIME_TOLERANCE_SECONDS) {
-      met = false;
+    if (aFunctionName=="is_time" && met && daySecs<secs.v+IS_TIME_TOLERANCE_SECONDS) {
+      // freeze again for a bit
+      newFreeze(frozenP, secs, MainLoop::localTimeToMainLoopTime(loctim)+IS_TIME_TOLERANCE_SECONDS*Second);
     }
-    return ExpressionValue(met);
+    else {
+      loctim.tm_hour = 0; loctim.tm_min = 0; loctim.tm_sec = (int)newSecs.v;
+      if (met) {
+        loctim.tm_mday++; // already met today, check again tomorrow
+        if (aFunctionName=="is_time") res = false;
+      }
+      newFreeze(frozenP, newSecs, MainLoop::localTimeToMainLoopTime(loctim));
+    }
+    return ExpressionValue(res);
   }
   else if (aFunctionName=="sunrise") {
     return ExpressionValue(sunrise(time(NULL), geolocation, false)*3600);

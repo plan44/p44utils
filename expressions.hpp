@@ -59,7 +59,6 @@ namespace p44 {
     ExpressionError(ErrorCodes aError) : Error(ErrorCode(aError)) {};
     /// factory method to create string error fprint style
     static ErrorPtr err(ErrorCodes aErrCode, const char *aFmt, ...) __printflike(2,3);
-//    static ExpressionValue errValue(ErrorCodes aErrCode, const char *aFmt, ...) __printflike(2,3);
   };
 
   /// expression value, consisting of a value and an error to indicate non-value and reason for it
@@ -78,7 +77,7 @@ namespace p44 {
     ExpressionValue withPos(size_t aPos) { pos = aPos; return *this; }
     bool isOk() const { return Error::isOK(err); }
     bool notOk() const { return !isOk(); }
-    string stringValue();
+    string stringValue() const;
   };
 
 
@@ -225,8 +224,11 @@ namespace p44 {
 
     class FrozenResult
     {
+    public:
       ExpressionValue frozenResult; ///< the frozen result
       MLMicroSeconds frozenUntil; ///< until when the value remains frozen, Infinite if forever (until explicitly unfrozen)
+      /// @return true if still frozen (not expired yet)
+      bool frozen();
     };
 
     typedef std::map<size_t, FrozenResult> FrozenResultsMap;
@@ -260,20 +262,40 @@ namespace p44 {
     /// release all evaluation state (such as frozen subexpressions)
     virtual void releaseState() P44_OVERRIDE;
 
-    /// check for frozen result
-    /// @param aResult Input: the current result of the expression at aAtPos
-    ///   Output: if there is an already non-expired frozen result at aAtPos, aResult is set to its value. Otherwise, aResult remains untouched
-    /// @param aAtPos the starting character index of the subexpression that might already be frozen or should be frozen if not.
-    /// @param aUntil the result will be unfrozen at that time, specify Infinite to freeze indefinitely, Never to release any previous freeze
-    /// @note if the value is not yet frozen, aResult will be stored in the freezer and future calls will return it
-    /// @note next evaluation time will be updated to make sure a re-evaluation occurs at the end of the freeze
-    /// @return true if aResult was replaced by an earlier frozen result
-    bool checkFrozen(ExpressionValue &aResult, size_t aAtPos, MLMicroSeconds aFreezeUntil);
+
+
+    /// get frozen result if any exists
+    /// @param aResult On call: the current result of a (sub)expression - pos member must be set!
+    ///   On return: replaced by a frozen result, if one exists
+    FrozenResult* getFrozen(ExpressionValue &aResult);
+
+    /// update existing or create new frozen result
+    /// @param aExistingFreeze the pointer obtained from getFrozen(), can be NULL
+    /// @param aNewResult the new value to be frozen
+    /// @param aFreezeUntil The new freeze date. Specify Infinite to freeze indefinitely, Never to release any previous freeze.
+    /// @param aUpdate if set, freeze will be updated/extended unconditionally, even when previous freeze is still running
+    FrozenResult* newFreeze(FrozenResult* aExistingFreeze, const ExpressionValue &aNewResult, MLMicroSeconds aFreezeUntil, bool aUpdate = false);
 
     /// unfreeze frozen value at aAtPos
     /// @param aAtPos the starting character index of the subexpression to unfreeze
     /// @return true if there was a frozen result at aAtPos
     bool unfreeze(size_t aAtPos);
+
+
+
+//
+//    /// check for frozen result
+//    /// @param aActualResult the current result of a (sub)expression - pos member must be set!
+//    /// @param aOutputResult if there is a frozen result for the same position, aFrozenResult is set to its value (even
+//    ///   in case the freeze has just expired!). Otherwise, it is set to aActualResult.
+//    /// @param aFreezeUntil if not set (or checkOnly), only a check for a frozen result will be made, but nothing updated.
+//    ///    Otherwise, the result will be unfrozen at that time. Specify Infinite to freeze indefinitely, Never to release any previous freeze.
+//    /// @param aExtendFreeze if set, freeze period will be extended unconditionally, even when previous freeze is still running
+//    /// @note if the value is not yet frozen, aActualResult will be stored in the freezer, and this and future calls will return it
+//    /// @note next evaluation time will be updated to make sure a re-evaluation occurs at the end of the freeze
+//    /// @return yes if there is a still frozen result, undefined if aOutputResult returns a previously frozen result, no if no frozen result exists
+//    static const MLMicroSeconds checkOnly = -2;
+//    Tristate checkFrozen(ExpressionValue aActualResult, ExpressionValue &aOutputResult, MLMicroSeconds aFreezeUntil = checkOnly, bool aExtendFreeze = false);
 
     /// Set time when next evaluation must happen, latest
     /// @param aLatestEval new time when evaluation must happen latest, Never if no next evaluation is needed
