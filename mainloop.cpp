@@ -204,6 +204,11 @@ void MainLoop::getLocalTime(struct tm& aLocalTime, double* aFractionalSecondsP)
 }
 
 
+string MainLoop::string_mltime(MLMicroSeconds aTime)
+{
+  return string_fmltime("%Y-%m-%d %H:%M:%S", aTime);
+}
+
 
 string MainLoop::string_fmltime(const char *aFormat, MLMicroSeconds aTime)
 {

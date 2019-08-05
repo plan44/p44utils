@@ -307,6 +307,12 @@ namespace p44 {
     /// @return formatted time string (in local time)
     static string string_fmltime(const char *aFormat, MLMicroSeconds aTime);
 
+    /// format mainloop time as localtime in YYYY-MM-DD HH:MM:SS format with output to std::string
+    /// @param aTime time in mainloop now() scale
+    /// @return formatted time string (in local time)
+    static string string_mltime(MLMicroSeconds aTime);
+
+
     /// sleeps for given number of microseconds
     static void sleep(MLMicroSeconds aSleepTime);
 
