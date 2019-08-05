@@ -30,6 +30,17 @@ using namespace std;
 
 namespace p44 {
 
+  class GeoLocation
+  {
+  public:
+    double longitude; ///< longitude in degrees east of Greenwich
+    double latitude; ///< latitude in degrees north of equator
+    double heightAboveSea; ///< height above sea level in meters
+    GeoLocation(double aLongitude, double aLatitude) : longitude(aLongitude), latitude(aLatitude) {};
+    GeoLocation(double aLongitude, double aLatitude, double aHeightAboveSea) : longitude(aLongitude), latitude(aLatitude), heightAboveSea(aHeightAboveSea) {};
+  };
+
+
   typedef struct {
     double sunrise; ///< sunrise time in hours
     double sunset; ///< sun set time in hours
@@ -40,26 +51,23 @@ namespace p44 {
 
   /// get sun parameters for a given day
   /// @param aTime unix time of the day
-  /// @param aLat latitude
-  /// @param aLong longitude
+  /// @param aGeolocation geolocation with latitude/longitude set
   /// @param aSunParams will get the sun parameters for the given day, place and timezone
-  void getSunParams(time_t aTime, double aLat, double aLong, SunParams &aSunParams);
+  void getSunParams(time_t aTime, const GeoLocation &aGeoLocation, SunParams &aSunParams);
 
   /// get sunrise info
   /// @param aTime unix time of the day
-  /// @param aLat latitude
-  /// @param aLong longitude
+  /// @param aGeolocation geolocation with latitude/longitude set
   /// @param aTwilight if set, (approx) time of when morning twilight starts is returned
   /// @return sunrise or morning twilight time in hours
-  double sunrise(time_t aTime, double aLat, double aLong, bool aTwilight);
+  double sunrise(time_t aTime, const GeoLocation &aGeoLocation, bool aTwilight);
 
   /// get sunset info
   /// @param aTime unix time of the day
-  /// @param aLat latitude
-  /// @param aLong longitude
+  /// @param aGeolocation geolocation with latitude/longitude set
   /// @param aTwilight if set, (approx) time of when evening twilight ends is returned
   /// @return sunrise or morning twilight time in hours
-  double sunset(time_t aTime, double aLat, double aLong, bool aTwilight);
+  double sunset(time_t aTime, const GeoLocation &aGeoLocation, bool aTwilight);
 
 
 } // namespace p44
