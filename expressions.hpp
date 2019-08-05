@@ -23,6 +23,7 @@
 #define __p44utils__expressions__
 
 #include "p44utils_common.hpp"
+#include "timeutils.hpp"
 #include <string>
 
 using namespace std;
@@ -40,21 +41,6 @@ namespace p44 {
   ErrorPtr substitutePlaceholders(string &aString, StringValueLookupCB aValueLookupCB);
 
 
-  /// expression value, consisting of a value and an error to indicate non-value and reason for it
-  class ExpressionValue {
-  public:
-    size_t pos; ///< starting position in expression string (for function arguments and subexpressions)
-    double v;
-    ErrorPtr err;
-    ExpressionValue() { v = 0; pos = 0; };
-    ExpressionValue(ErrorPtr aError, double aValue = 0, size_t aPos = 0) { err = aError; v = aValue; pos = aPos; };
-    ExpressionValue(double aValue, size_t aPos = 0) { v = aValue; pos = aPos; };
-    bool isOk() const { return Error::isOK(err); }
-    bool notOk() const { return !isOk(); }
-    string stringValue();
-  };
-
-
   /// Expression Error
   class ExpressionError : public Error
   {
@@ -65,6 +51,7 @@ namespace p44 {
       Null,
       Syntax,
       DivisionByZero,
+      CyclicReference,
       NotFound, ///< variable, object, function not found (for callback)
     } ErrorCodes;
     static const char *domain() { return "ExpressionError"; }
@@ -72,8 +59,28 @@ namespace p44 {
     ExpressionError(ErrorCodes aError) : Error(ErrorCode(aError)) {};
     /// factory method to create string error fprint style
     static ErrorPtr err(ErrorCodes aErrCode, const char *aFmt, ...) __printflike(2,3);
-    static ExpressionValue errValue(ErrorCodes aErrCode, const char *aFmt, ...) __printflike(2,3);
+//    static ExpressionValue errValue(ErrorCodes aErrCode, const char *aFmt, ...) __printflike(2,3);
   };
+
+  /// expression value, consisting of a value and an error to indicate non-value and reason for it
+  class ExpressionValue {
+  public:
+    size_t pos; ///< starting position in expression string (for function arguments and subexpressions)
+    double v;
+    ErrorPtr err;
+    ExpressionValue() { v = 0; pos = 0; };
+    ExpressionValue(double aValue) { v = aValue; pos = 0; };
+    static ExpressionValue errValue(ExpressionError::ErrorCodes aErrCode, const char *aFmt, ...) __printflike(2,3);
+    ExpressionValue withError(ErrorPtr aError) { err = aError; return *this; }
+    ExpressionValue withError(ExpressionError::ErrorCodes aErrCode, const char *aFmt, ...)  __printflike(3,4);
+    ExpressionValue withNumber(double aValue) { v = aValue; return *this; }
+    ExpressionValue withValue(const ExpressionValue &aExpressionValue) { v = aExpressionValue.v; err = aExpressionValue.err; return *this; }
+    ExpressionValue withPos(size_t aPos) { pos = aPos; return *this; }
+    bool isOk() const { return Error::isOK(err); }
+    bool notOk() const { return !isOk(); }
+    string stringValue();
+  };
+
 
   /// callback function for obtaining variables
   /// @param aName the name of the value/variable to look up
@@ -107,7 +114,10 @@ namespace p44 {
   class EvaluationContext;
 
   /// Expression Evaluation Callback
-  typedef boost::function<void (ExpressionValue aEvaluationResult, EvaluationContext &aContext)> ReEvaluationCB;
+  /// @param aEvaluationResult the evaluation result (can be error)
+  /// @param aContext the evaluation context this result originates from
+  /// @return ok, or error in case the result processing wants to pass on a evaluation error or an error of its own.
+  typedef boost::function<ErrorPtr (ExpressionValue aEvaluationResult, EvaluationContext &aContext)> EvaluationResultCB;
 
 
   typedef enum {
@@ -125,7 +135,7 @@ namespace p44 {
     EvalMode evalMode; ///< evaluation mode
 
     string expression; ///< the expression
-    ReEvaluationCB reEvaluationHandler; ///< called when a evaluation started by triggerEvaluation() completes.
+    EvaluationResultCB evaluationResultHandler; ///< called when a evaluation started by triggerEvaluation() completes (includes re-evaluations)
     bool evaluating; ///< protection against cyclic references
 
   public:
@@ -134,8 +144,9 @@ namespace p44 {
     virtual ~EvaluationContext();
 
     /// set re-evaluation callback
-    /// @param aReEvaluationHandler is called when the expressions has re-evaluated itself (timed).
-    void setReEvaluationHandler(ReEvaluationCB aReEvaluationHandler);
+    /// @param aEvaluationResultHandler is called when a evaluation started by triggerEvaluation() completes
+    ///   (which includes delayed re-evaluations the context triggers itself, e.g. when timed functions are called)
+    void setEvaluationResultHandler(EvaluationResultCB aEvaluationResultHandler);
 
     /// set expression to evaluate
     /// @param aExpression set the expression to be evaluated in this context
@@ -159,8 +170,8 @@ namespace p44 {
     /// trigger a (re-)evaluation
     /// @param aEvalMode if specified, the evaluation mode for this evaluation. Defaults to current evaluation mode.
     /// @note evaluation result handler will be called when complete
-    /// @return true if evaluation triggered, false if triggering was inhibited due to cyclic reference
-    bool triggerEvaluation(EvalMode aEvalMode = evalmode_current);
+    /// @return ok, or error if expression could not be evaluated
+    ErrorPtr triggerEvaluation(EvalMode aEvalMode = evalmode_current);
 
     /// @return true if currently evaluating an expression.
     bool isEvaluating() { return evaluating; }
@@ -210,6 +221,8 @@ namespace p44 {
   {
     typedef EvaluationContext inherited;
 
+    const GeoLocation& geolocation;
+
     class FrozenResult
     {
       ExpressionValue frozenResult; ///< the frozen result
@@ -224,7 +237,7 @@ namespace p44 {
 
   public:
 
-    TimedEvaluationContext();
+    TimedEvaluationContext(const GeoLocation& aGeoLocation);
     virtual ~TimedEvaluationContext();
 
     /// evaluate expression right now, return result
@@ -266,6 +279,9 @@ namespace p44 {
     /// @param aLatestEval new time when evaluation must happen latest, Never if no next evaluation is needed
     /// @return true if aNextEval was updated
     bool updateNextEval(const MLMicroSeconds aLatestEval);
+    /// @param aLatestEvalTm new local broken down time when evaluation must happen latest
+    /// @return true if aNextEval was updated
+    bool updateNextEval(const struct tm& aLatestEvalTm);
 
     virtual ExpressionValue evaluateFunction(const string &aFunctionName, const FunctionArgumentVector &aArguments) P44_OVERRIDE;
 

@@ -133,7 +133,7 @@ string ExpressionValue::stringValue()
 
 
 
-// MARK: - expression error
+// MARK: - expression values and errors
 
 
 ErrorPtr ExpressionError::err(ErrorCodes aErrCode, const char *aFmt, ...)
@@ -147,14 +147,36 @@ ErrorPtr ExpressionError::err(ErrorCodes aErrCode, const char *aFmt, ...)
 }
 
 
-ExpressionValue ExpressionError::errValue(ErrorCodes aErrCode, const char *aFmt, ...)
+//ExpressionValue ExpressionError::errValue(ErrorCodes aErrCode, const char *aFmt, ...)
+//{
+//  Error *errP = new ExpressionError(aErrCode);
+//  va_list args;
+//  va_start(args, aFmt);
+//  errP->setFormattedMessage(aFmt, args);
+//  va_end(args);
+//  return ExpressionValue(ErrorPtr(errP));
+//}
+
+ExpressionValue ExpressionValue::withError(ExpressionError::ErrorCodes aErrCode, const char *aFmt, ...)
 {
-  Error *errP = new ExpressionError(aErrCode);
+  err = new ExpressionError(aErrCode);
   va_list args;
   va_start(args, aFmt);
-  errP->setFormattedMessage(aFmt, args);
+  err->setFormattedMessage(aFmt, args);
   va_end(args);
-  return ExpressionValue(ErrorPtr(errP));
+  return *this;
+}
+
+
+ExpressionValue ExpressionValue::errValue(ExpressionError::ErrorCodes aErrCode, const char *aFmt, ...)
+{
+  ExpressionValue ev;
+  ev.err = new ExpressionError(aErrCode);
+  va_list args;
+  va_start(args, aFmt);
+  ev.err->setFormattedMessage(aFmt, args);
+  va_end(args);
+  return ev;
 }
 
 
@@ -174,9 +196,9 @@ EvaluationContext::~EvaluationContext()
 }
 
 
-void EvaluationContext::setReEvaluationHandler(ReEvaluationCB aEvaluationResultHandler)
+void EvaluationContext::setEvaluationResultHandler(EvaluationResultCB aEvaluationResultHandler)
 {
-  reEvaluationHandler = aEvaluationResultHandler;
+  evaluationResultHandler = aEvaluationResultHandler;
 }
 
 
@@ -199,22 +221,28 @@ ExpressionValue EvaluationContext::evaluateNow(EvalMode aEvalMode, bool aSchedul
 }
 
 
-bool EvaluationContext::triggerEvaluation(EvalMode aEvalMode)
+ErrorPtr EvaluationContext::triggerEvaluation(EvalMode aEvalMode)
 {
+  ErrorPtr err;
   if (evaluating) {
     LOG(LOG_WARNING, "Apparently cyclic reference in evaluation of expression -> not retriggering: %s", expression.c_str());
-    return false;
+    err = Error::err<ExpressionError>(ExpressionError::CyclicReference, "cyclic reference in expression");
   }
   else {
     evaluating = true;
     ExpressionValue res = evaluateNow(aEvalMode, true);
-    if (reEvaluationHandler) {
+    if (evaluationResultHandler) {
       // this is where cyclic references could cause re-evaluation, which is protected by evaluating==true
-      reEvaluationHandler(res, *this);
+      err = evaluationResultHandler(res, *this);
+    }
+    else {
+      // no result handler, pass on error from evaluation
+      LOG(LOG_WARNING, "triggerEvaluation() with no result handler for expression: %s", expression.c_str());
+      if (res.notOk()) err = res.err;
     }
     evaluating = false;
   }
-  return true;
+  return err;
 }
 
 
@@ -247,14 +275,14 @@ ExpressionValue EvaluationContext::evaluateFunction(const string &aName, const F
     return ExpressionValue(round(aArgs[0].v/precision)*precision);
   }
   else if (aName=="random" && aArgs.size()==2) {
-    // random (a,b)     integer random value from a up to and including b
+    // random (a,b)     random value from a up to and including b
     if (aArgs[0].notOk()) return aArgs[0]; // return error from argument
     if (aArgs[1].notOk()) return aArgs[1]; // return error from argument
     // rand(): returns a pseudo-random integer value between ​0​ and RAND_MAX (0 and RAND_MAX included).
     return ExpressionValue(aArgs[0].v + (double)rand()*(aArgs[1].v-aArgs[0].v)/((double)RAND_MAX));
   }
   // no such function
-  return ExpressionError::errValue(ExpressionError::NotFound, "Unknown function '%s' with %lu arguments", aName.c_str(), aArgs.size());
+  return ExpressionValue::errValue(ExpressionError::NotFound, "Unknown function '%s' with %lu arguments", aName.c_str(), aArgs.size());
 }
 
 
@@ -262,24 +290,24 @@ ExpressionValue EvaluationContext::evaluateFunction(const string &aName, const F
 ExpressionValue EvaluationContext::valueLookup(const string &aName)
 {
   // no variables by default
-  return ExpressionError::errValue(ExpressionError::NotFound, "no variable named '%s'", aName.c_str());
+  return ExpressionValue::errValue(ExpressionError::NotFound, "no variable named '%s'", aName.c_str());
 }
 
 
 ExpressionValue EvaluationContext::evaluateTerm(const char *aExpr, size_t &aPos)
 {
-  size_t a = aPos;
+  ExpressionValue res;
+  res.pos = aPos;
   // a simple term can be
   // - a variable reference or
   // - a literal number or timespec (h:m or h:m:s)
   // Note: a parantesized expression can also be a term, but this is parsed by the caller, not here
   while (aExpr[aPos]==' ' || aExpr[aPos]=='\t') aPos++; // skip whitespace
   // extract var name or number
-  ExpressionValue res;
   size_t e = aPos;
   while (aExpr[e] && (isalnum(aExpr[e]) || aExpr[e]=='.' || aExpr[e]=='_' || aExpr[e]==':')) e++;
   if (e==aPos) {
-    return ExpressionError::errValue(ExpressionError::Syntax, "missing term");
+    return res.withError(ExpressionError::Syntax, "missing term");
   }
   // must be simple term
   string term;
@@ -302,7 +330,7 @@ ExpressionValue EvaluationContext::evaluateTerm(const char *aExpr, size_t &aPos)
           break; // no more arguments
         if (args.size()!=0) {
           if (aExpr[aPos]!=',')
-            return ExpressionError::errValue(ExpressionError::Syntax, "missing comma or closing ')'");
+            return res.withError(ExpressionError::Syntax, "missing comma or closing ')'");
           aPos++; // skip comma
         }
         ExpressionValue arg = evaluateExpressionPrivate(aExpr, aPos, 0);
@@ -313,25 +341,25 @@ ExpressionValue EvaluationContext::evaluateTerm(const char *aExpr, size_t &aPos)
       aPos++; // skip closing paranthesis
       FOCUSLOG("Function '%s' called", term.c_str());
       for (FunctionArgumentVector::iterator pos = args.begin(); pos!=args.end(); ++pos) {
-        FOCUSLOG("- argument: %lf (err=%s)", pos->v, Error::text(pos->err));
+        FOCUSLOG("- argument at char pos=%zu: %lf (err=%s)", pos->pos, pos->v, Error::text(pos->err));
       }
       // run function
-      res = evaluateFunction(term, args);
+      res.withValue(evaluateFunction(term, args));
     }
     else {
       // check some reserved values
       if (term=="true" || term=="yes") {
-        res = ExpressionValue(1);
+        res.withNumber(1);
       }
       else if (term=="false" || term=="no") {
-        res = ExpressionValue(0);
+        res.withNumber(0);
       }
       else if (term=="null" || term=="undefined") {
-        res = ExpressionError::errValue(ExpressionError::Null, "%s", term.c_str());
+        res.withError(ExpressionError::Null, "%s", term.c_str());
       }
       else {
         // must be identifier representing a variable value
-        res = valueLookup(term);
+        res.withValue(valueLookup(term));
       }
     }
   }
@@ -340,7 +368,7 @@ ExpressionValue EvaluationContext::evaluateTerm(const char *aExpr, size_t &aPos)
     double v;
     int i;
     if (sscanf(term.c_str(), "%lf%n", &v, &i)!=1) {
-      return ExpressionError::errValue(ExpressionError::Syntax, "'%s' is not a valid number", term.c_str());
+      return res.withError(ExpressionError::Syntax, "'%s' is not a valid number", term.c_str());
     }
     else {
       // TODO: date literals in form yyyy_mm_dd or just mm_dd
@@ -351,7 +379,7 @@ ExpressionValue EvaluationContext::evaluateTerm(const char *aExpr, size_t &aPos)
         double t;
         int j;
         if (sscanf(term.c_str()+i+1, "%lf%n", &t, &j)!=1) {
-          return ExpressionError::errValue(ExpressionError::Syntax, "'%s' is not a valid time specification (hh:mm or hh:mm:ss)", term.c_str());
+          return res.withError(ExpressionError::Syntax, "'%s' is not a valid time specification (hh:mm or hh:mm:ss)", term.c_str());
         }
         else {
           // we have v:t, take these as hours and minutes
@@ -360,21 +388,21 @@ ExpressionValue EvaluationContext::evaluateTerm(const char *aExpr, size_t &aPos)
           if (term.size()>j && term[j]==':') {
             // apparently we also have seconds
             if (sscanf(term.c_str()+j+1, "%lf", &t)!=1) {
-              return ExpressionError::errValue(ExpressionError::Syntax, "'%s' time specification has invalid seconds (hh:mm:ss)", term.c_str());
+              return res.withError(ExpressionError::Syntax, "'%s' time specification has invalid seconds (hh:mm:ss)", term.c_str());
             }
             v += t; // add the seconds
           }
         }
       }
     }
-    res = ExpressionValue(v);
+    res.withNumber(v);
   }
   // valid term
   if (res.isOk()) {
-    FOCUSLOG("Term '%.*s' evaluation result: %lf", (int)(aPos-a), aExpr+a, res.v);
+    FOCUSLOG("Term '%.*s' evaluation result: %lf", (int)(aPos-res.pos), aExpr+res.pos, res.v);
   }
   else {
-    FOCUSLOG("Term '%.*s' evaluation error: %s", (int)(aPos-a), aExpr+a, res.err->text());
+    FOCUSLOG("Term '%.*s' evaluation error: %s", (int)(aPos-res.pos), aExpr+res.pos, res.err->text());
   }
   return res;
 }
@@ -447,12 +475,12 @@ static Operations parseOperator(const char *aExpr, size_t &aPos)
 ExpressionValue EvaluationContext::evaluateExpressionPrivate(const char *aExpr, size_t &aPos, int aPrecedence)
 {
   ExpressionValue res;
-  size_t a = aPos;
+  res.pos = aPos;
   // check for optional unary op
   Operations unaryop = parseOperator(aExpr, aPos);
   if (unaryop!=op_none) {
     if (unaryop!=op_subtract && unaryop!=op_not) {
-      return ExpressionError::errValue(ExpressionError::Syntax, "invalid unary operator");
+      return res.withError(ExpressionError::Syntax, "invalid unary operator");
     }
   }
   // evaluate term
@@ -463,7 +491,7 @@ ExpressionValue EvaluationContext::evaluateExpressionPrivate(const char *aExpr, 
     res = evaluateExpressionPrivate(aExpr, aPos, 0);
     if (Error::isError(res.err, ExpressionError::domain(), ExpressionError::Syntax)) return res;
     if (aExpr[aPos]!=')') {
-      return ExpressionValue(ExpressionError::err(ExpressionError::Syntax, "Missing ')'"));
+      return res.withError(ExpressionError::Syntax, "Missing ')'").withPos(aPos);
     }
     aPos++;
   }
@@ -490,7 +518,7 @@ ExpressionValue EvaluationContext::evaluateExpressionPrivate(const char *aExpr, 
     }
     // prevent loop
     if (binaryop==op_none) {
-      return ExpressionError::err(ExpressionError::Syntax, "Invalid operator: '%s'", aExpr+opIdx);
+      return res.withError(ExpressionError::Syntax, "Invalid operator: '%s'", aExpr+opIdx).withPos(aPos);
     }
     // must parse right side of operator as subexpression
     aPos = opIdx; // advance past operator
@@ -500,10 +528,10 @@ ExpressionValue EvaluationContext::evaluateExpressionPrivate(const char *aExpr, 
       // apply the operation between leftside and rightside
       switch (binaryop) {
         case op_not: {
-          return ExpressionError::err(ExpressionError::Syntax, "NOT operator not allowed here");
+          return res.withError(ExpressionError::Syntax, "NOT operator not allowed here").withPos(aPos);
         }
         case op_divide:
-          if (rightside.v==0) return ExpressionError::errValue(ExpressionError::DivisionByZero, "division by zero");
+          if (rightside.v==0) return res.withError(ExpressionError::DivisionByZero, "division by zero").withPos(aPos);
           res.v = res.v/rightside.v;
           break;
         case op_multiply: res.v = res.v*rightside.v; break;
@@ -519,10 +547,10 @@ ExpressionValue EvaluationContext::evaluateExpressionPrivate(const char *aExpr, 
         case op_or: res.v = res.v || rightside.v; break;
         default: break;
       }
-      FOCUSLOG("Intermediate expression '%.*s' evaluation result: %lf", (int)(aPos-a), aExpr+a, res.v);
+      FOCUSLOG("Intermediate expression '%.*s' evaluation result: %lf", (int)(aPos-res.pos), aExpr+res.pos, res.v);
     }
     else {
-      FOCUSLOG("Intermediate expression '%.*s' evaluation result is INVALID", (int)(aPos-a), aExpr+a);
+      FOCUSLOG("Intermediate expression '%.*s' evaluation result is INVALID", (int)(aPos-res.pos), aExpr+res.pos);
     }
   }
   // done
@@ -542,12 +570,20 @@ bool TimedEvaluationContext::updateNextEval(const MLMicroSeconds aLatestEval)
 }
 
 
+bool TimedEvaluationContext::updateNextEval(const struct tm& aLatestEvalTm)
+{
+  MLMicroSeconds latestEval = MainLoop::localTimeToMainLoopTime(aLatestEvalTm);
+  return updateNextEval(latestEval);
+}
+
+
+
 ExpressionValue TimedEvaluationContext::evaluateNow(EvalMode aEvalMode, bool aScheduleReEval)
 {
   nextEvaluation = Never;
   ExpressionValue res = inherited::evaluateNow(aEvalMode, aScheduleReEval);
   if (nextEvaluation!=Never) {
-    FOCUSLOG("Expression demands re-evaluation at %s: %s", MainLoop::string_fmltime("%H:%M:%S", nextEvaluation).c_str(), expression.c_str());
+    FOCUSLOG("Expression demands re-evaluation at %s: %s", MainLoop::string_fmltime("%Y-%m-%d %H:%M:%S", nextEvaluation).c_str(), expression.c_str());
   }
   if (aScheduleReEval) {
     scheduleReEvaluation(nextEvaluation);
@@ -649,7 +685,8 @@ ErrorPtr p44::substituteExpressionPlaceholders(string &aString, ValueLookupCB aV
 
 // MARK: - TimedEvaluationContext
 
-TimedEvaluationContext::TimedEvaluationContext() :
+TimedEvaluationContext::TimedEvaluationContext(const GeoLocation& aGeoLocation) :
+  geolocation(aGeoLocation),
   nextEvaluation(Never)
 {
 
@@ -711,7 +748,8 @@ bool TimedEvaluationContext::unfreeze(size_t aAtPos)
 
 
 
-#define MIN_RETRIGGER_SECONDS 10
+#define MIN_RETRIGGER_SECONDS 10 ///< how soon testlater() is allowed to re-trigger
+#define IS_TIME_TOLERANCE_SECONDS 5 ///< matching window for is_time() function
 
 // TODO: - %%%
 
@@ -727,6 +765,7 @@ bool TimedEvaluationContext::unfreeze(size_t aAtPos)
 
 ExpressionValue TimedEvaluationContext::evaluateFunction(const string &aFunctionName, const FunctionArgumentVector &aArguments)
 {
+  bool b;
   if (aFunctionName=="testlater" && aArguments.size()>=2 && aArguments.size()<=3) {
     // testlater(seconds, timedtest [, retrigger])   return "invalid" now, re-evaluate after given seconds and return value of test then. If repeat is true then, the timer will be re-scheduled
     bool retrigger = false;
@@ -747,14 +786,102 @@ ExpressionValue TimedEvaluationContext::evaluateFunction(const string &aFunction
     }
     else {
       // timer not yet expired, return undefined
-      return ExpressionError::errValue(ExpressionError::Null, "testlater() not yet ready");
+      return ExpressionValue::errValue(ExpressionError::Null, "testlater() not yet ready");
     }
   }
   else if (aFunctionName=="initial" && aArguments.size()==0) {
     // initial()  returns true if this is a "initial" run of the evaluator, meaning after startup or expression changes
     return ExpressionValue(evalMode==evalmode_initial);
   }
-  else {
-    return inherited::evaluateFunction(aFunctionName, aArguments);
+  else if (aFunctionName=="is_weekday" && aArguments.size()>0) {
+    struct tm loctim; MainLoop::getLocalTime(loctim);
+    // next check: next day 0:00:00
+    loctim.tm_mday++;
+    loctim.tm_hour = 0;
+    loctim.tm_min = 0;
+    loctim.tm_sec = 0;
+    updateNextEval(loctim);
+    // check if any of the weekdays match
+    int weekday = loctim.tm_wday; // 0..6, 0=sunday
+    for (int i = 0; i<aArguments.size(); i++) {
+      int w = (int)aArguments[i].v;
+      if (w==7) w=0; // treat both 0 and 7 as sunday
+      if (w==weekday) {
+        // today is one of the days listed
+        return ExpressionValue(1);
+      }
+    }
+    // none of the specified days
+    return ExpressionValue(0);
   }
+  else if ((b=aFunctionName=="after_time" || aFunctionName=="is_time") && aArguments.size()>=1) {
+    struct tm loctim; MainLoop::getLocalTime(loctim);
+    // precision to the second
+    int32_t secs;
+    if (aArguments.size()==2) {
+      // legacy spec
+      secs = ((int32_t)aArguments[0].v * 60 + (int32_t)aArguments[1].v) * 60;
+    }
+    else {
+      // specification in seconds, usually using time literal
+      secs = (int32_t)(aArguments[0].v);
+    }
+    int32_t daySecs = ((loctim.tm_hour*60)+loctim.tm_min)*60+loctim.tm_sec;
+    bool met = daySecs>=secs;
+    // next check at specified time, today if not yet met, tomorrow if already met for today
+    loctim.tm_hour = 0;
+    loctim.tm_min = 0;
+    loctim.tm_sec = (int)secs;
+    if (met) loctim.tm_mday++; // already met today, check again tomorrow
+    updateNextEval(loctim);
+    // limit to a few secs around target if it's is_time
+    if (!b && met && daySecs>secs+IS_TIME_TOLERANCE_SECONDS) {
+      met = false;
+    }
+    return ExpressionValue(met);
+  }
+  else if (aFunctionName=="sunrise") {
+    return ExpressionValue(sunrise(time(NULL), geolocation, false)*3600);
+  }
+  else if (aFunctionName=="dawn") {
+    return ExpressionValue(sunrise(time(NULL), geolocation, true)*3600);
+  }
+  else if (aFunctionName=="sunset") {
+    return ExpressionValue(sunset(time(NULL), geolocation, false)*3600);
+  }
+  else if (aFunctionName=="dusk") {
+    return ExpressionValue(sunset(time(NULL), geolocation, true)*3600);
+  }
+  else {
+    double fracSecs;
+    struct tm loctim; MainLoop::getLocalTime(loctim, &fracSecs);
+    if (aFunctionName=="timeofday") {
+      return ExpressionValue(((loctim.tm_hour*60)+loctim.tm_min)*60+loctim.tm_sec+fracSecs);
+    }
+    else if (aFunctionName=="hour") {
+      return ExpressionValue(loctim.tm_hour);
+    }
+    else if (aFunctionName=="minute") {
+      return ExpressionValue(loctim.tm_min);
+    }
+    else if (aFunctionName=="second") {
+      return ExpressionValue(loctim.tm_sec);
+    }
+    else if (aFunctionName=="year") {
+      return ExpressionValue(loctim.tm_year+1900);
+    }
+    else if (aFunctionName=="month") {
+      return ExpressionValue(loctim.tm_mon+1);
+    }
+    else if (aFunctionName=="day") {
+      return ExpressionValue(loctim.tm_mday);
+    }
+    else if (aFunctionName=="weekday") {
+      return ExpressionValue(loctim.tm_wday);
+    }
+    else if (aFunctionName=="yearday") {
+      return ExpressionValue(loctim.tm_yday);
+    }
+  }
+  return inherited::evaluateFunction(aFunctionName, aArguments);
 }
