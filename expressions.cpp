@@ -945,6 +945,21 @@ ExpressionValue TimedEvaluationContext::evaluateFunction(const string &aFunction
     }
     return ExpressionValue(res);
   }
+  else if (aFunctionName=="between_dates" || aFunctionName=="between_yeardays") {
+    struct tm loctim; MainLoop::getLocalTime(loctim);
+    int smaller = (int)(aArguments[0].v);
+    int larger = (int)(aArguments[1].v);
+    int currentYday = loctim.tm_yday;
+    loctim.tm_hour = 0; loctim.tm_min = 0; loctim.tm_sec = 0;
+    loctim.tm_mon = 0;
+    bool lastBeforeFirst = smaller>larger;
+    if (lastBeforeFirst) swap(larger, smaller);
+    if (currentYday<smaller) loctim.tm_mday = 1+smaller;
+    else if (currentYday<=larger) loctim.tm_mday = 1+larger;
+    else { loctim.tm_mday = smaller; loctim.tm_year += 1; } // check one day too early, to make sure no day is skipped in a leap year to non leap year transition 
+    updateNextEval(loctim);
+    return ExpressionValue((currentYday>=smaller && currentYday<=larger)!=lastBeforeFirst);
+  }
   else if (aFunctionName=="sunrise") {
     return ExpressionValue(sunrise(time(NULL), geolocation, false)*3600);
   }
