@@ -931,8 +931,8 @@ string MainLoop::description()
     "- installed I/O poll handlers   : %ld\n"
     "- pending child process waits   : %ld\n"
     "- pending timers right now      : %ld\n"
-    "  - earliest in                 : %lld mS from now\n"
-    "  - latest in                   : %lld mS from now\n"
+    "  - earliest                    : %s - %lld mS from now\n"
+    "  - latest                      : %s - %lld mS from now\n"
     #if MAINLOOP_STATISTICS
     "- statistics period             : %.3f S\n"
     "- I/O poll handler runtime      : %lld mS / %d%% of period\n"
@@ -947,8 +947,8 @@ string MainLoop::description()
     ,(long)ioPollHandlers.size()
     ,(long)waitHandlers.size()
     ,(long)timers.size()
-    ,(long long)(timers.size()>0 ? timers.front().executionTime-now() : 0)/MilliSecond
-    ,(long long)(timers.size()>0 ? timers.back().executionTime-now() : 0)/MilliSecond
+    ,timers.size()>0 ? string_mltime(timers.front().executionTime).c_str() : "none" ,(long long)(timers.size()>0 ? timers.front().executionTime-now() : 0)/MilliSecond
+    ,timers.size()>0 ? string_mltime(timers.back().executionTime).c_str() : "none" ,(long long)(timers.size()>0 ? timers.back().executionTime-now() : 0)/MilliSecond
     #if MAINLOOP_STATISTICS
     ,(double)statisticsPeriod/Second
     ,ioHandlerTime/MilliSecond ,(int)(statisticsPeriod>0 ? 100ll * ioHandlerTime/statisticsPeriod : 0)
