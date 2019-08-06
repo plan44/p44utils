@@ -293,6 +293,7 @@ ExpressionValue EvaluationContext::valueLookup(const string &aName)
   return ExpressionValue::errValue(ExpressionError::NotFound, "no variable named '%s'", aName.c_str());
 }
 
+static const char * const monthNames[12] = { "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec" };
 
 ExpressionValue EvaluationContext::evaluateTerm(const char *aExpr, size_t &aPos)
 {
@@ -364,33 +365,65 @@ ExpressionValue EvaluationContext::evaluateTerm(const char *aExpr, size_t &aPos)
     }
   }
   else {
-    // must be a numeric literal (can also be a time literal in hh:mm:ss or hh:mm form)
+    // must be a numeric literal (can also be a time literal in hh:mm:ss or hh:mm form or a yearday in dd.monthname or dd.mm. form)
     double v;
     int i;
     if (sscanf(term.c_str(), "%lf%n", &v, &i)!=1) {
-      return res.withError(ExpressionError::Syntax, "'%s' is not a valid number", term.c_str());
+      return res.withError(ExpressionError::Syntax, "'%s' is not a valid number, time or date", term.c_str());
     }
     else {
-      // TODO: date literals in form yyyy_mm_dd or just mm_dd
-      // check for time literals (returned as seconds)
-      // - these are in the form h:m or h:m:s, where all parts are allowed to be fractional
-      if (term.size()>i && term[i]==':') {
-        // we have 'v:'
-        double t;
-        int j;
-        if (sscanf(term.c_str()+i+1, "%lf%n", &t, &j)!=1) {
-          return res.withError(ExpressionError::Syntax, "'%s' is not a valid time specification (hh:mm or hh:mm:ss)", term.c_str());
+      // check for time/date literals
+      // - time literals (returned in seconds) are in the form h:m or h:m:s, where all parts are allowed to be fractional
+      // - month/day literals (returned in yeardays) are in the form dd.monthname or dd.mm. (mid the closing dot)
+      if (term.size()>i) {
+        if (term[i]==':') {
+          // we have 'v:', could be time
+          double t;
+          int j;
+          if (sscanf(term.c_str()+i+1, "%lf%n", &t, &j)!=1) {
+            return res.withError(ExpressionError::Syntax, "'%s' is not a valid time specification (hh:mm or hh:mm:ss)", term.c_str());
+          }
+          else {
+            // we have v:t, take these as hours and minutes
+            v = (v*60+t)*60; // in seconds
+            j += i+1;
+            if (term.size()>j && term[j]==':') {
+              // apparently we also have seconds
+              if (sscanf(term.c_str()+j+1, "%lf", &t)!=1) {
+                return res.withError(ExpressionError::Syntax, "'%s' time specification has invalid seconds (hh:mm:ss)", term.c_str());
+              }
+              v += t; // add the seconds
+            }
+          }
         }
         else {
-          // we have v:t, take these as hours and minutes
-          v = (v*60+t)*60; // in seconds
-          j += i+1;
-          if (term.size()>j && term[j]==':') {
-            // apparently we also have seconds
-            if (sscanf(term.c_str()+j+1, "%lf", &t)!=1) {
-              return res.withError(ExpressionError::Syntax, "'%s' time specification has invalid seconds (hh:mm:ss)", term.c_str());
+          int m; int d = -1;
+          if (term[i-1]=='.' && isalpha(term[i])) {
+            // could be dd.monthname
+            string mn = lowerCase(term.substr(i));
+            for (m=0; m<12; m++) {
+              if (mn==monthNames[m]) {
+                // valid monthname following number
+                // v = day, m = month-1
+                m += 1;
+                d = v;
+                break;
+              }
             }
-            v += t; // add the seconds
+            if (d<0) return res.withError(ExpressionError::Syntax, "'%s' date specification is invalid (dd.monthname)", term.c_str());
+          }
+          else if (term[i]=='.') {
+            // must be dd.mm. (with mm. alone, sscanf would have eaten it)
+            if (sscanf(term.c_str(), "%d.%d.", &d, &m)!=2) {
+              return res.withError(ExpressionError::Syntax, "'%s' date specification is invalid (dd.mm.)", term.c_str());
+            }
+          }
+          if (d>=0) {
+            struct tm loctim; MainLoop::getLocalTime(loctim);
+            loctim.tm_mon = m-1;
+            loctim.tm_mday = d;
+            mktime(&loctim);
+            v = loctim.tm_yday;
           }
         }
       }
