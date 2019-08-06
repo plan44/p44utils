@@ -121,41 +121,38 @@ ErrorPtr p44::substitutePlaceholders(string &aString, StringValueLookupCB aValue
 
 // MARK: - expression value
 
-string ExpressionValue::stringValue() const
+// copy constructor
+ExpressionValue::ExpressionValue(const ExpressionValue& aVal) :
+  strValP(NULL)
 {
-  if (isOk()) {
-    return string_format("%lg", v);
-  }
-  else {
-    return "unknown";
-  }
+  *this = aVal;
+}
+
+// assignment operator
+ExpressionValue& ExpressionValue::operator=(const ExpressionValue& aVal)
+{
+  pos = aVal.pos;
+  numVal = aVal.numVal;
+  err = aVal.err;
+  if (aVal.strValP)
+    setString(*aVal.strValP);
+  else
+    clrStr();
+  return *this;
 }
 
 
-
-// MARK: - expression values and errors
-
-
-ErrorPtr ExpressionError::err(ErrorCodes aErrCode, const char *aFmt, ...)
+void ExpressionValue::clrStr()
 {
-  Error *errP = new ExpressionError(aErrCode);
-  va_list args;
-  va_start(args, aFmt);
-  errP->setFormattedMessage(aFmt, args);
-  va_end(args);
-  return ErrorPtr(errP);
+  if (strValP) delete strValP;
+  strValP = NULL;
 }
 
+ExpressionValue::~ExpressionValue()
+{
+  clrStr();
+}
 
-//ExpressionValue ExpressionError::errValue(ErrorCodes aErrCode, const char *aFmt, ...)
-//{
-//  Error *errP = new ExpressionError(aErrCode);
-//  va_list args;
-//  va_start(args, aFmt);
-//  errP->setFormattedMessage(aFmt, args);
-//  va_end(args);
-//  return ExpressionValue(ErrorPtr(errP));
-//}
 
 ExpressionValue ExpressionValue::withError(ExpressionError::ErrorCodes aErrCode, const char *aFmt, ...)
 {
@@ -179,6 +176,99 @@ ExpressionValue ExpressionValue::errValue(ExpressionError::ErrorCodes aErrCode, 
   return ev;
 }
 
+
+string ExpressionValue::stringValue() const
+{
+  if (isOk()) {
+    if (isString()) return *strValP;
+    else return string_format("%lg", numVal);
+  }
+  else {
+    return "unknown";
+  }
+}
+
+
+double ExpressionValue::numValue() const
+{
+  if (!isOk()) return 0;
+  if (!isString()) return numVal;
+  ExpressionValue v(0);
+  EvaluationContext::evaluateNumericLiteral(v, *strValP);
+  return v.numVal;
+}
+
+
+bool ExpressionValue::operator<(const ExpressionValue& aRightSide) const
+{
+  if (notOk() || aRightSide.notOk()) return false; // nulls and errors are not orderable
+  if (isString()) return *strValP < aRightSide.stringValue();
+  return numVal < aRightSide.numValue();
+}
+
+bool ExpressionValue::operator==(const ExpressionValue& aRightSide) const
+{
+  if (isString()) return *strValP == aRightSide.stringValue();
+  if (notOk() || aRightSide.notOk()) {
+    if (
+      Error::isError(aRightSide.err, ExpressionError::domain(), ExpressionError::Null) &&
+      Error::isError(err, ExpressionError::domain(), ExpressionError::Null)
+    ) {
+      // special case: both sides NULL counts as equal
+      return true;
+    }
+    // otherwise, nulls and errors are not comparable
+    return false;
+  }
+  return numVal == aRightSide.numValue();
+}
+
+ExpressionValue ExpressionValue::operator+(const ExpressionValue& aRightSide) const
+{
+  if (isString()) return *strValP + aRightSide.stringValue();
+  return numVal + aRightSide.numValue();
+}
+
+ExpressionValue ExpressionValue::operator-(const ExpressionValue& aRightSide) const
+{
+  return numValue() - aRightSide.numValue();
+}
+
+ExpressionValue ExpressionValue::operator*(const ExpressionValue& aRightSide) const
+{
+  return numValue() * aRightSide.numValue();
+}
+
+ExpressionValue ExpressionValue::operator/(const ExpressionValue& aRightSide) const
+{
+  if (aRightSide.numValue()==0) return ExpressionValue::errValue(ExpressionError::DivisionByZero, "division by zero").withPos(aRightSide.pos);
+  return numValue() / aRightSide.numValue();
+}
+
+ExpressionValue ExpressionValue::operator&&(const ExpressionValue& aRightSide) const
+{
+  return numValue() && aRightSide.numValue();
+}
+
+ExpressionValue ExpressionValue::operator||(const ExpressionValue& aRightSide) const
+{
+  return numValue() || aRightSide.numValue();
+}
+
+
+
+// MARK: - expression error
+
+
+ErrorPtr ExpressionError::err(ErrorCodes aErrCode, const char *aFmt, ...)
+{
+  Error *errP = new ExpressionError(aErrCode);
+  va_list args;
+  va_start(args, aFmt);
+  errP->setFormattedMessage(aFmt, args);
+  va_end(args);
+  return ErrorPtr(errP);
+}
 
 
 // MARK: - EvaluationContext
@@ -253,15 +343,19 @@ ExpressionValue EvaluationContext::evaluateFunction(const string &aName, const F
     // ifvalid(a, b)   if a is a valid value, return it, otherwise return the default as specified by b
     return ExpressionValue(aArgs[0].isOk() ? aArgs[0] : aArgs[1]);
   }
+  if (aName=="isvalid" && aArgs.size()==1) {
+    // ifvalid(a, b)   if a is a valid value, return it, otherwise return the default as specified by b
+    return ExpressionValue(aArgs[0].isOk() ? 1 : 0);
+  }
   else if (aName=="if" && aArgs.size()==3) {
     // if (c, a, b)    if c evaluates to true, return a, otherwise b
     if (aArgs[0].notOk()) return aArgs[0]; // return error from condition
-    return ExpressionValue(aArgs[0].v!=0 ? aArgs[1] : aArgs[2]);
+    return ExpressionValue(aArgs[0].numValue()!=0 ? aArgs[1] : aArgs[2]);
   }
   else if (aName=="abs" && aArgs.size()==1) {
     // abs (a)         absolute value of a
     if (aArgs[0].notOk()) return aArgs[0]; // return error from argument
-    return ExpressionValue(fabs(aArgs[0].v));
+    return ExpressionValue(fabs(aArgs[0].numValue()));
   }
   else if (aName=="round" && (aArgs.size()==1 || aArgs.size()==2)) {
     // round (a)       round value to integer
@@ -270,16 +364,47 @@ ExpressionValue EvaluationContext::evaluateFunction(const string &aName, const F
     double precision = 1;
     if (aArgs.size()>=2) {
       if (aArgs[1].notOk()) return aArgs[0]; // return error from argument
-      precision = aArgs[1].v;
+      precision = aArgs[1].numValue();
     }
-    return ExpressionValue(round(aArgs[0].v/precision)*precision);
+    return ExpressionValue(round(aArgs[0].numValue()/precision)*precision);
   }
   else if (aName=="random" && aArgs.size()==2) {
     // random (a,b)     random value from a up to and including b
     if (aArgs[0].notOk()) return aArgs[0]; // return error from argument
     if (aArgs[1].notOk()) return aArgs[1]; // return error from argument
     // rand(): returns a pseudo-random integer value between ​0​ and RAND_MAX (0 and RAND_MAX included).
-    return ExpressionValue(aArgs[0].v + (double)rand()*(aArgs[1].v-aArgs[0].v)/((double)RAND_MAX));
+    return ExpressionValue(aArgs[0].numValue() + (double)rand()*(aArgs[1].numValue()-aArgs[0].numValue())/((double)RAND_MAX));
+  }
+  else if (aName=="string" && aArgs.size()==1) {
+    if (aArgs[0].notOk()) return aArgs[0]; // return error from argument
+    return ExpressionValue(aArgs[0].stringValue()); // force convert to string
+  }
+  else if (aName=="number" && aArgs.size()==1) {
+    if (aArgs[0].notOk()) return aArgs[0]; // return error from argument
+    return ExpressionValue(aArgs[0].numValue()); // force convert to numeric
+  }
+  else if (aName=="strlen" && aArgs.size()==1) {
+    if (aArgs[0].notOk()) return aArgs[0]; // return error from argument
+    return ExpressionValue(aArgs[0].stringValue().size()); // length of string
+  }
+  // TODO: add find(), substr(), format()
+  else if (aName=="errormessage" && aArgs.size()==1) {
+    return ExpressionValue(Error::text(aArgs[0].err)); // return error message
+  }
+  else if (aName=="eval" && aArgs.size()==1) {
+    if (aArgs[0].notOk()) return aArgs[0]; // return error from argument
+    // have string evaluated as expression
+    size_t pos = 0;
+    ExpressionValue evalRes = evaluateExpressionPrivate(aArgs[0].stringValue().c_str(), pos, 0);
+    if (pos<aArgs[0].stringValue().size()) {
+      evalRes.withError(ExpressionError::Syntax, "unexpected characters");
+    }
+    if (evalRes.notOk()) {
+      FOCUSLOG("eval(\"%s\") returns error '%s' in expression: %s", aArgs[0].stringValue().c_str(), evalRes.err->text(), expression.c_str());
+      // do not cause syntax error, only invalid result, but with error message included
+      evalRes.withError(Error::err<ExpressionError>(ExpressionError::Null, "eval() error: %s -> undefined", evalRes.err->text()));
+    }
+    return evalRes;
   }
   // no such function
   return ExpressionValue::errValue(ExpressionError::NotFound, "Unknown function '%s' with %lu arguments", aName.c_str(), aArgs.size());
@@ -294,6 +419,86 @@ ExpressionValue EvaluationContext::valueLookup(const string &aName)
 }
 
 static const char * const monthNames[12] = { "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec" };
+static const char * const weekdayNames[7] = { "sun", "mon", "tue", "wed", "thu", "fri", "sat" };
+
+void EvaluationContext::evaluateNumericLiteral(ExpressionValue &res, const string &term)
+{
+  double v;
+  int i;
+  if (sscanf(term.c_str(), "%lf%n", &v, &i)!=1) {
+    res.withError(ExpressionError::Syntax, "'%s' is not a valid number, time or date", term.c_str());
+    return;
+  }
+  else {
+    // check for time/date literals
+    // - time literals (returned in seconds) are in the form h:m or h:m:s, where all parts are allowed to be fractional
+    // - month/day literals (returned in yeardays) are in the form dd.monthname or dd.mm. (mid the closing dot)
+    if (term.size()>i) {
+      if (term[i]==':') {
+        // we have 'v:', could be time
+        double t;
+        int j;
+        if (sscanf(term.c_str()+i+1, "%lf%n", &t, &j)!=1) {
+          res.withError(ExpressionError::Syntax, "'%s' is not a valid time specification (hh:mm or hh:mm:ss)", term.c_str());
+          return;
+        }
+        else {
+          // we have v:t, take these as hours and minutes
+          v = (v*60+t)*60; // in seconds
+          j += i+1;
+          if (term.size()>j && term[j]==':') {
+            // apparently we also have seconds
+            if (sscanf(term.c_str()+j+1, "%lf", &t)!=1) {
+              res.withError(ExpressionError::Syntax, "'%s' time specification has invalid seconds (hh:mm:ss)", term.c_str());
+              return;
+            }
+            v += t; // add the seconds
+          }
+        }
+      }
+      else {
+        int m; int d = -1;
+        if (term[i-1]=='.' && isalpha(term[i])) {
+          // could be dd.monthname
+          string mn = lowerCase(term.substr(i));
+          for (m=0; m<12; m++) {
+            if (mn==monthNames[m]) {
+              // valid monthname following number
+              // v = day, m = month-1
+              m += 1;
+              d = v;
+              break;
+            }
+          }
+          if (d<0) {
+            res.withError(ExpressionError::Syntax, "'%s' date specification is invalid (dd.monthname)", term.c_str());
+            return;
+          }
+        }
+        else if (term[i]=='.') {
+          // must be dd.mm. (with mm. alone, sscanf would have eaten it)
+          if (sscanf(term.c_str(), "%d.%d.", &d, &m)!=2) {
+            res.withError(ExpressionError::Syntax, "'%s' date specification is invalid (dd.mm.)", term.c_str());
+            return;
+          }
+        }
+        else {
+          res.withError(ExpressionError::Syntax, "unexpected chars in term: '%s'", term.c_str());
+          return;
+        }
+        if (d>=0) {
+          struct tm loctim; MainLoop::getLocalTime(loctim);
+          loctim.tm_mon = m-1;
+          loctim.tm_mday = d;
+          mktime(&loctim);
+          v = loctim.tm_yday;
+        }
+      }
+    }
+  }
+  res.withNumber(v);
+}
+
 
 ExpressionValue EvaluationContext::evaluateTerm(const char *aExpr, size_t &aPos)
 {
@@ -302,137 +507,116 @@ ExpressionValue EvaluationContext::evaluateTerm(const char *aExpr, size_t &aPos)
   // a simple term can be
   // - a variable reference or
   // - a literal number or timespec (h:m or h:m:s)
+  // - a literal string (C-string like)
   // Note: a parantesized expression can also be a term, but this is parsed by the caller, not here
   while (aExpr[aPos]==' ' || aExpr[aPos]=='\t') aPos++; // skip whitespace
-  // extract var name or number
-  size_t e = aPos;
-  while (aExpr[e] && (isalnum(aExpr[e]) || aExpr[e]=='.' || aExpr[e]=='_' || aExpr[e]==':')) e++;
-  if (e==aPos) {
-    return res.withError(ExpressionError::Syntax, "missing term");
-  }
-  // must be simple term
-  string term;
-  term.assign(aExpr+aPos, e-aPos);
-  aPos = e; // advance cursor
-  // skip trailing whitespace
-  while (aExpr[aPos]==' ' || aExpr[aPos]=='\t') aPos++; // skip whitespace
-  // decode term
-  if (isalpha(term[0])) {
-    ErrorPtr err;
-    // must be a variable or function call
-    if (aExpr[aPos]=='(') {
-      // function call
-      aPos++; // skip opening paranthesis
-      // - collect arguments
-      FunctionArgumentVector args;
-      while (true) {
-        while (aExpr[aPos]==' ' || aExpr[aPos]=='\t') aPos++; // skip whitespace
-        if (aExpr[aPos]==')')
-          break; // no more arguments
-        if (args.size()!=0) {
-          if (aExpr[aPos]!=',')
-            return res.withError(ExpressionError::Syntax, "missing comma or closing ')'");
-          aPos++; // skip comma
+  if (aExpr[aPos]=='"') {
+    // string literal
+    string str;
+    aPos++;
+    char c;
+    while((c = aExpr[aPos])!='"') {
+      if (c==0) return res.withError(ExpressionError::Syntax, "unterminated string, missing \".").withPos(aPos);
+      if (c=='\\') {
+        c = aExpr[++aPos];
+        if (c==0) res.withError(ExpressionError::Syntax, "incomplete \\-escape").withPos(aPos);
+        else if (c=='n') c='\n';
+        else if (c=='r') c='\r';
+        else if (c=='t') c='\t';
+        else if (c=='x') {
+          unsigned int h = 0;
+          aPos++;
+          if (sscanf(aExpr+aPos, "%02x", &h)==1) aPos += 2;
+          c = (char)h;
         }
-        ExpressionValue arg = evaluateExpressionPrivate(aExpr, aPos, 0);
-        if (arg.notOk() && !arg.err->isError("ExpressionError", ExpressionError::Null))
-          return arg; // exit, except on null which is ok as a function argument
-        args.push_back(arg);
+        // everything else
       }
-      aPos++; // skip closing paranthesis
-      FOCUSLOG("Function '%s' called", term.c_str());
-      for (FunctionArgumentVector::iterator pos = args.begin(); pos!=args.end(); ++pos) {
-        FOCUSLOG("- argument at char pos=%zu: %lf (err=%s)", pos->pos, pos->v, Error::text(pos->err));
-      }
-      // run function
-      res.withValue(evaluateFunction(term, args));
+      str += c;
+      aPos++;
     }
-    else {
-      // check some reserved values
-      if (term=="true" || term=="yes") {
-        res.withNumber(1);
-      }
-      else if (term=="false" || term=="no") {
-        res.withNumber(0);
-      }
-      else if (term=="null" || term=="undefined") {
-        res.withError(ExpressionError::Null, "%s", term.c_str());
-      }
-      else {
-        // must be identifier representing a variable value
-        res.withValue(valueLookup(term));
-      }
-    }
+    aPos++; // skip closing quote
+    res.setString(str);
   }
   else {
-    // must be a numeric literal (can also be a time literal in hh:mm:ss or hh:mm form or a yearday in dd.monthname or dd.mm. form)
-    double v;
-    int i;
-    if (sscanf(term.c_str(), "%lf%n", &v, &i)!=1) {
-      return res.withError(ExpressionError::Syntax, "'%s' is not a valid number, time or date", term.c_str());
+    // extract var name or number
+    size_t e = aPos;
+    while (aExpr[e] && (isalnum(aExpr[e]) || aExpr[e]=='.' || aExpr[e]=='_' || aExpr[e]==':')) e++;
+    if (e==aPos) {
+      return res.withError(ExpressionError::Syntax, "missing term");
     }
-    else {
-      // check for time/date literals
-      // - time literals (returned in seconds) are in the form h:m or h:m:s, where all parts are allowed to be fractional
-      // - month/day literals (returned in yeardays) are in the form dd.monthname or dd.mm. (mid the closing dot)
-      if (term.size()>i) {
-        if (term[i]==':') {
-          // we have 'v:', could be time
-          double t;
-          int j;
-          if (sscanf(term.c_str()+i+1, "%lf%n", &t, &j)!=1) {
-            return res.withError(ExpressionError::Syntax, "'%s' is not a valid time specification (hh:mm or hh:mm:ss)", term.c_str());
+    // must be simple term
+    string term;
+    term.assign(aExpr+aPos, e-aPos);
+    aPos = e; // advance cursor
+    // skip trailing whitespace
+    while (aExpr[aPos]==' ' || aExpr[aPos]=='\t') aPos++; // skip whitespace
+    // decode term
+    if (isalpha(term[0])) {
+      ErrorPtr err;
+      // must be a variable or function call
+      if (aExpr[aPos]=='(') {
+        // function call
+        aPos++; // skip opening paranthesis
+        // - collect arguments
+        FunctionArgumentVector args;
+        while (true) {
+          while (aExpr[aPos]==' ' || aExpr[aPos]=='\t') aPos++; // skip whitespace
+          if (aExpr[aPos]==')')
+            break; // no more arguments
+          if (args.size()!=0) {
+            if (aExpr[aPos]!=',')
+              return res.withError(ExpressionError::Syntax, "missing comma or closing ')'");
+            aPos++; // skip comma
           }
-          else {
-            // we have v:t, take these as hours and minutes
-            v = (v*60+t)*60; // in seconds
-            j += i+1;
-            if (term.size()>j && term[j]==':') {
-              // apparently we also have seconds
-              if (sscanf(term.c_str()+j+1, "%lf", &t)!=1) {
-                return res.withError(ExpressionError::Syntax, "'%s' time specification has invalid seconds (hh:mm:ss)", term.c_str());
-              }
-              v += t; // add the seconds
-            }
-          }
+          ExpressionValue arg = evaluateExpressionPrivate(aExpr, aPos, 0);
+          if (arg.notOk() && !arg.err->isError("ExpressionError", ExpressionError::Null))
+            return arg; // exit, except on null which is ok as a function argument
+          args.push_back(arg);
+        }
+        aPos++; // skip closing paranthesis
+        FOCUSLOG("Function '%s' called", term.c_str());
+        for (FunctionArgumentVector::iterator pos = args.begin(); pos!=args.end(); ++pos) {
+          FOCUSLOG("- argument at char pos=%zu: %s (err=%s)", pos->pos, pos->stringValue().c_str(), Error::text(pos->err));
+        }
+        // run function
+        res.withValue(evaluateFunction(term, args));
+      }
+      else {
+        // check some reserved values
+        if (term=="true" || term=="yes") {
+          res.withNumber(1);
+        }
+        else if (term=="false" || term=="no") {
+          res.withNumber(0);
+        }
+        else if (term=="null" || term=="undefined") {
+          res.withError(ExpressionError::Null, "%s", term.c_str());
         }
         else {
-          int m; int d = -1;
-          if (term[i-1]=='.' && isalpha(term[i])) {
-            // could be dd.monthname
-            string mn = lowerCase(term.substr(i));
-            for (m=0; m<12; m++) {
-              if (mn==monthNames[m]) {
-                // valid monthname following number
-                // v = day, m = month-1
-                m += 1;
-                d = v;
+          // must be identifier representing a variable value
+          res.withValue(valueLookup(term));
+          if (res.notOk() && res.err->isError(ExpressionError::domain(), ExpressionError::NotFound)) {
+            // also match some convenience pseudo-vars
+            string dn = lowerCase(term);
+            for (int w=0; w<7; w++) {
+              if (dn==weekdayNames[w]) {
+                res.withError(ErrorPtr()); // clear not-found error
+                res.withNumber(w); // return numeric value of weekday
                 break;
               }
             }
-            if (d<0) return res.withError(ExpressionError::Syntax, "'%s' date specification is invalid (dd.monthname)", term.c_str());
-          }
-          else if (term[i]=='.') {
-            // must be dd.mm. (with mm. alone, sscanf would have eaten it)
-            if (sscanf(term.c_str(), "%d.%d.", &d, &m)!=2) {
-              return res.withError(ExpressionError::Syntax, "'%s' date specification is invalid (dd.mm.)", term.c_str());
-            }
-          }
-          if (d>=0) {
-            struct tm loctim; MainLoop::getLocalTime(loctim);
-            loctim.tm_mon = m-1;
-            loctim.tm_mday = d;
-            mktime(&loctim);
-            v = loctim.tm_yday;
           }
         }
       }
     }
-    res.withNumber(v);
+    else {
+      // must be a numeric literal (can also be a time literal in hh:mm:ss or hh:mm form or a yearday in dd.monthname or dd.mm. form)
+      evaluateNumericLiteral(res, term);
+    }
   }
   // valid term
   if (res.isOk()) {
-    FOCUSLOG("Term '%.*s' evaluation result: %lf", (int)(aPos-res.pos), aExpr+res.pos, res.v);
+    FOCUSLOG("Term '%.*s' evaluation result: %s", (int)(aPos-res.pos), aExpr+res.pos, res.stringValue().c_str());
   }
   else {
     FOCUSLOG("Term '%.*s' evaluation error: %s", (int)(aPos-res.pos), aExpr+res.pos, res.err->text());
@@ -535,8 +719,8 @@ ExpressionValue EvaluationContext::evaluateExpressionPrivate(const char *aExpr, 
   }
   // apply unary ops if any
   switch (unaryop) {
-    case op_not : res.v = res.v > 0 ? 0 : 1; break;
-    case op_subtract : res.v = -res.v; break;
+    case op_not : res.setNumber(res.numValue() > 0 ? 0 : 1); break;
+    case op_subtract : res.setNumber(-res.numValue()); break;
     default: break;
   }
   while (aExpr[aPos]) {
@@ -563,24 +747,21 @@ ExpressionValue EvaluationContext::evaluateExpressionPrivate(const char *aExpr, 
         case op_not: {
           return res.withError(ExpressionError::Syntax, "NOT operator not allowed here").withPos(aPos);
         }
-        case op_divide:
-          if (rightside.v==0) return res.withError(ExpressionError::DivisionByZero, "division by zero").withPos(aPos);
-          res.v = res.v/rightside.v;
-          break;
-        case op_multiply: res.v = res.v*rightside.v; break;
-        case op_add: res.v = res.v+rightside.v; break;
-        case op_subtract: res.v = res.v-rightside.v; break;
-        case op_equal: res.v = res.v==rightside.v; break;
-        case op_notequal: res.v = res.v!=rightside.v; break;
-        case op_less: res.v = res.v < rightside.v; break;
-        case op_greater: res.v = res.v > rightside.v; break;
-        case op_leq: res.v = res.v <= rightside.v; break;
-        case op_geq: res.v = res.v >= rightside.v; break;
-        case op_and: res.v = res.v && rightside.v; break;
-        case op_or: res.v = res.v || rightside.v; break;
+        case op_divide: res.withValue(res / rightside); break;
+        case op_multiply: res.withValue(res * rightside); break;
+        case op_add: res.withValue(res + rightside); break;
+        case op_subtract: res.withValue(res - rightside); break;
+        case op_equal: res.setBool(res == rightside); break;
+        case op_notequal: res.setBool(!(res == rightside)); break;
+        case op_less: res.setBool(res < rightside); break;
+        case op_greater: res.setBool(!(res < rightside) && !(res == rightside)); break;
+        case op_leq: res.setBool((res < rightside) || (res == rightside)); break;
+        case op_geq: res.setBool(!(res < rightside)); break;
+        case op_and: res.withValue(res && rightside); break;
+        case op_or: res.withValue(res || rightside); break;
         default: break;
       }
-      FOCUSLOG("Intermediate expression '%.*s' evaluation result: %lf", (int)(aPos-res.pos), aExpr+res.pos, res.v);
+      FOCUSLOG("Intermediate expression '%.*s' evaluation result: %s", (int)(aPos-res.pos), aExpr+res.pos, res.stringValue().c_str());
     }
     else {
       FOCUSLOG("Intermediate expression '%.*s' evaluation result is INVALID", (int)(aPos-res.pos), aExpr+res.pos);
@@ -669,10 +850,10 @@ protected:
     return inherited::valueLookup(aName);
   };
 
-  virtual ExpressionValue evaluateFunction(const string &aFunctionName, const FunctionArgumentVector &aArguments) P44_OVERRIDE
+  virtual ExpressionValue evaluateFunction(const string &aFunctionName, const FunctionArgumentVector &aArgs) P44_OVERRIDE
   {
-    if (functionLookUp) return functionLookUp(aFunctionName, aArguments);
-    return inherited::evaluateFunction(aFunctionName, aArguments);
+    if (functionLookUp) return functionLookUp(aFunctionName, aArgs);
+    return inherited::evaluateFunction(aFunctionName, aArgs);
   };
 
 };
@@ -845,58 +1026,59 @@ bool TimedEvaluationContext::unfreeze(size_t aAtPos)
 #define MIN_RETRIGGER_SECONDS 10 ///< how soon testlater() is allowed to re-trigger
 #define IS_TIME_TOLERANCE_SECONDS 5 ///< matching window for is_time() function
 
-ExpressionValue TimedEvaluationContext::evaluateFunction(const string &aFunctionName, const FunctionArgumentVector &aArguments)
+ExpressionValue TimedEvaluationContext::evaluateFunction(const string &aFunctionName, const FunctionArgumentVector &aArgs)
 {
-  if (aFunctionName=="testlater" && aArguments.size()>=2 && aArguments.size()<=3) {
+  if (aFunctionName=="testlater" && aArgs.size()>=2 && aArgs.size()<=3) {
     // testlater(seconds, timedtest [, retrigger])   return "invalid" now, re-evaluate after given seconds and return value of test then. If repeat is true then, the timer will be re-scheduled
     bool retrigger = false;
-    if (aArguments.size()>=3) retrigger = aArguments[2].isOk() && aArguments[2].v>0;
-    ExpressionValue secs = aArguments[0];
-    if (retrigger && secs.v<MIN_RETRIGGER_SECONDS) {
+    if (aArgs.size()>=3) retrigger = aArgs[2].isOk() && aArgs[2].numValue()>0;
+    ExpressionValue secs = aArgs[0];
+    if (retrigger && secs.numValue()<MIN_RETRIGGER_SECONDS) {
       // prevent too frequent re-triggering that could eat up too much cpu
-      LOG(LOG_WARNING, "testlater() requests too fast retriggering (%.1f seconds), allowed minimum is %.1f seconds", secs.v, (double)MIN_RETRIGGER_SECONDS);
-      secs.v = MIN_RETRIGGER_SECONDS;
+      LOG(LOG_WARNING, "testlater() requests too fast retriggering (%.1f seconds), allowed minimum is %.1f seconds", secs.numValue(), (double)MIN_RETRIGGER_SECONDS);
+      secs.setNumber(MIN_RETRIGGER_SECONDS);
     }
     ExpressionValue currentSecs = secs;
     FrozenResult* frozenP = getFrozen(currentSecs);
     if (evalMode!=evalmode_timed) {
       if (evalMode!=evalmode_initial) {
         // evaluating non-timed, non-initial means "not yet ready" and must start or extend freeze period
-        newFreeze(frozenP, secs, MainLoop::now()+secs.v*Second, true);
+        newFreeze(frozenP, secs, MainLoop::now()+secs.numValue()*Second, true);
       }
       frozenP = NULL;
     }
     else {
       // evaluating timed after frozen period means "now is later" and if retrigger is set, must start a new freeze
       if (frozenP && retrigger) {
-        newFreeze(frozenP, secs, MainLoop::now()+secs.v*Second);
+        newFreeze(frozenP, secs, MainLoop::now()+secs.numValue()*Second);
       }
     }
     if (frozenP && !frozenP->frozen()) {
       // evaluation runs because freeze is over, return test result
-      return ExpressionValue(aArguments[1].v);
+      return ExpressionValue(aArgs[1].numValue());
     }
     else {
       // still frozen, return undefined
       return ExpressionValue::errValue(ExpressionError::Null, "testlater() not yet ready");
     }
   }
-  else if (aFunctionName=="initial" && aArguments.size()==0) {
+  else if (aFunctionName=="initial" && aArgs.size()==0) {
     // initial()  returns true if this is a "initial" run of the evaluator, meaning after startup or expression changes
     return ExpressionValue(evalMode==evalmode_initial);
   }
-  else if (aFunctionName=="is_weekday" && aArguments.size()>0) {
+  else if (aFunctionName=="is_weekday" && aArgs.size()>0) {
     struct tm loctim; MainLoop::getLocalTime(loctim);
     // check if any of the weekdays match
     int weekday = loctim.tm_wday; // 0..6, 0=sunday
     ExpressionValue newRes(0);
-    newRes.pos = aArguments[0].pos; // Note: we use pos of first argument for freezing the function's result (no need to freeze every single weekday)
-    for (int i = 0; i<aArguments.size(); i++) {
-      int w = (int)aArguments[i].v;
+    newRes.pos = aArgs[0].pos; // Note: we use pos of first argument for freezing the function's result (no need to freeze every single weekday)
+    for (int i = 0; i<aArgs.size(); i++) {
+      if (aArgs[i].notOk()) return aArgs[i]; // return error from argument
+      int w = (int)aArgs[i].numValue();
       if (w==7) w=0; // treat both 0 and 7 as sunday
       if (w==weekday) {
         // today is one of the days listed
-        newRes.v = 1;
+        newRes.setNumber(1);
         break;
       }
     }
@@ -910,33 +1092,35 @@ ExpressionValue TimedEvaluationContext::evaluateFunction(const string &aFunction
     newFreeze(frozenP, newRes, MainLoop::localTimeToMainLoopTime(loctim));
     return res; // freeze time over, use actual, newly calculated result
   }
-  else if ((aFunctionName=="after_time" || aFunctionName=="is_time") && aArguments.size()>=1) {
+  else if ((aFunctionName=="after_time" || aFunctionName=="is_time") && aArgs.size()>=1) {
     struct tm loctim; MainLoop::getLocalTime(loctim);
     ExpressionValue newSecs;
-    newSecs.pos = aArguments[0].pos; // Note: we use pos of first argument for freezing the seconds
-    if (aArguments.size()==2) {
+    if (aArgs[0].notOk()) return aArgs[0]; // return error from argument
+    newSecs.pos = aArgs[0].pos; // Note: we use pos of first argument for freezing the seconds
+    if (aArgs.size()==2) {
       // legacy spec
-      newSecs.v = ((int32_t)aArguments[0].v * 60 + (int32_t)aArguments[1].v) * 60;
+      if (aArgs[1].notOk()) return aArgs[0]; // return error from argument
+      newSecs.setNumber(((int32_t)aArgs[0].numValue() * 60 + (int32_t)aArgs[1].numValue()) * 60);
     }
     else {
       // specification in seconds, usually using time literal
-      newSecs.v = (int32_t)(aArguments[0].v);
+      newSecs.setNumber((int32_t)(aArgs[0].numValue()));
     }
     ExpressionValue secs = newSecs;
     FrozenResult* frozenP = getFrozen(secs);
     int32_t daySecs = ((loctim.tm_hour*60)+loctim.tm_min)*60+loctim.tm_sec;
-    bool met = daySecs>=secs.v;
+    bool met = daySecs>=secs.numValue();
     // next check at specified time, today if not yet met, tomorrow if already met for today
-    loctim.tm_hour = 0; loctim.tm_min = 0; loctim.tm_sec = (int)secs.v;
+    loctim.tm_hour = 0; loctim.tm_min = 0; loctim.tm_sec = (int)secs.numValue();
     FOCUSLOG("is/after_time() reference time for current check is: %s", MainLoop::string_mltime(MainLoop::localTimeToMainLoopTime(loctim)).c_str());
     bool res = met;
     // limit to a few secs around target if it's is_time
-    if (aFunctionName=="is_time" && met && daySecs<secs.v+IS_TIME_TOLERANCE_SECONDS) {
+    if (aFunctionName=="is_time" && met && daySecs<secs.numValue()+IS_TIME_TOLERANCE_SECONDS) {
       // freeze again for a bit
       newFreeze(frozenP, secs, MainLoop::localTimeToMainLoopTime(loctim)+IS_TIME_TOLERANCE_SECONDS*Second);
     }
     else {
-      loctim.tm_hour = 0; loctim.tm_min = 0; loctim.tm_sec = (int)newSecs.v;
+      loctim.tm_hour = 0; loctim.tm_min = 0; loctim.tm_sec = (int)newSecs.numValue();
       if (met) {
         loctim.tm_mday++; // already met today, check again tomorrow
         if (aFunctionName=="is_time") res = false;
@@ -946,9 +1130,11 @@ ExpressionValue TimedEvaluationContext::evaluateFunction(const string &aFunction
     return ExpressionValue(res);
   }
   else if (aFunctionName=="between_dates" || aFunctionName=="between_yeardays") {
+    if (aArgs[0].notOk()) return aArgs[0]; // return error from argument
+    if (aArgs[1].notOk()) return aArgs[1]; // return error from argument
     struct tm loctim; MainLoop::getLocalTime(loctim);
-    int smaller = (int)(aArguments[0].v);
-    int larger = (int)(aArguments[1].v);
+    int smaller = (int)(aArgs[0].numValue());
+    int larger = (int)(aArgs[1].numValue());
     int currentYday = loctim.tm_yday;
     loctim.tm_hour = 0; loctim.tm_min = 0; loctim.tm_sec = 0;
     loctim.tm_mon = 0;
@@ -956,52 +1142,52 @@ ExpressionValue TimedEvaluationContext::evaluateFunction(const string &aFunction
     if (lastBeforeFirst) swap(larger, smaller);
     if (currentYday<smaller) loctim.tm_mday = 1+smaller;
     else if (currentYday<=larger) loctim.tm_mday = 1+larger;
-    else { loctim.tm_mday = smaller; loctim.tm_year += 1; } // check one day too early, to make sure no day is skipped in a leap year to non leap year transition 
+    else { loctim.tm_mday = smaller; loctim.tm_year += 1; } // check one day too early, to make sure no day is skipped in a leap year to non leap year transition
     updateNextEval(loctim);
     return ExpressionValue((currentYday>=smaller && currentYday<=larger)!=lastBeforeFirst);
   }
-  else if (aFunctionName=="sunrise") {
+  else if (aFunctionName=="sunrise" && aArgs.size()==0) {
     return ExpressionValue(sunrise(time(NULL), geolocation, false)*3600);
   }
-  else if (aFunctionName=="dawn") {
+  else if (aFunctionName=="dawn" && aArgs.size()==0) {
     return ExpressionValue(sunrise(time(NULL), geolocation, true)*3600);
   }
-  else if (aFunctionName=="sunset") {
+  else if (aFunctionName=="sunset" && aArgs.size()==0) {
     return ExpressionValue(sunset(time(NULL), geolocation, false)*3600);
   }
-  else if (aFunctionName=="dusk") {
+  else if (aFunctionName=="dusk" && aArgs.size()==0) {
     return ExpressionValue(sunset(time(NULL), geolocation, true)*3600);
   }
   else {
     double fracSecs;
     struct tm loctim; MainLoop::getLocalTime(loctim, &fracSecs);
-    if (aFunctionName=="timeofday") {
+    if (aFunctionName=="timeofday" && aArgs.size()==0) {
       return ExpressionValue(((loctim.tm_hour*60)+loctim.tm_min)*60+loctim.tm_sec+fracSecs);
     }
-    else if (aFunctionName=="hour") {
+    else if (aFunctionName=="hour" && aArgs.size()==0) {
       return ExpressionValue(loctim.tm_hour);
     }
-    else if (aFunctionName=="minute") {
+    else if (aFunctionName=="minute" && aArgs.size()==0) {
       return ExpressionValue(loctim.tm_min);
     }
-    else if (aFunctionName=="second") {
+    else if (aFunctionName=="second" && aArgs.size()==0) {
       return ExpressionValue(loctim.tm_sec);
     }
-    else if (aFunctionName=="year") {
+    else if (aFunctionName=="year" && aArgs.size()==0) {
       return ExpressionValue(loctim.tm_year+1900);
     }
-    else if (aFunctionName=="month") {
+    else if (aFunctionName=="month" && aArgs.size()==0) {
       return ExpressionValue(loctim.tm_mon+1);
     }
-    else if (aFunctionName=="day") {
+    else if (aFunctionName=="day" && aArgs.size()==0) {
       return ExpressionValue(loctim.tm_mday);
     }
-    else if (aFunctionName=="weekday") {
+    else if (aFunctionName=="weekday" && aArgs.size()==0) {
       return ExpressionValue(loctim.tm_wday);
     }
-    else if (aFunctionName=="yearday") {
+    else if (aFunctionName=="yearday" && aArgs.size()==0) {
       return ExpressionValue(loctim.tm_yday);
     }
   }
-  return inherited::evaluateFunction(aFunctionName, aArguments);
+  return inherited::evaluateFunction(aFunctionName, aArgs);
 }

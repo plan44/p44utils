@@ -63,21 +63,42 @@ namespace p44 {
 
   /// expression value, consisting of a value and an error to indicate non-value and reason for it
   class ExpressionValue {
+    string* strValP; ///< string values have a std::string here
+    double numVal;
   public:
     size_t pos; ///< starting position in expression string (for function arguments and subexpressions)
-    double v;
     ErrorPtr err;
-    ExpressionValue() { v = 0; pos = 0; };
-    ExpressionValue(double aValue) { v = aValue; pos = 0; };
+    ExpressionValue() : numVal(0), pos(0), strValP(NULL) { };
+    ExpressionValue(double aNumValue) : numVal(aNumValue), pos(0), strValP(NULL) { };
+    ExpressionValue(const string &aStrValue) : numVal(0), pos(0), strValP(new string(aStrValue)) { };
+    ExpressionValue(const ExpressionValue& aVal); ///< copy constructor
+    ExpressionValue& operator=(const ExpressionValue& aVal); ///< assignment operator
+    ~ExpressionValue();
+    bool operator<(const ExpressionValue& aRightSide) const;
+    bool operator==(const ExpressionValue& aRightSide) const;
+    ExpressionValue operator+(const ExpressionValue& aRightSide) const;
+    ExpressionValue operator-(const ExpressionValue& aRightSide) const;
+    ExpressionValue operator*(const ExpressionValue& aRightSide) const;
+    ExpressionValue operator/(const ExpressionValue& aRightSide) const;
+    ExpressionValue operator&&(const ExpressionValue& aRightSide) const;
+    ExpressionValue operator||(const ExpressionValue& aRightSide) const;
+    void clrStr();
+    void setNumber(double aNumValue) { clrStr(); numVal = aNumValue; }
+    void setBool(bool aBoolValue) { clrStr(); numVal = aBoolValue ? 1: 0; }
+    void setString(const string& aStrValue) { numVal = 0; if (strValP) strValP->assign(aStrValue); else strValP = new string(aStrValue); }
     static ExpressionValue errValue(ExpressionError::ErrorCodes aErrCode, const char *aFmt, ...) __printflike(2,3);
     ExpressionValue withError(ErrorPtr aError) { err = aError; return *this; }
     ExpressionValue withError(ExpressionError::ErrorCodes aErrCode, const char *aFmt, ...)  __printflike(3,4);
-    ExpressionValue withNumber(double aValue) { v = aValue; return *this; }
-    ExpressionValue withValue(const ExpressionValue &aExpressionValue) { v = aExpressionValue.v; err = aExpressionValue.err; return *this; }
+    ExpressionValue withNumber(double aNumValue) { setNumber(aNumValue); return *this; }
+    ExpressionValue withString(const string& aStrValue) { setString(aStrValue); return *this; }
+    ExpressionValue withValue(const ExpressionValue &aExpressionValue) { numVal = aExpressionValue.numVal; err = aExpressionValue.err; if (aExpressionValue.strValP) setString(*aExpressionValue.strValP); return *this; }
     ExpressionValue withPos(size_t aPos) { pos = aPos; return *this; }
     bool isOk() const { return Error::isOK(err); }
     bool notOk() const { return !isOk(); }
-    string stringValue() const;
+    bool isString() const { return strValP!=NULL; }
+    string stringValue() const; ///< returns a conversion to string if value is numeric
+    double numValue() const; ///< returns a conversion to numeric (using literal syntax), if value is string
+    bool boolValue() const { return numValue()!=0; } ///< returns true if value is not 0
   };
 
 
@@ -88,9 +109,9 @@ namespace p44 {
 
   /// callback function for function evaluation
   /// @param aFunctionName the name of the function to execute
-  /// @param aArguments vector of function arguments, tuple contains expression starting position and value
+  /// @param aArgs vector of function arguments, tuple contains expression starting position and value
   typedef std::vector<ExpressionValue> FunctionArgumentVector;
-  typedef boost::function<ExpressionValue (const string &aFunctionName, const FunctionArgumentVector &aArguments)> FunctionLookupCB;
+  typedef boost::function<ExpressionValue (const string &aFunctionName, const FunctionArgumentVector &aArgs)> FunctionLookupCB;
 
   /// evaluate expression
   /// @param aExpression the expression text
@@ -129,6 +150,8 @@ namespace p44 {
   /// Basic Expression Evaluation Context
   class EvaluationContext : public P44Obj
   {
+    friend class ExpressionValue;
+
   protected:
 
     EvalMode evalMode; ///< evaluation mode
@@ -195,7 +218,7 @@ namespace p44 {
     /// @return Expression value or error.
     /// @param aNextEval will be adjusted to the most recent point in time when a re-evaluation should occur. Inital call should pass Never.
     /// @note must return ExpressionError::NotFound only if function name is unknown
-    virtual ExpressionValue evaluateFunction(const string &aFunctionName, const FunctionArgumentVector &aArguments);
+    virtual ExpressionValue evaluateFunction(const string &aFunctionName, const FunctionArgumentVector &aArgs);
 
     /// @}
 
@@ -209,6 +232,7 @@ namespace p44 {
 
   private:
 
+    static void evaluateNumericLiteral(ExpressionValue &res, const string &term);
     ExpressionValue evaluateTerm(const char *aExpr, size_t &aPos);
 
   };
@@ -281,22 +305,6 @@ namespace p44 {
     /// @return true if there was a frozen result at aAtPos
     bool unfreeze(size_t aAtPos);
 
-
-
-//
-//    /// check for frozen result
-//    /// @param aActualResult the current result of a (sub)expression - pos member must be set!
-//    /// @param aOutputResult if there is a frozen result for the same position, aFrozenResult is set to its value (even
-//    ///   in case the freeze has just expired!). Otherwise, it is set to aActualResult.
-//    /// @param aFreezeUntil if not set (or checkOnly), only a check for a frozen result will be made, but nothing updated.
-//    ///    Otherwise, the result will be unfrozen at that time. Specify Infinite to freeze indefinitely, Never to release any previous freeze.
-//    /// @param aExtendFreeze if set, freeze period will be extended unconditionally, even when previous freeze is still running
-//    /// @note if the value is not yet frozen, aActualResult will be stored in the freezer, and this and future calls will return it
-//    /// @note next evaluation time will be updated to make sure a re-evaluation occurs at the end of the freeze
-//    /// @return yes if there is a still frozen result, undefined if aOutputResult returns a previously frozen result, no if no frozen result exists
-//    static const MLMicroSeconds checkOnly = -2;
-//    Tristate checkFrozen(ExpressionValue aActualResult, ExpressionValue &aOutputResult, MLMicroSeconds aFreezeUntil = checkOnly, bool aExtendFreeze = false);
-
     /// Set time when next evaluation must happen, latest
     /// @param aLatestEval new time when evaluation must happen latest, Never if no next evaluation is needed
     /// @return true if aNextEval was updated
@@ -305,7 +313,7 @@ namespace p44 {
     /// @return true if aNextEval was updated
     bool updateNextEval(const struct tm& aLatestEvalTm);
 
-    virtual ExpressionValue evaluateFunction(const string &aFunctionName, const FunctionArgumentVector &aArguments) P44_OVERRIDE;
+    virtual ExpressionValue evaluateFunction(const string &aFunctionName, const FunctionArgumentVector &aArgs) P44_OVERRIDE;
 
   private:
 
