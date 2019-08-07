@@ -28,6 +28,17 @@
 
 using namespace std;
 
+// default geolocation
+#if !defined(DEFAULT_LATITUDE) || !defined(DEFAULT_LONGITUDE)
+  #define DEFAULT_LONGITUDE 8.474552
+  #define DEFAULT_LATITUDE 47.394691
+  #define DEFAULT_HEIGHTABOVESEA 396
+#endif
+#if !defined(DEFAULT_HEIGHTABOVESEA)
+  #define DEFAULT_HEIGHTABOVESEA 0
+#endif
+
+
 namespace p44 {
 
   class GeoLocation
@@ -36,7 +47,8 @@ namespace p44 {
     double longitude; ///< longitude in degrees east of Greenwich
     double latitude; ///< latitude in degrees north of equator
     double heightAboveSea; ///< height above sea level in meters
-    GeoLocation(double aLongitude, double aLatitude) : longitude(aLongitude), latitude(aLatitude) {};
+    GeoLocation() : longitude(DEFAULT_LONGITUDE), latitude(DEFAULT_LATITUDE), heightAboveSea(DEFAULT_HEIGHTABOVESEA) {};
+    GeoLocation(double aLongitude, double aLatitude) : longitude(aLongitude), latitude(aLatitude), heightAboveSea(0) {};
     GeoLocation(double aLongitude, double aLatitude, double aHeightAboveSea) : longitude(aLongitude), latitude(aLatitude), heightAboveSea(aHeightAboveSea) {};
   };
 
