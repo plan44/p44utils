@@ -111,10 +111,10 @@ namespace p44 {
   typedef boost::function<ExpressionValue (const string &aName)> ValueLookupCB;
 
   /// callback function for function evaluation
-  /// @param aFunctionName the name of the function to execute
+  /// @param aFunc the name of the function to execute
   /// @param aArgs vector of function arguments, tuple contains expression starting position and value
   typedef std::vector<ExpressionValue> FunctionArgumentVector;
-  typedef boost::function<ExpressionValue (const string &aFunctionName, const FunctionArgumentVector &aArgs)> FunctionLookupCB;
+  typedef boost::function<ExpressionValue (const string &aFunc, const FunctionArgumentVector &aArgs)> FunctionLookupCB;
 
   /// evaluate expression
   /// @param aExpression the expression text
@@ -148,6 +148,7 @@ namespace p44 {
     evalmode_initial, ///< initial evaluator run
     evalmode_externaltrigger, ///< externally triggered evaluation
     evalmode_timed, ///< timed evaluation by timed retrigger
+    evalmode_script, ///< evaluate as script code
     evalmode_noexec, ///< evaluate without executing any side effects (for skipping in scripts)
   } EvalMode;
 
@@ -158,15 +159,28 @@ namespace p44 {
 
   protected:
 
-    EvalMode evalMode; ///< evaluation mode
+    const GeoLocation* geolocationP;
 
     string expression; ///< the expression
     EvaluationResultCB evaluationResultHandler; ///< called when a evaluation started by triggerEvaluation() completes (includes re-evaluations)
     bool evaluating; ///< protection against cyclic references
+    MLMicroSeconds nextEvaluation; ///< time when executed functions would like to see the next evaluation (used by TimedEvaluationContext)
+
+    EvalMode evalMode; ///< evaluation mode
+
+    /// unused here, only actually in use by TimedEvaluationContext
+    class FrozenResult
+    {
+    public:
+      ExpressionValue frozenResult; ///< the frozen result
+      MLMicroSeconds frozenUntil; ///< until when the value remains frozen, Infinite if forever (until explicitly unfrozen)
+      /// @return true if still frozen (not expired yet)
+      bool frozen();
+    };
 
   public:
 
-    EvaluationContext();
+    EvaluationContext(const GeoLocation* aGeoLocationP = NULL);
     virtual ~EvaluationContext();
 
     /// set re-evaluation callback
@@ -218,13 +232,46 @@ namespace p44 {
     virtual ExpressionValue valueLookup(const string &aName);
 
     /// function evaluation
-    /// @param aFunctionName the name of the function to execute
+    /// @param aFunc the name of the function to execute
     /// @return Expression value or error.
     /// @param aNextEval will be adjusted to the most recent point in time when a re-evaluation should occur. Inital call should pass Never.
     /// @note must return ExpressionError::NotFound only if function name is unknown
-    virtual ExpressionValue evaluateFunction(const string &aFunctionName, const FunctionArgumentVector &aArgs);
+    virtual ExpressionValue evaluateFunction(const string &aFunc, const FunctionArgumentVector &aArgs);
 
     /// @}
+
+    /// @name API for timed evaluation and freezing values in functions that can be used in timed evaluations
+    /// @note base class does not actually implement freezing, but API with dummy functionalizy
+    ///   is defined here so function evaluation can use without knowing the context they will execute in
+    /// @{
+
+    /// get frozen result if any exists
+    /// @param aResult On call: the current result of a (sub)expression - pos member must be set!
+    ///   On return: replaced by a frozen result, if one exists
+    virtual FrozenResult* getFrozen(ExpressionValue &aResult) { return NULL; /* base class has no frozen results */ }
+
+    /// update existing or create new frozen result
+    /// @param aExistingFreeze the pointer obtained from getFrozen(), can be NULL
+    /// @param aNewResult the new value to be frozen
+    /// @param aFreezeUntil The new freeze date. Specify Infinite to freeze indefinitely, Never to release any previous freeze.
+    /// @param aUpdate if set, freeze will be updated/extended unconditionally, even when previous freeze is still running
+    virtual FrozenResult* newFreeze(FrozenResult* aExistingFreeze, const ExpressionValue &aNewResult, MLMicroSeconds aFreezeUntil, bool aUpdate = false) { return NULL; /* base class cannot freeze */ }
+
+    /// unfreeze frozen value at aAtPos
+    /// @param aAtPos the starting character index of the subexpression to unfreeze
+    /// @return true if there was a frozen result at aAtPos
+    virtual bool unfreeze(size_t aAtPos) { return false; /* base class has no frozen results */ }
+
+    /// Set time when next evaluation must happen, latest
+    /// @param aLatestEval new time when evaluation must happen latest, Never if no next evaluation is needed
+    /// @return true if aNextEval was updated
+    bool updateNextEval(const MLMicroSeconds aLatestEval);
+    /// @param aLatestEvalTm new local broken down time when evaluation must happen latest
+    /// @return true if aNextEval was updated
+    bool updateNextEval(const struct tm& aLatestEvalTm);
+
+    /// @}
+
 
     /// evaluate (sub)expression
     /// @param aExpr the beginning of the entire expression (important for freezing subexpressions via their string position)
@@ -248,26 +295,14 @@ namespace p44 {
   {
     typedef EvaluationContext inherited;
 
-    const GeoLocation& geolocation;
-
-    class FrozenResult
-    {
-    public:
-      ExpressionValue frozenResult; ///< the frozen result
-      MLMicroSeconds frozenUntil; ///< until when the value remains frozen, Infinite if forever (until explicitly unfrozen)
-      /// @return true if still frozen (not expired yet)
-      bool frozen();
-    };
-
     typedef std::map<size_t, FrozenResult> FrozenResultsMap;
     FrozenResultsMap frozenResults; ///< map of expression starting indices and associated frozen results
 
-    MLMicroSeconds nextEvaluation; ///< next automatic re-evaluation
     MLTicket reEvaluationTicket; ///< ticket for re-evaluation timer
 
   public:
 
-    TimedEvaluationContext(const GeoLocation& aGeoLocation);
+    TimedEvaluationContext(const GeoLocation* aGeoLocationP);
     virtual ~TimedEvaluationContext();
 
     /// evaluate expression right now, return result
@@ -290,34 +325,25 @@ namespace p44 {
     /// release all evaluation state (such as frozen subexpressions)
     virtual void releaseState() P44_OVERRIDE;
 
-
-
     /// get frozen result if any exists
     /// @param aResult On call: the current result of a (sub)expression - pos member must be set!
     ///   On return: replaced by a frozen result, if one exists
-    FrozenResult* getFrozen(ExpressionValue &aResult);
+    virtual FrozenResult* getFrozen(ExpressionValue &aResult) P44_OVERRIDE;
 
     /// update existing or create new frozen result
     /// @param aExistingFreeze the pointer obtained from getFrozen(), can be NULL
     /// @param aNewResult the new value to be frozen
     /// @param aFreezeUntil The new freeze date. Specify Infinite to freeze indefinitely, Never to release any previous freeze.
     /// @param aUpdate if set, freeze will be updated/extended unconditionally, even when previous freeze is still running
-    FrozenResult* newFreeze(FrozenResult* aExistingFreeze, const ExpressionValue &aNewResult, MLMicroSeconds aFreezeUntil, bool aUpdate = false);
+    virtual FrozenResult* newFreeze(FrozenResult* aExistingFreeze, const ExpressionValue &aNewResult, MLMicroSeconds aFreezeUntil, bool aUpdate = false) P44_OVERRIDE;
 
     /// unfreeze frozen value at aAtPos
     /// @param aAtPos the starting character index of the subexpression to unfreeze
     /// @return true if there was a frozen result at aAtPos
-    bool unfreeze(size_t aAtPos);
+    virtual bool unfreeze(size_t aAtPos) P44_OVERRIDE;
 
-    /// Set time when next evaluation must happen, latest
-    /// @param aLatestEval new time when evaluation must happen latest, Never if no next evaluation is needed
-    /// @return true if aNextEval was updated
-    bool updateNextEval(const MLMicroSeconds aLatestEval);
-    /// @param aLatestEvalTm new local broken down time when evaluation must happen latest
-    /// @return true if aNextEval was updated
-    bool updateNextEval(const struct tm& aLatestEvalTm);
 
-    virtual ExpressionValue evaluateFunction(const string &aFunctionName, const FunctionArgumentVector &aArgs) P44_OVERRIDE;
+    virtual ExpressionValue evaluateFunction(const string &aFunc, const FunctionArgumentVector &aArgs) P44_OVERRIDE;
 
   private:
 
