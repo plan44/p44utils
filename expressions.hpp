@@ -26,20 +26,14 @@
 #include "timeutils.hpp"
 #include <string>
 
+#ifndef EXPRESSION_SCRIPT_SUPPORT
+  #define EXPRESSION_SCRIPT_SUPPORT 1 // on by default
+#endif
+
+
 using namespace std;
 
 namespace p44 {
-
-  /// callback function for obtaining string variables
-  /// @param aValue the contents of this is looked up and possibly replaced
-  /// @return ok or error
-  typedef boost::function<ErrorPtr (const string aName, string &aValue)> StringValueLookupCB;
-
-  /// substitute "@{xxx}" type placeholders in string
-  /// @param aString string to replace placeholders in
-  /// @param aValueLookupCB this will be called to get variables resolved into values
-  ErrorPtr substitutePlaceholders(string &aString, StringValueLookupCB aValueLookupCB);
-
 
   /// Expression Error
   class ExpressionError : public Error
@@ -90,11 +84,15 @@ namespace p44 {
     static ExpressionValue nullValue() { return errValue(ExpressionError::Null, "undefined"); }
     ExpressionValue withError(ErrorPtr aError) { err = aError; return *this; }
     ExpressionValue withError(ExpressionError::ErrorCodes aErrCode, const char *aFmt, ...)  __printflike(3,4);
+    ExpressionValue withSyntaxError(const char *aFmt, ...)  __printflike(2,3);
     ExpressionValue withNumber(double aNumValue) { setNumber(aNumValue); return *this; }
     ExpressionValue withString(const string& aStrValue) { setString(aStrValue); return *this; }
     ExpressionValue withValue(const ExpressionValue &aExpressionValue) { numVal = aExpressionValue.numVal; err = aExpressionValue.err; if (aExpressionValue.strValP) setString(*aExpressionValue.strValP); return *this; }
     ExpressionValue withPos(size_t aPos) { pos = aPos; return *this; }
     bool isOk() const { return Error::isOK(err); }
+    bool valueOk() const { return isOk() || isNull(); } ///< ok as a value, but can be NULL
+    bool isNull() const { return Error::isError(err, ExpressionError::domain(), ExpressionError::Null); } ///< ok as a value, but can be NULL
+    bool syntaxOk() const { return !Error::isError(err, ExpressionError::domain(), ExpressionError::Syntax); } ///< ok for calculations, not a syntax problem
     bool notOk() const { return !isOk(); }
     bool isString() const { return strValP!=NULL; }
     string stringValue() const; ///< returns a conversion to string if value is numeric
@@ -144,7 +142,6 @@ namespace p44 {
 
 
   typedef enum {
-    evalmode_current, ///< input value for not changing the evaluation mode
     evalmode_initial, ///< initial evaluator run
     evalmode_externaltrigger, ///< externally triggered evaluation
     evalmode_timed, ///< timed evaluation by timed retrigger
@@ -165,8 +162,6 @@ namespace p44 {
     EvaluationResultCB evaluationResultHandler; ///< called when a evaluation started by triggerEvaluation() completes (includes re-evaluations)
     bool evaluating; ///< protection against cyclic references
     MLMicroSeconds nextEvaluation; ///< time when executed functions would like to see the next evaluation (used by TimedEvaluationContext)
-
-    EvalMode evalMode; ///< evaluation mode
 
     /// unused here, only actually in use by TimedEvaluationContext
     class FrozenResult
@@ -195,26 +190,26 @@ namespace p44 {
     bool setExpression(const string aExpression);
 
     /// get current expression
-    string getExpression() { return expression; };
-
-    /// @return current evaluation mode
-    EvalMode getEvalMode() { return evalMode; };
+    const char *getExpression() { return expression.c_str(); };
 
     /// evaluate expression right now, return result
     /// @param aEvalMode if specified, the evaluation mode for this evaluation. Defaults to current evaluation mode.
     /// @param aScheduleReEval if true, re-evaluations as demanded by evaluated expression are scheduled (NOP in base class)
     /// @return expression result
     /// @note does NOT trigger the evaluation result handler
-    virtual ExpressionValue evaluateNow(EvalMode aEvalMode = evalmode_current, bool aScheduleReEval = false);
+    virtual ExpressionValue evaluateNow(EvalMode aEvalMode, bool aScheduleReEval = false);
 
     /// trigger a (re-)evaluation
-    /// @param aEvalMode if specified, the evaluation mode for this evaluation. Defaults to current evaluation mode.
+    /// @param aEvalMode the evaluation mode for this evaluation.
     /// @note evaluation result handler will be called when complete
     /// @return ok, or error if expression could not be evaluated
-    ErrorPtr triggerEvaluation(EvalMode aEvalMode = evalmode_current);
+    ErrorPtr triggerEvaluation(EvalMode aEvalMode);
 
     /// @return true if currently evaluating an expression.
     bool isEvaluating() { return evaluating; }
+
+    static void skipWhiteSpace(const char *aExpr, size_t& aPos);
+    static bool skipIdentifier(const char *aExpr, size_t& aPos);
 
   protected:
 
@@ -236,7 +231,7 @@ namespace p44 {
     /// @return Expression value or error.
     /// @param aNextEval will be adjusted to the most recent point in time when a re-evaluation should occur. Inital call should pass Never.
     /// @note must return ExpressionError::NotFound only if function name is unknown
-    virtual ExpressionValue evaluateFunction(const string &aFunc, const FunctionArgumentVector &aArgs);
+    virtual ExpressionValue evaluateFunction(const string &aFunc, const FunctionArgumentVector &aArgs, EvalMode aEvalMode);
 
     /// @}
 
@@ -276,18 +271,62 @@ namespace p44 {
     /// evaluate (sub)expression
     /// @param aExpr the beginning of the entire expression (important for freezing subexpressions via their string position)
     /// @param aPos the current position of evaluation within aExpr
-    /// @param aNextEval Input: time of next re-evaluation that will happen, or Never.
-    ///   Output: reduced to more recent time when evaluating subexpression demands more recent re-evaulation, untouched otherwise
+    /// @param aPrecedence encountering a operator with precedence lower or same as aPrecedence will stop parsing the expression
+    /// @param aStopChars list of characters that stop the evaluation of an expression (e.g. to make argument processing stop at ')' and ','
+    /// @param aNeedStopChar if set, one of the stopchars is REQUIRED and will be skipped. If not stopped by a stopchar, error is returned
+    /// @param aEvalMode evaluation mode
     /// @return expression result
-    ExpressionValue evaluateExpressionPrivate(const char *aExpr, size_t &aPos, int aPrecedence);
+    ExpressionValue evaluateExpressionPrivate(const char *aExpr, size_t &aPos, int aPrecedence, const char *aStopChars, bool aNeedStopChar, EvalMode aEvalMode);
 
   private:
 
     static void evaluateNumericLiteral(ExpressionValue &res, const string &term);
-    ExpressionValue evaluateTerm(const char *aExpr, size_t &aPos);
+    ExpressionValue evaluateTerm(const char *aExpr, size_t &aPos, EvalMode aEvalMode);
 
   };
   typedef boost::intrusive_ptr<EvaluationContext> EvaluationContextPtr;
+
+
+  #if EXPRESSION_SCRIPT_SUPPORT
+
+  // execution of scripts
+  class ScriptExecutionContext : public EvaluationContext
+  {
+    typedef EvaluationContext inherited;
+
+    typedef std::map<string, ExpressionValue> VariablesMap;
+    VariablesMap variables;
+
+  public:
+
+    ScriptExecutionContext(const GeoLocation* aGeoLocationP = NULL);
+    virtual ~ScriptExecutionContext();
+
+    /// run the stored expression as a script
+    ExpressionValue runAsScript();
+
+    /// clear all variables
+    void clearVariables();
+
+  protected:
+
+    /// lookup variables by name
+    /// @param aName the name of the value/variable to look up
+    /// @param aNextEval Input: time of next re-evaluation that will happen, or Never.
+    ///   Output: reduced to more recent time when this value demands more recent re-evaulation, untouched otherwise
+    /// @return Expression value (with error when value is not available)
+    virtual ExpressionValue valueLookup(const string &aName) P44_OVERRIDE;
+
+    /// timed context specific functions
+    virtual ExpressionValue evaluateFunction(const string &aFunc, const FunctionArgumentVector &aArgs, EvalMode aEvalMode) P44_OVERRIDE;
+
+  private:
+
+    ExpressionValue runStatementPrivate(const char *aScript, size_t &aPos, EvalMode aMode, bool aInBlock);
+
+  };
+
+  #endif // EXPRESSION_SCRIPT_SUPPORT
 
 
   // evaluation with time related functions that must trigger re-evaluations when used
@@ -310,7 +349,7 @@ namespace p44 {
     /// @param aScheduleReEval if true, re-evaluations as demanded by evaluated expression are scheduled (NOP in base class)
     /// @return expression result
     /// @note does NOT trigger the evaluation result handler
-    virtual ExpressionValue evaluateNow(EvalMode aEvalMode = evalmode_current, bool aScheduleReEval = false) P44_OVERRIDE;
+    virtual ExpressionValue evaluateNow(EvalMode aEvalMode, bool aScheduleReEval = false) P44_OVERRIDE;
 
     /// schedule latest re-evaluation time. If an earlier evaluation time is already scheduled, nothing will happen
     /// @note this will cancel a possibly already scheduled re-evaluation unconditionally
@@ -342,8 +381,8 @@ namespace p44 {
     /// @return true if there was a frozen result at aAtPos
     virtual bool unfreeze(size_t aAtPos) P44_OVERRIDE;
 
-
-    virtual ExpressionValue evaluateFunction(const string &aFunc, const FunctionArgumentVector &aArgs) P44_OVERRIDE;
+    /// timed context specific functions
+    virtual ExpressionValue evaluateFunction(const string &aFunc, const FunctionArgumentVector &aArgs, EvalMode aEvalMode) P44_OVERRIDE;
 
   private:
 
@@ -351,6 +390,21 @@ namespace p44 {
 
   };
   typedef boost::intrusive_ptr<TimedEvaluationContext> TimedEvaluationContextPtr;
+
+
+  #if EXPRESSION_LEGACY_PLACEHOLDERS
+
+  /// callback function for obtaining string variables
+  /// @param aValue the contents of this is looked up and possibly replaced
+  /// @return ok or error
+  typedef boost::function<ErrorPtr (const string aName, string &aValue)> StringValueLookupCB;
+
+  /// substitute "@{xxx}" type placeholders in string
+  /// @param aString string to replace placeholders in
+  /// @param aValueLookupCB this will be called to get variables resolved into values
+  ErrorPtr substitutePlaceholders(string &aString, StringValueLookupCB aValueLookupCB);
+
+  #endif
 
 
 } // namespace p44

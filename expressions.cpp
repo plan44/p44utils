@@ -32,93 +32,6 @@
 using namespace p44;
 
 
-// MARK: - legacy @{placeholder} substitution
-
-ErrorPtr p44::substitutePlaceholders(string &aString, StringValueLookupCB aValueLookupCB)
-{
-  ErrorPtr err;
-  size_t p = 0;
-  // Syntax of placeholders:
-  //   @{var[*ff][+|-oo][%frac]}
-  //   ff is an optional float factor to scale the channel value, or 'B' to output JSON-compatible boolean true or false
-  //   oo is an float offset to apply
-  //   frac are number of fractional digits to use in output
-  while ((p = aString.find("@{",p))!=string::npos) {
-    size_t e = aString.find("}",p+2);
-    if (e==string::npos) {
-      // syntactically incorrect, no closing "}"
-      err = ExpressionError::err(ExpressionError::Syntax, "unterminated placeholder: %s", aString.c_str()+p);
-      break;
-    }
-    string v = aString.substr(p+2,e-2-p);
-    // process operations
-    double chfactor = 1;
-    double choffset = 0;
-    int numFracDigits = 0;
-    bool boolFmt = false;
-    bool calc = false;
-    size_t varend = string::npos;
-    size_t i = 0;
-    while (true) {
-      i = v.find_first_of("*+-%",i);
-      if (varend==string::npos) {
-        varend = i==string::npos ? v.size() : i;
-      }
-      if (i==string::npos) break; // no more factors, offsets or format specs
-      // factor and/or offset
-      if (v[i]=='%') {
-        // format, check special cases
-        if (v[i+1]=='B') {
-          // binary true/false
-          boolFmt = true;
-          i+=2;
-          continue;
-        }
-      }
-      calc = true;
-      double dd;
-      if (sscanf(v.c_str()+i+1, "%lf", &dd)==1) {
-        switch (v[i]) {
-          case '*' : chfactor *= dd; break;
-          case '+' : choffset += dd; break;
-          case '-' : choffset -= dd; break;
-          case '%' : numFracDigits = dd; break;
-        }
-      }
-      i++;
-    }
-    // process variable
-    string rep = v.substr(0, varend);
-    if (aValueLookupCB) {
-      // if no replacement is found, original text is used
-      err = aValueLookupCB(rep, rep);
-      if (Error::notOK(err))
-        break; // abort
-    }
-    // apply calculations if any
-    if (calc) {
-      // parse as double
-      double dv;
-      if (sscanf(rep.c_str(), "%lf", &dv)==1) {
-        // got double value, apply calculations
-        dv = dv * chfactor + choffset;
-        // render back to string
-        if (boolFmt) {
-          rep = dv>0 ? "true" : "false";
-        }
-        else {
-          rep = string_format("%.*lf", numFracDigits, dv);
-        }
-      }
-    }
-    // replace, even if rep is empty
-    aString.replace(p, e-p+1, rep);
-    p+=rep.size();
-  }
-  return err;
-}
-
-
 // MARK: - expression value
 
 // copy constructor
@@ -157,6 +70,17 @@ ExpressionValue::~ExpressionValue()
 ExpressionValue ExpressionValue::withError(ExpressionError::ErrorCodes aErrCode, const char *aFmt, ...)
 {
   err = new ExpressionError(aErrCode);
+  va_list args;
+  va_start(args, aFmt);
+  err->setFormattedMessage(aFmt, args);
+  va_end(args);
+  return *this;
+}
+
+
+ExpressionValue ExpressionValue::withSyntaxError(const char *aFmt, ...)
+{
+  err = new ExpressionError(ExpressionError::Syntax);
   va_list args;
   va_start(args, aFmt);
   err->setFormattedMessage(aFmt, args);
@@ -274,9 +198,24 @@ ErrorPtr ExpressionError::err(ErrorCodes aErrCode, const char *aFmt, ...)
 // MARK: - EvaluationContext
 
 
+void EvaluationContext::skipWhiteSpace(const char *aExpr, size_t& aPos)
+{
+  while (aExpr[aPos]==' ' || aExpr[aPos]=='\t') aPos++;
+}
+
+
+bool EvaluationContext::skipIdentifier(const char *aExpr, size_t& aPos)
+{
+  if (!isalpha(aExpr[aPos])) return false; // must start with alpha
+  aPos++;
+  while (aExpr[aPos] && (isalnum(aExpr[aPos]) || aExpr[aPos]=='_')) aPos++;
+  return true; // non-empty identifier
+}
+
+
+
 EvaluationContext::EvaluationContext(const GeoLocation* aGeoLocationP) :
   geolocationP(aGeoLocationP),
-  evalMode(evalmode_initial),
   evaluating(false),
   nextEvaluation(Never)
 {
@@ -327,9 +266,8 @@ bool EvaluationContext::updateNextEval(const struct tm& aLatestEvalTm)
 ExpressionValue EvaluationContext::evaluateNow(EvalMode aEvalMode, bool aScheduleReEval)
 {
   nextEvaluation = Never;
-  if (aEvalMode!=evalmode_current) evalMode = aEvalMode;
   size_t pos = 0;
-  return evaluateExpressionPrivate(expression.c_str(), pos, 0);
+  return evaluateExpressionPrivate(expression.c_str(), pos, 0, NULL, false, aEvalMode);
 }
 
 
@@ -372,7 +310,7 @@ void EvaluationContext::evaluateNumericLiteral(ExpressionValue &res, const strin
   double v;
   int i;
   if (sscanf(term.c_str(), "%lf%n", &v, &i)!=1) {
-    res.withError(ExpressionError::Syntax, "'%s' is not a valid number, time or date", term.c_str());
+    res.withSyntaxError("'%s' is not a valid number, time or date", term.c_str());
     return;
   }
   else {
@@ -385,7 +323,7 @@ void EvaluationContext::evaluateNumericLiteral(ExpressionValue &res, const strin
         double t;
         int j;
         if (sscanf(term.c_str()+i+1, "%lf%n", &t, &j)!=1) {
-          res.withError(ExpressionError::Syntax, "'%s' is not a valid time specification (hh:mm or hh:mm:ss)", term.c_str());
+          res.withSyntaxError("'%s' is not a valid time specification (hh:mm or hh:mm:ss)", term.c_str());
           return;
         }
         else {
@@ -395,7 +333,7 @@ void EvaluationContext::evaluateNumericLiteral(ExpressionValue &res, const strin
           if (term.size()>j && term[j]==':') {
             // apparently we also have seconds
             if (sscanf(term.c_str()+j+1, "%lf", &t)!=1) {
-              res.withError(ExpressionError::Syntax, "'%s' time specification has invalid seconds (hh:mm:ss)", term.c_str());
+              res.withSyntaxError("'%s' time specification has invalid seconds (hh:mm:ss)", term.c_str());
               return;
             }
             v += t; // add the seconds
@@ -417,19 +355,19 @@ void EvaluationContext::evaluateNumericLiteral(ExpressionValue &res, const strin
             }
           }
           if (d<0) {
-            res.withError(ExpressionError::Syntax, "'%s' date specification is invalid (dd.monthname)", term.c_str());
+            res.withSyntaxError("'%s' date specification is invalid (dd.monthname)", term.c_str());
             return;
           }
         }
         else if (term[i]=='.') {
           // must be dd.mm. (with mm. alone, sscanf would have eaten it)
           if (sscanf(term.c_str(), "%d.%d.", &d, &m)!=2) {
-            res.withError(ExpressionError::Syntax, "'%s' date specification is invalid (dd.mm.)", term.c_str());
+            res.withSyntaxError("'%s' date specification is invalid (dd.mm.)", term.c_str());
             return;
           }
         }
         else {
-          res.withError(ExpressionError::Syntax, "unexpected chars in term: '%s'", term.c_str());
+          res.withSyntaxError("unexpected chars in term: '%s'", term.c_str());
           return;
         }
         if (d>=0) {
@@ -446,7 +384,7 @@ void EvaluationContext::evaluateNumericLiteral(ExpressionValue &res, const strin
 }
 
 
-ExpressionValue EvaluationContext::evaluateTerm(const char *aExpr, size_t &aPos)
+ExpressionValue EvaluationContext::evaluateTerm(const char *aExpr, size_t &aPos, EvalMode aEvalMode)
 {
   ExpressionValue res;
   res.pos = aPos;
@@ -455,17 +393,17 @@ ExpressionValue EvaluationContext::evaluateTerm(const char *aExpr, size_t &aPos)
   // - a literal number or timespec (h:m or h:m:s)
   // - a literal string (C-string like)
   // Note: a parantesized expression can also be a term, but this is parsed by the caller, not here
-  while (aExpr[aPos]==' ' || aExpr[aPos]=='\t') aPos++; // skip whitespace
+  skipWhiteSpace(aExpr, aPos);
   if (aExpr[aPos]=='"') {
     // string literal
     string str;
     aPos++;
     char c;
     while((c = aExpr[aPos])!='"') {
-      if (c==0) return res.withError(ExpressionError::Syntax, "unterminated string, missing \".").withPos(aPos);
+      if (c==0) return res.withSyntaxError("unterminated string, missing \".").withPos(aPos);
       if (c=='\\') {
         c = aExpr[++aPos];
-        if (c==0) res.withError(ExpressionError::Syntax, "incomplete \\-escape").withPos(aPos);
+        if (c==0) res.withSyntaxError("incomplete \\-escape").withPos(aPos);
         else if (c=='n') c='\n';
         else if (c=='r') c='\r';
         else if (c=='t') c='\t';
@@ -488,14 +426,13 @@ ExpressionValue EvaluationContext::evaluateTerm(const char *aExpr, size_t &aPos)
     size_t e = aPos;
     while (aExpr[e] && (isalnum(aExpr[e]) || aExpr[e]=='.' || aExpr[e]=='_' || aExpr[e]==':')) e++;
     if (e==aPos) {
-      return res.withError(ExpressionError::Syntax, "missing term");
+      return res.withSyntaxError("missing term");
     }
     // must be simple term
     string term;
     term.assign(aExpr+aPos, e-aPos);
     aPos = e; // advance cursor
-    // skip trailing whitespace
-    while (aExpr[aPos]==' ' || aExpr[aPos]=='\t') aPos++; // skip whitespace
+    skipWhiteSpace(aExpr, aPos); // skip trailing whitespace
     // decode term
     if (isalpha(term[0])) {
       ErrorPtr err;
@@ -505,18 +442,11 @@ ExpressionValue EvaluationContext::evaluateTerm(const char *aExpr, size_t &aPos)
         aPos++; // skip opening paranthesis
         // - collect arguments
         FunctionArgumentVector args;
-        while (true) {
-          while (aExpr[aPos]==' ' || aExpr[aPos]=='\t') aPos++; // skip whitespace
-          if (aExpr[aPos]==')')
-            break; // no more arguments
-          if (args.size()!=0) {
-            if (aExpr[aPos]!=',')
-              return res.withError(ExpressionError::Syntax, "missing comma or closing ')'");
-            aPos++; // skip comma
-          }
-          ExpressionValue arg = evaluateExpressionPrivate(aExpr, aPos, 0);
-          if (arg.notOk() && !arg.err->isError("ExpressionError", ExpressionError::Null))
-            return arg; // exit, except on null which is ok as a function argument
+        skipWhiteSpace(aExpr, aPos);
+        while (aExpr[aPos]!=')') {
+          if (args.size()>0) aPos++; // skip the separating comma
+          ExpressionValue arg = evaluateExpressionPrivate(aExpr, aPos, 0, ",)", true, aEvalMode);
+          if (!arg.valueOk()) return arg; // exit, except on null which is ok as a function argument
           args.push_back(arg);
         }
         aPos++; // skip closing paranthesis
@@ -526,7 +456,7 @@ ExpressionValue EvaluationContext::evaluateTerm(const char *aExpr, size_t &aPos)
         }
         // run function
         ExpressionValue fnres;
-        if (evalMode!=evalmode_noexec) fnres = evaluateFunction(term, args);
+        if (aEvalMode!=evalmode_noexec) fnres = evaluateFunction(term, args, aEvalMode);
         res.withValue(fnres);
       }
       else {
@@ -540,7 +470,7 @@ ExpressionValue EvaluationContext::evaluateTerm(const char *aExpr, size_t &aPos)
         else if (term=="null" || term=="undefined") {
           res.withError(ExpressionError::Null, "%s", term.c_str());
         }
-        else if (evalMode!=evalmode_noexec) {
+        else if (aEvalMode!=evalmode_noexec) {
           // must be identifier representing a variable value
           res.withValue(valueLookup(term));
           if (res.notOk() && res.err->isError(ExpressionError::domain(), ExpressionError::NotFound)) {
@@ -563,11 +493,11 @@ ExpressionValue EvaluationContext::evaluateTerm(const char *aExpr, size_t &aPos)
     }
   }
   // valid term
-  if (res.isOk() && evalMode!=evalmode_noexec) {
+  if (res.isOk() && aEvalMode!=evalmode_noexec) {
     FOCUSLOG("Term '%.*s' evaluation result: %s", (int)(aPos-res.pos), aExpr+res.pos, res.stringValue().c_str());
   }
   else {
-    FOCUSLOG("Term '%.*s' evaluation error: %s", (int)(aPos-res.pos), aExpr+res.pos, res.err->text());
+    FOCUSLOG("Term '%.*s' evaluation error: %s", (int)(aPos-res.pos), aExpr+res.pos, Error::text(res.err));
   }
   return res;
 }
@@ -597,7 +527,7 @@ typedef enum {
 
 static Operations parseOperator(const char *aExpr, size_t &aPos)
 {
-  while (aExpr[aPos]==' ' || aExpr[aPos]=='\t') aPos++; // skip whitespace
+  p44::ScriptExecutionContext::skipWhiteSpace(aExpr, aPos);
   // check for operator
   Operations op = op_none;
   switch (aExpr[aPos++]) {
@@ -632,12 +562,12 @@ static Operations parseOperator(const char *aExpr, size_t &aPos)
     }
     default: --aPos; // no expression char
   }
-  while (aExpr[aPos]==' ' || aExpr[aPos]=='\t') aPos++; // skip whitespace
+  p44::ScriptExecutionContext::skipWhiteSpace(aExpr, aPos);
   return op;
 }
 
 
-ExpressionValue EvaluationContext::evaluateExpressionPrivate(const char *aExpr, size_t &aPos, int aPrecedence)
+ExpressionValue EvaluationContext::evaluateExpressionPrivate(const char *aExpr, size_t &aPos, int aPrecedence, const char *aStopChars, bool aNeedStopChar, EvalMode aEvalMode)
 {
   ExpressionValue res;
   res.pos = aPos;
@@ -645,7 +575,7 @@ ExpressionValue EvaluationContext::evaluateExpressionPrivate(const char *aExpr, 
   Operations unaryop = parseOperator(aExpr, aPos);
   if (unaryop!=op_none) {
     if (unaryop!=op_subtract && unaryop!=op_not) {
-      return res.withError(ExpressionError::Syntax, "invalid unary operator");
+      return res.withSyntaxError("invalid unary operator");
     }
   }
   // evaluate term
@@ -653,16 +583,16 @@ ExpressionValue EvaluationContext::evaluateExpressionPrivate(const char *aExpr, 
   if (aExpr[aPos]=='(') {
     // term is expression in paranthesis
     aPos++;
-    res = evaluateExpressionPrivate(aExpr, aPos, 0);
-    if (Error::isError(res.err, ExpressionError::domain(), ExpressionError::Syntax)) return res;
+    res = evaluateExpressionPrivate(aExpr, aPos, 0, ")", false, aEvalMode);
+    if (res.syntaxOk()) return res;
     if (aExpr[aPos]!=')') {
-      return res.withError(ExpressionError::Syntax, "Missing ')'").withPos(aPos);
+      return res.withSyntaxError("Missing ')'").withPos(aPos);
     }
     aPos++;
   }
   else {
     // must be simple term
-    res = evaluateTerm(aExpr, aPos);
+    res = evaluateTerm(aExpr, aPos, aEvalMode);
     if (Error::isError(res.err, ExpressionError::domain(), ExpressionError::Syntax)) return res;
   }
   // apply unary ops if any
@@ -676,19 +606,22 @@ ExpressionValue EvaluationContext::evaluateExpressionPrivate(const char *aExpr, 
     size_t opIdx = aPos;
     Operations binaryop = parseOperator(aExpr, opIdx);
     int precedence = binaryop & opmask_precedence;
-    // end parsing here if end of text, paranthesis or argument reached or operator has a lower or same precedence as the passed in precedence
-    if (aExpr[opIdx]==0 || aExpr[opIdx]==')' || aExpr[opIdx]==',' || precedence<=aPrecedence) {
-      // what we have so far is the result
+    // end parsing here if end of text, stopchar or operator with a lower or same precedence as the passed in precedence is reached
+    if ((aStopChars && strchr(aStopChars, aExpr[opIdx])) || precedence<=aPrecedence)
+      break; // break because of stopchar or end of higher precedence subexpression
+    if (aExpr[opIdx]==0) {
+      // end of text
+      if (aStopChars && aNeedStopChar) return res.withSyntaxError("expected one of %s", aStopChars);
       break;
     }
     // prevent loop
     if (binaryop==op_none) {
-      return res.withError(ExpressionError::Syntax, "Invalid operator: '%s'", aExpr+opIdx).withPos(aPos);
+      return res.withSyntaxError("Invalid operator: '%s'", aExpr+opIdx).withPos(aPos);
     }
     // must parse right side of operator as subexpression
     aPos = opIdx; // advance past operator
-    ExpressionValue rightside = evaluateExpressionPrivate(aExpr, aPos, precedence);
-    if (evalMode!=evalmode_noexec) {
+    ExpressionValue rightside = evaluateExpressionPrivate(aExpr, aPos, precedence, aStopChars, aNeedStopChar, aEvalMode);
+    if (aEvalMode!=evalmode_noexec) {
       // - equality comparison is the only thing that also inlcudes "undefined", so do it first
       if (binaryop==op_equal)
         res.setBool(res == rightside);
@@ -700,7 +633,7 @@ ExpressionValue EvaluationContext::evaluateExpressionPrivate(const char *aExpr, 
           // apply the operation between leftside and rightside
           switch (binaryop) {
             case op_not: {
-              return res.withError(ExpressionError::Syntax, "NOT operator not allowed here").withPos(aPos);
+              return res.withSyntaxError("NOT operator not allowed here").withPos(aPos);
             }
             case op_divide: res.withValue(res / rightside); break;
             case op_multiply: res.withValue(res * rightside); break;
@@ -732,7 +665,7 @@ ExpressionValue EvaluationContext::evaluateExpressionPrivate(const char *aExpr, 
 ExpressionValue TimedEvaluationContext::evaluateNow(EvalMode aEvalMode, bool aScheduleReEval)
 {
   ExpressionValue res = inherited::evaluateNow(aEvalMode, aScheduleReEval);
-  if (evalMode!=evalmode_noexec) {
+  if (aEvalMode!=evalmode_noexec) {
     // take unfreeze time of frozen results into account for next evaluation
     FrozenResultsMap::iterator pos = frozenResults.begin();
     while (pos!=frozenResults.end()) {
@@ -761,7 +694,7 @@ ExpressionValue TimedEvaluationContext::evaluateNow(EvalMode aEvalMode, bool aSc
 #define IS_TIME_TOLERANCE_SECONDS 5 ///< matching window for is_time() function
 
 // standard functions available in every context
-ExpressionValue EvaluationContext::evaluateFunction(const string &aFunc, const FunctionArgumentVector &aArgs)
+ExpressionValue EvaluationContext::evaluateFunction(const string &aFunc, const FunctionArgumentVector &aArgs, EvalMode aEvalMode)
 {
   if (aFunc=="ifvalid" && aArgs.size()==2) {
     // ifvalid(a, b)   if a is a valid value, return it, otherwise return the default as specified by b
@@ -882,10 +815,7 @@ ExpressionValue EvaluationContext::evaluateFunction(const string &aFunc, const F
     // eval(string)    have string evaluated as expression
     if (aArgs[0].notOk()) return aArgs[0]; // return error from argument
     size_t pos = 0;
-    ExpressionValue evalRes = evaluateExpressionPrivate(aArgs[0].stringValue().c_str(), pos, 0);
-    if (pos<aArgs[0].stringValue().size()) {
-      evalRes.withError(ExpressionError::Syntax, "unexpected characters");
-    }
+    ExpressionValue evalRes = evaluateExpressionPrivate(aArgs[0].stringValue().c_str(), pos, 0, NULL, false, aEvalMode);
     if (evalRes.notOk()) {
       FOCUSLOG("eval(\"%s\") returns error '%s' in expression: %s", aArgs[0].stringValue().c_str(), evalRes.err->text(), expression.c_str());
       // do not cause syntax error, only invalid result, but with error message included
@@ -1026,94 +956,226 @@ ExpressionValue EvaluationContext::evaluateFunction(const string &aFunc, const F
 
 
 
-// MARK: - ad hoc expression evaluation
+// MARK: - ScriptExecutionContext
 
-/// helper class for ad-hoc expression evaluation
-class AdHocEvaluationContext : public EvaluationContext
+#if EXPRESSION_SCRIPT_SUPPORT
+
+ScriptExecutionContext::ScriptExecutionContext(const GeoLocation* aGeoLocationP) :
+  inherited(aGeoLocationP)
 {
-  typedef EvaluationContext inherited;
-  ValueLookupCB valueLookUp;
-  FunctionLookupCB functionLookUp;
-
-public:
-  AdHocEvaluationContext(ValueLookupCB aValueLookupCB, FunctionLookupCB aFunctionLookpCB) :
-    inherited(NULL),
-    valueLookUp(aValueLookupCB),
-    functionLookUp(aFunctionLookpCB)
-  {
-  };
-
-  virtual ~AdHocEvaluationContext() {};
-
-  ExpressionValue evaluateExpression(const string &aExpression)
-  {
-    setExpression(aExpression);
-    return evaluateNow();
-  };
-
-protected:
-
-  virtual ExpressionValue valueLookup(const string &aName) P44_OVERRIDE
-  {
-    if (valueLookUp) return valueLookUp(aName);
-    return inherited::valueLookup(aName);
-  };
-
-  virtual ExpressionValue evaluateFunction(const string &aFunc, const FunctionArgumentVector &aArgs) P44_OVERRIDE
-  {
-    if (functionLookUp) return functionLookUp(aFunc, aArgs);
-    return inherited::evaluateFunction(aFunc, aArgs);
-  };
-
-};
-typedef boost::intrusive_ptr<AdHocEvaluationContext> AdHocEvaluationContextPtr;
+}
 
 
-ExpressionValue p44::evaluateExpression(const string &aExpression, ValueLookupCB aValueLookupCB, FunctionLookupCB aFunctionLookpCB)
+ScriptExecutionContext::~ScriptExecutionContext()
 {
-  AdHocEvaluationContext ctx(aValueLookupCB, aFunctionLookpCB);
-  ctx.isMemberVariable();
-  return ctx.evaluateExpression(aExpression);
+}
+
+
+void ScriptExecutionContext::clearVariables()
+{
+  variables.clear();
+}
+
+
+ExpressionValue ScriptExecutionContext::runAsScript()
+{
+  size_t pos = 0;
+  ExpressionValue res;
+  while (pos<expression.size()) {
+    res = runStatementPrivate(expression.c_str(), pos, evalmode_script, false);
+    if (!res.valueOk()) break;
+  }
+  return res;
+}
+
+
+ExpressionValue ScriptExecutionContext::valueLookup(const string &aName)
+{
+  VariablesMap::iterator pos = variables.find(aName);
+  if (pos!=variables.end()) {
+    return pos->second;
+  }
+  return inherited::valueLookup(aName);
+}
+
+
+ExpressionValue ScriptExecutionContext::evaluateFunction(const string &aFunc, const FunctionArgumentVector &aArgs, EvalMode aEvalMode)
+{
+  if (aFunc=="log" && aArgs.size()>=1 && aArgs.size()<=2) {
+    // log (logmessage)
+    // log (loglevel, logmessage)
+    int loglevel = LOG_INFO;
+    int ai = 0;
+    if (aArgs.size()>1) {
+      if (aArgs[ai].notOk()) return aArgs[ai];
+      loglevel = aArgs[ai].intValue();
+      ai++;
+    }
+    if (aArgs[ai].notOk()) return aArgs[ai];
+    LOG(loglevel, "Script log: %s", aArgs[ai].stringValue().c_str());
+  }
+  else {
+    return inherited::evaluateFunction(aFunc, aArgs, aEvalMode);
+  }
+  // procedure with no return value of itself
+  return ExpressionValue::nullValue();
 }
 
 
 
-// MARK: - placeholder expression substitution - @{expression}
+
+// TODO: refactor for interruptable
+// - ALL FUNCTIONS WITHOUT PARAMETERS!!! (except for the context itself)
+// - Execution State instead
+//   - the finalize callback
+//   - WHAT ARE NOW BYREF PARAMS:
+//     - pos    : current scanning position
+//   - stack of stackframes containing:
+//     - WHAT ARE NOW BYVAL PARAMS AND ARE ACTUALLY CHANGED LOCALLY, AND: LOCAL VARS
+//       - res
+//       - evalMode : current evaluation mode
+//       -
+
+// TODO: PRINCIPLES
+// - INSTEAD OF RECURSION, we have a loop and create stack entries
+// - evaluation methods can NOT have local vars in blocks that also call other evaluation methods
+// - essentially only 2 functions
+//   - initEvaluation(can have params, for example the callback)
+//   - bool continueEvaluation()
+//     - if returns true, caller is responsible for calling again
+//     - otherwise, a callback will call it again and caller MUST NOT call it!
+//   - a convenience function to repeatedly call continueEvaluation() until it does not return true.
+//     - this could determine max execution time and pause via mainloop when uninterrupted time is too long
 
 
-ErrorPtr p44::substituteExpressionPlaceholders(string &aString, ValueLookupCB aValueLookupCB, FunctionLookupCB aFunctionLookpCB, string aNullText)
+
+// TODO: HOWTO
+
+
+
+
+ExpressionValue ScriptExecutionContext::runStatementPrivate(const char *aScript, size_t &aPos, EvalMode aEvalMode, bool aInBlock)
 {
-  ErrorPtr err;
-  size_t p = 0;
-  AdHocEvaluationContextPtr ctx; // create it lazily when actually required, prevent allocation when aString has no substitutions at all
-
-  // Syntax of placeholders:
-  //   @{expression}
-  while ((p = aString.find("@{",p))!=string::npos) {
-    size_t e = aString.find("}",p+2);
-    if (e==string::npos) {
-      // syntactically incorrect, no closing "}"
-      err = ExpressionError::err(ExpressionError::Syntax, "unterminated placeholder: %s", aString.c_str()+p);
-      break;
-    }
-    string expr = aString.substr(p+2,e-2-p);
-    // evaluate expression
-    if (!ctx) ctx = AdHocEvaluationContextPtr(new AdHocEvaluationContext(aValueLookupCB, aFunctionLookpCB));
-    ExpressionValue result = ctx->evaluateExpression(expr);
-    string rep;
-    if (result.isOk()) {
-      rep = result.stringValue();
+  ExpressionValue res;
+  ExpressionValue flowDecision = false;
+  enum {
+    stmt_single,
+    stmt_if,
+    stmt_else,
+    stmt_chainif
+  } stmtMode = stmt_single;
+  while (aScript[aPos]) {
+    skipWhiteSpace(aScript, aPos);
+    // beginning of statement segment
+    res.withPos(aPos);
+    if (aScript[aPos]=='{') {
+      // block containing multiple statements
+      while (aScript[aPos]) {
+        res = runStatementPrivate(aScript, aPos, aEvalMode, true);
+        if (!res.syntaxOk()) return res;
+        if (aScript[aPos]=='}') {
+          aPos++;
+          break;
+        }
+      }
     }
     else {
-      rep = aNullText;
-      if (Error::isOK(err)) err = result.err; // only report first error
+      // single statement
+      // - check for keywords
+      bool languageconstruct = false;
+      size_t kpos = aPos;
+      if (skipIdentifier(aScript, kpos)) {
+        string keyword;
+        keyword.assign(aScript+aPos, kpos-aPos);
+        skipWhiteSpace(aScript, kpos);
+        // could be a language keyword
+        languageconstruct = true;
+        if (keyword=="if") {
+          aPos = kpos;
+          // if (expression) statement [else statement]
+          skipWhiteSpace(aScript, aPos);
+          if (aScript[aPos]!='(') return res.withSyntaxError("missing ( after if");
+          aPos++; // skip opening (
+          flowDecision = evaluateExpressionPrivate(aScript, aPos, 0, ")", true, aEvalMode);
+          if (!flowDecision.syntaxOk()) return flowDecision;
+          aPos++; // skip closing )
+          // run statement after if
+          stmtMode = stmtMode==stmt_else ? stmt_chainif : stmt_if;
+          res = runStatementPrivate(aScript, aPos, !flowDecision.boolValue() ? evalmode_noexec : aEvalMode, false);
+        }
+        else if (stmtMode==stmt_else || keyword=="else") {
+          aPos = kpos;
+          // ...else [if (expression)] statement
+          if (stmtMode!=stmt_if) return res.withSyntaxError("else without preceeding if");
+          // run statement after else
+          stmtMode = stmt_else;
+          flowDecision.boolValue();
+          return res.withSyntaxError("%%%% NOT IMPLEMENTED");
+        }
+        else if (keyword=="return") {
+          aPos = kpos;
+          if (aScript[kpos] && strchr(";}", aScript[kpos])==NULL) {
+            // return is followed by an expression
+            res = evaluateExpressionPrivate(aScript, aPos, 0, ";}", false, aEvalMode);
+          }
+          // anyway, executions ends here
+          // FIXME: does not work yet to exit all levels!! -> need stmtmode_return for that...
+          return res;
+        }
+        else {
+          // could be a variable assignment or declaration
+          bool isVarDef = false;
+          bool isGlobal = keyword=="global";
+          if (keyword=="var" || isGlobal) {
+            skipWhiteSpace(aScript, kpos);
+            size_t vpos = kpos;
+            if (!skipIdentifier(aScript, vpos)) return res.withSyntaxError("missing variable name after '%s'", keyword.c_str());
+            keyword.assign(aScript+kpos, vpos-kpos);
+            kpos = vpos;
+            if (!isGlobal || variables.find(keyword)==variables.end()) {
+              variables[keyword] = ExpressionValue::nullValue();
+              FOCUSLOG("Defined %s variable %s", isGlobal ? "permanent" : "temporary", keyword.c_str());
+            }
+            isVarDef = true;
+          }
+          skipWhiteSpace(aScript, kpos);
+          if (aScript[kpos]==':' && aScript[kpos+1]=='=') {
+            // assignment
+            aPos = kpos+2;
+            VariablesMap::iterator pos = variables.find(keyword);
+            if (pos==variables.end()) return res.withError(ExpressionError::NotFound, "variable '%s' is not declared, use: var name := expression", keyword.c_str());
+            res = evaluateExpressionPrivate(aScript, aPos, 0, ";", false, aEvalMode);
+            if (!res.valueOk()) return res;
+            if (aEvalMode!=evalmode_noexec) {
+              // assign variable
+              FOCUSLOG("Assigned: %s := %s", keyword.c_str(), res.stringValue().c_str());
+              pos->second = res;
+            }
+          }
+          else {
+            // not an assignment..
+            if (!isVarDef) languageconstruct = false; // ..and not a vardef, either -> no language construct
+            else aPos = kpos; // ..but it IS a the variable def language construct
+          }
+        }
+      }
+      if (!languageconstruct) {
+        // not a language construct statement, just an expression to run
+        res = evaluateExpressionPrivate(aScript, aPos, 0, aInBlock ? ";}" : ";", false, aEvalMode);
+      }
     }
-    // replace, even if rep is empty
-    aString.replace(p, e-p+1, rep);
-    p+=rep.size();
+    // end of statement segment
+    skipWhiteSpace(aScript, aPos);
+    if (aScript[aPos]==';') {
+      aPos++; // may be terminated by a semicolon
+    }
+    // FIXME: handle else and chained ifs
+    break;
   }
-  return err;
+  return res;
 }
+
+#endif // EXPRESSION_SCRIPT_SUPPORT
 
 
 
@@ -1233,7 +1295,7 @@ bool TimedEvaluationContext::unfreeze(size_t aAtPos)
 #define MIN_RETRIGGER_SECONDS 10 ///< how soon testlater() is allowed to re-trigger
 
 // special functions only available in timed evaluations
-ExpressionValue TimedEvaluationContext::evaluateFunction(const string &aFunc, const FunctionArgumentVector &aArgs)
+ExpressionValue TimedEvaluationContext::evaluateFunction(const string &aFunc, const FunctionArgumentVector &aArgs, EvalMode aEvalMode)
 {
   if (aFunc=="testlater" && aArgs.size()>=2 && aArgs.size()<=3) {
     // testlater(seconds, timedtest [, retrigger])   return "invalid" now, re-evaluate after given seconds and return value of test then. If repeat is true then, the timer will be re-scheduled
@@ -1247,8 +1309,8 @@ ExpressionValue TimedEvaluationContext::evaluateFunction(const string &aFunc, co
     }
     ExpressionValue currentSecs = secs;
     FrozenResult* frozenP = getFrozen(currentSecs);
-    if (evalMode!=evalmode_timed) {
-      if (evalMode!=evalmode_initial) {
+    if (aEvalMode!=evalmode_timed) {
+      if (aEvalMode!=evalmode_initial) {
         // evaluating non-timed, non-initial means "not yet ready" and must start or extend freeze period
         newFreeze(frozenP, secs, MainLoop::now()+secs.numValue()*Second, true);
       }
@@ -1271,7 +1333,189 @@ ExpressionValue TimedEvaluationContext::evaluateFunction(const string &aFunc, co
   }
   else if (aFunc=="initial" && aArgs.size()==0) {
     // initial()  returns true if this is a "initial" run of the evaluator, meaning after startup or expression changes
-    return ExpressionValue(evalMode==evalmode_initial);
+    return ExpressionValue(aEvalMode==evalmode_initial);
   }
-  return inherited::evaluateFunction(aFunc, aArgs);
+  return inherited::evaluateFunction(aFunc, aArgs, aEvalMode);
 }
+
+
+// MARK: - ad hoc expression evaluation
+
+/// helper class for ad-hoc expression evaluation
+class AdHocEvaluationContext : public EvaluationContext
+{
+  typedef EvaluationContext inherited;
+  ValueLookupCB valueLookUp;
+  FunctionLookupCB functionLookUp;
+
+public:
+  AdHocEvaluationContext(ValueLookupCB aValueLookupCB, FunctionLookupCB aFunctionLookpCB) :
+    inherited(NULL),
+    valueLookUp(aValueLookupCB),
+    functionLookUp(aFunctionLookpCB)
+  {
+  };
+
+  virtual ~AdHocEvaluationContext() {};
+
+  ExpressionValue evaluateExpression(const string &aExpression)
+  {
+    setExpression(aExpression);
+    return evaluateNow(evalmode_initial);
+  };
+
+protected:
+
+  virtual ExpressionValue valueLookup(const string &aName) P44_OVERRIDE
+  {
+    if (valueLookUp) return valueLookUp(aName);
+    return inherited::valueLookup(aName);
+  };
+
+  virtual ExpressionValue evaluateFunction(const string &aFunc, const FunctionArgumentVector &aArgs, EvalMode aEvalMode) P44_OVERRIDE
+  {
+    if (functionLookUp) return functionLookUp(aFunc, aArgs);
+    return inherited::evaluateFunction(aFunc, aArgs, aEvalMode);
+  };
+
+};
+typedef boost::intrusive_ptr<AdHocEvaluationContext> AdHocEvaluationContextPtr;
+
+
+ExpressionValue p44::evaluateExpression(const string &aExpression, ValueLookupCB aValueLookupCB, FunctionLookupCB aFunctionLookpCB)
+{
+  AdHocEvaluationContext ctx(aValueLookupCB, aFunctionLookpCB);
+  ctx.isMemberVariable();
+  return ctx.evaluateExpression(aExpression);
+}
+
+
+
+// MARK: - placeholder expression substitution - @{expression}
+
+
+ErrorPtr p44::substituteExpressionPlaceholders(string &aString, ValueLookupCB aValueLookupCB, FunctionLookupCB aFunctionLookpCB, string aNullText)
+{
+  ErrorPtr err;
+  size_t p = 0;
+  AdHocEvaluationContextPtr ctx; // create it lazily when actually required, prevent allocation when aString has no substitutions at all
+
+  // Syntax of placeholders:
+  //   @{expression}
+  while ((p = aString.find("@{",p))!=string::npos) {
+    size_t e = aString.find("}",p+2);
+    if (e==string::npos) {
+      // syntactically incorrect, no closing "}"
+      err = ExpressionError::err(ExpressionError::Syntax, "unterminated placeholder: %s", aString.c_str()+p);
+      break;
+    }
+    string expr = aString.substr(p+2,e-2-p);
+    // evaluate expression
+    if (!ctx) ctx = AdHocEvaluationContextPtr(new AdHocEvaluationContext(aValueLookupCB, aFunctionLookpCB));
+    ExpressionValue result = ctx->evaluateExpression(expr);
+    string rep;
+    if (result.isOk()) {
+      rep = result.stringValue();
+    }
+    else {
+      rep = aNullText;
+      if (Error::isOK(err)) err = result.err; // only report first error
+    }
+    // replace, even if rep is empty
+    aString.replace(p, e-p+1, rep);
+    p+=rep.size();
+  }
+  return err;
+}
+
+
+#if EXPRESSION_LEGACY_PLACEHOLDERS
+
+// MARK: - legacy @{placeholder} substitution
+
+ErrorPtr p44::substitutePlaceholders(string &aString, StringValueLookupCB aValueLookupCB)
+{
+  ErrorPtr err;
+  size_t p = 0;
+  // Syntax of placeholders:
+  //   @{var[*ff][+|-oo][%frac]}
+  //   ff is an optional float factor to scale the channel value, or 'B' to output JSON-compatible boolean true or false
+  //   oo is an float offset to apply
+  //   frac are number of fractional digits to use in output
+  while ((p = aString.find("@{",p))!=string::npos) {
+    size_t e = aString.find("}",p+2);
+    if (e==string::npos) {
+      // syntactically incorrect, no closing "}"
+      err = ExpressionError::err(ExpressionError::Syntax, "unterminated placeholder: %s", aString.c_str()+p);
+      break;
+    }
+    string v = aString.substr(p+2,e-2-p);
+    // process operations
+    double chfactor = 1;
+    double choffset = 0;
+    int numFracDigits = 0;
+    bool boolFmt = false;
+    bool calc = false;
+    size_t varend = string::npos;
+    size_t i = 0;
+    while (true) {
+      i = v.find_first_of("*+-%",i);
+      if (varend==string::npos) {
+        varend = i==string::npos ? v.size() : i;
+      }
+      if (i==string::npos) break; // no more factors, offsets or format specs
+      // factor and/or offset
+      if (v[i]=='%') {
+        // format, check special cases
+        if (v[i+1]=='B') {
+          // binary true/false
+          boolFmt = true;
+          i+=2;
+          continue;
+        }
+      }
+      calc = true;
+      double dd;
+      if (sscanf(v.c_str()+i+1, "%lf", &dd)==1) {
+        switch (v[i]) {
+          case '*' : chfactor *= dd; break;
+          case '+' : choffset += dd; break;
+          case '-' : choffset -= dd; break;
+          case '%' : numFracDigits = dd; break;
+        }
+      }
+      i++;
+    }
+    // process variable
+    string rep = v.substr(0, varend);
+    if (aValueLookupCB) {
+      // if no replacement is found, original text is used
+      err = aValueLookupCB(rep, rep);
+      if (Error::notOK(err))
+        break; // abort
+    }
+    // apply calculations if any
+    if (calc) {
+      // parse as double
+      double dv;
+      if (sscanf(rep.c_str(), "%lf", &dv)==1) {
+        // got double value, apply calculations
+        dv = dv * chfactor + choffset;
+        // render back to string
+        if (boolFmt) {
+          rep = dv>0 ? "true" : "false";
+        }
+        else {
+          rep = string_format("%.*lf", numFracDigits, dv);
+        }
+      }
+    }
+    // replace, even if rep is empty
+    aString.replace(p, e-p+1, rep);
+    p+=rep.size();
+  }
+  return err;
+}
+
+#endif // EXPRESSION_LEGACY_PLACEHOLDERS
+
