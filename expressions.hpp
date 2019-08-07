@@ -83,10 +83,11 @@ namespace p44 {
     ExpressionValue operator&&(const ExpressionValue& aRightSide) const;
     ExpressionValue operator||(const ExpressionValue& aRightSide) const;
     void clrStr();
-    void setNumber(double aNumValue) { clrStr(); numVal = aNumValue; }
-    void setBool(bool aBoolValue) { clrStr(); numVal = aBoolValue ? 1: 0; }
-    void setString(const string& aStrValue) { numVal = 0; if (strValP) strValP->assign(aStrValue); else strValP = new string(aStrValue); }
+    void setNumber(double aNumValue) { err.reset(); numVal = aNumValue; clrStr(); }
+    void setBool(bool aBoolValue) { err.reset(); numVal = aBoolValue ? 1: 0; clrStr(); }
+    void setString(const string& aStrValue) { err.reset(); numVal = 0; clrStr(); strValP = new string(aStrValue); }
     static ExpressionValue errValue(ExpressionError::ErrorCodes aErrCode, const char *aFmt, ...) __printflike(2,3);
+    static ExpressionValue nullValue() { return errValue(ExpressionError::Null, "undefined"); }
     ExpressionValue withError(ErrorPtr aError) { err = aError; return *this; }
     ExpressionValue withError(ExpressionError::ErrorCodes aErrCode, const char *aFmt, ...)  __printflike(3,4);
     ExpressionValue withNumber(double aNumValue) { setNumber(aNumValue); return *this; }
@@ -99,6 +100,8 @@ namespace p44 {
     string stringValue() const; ///< returns a conversion to string if value is numeric
     double numValue() const; ///< returns a conversion to numeric (using literal syntax), if value is string
     bool boolValue() const { return numValue()!=0; } ///< returns true if value is not 0
+    int intValue() const { return (int)numValue(); }
+    int64_t int64Value() const { return (int64_t)numValue(); }
   };
 
 
@@ -145,6 +148,7 @@ namespace p44 {
     evalmode_initial, ///< initial evaluator run
     evalmode_externaltrigger, ///< externally triggered evaluation
     evalmode_timed, ///< timed evaluation by timed retrigger
+    evalmode_noexec, ///< evaluate without executing any side effects (for skipping in scripts)
   } EvalMode;
 
   /// Basic Expression Evaluation Context

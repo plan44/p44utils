@@ -184,7 +184,7 @@ string ExpressionValue::stringValue() const
     else return string_format("%lg", numVal);
   }
   else {
-    return "unknown";
+    return "";
   }
 }
 
@@ -208,7 +208,6 @@ bool ExpressionValue::operator<(const ExpressionValue& aRightSide) const
 
 bool ExpressionValue::operator==(const ExpressionValue& aRightSide) const
 {
-  if (isString()) return *strValP == aRightSide.stringValue();
   if (notOk() || aRightSide.notOk()) {
     if (
       Error::isError(aRightSide.err, ExpressionError::domain(), ExpressionError::Null) &&
@@ -220,7 +219,8 @@ bool ExpressionValue::operator==(const ExpressionValue& aRightSide) const
     // otherwise, nulls and errors are not comparable
     return false;
   }
-  return numVal == aRightSide.numValue();
+  if (isString()) return *strValP == aRightSide.stringValue();
+  else return numVal == aRightSide.numValue();
 }
 
 ExpressionValue ExpressionValue::operator+(const ExpressionValue& aRightSide) const
@@ -350,14 +350,19 @@ ExpressionValue EvaluationContext::evaluateFunction(const string &aName, const F
   else if (aName=="if" && aArgs.size()==3) {
     // if (c, a, b)    if c evaluates to true, return a, otherwise b
     if (aArgs[0].notOk()) return aArgs[0]; // return error from condition
-    return ExpressionValue(aArgs[0].numValue()!=0 ? aArgs[1] : aArgs[2]);
+    return ExpressionValue(aArgs[0].boolValue() ? aArgs[1] : aArgs[2]);
   }
   else if (aName=="abs" && aArgs.size()==1) {
     // abs (a)         absolute value of a
     if (aArgs[0].notOk()) return aArgs[0]; // return error from argument
     return ExpressionValue(fabs(aArgs[0].numValue()));
   }
-  else if (aName=="round" && (aArgs.size()==1 || aArgs.size()==2)) {
+  else if (aName=="int" && aArgs.size()==1) {
+    // abs (a)         absolute value of a
+    if (aArgs[0].notOk()) return aArgs[0]; // return error from argument
+    return ExpressionValue(fabs(aArgs[0].int64Value()));
+  }
+  else if (aName=="round" && (aArgs.size()>=1 || aArgs.size()<=2)) {
     // round (a)       round value to integer
     // round (a, p)    round value to specified precision (1=integer, 0.5=halves, 100=hundreds, etc...)
     if (aArgs[0].notOk()) return aArgs[0]; // return error from argument
@@ -376,24 +381,82 @@ ExpressionValue EvaluationContext::evaluateFunction(const string &aName, const F
     return ExpressionValue(aArgs[0].numValue() + (double)rand()*(aArgs[1].numValue()-aArgs[0].numValue())/((double)RAND_MAX));
   }
   else if (aName=="string" && aArgs.size()==1) {
-    if (aArgs[0].notOk()) return aArgs[0]; // return error from argument
-    return ExpressionValue(aArgs[0].stringValue()); // force convert to string
+    // string(anything)
+    return ExpressionValue(aArgs[0].stringValue()); // force convert to string, including nulls and errors
   }
   else if (aName=="number" && aArgs.size()==1) {
-    if (aArgs[0].notOk()) return aArgs[0]; // return error from argument
+    // number(anything)
+    if (aArgs[0].notOk()) return aArgs[0]; // pass null and errors
     return ExpressionValue(aArgs[0].numValue()); // force convert to numeric
   }
   else if (aName=="strlen" && aArgs.size()==1) {
+    // strlen(string)
     if (aArgs[0].notOk()) return aArgs[0]; // return error from argument
     return ExpressionValue(aArgs[0].stringValue().size()); // length of string
   }
-  // TODO: add find(), substr(), format()
+  else if (aName=="substr" && aArgs.size()>=2 && aArgs.size()<=3) {
+    // substr(string, from)
+    // substr(string, from, count)
+    if (aArgs[0].notOk()) return aArgs[0]; // return error from argument
+    string s = aArgs[0].stringValue();
+    if (aArgs[1].notOk()) return aArgs[1]; // return error from argument
+    size_t start = aArgs[1].intValue();
+    if (start>s.size()) start = s.size();
+    size_t count = string::npos; // to the end
+    if (aArgs.size()>=3) {
+      if (aArgs[2].notOk()) return aArgs[0]; // return error from argument
+      count = aArgs[2].intValue();
+    }
+    return ExpressionValue(s.substr(start, count));
+  }
+  else if (aName=="find" && aArgs.size()>=2 && aArgs.size()<=3) {
+    // find(haystack, needle)
+    // find(haystack, needle, from)
+    string haystack = aArgs[0].stringValue(); // haystack can be anything, including invalid
+    if (aArgs[1].notOk()) return aArgs[1]; // return error from argument
+    string needle = aArgs[1].stringValue();
+    size_t start = 0;
+    if (aArgs.size()>=3) {
+      start = aArgs[2].intValue();
+      if (start>haystack.size()) start = haystack.size();
+    }
+    if (aArgs[0].isOk()) {
+      size_t p = haystack.find(needle, start);
+      if (p!=string::npos) return ExpressionValue(p);
+    }
+    return ExpressionValue::nullValue(); // not found
+  }
+  else if (aName=="format" && aArgs.size()==2) {
+    // format(formatstring, number)
+    // only % + - 0..9 . d, x, and f supported
+    if (aArgs[0].notOk()) return aArgs[0]; // return error from argument
+    string fmt = aArgs[0].stringValue();
+    if (
+      fmt.size()<2 ||
+      fmt[0]!='%' ||
+      fmt.substr(1,fmt.size()-2).find_first_not_of("+-0123456789.")!=string::npos || // excluding last digit
+      fmt.find_first_not_of("duxXeEgGf", fmt.size()-1)!=string::npos // which must be d,x or f
+    ) {
+      return ExpressionValue::errValue(ExpressionError::Syntax, "invalid format string, only basic %%duxXeEgGf specs allowed").withPos(aArgs[0].pos);
+    }
+    if (fmt.find_first_of("duxX", fmt.size()-1)!=string::npos)
+      return ExpressionValue(string_format(fmt.c_str(), aArgs[1].intValue())); // int format
+    else
+      return ExpressionValue(string_format(fmt.c_str(), aArgs[1].numValue())); // double format
+  }
   else if (aName=="errormessage" && aArgs.size()==1) {
-    return ExpressionValue(Error::text(aArgs[0].err)); // return error message
+    // errormessage(value)
+    ErrorPtr err = aArgs[0].err;
+    if (Error::isOK(err)) return ExpressionValue::nullValue(); // no error, no message
+    return ExpressionValue(err->getErrorMessage());
+  }
+  else if (aName=="errordescription" && aArgs.size()==1) {
+    // errordescription(value)
+    return ExpressionValue(aArgs[0].err->text());
   }
   else if (aName=="eval" && aArgs.size()==1) {
+    // eval(string)    have string evaluated as expression
     if (aArgs[0].notOk()) return aArgs[0]; // return error from argument
-    // have string evaluated as expression
     size_t pos = 0;
     ExpressionValue evalRes = evaluateExpressionPrivate(aArgs[0].stringValue().c_str(), pos, 0);
     if (pos<aArgs[0].stringValue().size()) {
@@ -579,7 +642,9 @@ ExpressionValue EvaluationContext::evaluateTerm(const char *aExpr, size_t &aPos)
           FOCUSLOG("- argument at char pos=%zu: %s (err=%s)", pos->pos, pos->stringValue().c_str(), Error::text(pos->err));
         }
         // run function
-        res.withValue(evaluateFunction(term, args));
+        ExpressionValue fnres;
+        if (evalMode!=evalmode_noexec) fnres = evaluateFunction(term, args);
+        res.withValue(fnres);
       }
       else {
         // check some reserved values
@@ -592,7 +657,7 @@ ExpressionValue EvaluationContext::evaluateTerm(const char *aExpr, size_t &aPos)
         else if (term=="null" || term=="undefined") {
           res.withError(ExpressionError::Null, "%s", term.c_str());
         }
-        else {
+        else if (evalMode!=evalmode_noexec) {
           // must be identifier representing a variable value
           res.withValue(valueLookup(term));
           if (res.notOk() && res.err->isError(ExpressionError::domain(), ExpressionError::NotFound)) {
@@ -615,7 +680,7 @@ ExpressionValue EvaluationContext::evaluateTerm(const char *aExpr, size_t &aPos)
     }
   }
   // valid term
-  if (res.isOk()) {
+  if (res.isOk() && evalMode!=evalmode_noexec) {
     FOCUSLOG("Term '%.*s' evaluation result: %s", (int)(aPos-res.pos), aExpr+res.pos, res.stringValue().c_str());
   }
   else {
@@ -740,33 +805,42 @@ ExpressionValue EvaluationContext::evaluateExpressionPrivate(const char *aExpr, 
     // must parse right side of operator as subexpression
     aPos = opIdx; // advance past operator
     ExpressionValue rightside = evaluateExpressionPrivate(aExpr, aPos, precedence);
-    if (rightside.notOk()) res=rightside;
-    if (res.isOk()) {
-      // apply the operation between leftside and rightside
-      switch (binaryop) {
-        case op_not: {
-          return res.withError(ExpressionError::Syntax, "NOT operator not allowed here").withPos(aPos);
+    if (evalMode!=evalmode_noexec) {
+      // - equality comparison is the only thing that also inlcudes "undefined", so do it first
+      if (binaryop==op_equal)
+        res.setBool(res == rightside);
+      else if (binaryop==op_notequal)
+        res.setBool(!(res == rightside));
+      else {
+        if (rightside.notOk()) res=rightside;
+        if (res.isOk()) {
+          // apply the operation between leftside and rightside
+          switch (binaryop) {
+            case op_not: {
+              return res.withError(ExpressionError::Syntax, "NOT operator not allowed here").withPos(aPos);
+            }
+            case op_divide: res.withValue(res / rightside); break;
+            case op_multiply: res.withValue(res * rightside); break;
+            case op_add: res.withValue(res + rightside); break;
+            case op_subtract: res.withValue(res - rightside); break;
+            case op_less: res.setBool(res < rightside); break;
+            case op_greater: res.setBool(!(res < rightside) && !(res == rightside)); break;
+            case op_leq: res.setBool((res < rightside) || (res == rightside)); break;
+            case op_geq: res.setBool(!(res < rightside)); break;
+            case op_and: res.withValue(res && rightside); break;
+            case op_or: res.withValue(res || rightside); break;
+            default: break;
+          }
         }
-        case op_divide: res.withValue(res / rightside); break;
-        case op_multiply: res.withValue(res * rightside); break;
-        case op_add: res.withValue(res + rightside); break;
-        case op_subtract: res.withValue(res - rightside); break;
-        case op_equal: res.setBool(res == rightside); break;
-        case op_notequal: res.setBool(!(res == rightside)); break;
-        case op_less: res.setBool(res < rightside); break;
-        case op_greater: res.setBool(!(res < rightside) && !(res == rightside)); break;
-        case op_leq: res.setBool((res < rightside) || (res == rightside)); break;
-        case op_geq: res.setBool(!(res < rightside)); break;
-        case op_and: res.withValue(res && rightside); break;
-        case op_or: res.withValue(res || rightside); break;
-        default: break;
       }
-      FOCUSLOG("Intermediate expression '%.*s' evaluation result: %s", (int)(aPos-res.pos), aExpr+res.pos, res.stringValue().c_str());
+      if (res.isOk()) {
+        FOCUSLOG("Intermediate expression '%.*s' evaluation result: %s", (int)(aPos-res.pos), aExpr+res.pos, res.stringValue().c_str());
+      }
+      else {
+        FOCUSLOG("Intermediate expression '%.*s' evaluation result is INVALID", (int)(aPos-res.pos), aExpr+res.pos);
+      }
     }
-    else {
-      FOCUSLOG("Intermediate expression '%.*s' evaluation result is INVALID", (int)(aPos-res.pos), aExpr+res.pos);
-    }
-  }
+  } // while expression ongoing
   // done
   return res;
 }
@@ -796,22 +870,24 @@ ExpressionValue TimedEvaluationContext::evaluateNow(EvalMode aEvalMode, bool aSc
 {
   nextEvaluation = Never;
   ExpressionValue res = inherited::evaluateNow(aEvalMode, aScheduleReEval);
-  // take unfreeze time of frozen results into account for next evaluation
-  FrozenResultsMap::iterator pos = frozenResults.begin();
-  while (pos!=frozenResults.end()) {
-    if (pos->second.frozenUntil==Never) {
-      // already detected expired -> erase (Note: just expired ones in terms of now() MUST wait until checked in next evaluation!)
-      pos = frozenResults.erase(pos);
-      continue;
+  if (evalMode!=evalmode_noexec) {
+    // take unfreeze time of frozen results into account for next evaluation
+    FrozenResultsMap::iterator pos = frozenResults.begin();
+    while (pos!=frozenResults.end()) {
+      if (pos->second.frozenUntil==Never) {
+        // already detected expired -> erase (Note: just expired ones in terms of now() MUST wait until checked in next evaluation!)
+        pos = frozenResults.erase(pos);
+        continue;
+      }
+      updateNextEval(pos->second.frozenUntil);
+      pos++;
     }
-    updateNextEval(pos->second.frozenUntil);
-    pos++;
-  }
-  if (nextEvaluation!=Never) {
-    FOCUSLOG("Expression demands re-evaluation at %s: %s", MainLoop::string_mltime(nextEvaluation).c_str(), expression.c_str());
-  }
-  if (aScheduleReEval) {
-    scheduleReEvaluation(nextEvaluation);
+    if (nextEvaluation!=Never) {
+      FOCUSLOG("Expression demands re-evaluation at %s: %s", MainLoop::string_mltime(nextEvaluation).c_str(), expression.c_str());
+    }
+    if (aScheduleReEval) {
+      scheduleReEvaluation(nextEvaluation);
+    }
   }
   return res;
 }
