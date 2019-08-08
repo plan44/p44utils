@@ -197,6 +197,39 @@ ErrorPtr ExpressionError::err(ErrorCodes aErrCode, const char *aFmt, ...)
 
 // MARK: - EvaluationContext
 
+#define ELOG(...) { if (evalLogLevel!=0) LOG(evalLogLevel,##__VA_ARGS__) }
+
+EvaluationContext::EvaluationContext(const GeoLocation* aGeoLocationP) :
+  geolocationP(aGeoLocationP),
+  runningSince(Never),
+  nextEvaluation(Never),
+  synchronous(true),
+  evalLogLevel(FOCUSLOGGING ? FOCUSLOGLEVEL : 0) // default to focus level
+{
+}
+
+
+EvaluationContext::~EvaluationContext()
+{
+}
+
+
+void EvaluationContext::setEvaluationResultHandler(EvaluationResultCB aEvaluationResultHandler)
+{
+  evaluationResultHandler = aEvaluationResultHandler;
+}
+
+
+bool EvaluationContext::setCode(const string aCode)
+{
+  if (aCode!=codeString) {
+    releaseState(); // changing expression unfreezes everything
+    codeString = aCode;
+    return true;
+  }
+  return false;
+}
+
 
 void EvaluationContext::skipWhiteSpace(const char *aExpr, size_t& aPos)
 {
@@ -213,36 +246,180 @@ bool EvaluationContext::skipIdentifier(const char *aExpr, size_t& aPos)
 }
 
 
-
-EvaluationContext::EvaluationContext(const GeoLocation* aGeoLocationP) :
-  geolocationP(aGeoLocationP),
-  evaluating(false),
-  nextEvaluation(Never)
+void EvaluationContext::skipWhiteSpace(size_t& aPos)
 {
+  while (code(aPos)==' ' || code(aPos)=='\t') aPos++;
 }
 
 
-EvaluationContext::~EvaluationContext()
+void EvaluationContext::skipWhiteSpace()
 {
+  while (currentchar()==' ' || currentchar()=='\t') pos++;
 }
 
 
-void EvaluationContext::setEvaluationResultHandler(EvaluationResultCB aEvaluationResultHandler)
+const char* EvaluationContext::getIdentifier(size_t& aLen)
 {
-  evaluationResultHandler = aEvaluationResultHandler;
+  aLen = 0;
+  const char* p = tail(pos);
+  if (!isalpha(*p)) return NULL; // is ot an identifier
+  // is identifier
+  const char* b = p; // begins here
+  p++;
+  while (*p && (isalnum(*p) || *p=='_')) p++;
+  aLen = p-b;
+  return b;
 }
 
 
-bool EvaluationContext::setExpression(const string aExpression)
+bool EvaluationContext::newstate(EvalState aNewState)
 {
-  if (aExpression!=expression) {
-    releaseState(); // changing expression unfreezes everything
-    expression = aExpression;
-    return true;
+  sp().state = aNewState;
+  return true; // not yielded
+}
+
+
+bool EvaluationContext::push(EvalState aNewState, bool aStartSkipping)
+{
+  skipWhiteSpace();
+  stack.push_back(StackFrame(aNewState, aStartSkipping || sp().skipping, sp().precedence));
+  return true; // not yielded
+}
+
+
+bool EvaluationContext::pop()
+{
+  skipWhiteSpace();
+  if (stack.size()>1) {
+    // regular pop
+    stack.pop_back();
+    return true; // not yielded
   }
-  return false;
+  // trying to pop last entry - switch to complete/abort first
+  if (isEvaluating()) {
+    return newstate(sp().res.valueOk() ? s_complete : s_abort);
+  }
+  return true; // not yielded
 }
 
+
+bool EvaluationContext::popAndPassResult(ExpressionValue aResult)
+{
+  pop();
+  if (stack.empty())
+    finalResult = aResult;
+  else
+    sp().res = aResult;
+  return true; // not yielded
+}
+
+
+bool EvaluationContext::abortWithError(ErrorPtr aError)
+{
+  sp().res.err = aError;
+  return newstate(s_abort);
+}
+
+
+bool EvaluationContext::abortWithError(ExpressionError::ErrorCodes aErrCode, const char *aFmt, ...)
+{
+  ErrorPtr err;
+  va_list args;
+  va_start(args, aFmt);
+  err->setFormattedMessage(aFmt, args);
+  va_end(args);
+  return abortWithError(err);
+}
+
+
+bool EvaluationContext::abortWithSyntaxError(const char *aFmt, ...)
+{
+  ErrorPtr err = Error::err<ExpressionError>(ExpressionError::Syntax);
+  va_list args;
+  va_start(args, aFmt);
+  err->setFormattedMessage(aFmt, args);
+  va_end(args);
+  return abortWithError(err);
+}
+
+
+bool EvaluationContext::startEvaluationWith(EvalState aState)
+{
+  if (runningSince!=Never) {
+    LOG(LOG_WARNING, "Already evaluating (since %s) -> cannot start again: %s", MainLoop::string_mltime(runningSince).c_str(), getCode());
+    return false; // MUST NOT call again!
+  }
+  // can start
+  runningSince = MainLoop::now();
+  // reset state
+  stack.clear();
+  finalResult.setNull();
+  nextEvaluation = Never;
+  pos = 0;
+  // push first frame with initial values
+  stack.push_back(StackFrame(aState, evalMode==evalmode_syntaxcheck, 0));
+  return true;
+}
+
+
+bool EvaluationContext::startEvaluation()
+{
+  return startEvaluationWith(s_expression);
+}
+
+
+
+
+
+
+ExpressionValue EvaluationContext::evaluateSynchronously(EvalMode aEvalMode, bool aScheduleReEval)
+{
+  evalMode = aEvalMode;
+  if (runningSince!=Never) {
+    LOG(LOG_WARNING, "Asynchronous evaluation running (since %s) -> cannot start synchronous evaluation: %s", MainLoop::string_mltime(runningSince).c_str(), getCode());
+    return ExpressionValue::errValue(ExpressionError::Busy, "Evaluation busy since %s -> cannot start now", MainLoop::string_mltime(runningSince).c_str());
+  }
+  synchronous = true; // force synchronous operation, disable functionality that would need yielding execution
+  bool notYielded = startEvaluation();
+  while(notYielded) {
+    notYielded = resumeEvaluation();
+    if (!isEvaluating()) {
+      // done, return the result, whatever it is
+      return finalResult;
+    }
+  }
+  // FATAL ERROR: has yielded execution
+  LOG(LOG_CRIT, "EvaluationContext: state machine has yielded execution while synchronous is set -> implementation error!");
+  return ExpressionValue::errValue(ExpressionError::Busy, "state machine has yielded execution while synchronous is set -> implementation error!");
+}
+
+
+ErrorPtr EvaluationContext::triggerEvaluation(EvalMode aEvalMode)
+{
+  ErrorPtr err;
+  if (runningSince!=Never) {
+    LOG(LOG_WARNING, "Apparently cyclic reference in evaluation of expression -> not retriggering: %s", getCode());
+    err = Error::err<ExpressionError>(ExpressionError::CyclicReference, "cyclic reference in expression");
+  }
+  else {
+    ExpressionValue res = evaluateSynchronously(aEvalMode, true);
+    if (evaluationResultHandler) {
+      // this is where cyclic references could cause re-evaluation, which is protected by evaluating==true
+      err = evaluationResultHandler(res, *this);
+    }
+    else {
+      // no result handler, pass on error from evaluation
+      LOG(LOG_WARNING, "triggerEvaluation() with no result handler for expression: %s", getCode());
+      if (res.notOk()) err = res.err;
+    }
+  }
+  return err;
+}
+
+
+
+
+// MARK: - re-evaluation timing mechanisms
 
 bool EvaluationContext::updateNextEval(const MLMicroSeconds aLatestEval)
 {
@@ -263,37 +440,51 @@ bool EvaluationContext::updateNextEval(const struct tm& aLatestEvalTm)
 }
 
 
-ExpressionValue EvaluationContext::evaluateNow(EvalMode aEvalMode, bool aScheduleReEval)
+
+
+// MARK: - Evaluation State machine
+
+bool EvaluationContext::resumeEvaluation()
 {
-  nextEvaluation = Never;
-  size_t pos = 0;
-  return evaluateExpressionPrivate(expression.c_str(), pos, 0, NULL, false, aEvalMode);
+  if (runningSince==Never) {
+    LOG(LOG_ERR, "resumeEvaluation() while not started");
+    return false; // DO NOT CALL AGAIN!
+  }
+  switch (sp().state) {
+    // completion states
+    case s_complete:
+      ELOG("Evaluation: execution completed of code: %s", getCode());
+      return newstate(s_finalize);
+    case s_abort:
+      ELOG("execution aborted");
+      return newstate(s_finalize);
+    case s_finalize:
+      runningSince = Never;
+      finalResult = sp().res;
+      ELOG("- finalResult = %s - err = %s", finalResult.stringValue().c_str(), Error::text(finalResult.err));
+      stack.clear();
+      return true;
+    // expression evaluation states
+    case s_expression:
+      // FIXME: quick hack to test basics: use old uninteruptable evaluation
+      sp().res = evaluateExpressionPrivate(codeString.c_str(), pos, 0, ";}", false, evalMode);
+      sp().state = s_result;
+      // %%% for now, fall through to result
+    case s_result:
+      if (!sp().res.syntaxOk()) {
+        return abortWithError(sp().res.err);
+      }
+      // regular expression result
+      return popAndPassResult(sp().res);
+    default:
+      break;
+  }
+  return true;
 }
 
 
-ErrorPtr EvaluationContext::triggerEvaluation(EvalMode aEvalMode)
-{
-  ErrorPtr err;
-  if (evaluating) {
-    LOG(LOG_WARNING, "Apparently cyclic reference in evaluation of expression -> not retriggering: %s", expression.c_str());
-    err = Error::err<ExpressionError>(ExpressionError::CyclicReference, "cyclic reference in expression");
-  }
-  else {
-    evaluating = true;
-    ExpressionValue res = evaluateNow(aEvalMode, true);
-    if (evaluationResultHandler) {
-      // this is where cyclic references could cause re-evaluation, which is protected by evaluating==true
-      err = evaluationResultHandler(res, *this);
-    }
-    else {
-      // no result handler, pass on error from evaluation
-      LOG(LOG_WARNING, "triggerEvaluation() with no result handler for expression: %s", expression.c_str());
-      if (res.notOk()) err = res.err;
-    }
-    evaluating = false;
-  }
-  return err;
-}
+
+
 
 // no variables in base class
 ExpressionValue EvaluationContext::valueLookup(const string &aName)
@@ -450,13 +641,13 @@ ExpressionValue EvaluationContext::evaluateTerm(const char *aExpr, size_t &aPos,
           args.push_back(arg);
         }
         aPos++; // skip closing paranthesis
-        FOCUSLOG("Function '%s' called", term.c_str());
+        ELOG("Function '%s' called", term.c_str());
         for (FunctionArgumentVector::iterator pos = args.begin(); pos!=args.end(); ++pos) {
-          FOCUSLOG("- argument at char pos=%zu: %s (err=%s)", pos->pos, pos->stringValue().c_str(), Error::text(pos->err));
+          ELOG("- argument at char pos=%zu: %s (err=%s)", pos->pos, pos->stringValue().c_str(), Error::text(pos->err));
         }
         // run function
         ExpressionValue fnres;
-        if (aEvalMode!=evalmode_noexec) fnres = evaluateFunction(term, args, aEvalMode);
+        if (!sp().skipping) fnres = evaluateFunction(term, args, aEvalMode);
         res.withValue(fnres);
       }
       else {
@@ -470,7 +661,7 @@ ExpressionValue EvaluationContext::evaluateTerm(const char *aExpr, size_t &aPos,
         else if (term=="null" || term=="undefined") {
           res.withError(ExpressionError::Null, "%s", term.c_str());
         }
-        else if (aEvalMode!=evalmode_noexec) {
+        else if (!sp().skipping) {
           // must be identifier representing a variable value
           res.withValue(valueLookup(term));
           if (res.notOk() && res.err->isError(ExpressionError::domain(), ExpressionError::NotFound)) {
@@ -493,11 +684,11 @@ ExpressionValue EvaluationContext::evaluateTerm(const char *aExpr, size_t &aPos,
     }
   }
   // valid term
-  if (res.isOk() && aEvalMode!=evalmode_noexec) {
-    FOCUSLOG("Term '%.*s' evaluation result: %s", (int)(aPos-res.pos), aExpr+res.pos, res.stringValue().c_str());
+  if (res.isOk() && !sp().skipping) {
+    ELOG("Term '%.*s' evaluation result: %s", (int)(aPos-res.pos), aExpr+res.pos, res.stringValue().c_str());
   }
   else {
-    FOCUSLOG("Term '%.*s' evaluation error: %s", (int)(aPos-res.pos), aExpr+res.pos, Error::text(res.err));
+    ELOG("Term '%.*s' evaluation error: %s", (int)(aPos-res.pos), aExpr+res.pos, Error::text(res.err));
   }
   return res;
 }
@@ -527,7 +718,7 @@ typedef enum {
 
 static Operations parseOperator(const char *aExpr, size_t &aPos)
 {
-  p44::ScriptExecutionContext::skipWhiteSpace(aExpr, aPos);
+  p44::EvaluationContext::skipWhiteSpace(aExpr, aPos);
   // check for operator
   Operations op = op_none;
   switch (aExpr[aPos++]) {
@@ -562,7 +753,7 @@ static Operations parseOperator(const char *aExpr, size_t &aPos)
     }
     default: --aPos; // no expression char
   }
-  p44::ScriptExecutionContext::skipWhiteSpace(aExpr, aPos);
+  p44::EvaluationContext::skipWhiteSpace(aExpr, aPos);
   return op;
 }
 
@@ -621,7 +812,7 @@ ExpressionValue EvaluationContext::evaluateExpressionPrivate(const char *aExpr, 
     // must parse right side of operator as subexpression
     aPos = opIdx; // advance past operator
     ExpressionValue rightside = evaluateExpressionPrivate(aExpr, aPos, precedence, aStopChars, aNeedStopChar, aEvalMode);
-    if (aEvalMode!=evalmode_noexec) {
+    if (!sp().skipping) {
       // - equality comparison is the only thing that also inlcudes "undefined", so do it first
       if (binaryop==op_equal)
         res.setBool(res == rightside);
@@ -650,10 +841,10 @@ ExpressionValue EvaluationContext::evaluateExpressionPrivate(const char *aExpr, 
         }
       }
       if (res.isOk()) {
-        FOCUSLOG("Intermediate expression '%.*s' evaluation result: %s", (int)(aPos-res.pos), aExpr+res.pos, res.stringValue().c_str());
+        ELOG("Intermediate expression '%.*s' evaluation result: %s", (int)(aPos-res.pos), aExpr+res.pos, res.stringValue().c_str());
       }
       else {
-        FOCUSLOG("Intermediate expression '%.*s' evaluation result is INVALID", (int)(aPos-res.pos), aExpr+res.pos);
+        ELOG("Intermediate expression '%.*s' evaluation result is INVALID", (int)(aPos-res.pos), aExpr+res.pos);
       }
     }
   } // while expression ongoing
@@ -662,27 +853,25 @@ ExpressionValue EvaluationContext::evaluateExpressionPrivate(const char *aExpr, 
 }
 
 
-ExpressionValue TimedEvaluationContext::evaluateNow(EvalMode aEvalMode, bool aScheduleReEval)
+ExpressionValue TimedEvaluationContext::evaluateSynchronously(EvalMode aEvalMode, bool aScheduleReEval)
 {
-  ExpressionValue res = inherited::evaluateNow(aEvalMode, aScheduleReEval);
-  if (aEvalMode!=evalmode_noexec) {
-    // take unfreeze time of frozen results into account for next evaluation
-    FrozenResultsMap::iterator pos = frozenResults.begin();
-    while (pos!=frozenResults.end()) {
-      if (pos->second.frozenUntil==Never) {
-        // already detected expired -> erase (Note: just expired ones in terms of now() MUST wait until checked in next evaluation!)
-        pos = frozenResults.erase(pos);
-        continue;
-      }
-      updateNextEval(pos->second.frozenUntil);
-      pos++;
+  ExpressionValue res = inherited::evaluateSynchronously(aEvalMode, aScheduleReEval);
+  // take unfreeze time of frozen results into account for next evaluation
+  FrozenResultsMap::iterator pos = frozenResults.begin();
+  while (pos!=frozenResults.end()) {
+    if (pos->second.frozenUntil==Never) {
+      // already detected expired -> erase (Note: just expired ones in terms of now() MUST wait until checked in next evaluation!)
+      pos = frozenResults.erase(pos);
+      continue;
     }
-    if (nextEvaluation!=Never) {
-      FOCUSLOG("Expression demands re-evaluation at %s: %s", MainLoop::string_mltime(nextEvaluation).c_str(), expression.c_str());
-    }
-    if (aScheduleReEval) {
-      scheduleReEvaluation(nextEvaluation);
-    }
+    updateNextEval(pos->second.frozenUntil);
+    pos++;
+  }
+  if (nextEvaluation!=Never) {
+    ELOG("Expression demands re-evaluation at %s: %s", MainLoop::string_mltime(nextEvaluation).c_str(), getCode());
+  }
+  if (aScheduleReEval) {
+    scheduleReEvaluation(nextEvaluation);
   }
   return res;
 }
@@ -817,7 +1006,7 @@ ExpressionValue EvaluationContext::evaluateFunction(const string &aFunc, const F
     size_t pos = 0;
     ExpressionValue evalRes = evaluateExpressionPrivate(aArgs[0].stringValue().c_str(), pos, 0, NULL, false, aEvalMode);
     if (evalRes.notOk()) {
-      FOCUSLOG("eval(\"%s\") returns error '%s' in expression: %s", aArgs[0].stringValue().c_str(), evalRes.err->text(), expression.c_str());
+      ELOG("eval(\"%s\") returns error '%s' in expression: %s", aArgs[0].stringValue().c_str(), evalRes.err->text(), getCode());
       // do not cause syntax error, only invalid result, but with error message included
       evalRes.withError(Error::err<ExpressionError>(ExpressionError::Null, "eval() error: %s -> undefined", evalRes.err->text()));
     }
@@ -869,7 +1058,7 @@ ExpressionValue EvaluationContext::evaluateFunction(const string &aFunc, const F
     bool met = daySecs>=secs.numValue();
     // next check at specified time, today if not yet met, tomorrow if already met for today
     loctim.tm_hour = 0; loctim.tm_min = 0; loctim.tm_sec = (int)secs.numValue();
-    FOCUSLOG("is/after_time() reference time for current check is: %s", MainLoop::string_mltime(MainLoop::localTimeToMainLoopTime(loctim)).c_str());
+    ELOG("is/after_time() reference time for current check is: %s", MainLoop::string_mltime(MainLoop::localTimeToMainLoopTime(loctim)).c_str());
     bool res = met;
     // limit to a few secs around target if it's is_time
     if (aFunc=="is_time" && met && daySecs<secs.numValue()+IS_TIME_TOLERANCE_SECONDS) {
@@ -954,11 +1143,9 @@ ExpressionValue EvaluationContext::evaluateFunction(const string &aFunc, const F
   return ExpressionValue::errValue(ExpressionError::NotFound, "Unknown function '%s' with %lu arguments", aFunc.c_str(), aArgs.size());
 }
 
-
+#if EXPRESSION_SCRIPT_SUPPORT
 
 // MARK: - ScriptExecutionContext
-
-#if EXPRESSION_SCRIPT_SUPPORT
 
 ScriptExecutionContext::ScriptExecutionContext(const GeoLocation* aGeoLocationP) :
   inherited(aGeoLocationP)
@@ -971,22 +1158,216 @@ ScriptExecutionContext::~ScriptExecutionContext()
 }
 
 
-void ScriptExecutionContext::clearVariables()
+bool ScriptExecutionContext::startEvaluation()
 {
-  variables.clear();
+  return startEvaluationWith(s_body);
 }
 
 
-ExpressionValue ScriptExecutionContext::runAsScript()
+bool ScriptExecutionContext::resumeEvaluation()
 {
-  size_t pos = 0;
-  ExpressionValue res;
-  while (pos<expression.size()) {
-    res = runStatementPrivate(expression.c_str(), pos, evalmode_script, false);
-    if (!res.valueOk()) break;
+  bool ret = false;
+  switch (sp().state) {
+    case s_body:
+    //case s_functionbody:
+    case s_block:
+    case s_oneStatement:
+    case s_noStatement:
+    case s_returnValue:
+      ret = resumeStatements(); // list of statements or single statement
+      break;
+    case s_ifCondition:
+    case s_ifTrueStatement:
+    case s_elseStatement:
+      ret = resumeIfElse(); // a if-elseif-else statement chain
+      break;
+    case s_assignToVar:
+      ret = resumeAssignment();
+      break;
+    default:
+      ret = inherited::resumeEvaluation();
+      break;
   }
-  return res;
+  return ret;
 }
+
+
+bool ScriptExecutionContext::resumeStatements()
+{
+  // at a statement boundary, within a body/block/functionbody
+  if (sp().state==s_noStatement) {
+    // no more statements may follow in this level, a single terminator is allowed (but not required)
+    if (currentchar()==';') pos++; // just consume it
+    return pop();
+  }
+  if (sp().state==s_returnValue) {
+    sp().state = s_complete;
+    return true;
+  }
+  if (sp().state==s_oneStatement) {
+    // only one statement allowed, next call must pop level ANYWAY (but might do so before because encountering a separator)
+    sp().state = s_noStatement;
+  }
+  // - could be start of a new block
+  if (currentchar()==0) {
+    // end of code
+    if (sp().state==s_body) {
+      sp().state = s_complete;
+      return true;
+    }
+    else {
+      // unexpected end of code
+      return abortWithSyntaxError("Unexpected end of code");
+    }
+  }
+  if (currentchar()=='{') {
+    // start new block
+    pos++;
+    return push(s_block);
+  }
+  if (sp().state==s_block && currentchar()=='}') {
+    // end block
+    pos++;
+    return pop();
+  }
+  if (currentchar()==';') {
+    if (sp().state==s_noStatement) return true; // the separator alone comprises a statement, so we're done
+    pos++; // normal statement separator, consume it
+    skipWhiteSpace();
+  }
+  // at the beginning of a statement which is not beginning of a new block
+  // - could be language keyword, variable assignment
+  size_t kwsz; const char *kw = getIdentifier(kwsz);
+  if (kw) {
+    if (strncasecmp("if", kw, kwsz)==0) {
+      pos += kwsz;
+      skipWhiteSpace();
+      if (currentchar()!='(') return abortWithSyntaxError("missing '(' after 'if'");
+      push(s_ifCondition);
+      return push(s_expression);
+    }
+    if (strncasecmp("else", kw, kwsz)==0) {
+      // just check to give sensible error message
+      return abortWithSyntaxError("else without preceeding if");
+    }
+    if (strncasecmp("return", kw, kwsz)==0) {
+      pos += kwsz;
+      sp().res.setNull(); // default to no result
+      skipWhiteSpace();
+      if (currentchar() && currentchar()!=';') {
+        // switch frame to last thing that will happen: getting the return value
+        sp().state = s_returnValue;
+        return push(s_expression);
+      }
+      sp().state = s_complete;
+    }
+    // variable handling
+    bool vardef = false;
+    bool glob = false;
+    string varName;
+    size_t apos = pos + kwsz; // potential assignment location
+    if (strncasecmp("var", kw, kwsz)==0) {
+      vardef = true;
+    }
+    else if (strncasecmp("glob", kw, kwsz)==0) {
+      vardef = true;
+      glob = true;
+    }
+    if (vardef) {
+      // explicit declaration
+      pos = apos;
+      skipWhiteSpace();
+      // variable name
+      size_t vsz; const char *vn = getIdentifier(vsz);
+      if (!vn) return abortWithSyntaxError("missing variable name after '%.*s'", (int)kwsz, kw);
+      varName.assign(vn, vsz);
+      pos += vsz;
+      if (!glob || variables.find(varName)==variables.end()) {
+        variables[varName] = ExpressionValue::nullValue();
+        ELOG("Defined %s variable %s", glob ? "permanent" : "temporary", varName.c_str());
+      }
+      apos = pos;
+    }
+    else {
+      // keyword itself is the variable name
+      varName.assign(kw, kwsz);
+    }
+    skipWhiteSpace(apos);
+    if (code(apos)==':' && code(apos+1)=='=') {
+      // definitely: this is an assignment
+      pos = apos+2;
+      push(s_assignToVar);
+      sp().identifier = varName; // new frame needs the name to assign value later
+      return push(s_expression); // but first, evaluate the expression
+    }
+    // no special language construct, statement just evaluates an expression
+    return push(s_expression);
+  }
+  return true;
+}
+
+
+bool ScriptExecutionContext::resumeAssignment()
+{
+  // assign expression result to variable
+  VariablesMap::iterator pos = variables.find(sp().identifier);
+  if (pos==variables.end()) sp().res.withError(ExpressionError::NotFound, "variable '%s' is not declared, use: var name := expression", sp().identifier.c_str());
+  if (!sp().skipping) {
+    // assign variable
+    ELOG("Assigned: %s := %s", sp().identifier.c_str(), sp().res.stringValue().c_str());
+    pos->second = sp().res;
+  }
+  return pop();
+}
+
+
+bool ScriptExecutionContext::resumeIfElse()
+{
+  if (sp().state==s_ifCondition) {
+    // if condition is evaluated
+    if (currentchar()!=')')  return abortWithSyntaxError("missing ) after if condition");
+    pos++;
+    sp().state = s_ifTrueStatement;
+    sp().flowDecision = sp().res.boolValue();
+    return push(s_oneStatement, !sp().flowDecision);
+  }
+  if (sp().state==s_ifTrueStatement) {
+    // if statement (or block of statements) is executed
+    // - check for "else" following
+    size_t kwsz; const char *kw = getIdentifier(kwsz);
+    if (kw && strncasecmp("else", kw, kwsz)==0) {
+      pos += kwsz;
+      skipWhiteSpace();
+      // there might be another if following right away
+      kw = getIdentifier(kwsz);
+      if (kw && strncasecmp("if", kw, kwsz)==0) {
+        pos += kwsz;
+        skipWhiteSpace();
+        if (currentchar()!='(') return abortWithSyntaxError("missing '(' after 'else if'");
+        // chained if: when preceeding "if" did execute (or would have if not already skipping), rest of if/elseif...else chain will be skipped
+        if (sp().flowDecision) sp().skipping = true;
+        push(s_ifCondition);
+        return push(s_expression);
+      }
+      else {
+        // last else in chain
+        sp().state = s_elseStatement;
+        return push(s_oneStatement, sp().flowDecision);
+      }
+    }
+    else {
+      // if without else
+      return pop(); // end if/then/else
+    }
+  }
+  if (sp().state==s_elseStatement) {
+    // last else in chain, no if following
+    return pop();
+  }
+  return true;
+}
+
+
 
 
 ExpressionValue ScriptExecutionContext::valueLookup(const string &aName)
@@ -1000,6 +1381,84 @@ ExpressionValue ScriptExecutionContext::valueLookup(const string &aName)
 
 
 ExpressionValue ScriptExecutionContext::evaluateFunction(const string &aFunc, const FunctionArgumentVector &aArgs, EvalMode aEvalMode)
+{
+  if (aFunc=="log" && aArgs.size()>=1 && aArgs.size()<=2) {
+    // log (logmessage)
+    // log (loglevel, logmessage)
+    int loglevel = LOG_INFO;
+    int ai = 0;
+    if (aArgs.size()>1) {
+      if (aArgs[ai].notOk()) return aArgs[ai];
+      loglevel = aArgs[ai].intValue();
+      ai++;
+    }
+    if (aArgs[ai].notOk()) return aArgs[ai];
+    LOG(loglevel, "Script log: %s", aArgs[ai].stringValue().c_str());
+  }
+  else if (aFunc=="setloglevel" && aArgs.size()==1) {
+    if (aArgs[0].notOk()) return aArgs[0];
+    int newLevel = aArgs[0].intValue();
+    if (newLevel>=0 && newLevel<=7) {
+      int oldLevel = LOGLEVEL;
+      SETLOGLEVEL(newLevel);
+      LOG(newLevel, "\n\n========== script changed log level from %d to %d ===============", oldLevel, newLevel);
+    }
+  }
+  else {
+    return inherited::evaluateFunction(aFunc, aArgs, aEvalMode);
+  }
+  // procedure with no return value of itself
+  return ExpressionValue::nullValue();
+}
+
+
+
+
+
+// MARK: - ####### LEGACYScriptExecutionContext
+
+#if NO
+
+LEGACYScriptExecutionContext::LEGACYScriptExecutionContext(const GeoLocation* aGeoLocationP) :
+  inherited(aGeoLocationP)
+{
+}
+
+
+LEGACYScriptExecutionContext::~LEGACYScriptExecutionContext()
+{
+}
+
+
+void LEGACYScriptExecutionContext::clearVariables()
+{
+  variables.clear();
+}
+
+
+ExpressionValue LEGACYScriptExecutionContext::runAsScript()
+{
+  size_t pos = 0;
+  ExpressionValue res;
+  while (pos<code.size()) {
+    res = runStatementPrivate(getCode(), pos, evalmode_script, false);
+    if (!res.valueOk()) break;
+  }
+  return res;
+}
+
+
+ExpressionValue LEGACYScriptExecutionContext::valueLookup(const string &aName)
+{
+  VariablesMap::iterator pos = variables.find(aName);
+  if (pos!=variables.end()) {
+    return pos->second;
+  }
+  return inherited::valueLookup(aName);
+}
+
+
+ExpressionValue LEGACYScriptExecutionContext::evaluateFunction(const string &aFunc, const FunctionArgumentVector &aArgs, EvalMode aEvalMode)
 {
   if (aFunc=="log" && aArgs.size()>=1 && aArgs.size()<=2) {
     // log (logmessage)
@@ -1054,7 +1513,7 @@ ExpressionValue ScriptExecutionContext::evaluateFunction(const string &aFunc, co
 
 
 
-ExpressionValue ScriptExecutionContext::runStatementPrivate(const char *aScript, size_t &aPos, EvalMode aEvalMode, bool aInBlock)
+ExpressionValue LEGACYScriptExecutionContext::runStatementPrivate(const char *aScript, size_t &aPos, EvalMode aEvalMode, bool aInBlock)
 {
   ExpressionValue res;
   ExpressionValue flowDecision = false;
@@ -1134,7 +1593,7 @@ ExpressionValue ScriptExecutionContext::runStatementPrivate(const char *aScript,
             kpos = vpos;
             if (!isGlobal || variables.find(keyword)==variables.end()) {
               variables[keyword] = ExpressionValue::nullValue();
-              FOCUSLOG("Defined %s variable %s", isGlobal ? "permanent" : "temporary", keyword.c_str());
+              ELOG("Defined %s variable %s", isGlobal ? "permanent" : "temporary", keyword.c_str());
             }
             isVarDef = true;
           }
@@ -1148,7 +1607,7 @@ ExpressionValue ScriptExecutionContext::runStatementPrivate(const char *aScript,
             if (!res.valueOk()) return res;
             if (aEvalMode!=evalmode_noexec) {
               // assign variable
-              FOCUSLOG("Assigned: %s := %s", keyword.c_str(), res.stringValue().c_str());
+              ELOG("Assigned: %s := %s", keyword.c_str(), res.stringValue().c_str());
               pos->second = res;
             }
           }
@@ -1175,6 +1634,8 @@ ExpressionValue ScriptExecutionContext::runStatementPrivate(const char *aScript,
   return res;
 }
 
+#endif // NO
+
 #endif // EXPRESSION_SCRIPT_SUPPORT
 
 
@@ -1195,7 +1656,7 @@ TimedEvaluationContext::~TimedEvaluationContext()
 
 void TimedEvaluationContext::releaseState()
 {
-  FOCUSLOG("All frozen state is released now for expression: %s", expression.c_str());
+  ELOG("All frozen state is released now for expression: %s", getCode());
   frozenResults.clear(); // changing expression unfreezes everything
 }
 
@@ -1215,7 +1676,7 @@ void TimedEvaluationContext::scheduleReEvaluation(MLMicroSeconds aAtTime)
 void TimedEvaluationContext::timedEvaluationHandler(MLTimer &aTimer, MLMicroSeconds aNow)
 {
   // trigger another evaluation
-  FOCUSLOG("Timed re-evaluation of expression starting now: %s", expression.c_str());
+  ELOG("Timed re-evaluation of expression starting now: %s", getCode());
   triggerEvaluation(evalmode_timed);
 }
 
@@ -1235,7 +1696,7 @@ TimedEvaluationContext::FrozenResult* TimedEvaluationContext::getFrozen(Expressi
   if (frozenVal!=frozenResults.end()) {
     frozenResultP = &(frozenVal->second);
     // there is a frozen result for this position in the expression
-    FOCUSLOG("- frozen result (%s) for actual result (%s) at char pos %zu exists - will expire %s",
+    ELOG("- frozen result (%s) for actual result (%s) at char pos %zu exists - will expire %s",
       frozenResultP->frozenResult.stringValue().c_str(),
       aResult.stringValue().c_str(),
       aResult.pos,
@@ -1262,11 +1723,11 @@ TimedEvaluationContext::FrozenResult* TimedEvaluationContext::newFreeze(FrozenRe
     newFreeze.frozenResult = aNewResult; // full copy, including pos
     newFreeze.frozenUntil = aFreezeUntil;
     frozenResults[aNewResult.pos] = newFreeze;
-    FOCUSLOG("- new result (%s) frozen for pos %zu until %s", aNewResult.stringValue().c_str(), aNewResult.pos, MainLoop::string_mltime(newFreeze.frozenUntil).c_str());
+    ELOG("- new result (%s) frozen for pos %zu until %s", aNewResult.stringValue().c_str(), aNewResult.pos, MainLoop::string_mltime(newFreeze.frozenUntil).c_str());
     return &frozenResults[aNewResult.pos];
   }
   else if (!aExistingFreeze->frozen() || aUpdate || aFreezeUntil==Never) {
-    FOCUSLOG("- existing freeze updated to value %s and to expire %s",
+    ELOG("- existing freeze updated to value %s and to expire %s",
       aNewResult.stringValue().c_str(),
       aFreezeUntil==Never ? "IMMEDIATELY" : MainLoop::string_mltime(aFreezeUntil).c_str()
     );
@@ -1274,7 +1735,7 @@ TimedEvaluationContext::FrozenResult* TimedEvaluationContext::newFreeze(FrozenRe
     aExistingFreeze->frozenUntil = aFreezeUntil;
   }
   else {
-    FOCUSLOG("- no freeze created/updated");
+    ELOG("- no freeze created/updated");
   }
   return aExistingFreeze;
 }
@@ -1360,8 +1821,8 @@ public:
 
   ExpressionValue evaluateExpression(const string &aExpression)
   {
-    setExpression(aExpression);
-    return evaluateNow(evalmode_initial);
+    setCode(aExpression);
+    return evaluateSynchronously(evalmode_initial);
   };
 
 protected:
