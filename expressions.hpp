@@ -153,10 +153,32 @@ namespace p44 {
     evalmode_syntaxcheck ///< just check syntax, no side effects
   } EvalMode;
 
+
   /// Basic Expression Evaluation Context
   class EvaluationContext : public P44Obj
   {
     friend class ExpressionValue;
+
+  private:
+
+    // operations with precedence
+    typedef enum {
+      op_none     = 0x06,
+      op_not      = 0x16,
+      op_multiply = 0x25,
+      op_divide   = 0x35,
+      op_add      = 0x44,
+      op_subtract = 0x54,
+      op_equal    = 0x63,
+      op_notequal = 0x73,
+      op_less     = 0x83,
+      op_greater  = 0x93,
+      op_leq      = 0xA3,
+      op_geq      = 0xB3,
+      op_and      = 0xC2,
+      op_or       = 0xD2,
+      opmask_precedence = 0x0F
+    } Operations;
 
   protected:
 
@@ -174,6 +196,7 @@ namespace p44 {
     MLMicroSeconds runningSince; ///< when the current evaluation has started, Never otherwise
     size_t pos; ///< the scanning position within code
     ExpressionValue finalResult; ///< final result
+    MLTicket execTicket; ///< a ticket for timed steps that are part of the execution
 
     typedef enum {
       s_body, ///< at the body level (end of expression ends body)
@@ -190,8 +213,15 @@ namespace p44 {
       s_assignToVar, ///< assign result of an expression to a variable
 
       s_expression, ///< at the beginning of an expression
-      s_term, ///< within a term
-      s_result, ///< result of an expression
+      s_subExpression, ///< handling a paranthesized subexpression result
+      s_exprFirstTerm, ///< first term of an expression
+      s_exprLeftSide, ///< left side of an ongoing expression
+      s_exprRightSide, ///< further terms of an expression
+
+      s_simpleTerm, ///< at the beginning of a term
+
+
+      s_result, ///< result of an expression or term
 
 
       s_complete, ///< completing evaluation
@@ -204,15 +234,18 @@ namespace p44 {
     // The stack
     class StackFrame {
     public:
-      StackFrame(EvalState aState, bool aSkip, int aPrecedence) : state(aState), skipping(aSkip), flowDecision(false), precedence(aPrecedence) {}
+      StackFrame(EvalState aState, bool aSkip, int aPrecedence) :
+        state(aState), skipping(aSkip), flowDecision(false), precedence(aPrecedence), op(op_none)
+      {}
       EvalState state; ///< current state
-      ExpressionValue val; ///< private value for operations
-      ExpressionValue res; ///< result value passed down at popAndPassResult()
       int precedence; ///< encountering a binary operator with smaller precedence will end the expression
+      Operations op; ///< operator
       string identifier; ///< identifier (e.g. variable name, function name etc.)
       bool skipping; ///< if set, we are just skipping code, not really executing
       bool flowDecision; ///< flow control decision
       FunctionArgumentVector args; ///< arguments
+      ExpressionValue val; ///< private value for operations
+      ExpressionValue res; ///< result value passed down at popAndPassResult()
     };
     typedef std::list<StackFrame> StackList;
     StackList stack; ///< the stack
@@ -237,6 +270,9 @@ namespace p44 {
     /// @note a script context can also evaluate single expressions
     virtual bool startEvaluation();
 
+    /// re-entry point for callbacks - continue execution
+    /// @return true if evaluation completed without yielding execution.
+    bool continueEvaluation();
 
     /// @return true if currently evaluating an expression.
     bool isEvaluating() { return runningSince!=Never; }
@@ -249,6 +285,11 @@ namespace p44 {
     /// @note this is a dispatcher to call one of the branches below
     /// @note all routines called must have the same signature as resumeEvaluation()
     virtual bool resumeEvaluation();
+
+    /// expression processing resume points
+    bool resumeExpression();
+    bool finishSubexpression();
+    bool resumeTerm();
 
     /// @}
 
@@ -303,6 +344,16 @@ namespace p44 {
     /// @return pointer to start of identifier, or NULL if none found
     const char* getIdentifier(size_t& aLen);
 
+  private:
+
+    Operator parseOperator(size_t &aPos);
+
+
+  public:
+
+
+
+  protected:
 
     // ######################## OLD, but keep
 
@@ -371,12 +422,20 @@ namespace p44 {
     /// @return Expression value (with error when value is not available)
     virtual ExpressionValue valueLookup(const string &aName);
 
-    /// function evaluation
+    /// evaluation of synchronously implemented functions which immediately return a result
     /// @param aFunc the name of the function to execute
     /// @return Expression value or error.
-    /// @param aNextEval will be adjusted to the most recent point in time when a re-evaluation should occur. Inital call should pass Never.
     /// @note must return ExpressionError::NotFound only if function name is unknown
     virtual ExpressionValue evaluateFunction(const string &aFunc, const FunctionArgumentVector &aArgs, EvalMode aEvalMode);
+
+    /// evaluation of asynchronously implemented functions which may yield execution and resume later
+    /// @param aFunc the name of the function to execute
+    /// @note this method will not be called when context is set to execute synchronously, so these functions will not be available then.
+    /// @return
+    /// - true when execution has not yieled and the function evaluation is complete
+    /// - false when the execution of the function has yielded and resumeEvaluation() will be called to complete
+    virtual bool evaluateAsyncFunction(const string &aFunc, const FunctionArgumentVector &aArgs);
+
 
     /// @}
 
@@ -424,6 +483,8 @@ namespace p44 {
     ExpressionValue evaluateExpressionPrivate(const char *aExpr, size_t &aPos, int aPrecedence, const char *aStopChars, bool aNeedStopChar, EvalMode aEvalMode);
 
   private:
+
+    static void parseNumericLiteral(ExpressionValue &res, const char* aExpr, size_t& aPos);
 
     static void evaluateNumericLiteral(ExpressionValue &res, const string &term);
     ExpressionValue evaluateTerm(const char *aExpr, size_t &aPos, EvalMode aEvalMode);
@@ -481,7 +542,6 @@ namespace p44 {
 
     /// resume a assignment
     bool resumeAssignment();
-
 
     /// @}
 
