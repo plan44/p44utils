@@ -47,10 +47,10 @@ ExpressionValue& ExpressionValue::operator=(const ExpressionValue& aVal)
   pos = aVal.pos;
   numVal = aVal.numVal;
   err = aVal.err;
-  if (aVal.strValP)
-    setString(*aVal.strValP);
-  else
-    clrStr();
+  clrStr();
+  if (aVal.strValP) {
+    strValP = new string(*aVal.strValP);
+  }
   return *this;
 }
 
@@ -388,7 +388,7 @@ bool EvaluationContext::startEvaluationWith(EvalState aState)
 
 bool EvaluationContext::startEvaluation()
 {
-  return startEvaluationWith(s_expression);
+  return startEvaluationWith(s_newExpression);
 }
 
 
@@ -466,7 +466,7 @@ bool EvaluationContext::updateNextEval(const struct tm& aLatestEvalTm)
 
 // MARK: - Evaluation State machine
 
-#define OLDEXPRESSIONS 1
+#define OLDEXPRESSIONS 0
 
 bool EvaluationContext::resumeEvaluation()
 {
@@ -489,7 +489,7 @@ bool EvaluationContext::resumeEvaluation()
         string errInd;
         if (!finalResult.syntaxOk()) {
           errInd = "\n                ";
-          errInd.append(finalResult.pos-1, '-');
+          errInd.append(finalResult.pos, '-');
           errInd += '^';
         }
         ELOG("- code        = %s%s", getCode(), errInd.c_str());
@@ -498,6 +498,7 @@ bool EvaluationContext::resumeEvaluation()
       stack.clear();
       return true;
     // expression evaluation states
+    case s_newExpression:
     case s_expression:
     case s_exprFirstTerm:
     case s_exprLeftSide:
@@ -616,6 +617,7 @@ void EvaluationContext::evaluateNumericLiteral(ExpressionValue &res, const strin
         }
         if (d>=0) {
           struct tm loctim; MainLoop::getLocalTime(loctim);
+          loctim.tm_hour = 12; loctim.tm_min = 0; loctim.tm_sec = 0; // noon - avoid miscalculations that could happen near midnight due to DST offsets
           loctim.tm_mon = m-1;
           loctim.tm_mday = d;
           mktime(&loctim);
@@ -787,7 +789,7 @@ void EvaluationContext::parseNumericLiteral(ExpressionValue &res, const char* aE
           return;
         }
         else {
-          aPos += i;
+          aPos += i+1;
           // we have v:t, take these as hours and minutes
           v = (v*60+t)*60; // in seconds
           if (aExpr[aPos]==':') {
@@ -831,6 +833,7 @@ void EvaluationContext::parseNumericLiteral(ExpressionValue &res, const char* aE
         }
         if (d>=0) {
           struct tm loctim; MainLoop::getLocalTime(loctim);
+          loctim.tm_hour = 12; loctim.tm_min = 0; loctim.tm_sec = 0; // noon - avoid miscalculations that could happen near midnight due to DST offsets
           loctim.tm_mon = m-1;
           loctim.tm_mday = d;
           mktime(&loctim);
@@ -997,6 +1000,10 @@ EvaluationContext::Operations EvaluationContext::parseOperator(size_t &aPos)
 
 bool EvaluationContext::resumeExpression()
 {
+  if (sp().state==s_newExpression) {
+    sp().precedence = 0;
+    sp().state = s_expression;
+  }
   if (sp().state==s_expression) {
     // at start of an expression
     sp().val.pos = pos; // remember start of the expression
@@ -1013,7 +1020,7 @@ bool EvaluationContext::resumeExpression()
       // term is expression in paranthesis
       pos++;
       push(s_groupedExpression);
-      return push(s_expression);
+      return push(s_newExpression);
     }
     // must be simple term
     // - a variable reference
@@ -1032,7 +1039,6 @@ bool EvaluationContext::resumeExpression()
       case op_subtract : sp().res.setNumber(-sp().res.numValue()); break;
       default: break;
     }
-    if (currentchar()==0) return abortWithSyntaxError("Missing expression");
     return newstate(s_exprLeftSide);
   }
   if (sp().state==s_exprLeftSide) {
@@ -1049,7 +1055,9 @@ bool EvaluationContext::resumeExpression()
     sp().op = binaryop;
     sp().val = sp().res; // duplicate so rightside expression can be put into res
     newstate(s_exprRightSide);
-    return push(s_expression);
+    push(s_expression);
+    sp().precedence = precedence; // subexpression needs to exit when finding an operator weaker than this one
+    return true;
   }
   if (sp().state==s_exprRightSide) {
     Operations binaryop = sp().op;
@@ -1062,22 +1070,24 @@ bool EvaluationContext::resumeExpression()
         sp().val.setBool(sp().val != sp().res);
       else if (sp().res.isOk()) {
         // apply the operation between leftside and rightside
+        ExpressionValue opRes;
         switch (binaryop) {
           case op_not: {
             return abortWithSyntaxError("NOT operator not allowed here");
           }
-          case op_divide: sp().res.withValue(sp().val / sp().res); break;
-          case op_multiply: sp().res.withValue(sp().val * sp().res); break;
-          case op_add: sp().res.withValue(sp().val + sp().res); break;
-          case op_subtract: sp().res.withValue(sp().val - sp().res); break;
-          case op_less: sp().res.setBool(sp().val < sp().res); break;
-          case op_greater: sp().res.setBool(!(sp().val < sp().res) && !(sp().val == sp().res)); break;
-          case op_leq: sp().res.setBool((sp().val < sp().res) || (sp().val == sp().res)); break;
-          case op_geq: sp().res.setBool(!(sp().val < sp().res)); break;
-          case op_and: sp().res.withValue(sp().val && sp().res); break;
-          case op_or: sp().res.withValue(sp().val || sp().res); break;
+          case op_divide: opRes.withValue(sp().val / sp().res); break;
+          case op_multiply: opRes.withValue(sp().val * sp().res); break;
+          case op_add: opRes.withValue(sp().val + sp().res); break;
+          case op_subtract: opRes.withValue(sp().val - sp().res); break;
+          case op_less: opRes.setBool(sp().val < sp().res); break;
+          case op_greater: opRes.setBool(!(sp().val < sp().res) && !(sp().val == sp().res)); break;
+          case op_leq: opRes.setBool((sp().val < sp().res) || (sp().val == sp().res)); break;
+          case op_geq: opRes.setBool(!(sp().val < sp().res)); break;
+          case op_and: opRes.withValue(sp().val && sp().res); break;
+          case op_or: opRes.withValue(sp().val || sp().res); break;
           default: break;
         }
+        sp().val = opRes;
       }
       // duplicate into res in case evaluation ends
       sp().res = sp().val;
@@ -1087,6 +1097,7 @@ bool EvaluationContext::resumeExpression()
       else {
         ELOG("Intermediate expression '%.*s' evaluation result is INVALID", (int)(pos-sp().res.pos), tail(sp().res.pos));
       }
+      return newstate(s_exprLeftSide); // back to leftside, more chained operators might follow
     }
     return newstate(s_result); // end of this expression
   }
@@ -1114,11 +1125,21 @@ bool EvaluationContext::resumeTerm()
       string str;
       pos++;
       char c;
-      while((c = currentchar())!=delimiter) {
+      while(true) {
+        c = currentchar();
+        if (c==delimiter) {
+          if (delimiter=='\'' && code(pos+1)==delimiter) {
+            // single quoted strings allow including delimiter by doubling it
+            str += delimiter;
+            pos += 2;
+            continue;
+          }
+          break; // end of string
+        }
         if (c==0) return abortWithSyntaxError("unterminated string, missing %c delimiter", delimiter);
-        if (c=='\\') {
+        if (delimiter!='\'' && c=='\\') {
           c = code(++pos);
-          if (c==0) return abortWithSyntaxError("incomplete \\-escape");
+          if (c==0) abortWithSyntaxError("incomplete \\-escape");
           else if (c=='n') c='\n';
           else if (c=='r') c='\r';
           else if (c=='t') c='\t';
@@ -1140,8 +1161,11 @@ bool EvaluationContext::resumeTerm()
       // identifier (variable, function)
       size_t idsz; const char *id = getIdentifier(idsz);
       if (!id) {
-        // must be a literal
-        parseNumericLiteral(sp().res, tail(pos), pos);
+        // we can get here depending on how statement delimiters are used, and should not try to parse a numeric, then
+        if (currentchar()!='}' && currentchar()!=';') {
+          // checking for statement separating chars is safe, there's no way one of these could appear at the beginning of a term
+          parseNumericLiteral(sp().res, getCode(), pos);
+        }
         return newstate(s_result);
       }
       else {
@@ -1165,20 +1189,20 @@ bool EvaluationContext::resumeTerm()
           if (currentchar()!=')') {
             // start scanning argument
             newstate(s_funcArg);
-            return push(s_expression);
+            return push(s_newExpression);
           }
           // function w/o arguments, directly go to execute
           return newstate(s_funcExec);
         } // function call
         else {
           // plain identifier
-          if (strncasecmp(idpos, "true", idsz)==0 || strncasecmp(idpos, "yes", idsz)) {
+          if (strncasecmp(idpos, "true", idsz)==0 || strncasecmp(idpos, "yes", idsz)==0) {
             sp().res.withNumber(1);
           }
-          else if (strncasecmp(idpos, "false", idsz)==0 || strncasecmp(idpos, "no", idsz)) {
+          else if (strncasecmp(idpos, "false", idsz)==0 || strncasecmp(idpos, "no", idsz)==0) {
             sp().res.setNumber(0);
           }
-          else if (strncasecmp(idpos, "null", idsz)==0 || strncasecmp(idpos, "undefined", idsz)) {
+          else if (strncasecmp(idpos, "null", idsz)==0 || strncasecmp(idpos, "undefined", idsz)==0) {
             sp().res.withError(ExpressionError::Null, "%.*s", (int)idsz, idpos);
           }
           else if (!sp().skipping) {
@@ -1186,11 +1210,14 @@ bool EvaluationContext::resumeTerm()
             sp().res.withValue(valueLookup(sp().identifier));
             if (sp().res.notOk() && sp().res.err->isError(ExpressionError::domain(), ExpressionError::NotFound)) {
               // also match some convenience pseudo-vars
-              for (int w=0; w<7; w++) {
-                if (strncasecmp(weekdayNames[w], idpos, idsz)==0) {
-                  sp().res.withError(ErrorPtr()); // clear not-found error
-                  sp().res.withNumber(w); // return numeric value of weekday
-                  break;
+              if (idsz==3) {
+                // Optimisation, all weekdays have 3 chars
+                for (int w=0; w<7; w++) {
+                  if (strncasecmp(weekdayNames[w], idpos, idsz)==0) {
+                    sp().res.withError(ErrorPtr()); // clear not-found error
+                    sp().res.withNumber(w); // return numeric value of weekday
+                    break;
+                  }
                 }
               }
             }
@@ -1208,7 +1235,7 @@ bool EvaluationContext::resumeTerm()
     if (currentchar()==',') {
       // more arguments
       pos++; // consume comma
-      return push(s_expression);
+      return push(s_newExpression);
     }
     else if (currentchar()==')') {
       pos++; // consume closing ')'
@@ -1374,7 +1401,7 @@ bool EvaluationContext::evaluateFunction(const string &aFunc, const FunctionArgu
     // ifvalid(a, b)   if a is a valid value, return it, otherwise return the default as specified by b
     aResult = aArgs[0].isOk() ? aArgs[0] : aArgs[1];
   }
-  if (aFunc=="isvalid" && aArgs.size()==1) {
+  else if (aFunc=="isvalid" && aArgs.size()==1) {
     // ifvalid(a, b)   if a is a valid value, return it, otherwise return the default as specified by b
     aResult.setNumber(aArgs[0].isOk() ? 1 : 0);
   }
@@ -1451,13 +1478,14 @@ bool EvaluationContext::evaluateFunction(const string &aFunc, const FunctionArgu
       start = aArgs[2].intValue();
       if (start>haystack.size()) start = haystack.size();
     }
+    size_t p = string::npos;
     if (aArgs[0].isOk()) {
-      size_t p = haystack.find(needle, start);
-      if (p!=string::npos) aResult.setNumber(p);
+      p = haystack.find(needle, start);
     }
-    else {
+    if (p!=string::npos)
+      aResult.setNumber(p);
+    else
       aResult.setNull(); // not found
-    }
   }
   else if (aFunc=="format" && aArgs.size()==2) {
     // format(formatstring, number)
@@ -1498,7 +1526,7 @@ bool EvaluationContext::evaluateFunction(const string &aFunc, const FunctionArgu
     size_t helperPos = codeString.size();
     codeString.append(aArgs[0].stringValue());
     int savedStackSize = stack.size();
-    push(s_expression);
+    push(s_newExpression);
     while (stack.size()>savedStackSize) {
       resumeEvaluation();
     }
@@ -1767,8 +1795,9 @@ bool ScriptExecutionContext::resumeStatements()
       pos += kwsz;
       skipWhiteSpace();
       if (currentchar()!='(') return abortWithSyntaxError("missing '(' after 'if'");
+      pos++;
       push(s_ifCondition);
-      return push(s_expression);
+      return push(s_newExpression);
     }
     if (strncasecmp("else", kw, kwsz)==0) {
       // just check to give sensible error message
@@ -1781,7 +1810,7 @@ bool ScriptExecutionContext::resumeStatements()
       if (currentchar() && currentchar()!=';') {
         // switch frame to last thing that will happen: getting the return value
         sp().state = s_returnValue;
-        return push(s_expression);
+        return push(s_newExpression);
       }
       return newstate(s_complete);
     }
@@ -1831,7 +1860,7 @@ bool ScriptExecutionContext::resumeStatements()
       pos = apos;
       push(s_assignToVar);
       sp().identifier = varName; // new frame needs the name to assign value later
-      return push(s_expression); // but first, evaluate the expression
+      return push(s_newExpression); // but first, evaluate the expression
     }
     else if (let) {
       // let is not allowed w/o assignment
@@ -1844,7 +1873,7 @@ bool ScriptExecutionContext::resumeStatements()
     }
   }
   // no special language construct, statement just evaluates an expression
-  return push(s_expression);
+  return push(s_newExpression);
 }
 
 
@@ -1886,10 +1915,11 @@ bool ScriptExecutionContext::resumeIfElse()
         pos += kwsz;
         skipWhiteSpace();
         if (currentchar()!='(') return abortWithSyntaxError("missing '(' after 'else if'");
+        pos++;
         // chained if: when preceeding "if" did execute (or would have if not already skipping), rest of if/elseif...else chain will be skipped
         if (sp().flowDecision) sp().skipping = true;
         push(s_ifCondition);
-        return push(s_expression);
+        return push(s_newExpression);
       }
       else {
         // last else in chain

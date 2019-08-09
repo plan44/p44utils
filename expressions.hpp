@@ -233,7 +233,8 @@ namespace p44 {
 
       s_assignToVar, ///< assign result of an expression to a variable
 
-      s_expression, ///< at the beginning of an expression
+      s_newExpression, ///< at the beginning of an expression which only ends syntactically (end of code, delimiter, etc.) -> resets precedence
+      s_expression, ///< handle (sub)expression start, precedence inherited or set by caller
       s_groupedExpression, ///< handling a paranthesized subexpression result
       s_exprFirstTerm, ///< first term of an expression
       s_exprLeftSide, ///< left side of an ongoing expression

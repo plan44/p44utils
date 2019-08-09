@@ -33,14 +33,14 @@ public:
   ExpressionFixture() :
     inherited(NULL)
   {
-    evalLogLevel = 0;
+    evalLogLevel = 5;
   };
 
   ExpressionValue valueLookup(const string &aName) P44_OVERRIDE
   {
-    if (aName=="UA") return ExpressionValue(42);
-    else if (aName=="almostUA") return ExpressionValue(42.7);
-    else if (aName=="UAtext") return ExpressionValue("fortyTwo");
+    if (aName=="ua") return ExpressionValue(42);
+    else if (aName=="almostua") return ExpressionValue(42.7);
+    else if (aName=="uatext") return ExpressionValue("fortyTwo");
     // no variables by default
     return inherited::valueLookup(aName);
   }
@@ -65,9 +65,9 @@ public:
 
   ExpressionValue valueLookup(const string &aName) P44_OVERRIDE
   {
-    if (aName=="UA") return ExpressionValue(42);
-    else if (aName=="almostUA") return ExpressionValue(42.7);
-    else if (aName=="UAtext") return ExpressionValue("fortyTwo");
+    if (aName=="ua") return ExpressionValue(42);
+    else if (aName=="almostua") return ExpressionValue(42.7);
+    else if (aName=="uatext") return ExpressionValue("fortyTwo");
     // no variables by default
     return inherited::valueLookup(aName);
   }
@@ -147,6 +147,10 @@ TEST_CASE_METHOD(ExpressionFixture, "Expressions", "[expressions]" )
     REQUIRE(runExpression("1.1.").intValue() == 0);
     REQUIRE(runExpression("19.Feb").intValue() == 49);
     REQUIRE(runExpression("19.2.").intValue() == 49);
+    REQUIRE(runExpression("Mon").intValue() == 1);
+    REQUIRE(runExpression("Sun").intValue() == 0);
+    REQUIRE(runExpression("Sun").intValue() == 0);
+    REQUIRE(runExpression("thu").intValue() == 4);
   }
 
   SECTION("Value Lookup") {
@@ -300,8 +304,8 @@ TEST_CASE_METHOD(ScriptFixture, "Scripts", "[expressions]" )
     REQUIRE(runScript("var res = 'none'; var res2 = 'none'; var cond = 1; if (cond==1) { res='one'; res2='two' }; return string(res) + ',' + res2").stringValue() == "one,two");
     REQUIRE(runScript("var res = 'none'; var res2 = 'none'; var cond = 2; if (cond==1) { res='one'; res2='two' }; return string(res) + ',' + res2").stringValue() == "none,none");
     // blocks with delimiter variations
-// FIXME:    REQUIRE(runScript("var res = 'none'; var res2 = 'none'; var cond = 2; if (cond==1) { res='one'; res2='two'; }; return string(res) + ',' + res2").stringValue() == "none,none");
-// FIXME:    REQUIRE(runScript("var res = 'none'; var res2 = 'none'; var cond = 2; if (cond==1) { res='one'; res2='two'; } return string(res) + ',' + res2").stringValue() == "none,none");
+    REQUIRE(runScript("var res = 'none'; var res2 = 'none'; var cond = 2; if (cond==1) { res='one'; res2='two'; }; return string(res) + ',' + res2").stringValue() == "none,none");
+    REQUIRE(runScript("var res = 'none'; var res2 = 'none'; var cond = 2; if (cond==1) { res='one'; res2='two'; } return string(res) + ',' + res2").stringValue() == "none,none");
 
   }
 
