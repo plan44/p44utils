@@ -100,9 +100,14 @@ namespace p44 {
 	const char *nonNullCStr(const char *aNULLOrCStr);
 
   /// return simple (non locale aware) ASCII lowercase version of string
-  /// @param aString a string
+  /// @param aStringP a C string pinter
+  /// @param aMaxSize max number of chars to read fom aStringP
   /// @return lowercase (char by char tolower())
-  string lowerCase(const char *aString);
+  string lowerCase(const char *aStringP, size_t aMaxSize = 0);
+
+  /// return simple (non locale aware) ASCII lowercase version of string
+  /// @param aString string pinter
+  /// @return lowercase (char by char tolower())
   string lowerCase(const string &aString);
 
   /// return string quoted such that it works as a single shell argument

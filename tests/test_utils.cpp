@@ -28,6 +28,19 @@ TEST_CASE( "non null C String", "[utils]" ) {
   REQUIRE( string(p44::nonNullCStr(" something ")) == " something " );
 }
 
+TEST_CASE( "Whitespace trimming", "[utils]" ) {
+  REQUIRE( p44::trimWhiteSpace(" something ") == "something" );
+  REQUIRE( p44::trimWhiteSpace(" \t\n something\r\t \t ") == "something" );
+  REQUIRE( p44::trimWhiteSpace(" something ", true, false) == "something " );
+  REQUIRE( p44::trimWhiteSpace(" something ", false, true) == " something" );
+}
+
+TEST_CASE( "lowercase", "[utils]" ) {
+  REQUIRE( p44::lowerCase(string("UPPER And lower")) == "upper and lower" );
+  REQUIRE( p44::lowerCase("UPPER And lower") == "upper and lower" );
+  REQUIRE( p44::lowerCase("UPPER And lower and more", 15) == "upper and lower" );
+}
+
 TEST_CASE( "shell quoting", "[utils]" ) {
   REQUIRE( p44::shellQuote("some words") == "\"some words\"" );
   REQUIRE( p44::shellQuote("some special chars: \\ \" '") == "\"some special chars: \\\\ \\\" '\"" );

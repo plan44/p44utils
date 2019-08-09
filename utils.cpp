@@ -205,11 +205,12 @@ const char *p44::nonNullCStr(const char *aNULLOrCStr)
 }
 
 
-string p44::lowerCase(const char *aString)
+string p44::lowerCase(const char *aString, size_t aMaxSize)
 {
   string s;
   while (char c=*aString++) {
     s += tolower(c);
+    if (aMaxSize>0 && --aMaxSize==0) break;
   }
   return s;
 }
