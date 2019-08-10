@@ -23,7 +23,7 @@
 #define __p44utils__ledchaincomm__
 
 #include "p44utils_common.hpp"
-
+#include "colorutils.hpp"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -54,17 +54,6 @@ extern "C" {
 using namespace std;
 
 namespace p44 {
-
-
-  /// convert PWM value to brightness
-  /// @param aPWM PWM (energy) value 0..255
-  /// @return brightness 0..255
-  uint8_t pwmToBrightness(uint8_t aPWM);
-
-  /// convert brightness value to PWM
-  /// @param aBrightness brightness 0..255
-  /// @return PWM (energy) value 0..255
-  uint8_t brightnessToPwm(uint8_t aBrightness);
 
 
   class LEDChainComm : public P44Obj
