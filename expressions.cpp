@@ -235,21 +235,6 @@ bool EvaluationContext::setCode(const string aCode)
 }
 
 
-void EvaluationContext::skipWhiteSpace(const char *aExpr, size_t& aPos)
-{
-  while (aExpr[aPos]==' ' || aExpr[aPos]=='\t') aPos++;
-}
-
-
-bool EvaluationContext::skipIdentifier(const char *aExpr, size_t& aPos)
-{
-  if (!isalpha(aExpr[aPos])) return false; // must start with alpha
-  aPos++;
-  while (aExpr[aPos] && (isalnum(aExpr[aPos]) || aExpr[aPos]=='_')) aPos++;
-  return true; // non-empty identifier
-}
-
-
 void EvaluationContext::skipWhiteSpace(size_t& aPos)
 {
   while (code(aPos)==' ' || code(aPos)=='\t') aPos++;
@@ -549,12 +534,12 @@ bool EvaluationContext::valueLookup(const string &aName, ExpressionValue &aResul
 static const char * const monthNames[12] = { "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec" };
 static const char * const weekdayNames[7] = { "sun", "mon", "tue", "wed", "thu", "fri", "sat" };
 
-void EvaluationContext::parseNumericLiteral(ExpressionValue &res, const char* aExpr, size_t& aPos)
+void EvaluationContext::parseNumericLiteral(ExpressionValue &aResult, const char* aCode, size_t& aPos)
 {
   double v;
   int i;
-  if (sscanf(aExpr+aPos, "%lf%n", &v, &i)!=1) {
-    res.withSyntaxError("'invalid number, time or date");
+  if (sscanf(aCode+aPos, "%lf%n", &v, &i)!=1) {
+    aResult.withSyntaxError("'invalid number, time or date");
     return;
   }
   else {
@@ -563,22 +548,22 @@ void EvaluationContext::parseNumericLiteral(ExpressionValue &res, const char* aE
     // check for time/date literals
     // - time literals (returned in seconds) are in the form h:m or h:m:s, where all parts are allowed to be fractional
     // - month/day literals (returned in yeardays) are in the form dd.monthname or dd.mm. (mid the closing dot)
-    if (aExpr[aPos]) {
-      if (aExpr[aPos]==':') {
+    if (aCode[aPos]) {
+      if (aCode[aPos]==':') {
         // we have 'v:', could be time
         double t;
-        if (sscanf(aExpr+aPos+1, "%lf%n", &t, &i)!=1) {
-          res.withSyntaxError("invalid time specification - use hh:mm or hh:mm:ss");
+        if (sscanf(aCode+aPos+1, "%lf%n", &t, &i)!=1) {
+          aResult.withSyntaxError("invalid time specification - use hh:mm or hh:mm:ss");
           return;
         }
         else {
           aPos += i+1;
           // we have v:t, take these as hours and minutes
           v = (v*60+t)*60; // in seconds
-          if (aExpr[aPos]==':') {
+          if (aCode[aPos]==':') {
             // apparently we also have seconds
-            if (sscanf(aExpr+aPos+1, "%lf", &t)!=1) {
-              res.withSyntaxError("Time specification has invalid seconds - use hh:mm:ss");
+            if (sscanf(aCode+aPos+1, "%lf", &t)!=1) {
+              aResult.withSyntaxError("Time specification has invalid seconds - use hh:mm:ss");
               return;
             }
             v += t; // add the seconds
@@ -587,10 +572,10 @@ void EvaluationContext::parseNumericLiteral(ExpressionValue &res, const char* aE
       }
       else {
         int m = -1; int d = -1;
-        if (aExpr[aPos-1]=='.' && isalpha(aExpr[aPos])) {
+        if (aCode[aPos-1]=='.' && isalpha(aCode[aPos])) {
           // could be dd.monthname
           for (m=0; m<12; m++) {
-            if (strncasecmp(monthNames[m], aExpr+aPos, 3)==0) {
+            if (strncasecmp(monthNames[m], aCode+aPos, 3)==0) {
               // valid monthname following number
               // v = day, m = month-1
               m += 1;
@@ -600,16 +585,16 @@ void EvaluationContext::parseNumericLiteral(ExpressionValue &res, const char* aE
           }
           aPos += 3;
           if (d<0) {
-            res.withSyntaxError("Invalid date specification - use dd.monthname");
+            aResult.withSyntaxError("Invalid date specification - use dd.monthname");
             return;
           }
         }
-        else if (aExpr[aPos]=='.') {
+        else if (aCode[aPos]=='.') {
           // must be dd.mm. (with mm. alone, sscanf would have eaten it)
           aPos = b;
           int l;
-          if (sscanf(aExpr+aPos, "%d.%d.%n", &d, &m, &l)!=2) {
-            res.withSyntaxError("Invalid date specification - use dd.mm.");
+          if (sscanf(aCode+aPos, "%d.%d.%n", &d, &m, &l)!=2) {
+            aResult.withSyntaxError("Invalid date specification - use dd.mm.");
             return;
           }
           aPos += l;
@@ -625,7 +610,7 @@ void EvaluationContext::parseNumericLiteral(ExpressionValue &res, const char* aE
       }
     }
   }
-  res.withNumber(v);
+  aResult.withNumber(v);
 }
 
 

@@ -149,7 +149,7 @@ namespace p44 {
   /// @return ok, or error in case the result processing wants to pass on a evaluation error or an error of its own.
   typedef boost::function<ErrorPtr (ExpressionValue aEvaluationResult, EvaluationContext &aContext)> EvaluationResultCB;
 
-
+  /// Evaluation mode
   typedef enum {
     evalmode_unspecific, ///< no specific mode
     evalmode_initial, ///< initial evaluator run
@@ -158,8 +158,6 @@ namespace p44 {
     evalmode_script, ///< evaluate as script code
     evalmode_syntaxcheck ///< just check syntax, no side effects
   } EvalMode;
-
-
 
   // Operator syntax mode
   #define EXPRESSION_OPERATOR_MODE_FLEXIBLE 0
@@ -187,8 +185,6 @@ namespace p44 {
 
   protected:
 
-    // ######################## NEW
-
     // operations with precedence
     typedef enum {
       op_none       = 0x06,
@@ -210,12 +206,14 @@ namespace p44 {
       opmask_precedence = 0x0F
     } Operations;
 
-    // Evaluation parameters (set before execution starts, not changed afterwards, no nested state)
+    /// @name Evaluation parameters (set before execution starts, not changed afterwards, no nested state)
+    /// @{
     EvalMode evalMode; ///< the current evaluation mode
     const GeoLocation* geolocationP; ///< if set, the current geolocation (e.g. for sun time functions)
     string codeString; ///< the code to evaluate
     bool synchronous; ///< the code must run synchronously to the end, execution may NOT be yielded
     int evalLogLevel; ///< if set, processing the script will output log info
+    /// @}
 
     /// @name  Evaluation state
     /// @{
@@ -225,38 +223,40 @@ namespace p44 {
     MLTicket execTicket; ///< a ticket for timed steps that are part of the execution
 
     typedef enum {
+      // Script States
+      // - basic statements
       s_body, ///< at the body level (end of expression ends body)
-      //s_functionbody, ///< within the body of a user defined function
       s_block, ///< within a block, exists when '}' is encountered, but skips ';'
       s_oneStatement, ///< a single statement, exits when ';' is encountered
       s_noStatement, ///< pop back one level
-      s_returnValue, ///< return value calculation
-
+      s_returnValue, ///< "return" statement value calculation
+      // - if then else
       s_ifCondition, ///< executing the condition of an if
       s_ifTrueStatement, ///< executing the if statement
       s_elseStatement, ///< executing the else statement
-
+      // - while
+      s_whileCondition, ///< executing the condition of a while
+      s_whileStatement, ///< executing the while statement
+      // - assignment to variables
       s_assignToVar, ///< assign result of an expression to a variable
-
+      // Expression States
+      // - expression
       s_newExpression, ///< at the beginning of an expression which only ends syntactically (end of code, delimiter, etc.) -> resets precedence
       s_expression, ///< handle (sub)expression start, precedence inherited or set by caller
       s_groupedExpression, ///< handling a paranthesized subexpression result
       s_exprFirstTerm, ///< first term of an expression
       s_exprLeftSide, ///< left side of an ongoing expression
       s_exprRightSide, ///< further terms of an expression
-
+      // - simple terms
       s_simpleTerm, ///< at the beginning of a term
       s_funcArg, ///< handling a function argument
       s_funcExec, ///< handling function execution
-
+      // - result delivery and error checking
       s_result, ///< result of an expression or term
-
-
+      // - completion
       s_complete, ///< completing evaluation
       s_abort, ///< aborting evaluation
-
       s_finalize, ///< ending, will pop last stack frame
-
     } EvalState; ///< the state of the evaluation in the current frame
 
     // The stack
@@ -279,8 +279,57 @@ namespace p44 {
     StackList stack; ///< the stack
 
     StackFrame &sp() { return stack.back(); } ///< current stackpointer
-
     /// @}
+
+    /// @name timed evaluation and result freezing
+    /// @{
+    EvaluationResultCB evaluationResultHandler; ///< called when a evaluation started by triggerEvaluation() completes (includes re-evaluations)
+    MLMicroSeconds nextEvaluation; ///< time when executed functions would like to see the next evaluation (used by TimedEvaluationContext)
+
+    /// unused here, only actually in use by TimedEvaluationContext
+    class FrozenResult
+    {
+    public:
+      ExpressionValue frozenResult; ///< the frozen result
+      MLMicroSeconds frozenUntil; ///< until when the value remains frozen, Infinite if forever (until explicitly unfrozen)
+      /// @return true if still frozen (not expired yet)
+      bool frozen();
+    };
+    /// @}
+
+  public:
+
+    EvaluationContext(const GeoLocation* aGeoLocationP = NULL);
+    virtual ~EvaluationContext();
+
+    /// set code to evaluate
+    /// @param aCode set the expression to be evaluated in this context
+    /// @note setting an expression that differs from the current one unfreezes any frozen arguments
+    /// @return true if expression actually changed (not just set same expession again)
+    bool setCode(const string aCode);
+
+    /// get current code
+    const char *getCode() { return codeString.c_str(); };
+
+    /// evaluate code synchonously
+    /// @param aEvalMode if specified, the evaluation mode for this evaluation. Defaults to current evaluation mode.
+    /// @param aScheduleReEval if true, re-evaluations as demanded by evaluated expression are scheduled (NOP in base class)
+    /// @return expression result
+    /// @note does NOT trigger the evaluation result handler
+    virtual ExpressionValue evaluateSynchronously(EvalMode aEvalMode = evalmode_unspecific, bool aScheduleReEval = false);
+
+    /// set re-evaluation callback
+    /// @param aEvaluationResultHandler is called when a evaluation started by triggerEvaluation() completes
+    ///   (which includes delayed re-evaluations the context triggers itself, e.g. when timed functions are called)
+    void setEvaluationResultHandler(EvaluationResultCB aEvaluationResultHandler);
+
+    /// trigger a (re-)evaluation
+    /// @param aEvalMode the evaluation mode for this evaluation.
+    /// @note evaluation result handler will be called when complete
+    /// @return ok, or error if expression could not be evaluated
+    ErrorPtr triggerEvaluation(EvalMode aEvalMode);
+
+  protected:
 
     /// @name Evaluation state machine entry points
     /// @note At any one of these entry points the following conditions must be met
@@ -314,7 +363,7 @@ namespace p44 {
     /// @note all routines called must have the same signature as resumeEvaluation()
     virtual bool resumeEvaluation();
 
-    /// expression processing resume points
+    /// expression processing resume entry points
     bool resumeExpression();
     bool resumeGroupedExpression();
     bool resumeTerm();
@@ -322,18 +371,8 @@ namespace p44 {
     /// @}
 
 
-    /// get char at position
-    /// @param aPos position
-    /// @return character at aPos, or 0 if aPos is out of range
-    char code(size_t aPos) const { if (aPos>=codeString.size()) return 0; else return codeString[aPos]; }
-
-    /// @return current character (at pos), or 0 if at end of code
-    char currentchar() const { return code(pos); }
-
-    /// @param aPos position
-    /// @return c_str of the tail starting at aPos
-    const char *tail(size_t aPos) const { if (aPos>codeString.size()) aPos=codeString.size(); return codeString.c_str()+aPos; }
-
+    /// @name Stack management
+    /// @{
 
     /// switch state in the current stack frame
     /// @param aNewState the new state to switch the current stack frame to
@@ -354,20 +393,37 @@ namespace p44 {
     /// @return true for convenience to be used in non-yieled returns
     bool popAndPassResult(ExpressionValue aResult);
 
+    /// @}
 
+
+    /// @name code parsing utilities
+    /// @{
+
+    /// get char at position
+    /// @param aPos position
+    /// @return character at aPos, or 0 if aPos is out of range
+    char code(size_t aPos) const { if (aPos>=codeString.size()) return 0; else return codeString[aPos]; }
+
+    /// @return current character (at pos), or 0 if at end of code
+    char currentchar() const { return code(pos); }
+
+    /// skip white space
+    void skipWhiteSpace();
+    void skipWhiteSpace(size_t& aPos);
+
+    /// @param aPos position
+    /// @return c_str of the tail starting at aPos
+    const char *tail(size_t aPos) const { if (aPos>codeString.size()) aPos=codeString.size(); return codeString.c_str()+aPos; }
 
     /// set result to specified error and abort
     bool abortWithError(ErrorPtr aError);
     bool abortWithError(ExpressionError::ErrorCodes aErrCode, const char *aFmt, ...) __printflike(3,4);
     bool abortWithSyntaxError(const char *aFmt, ...) __printflike(2,3);
 
+    /// helper to exit evaluateFunction/evaluateAsyncFunction indicating a argument with an error
+    bool errorInArg(ExpressionValue aArg, const char *aExtraPrefix = NULL);
 
-
-    /// skip white space
-    void skipWhiteSpace();
-    void skipWhiteSpace(size_t& aPos);
-
-    /// skip identifier
+    /// check for and get identifier
     /// @param aLen return size of identifier found (0 if none)
     /// @return pointer to start of identifier, or NULL if none found
     const char* getIdentifier(size_t& aLen);
@@ -375,68 +431,16 @@ namespace p44 {
     /// parse operator (also see EXPRESSION_OPERATOR_MODE definition)
     Operations parseOperator(size_t &aPos);
 
+    /// parse a numeric literal (includes our special time and date formats)
+    /// @param aResult will receive the result of the parsing
+    /// @param aCode the code to parse within
+    /// @param aPos the position of the literal to parse within the code
+    static void parseNumericLiteral(ExpressionValue &aResult, const char* aCode, size_t& aPos);
 
-  public:
+    /// @}
 
 
-
-  protected:
-
-    // ######################## OLD, but keep
-
-    EvaluationResultCB evaluationResultHandler; ///< called when a evaluation started by triggerEvaluation() completes (includes re-evaluations)
-    MLMicroSeconds nextEvaluation; ///< time when executed functions would like to see the next evaluation (used by TimedEvaluationContext)
-
-    /// unused here, only actually in use by TimedEvaluationContext
-    class FrozenResult
-    {
-    public:
-      ExpressionValue frozenResult; ///< the frozen result
-      MLMicroSeconds frozenUntil; ///< until when the value remains frozen, Infinite if forever (until explicitly unfrozen)
-      /// @return true if still frozen (not expired yet)
-      bool frozen();
-    };
-
-    // ######################## OLD, get rid of, probably
-
-  public:
-
-    EvaluationContext(const GeoLocation* aGeoLocationP = NULL);
-    virtual ~EvaluationContext();
-
-    /// set re-evaluation callback
-    /// @param aEvaluationResultHandler is called when a evaluation started by triggerEvaluation() completes
-    ///   (which includes delayed re-evaluations the context triggers itself, e.g. when timed functions are called)
-    void setEvaluationResultHandler(EvaluationResultCB aEvaluationResultHandler);
-
-    /// set code to evaluate
-    /// @param aCode set the expression to be evaluated in this context
-    /// @note setting an expression that differs from the current one unfreezes any frozen arguments
-    /// @return true if expression actually changed (not just set same expession again)
-    bool setCode(const string aCode);
-
-    /// get current code
-    const char *getCode() { return codeString.c_str(); };
-
-    /// evaluate code synchonously
-    /// @param aEvalMode if specified, the evaluation mode for this evaluation. Defaults to current evaluation mode.
-    /// @param aScheduleReEval if true, re-evaluations as demanded by evaluated expression are scheduled (NOP in base class)
-    /// @return expression result
-    /// @note does NOT trigger the evaluation result handler
-    virtual ExpressionValue evaluateSynchronously(EvalMode aEvalMode = evalmode_unspecific, bool aScheduleReEval = false);
-
-    /// trigger a (re-)evaluation
-    /// @param aEvalMode the evaluation mode for this evaluation.
-    /// @note evaluation result handler will be called when complete
-    /// @return ok, or error if expression could not be evaluated
-    ErrorPtr triggerEvaluation(EvalMode aEvalMode);
-
-    static void skipWhiteSpace(const char *aExpr, size_t& aPos);
-    static bool skipIdentifier(const char *aExpr, size_t& aPos);
-
-  protected:
-
-    /// @name to be overridden and enhanced in subclasses
+    /// @name virtual methods that can be overridden in subclasses to extend functionality
     /// @{
 
     /// release all evaluation state (none in base class)
@@ -462,9 +466,6 @@ namespace p44 {
     /// @return true if function executed, false if function signature is unknown
     /// @note this method will not be called when context is set to execute synchronously, so these functions will not be available then.
     virtual bool evaluateAsyncFunction(const string &aFunc, const FunctionArgumentVector &aArgs, bool &aNotYielded);
-
-    /// helper to exit evaluateFunction/evaluateAsyncFunction indicating a argument with an error
-    bool errorInArg(ExpressionValue aArg, const char *aExtraPrefix = NULL);
 
     /// @}
 
@@ -500,24 +501,6 @@ namespace p44 {
 
     /// @}
 
-
-    /// evaluate (sub)expression
-    /// @param aExpr the beginning of the entire expression (important for freezing subexpressions via their string position)
-    /// @param aPos the current position of evaluation within aExpr
-    /// @param aPrecedence encountering a operator with precedence lower or same as aPrecedence will stop parsing the expression
-    /// @param aStopChars list of characters that stop the evaluation of an expression (e.g. to make argument processing stop at ')' and ','
-    /// @param aNeedStopChar if set, one of the stopchars is REQUIRED and will be skipped. If not stopped by a stopchar, error is returned
-    /// @param aEvalMode evaluation mode
-    /// @return expression result
-    ExpressionValue evaluateExpressionPrivate(const char *aExpr, size_t &aPos, int aPrecedence, const char *aStopChars, bool aNeedStopChar, EvalMode aEvalMode);
-
-  private:
-
-    static void parseNumericLiteral(ExpressionValue &res, const char* aExpr, size_t& aPos);
-
-    static void evaluateNumericLiteral(ExpressionValue &res, const string &term);
-    ExpressionValue evaluateTerm(const char *aExpr, size_t &aPos, EvalMode aEvalMode);
-
   };
   typedef boost::intrusive_ptr<EvaluationContext> EvaluationContextPtr;
 
@@ -530,7 +513,7 @@ namespace p44 {
     typedef EvaluationContext inherited;
 
     typedef std::map<string, ExpressionValue> VariablesMap;
-    VariablesMap variables;
+    VariablesMap variables; ///< script local variables
 
   public:
 
@@ -562,21 +545,12 @@ namespace p44 {
     /// resume evaluation where we left off when we last yielded
     virtual bool resumeEvaluation() P44_OVERRIDE;
 
-    /// resume running one or a list of statements
+    /// script processing resume entry points
     bool resumeStatements();
-
-    /// resume a if / else statement
     bool resumeIfElse();
-
-    /// resume a assignment
     bool resumeAssignment();
 
     /// @}
-
-
-  private:
-
-
   };
 
   #endif // EXPRESSION_SCRIPT_SUPPORT
@@ -605,7 +579,6 @@ namespace p44 {
     virtual ExpressionValue evaluateSynchronously(EvalMode aEvalMode, bool aScheduleReEval = false) P44_OVERRIDE;
 
     /// schedule latest re-evaluation time. If an earlier evaluation time is already scheduled, nothing will happen
-    /// @note this will cancel a possibly already scheduled re-evaluation unconditionally
     void scheduleLatestEvaluation(MLMicroSeconds aAtTime);
 
     /// schedule a re-evaluation at given time
