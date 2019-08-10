@@ -109,21 +109,26 @@ namespace p44 {
 
   /// callback function for obtaining variables
   /// @param aName the name of the value/variable to look up
-  /// @return Expression value (with error when value is not available)
-  typedef boost::function<ExpressionValue (const string &aName)> ValueLookupCB;
+  /// @param aResult set the value here
+  /// @return true if value returned, false if value is unknown
+  typedef boost::function<bool (const string &aName, ExpressionValue &aResult)> ValueLookupCB;
 
-  /// callback function for function evaluation
+
+  typedef std::vector<ExpressionValue> FunctionArgumentVector;
+
+/// callback function for function evaluation
   /// @param aFunc the name of the function to execute
   /// @param aArgs vector of function arguments, tuple contains expression starting position and value
-  typedef std::vector<ExpressionValue> FunctionArgumentVector;
-  typedef boost::function<ExpressionValue (const string &aFunc, const FunctionArgumentVector &aArgs)> FunctionLookupCB;
+  /// @param aResult set to function's result
+  /// @return true if function executed, false if function signature (name, number of args) is unknown
+  typedef boost::function<bool (const string& aFunc, const FunctionArgumentVector& aArgs, ExpressionValue& aResult)> FunctionLookupCB;
 
   /// evaluate expression
   /// @param aExpression the expression text
   /// @param aValueLookupCB this will be called to get variables resolved into values
   /// @param aFunctionLookpCB this will be called to execute functions that are not built-in
   /// @return the result of the expression
-  ExpressionValue evaluateExpression(const string &aExpression, ValueLookupCB aValueLookupCB, FunctionLookupCB aFunctionLookpCB);
+  ExpressionValue evaluateExpression(const string& aExpression, ValueLookupCB aValueLookupCB, FunctionLookupCB aFunctionLookpCB);
 
   /// substitute "@{xxx}" type expression placeholders in string
   /// @param aString string to replace placeholders in
@@ -132,7 +137,7 @@ namespace p44 {
   /// @param aNullText this will be used as substitution for expressions with errors or null value
   /// @return returns first error occurred during substitutions. Note that only unbalanced substitution brackets @{xxx} abort substitution,
   ///    other errors just cause substitution result to be aNullText.
-  ErrorPtr substituteExpressionPlaceholders(string &aString, ValueLookupCB aValueLookupCB, FunctionLookupCB aFunctionLookpCB, string aNullText = "null");
+  ErrorPtr substituteExpressionPlaceholders(string& aString, ValueLookupCB aValueLookupCB, FunctionLookupCB aFunctionLookpCB, string aNullText = "null");
 
 
 
@@ -439,8 +444,9 @@ namespace p44 {
 
     /// lookup variables by name
     /// @param aName the name of the value/variable to look up
-    /// @return value (with error when value is not available)
-    virtual ExpressionValue valueLookup(const string &aName);
+    /// @param aResult set the value here
+    /// @return true if value returned, false if value is unknown
+    virtual bool valueLookup(const string &aName, ExpressionValue &aResult);
 
     /// evaluation of synchronously implemented functions which immediately return a result
     /// @param aFunc the name of the function to execute
@@ -538,8 +544,9 @@ namespace p44 {
 
     /// lookup variables by name
     /// @param aName the name of the value/variable to look up
-    /// @return value (with error when value is not available)
-    virtual ExpressionValue valueLookup(const string &aName) P44_OVERRIDE;
+    /// @param aResult set the value here
+    /// @return true if value returned, false if value is unknown
+    virtual bool valueLookup(const string &aName, ExpressionValue &aResult)  P44_OVERRIDE;
 
     /// script context specific functions
     virtual bool evaluateFunction(const string &aFunc, const FunctionArgumentVector &aArgs, ExpressionValue &aResult) P44_OVERRIDE;

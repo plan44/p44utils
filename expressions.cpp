@@ -118,7 +118,8 @@ double ExpressionValue::numValue() const
   if (!isOk()) return 0;
   if (!isString()) return numVal;
   ExpressionValue v(0);
-  EvaluationContext::evaluateNumericLiteral(v, *strValP);
+  size_t lpos = 0;
+  EvaluationContext::parseNumericLiteral(v, strValP->c_str(), lpos);
   return v.numVal;
 }
 
@@ -537,234 +538,16 @@ bool EvaluationContext::resumeEvaluation()
 }
 
 
-
-
-
 // no variables in base class
-ExpressionValue EvaluationContext::valueLookup(const string &aName)
+bool EvaluationContext::valueLookup(const string &aName, ExpressionValue &aResult)
 {
   // no variables by default
-  return ExpressionValue::errValue(ExpressionError::NotFound, "no variable named '%s'", aName.c_str());
+  return false;
 }
+
 
 static const char * const monthNames[12] = { "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec" };
 static const char * const weekdayNames[7] = { "sun", "mon", "tue", "wed", "thu", "fri", "sat" };
-
-void EvaluationContext::evaluateNumericLiteral(ExpressionValue &res, const string &term)
-{
-  double v;
-  int i;
-  if (sscanf(term.c_str(), "%lf%n", &v, &i)!=1) {
-    res.withSyntaxError("'%s' is not a valid number, time or date", term.c_str());
-    return;
-  }
-  else {
-    // check for time/date literals
-    // - time literals (returned in seconds) are in the form h:m or h:m:s, where all parts are allowed to be fractional
-    // - month/day literals (returned in yeardays) are in the form dd.monthname or dd.mm. (mid the closing dot)
-    if (term.size()>i) {
-      if (term[i]==':') {
-        // we have 'v:', could be time
-        double t;
-        int j;
-        if (sscanf(term.c_str()+i+1, "%lf%n", &t, &j)!=1) {
-          res.withSyntaxError("'%s' is not a valid time specification (hh:mm or hh:mm:ss)", term.c_str());
-          return;
-        }
-        else {
-          // we have v:t, take these as hours and minutes
-          v = (v*60+t)*60; // in seconds
-          j += i+1;
-          if (term.size()>j && term[j]==':') {
-            // apparently we also have seconds
-            if (sscanf(term.c_str()+j+1, "%lf", &t)!=1) {
-              res.withSyntaxError("'%s' time specification has invalid seconds (hh:mm:ss)", term.c_str());
-              return;
-            }
-            v += t; // add the seconds
-          }
-        }
-      }
-      else {
-        int m; int d = -1;
-        if (term[i-1]=='.' && isalpha(term[i])) {
-          // could be dd.monthname
-          string mn = lowerCase(term.substr(i));
-          for (m=0; m<12; m++) {
-            if (mn==monthNames[m]) {
-              // valid monthname following number
-              // v = day, m = month-1
-              m += 1;
-              d = v;
-              break;
-            }
-          }
-          if (d<0) {
-            res.withSyntaxError("'%s' date specification is invalid (dd.monthname)", term.c_str());
-            return;
-          }
-        }
-        else if (term[i]=='.') {
-          // must be dd.mm. (with mm. alone, sscanf would have eaten it)
-          if (sscanf(term.c_str(), "%d.%d.", &d, &m)!=2) {
-            res.withSyntaxError("'%s' date specification is invalid (dd.mm.)", term.c_str());
-            return;
-          }
-        }
-        else {
-          res.withSyntaxError("unexpected chars in term: '%s'", term.c_str());
-          return;
-        }
-        if (d>=0) {
-          struct tm loctim; MainLoop::getLocalTime(loctim);
-          loctim.tm_hour = 12; loctim.tm_min = 0; loctim.tm_sec = 0; // noon - avoid miscalculations that could happen near midnight due to DST offsets
-          loctim.tm_mon = m-1;
-          loctim.tm_mday = d;
-          mktime(&loctim);
-          v = loctim.tm_yday;
-        }
-      }
-    }
-  }
-  res.withNumber(v);
-}
-
-
-ExpressionValue EvaluationContext::evaluateTerm(const char *aExpr, size_t &aPos, EvalMode aEvalMode)
-{
-  ExpressionValue res;
-  res.pos = aPos;
-  // a simple term can be
-  // - a variable reference or
-  // - a literal number or timespec (h:m or h:m:s)
-  // - a literal string (C-string like)
-  // Note: a parantesized expression can also be a term, but this is parsed by the caller, not here
-  skipWhiteSpace(aExpr, aPos);
-  if (aExpr[aPos]=='"' || aExpr[aPos]=='\'') {
-    // string literal (c-like with double quotes or php-like with single quotes and no escaping inside)
-    char delimiter = aExpr[aPos];
-    string str;
-    aPos++;
-    char c;
-    while(true) {
-      c = aExpr[aPos];
-      if (c==delimiter) {
-        if (delimiter=='\'' && aExpr[aPos+1]==delimiter) {
-          // single quoted strings allow including delimiter by doubling it
-          str += delimiter;
-          aPos += 2;
-          continue;
-        }
-        break; // end of string
-      }
-      if (c==0) return res.withSyntaxError("unterminated string, missing %c delimiter", delimiter).withPos(aPos);
-      if (delimiter!='\'' && c=='\\') {
-        c = aExpr[++aPos];
-        if (c==0) res.withSyntaxError("incomplete \\-escape").withPos(aPos);
-        else if (c=='n') c='\n';
-        else if (c=='r') c='\r';
-        else if (c=='t') c='\t';
-        else if (c=='x') {
-          unsigned int h = 0;
-          aPos++;
-          if (sscanf(aExpr+aPos, "%02x", &h)==1) aPos++;
-          c = (char)h;
-        }
-        // everything else
-      }
-      str += c;
-      aPos++;
-    }
-    aPos++; // skip closing quote
-    res.setString(str);
-  }
-  else {
-    // extract var name or number
-    size_t e = aPos;
-    while (aExpr[e] && (isalnum(aExpr[e]) || aExpr[e]=='.' || aExpr[e]=='_' || aExpr[e]==':')) e++;
-    if (e==aPos) {
-      return res.withSyntaxError("missing term");
-    }
-    // must be simple term
-    string term;
-    term.assign(aExpr+aPos, e-aPos);
-    aPos = e; // advance cursor
-    skipWhiteSpace(aExpr, aPos); // skip trailing whitespace
-    // decode term
-    if (isalpha(term[0])) {
-      ErrorPtr err;
-      // must be a variable or function call
-      if (aExpr[aPos]=='(') {
-        // function call
-        aPos++; // skip opening paranthesis
-        // - collect arguments
-        FunctionArgumentVector args;
-        skipWhiteSpace(aExpr, aPos);
-        while (aExpr[aPos]!=')') {
-          if (args.size()>0) aPos++; // skip the separating comma
-          ExpressionValue arg = evaluateExpressionPrivate(aExpr, aPos, 0, ",)", true, aEvalMode);
-          if (!arg.valueOk()) return arg; // exit, except on null which is ok as a function argument
-          args.push_back(arg);
-        }
-        aPos++; // skip closing paranthesis
-        ELOG("Function '%s' called", term.c_str());
-        for (FunctionArgumentVector::iterator pos = args.begin(); pos!=args.end(); ++pos) {
-          ELOG("- argument at char pos=%zu: %s (err=%s)", pos->pos, pos->stringValue().c_str(), Error::text(pos->err));
-        }
-        // run function
-        ExpressionValue fnres;
-        if (!sp().skipping) {
-          if (!evaluateFunction(lowerCase(term), args, fnres)) {
-            res.withError(ExpressionError::NotFound, "Unknown function '%s' with %lu arguments", term.c_str(), args.size());
-          }
-          else {
-            res.withValue(fnres);
-          }
-        }
-      }
-      else {
-        // check some reserved values
-        if (term=="true" || term=="yes") {
-          res.withNumber(1);
-        }
-        else if (term=="false" || term=="no") {
-          res.withNumber(0);
-        }
-        else if (term=="null" || term=="undefined") {
-          res.withError(ExpressionError::Null, "%s", term.c_str());
-        }
-        else if (!sp().skipping) {
-          // must be identifier representing a variable value
-          res.withValue(valueLookup(term));
-          if (res.notOk() && res.err->isError(ExpressionError::domain(), ExpressionError::NotFound)) {
-            // also match some convenience pseudo-vars
-            string dn = lowerCase(term);
-            for (int w=0; w<7; w++) {
-              if (dn==weekdayNames[w]) {
-                res.withError(ErrorPtr()); // clear not-found error
-                res.withNumber(w); // return numeric value of weekday
-                break;
-              }
-            }
-          }
-        }
-      }
-    }
-    else {
-      // must be a numeric literal (can also be a time literal in hh:mm:ss or hh:mm form or a yearday in dd.monthname or dd.mm. form)
-      evaluateNumericLiteral(res, term);
-    }
-  }
-  // valid term
-  if (res.isOk() && !sp().skipping) {
-    ELOG("Term '%.*s' evaluation result: %s", (int)(aPos-res.pos), aExpr+res.pos, res.stringValue().c_str());
-  }
-  else {
-    ELOG("Term '%.*s' evaluation error: %s", (int)(aPos-res.pos), aExpr+res.pos, Error::text(res.err));
-  }
-  return res;
-}
-
 
 void EvaluationContext::parseNumericLiteral(ExpressionValue &res, const char* aExpr, size_t& aPos)
 {
@@ -846,94 +629,6 @@ void EvaluationContext::parseNumericLiteral(ExpressionValue &res, const char* aE
 }
 
 
-
-// FIXME: legacy, remove
-typedef enum {
-  op_none       = 0x06,
-  op_not        = 0x16,
-  op_multiply   = 0x25,
-  op_divide     = 0x35,
-  op_add        = 0x44,
-  op_subtract   = 0x54,
-  op_equal      = 0x63,
-  op_assignOrEq = 0x73,
-  op_notequal   = 0x83,
-  op_less       = 0x93,
-  op_greater    = 0xA3,
-  op_leq        = 0xB3,
-  op_geq        = 0xC3,
-  op_and        = 0xD2,
-  op_or         = 0xE2,
-  op_assign     = 0xF0,
-  opmask_precedence = 0x0F
-} Operations;
-
-// a + 3 * 4
-
-
-
-// FIXME: legacy, remove
-static Operations parseOperator(const char *aExpr, size_t &aPos)
-{
-  p44::EvaluationContext::skipWhiteSpace(aExpr, aPos);
-  // check for operator
-  Operations op = op_none;
-  switch (aExpr[aPos++]) {
-    // assignment and equality
-    case ':': {
-      if (aExpr[aPos]!='=') goto no_op;
-      aPos++; op = op_assign; break;
-    }
-    case '=': {
-      if (aExpr[aPos]=='=') {
-        aPos++; op = op_equal; break;
-      }
-      #if EXPRESSION_OPERATOR_MODE==EXPRESSION_OPERATOR_MODE_C
-      op = op_assign; break;
-      #elif EXPRESSION_OPERATOR_MODE==EXPRESSION_OPERATOR_MODE_PASCAL
-      op = op_equal; break;
-      #else
-      op = op_assignOrEq; break;
-      #endif
-    }
-    case '*': op = op_multiply; break;
-    case '/': op = op_divide; break;
-    case '+': op = op_add; break;
-    case '-': op = op_subtract; break;
-    case '&': op = op_and; break;
-    case '|': op = op_or; break;
-    case '<': {
-      if (aExpr[aPos]=='=') {
-        aPos++; op = op_leq; break;
-      }
-      else if (aExpr[aPos]=='>') {
-        aPos++; op = op_notequal; break;
-      }
-      op = op_less; break;
-    }
-    case '>': {
-      if (aExpr[aPos]=='=') {
-        aPos++; op = op_geq; break;
-      }
-      op = op_greater; break;
-    }
-    case '!': {
-      if (aExpr[aPos]=='=') {
-        aPos++; op = op_notequal; break;
-      }
-      op = op_not; break;
-      break;
-    }
-    default:
-    no_op:
-      --aPos; // no expression char
-      return op_none;
-  }
-  p44::EvaluationContext::skipWhiteSpace(aExpr, aPos);
-  return op;
-}
-
-
 EvaluationContext::Operations EvaluationContext::parseOperator(size_t &aPos)
 {
   skipWhiteSpace(aPos);
@@ -995,7 +690,7 @@ EvaluationContext::Operations EvaluationContext::parseOperator(size_t &aPos)
 }
 
 
-
+// MARK: - expression state machine entry points
 
 
 bool EvaluationContext::resumeExpression()
@@ -1207,18 +902,22 @@ bool EvaluationContext::resumeTerm()
           }
           else if (!sp().skipping) {
             // must be identifier representing a variable value
-            sp().res.withValue(valueLookup(sp().identifier));
-            if (sp().res.notOk() && sp().res.err->isError(ExpressionError::domain(), ExpressionError::NotFound)) {
+            if (!valueLookup(sp().identifier, sp().res)) {
               // also match some convenience pseudo-vars
+              bool pseudovar = false;
               if (idsz==3) {
                 // Optimisation, all weekdays have 3 chars
                 for (int w=0; w<7; w++) {
                   if (strncasecmp(weekdayNames[w], idpos, idsz)==0) {
                     sp().res.withError(ErrorPtr()); // clear not-found error
                     sp().res.withNumber(w); // return numeric value of weekday
+                    pseudovar = true;
                     break;
                   }
                 }
+              }
+              if (!pseudovar) {
+                abortWithError(ExpressionError::NotFound, "no variable named '%s'", sp().identifier.c_str());
               }
             }
           }
@@ -1268,103 +967,6 @@ bool EvaluationContext::resumeTerm()
 }
 
 
-
-// FIXME: legacy, remove
-ExpressionValue EvaluationContext::evaluateExpressionPrivate(const char *aExpr, size_t &aPos, int aPrecedence, const char *aStopChars, bool aNeedStopChar, EvalMode aEvalMode)
-{
-  ExpressionValue res;
-  res.pos = aPos;
-  // check for optional unary op
-  ::Operations unaryop = ::parseOperator(aExpr, aPos);
-  if (unaryop!=::op_none) {
-    if (unaryop!=::op_subtract && unaryop!=::op_not) {
-      return res.withSyntaxError("invalid unary operator");
-    }
-  }
-  // evaluate term
-  // - check for paranthesis term
-  if (aExpr[aPos]=='(') {
-    // term is expression in paranthesis
-    aPos++;
-    res = evaluateExpressionPrivate(aExpr, aPos, 0, ")", false, aEvalMode);
-    if (aExpr[aPos]!=')') {
-      return res.withSyntaxError("Missing ')'").withPos(aPos);
-    }
-    aPos++;
-    if (res.syntaxOk()) return res;
-  }
-  else {
-    // must be simple term
-    res = evaluateTerm(aExpr, aPos, aEvalMode);
-    if (Error::isError(res.err, ExpressionError::domain(), ExpressionError::Syntax)) return res;
-  }
-  // apply unary ops if any
-  switch (unaryop) {
-    case ::op_not : res.setNumber(res.numValue() > 0 ? 0 : 1); break;
-    case ::op_subtract : res.setNumber(-res.numValue()); break;
-    default: break;
-  }
-  while (aExpr[aPos]) {
-    // now check for operator and precedence
-    size_t opIdx = aPos;
-    ::Operations binaryop = ::parseOperator(aExpr, opIdx);
-    int precedence = binaryop & opmask_precedence;
-    // end parsing here if end of text, stopchar or operator with a lower or same precedence as the passed in precedence is reached
-    if ((aStopChars && strchr(aStopChars, aExpr[opIdx])) || precedence<=aPrecedence)
-      break; // break because of stopchar or end of higher precedence subexpression
-    if (aExpr[opIdx]==0) {
-      // end of text
-      if (aStopChars && aNeedStopChar) return res.withSyntaxError("expected one of %s", aStopChars);
-      break;
-    }
-    // prevent loop
-    if (binaryop==::op_none) {
-      return res.withSyntaxError("Invalid operator: '%s'", aExpr+opIdx).withPos(aPos);
-    }
-    // must parse right side of operator as subexpression
-    aPos = opIdx; // advance past operator
-    ExpressionValue rightside = evaluateExpressionPrivate(aExpr, aPos, precedence, aStopChars, aNeedStopChar, aEvalMode);
-    if (!sp().skipping) {
-      // - (in)equality comparison is the only thing that also inlcudes "undefined", so do it first
-      if (binaryop==::op_equal || binaryop==::op_assignOrEq)
-        res.setBool(res == rightside);
-      else if (binaryop==::op_notequal)
-        res.setBool(res != rightside);
-      else {
-        if (rightside.notOk()) res=rightside;
-        if (res.isOk()) {
-          // apply the operation between leftside and rightside
-          switch (binaryop) {
-            case ::op_not: {
-              return res.withSyntaxError("NOT operator not allowed here").withPos(aPos);
-            }
-            case ::op_divide: res.withValue(res / rightside); break;
-            case ::op_multiply: res.withValue(res * rightside); break;
-            case ::op_add: res.withValue(res + rightside); break;
-            case ::op_subtract: res.withValue(res - rightside); break;
-            case ::op_less: res.setBool(res < rightside); break;
-            case ::op_greater: res.setBool(!(res < rightside) && !(res == rightside)); break;
-            case ::op_leq: res.setBool((res < rightside) || (res == rightside)); break;
-            case ::op_geq: res.setBool(!(res < rightside)); break;
-            case ::op_and: res.withValue(res && rightside); break;
-            case ::op_or: res.withValue(res || rightside); break;
-            default: break;
-          }
-        }
-      }
-      if (res.isOk()) {
-        ELOG("Intermediate expression '%.*s' evaluation result: %s", (int)(aPos-res.pos), aExpr+res.pos, res.stringValue().c_str());
-      }
-      else {
-        ELOG("Intermediate expression '%.*s' evaluation result is INVALID", (int)(aPos-res.pos), aExpr+res.pos);
-      }
-    }
-  } // while expression ongoing
-  // done
-  return res;
-}
-
-
 ExpressionValue TimedEvaluationContext::evaluateSynchronously(EvalMode aEvalMode, bool aScheduleReEval)
 {
   ExpressionValue res = inherited::evaluateSynchronously(aEvalMode, aScheduleReEval);
@@ -1387,7 +989,6 @@ ExpressionValue TimedEvaluationContext::evaluateSynchronously(EvalMode aEvalMode
   }
   return res;
 }
-
 
 
 // MARK: - standard functions available in every context
@@ -1516,32 +1117,20 @@ bool EvaluationContext::evaluateFunction(const string &aFunc, const FunctionArgu
     aResult.setString(aArgs[0].err->text());
   }
   else if (synchronous && aFunc=="eval" && aArgs.size()==1) {
-    #if !OLDEXPRESSIONS
-    // SYNCHRONOUS version of eval
     // eval(string)    have string evaluated as expression
     if (aArgs[0].notOk()) return errorInArg(aArgs[0]); // return error from argument
-    // do it all here
-    // FIXME: ugly hack for now, as we don't have separate parse spaces
-    size_t savedPos = pos;
-    size_t helperPos = codeString.size();
-    codeString.append(aArgs[0].stringValue());
-    int savedStackSize = stack.size();
-    push(s_newExpression);
-    while (stack.size()>savedStackSize) {
-      resumeEvaluation();
+    // TODO: for now we use a adhoc evaluation with access only to vars, but no functions.
+    //   later, when we have subroutine mechanisms, we'd be able to run the eval within the same context
+    aResult = p44::evaluateExpression(
+      aArgs[0].stringValue().c_str(),
+      boost::bind(&EvaluationContext::valueLookup, this, _1, _2),
+      NULL // no functions from within function for now
+    );
+    if (aResult.notOk()) {
+      FOCUSLOG("eval(\"%s\") returns error '%s' in expression: %s", aArgs[0].stringValue().c_str(), aResult.err->text(), getCode());
+      // do not cause syntax error, only invalid result, but with error message included
+      aResult.withError(Error::err<ExpressionError>(ExpressionError::Null, "eval() error: %s -> undefined", aResult.err->text()));
     }
-    // sp().res should be fine now
-    codeString.erase(helperPos);
-    aResult = sp().res;
-//    if (evalRes.notOk()) {
-//      ELOG("eval(\"%s\") returns error '%s' in expression: %s", aArgs[0].stringValue().c_str(), evalRes.err->text(), getCode());
-//      // do not cause syntax error, only invalid result, but with error message included
-//      evalRes.withError(Error::err<ExpressionError>(ExpressionError::Null, "eval() error: %s -> undefined", evalRes.err->text()));
-//    }
-//    return evalRes;
-    #else
-    return false; // no longer available
-    #endif
   }
   else if (aFunc=="is_weekday" && aArgs.size()>0) {
     struct tm loctim; MainLoop::getLocalTime(loctim);
@@ -1942,13 +1531,14 @@ bool ScriptExecutionContext::resumeIfElse()
 
 
 
-ExpressionValue ScriptExecutionContext::valueLookup(const string &aName)
+bool ScriptExecutionContext::valueLookup(const string &aName, ExpressionValue &aResult)
 {
   VariablesMap::iterator pos = variables.find(lowerCase(aName));
   if (pos!=variables.end()) {
-    return pos->second;
+    aResult = pos->second;
+    return true;
   }
-  return inherited::valueLookup(aName);
+  return inherited::valueLookup(aName, aResult);
 }
 
 
@@ -2188,20 +1778,15 @@ public:
 
 protected:
 
-  virtual ExpressionValue valueLookup(const string &aName) P44_OVERRIDE
+  virtual bool valueLookup(const string &aName, ExpressionValue &aResult) P44_OVERRIDE
   {
-    if (valueLookUp) return valueLookUp(lowerCase(aName));
-    return inherited::valueLookup(aName);
+    if (valueLookUp && valueLookUp(lowerCase(aName), aResult)) return true;
+    return inherited::valueLookup(aName, aResult);
   };
 
   virtual bool evaluateFunction(const string &aFunc, const FunctionArgumentVector &aArgs, ExpressionValue &aResult) P44_OVERRIDE
   {
-    if (functionLookUp) {
-      ExpressionValue res = functionLookUp(aFunc, aArgs);
-      if (Error::isError(res.err, ExpressionError::domain(), ExpressionError::NotFound)) return false;
-      aResult = res;
-      return true;
-    }
+    if (functionLookUp && functionLookUp(aFunc, aArgs, aResult)) return true;
     return inherited::evaluateFunction(aFunc, aArgs, aResult);
   };
 

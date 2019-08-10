@@ -33,16 +33,16 @@ public:
   ExpressionFixture() :
     inherited(NULL)
   {
-    evalLogLevel = 5;
+    evalLogLevel = 0;
   };
 
-  ExpressionValue valueLookup(const string &aName) P44_OVERRIDE
+  bool valueLookup(const string &aName, ExpressionValue &aResult) P44_OVERRIDE
   {
-    if (aName=="ua") return ExpressionValue(42);
-    else if (aName=="almostua") return ExpressionValue(42.7);
-    else if (aName=="uatext") return ExpressionValue("fortyTwo");
-    // no variables by default
-    return inherited::valueLookup(aName);
+    if (aName=="ua") aResult.setNumber(42);
+    else if (aName=="almostua") aResult.setNumber(42.7);
+    else if (aName=="uatext") aResult.setString("fortyTwo");
+    else return inherited::valueLookup(aName, aResult);
+    return true;
   }
 
   ExpressionValue runExpression(const string &aExpression)
@@ -60,16 +60,16 @@ public:
   ScriptFixture() :
     inherited(NULL)
   {
-    evalLogLevel = 5;
+    evalLogLevel = 0;
   };
 
-  ExpressionValue valueLookup(const string &aName) P44_OVERRIDE
+  bool valueLookup(const string &aName, ExpressionValue &aResult) P44_OVERRIDE
   {
-    if (aName=="ua") return ExpressionValue(42);
-    else if (aName=="almostua") return ExpressionValue(42.7);
-    else if (aName=="uatext") return ExpressionValue("fortyTwo");
-    // no variables by default
-    return inherited::valueLookup(aName);
+    if (aName=="ua") aResult.setNumber(42);
+    else if (aName=="almostua") aResult.setNumber(42.7);
+    else if (aName=="uatext") aResult.setString("fortyTwo");
+    else return inherited::valueLookup(aName, aResult);
+    return true;
   }
 
   ExpressionValue runScript(const string &aScript)
@@ -235,7 +235,8 @@ TEST_CASE_METHOD(ExpressionFixture, "Expressions", "[expressions]" )
     REQUIRE(runExpression("string(33)").stringValue() == "33");
     REQUIRE(runExpression("number('33')").numValue() == 33);
     REQUIRE(runExpression("number('0x33')").numValue() == 0x33);
-    REQUIRE(runExpression("number('33 gugus')").numValue() == 0);
+    REQUIRE(runExpression("number('33 gugus')").numValue() == 33); // best effort, ignore trailing garbage
+    REQUIRE(runExpression("number('gugus 33')").numValue() == 0); // best effort, nothing readable
     REQUIRE(runExpression("strlen('gugus')").numValue() == 5);
     REQUIRE(runExpression("substr('gugus',3)").stringValue() == "us");
     REQUIRE(runExpression("substr('gugus',3,1)").stringValue() == "u");
@@ -254,7 +255,7 @@ TEST_CASE_METHOD(ExpressionFixture, "Expressions", "[expressions]" )
 
 
   SECTION("AdHoc expression evaluation") {
-    REQUIRE(p44::evaluateExpression("42", boost::bind(&ExpressionFixture::valueLookup, this, _1), NULL).numValue() == 42 );
+    REQUIRE(p44::evaluateExpression("42", boost::bind(&ExpressionFixture::valueLookup, this, _1, _2), NULL).numValue() == 42 );
   }
 
 }
