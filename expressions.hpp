@@ -72,6 +72,7 @@ namespace p44 {
     ~ExpressionValue();
     bool operator<(const ExpressionValue& aRightSide) const;
     bool operator==(const ExpressionValue& aRightSide) const;
+    bool operator!=(const ExpressionValue& aRightSide) const;
     ExpressionValue operator+(const ExpressionValue& aRightSide) const;
     ExpressionValue operator-(const ExpressionValue& aRightSide) const;
     ExpressionValue operator*(const ExpressionValue& aRightSide) const;
@@ -154,35 +155,55 @@ namespace p44 {
   } EvalMode;
 
 
+
+  // Operator syntax mode
+  #define EXPRESSION_OPERATOR_MODE_FLEXIBLE 0
+  #define EXPRESSION_OPERATOR_MODE_C 1
+  #define EXPRESSION_OPERATOR_MODE_PASCAL 2
+  // EXPRESSION_OPERATOR_MODE_FLEXIBLE:
+  //   := is unambiguous assignment
+  //   == is unambiguous comparison
+  //   = works as assignment when used after a variable specification in scripts, and as comparison in expressions
+  // EXPRESSION_OPERATOR_MODE_C:
+  //   = and := are assignment
+  //   == is comparison
+  // EXPRESSION_OPERATOR_MODE_PASCAL:
+  //   := is assignment
+  //   = and == is comparison
+  // Note: the unabiguous "==", "<>" and "!=" are both supported in all modes
+  #ifndef EXPRESSION_OPERATOR_MODE
+    #define EXPRESSION_OPERATOR_MODE EXPRESSION_OPERATOR_MODE_FLEXIBLE
+  #endif
+
   /// Basic Expression Evaluation Context
   class EvaluationContext : public P44Obj
   {
     friend class ExpressionValue;
 
-  private:
-
-    // operations with precedence
-    typedef enum {
-      op_none     = 0x06,
-      op_not      = 0x16,
-      op_multiply = 0x25,
-      op_divide   = 0x35,
-      op_add      = 0x44,
-      op_subtract = 0x54,
-      op_equal    = 0x63,
-      op_notequal = 0x73,
-      op_less     = 0x83,
-      op_greater  = 0x93,
-      op_leq      = 0xA3,
-      op_geq      = 0xB3,
-      op_and      = 0xC2,
-      op_or       = 0xD2,
-      opmask_precedence = 0x0F
-    } Operations;
-
   protected:
 
     // ######################## NEW
+
+    // operations with precedence
+    typedef enum {
+      op_none       = 0x06,
+      op_not        = 0x16,
+      op_multiply   = 0x25,
+      op_divide     = 0x35,
+      op_add        = 0x44,
+      op_subtract   = 0x54,
+      op_equal      = 0x63,
+      op_assignOrEq = 0x73,
+      op_notequal   = 0x83,
+      op_less       = 0x93,
+      op_greater    = 0xA3,
+      op_leq        = 0xB3,
+      op_geq        = 0xC3,
+      op_and        = 0xD2,
+      op_or         = 0xE2,
+      op_assign     = 0xF0,
+      opmask_precedence = 0x0F
+    } Operations;
 
     // Evaluation parameters (set before execution starts, not changed afterwards, no nested state)
     EvalMode evalMode; ///< the current evaluation mode
@@ -213,13 +234,14 @@ namespace p44 {
       s_assignToVar, ///< assign result of an expression to a variable
 
       s_expression, ///< at the beginning of an expression
-      s_subExpression, ///< handling a paranthesized subexpression result
+      s_groupedExpression, ///< handling a paranthesized subexpression result
       s_exprFirstTerm, ///< first term of an expression
       s_exprLeftSide, ///< left side of an ongoing expression
       s_exprRightSide, ///< further terms of an expression
 
       s_simpleTerm, ///< at the beginning of a term
-
+      s_funcArg, ///< handling a function argument
+      s_funcExec, ///< handling function execution
 
       s_result, ///< result of an expression or term
 
@@ -288,7 +310,7 @@ namespace p44 {
 
     /// expression processing resume points
     bool resumeExpression();
-    bool finishSubexpression();
+    bool resumeGroupedExpression();
     bool resumeTerm();
 
     /// @}
@@ -340,13 +362,12 @@ namespace p44 {
     void skipWhiteSpace(size_t& aPos);
 
     /// skip identifier
-    /// @param aSize return size of identifier found (0 if none)
+    /// @param aLen return size of identifier found (0 if none)
     /// @return pointer to start of identifier, or NULL if none found
     const char* getIdentifier(size_t& aLen);
 
-  private:
-
-    Operator parseOperator(size_t &aPos);
+    /// parse operator (also see EXPRESSION_OPERATOR_MODE definition)
+    Operations parseOperator(size_t &aPos);
 
 
   public:
@@ -383,7 +404,7 @@ namespace p44 {
     void setEvaluationResultHandler(EvaluationResultCB aEvaluationResultHandler);
 
     /// set code to evaluate
-    /// @param aExpression set the expression to be evaluated in this context
+    /// @param aCode set the expression to be evaluated in this context
     /// @note setting an expression that differs from the current one unfreezes any frozen arguments
     /// @return true if expression actually changed (not just set same expession again)
     bool setCode(const string aCode);
@@ -396,7 +417,7 @@ namespace p44 {
     /// @param aScheduleReEval if true, re-evaluations as demanded by evaluated expression are scheduled (NOP in base class)
     /// @return expression result
     /// @note does NOT trigger the evaluation result handler
-    virtual ExpressionValue evaluateSynchronously(EvalMode aEvalMode, bool aScheduleReEval = false);
+    virtual ExpressionValue evaluateSynchronously(EvalMode aEvalMode = evalmode_unspecific, bool aScheduleReEval = false);
 
     /// trigger a (re-)evaluation
     /// @param aEvalMode the evaluation mode for this evaluation.
@@ -417,25 +438,26 @@ namespace p44 {
 
     /// lookup variables by name
     /// @param aName the name of the value/variable to look up
-    /// @param aNextEval Input: time of next re-evaluation that will happen, or Never.
-    ///   Output: reduced to more recent time when this value demands more recent re-evaulation, untouched otherwise
-    /// @return Expression value (with error when value is not available)
+    /// @return value (with error when value is not available)
     virtual ExpressionValue valueLookup(const string &aName);
 
     /// evaluation of synchronously implemented functions which immediately return a result
     /// @param aFunc the name of the function to execute
-    /// @return Expression value or error.
-    /// @note must return ExpressionError::NotFound only if function name is unknown
-    virtual ExpressionValue evaluateFunction(const string &aFunc, const FunctionArgumentVector &aArgs, EvalMode aEvalMode);
+    /// @param aResult set the function result here
+    /// @return true if function executed, false if function signature is unknown
+    virtual bool evaluateFunction(const string &aFunc, const FunctionArgumentVector &aArgs, ExpressionValue &aResult);
 
     /// evaluation of asynchronously implemented functions which may yield execution and resume later
     /// @param aFunc the name of the function to execute
-    /// @note this method will not be called when context is set to execute synchronously, so these functions will not be available then.
-    /// @return
+    /// @param aNotYielded
     /// - true when execution has not yieled and the function evaluation is complete
     /// - false when the execution of the function has yielded and resumeEvaluation() will be called to complete
-    virtual bool evaluateAsyncFunction(const string &aFunc, const FunctionArgumentVector &aArgs);
+    /// @return true if function executed, false if function signature is unknown
+    /// @note this method will not be called when context is set to execute synchronously, so these functions will not be available then.
+    virtual bool evaluateAsyncFunction(const string &aFunc, const FunctionArgumentVector &aArgs, bool &aNotYielded);
 
+    /// helper to exit evaluateFunction/evaluateAsyncFunction indicating a argument with an error
+    bool errorInArg(ExpressionValue aArg, const char *aExtraPrefix = NULL);
 
     /// @}
 
@@ -515,13 +537,11 @@ namespace p44 {
 
     /// lookup variables by name
     /// @param aName the name of the value/variable to look up
-    /// @param aNextEval Input: time of next re-evaluation that will happen, or Never.
-    ///   Output: reduced to more recent time when this value demands more recent re-evaulation, untouched otherwise
-    /// @return Expression value (with error when value is not available)
+    /// @return value (with error when value is not available)
     virtual ExpressionValue valueLookup(const string &aName) P44_OVERRIDE;
 
-    /// timed context specific functions
-    virtual ExpressionValue evaluateFunction(const string &aFunc, const FunctionArgumentVector &aArgs, EvalMode aEvalMode) P44_OVERRIDE;
+    /// script context specific functions
+    virtual bool evaluateFunction(const string &aFunc, const FunctionArgumentVector &aArgs, ExpressionValue &aResult) P44_OVERRIDE;
 
     /// @name Evaluation state machine
     /// @{
@@ -550,49 +570,6 @@ namespace p44 {
 
 
   };
-
-
-  #if NO
-
-  // ###### LEGACY execution of scripts
-  class LEGACYScriptExecutionContext : public EvaluationContext
-  {
-    typedef EvaluationContext inherited;
-
-    typedef std::map<string, ExpressionValue> VariablesMap;
-    VariablesMap variables;
-
-  public:
-
-    LEGACYScriptExecutionContext(const GeoLocation* aGeoLocationP = NULL);
-    virtual ~LEGACYScriptExecutionContext();
-
-    /// run the stored expression as a script
-    ExpressionValue runAsScript();
-
-    /// clear all variables
-    void clearVariables();
-
-  protected:
-
-    /// lookup variables by name
-    /// @param aName the name of the value/variable to look up
-    /// @param aNextEval Input: time of next re-evaluation that will happen, or Never.
-    ///   Output: reduced to more recent time when this value demands more recent re-evaulation, untouched otherwise
-    /// @return Expression value (with error when value is not available)
-    virtual ExpressionValue valueLookup(const string &aName) P44_OVERRIDE;
-
-    /// timed context specific functions
-    virtual ExpressionValue evaluateFunction(const string &aFunc, const FunctionArgumentVector &aArgs, EvalMode aEvalMode) P44_OVERRIDE;
-
-  private:
-
-    ExpressionValue runStatementPrivate(const char *aScript, size_t &aPos, EvalMode aMode, bool aInBlock);
-
-  };
-
-  #endif
-
 
   #endif // EXPRESSION_SCRIPT_SUPPORT
 
@@ -650,7 +627,7 @@ namespace p44 {
     virtual bool unfreeze(size_t aAtPos) P44_OVERRIDE;
 
     /// timed context specific functions
-    virtual ExpressionValue evaluateFunction(const string &aFunc, const FunctionArgumentVector &aArgs, EvalMode aEvalMode) P44_OVERRIDE;
+    virtual bool evaluateFunction(const string &aFunc, const FunctionArgumentVector &aArgs, ExpressionValue &aResult) P44_OVERRIDE;
 
   private:
 
