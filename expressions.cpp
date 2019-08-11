@@ -44,7 +44,6 @@ ExpressionValue::ExpressionValue(const ExpressionValue& aVal) :
 // assignment operator
 ExpressionValue& ExpressionValue::operator=(const ExpressionValue& aVal)
 {
-  pos = aVal.pos;
   numVal = aVal.numVal;
   err = aVal.err;
   clrStr();
@@ -168,7 +167,7 @@ ExpressionValue ExpressionValue::operator*(const ExpressionValue& aRightSide) co
 
 ExpressionValue ExpressionValue::operator/(const ExpressionValue& aRightSide) const
 {
-  if (aRightSide.numValue()==0) return ExpressionValue::errValue(ExpressionError::DivisionByZero, "division by zero").withPos(aRightSide.pos);
+  if (aRightSide.numValue()==0) return ExpressionValue::errValue(ExpressionError::DivisionByZero, "division by zero");
   return numValue() / aRightSide.numValue();
 }
 
@@ -322,7 +321,6 @@ bool EvaluationContext::popToLast(EvalState aPreviousState)
 bool EvaluationContext::abortWithError(ErrorPtr aError)
 {
   sp().res.err = aError;
-  sp().res.pos = pos;
   return newstate(s_abort);
 }
 
@@ -465,10 +463,7 @@ bool EvaluationContext::updateNextEval(const struct tm& aLatestEvalTm)
 
 
 
-
 // MARK: - Evaluation State machine
-
-#define OLDEXPRESSIONS 0
 
 bool EvaluationContext::resumeEvaluation()
 {
@@ -491,7 +486,7 @@ bool EvaluationContext::resumeEvaluation()
         string errInd;
         if (!finalResult.syntaxOk()) {
           errInd = "\n                ";
-          errInd.append(finalResult.pos, '-');
+          errInd.append(pos, '-');
           errInd += '^';
         }
         ELOG("- code        = %s%s", getCode(), errInd.c_str());
@@ -505,27 +500,15 @@ bool EvaluationContext::resumeEvaluation()
     case s_exprFirstTerm:
     case s_exprLeftSide:
     case s_exprRightSide:
-      #if !OLDEXPRESSIONS
       return resumeExpression();
-      #else
-      // FIXME: quick hack to test basics: use old uninteruptable evaluation
-      sp().res = evaluateExpressionPrivate(codeString.c_str(), pos, 0, ";}", false, evalMode);
-      sp().state = s_result;
-      // %%% for now, fall through to result
-      goto label_result;
-      #endif
     // grouped expression
     case s_groupedExpression:
       return resumeGroupedExpression();
     case s_simpleTerm:
     case s_funcArg:
     case s_funcExec:
-    // FIXME: add term subprocessing states
       return resumeTerm();
     // end of expressions, groups, terms
-    #if OLDEXPRESSIONS
-    label_result:
-    #endif
     case s_result:
       if (!sp().res.syntaxOk()) {
         return abortWithError(sp().res.err);
@@ -699,10 +682,10 @@ bool EvaluationContext::resumeExpression()
   if (sp().state==s_newExpression) {
     sp().precedence = 0;
     sp().state = s_expression;
+    sp().pos = pos; // remember start of the expression
   }
   if (sp().state==s_expression) {
     // at start of an expression
-    sp().val.pos = pos; // remember start of the expression
     // - check for optional unary op
     Operations unaryop = parseOperator(pos);
     sp().op = unaryop; // store for later
@@ -788,10 +771,10 @@ bool EvaluationContext::resumeExpression()
       // duplicate into res in case evaluation ends
       sp().res = sp().val;
       if (sp().res.isOk()) {
-        ELOG("Intermediate expression '%.*s' evaluation result: %s", (int)(pos-sp().val.pos), tail(sp().val.pos), sp().res.stringValue().c_str());
+        ELOG("Intermediate expression '%.*s' evaluation result: %s", (int)(pos-sp().pos), tail(sp().pos), sp().res.stringValue().c_str());
       }
       else {
-        ELOG("Intermediate expression '%.*s' evaluation result is INVALID", (int)(pos-sp().val.pos), tail(sp().val.pos));
+        ELOG("Intermediate expression '%.*s' evaluation result is INVALID", (int)(pos-sp().pos), tail(sp().pos));
       }
       return newstate(s_exprLeftSide); // back to leftside, more chained operators might follow
     }
@@ -885,6 +868,7 @@ bool EvaluationContext::resumeTerm()
           if (currentchar()!=')') {
             // start scanning argument
             newstate(s_funcArg);
+            sp().pos = pos; // where the argument starts
             return push(s_newExpression);
           }
           // function w/o arguments, directly go to execute
@@ -930,7 +914,7 @@ bool EvaluationContext::resumeTerm()
   } // simpleterm
   else if (sp().state==s_funcArg) {
     // a function argument, push it
-    sp().args.push_back(sp().res);
+    sp().args.addArg(sp().res, sp().pos);
     skipWhiteSpace();
     if (currentchar()==',') {
       // more arguments
@@ -945,8 +929,8 @@ bool EvaluationContext::resumeTerm()
   }
   else if (sp().state==s_funcExec) {
     ELOG("Calling Function '%s'", sp().identifier.c_str());
-    for (FunctionArgumentVector::iterator pos = sp().args.begin(); pos!=sp().args.end(); ++pos) {
-      ELOG("- argument at char pos=%zu: %s (err=%s)", pos->pos, pos->stringValue().c_str(), Error::text(pos->err));
+    for (int ai=0; ai<sp().args.size(); ai++) {
+      ELOG("- argument at char pos=%zu: %s (err=%s)", sp().args.getPos(ai), sp().args[ai].stringValue().c_str(), Error::text(sp().args[ai].err));
     }
     // run function
     newstate(s_result); // expecting result from function
@@ -997,7 +981,7 @@ ExpressionValue TimedEvaluationContext::evaluateSynchronously(EvalMode aEvalMode
 #define IS_TIME_TOLERANCE_SECONDS 5 ///< matching window for is_time() function
 
 // standard functions available in every context
-bool EvaluationContext::evaluateFunction(const string &aFunc, const FunctionArgumentVector &aArgs, ExpressionValue &aResult)
+bool EvaluationContext::evaluateFunction(const string &aFunc, const FunctionArguments &aArgs, ExpressionValue &aResult)
 {
   if (aFunc=="ifvalid" && aArgs.size()==2) {
     // ifvalid(a, b)   if a is a valid value, return it, otherwise return the default as specified by b
@@ -1139,7 +1123,7 @@ bool EvaluationContext::evaluateFunction(const string &aFunc, const FunctionArgu
     // check if any of the weekdays match
     int weekday = loctim.tm_wday; // 0..6, 0=sunday
     ExpressionValue newRes(0);
-    newRes.pos = aArgs[0].pos; // Note: we use pos of first argument for freezing the function's result (no need to freeze every single weekday)
+    size_t refpos = aArgs.getPos(0); // Note: we use pos of first argument for freezing the function's result (no need to freeze every single weekday)
     for (int i = 0; i<aArgs.size(); i++) {
       if (aArgs[i].notOk()) return errorInArg(aArgs[i]); // return error from argument
       int w = (int)aArgs[i].numValue();
@@ -1156,15 +1140,15 @@ bool EvaluationContext::evaluateFunction(const string &aFunc, const FunctionArgu
     loctim.tm_min = 0;
     loctim.tm_sec = 0;
     ExpressionValue res = newRes;
-    FrozenResult* frozenP = getFrozen(res);
-    newFreeze(frozenP, newRes, MainLoop::localTimeToMainLoopTime(loctim));
+    FrozenResult* frozenP = getFrozen(res,refpos);
+    newFreeze(frozenP, newRes, refpos, MainLoop::localTimeToMainLoopTime(loctim));
     aResult = res; // freeze time over, use actual, newly calculated result
   }
   else if ((aFunc=="after_time" || aFunc=="is_time") && aArgs.size()>=1) {
     struct tm loctim; MainLoop::getLocalTime(loctim);
     ExpressionValue newSecs;
     if (aArgs[0].notOk()) return errorInArg(aArgs[0]); // return error from argument
-    newSecs.pos = aArgs[0].pos; // Note: we use pos of first argument for freezing the seconds
+    size_t refpos = aArgs.getPos(0); // Note: we use pos of first argument for freezing the function's result (no need to freeze every single weekday)
     if (aArgs.size()==2) {
       // legacy spec
       if (aArgs[1].notOk()) return errorInArg(aArgs[1]); // return error from argument
@@ -1175,7 +1159,7 @@ bool EvaluationContext::evaluateFunction(const string &aFunc, const FunctionArgu
       newSecs.setNumber((int32_t)(aArgs[0].numValue()));
     }
     ExpressionValue secs = newSecs;
-    FrozenResult* frozenP = getFrozen(secs);
+    FrozenResult* frozenP = getFrozen(secs, refpos);
     int32_t daySecs = ((loctim.tm_hour*60)+loctim.tm_min)*60+loctim.tm_sec;
     bool met = daySecs>=secs.numValue();
     // next check at specified time, today if not yet met, tomorrow if already met for today
@@ -1185,7 +1169,7 @@ bool EvaluationContext::evaluateFunction(const string &aFunc, const FunctionArgu
     // limit to a few secs around target if it's is_time
     if (aFunc=="is_time" && met && daySecs<secs.numValue()+IS_TIME_TOLERANCE_SECONDS) {
       // freeze again for a bit
-      newFreeze(frozenP, secs, MainLoop::localTimeToMainLoopTime(loctim)+IS_TIME_TOLERANCE_SECONDS*Second);
+      newFreeze(frozenP, secs, refpos, MainLoop::localTimeToMainLoopTime(loctim)+IS_TIME_TOLERANCE_SECONDS*Second);
     }
     else {
       loctim.tm_hour = 0; loctim.tm_min = 0; loctim.tm_sec = (int)newSecs.numValue();
@@ -1193,7 +1177,7 @@ bool EvaluationContext::evaluateFunction(const string &aFunc, const FunctionArgu
         loctim.tm_mday++; // already met today, check again tomorrow
         if (aFunc=="is_time") res = false;
       }
-      newFreeze(frozenP, newSecs, MainLoop::localTimeToMainLoopTime(loctim));
+      newFreeze(frozenP, newSecs, refpos, MainLoop::localTimeToMainLoopTime(loctim));
     }
     aResult = res;
   }
@@ -1268,7 +1252,7 @@ bool EvaluationContext::evaluateFunction(const string &aFunc, const FunctionArgu
 }
 
 
-bool EvaluationContext::evaluateAsyncFunction(const string &aFunc, const FunctionArgumentVector &aArgs, bool &aNotYielded)
+bool EvaluationContext::evaluateAsyncFunction(const string &aFunc, const FunctionArguments &aArgs, bool &aNotYielded)
 {
   aNotYielded = true; // by default, so we can use "return errorInArg()" style exits
   if (aFunc=="delay" && aArgs.size()==1) {
@@ -1603,7 +1587,7 @@ bool ScriptExecutionContext::valueLookup(const string &aName, ExpressionValue &a
 }
 
 
-bool ScriptExecutionContext::evaluateFunction(const string &aFunc, const FunctionArgumentVector &aArgs, ExpressionValue &aResult)
+bool ScriptExecutionContext::evaluateFunction(const string &aFunc, const FunctionArguments &aArgs, ExpressionValue &aResult)
 {
   if (aFunc=="log" && aArgs.size()>=1 && aArgs.size()<=2) {
     // log (logmessage)
@@ -1696,9 +1680,9 @@ void TimedEvaluationContext::scheduleLatestEvaluation(MLMicroSeconds aAtTime)
 }
 
 
-TimedEvaluationContext::FrozenResult* TimedEvaluationContext::getFrozen(ExpressionValue &aResult)
+TimedEvaluationContext::FrozenResult* TimedEvaluationContext::getFrozen(ExpressionValue &aResult, size_t aRefPos)
 {
-  FrozenResultsMap::iterator frozenVal = frozenResults.find(aResult.pos);
+  FrozenResultsMap::iterator frozenVal = frozenResults.find(aRefPos);
   FrozenResult* frozenResultP = NULL;
   if (frozenVal!=frozenResults.end()) {
     frozenResultP = &(frozenVal->second);
@@ -1706,7 +1690,7 @@ TimedEvaluationContext::FrozenResult* TimedEvaluationContext::getFrozen(Expressi
     ELOG("- frozen result (%s) for actual result (%s) at char pos %zu exists - will expire %s",
       frozenResultP->frozenResult.stringValue().c_str(),
       aResult.stringValue().c_str(),
-      aResult.pos,
+      aRefPos,
       frozenResultP->frozen() ? MainLoop::string_mltime(frozenResultP->frozenUntil).c_str() : "NOW"
     );
     aResult = frozenVal->second.frozenResult;
@@ -1722,16 +1706,16 @@ bool TimedEvaluationContext::FrozenResult::frozen()
 }
 
 
-TimedEvaluationContext::FrozenResult* TimedEvaluationContext::newFreeze(FrozenResult* aExistingFreeze, const ExpressionValue &aNewResult, MLMicroSeconds aFreezeUntil, bool aUpdate)
+TimedEvaluationContext::FrozenResult* TimedEvaluationContext::newFreeze(FrozenResult* aExistingFreeze, const ExpressionValue &aNewResult, size_t aRefPos, MLMicroSeconds aFreezeUntil, bool aUpdate)
 {
   if (!aExistingFreeze) {
     // nothing frozen yet, freeze it now
     FrozenResult newFreeze;
     newFreeze.frozenResult = aNewResult; // full copy, including pos
     newFreeze.frozenUntil = aFreezeUntil;
-    frozenResults[aNewResult.pos] = newFreeze;
-    ELOG("- new result (%s) frozen for pos %zu until %s", aNewResult.stringValue().c_str(), aNewResult.pos, MainLoop::string_mltime(newFreeze.frozenUntil).c_str());
-    return &frozenResults[aNewResult.pos];
+    frozenResults[aRefPos] = newFreeze;
+    ELOG("- new result (%s) frozen for pos %zu until %s", aNewResult.stringValue().c_str(), aRefPos, MainLoop::string_mltime(newFreeze.frozenUntil).c_str());
+    return &frozenResults[aRefPos];
   }
   else if (!aExistingFreeze->frozen() || aUpdate || aFreezeUntil==Never) {
     ELOG("- existing freeze updated to value %s and to expire %s",
@@ -1763,7 +1747,7 @@ bool TimedEvaluationContext::unfreeze(size_t aAtPos)
 #define MIN_RETRIGGER_SECONDS 10 ///< how soon testlater() is allowed to re-trigger
 
 // special functions only available in timed evaluations
-bool TimedEvaluationContext::evaluateFunction(const string &aFunc, const FunctionArgumentVector &aArgs, ExpressionValue &aResult)
+bool TimedEvaluationContext::evaluateFunction(const string &aFunc, const FunctionArguments &aArgs, ExpressionValue &aResult)
 {
   if (aFunc=="testlater" && aArgs.size()>=2 && aArgs.size()<=3) {
     // testlater(seconds, timedtest [, retrigger])   return "invalid" now, re-evaluate after given seconds and return value of test then. If repeat is true then, the timer will be re-scheduled
@@ -1776,7 +1760,8 @@ bool TimedEvaluationContext::evaluateFunction(const string &aFunc, const Functio
       secs.setNumber(MIN_RETRIGGER_SECONDS);
     }
     ExpressionValue currentSecs = secs;
-    FrozenResult* frozenP = getFrozen(currentSecs);
+    size_t refPos = aArgs.getPos(0);
+    FrozenResult* frozenP = getFrozen(currentSecs, refPos);
     if (evalMode!=evalmode_timed) {
       if (evalMode!=evalmode_initial) {
         // evaluating non-timed, non-initial means "not yet ready" and must start or extend freeze period
@@ -1787,7 +1772,7 @@ bool TimedEvaluationContext::evaluateFunction(const string &aFunc, const Functio
     else {
       // evaluating timed after frozen period means "now is later" and if retrigger is set, must start a new freeze
       if (frozenP && retrigger) {
-        newFreeze(frozenP, secs, MainLoop::now()+secs.numValue()*Second);
+        newFreeze(frozenP, secs, refPos, MainLoop::now()+secs.numValue()*Second);
       }
     }
     if (frozenP && !frozenP->frozen()) {
@@ -1845,7 +1830,7 @@ protected:
     return inherited::valueLookup(aName, aResult);
   };
 
-  virtual bool evaluateFunction(const string &aFunc, const FunctionArgumentVector &aArgs, ExpressionValue &aResult) P44_OVERRIDE
+  virtual bool evaluateFunction(const string &aFunc, const FunctionArguments &aArgs, ExpressionValue &aResult) P44_OVERRIDE
   {
     if (functionLookUp && functionLookUp(aFunc, aArgs, aResult)) return true;
     return inherited::evaluateFunction(aFunc, aArgs, aResult);

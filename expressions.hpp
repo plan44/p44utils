@@ -62,11 +62,10 @@ namespace p44 {
     string* strValP; ///< string values have a std::string here
     double numVal;
   public:
-    size_t pos; ///< starting position in expression string (for function arguments and subexpressions)
     ErrorPtr err;
-    ExpressionValue() : numVal(0), pos(0), strValP(NULL) { withError(ExpressionError::Null, "undefined"); };
-    ExpressionValue(double aNumValue) : numVal(aNumValue), pos(0), strValP(NULL) { };
-    ExpressionValue(const string &aStrValue) : numVal(0), pos(0), strValP(new string(aStrValue)) { };
+    ExpressionValue() : numVal(0), strValP(NULL) { withError(ExpressionError::Null, "undefined"); };
+    ExpressionValue(double aNumValue) : numVal(aNumValue), strValP(NULL) { };
+    ExpressionValue(const string &aStrValue) : numVal(0), strValP(new string(aStrValue)) { };
     ExpressionValue(const ExpressionValue& aVal); ///< copy constructor
     ExpressionValue& operator=(const ExpressionValue& aVal); ///< assignment operator
     ~ExpressionValue();
@@ -92,7 +91,7 @@ namespace p44 {
     ExpressionValue withNumber(double aNumValue) { err.reset(); setNumber(aNumValue); return *this; }
     ExpressionValue withString(const string& aStrValue) { err.reset(); setString(aStrValue); return *this; }
     ExpressionValue withValue(const ExpressionValue &aExpressionValue) { numVal = aExpressionValue.numVal; err = aExpressionValue.err; if (aExpressionValue.strValP) setString(*aExpressionValue.strValP); return *this; }
-    ExpressionValue withPos(size_t aPos) { pos = aPos; return *this; }
+//    ExpressionValue withPos(size_t aPos) { pos = aPos; return *this; }
     bool isOk() const { return Error::isOK(err); }
     bool valueOk() const { return isOk() || isNull(); } ///< ok as a value, but can be NULL
     bool isNull() const { return Error::isError(err, ExpressionError::domain(), ExpressionError::Null); } ///< ok as a value, but can be NULL
@@ -114,14 +113,24 @@ namespace p44 {
   typedef boost::function<bool (const string &aName, ExpressionValue &aResult)> ValueLookupCB;
 
 
-  typedef std::vector<ExpressionValue> FunctionArgumentVector;
+  class FunctionArguments
+  {
+    std::vector<pair<size_t, ExpressionValue>> args;
+  public:
+    const ExpressionValue operator[](unsigned int aArgIndex) const { if (aArgIndex<args.size()) return args[aArgIndex].second; else return ExpressionValue(); }
+    size_t getPos(unsigned int aArgIndex) const { if (aArgIndex<args.size()) return args[aArgIndex].first; else return 0; }
+    size_t size() const { return args.size(); }
+    void clear() { args.clear(); }
+    void addArg(const ExpressionValue &aArg, size_t aAtPos) { args.push_back(make_pair(aAtPos, aArg)); }
+  };
+
 
 /// callback function for function evaluation
   /// @param aFunc the name of the function to execute
   /// @param aArgs vector of function arguments, tuple contains expression starting position and value
   /// @param aResult set to function's result
   /// @return true if function executed, false if function signature (name, number of args) is unknown
-  typedef boost::function<bool (const string& aFunc, const FunctionArgumentVector& aArgs, ExpressionValue& aResult)> FunctionLookupCB;
+  typedef boost::function<bool (const string& aFunc, const FunctionArguments& aArgs, ExpressionValue& aResult)> FunctionLookupCB;
 
   /// evaluate expression
   /// @param aExpression the expression text
@@ -219,7 +228,7 @@ namespace p44 {
     /// @name  Evaluation state
     /// @{
     MLMicroSeconds runningSince; ///< when the current evaluation has started, Never otherwise
-    size_t pos; ///< the scanning position within code
+    size_t pos; ///< the scanning position within code, also indicates error position when evaluation fails
     ExpressionValue finalResult; ///< final result
     MLTicket execTicket; ///< a ticket for timed steps that are part of the execution
 
@@ -269,11 +278,11 @@ namespace p44 {
       EvalState state; ///< current state
       int precedence; ///< encountering a binary operator with smaller precedence will end the expression
       Operations op; ///< operator
-      size_t pos; ///< position in the code (for loops)
+      size_t pos; ///< relevant position in the code, e.g. start of expression for s_expression, start of condition for s_whilecondition
       string identifier; ///< identifier (e.g. variable name, function name etc.)
       bool skipping; ///< if set, we are just skipping code, not really executing
       bool flowDecision; ///< flow control decision
-      FunctionArgumentVector args; ///< arguments
+      FunctionArguments args; ///< arguments
       ExpressionValue val; ///< private value for operations
       ExpressionValue res; ///< result value passed down at popAndPassResult()
     };
@@ -312,6 +321,9 @@ namespace p44 {
 
     /// get current code
     const char *getCode() { return codeString.c_str(); };
+
+    /// @return the index into code() of the current evaluation or error
+    size_t getPos() { return pos; }
 
     /// set the log level for evaluation
     /// @param aLogLevel log level or 0 to disable logging evaluation messages
@@ -469,7 +481,7 @@ namespace p44 {
     /// @param aFunc the name of the function to execute
     /// @param aResult set the function result here
     /// @return true if function executed, false if function signature is unknown
-    virtual bool evaluateFunction(const string &aFunc, const FunctionArgumentVector &aArgs, ExpressionValue &aResult);
+    virtual bool evaluateFunction(const string &aFunc, const FunctionArguments &aArgs, ExpressionValue &aResult);
 
     /// evaluation of asynchronously implemented functions which may yield execution and resume later
     /// @param aFunc the name of the function to execute
@@ -478,7 +490,7 @@ namespace p44 {
     /// - false when the execution of the function has yielded and resumeEvaluation() will be called to complete
     /// @return true if function executed, false if function signature is unknown
     /// @note this method will not be called when context is set to execute synchronously, so these functions will not be available then.
-    virtual bool evaluateAsyncFunction(const string &aFunc, const FunctionArgumentVector &aArgs, bool &aNotYielded);
+    virtual bool evaluateAsyncFunction(const string &aFunc, const FunctionArguments &aArgs, bool &aNotYielded);
 
     /// @}
 
@@ -490,14 +502,16 @@ namespace p44 {
     /// get frozen result if any exists
     /// @param aResult On call: the current result of a (sub)expression - pos member must be set!
     ///   On return: replaced by a frozen result, if one exists
-    virtual FrozenResult* getFrozen(ExpressionValue &aResult) { return NULL; /* base class has no frozen results */ }
+    /// @param aRefPos te reference position that identifies the frozen result
+    virtual FrozenResult* getFrozen(ExpressionValue &aResult, size_t aRefPos) { return NULL; /* base class has no frozen results */ }
 
     /// update existing or create new frozen result
     /// @param aExistingFreeze the pointer obtained from getFrozen(), can be NULL
     /// @param aNewResult the new value to be frozen
+    /// @param aRefPos te reference position that identifies the frozen result
     /// @param aFreezeUntil The new freeze date. Specify Infinite to freeze indefinitely, Never to release any previous freeze.
     /// @param aUpdate if set, freeze will be updated/extended unconditionally, even when previous freeze is still running
-    virtual FrozenResult* newFreeze(FrozenResult* aExistingFreeze, const ExpressionValue &aNewResult, MLMicroSeconds aFreezeUntil, bool aUpdate = false) { return NULL; /* base class cannot freeze */ }
+    virtual FrozenResult* newFreeze(FrozenResult* aExistingFreeze, const ExpressionValue &aNewResult, size_t aRefPos, MLMicroSeconds aFreezeUntil, bool aUpdate = false) { return NULL; /* base class cannot freeze */ }
 
     /// unfreeze frozen value at aAtPos
     /// @param aAtPos the starting character index of the subexpression to unfreeze
@@ -545,7 +559,7 @@ namespace p44 {
     virtual bool valueLookup(const string &aName, ExpressionValue &aResult)  P44_OVERRIDE;
 
     /// script context specific functions
-    virtual bool evaluateFunction(const string &aFunc, const FunctionArgumentVector &aArgs, ExpressionValue &aResult) P44_OVERRIDE;
+    virtual bool evaluateFunction(const string &aFunc, const FunctionArguments &aArgs, ExpressionValue &aResult) P44_OVERRIDE;
 
     /// @name Evaluation state machine
     /// @{
@@ -607,14 +621,14 @@ namespace p44 {
     /// get frozen result if any exists
     /// @param aResult On call: the current result of a (sub)expression - pos member must be set!
     ///   On return: replaced by a frozen result, if one exists
-    virtual FrozenResult* getFrozen(ExpressionValue &aResult) P44_OVERRIDE;
+    virtual FrozenResult* getFrozen(ExpressionValue &aResult, size_t aRefPos) P44_OVERRIDE;
 
     /// update existing or create new frozen result
     /// @param aExistingFreeze the pointer obtained from getFrozen(), can be NULL
     /// @param aNewResult the new value to be frozen
     /// @param aFreezeUntil The new freeze date. Specify Infinite to freeze indefinitely, Never to release any previous freeze.
     /// @param aUpdate if set, freeze will be updated/extended unconditionally, even when previous freeze is still running
-    virtual FrozenResult* newFreeze(FrozenResult* aExistingFreeze, const ExpressionValue &aNewResult, MLMicroSeconds aFreezeUntil, bool aUpdate = false) P44_OVERRIDE;
+    virtual FrozenResult* newFreeze(FrozenResult* aExistingFreeze, const ExpressionValue &aNewResult, size_t aRefPos, MLMicroSeconds aFreezeUntil, bool aUpdate = false) P44_OVERRIDE;
 
     /// unfreeze frozen value at aAtPos
     /// @param aAtPos the starting character index of the subexpression to unfreeze
@@ -622,7 +636,7 @@ namespace p44 {
     virtual bool unfreeze(size_t aAtPos) P44_OVERRIDE;
 
     /// timed context specific functions
-    virtual bool evaluateFunction(const string &aFunc, const FunctionArgumentVector &aArgs, ExpressionValue &aResult) P44_OVERRIDE;
+    virtual bool evaluateFunction(const string &aFunc, const FunctionArguments &aArgs, ExpressionValue &aResult) P44_OVERRIDE;
 
   private:
 
