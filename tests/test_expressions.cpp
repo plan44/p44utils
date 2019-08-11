@@ -33,7 +33,7 @@ public:
   ExpressionFixture() :
     inherited(NULL)
   {
-    evalLogLevel = 0;
+    evalLogLevel = 6;
   };
 
   bool valueLookup(const string &aName, ExpressionValue &aResult) P44_OVERRIDE
@@ -48,7 +48,7 @@ public:
   ExpressionValue runExpression(const string &aExpression)
   {
     setCode(aExpression);
-    return evaluateSynchronously();
+    return evaluateSynchronously(evalmode_initial);
   }
 };
 
@@ -75,7 +75,7 @@ public:
   ExpressionValue runScript(const string &aScript)
   {
     setCode(aScript);
-    return evaluateSynchronously();
+    return evaluateSynchronously(evalmode_script);
   }
 };
 
@@ -140,16 +140,30 @@ TEST_CASE_METHOD(ExpressionFixture, "Expressions", "[expressions]" )
     REQUIRE(runExpression("'Hello\\nWorld, \"double quoted\" text'").stringValue() == "Hello\\nWorld, \"double quoted\" text"); // PHP single quoted style
     REQUIRE(runExpression("'Hello\\nWorld, ''single quoted'' text'").stringValue() == "Hello\\nWorld, 'single quoted' text"); // include single quotes in single quoted text by doubling them
 
+    REQUIRE(runExpression("true").intValue() == 1);
+    REQUIRE(runExpression("TRUE").intValue() == 1);
+    REQUIRE(runExpression("yes").intValue() == 1);
+    REQUIRE(runExpression("YES").intValue() == 1);
+    REQUIRE(runExpression("false").intValue() == 0);
+    REQUIRE(runExpression("FALSE").intValue() == 0);
+    REQUIRE(runExpression("no").intValue() == 0);
+    REQUIRE(runExpression("NO").intValue() == 0);
+    REQUIRE(runExpression("undefined").isNull() == true);
+    REQUIRE(runExpression("UNDEFINED").isNull() == true);
+    REQUIRE(runExpression("null").isNull() == true);
+    REQUIRE(runExpression("NULL").isNull() == true);
+
     REQUIRE(runExpression("12:35").intValue() == 45300);
     REQUIRE(runExpression("14:57:42").intValue() == 53862);
     REQUIRE(runExpression("14:57:42.328").numValue() == 53862.328);
     REQUIRE(runExpression("1.Jan").intValue() == 0);
     REQUIRE(runExpression("1.1.").intValue() == 0);
     REQUIRE(runExpression("19.Feb").intValue() == 49);
+    REQUIRE(runExpression("19.FEB").intValue() == 49);
     REQUIRE(runExpression("19.2.").intValue() == 49);
     REQUIRE(runExpression("Mon").intValue() == 1);
     REQUIRE(runExpression("Sun").intValue() == 0);
-    REQUIRE(runExpression("Sun").intValue() == 0);
+    REQUIRE(runExpression("SUN").intValue() == 0);
     REQUIRE(runExpression("thu").intValue() == 4);
   }
 
@@ -159,6 +173,8 @@ TEST_CASE_METHOD(ExpressionFixture, "Expressions", "[expressions]" )
     REQUIRE(runExpression("dummy").isOk() == false); // ..but not ok
     REQUIRE(runExpression("dummy").valueOk() == false); // ..and not value-ok
     REQUIRE(runExpression("almostUA").numValue() == 42.7);
+    REQUIRE(runExpression("UAtext").stringValue() == "fortyTwo");
+    REQUIRE(runExpression("UAtext").stringValue() == "fortyTwo");
     REQUIRE(runExpression("UAtext").stringValue() == "fortyTwo");
   }
 
@@ -249,9 +265,12 @@ TEST_CASE_METHOD(ExpressionFixture, "Expressions", "[expressions]" )
     REQUIRE(runExpression("format('%.1f', 33.7)").stringValue() == "33.7");
     REQUIRE(runExpression("format('%08X', 0x24F5E21)").stringValue() == "024F5E21");
     REQUIRE(runExpression("eval('333*777')").numValue() == 333*777);
+    // special cases
+    REQUIRE(runExpression("hour()").numValue() > 0);
+    // should be case insensitive
+    REQUIRE(runExpression("HOUR()").numValue() > 0);
+    REQUIRE(runExpression("IF(TRUE, 'TRUE', 'FALSE')").stringValue() == "TRUE");
   }
-
-
 
 
   SECTION("AdHoc expression evaluation") {

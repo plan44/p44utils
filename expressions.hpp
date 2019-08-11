@@ -46,8 +46,10 @@ namespace p44 {
       Syntax,
       DivisionByZero,
       CyclicReference,
-      Busy,
+      Busy, ///< currently running
       NotFound, ///< variable, object, function not found (for callback)
+      Aborted, ///< externally aborted
+      Timeout, ///< aborted because max execution time limit reached
     } ErrorCodes;
     static const char *domain() { return "ExpressionError"; }
     virtual const char *getErrorDomain() const { return ExpressionError::domain(); };
@@ -107,7 +109,7 @@ namespace p44 {
 
 
   /// callback function for obtaining variables
-  /// @param aName the name of the value/variable to look up
+  /// @param aName the name of the value/variable to look up, always passed in in all lowercase
   /// @param aResult set the value here
   /// @return true if value returned, false if value is unknown
   typedef boost::function<bool (const string &aName, ExpressionValue &aResult)> ValueLookupCB;
@@ -126,7 +128,7 @@ namespace p44 {
 
 
 /// callback function for function evaluation
-  /// @param aFunc the name of the function to execute
+  /// @param aFunc the name of the function to execute, always passed in in all lowercase
   /// @param aArgs vector of function arguments, tuple contains expression starting position and value
   /// @param aResult set to function's result
   /// @return true if function executed, false if function signature (name, number of args) is unknown
@@ -193,8 +195,8 @@ namespace p44 {
   {
     friend class ExpressionValue;
 
-  protected:
-
+  public:
+    
     // operations with precedence
     typedef enum {
       op_none       = 0x06,
@@ -215,22 +217,6 @@ namespace p44 {
       op_assign     = 0xF0,
       opmask_precedence = 0x0F
     } Operations;
-
-    /// @name Evaluation parameters (set before execution starts, not changed afterwards, no nested state)
-    /// @{
-    EvalMode evalMode; ///< the current evaluation mode
-    const GeoLocation* geolocationP; ///< if set, the current geolocation (e.g. for sun time functions)
-    string codeString; ///< the code to evaluate
-    bool synchronous; ///< the code must run synchronously to the end, execution may NOT be yielded
-    int evalLogLevel; ///< if set, processing the script will output log info
-    /// @}
-
-    /// @name  Evaluation state
-    /// @{
-    MLMicroSeconds runningSince; ///< when the current evaluation has started, Never otherwise
-    size_t pos; ///< the scanning position within code, also indicates error position when evaluation fails
-    ExpressionValue finalResult; ///< final result
-    MLTicket execTicket; ///< a ticket for timed steps that are part of the execution
 
     typedef enum {
       // Script States
@@ -267,7 +253,28 @@ namespace p44 {
       s_complete, ///< completing evaluation
       s_abort, ///< aborting evaluation
       s_finalize, ///< ending, will pop last stack frame
+      numEvalStates
     } EvalState; ///< the state of the evaluation in the current frame
+
+  protected:
+
+    /// @name Evaluation parameters (set before execution starts, not changed afterwards, no nested state)
+    /// @{
+    EvalMode evalMode; ///< the current evaluation mode
+    MLMicroSeconds execTimeLimit; ///< how long a script may run
+    const GeoLocation* geolocationP; ///< if set, the current geolocation (e.g. for sun time functions)
+    string codeString; ///< the code to evaluate
+    bool synchronous; ///< the code must run synchronously to the end, execution may NOT be yielded
+    int evalLogLevel; ///< if set, processing the script will output log info
+    /// @}
+
+    /// @name  Evaluation state
+    /// @{
+    MLMicroSeconds runningSince; ///< when the current evaluation has started, Never otherwise
+    bool callBack; ///< if set and evaluation completes, the result callback is used
+    size_t pos; ///< the scanning position within code, also indicates error position when evaluation fails
+    ExpressionValue finalResult; ///< final result
+    MLTicket execTicket; ///< a ticket for timed steps that are part of the execution
 
     // The stack
     class StackFrame {
@@ -295,6 +302,7 @@ namespace p44 {
     /// @name timed evaluation and result freezing
     /// @{
     EvaluationResultCB evaluationResultHandler; ///< called when a evaluation started by triggerEvaluation() completes (includes re-evaluations)
+    bool oneTimeResultHandler; ///< if set, the callback will be removed after calling
     MLMicroSeconds nextEvaluation; ///< time when executed functions would like to see the next evaluation (used by TimedEvaluationContext)
 
     /// unused here, only actually in use by TimedEvaluationContext
@@ -333,9 +341,16 @@ namespace p44 {
     /// evaluate code synchonously
     /// @param aEvalMode if specified, the evaluation mode for this evaluation. Defaults to current evaluation mode.
     /// @param aScheduleReEval if true, re-evaluations as demanded by evaluated expression are scheduled (NOP in base class)
+    /// @param aCallBack if true, result callback (if one is installed) is called (in addition to returning result directly
     /// @return expression result
-    /// @note does NOT trigger the evaluation result handler
-    virtual ExpressionValue evaluateSynchronously(EvalMode aEvalMode = evalmode_unspecific, bool aScheduleReEval = false);
+    virtual ExpressionValue evaluateSynchronously(EvalMode aEvalMode, bool aScheduleReEval = false, bool aCallBack = false);
+
+    /// @return true if currently evaluating an expression.
+    bool isEvaluating() { return runningSince!=Never; }
+
+    /// @return the (final) result of an evaluation
+    /// @note valid only if not isEvaluating()
+    ExpressionValue& getResult() { return finalResult; }
 
     /// set re-evaluation callback
     /// @param aEvaluationResultHandler is called when a evaluation started by triggerEvaluation() completes
@@ -344,11 +359,22 @@ namespace p44 {
 
     /// trigger a (re-)evaluation
     /// @param aEvalMode the evaluation mode for this evaluation.
-    /// @note evaluation result handler will be called when complete
+    /// @note evaluation result handler, if set, will be called when complete
     /// @return ok, or error if expression could not be evaluated
     ErrorPtr triggerEvaluation(EvalMode aEvalMode);
 
+    /// request aborting evaluation
+    /// @note this is for asynchronous scripts, and does request aborting, but can only do so after
+    ///    operations of the current step (such as a API call) complete, or can be aborted as well.
+    /// @note subclasses can override this to abort async operations they know of.
+    /// @return true if the script is aborted NOW for sure (was aborted before or could be aborted immediately)
+    virtual bool abort();
+
+
   protected:
+
+    /// @return true if a callback was set and executed
+    bool runCallBack();
 
     /// @name Evaluation state machine entry points
     /// @note At any one of these entry points the following conditions must be met
@@ -369,9 +395,6 @@ namespace p44 {
     /// re-entry point for callbacks - continue execution
     /// @return true if evaluation completed without yielding execution.
     bool continueEvaluation();
-
-    /// @return true if currently evaluating an expression.
-    bool isEvaluating() { return runningSince!=Never; }
 
     /// Main entry point / dispatcher - resume evaluation where we left off when we last yielded
     /// @return
@@ -398,6 +421,8 @@ namespace p44 {
     /// @return true for convenience to be used in non-yieled returns
     bool newstate(EvalState aNewState);
 
+    void extracted();
+    
     /// push new stack frame
     /// @param aNewState the new stack frame's state
     /// @param aStartSkipping if set, new stack frame will have skipping set, otherwise it will inherit previous frame's skipping value
@@ -417,6 +442,8 @@ namespace p44 {
     /// @return true when frame was found, false if not (which means stack remained untouched)
     bool popToLast(EvalState aPreviousState);
 
+    /// dump the stack (when eval logging is at debug level)
+    void logStackDump();
 
     /// @}
 
@@ -472,13 +499,13 @@ namespace p44 {
     virtual void releaseState() { /* NOP: no state in base class */ };
 
     /// lookup variables by name
-    /// @param aName the name of the value/variable to look up
+    /// @param aName the name of the value/variable to look up, always passed in in all lowercase
     /// @param aResult set the value here
     /// @return true if value returned, false if value is unknown
     virtual bool valueLookup(const string &aName, ExpressionValue &aResult);
 
     /// evaluation of synchronously implemented functions which immediately return a result
-    /// @param aFunc the name of the function to execute
+    /// @param aFunc the name of the function to execute, always passed in in all lowercase
     /// @param aResult set the function result here
     /// @return true if function executed, false if function signature is unknown
     virtual bool evaluateFunction(const string &aFunc, const FunctionArguments &aArgs, ExpressionValue &aResult);
@@ -547,13 +574,20 @@ namespace p44 {
     ScriptExecutionContext(const GeoLocation* aGeoLocationP = NULL);
     virtual ~ScriptExecutionContext();
 
-    /// clear all variables
-    void clearVariables();
+    /// execute a script
+    /// @param aOneTimeEvaluationResultHandler is called when the script completes or is aborted, then the handler is cleared
+    /// @return true if script has not yielded control (i.e. completed running synchronously)
+    /// @note always calls the evaluation result handler (aOneTimeEvaluationResultHandler if set,
+    ///   or a permanent one set with setEvaluationResultHandler()
+    bool execute(bool aAsynchronously, EvaluationResultCB aOneTimeEvaluationResultHandler = NULL);
 
   protected:
 
+    /// release all evaluation state (none in base class)
+    virtual void releaseState() P44_OVERRIDE;
+
     /// lookup variables by name
-    /// @param aName the name of the value/variable to look up
+    /// @param aName the name of the value/variable to look up, always passed in in all lowercase
     /// @param aResult set the value here
     /// @return true if value returned, false if value is unknown
     virtual bool valueLookup(const string &aName, ExpressionValue &aResult)  P44_OVERRIDE;
@@ -602,9 +636,9 @@ namespace p44 {
     /// evaluate expression right now, return result
     /// @param aEvalMode if specified, the evaluation mode for this evaluation. Defaults to current evaluation mode.
     /// @param aScheduleReEval if true, re-evaluations as demanded by evaluated expression are scheduled (NOP in base class)
+    /// @param aCallBack if true, result callback (if one is installed) is called (in addition to returning result directly
     /// @return expression result
-    /// @note does NOT trigger the evaluation result handler
-    virtual ExpressionValue evaluateSynchronously(EvalMode aEvalMode, bool aScheduleReEval = false) P44_OVERRIDE;
+    virtual ExpressionValue evaluateSynchronously(EvalMode aEvalMode, bool aScheduleReEval = false, bool aCallBack = false) P44_OVERRIDE;
 
     /// schedule latest re-evaluation time. If an earlier evaluation time is already scheduled, nothing will happen
     void scheduleLatestEvaluation(MLMicroSeconds aAtTime);
