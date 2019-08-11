@@ -99,6 +99,15 @@ namespace p44 {
 	/// @return the input string if it is non-NULL, or an empty string
 	const char *nonNullCStr(const char *aNULLOrCStr);
 
+  /// case insensitive strncmp with separate size for both strings
+  /// @param s1 first string, if NULL, it is considered empty string
+  /// @param s2 second string, if NULL, it is considered empty string
+  /// @param len1 length of first string, or 0 if first string is zero terminated.
+  /// @param len2 length of second string, or 0 if first string is zero terminated.
+  /// @return same as with standard strncasecmp(), but on returns 0 only if strings are equal AND of same length
+  /// @note used like strucmp(varstr, "literal", varstrsz) to compare a partial string sequence to a literal
+  int strucmp(const char *s1, const char *s2, size_t len1=0, size_t len2=0);
+
   /// return simple (non locale aware) ASCII lowercase version of string
   /// @param aStringP a C string pinter
   /// @param aMaxSize max number of chars to read fom aStringP
