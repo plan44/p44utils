@@ -30,6 +30,10 @@
   #define EXPRESSION_SCRIPT_SUPPORT 1 // on by default
 #endif
 
+#define ELOGGING (evalLogLevel!=0)
+#define ELOGGING_DBG (evalLogLevel>=(FOCUSLOGLEVEL ? FOCUSLOGLEVEL : LOG_DEBUG))
+#define ELOG(...) { if (ELOGGING) LOG(evalLogLevel,##__VA_ARGS__) }
+#define ELOG_DBG(...) { if (ELOGGING_DBG) LOG(FOCUSLOGLEVEL ? FOCUSLOGLEVEL : LOG_DEBUG,##__VA_ARGS__) }
 
 using namespace std;
 
@@ -395,6 +399,10 @@ namespace p44 {
     /// re-entry point for callbacks - continue execution
     /// @return true if evaluation completed without yielding execution.
     bool continueEvaluation();
+
+    /// re-entry point for asynchronous functions to return a result
+    /// @param aResult the result
+    void continueWithFunctionResult(const ExpressionValue& aResult);
 
     /// Main entry point / dispatcher - resume evaluation where we left off when we last yielded
     /// @return

@@ -199,11 +199,6 @@ ErrorPtr ExpressionError::err(ErrorCodes aErrCode, const char *aFmt, ...)
 
 // MARK: - EvaluationContext
 
-#define ELOGGING (evalLogLevel!=0)
-#define ELOGGING_DBG (evalLogLevel>=(FOCUSLOGLEVEL ? FOCUSLOGLEVEL : LOG_DEBUG))
-#define ELOG(...) { if (ELOGGING) LOG(evalLogLevel,##__VA_ARGS__) }
-#define ELOG_DBG(...) { if (ELOGGING_DBG) LOG(FOCUSLOGLEVEL ? FOCUSLOGLEVEL : LOG_DEBUG,##__VA_ARGS__) }
-
 EvaluationContext::EvaluationContext(const GeoLocation* aGeoLocationP) :
   geolocationP(aGeoLocationP),
   runningSince(Never),
@@ -243,13 +238,13 @@ bool EvaluationContext::setCode(const string aCode)
 
 void EvaluationContext::skipWhiteSpace(size_t& aPos)
 {
-  while (code(aPos)==' ' || code(aPos)=='\t') aPos++;
+  while (code(aPos)==' ' || code(aPos)=='\t' || code(aPos)=='\n' || code(aPos)=='\r') aPos++;
 }
 
 
 void EvaluationContext::skipWhiteSpace()
 {
-  while (currentchar()==' ' || currentchar()=='\t') pos++;
+  while (currentchar()==' ' || currentchar()=='\t' || currentchar()=='\n' || currentchar()=='\r') pos++;
 }
 
 
@@ -464,6 +459,16 @@ bool EvaluationContext::continueEvaluation()
   }
   return true; // ran to end without yielding
 }
+
+
+void EvaluationContext::continueWithFunctionResult(const ExpressionValue& aResult)
+{
+  if (stack.size()>=1) {
+    sp().res = aResult;
+  }
+  continueEvaluation();
+}
+
 
 
 bool EvaluationContext::runCallBack()
