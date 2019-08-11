@@ -127,8 +127,9 @@ namespace p44 {
   /// @param aExpression the expression text
   /// @param aValueLookupCB this will be called to get variables resolved into values
   /// @param aFunctionLookpCB this will be called to execute functions that are not built-in
+  /// @param aLogLevel the log level to show evaluation messages on, defaults to LOG_DEBUG
   /// @return the result of the expression
-  ExpressionValue evaluateExpression(const string& aExpression, ValueLookupCB aValueLookupCB, FunctionLookupCB aFunctionLookpCB);
+  ExpressionValue evaluateExpression(const string& aExpression, ValueLookupCB aValueLookupCB, FunctionLookupCB aFunctionLookpCB, int aLogLevel = LOG_DEBUG);
 
   /// substitute "@{xxx}" type expression placeholders in string
   /// @param aString string to replace placeholders in
@@ -268,6 +269,7 @@ namespace p44 {
       EvalState state; ///< current state
       int precedence; ///< encountering a binary operator with smaller precedence will end the expression
       Operations op; ///< operator
+      size_t pos; ///< position in the code (for loops)
       string identifier; ///< identifier (e.g. variable name, function name etc.)
       bool skipping; ///< if set, we are just skipping code, not really executing
       bool flowDecision; ///< flow control decision
@@ -310,6 +312,11 @@ namespace p44 {
 
     /// get current code
     const char *getCode() { return codeString.c_str(); };
+
+    /// set the log level for evaluation
+    /// @param aLogLevel log level or 0 to disable logging evaluation messages
+    /// @note the level set must be lower or equal to the global log levels for the messages to get written to the log
+    void setEvalLogLevel(int aLogLevel) { evalLogLevel = aLogLevel; }
 
     /// evaluate code synchonously
     /// @param aEvalMode if specified, the evaluation mode for this evaluation. Defaults to current evaluation mode.
@@ -392,6 +399,12 @@ namespace p44 {
     /// pop current stack frame and pass down a result
     /// @return true for convenience to be used in non-yieled returns
     bool popAndPassResult(ExpressionValue aResult);
+
+    /// pop stack frames down to the last frame in aPreviousState
+    /// @param aPreviousState the state we are looking for
+    /// @return true when frame was found, false if not (which means stack remained untouched)
+    bool popToLast(EvalState aPreviousState);
+
 
     /// @}
 
@@ -548,6 +561,7 @@ namespace p44 {
     /// script processing resume entry points
     bool resumeStatements();
     bool resumeIfElse();
+    bool resumeWhile();
     bool resumeAssignment();
 
     /// @}

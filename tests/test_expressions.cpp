@@ -60,7 +60,7 @@ public:
   ScriptFixture() :
     inherited(NULL)
   {
-    evalLogLevel = 0;
+    evalLogLevel = 5;
   };
 
   bool valueLookup(const string &aName, ExpressionValue &aResult) P44_OVERRIDE
@@ -307,6 +307,12 @@ TEST_CASE_METHOD(ScriptFixture, "Scripts", "[expressions]" )
     // blocks with delimiter variations
     REQUIRE(runScript("var res = 'none'; var res2 = 'none'; var cond = 2; if (cond==1) { res='one'; res2='two'; }; return string(res) + ',' + res2").stringValue() == "none,none");
     REQUIRE(runScript("var res = 'none'; var res2 = 'none'; var cond = 2; if (cond==1) { res='one'; res2='two'; } return string(res) + ',' + res2").stringValue() == "none,none");
+    // while, continue, break
+    REQUIRE(runScript("var count = 0; while (count<5) count = count+1; return count").numValue() == 5);
+    REQUIRE(runScript("var res = ''; var count = 0; while (count<5) { count = count+1; res = res+string(count); } return res").stringValue() == "12345");
+    REQUIRE(runScript("var res = ''; var count = 0; while (count<5) { count = count+1; if (count==3) continue; res = res+string(count); } return res").stringValue() == "1245");
+    REQUIRE(runScript("var res = ''; var count = 0; while (count<5) { count = count+1; if (count==3) break; res = res+string(count); } return res").stringValue() == "12");
+
 
   }
 

@@ -24,7 +24,7 @@
 #define ALWAYS_DEBUG 0
 // - set FOCUSLOGLEVEL to non-zero log level (usually, 5,6, or 7==LOG_DEBUG) to get focus (extensive logging) for this file
 //   Note: must be before including "logger.hpp" (or anything that includes "logger.hpp")
-#define FOCUSLOGLEVEL 6
+#define FOCUSLOGLEVEL 7
 
 #include "expressions.hpp"
 #include "math.h"
@@ -301,6 +301,22 @@ bool EvaluationContext::popAndPassResult(ExpressionValue aResult)
     sp().res = aResult;
   return true; // not yielded
 }
+
+
+bool EvaluationContext::popToLast(EvalState aPreviousState)
+{
+  StackList::iterator spos = stack.end();
+  while (spos!=stack.begin()) {
+    spos--;
+    if (spos->state==aPreviousState) {
+      // found, pop everything on top
+      stack.erase(++spos, stack.end());
+      return true;
+    }
+  }
+  return false;
+}
+
 
 
 bool EvaluationContext::abortWithError(ErrorPtr aError)
@@ -772,10 +788,10 @@ bool EvaluationContext::resumeExpression()
       // duplicate into res in case evaluation ends
       sp().res = sp().val;
       if (sp().res.isOk()) {
-        ELOG("Intermediate expression '%.*s' evaluation result: %s", (int)(pos-sp().res.pos), tail(sp().res.pos), sp().res.stringValue().c_str());
+        ELOG("Intermediate expression '%.*s' evaluation result: %s", (int)(pos-sp().val.pos), tail(sp().val.pos), sp().res.stringValue().c_str());
       }
       else {
-        ELOG("Intermediate expression '%.*s' evaluation result is INVALID", (int)(pos-sp().res.pos), tail(sp().res.pos));
+        ELOG("Intermediate expression '%.*s' evaluation result is INVALID", (int)(pos-sp().val.pos), tail(sp().val.pos));
       }
       return newstate(s_exprLeftSide); // back to leftside, more chained operators might follow
     }
@@ -933,13 +949,13 @@ bool EvaluationContext::resumeTerm()
       ELOG("- argument at char pos=%zu: %s (err=%s)", pos->pos, pos->stringValue().c_str(), Error::text(pos->err));
     }
     // run function
+    newstate(s_result); // expecting result from function
     if (!sp().skipping) {
       // - try synchronous functions first
       if (evaluateFunction(sp().identifier, sp().args, sp().res)) {
-        return newstate(s_result);
+        return true; // not yielded
       }
       // - must be async
-      newstate(s_result);
       bool notYielded = true; // default to not yielded, especially for errorInArg()
       if (!evaluateAsyncFunction(sp().identifier, sp().args, notYielded)) {
         return abortWithSyntaxError("Unknown function '%s' with %lu arguments", sp().identifier.c_str(), sp().args.size());
@@ -1109,7 +1125,8 @@ bool EvaluationContext::evaluateFunction(const string &aFunc, const FunctionArgu
     aResult = p44::evaluateExpression(
       aArgs[0].stringValue().c_str(),
       boost::bind(&EvaluationContext::valueLookup, this, _1, _2),
-      NULL // no functions from within function for now
+      NULL, // no functions from within function for now
+      evalLogLevel
     );
     if (aResult.notOk()) {
       FOCUSLOG("eval(\"%s\") returns error '%s' in expression: %s", aArgs[0].stringValue().c_str(), aResult.err->text(), getCode());
@@ -1307,6 +1324,10 @@ bool ScriptExecutionContext::resumeEvaluation()
     case s_elseStatement:
       ret = resumeIfElse(); // a if-elseif-else statement chain
       break;
+    case s_whileCondition:
+    case s_whileStatement:
+      ret = resumeWhile(); // a while loop statement
+      break;
     case s_assignToVar:
       ret = resumeAssignment();
       break;
@@ -1376,6 +1397,37 @@ bool ScriptExecutionContext::resumeStatements()
     if (strncasecmp("else", kw, kwsz)==0) {
       // just check to give sensible error message
       return abortWithSyntaxError("else without preceeding if");
+    }
+    if (strncasecmp("while", kw, kwsz)==0) {
+      pos += kwsz;
+      skipWhiteSpace();
+      if (currentchar()!='(') return abortWithSyntaxError("missing '(' after 'while'");
+      pos++;
+      push(s_whileCondition);
+      sp().pos = pos; // save position of the condition, we will jump here later
+      return push(s_newExpression);
+    }
+    if (strncasecmp("break", kw, kwsz)==0) {
+      pos += kwsz;
+      if (!sp().skipping) {
+        if (!popToLast(s_whileStatement)) return abortWithSyntaxError("break must be within while statement");
+        pos = sp().pos; // restore position saved
+        newstate(s_whileCondition); // switch back to condition
+        sp().skipping = true; // will avoid assignment of the condition, just skipping it and the while statement
+        sp().flowDecision = false; // must make flow decision false to exit the loop
+        return push(s_newExpression);
+      }
+      return true; // skipping, just consume keyword and ignore
+    }
+    if (strncasecmp("continue", kw, kwsz)==0) {
+      pos += kwsz;
+      if (!sp().skipping) {
+        if (!popToLast(s_whileStatement)) return abortWithSyntaxError("continue must be within while statement");
+        pos = sp().pos; // restore position saved
+        newstate(s_whileCondition); // switch back to condition
+        return push(s_newExpression);
+      }
+      return true; // skipping, just consume keyword and ignore
     }
     if (strncasecmp("return", kw, kwsz)==0) {
       pos += kwsz;
@@ -1509,6 +1561,30 @@ bool ScriptExecutionContext::resumeIfElse()
   if (sp().state==s_elseStatement) {
     // last else in chain, no if following
     return pop();
+  }
+  return true;
+}
+
+
+bool ScriptExecutionContext::resumeWhile()
+{
+  if (sp().state==s_whileCondition) {
+    // while condition is evaluated
+    if (currentchar()!=')')  return abortWithSyntaxError("missing ) after while condition");
+    pos++;
+    newstate(s_whileStatement);
+    if (!sp().skipping) sp().flowDecision = sp().res.boolValue(); // do not change flow decision when skipping (=break)
+    return push(s_oneStatement, !sp().flowDecision);
+  }
+  if (sp().state==s_whileStatement) {
+    // while statement (or block of statements) is executed
+    if (sp().flowDecision==false) {
+      return pop(); // end while
+    }
+    // not skipping, means we need to loop
+    pos = sp().pos; // restore position saved - that of the condition expression
+    newstate(s_whileCondition); // switch back to condition
+    return push(s_newExpression);
   }
   return true;
 }
@@ -1779,10 +1855,11 @@ protected:
 typedef boost::intrusive_ptr<AdHocEvaluationContext> AdHocEvaluationContextPtr;
 
 
-ExpressionValue p44::evaluateExpression(const string &aExpression, ValueLookupCB aValueLookupCB, FunctionLookupCB aFunctionLookpCB)
+ExpressionValue p44::evaluateExpression(const string &aExpression, ValueLookupCB aValueLookupCB, FunctionLookupCB aFunctionLookpCB, int aLogLevel)
 {
   AdHocEvaluationContext ctx(aValueLookupCB, aFunctionLookpCB);
   ctx.isMemberVariable();
+  ctx.setEvalLogLevel(aLogLevel);
   return ctx.evaluateExpression(aExpression);
 }
 
