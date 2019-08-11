@@ -44,12 +44,12 @@ namespace p44 {
   class GeoLocation
   {
   public:
-    double longitude; ///< longitude in degrees east of Greenwich
     double latitude; ///< latitude in degrees north of equator
+    double longitude; ///< longitude in degrees east of Greenwich
     double heightAboveSea; ///< height above sea level in meters
     GeoLocation() : longitude(DEFAULT_LONGITUDE), latitude(DEFAULT_LATITUDE), heightAboveSea(DEFAULT_HEIGHTABOVESEA) {};
-    GeoLocation(double aLongitude, double aLatitude) : longitude(aLongitude), latitude(aLatitude), heightAboveSea(0) {};
-    GeoLocation(double aLongitude, double aLatitude, double aHeightAboveSea) : longitude(aLongitude), latitude(aLatitude), heightAboveSea(aHeightAboveSea) {};
+    GeoLocation(double aLatitude, double aLongitude) : latitude(aLatitude), longitude(aLongitude), heightAboveSea(0) {};
+    GeoLocation(double aLatitude, double aLongitude, double aHeightAboveSea) : latitude(aLatitude), longitude(aLongitude), heightAboveSea(aHeightAboveSea) {};
   };
 
 
@@ -63,20 +63,20 @@ namespace p44 {
 
   /// get sun parameters for a given day
   /// @param aTime unix time of the day
-  /// @param aGeolocation geolocation with latitude/longitude set
+  /// @param aGeoLocation geolocation with latitude/longitude set
   /// @param aSunParams will get the sun parameters for the given day, place and timezone
   void getSunParams(time_t aTime, const GeoLocation &aGeoLocation, SunParams &aSunParams);
 
   /// get sunrise info
   /// @param aTime unix time of the day
-  /// @param aGeolocation geolocation with latitude/longitude set
+  /// @param aGeoLocation geolocation with latitude/longitude set
   /// @param aTwilight if set, (approx) time of when morning twilight starts is returned
   /// @return sunrise or morning twilight time in hours
   double sunrise(time_t aTime, const GeoLocation &aGeoLocation, bool aTwilight);
 
   /// get sunset info
   /// @param aTime unix time of the day
-  /// @param aGeolocation geolocation with latitude/longitude set
+  /// @param aGeoLocation geolocation with latitude/longitude set
   /// @param aTwilight if set, (approx) time of when evening twilight ends is returned
   /// @return sunrise or morning twilight time in hours
   double sunset(time_t aTime, const GeoLocation &aGeoLocation, bool aTwilight);
