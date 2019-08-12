@@ -436,3 +436,71 @@ void HttpComm::appendFormValue(string &aDataString, const string &aFieldname, co
 }
 
 
+
+// MARK: - script support
+
+#if ENABLE_HTTP_SCRIPT_FUNCS
+
+/// This function implements geturl/puturl/posturl http utility functions, and is intended to get called
+/// from a EvaluationContext's evaluateAsyncFunctions() method to provide http functionality
+bool HttpComm::evaluateAsyncHttpFunctions(EvaluationContext* aEvalContext, const string &aFunc, const FunctionArguments &aArgs, bool &aNotYielded, HttpCommPtr* aHttpCommP)
+{
+  aNotYielded = true; // by default, so we can use "return errorInArg()" style exits
+  bool isGet = false;
+  bool isPost = false;
+  bool isPut = false;
+  if (strucmp(aFunc.c_str(), "geturl")==0) isGet = true;
+  else if (strucmp(aFunc.c_str(), "posturl")==0) isPost = true;
+  else if (strucmp(aFunc.c_str(), "puturl")==0) isPut = true;
+  else return false; // unknown function
+  if (aArgs.size()<1) return false; // not enough params
+  if (isGet && aArgs.size()>1) return false; // geturl has only one param
+  // one of:
+  //   geturl("<url>")
+  //   posturl("<url>"[,"<data>"])
+  //   puturl("<url>"[,"<data>"])
+  if (aArgs[0].notOk()) return aEvalContext->errorInArg(aArgs[0]);
+  string url = aArgs[0].stringValue();
+  string method = isGet ? "GET" : (isPut ? "PUT" : "POST");
+  string data;
+  if (isPost || isPut) {
+    if (aArgs.size()>=2) data=aArgs[1].stringValue();
+  }
+  // extract from url
+  string user;
+  string password;
+  HttpCommPtr httpAction;
+  if (aHttpCommP) httpAction = *aHttpCommP;
+  if (!httpAction) httpAction = HttpCommPtr(new HttpComm(MainLoop::currentMainLoop()));
+  if (aHttpCommP) *aHttpCommP = httpAction;
+  splitURL(url.c_str(), NULL, NULL, NULL, &user, &password);
+  httpAction->setHttpAuthCredentials(user, password);
+  LOG(aEvalContext->getEvalLogLevel(), "issuing %s to %s %s", method.c_str(), url.c_str(), data.c_str());
+  if (!httpAction->httpRequest(
+    url.c_str(),
+    boost::bind(&HttpComm::httpFunctionDone, aEvalContext, _1, _2),
+    method.c_str(),
+    data.c_str()
+  )) {
+    return aEvalContext->returnFunctionResult(ExpressionValue(TextError::err("could not issue http request")));
+  }
+  aNotYielded = false; // callback will get result
+  return true; // function found, aNotYielded must be set correctly!
+}
+
+
+void HttpComm::httpFunctionDone(EvaluationContext* aEvalContext, const string &aResponse, ErrorPtr aError)
+{
+  LOG(aEvalContext->getEvalLogLevel(), "http action returns '%s', error = %s", aResponse.c_str(), Error::text(aError));
+  ExpressionValue res;
+  if (Error::isOK(aError)) {
+    res.setString(aResponse);
+  }
+  else {
+    res.withError(aError);
+  }
+  aEvalContext->continueWithAsyncFunctionResult(res);
+}
+
+
+#endif // ENABLE_HTTP_SCRIPT_FUNCS
