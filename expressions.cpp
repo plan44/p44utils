@@ -24,7 +24,7 @@
 #define ALWAYS_DEBUG 0
 // - set FOCUSLOGLEVEL to non-zero log level (usually, 5,6, or 7==LOG_DEBUG) to get focus (extensive logging) for this file
 //   Note: must be before including "logger.hpp" (or anything that includes "logger.hpp")
-#define FOCUSLOGLEVEL 6
+#define FOCUSLOGLEVEL 7
 
 #include "expressions.hpp"
 
@@ -467,14 +467,20 @@ bool EvaluationContext::continueEvaluation()
 }
 
 
-void EvaluationContext::continueWithFunctionResult(const ExpressionValue& aResult)
+bool EvaluationContext::returnFunctionResult(const ExpressionValue& aResult)
 {
   if (stack.size()>=1) {
     sp().res = aResult;
   }
-  continueEvaluation();
+  return true;
 }
 
+
+void EvaluationContext::continueWithAsyncFunctionResult(const ExpressionValue& aResult)
+{
+  returnFunctionResult(aResult);
+  continueEvaluation();
+}
 
 
 bool EvaluationContext::runCallBack()
@@ -1730,7 +1736,7 @@ bool ScriptExecutionContext::evaluateFunction(const string &aFunc, const Functio
     if (aArgs[ai].notOk()) return errorInArg(aArgs[ai]);
     LOG(loglevel, "Script log: %s", aArgs[ai].stringValue().c_str());
   }
-  else if (aFunc=="setloglevel" && aArgs.size()==1) {
+  else if (aFunc=="loglevel" && aArgs.size()==1) {
     if (aArgs[0].notOk()) return errorInArg(aArgs[0]);
     int newLevel = aArgs[0].intValue();
     if (newLevel>=0 && newLevel<=7) {
@@ -1739,7 +1745,7 @@ bool ScriptExecutionContext::evaluateFunction(const string &aFunc, const Functio
       LOG(newLevel, "\n\n========== script changed log level from %d to %d ===============", oldLevel, newLevel);
     }
   }
-  else if (aFunc=="setscriptlog" && aArgs.size()==1) {
+  else if (aFunc=="scriptloglevel" && aArgs.size()==1) {
     if (aArgs[0].notOk()) return errorInArg(aArgs[0]);
     int newLevel = aArgs[0].intValue();
     if (newLevel>=0 && newLevel<=7) {

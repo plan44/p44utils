@@ -38,6 +38,7 @@
 #define ELOG(...) { if (ELOGGING) LOG(evalLogLevel,##__VA_ARGS__) }
 #define ELOG_DBG(...) { if (ELOGGING_DBG) LOG(FOCUSLOGLEVEL ? FOCUSLOGLEVEL : LOG_DEBUG,##__VA_ARGS__) }
 
+
 using namespace std;
 
 namespace p44 {
@@ -75,6 +76,7 @@ namespace p44 {
     ExpressionValue() : numVal(0), strValP(NULL) { withError(ExpressionError::null()); };
     ExpressionValue(double aNumValue) : numVal(aNumValue), strValP(NULL) { };
     ExpressionValue(const string &aStrValue) : numVal(0), strValP(new string(aStrValue)) { };
+    ExpressionValue(ErrorPtr aError) : numVal(0), strValP(NULL), err(aError) { };
     ExpressionValue(const ExpressionValue& aVal); ///< copy constructor
     ExpressionValue& operator=(const ExpressionValue& aVal); ///< assignment operator
     ~ExpressionValue();
@@ -115,12 +117,7 @@ namespace p44 {
   };
 
 
-  /// callback function for obtaining variables
-  /// @param aName the name of the value/variable to look up, always passed in in all lowercase
-  /// @param aResult set the value here
-  /// @return true if value returned, false if value is unknown
-  typedef boost::function<bool (const string &aName, ExpressionValue &aResult)> ValueLookupCB;
-
+  class EvaluationContext;
 
   class FunctionArguments
   {
@@ -133,13 +130,20 @@ namespace p44 {
     void addArg(const ExpressionValue &aArg, size_t aAtPos) { args.push_back(make_pair(aAtPos, aArg)); }
   };
 
+  /// callback function for obtaining variables
+  /// @param aName the name of the value/variable to look up, always passed in in all lowercase
+  /// @param aResult set the value here
+  /// @return true if value returned, false if value is unknown
+  typedef boost::function<bool (const string &aName, ExpressionValue &aResult)> ValueLookupCB;
 
-/// callback function for function evaluation
+  /// callback function for function evaluation
   /// @param aFunc the name of the function to execute, always passed in in all lowercase
   /// @param aArgs vector of function arguments, tuple contains expression starting position and value
   /// @param aResult set to function's result
   /// @return true if function executed, false if function signature (name, number of args) is unknown
   typedef boost::function<bool (const string& aFunc, const FunctionArguments& aArgs, ExpressionValue& aResult)> FunctionLookupCB;
+
+
 
   /// evaluate expression
   /// @param aExpression the expression text
@@ -160,7 +164,6 @@ namespace p44 {
 
 
 
-  class EvaluationContext;
 
   /// Expression Evaluation Callback
   /// @param aEvaluationResult the evaluation result (can be error)
@@ -344,6 +347,9 @@ namespace p44 {
     /// @note the level set must be lower or equal to the global log levels for the messages to get written to the log
     void setEvalLogLevel(int aLogLevel) { evalLogLevel = aLogLevel; }
 
+    /// @return the log level to be used for log messages in this evaluation context
+    int getEvalLogLevel() { return evalLogLevel; }
+
     /// evaluate code synchonously
     /// @param aEvalMode if specified, the evaluation mode for this evaluation. Defaults to current evaluation mode.
     /// @param aScheduleReEval if true, re-evaluations as demanded by evaluated expression are scheduled (NOP in base class)
@@ -377,6 +383,27 @@ namespace p44 {
     virtual bool abort();
 
 
+    /// @name error reporting, can also be used from external function implementations
+    /// @{
+
+    /// set result to specified error and abort
+    bool abortWithError(ErrorPtr aError);
+    bool abortWithError(ExpressionError::ErrorCodes aErrCode, const char *aFmt, ...) __printflike(3,4);
+    bool abortWithSyntaxError(const char *aFmt, ...) __printflike(2,3);
+
+    /// helper to exit evaluateFunction/evaluateAsyncFunction indicating a argument with an error
+    bool errorInArg(ExpressionValue aArg, const char *aExtraPrefix = NULL);
+
+    /// re-entry point for asynchronous functions to return a result
+    /// @param aResult the result
+    void continueWithAsyncFunctionResult(const ExpressionValue& aResult);
+
+    /// set the function result from within function implementations
+    bool returnFunctionResult(const ExpressionValue& aResult);
+
+
+    /// @}
+
   protected:
 
     /// @return true if a callback was set and executed
@@ -401,10 +428,6 @@ namespace p44 {
     /// re-entry point for callbacks - continue execution
     /// @return true if evaluation completed without yielding execution.
     bool continueEvaluation();
-
-    /// re-entry point for asynchronous functions to return a result
-    /// @param aResult the result
-    void continueWithFunctionResult(const ExpressionValue& aResult);
 
     /// Main entry point / dispatcher - resume evaluation where we left off when we last yielded
     /// @return
@@ -476,14 +499,6 @@ namespace p44 {
     /// @param aPos position
     /// @return c_str of the tail starting at aPos
     const char *tail(size_t aPos) const { if (aPos>codeString.size()) aPos=codeString.size(); return codeString.c_str()+aPos; }
-
-    /// set result to specified error and abort
-    bool abortWithError(ErrorPtr aError);
-    bool abortWithError(ExpressionError::ErrorCodes aErrCode, const char *aFmt, ...) __printflike(3,4);
-    bool abortWithSyntaxError(const char *aFmt, ...) __printflike(2,3);
-
-    /// helper to exit evaluateFunction/evaluateAsyncFunction indicating a argument with an error
-    bool errorInArg(ExpressionValue aArg, const char *aExtraPrefix = NULL);
 
     /// check for and get identifier
     /// @param aLen return size of identifier found (0 if none)

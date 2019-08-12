@@ -33,7 +33,7 @@ public:
   ExpressionFixture() :
     inherited(NULL)
   {
-    evalLogLevel = 6;
+    evalLogLevel = 0;
   };
 
   bool valueLookup(const string &aName, ExpressionValue &aResult) P44_OVERRIDE
@@ -60,7 +60,7 @@ public:
   ScriptFixture() :
     inherited(NULL)
   {
-    evalLogLevel = 5;
+    evalLogLevel = 0;
   };
 
   bool valueLookup(const string &aName, ExpressionValue &aResult) P44_OVERRIDE
@@ -80,8 +80,15 @@ public:
 };
 
 
+//TEST_CASE_METHOD(ScriptFixture, "Focus", "[expressions]" )
+//{
+//  setEvalLogLevel(7);
+//  REQUIRE(runScript("var cond = 2; if (cond==1) return 'one'; else if (cond==2) return 'two'; else return 'not 1 or 2';").stringValue() == "two");
+//}
 
-TEST_CASE("ExpressionValue", "[expressions]" ) {
+
+TEST_CASE("ExpressionValue", "[expressions]" )
+{
 
   SECTION("Default Value") {
     REQUIRE(ExpressionValue().isNull()); // default expression is NULL
@@ -139,6 +146,7 @@ TEST_CASE_METHOD(ExpressionFixture, "Expressions", "[expressions]" )
     REQUIRE(runExpression("\"\\tHello\\nWorld, \\\"double quoted\\\"\"").stringValue() == "\tHello\nWorld, \"double quoted\""); // C string style
     REQUIRE(runExpression("'Hello\\nWorld, \"double quoted\" text'").stringValue() == "Hello\\nWorld, \"double quoted\" text"); // PHP single quoted style
     REQUIRE(runExpression("'Hello\\nWorld, ''single quoted'' text'").stringValue() == "Hello\\nWorld, 'single quoted' text"); // include single quotes in single quoted text by doubling them
+    REQUIRE(runExpression("\"\"").stringValue() == ""); // empty string
 
     REQUIRE(runExpression("true").intValue() == 1);
     REQUIRE(runExpression("TRUE").intValue() == 1);
@@ -189,6 +197,8 @@ TEST_CASE_METHOD(ExpressionFixture, "Expressions", "[expressions]" )
     REQUIRE(runExpression("42.7/24").numValue() == 42.7/24.0);
     REQUIRE(runExpression("78/0").isOk() == false); // division by zero
     REQUIRE(runExpression("\"ABC\" + \"abc\"").stringValue() == "ABCabc");
+    REQUIRE(runExpression("\"empty\"+\"\"").stringValue() == "empty");
+    REQUIRE(runExpression("\"\"+\"empty\"").stringValue() == "empty");
     REQUIRE(runExpression("1==true").boolValue() == true);
     REQUIRE(runExpression("1==yes").boolValue() == true);
     REQUIRE(runExpression("0==false").boolValue() == true);
@@ -306,34 +316,38 @@ TEST_CASE_METHOD(ScriptFixture, "Scripts", "[expressions]" )
   }
 
   SECTION("control flow") {
-    REQUIRE(runScript("var res = 'none'; var cond = 1; if (cond==1) res='one' else res='NOT one'; return res").stringValue() == "one");
-    REQUIRE(runScript("var res = 'none'; var cond = 2; if (cond==1) res='one' else res='NOT one'; return res").stringValue() == "NOT one");
+    REQUIRE(runScript("var cond = 1; var res = 'none'; var cond = 1; if (cond==1) res='one' else res='NOT one'; return res").stringValue() == "one");
+    REQUIRE(runScript("var cond = 2; var res = 'none'; var cond = 2; if (cond==1) res='one' else res='NOT one'; return res").stringValue() == "NOT one");
     // without statement separators (JavaScript style)
-    REQUIRE(runScript("var res = 'none'; var cond = 1; if (cond==1) res='one' else if (cond==2) res='two' else res='not 1 or 2'; return res").stringValue() == "one");
-    REQUIRE(runScript("var res = 'none'; var cond = 2; if (cond==1) res='one' else if (cond==2) res='two' else res='not 1 or 2'; return res").stringValue() == "two");
-    REQUIRE(runScript("var res = 'none'; var cond = 5; if (cond==1) res='one' else if (cond==2) res='two' else res='not 1 or 2'; return res").stringValue() == "not 1 or 2");
+    REQUIRE(runScript("var cond = 1; var res = 'none'; var cond = 1; if (cond==1) res='one' else if (cond==2) res='two' else res='not 1 or 2'; return res").stringValue() == "one");
+    REQUIRE(runScript("var cond = 2; var res = 'none'; var cond = 2; if (cond==1) res='one' else if (cond==2) res='two' else res='not 1 or 2'; return res").stringValue() == "two");
+    REQUIRE(runScript("var cond = 5; var res = 'none'; var cond = 5; if (cond==1) res='one' else if (cond==2) res='two' else res='not 1 or 2'; return res").stringValue() == "not 1 or 2");
     // with statement separators
-    REQUIRE(runScript("var res = 'none'; var cond = 1; if (cond==1) res='one'; else if (cond==2) res='two'; else res='not 1 or 2'; return res").stringValue() == "one");
-    REQUIRE(runScript("var res = 'none'; var cond = 2; if (cond==1) res='one'; else if (cond==2) res='two'; else res='not 1 or 2'; return res").stringValue() == "two");
-    REQUIRE(runScript("var res = 'none'; var cond = 5; if (cond==1) res='one'; else if (cond==2) res='two'; else res='not 1 or 2'; return res").stringValue() == "not 1 or 2");
+    REQUIRE(runScript("var cond = 1; var res = 'none'; var cond = 1; if (cond==1) res='one'; else if (cond==2) res='two'; else res='not 1 or 2'; return res").stringValue() == "one");
+    REQUIRE(runScript("var cond = 2; var res = 'none'; var cond = 2; if (cond==1) res='one'; else if (cond==2) res='two'; else res='not 1 or 2'; return res").stringValue() == "two");
+    REQUIRE(runScript("var cond = 5; var res = 'none'; var cond = 5; if (cond==1) res='one'; else if (cond==2) res='two'; else res='not 1 or 2'; return res").stringValue() == "not 1 or 2");
+    // with skipped return statements
+    REQUIRE(runScript("var cond = 1; if (cond==1) return 'one'; else if (cond==2) return 'two'; else return 'not 1 or 2';").stringValue() == "one");
+    REQUIRE(runScript("var cond = 2; if (cond==1) return 'one'; else if (cond==2) return 'two'; else return 'not 1 or 2';").stringValue() == "two");
+    REQUIRE(runScript("var cond = 5; if (cond==1) return 'one'; else if (cond==2) return 'two'; else return 'not 1 or 2';").stringValue() == "not 1 or 2");
     // special cases
-    REQUIRE(runScript("var res = 'none'; var cond = 2; if (cond==1) res='one'; else if (cond==2) res='two'; else res='not 1 or 2' return res").stringValue() == "two");
+    REQUIRE(runScript("var cond = 2; var res = 'none'; if (cond==1) res='one'; else if (cond==2) res='two'; else res='not 1 or 2' return res").stringValue() == "two");
     // blocks
-    REQUIRE(runScript("var res = 'none'; var res2 = 'none'; var cond = 1; if (cond==1) res='one'; res2='two'; return string(res) + ',' + res2").stringValue() == "one,two");
-    REQUIRE(runScript("var res = 'none'; var res2 = 'none'; var cond = 2; if (cond==1) res='one'; res2='two'; return string(res) + ',' + res2").stringValue() == "none,two");
-    REQUIRE(runScript("var res = 'none'; var res2 = 'none'; var cond = 1; if (cond==1) { res='one'; res2='two' }; return string(res) + ',' + res2").stringValue() == "one,two");
-    REQUIRE(runScript("var res = 'none'; var res2 = 'none'; var cond = 2; if (cond==1) { res='one'; res2='two' }; return string(res) + ',' + res2").stringValue() == "none,none");
+    REQUIRE(runScript("var cond = 1; var res = 'none'; var res2 = 'none'; if (cond==1) res='one'; res2='two'; return string(res) + ',' + res2").stringValue() == "one,two");
+    REQUIRE(runScript("var cond = 2; var res = 'none'; var res2 = 'none'; if (cond==1) res='one'; res2='two'; return string(res) + ',' + res2").stringValue() == "none,two");
+    REQUIRE(runScript("var cond = 1; var res = 'none'; var res2 = 'none'; if (cond==1) { res='one'; res2='two' }; return string(res) + ',' + res2").stringValue() == "one,two");
+    REQUIRE(runScript("var cond = 2; var res = 'none'; var res2 = 'none'; if (cond==1) { res='one'; res2='two' }; return string(res) + ',' + res2").stringValue() == "none,none");
     // blocks with delimiter variations
-    REQUIRE(runScript("var res = 'none'; var res2 = 'none'; var cond = 2; if (cond==1) { res='one'; res2='two'; }; return string(res) + ',' + res2").stringValue() == "none,none");
-    REQUIRE(runScript("var res = 'none'; var res2 = 'none'; var cond = 2; if (cond==1) { res='one'; res2='two'; } return string(res) + ',' + res2").stringValue() == "none,none");
+    REQUIRE(runScript("var cond = 2; var res = 'none'; var res2 = 'none'; if (cond==1) { res='one'; res2='two'; }; return string(res) + ',' + res2").stringValue() == "none,none");
+    REQUIRE(runScript("var cond = 2; var res = 'none'; var res2 = 'none'; if (cond==1) { res='one'; res2='two'; } return string(res) + ',' + res2").stringValue() == "none,none");
     // while, continue, break
     REQUIRE(runScript("var count = 0; while (count<5) count = count+1; return count").numValue() == 5);
     REQUIRE(runScript("var res = ''; var count = 0; while (count<5) { count = count+1; res = res+string(count); } return res").stringValue() == "12345");
     REQUIRE(runScript("var res = ''; var count = 0; while (count<5) { count = count+1; if (count==3) continue; res = res+string(count); } return res").stringValue() == "1245");
     REQUIRE(runScript("var res = ''; var count = 0; while (count<5) { count = count+1; if (count==3) break; res = res+string(count); } return res").stringValue() == "12");
-
-
+    // skipping execution of chained expressions
+    REQUIRE(runScript("if (false) return string(\"A\" + \"X\" + \"B\")").isNull() == true);
+    REQUIRE(runScript("if (false) return string(\"A\" + string(\"\") + \"B\")").isNull() == true);
   }
-
 
 }
