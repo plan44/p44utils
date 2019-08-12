@@ -26,6 +26,8 @@
 #include "config.h"
 #endif
 
+#include "p44utils_config.hpp"
+
 #include <list>
 #include <vector>
 #include <map>
