@@ -24,9 +24,12 @@
 #define ALWAYS_DEBUG 0
 // - set FOCUSLOGLEVEL to non-zero log level (usually, 5,6, or 7==LOG_DEBUG) to get focus (extensive logging) for this file
 //   Note: must be before including "logger.hpp" (or anything that includes "logger.hpp")
-#define FOCUSLOGLEVEL 7
+#define FOCUSLOGLEVEL 6
 
 #include "expressions.hpp"
+
+#if ENABLE_EXPRESSIONS
+
 #include "math.h"
 
 using namespace p44;
@@ -262,7 +265,7 @@ const char* EvaluationContext::getIdentifier(size_t& aLen)
 }
 
 
-static const char const *evalstatenames[EvaluationContext::numEvalStates] = {
+static const char *evalstatenames[EvaluationContext::numEvalStates] = {
   "s_body",
   "s_block",
   "s_oneStatement",
@@ -302,7 +305,7 @@ void EvaluationContext::logStackDump() {
   size_t spidx = stack.size();
   while (spos!=stack.begin()) {
     spos--;
-    ELOG_DBG("- %zu: %s state=%s, identifier='%s', code(pos): '%s'",
+    ELOG_DBG("- %zu: %s state=%s, identifier='%s', code(sp->pos): '%.50s...'",
       spidx,
       spos->skipping ? "SKIPPING" : "running ",
       evalstatenames[spos->state],
@@ -318,7 +321,7 @@ bool EvaluationContext::push(EvalState aNewState, bool aStartSkipping)
   skipWhiteSpace();
   stack.push_back(StackFrame(aNewState, aStartSkipping || sp().skipping, sp().precedence));
   if (ELOGGING_DBG) {
-    ELOG_DBG("+++ pushed new frame, stack now:")
+    ELOG_DBG("+++ pushed new frame - code(pos): '%.50s...", tail(pos));
     logStackDump();
   }
   return true; // not yielded
@@ -332,7 +335,7 @@ bool EvaluationContext::pop()
     // regular pop
     stack.pop_back();
     if (ELOGGING_DBG) {
-      ELOG_DBG("--- popped frame, stack now:")
+      ELOG_DBG("--- popped frame - code(pos): '%.50s...", tail(pos));
       logStackDump();
     }
     return true; // not yielded
@@ -347,11 +350,14 @@ bool EvaluationContext::pop()
 
 bool EvaluationContext::popAndPassResult(ExpressionValue aResult)
 {
+  bool wasSkipping = sp().skipping;
   pop();
   if (stack.empty())
     finalResult = aResult;
-  else
+  else if (!wasSkipping) {
+    ELOG("Result from %s: '%.*s' is '%s'", evalstatenames[sp().state],  (int)(pos-sp().pos), tail(sp().pos), aResult.stringValue().c_str());
     sp().res = aResult;
+  }
   return true; // not yielded
 }
 
@@ -477,10 +483,7 @@ bool EvaluationContext::runCallBack()
     // this is where cyclic references could cause re-evaluation, so pretend (again) script running
     EvaluationResultCB cb = evaluationResultHandler;
     if (oneTimeResultHandler) evaluationResultHandler = NULL;
-    ErrorPtr err = cb(finalResult, *this);
-    if (Error::notOK(err)) {
-      finalResult.withError(err);
-    }
+    cb(finalResult, *this);
     return true; // called back
   }
   return false; // not called back
@@ -876,9 +879,8 @@ bool EvaluationContext::resumeExpression()
       else {
         ELOG_DBG("Intermediate expression '%.*s' evaluation result is INVALID", (int)(pos-sp().pos), tail(sp().pos));
       }
-      return newstate(s_exprLeftSide); // back to leftside, more chained operators might follow
     }
-    return newstate(s_result); // end of this expression
+    return newstate(s_exprLeftSide); // back to leftside, more chained operators might follow
   }
   return abortWithError(TextError::err("expression resumed in invalid state %d", sp().state));
 }
@@ -1044,7 +1046,7 @@ bool EvaluationContext::resumeTerm()
       // - must be async
       bool notYielded = true; // default to not yielded, especially for errorInArg()
       if (synchronous || !evaluateAsyncFunction(sp().identifier, sp().args, notYielded)) {
-        return abortWithSyntaxError("Unknown function '%s' with %lu arguments", sp().identifier.c_str(), sp().args.size());
+        return abortWithSyntaxError("Unknown function '%s' with %d arguments", sp().identifier.c_str(), sp().args.size());
       }
       return notYielded;
     }
@@ -1058,15 +1060,15 @@ ExpressionValue TimedEvaluationContext::evaluateSynchronously(EvalMode aEvalMode
 {
   ExpressionValue res = inherited::evaluateSynchronously(aEvalMode, aScheduleReEval, aCallBack);
   // take unfreeze time of frozen results into account for next evaluation
-  FrozenResultsMap::iterator pos = frozenResults.begin();
-  while (pos!=frozenResults.end()) {
-    if (pos->second.frozenUntil==Never) {
+  FrozenResultsMap::iterator fpos = frozenResults.begin();
+  while (fpos!=frozenResults.end()) {
+    if (fpos->second.frozenUntil==Never) {
       // already detected expired -> erase (Note: just expired ones in terms of now() MUST wait until checked in next evaluation!)
-      pos = frozenResults.erase(pos);
+      fpos = frozenResults.erase(fpos);
       continue;
     }
-    updateNextEval(pos->second.frozenUntil);
-    pos++;
+    updateNextEval(fpos->second.frozenUntil);
+    fpos++;
   }
   if (nextEvaluation!=Never) {
     ELOG("Expression demands re-evaluation at %s: '%s'", MainLoop::string_mltime(nextEvaluation).c_str(), getCode());
@@ -1128,7 +1130,10 @@ bool EvaluationContext::evaluateFunction(const string &aFunc, const FunctionArgu
   }
   else if (aFunc=="string" && aArgs.size()==1) {
     // string(anything)
-    aResult.setString(aArgs[0].stringValue()); // force convert to string, including nulls and errors
+    if (aArgs[0].isNull())
+      aResult.setString("undefined"); // make it visible
+    else
+      aResult.setString(aArgs[0].stringValue()); // force convert to string, including nulls and errors
   }
   else if (aFunc=="number" && aArgs.size()==1) {
     // number(anything)
@@ -1541,10 +1546,11 @@ bool ScriptExecutionContext::resumeStatements()
       skipWhiteSpace();
       if (currentchar() && currentchar()!=';') {
         // switch frame to last thing that will happen: getting the return value
-        sp().state = s_returnValue;
+        if (!sp().skipping) sp().state = s_returnValue;
         return push(s_newExpression);
       }
-      return newstate(s_complete);
+      if (sp().skipping) return true; // skipping, just consume keyword and ignore
+      return newstate(s_complete); // not skipping, actually terminate
     }
     // variable handling
     bool vardef = false;
@@ -2099,4 +2105,6 @@ ErrorPtr p44::substitutePlaceholders(string &aString, StringValueLookupCB aValue
 }
 
 #endif // EXPRESSION_LEGACY_PLACEHOLDERS
+
+#endif // ENABLE_EXPRESSIONS
 

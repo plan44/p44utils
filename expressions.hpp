@@ -23,6 +23,9 @@
 #define __p44utils__expressions__
 
 #include "p44utils_common.hpp"
+
+#if ENABLE_EXPRESSIONS
+
 #include "timeutils.hpp"
 #include <string>
 
@@ -31,7 +34,7 @@
 #endif
 
 #define ELOGGING (evalLogLevel!=0)
-#define ELOGGING_DBG (evalLogLevel>=(FOCUSLOGLEVEL ? FOCUSLOGLEVEL : LOG_DEBUG))
+#define ELOGGING_DBG (evalLogLevel>=LOG_DEBUG)
 #define ELOG(...) { if (ELOGGING) LOG(evalLogLevel,##__VA_ARGS__) }
 #define ELOG_DBG(...) { if (ELOGGING_DBG) LOG(FOCUSLOGLEVEL ? FOCUSLOGLEVEL : LOG_DEBUG,##__VA_ARGS__) }
 
@@ -60,7 +63,7 @@ namespace p44 {
     ExpressionError(ErrorCodes aError) : Error(ErrorCode(aError)) {};
     /// factory method to create string error fprint style
     static ErrorPtr err(ErrorCodes aErrCode, const char *aFmt, ...) __printflike(2,3);
-    static ErrorPtr null() { return err(ExpressionError::Null, "undefined"); }
+    static ErrorPtr null() { return err(ExpressionError::Null, "<undefined value>"); }
   };
 
   /// expression value, consisting of a value and an error to indicate non-value and reason for it
@@ -69,7 +72,7 @@ namespace p44 {
     double numVal;
   public:
     ErrorPtr err;
-    ExpressionValue() : numVal(0), strValP(NULL) { withError(ExpressionError::Null, "undefined"); };
+    ExpressionValue() : numVal(0), strValP(NULL) { withError(ExpressionError::null()); };
     ExpressionValue(double aNumValue) : numVal(aNumValue), strValP(NULL) { };
     ExpressionValue(const string &aStrValue) : numVal(0), strValP(new string(aStrValue)) { };
     ExpressionValue(const ExpressionValue& aVal); ///< copy constructor
@@ -125,7 +128,7 @@ namespace p44 {
   public:
     const ExpressionValue operator[](unsigned int aArgIndex) const { if (aArgIndex<args.size()) return args[aArgIndex].second; else return ExpressionValue(); }
     size_t getPos(unsigned int aArgIndex) const { if (aArgIndex<args.size()) return args[aArgIndex].first; else return 0; }
-    size_t size() const { return args.size(); }
+    int size() const { return (int)args.size(); }
     void clear() { args.clear(); }
     void addArg(const ExpressionValue &aArg, size_t aAtPos) { args.push_back(make_pair(aAtPos, aArg)); }
   };
@@ -162,8 +165,7 @@ namespace p44 {
   /// Expression Evaluation Callback
   /// @param aEvaluationResult the evaluation result (can be error)
   /// @param aContext the evaluation context this result originates from
-  /// @return ok, or error in case the result processing wants to pass on a evaluation error or an error of its own.
-  typedef boost::function<ErrorPtr (ExpressionValue aEvaluationResult, EvaluationContext &aContext)> EvaluationResultCB;
+  typedef boost::function<void (ExpressionValue aEvaluationResult, EvaluationContext &aContext)> EvaluationResultCB;
 
   /// Evaluation mode
   typedef enum {
@@ -705,6 +707,6 @@ namespace p44 {
 
 } // namespace p44
 
-
+#endif // ENABLE_EXPRESSIONS
 
 #endif // defined(__p44utils__expressions__)
