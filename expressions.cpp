@@ -47,6 +47,7 @@ ExpressionValue::ExpressionValue(const ExpressionValue& aVal) :
 // assignment operator
 ExpressionValue& ExpressionValue::operator=(const ExpressionValue& aVal)
 {
+  nullValue = aVal.nullValue;
   numVal = aVal.numVal;
   err = aVal.err;
   clrStr();
@@ -71,6 +72,7 @@ ExpressionValue::~ExpressionValue()
 
 void ExpressionValue::setError(ExpressionError::ErrorCodes aErrCode, const char *aFmt, ...)
 {
+  nullValue = false;
   err = new ExpressionError(aErrCode);
   va_list args;
   va_start(args, aFmt);
@@ -81,6 +83,7 @@ void ExpressionValue::setError(ExpressionError::ErrorCodes aErrCode, const char 
 
 void ExpressionValue::setSyntaxError(const char *aFmt, ...)
 {
+  nullValue = false;
   err = new ExpressionError(ExpressionError::Syntax);
   va_list args;
   va_start(args, aFmt);
@@ -91,24 +94,39 @@ void ExpressionValue::setSyntaxError(const char *aFmt, ...)
 
 string ExpressionValue::stringValue() const
 {
-  if (isValue()) {
-    if (isString()) return *strValP;
-    else return string_format("%lg", numVal);
+  if (isString()) {
+    return *strValP;
+  }
+  else if (isNull()) {
+    if (strValP) return *strValP; // null value with info
+    return "undefined";
+  }
+  else if (err) {
+    return err->getErrorMessage();
   }
   else {
-    return "";
+    return string_format("%lg", numVal);
   }
 }
 
 
 double ExpressionValue::numValue() const
 {
-  if (!isValue()) return 0;
-  if (!isString()) return numVal;
-  ExpressionValue v(0);
-  size_t lpos = 0;
-  EvaluationContext::parseNumericLiteral(v, strValP->c_str(), lpos);
-  return v.numVal;
+  if (isString()) {
+    ExpressionValue v(0);
+    size_t lpos = 0;
+    EvaluationContext::parseNumericLiteral(v, strValP->c_str(), lpos);
+    return v.numVal;
+  }
+  else if (isNull()) {
+    return 0;
+  }
+  else if (err) {
+    return err->getErrorCode();
+  }
+  else {
+    return numVal;
+  }
 }
 
 
@@ -1003,7 +1021,7 @@ bool EvaluationContext::resumeTerm()
             sp().res.setNumber(0);
           }
           else if (strucmp(idpos, "null", idsz)==0 || strucmp(idpos, "undefined", idsz)==0) {
-            sp().res.setError(ExpressionError::Null, "%.*s", (int)idsz, idpos);
+            sp().res.setNull(string(idpos, idsz).c_str());
           }
           else if (!sp().skipping) {
             // must be identifier representing a variable value
@@ -1238,7 +1256,7 @@ bool EvaluationContext::evaluateFunction(const string &aFunc, const FunctionArgu
     if (aResult.notValue()) {
       FOCUSLOG("eval(\"%s\") returns error '%s' in expression: '%s'", aArgs[0].stringValue().c_str(), aResult.err->text(), getCode());
       // do not cause syntax error, only invalid result, but with error message included
-      aResult.setError(Error::err<ExpressionError>(ExpressionError::Null, "eval() error: %s -> undefined", aResult.err->text()));
+      aResult.setNull(string_format("eval() error: %s -> undefined", aResult.err->text()).c_str());
     }
   }
   else if (aFunc=="is_weekday" && aArgs.size()>0) {
@@ -1926,7 +1944,7 @@ bool TimedEvaluationContext::evaluateFunction(const string &aFunc, const Functio
     }
     else {
       // still frozen, return undefined
-      aResult.setError(ExpressionError::Null, "testlater() not yet ready");
+      aResult.setNull("testlater() not yet ready");
     }
   }
   else if (aFunc=="initial" && aArgs.size()==0) {

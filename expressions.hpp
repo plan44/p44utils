@@ -53,7 +53,6 @@ namespace p44 {
     // Errors
     typedef enum {
       OK,
-      Null,
       Syntax,
       DivisionByZero,
       CyclicReference,
@@ -67,14 +66,13 @@ namespace p44 {
     ExpressionError(ErrorCodes aError) : Error(ErrorCode(aError)) {};
     /// factory method to create string error fprint style
     static ErrorPtr err(ErrorCodes aErrCode, const char *aFmt, ...) __printflike(2,3);
-    static ErrorPtr null() { return err(ExpressionError::Null, "<undefined value>"); }
   };
 
   /// expression value, consisting of a value and an error to indicate non-value and reason for it
   class ExpressionValue {
     friend class EvaluationContext;
 
-//    bool nullValue; ///< set if this is a null value
+    bool nullValue; ///< set if this is a null value
     string* strValP; ///< string values have a std::string here
     double numVal;
     ErrorPtr err;
@@ -82,10 +80,10 @@ namespace p44 {
     void clrStr();
   public:
     /// Constructors
-    ExpressionValue() : numVal(0), strValP(NULL) { setError(ExpressionError::null()); };
-    ExpressionValue(double aNumValue) : numVal(aNumValue), strValP(NULL) { };
-    ExpressionValue(const string &aStrValue) : numVal(0), strValP(new string(aStrValue)) { };
-    ExpressionValue(ErrorPtr aError) : numVal(0), strValP(NULL), err(aError) { };
+    ExpressionValue() : nullValue(true), numVal(0), strValP(NULL) { };
+    ExpressionValue(double aNumValue) : nullValue(false), numVal(aNumValue), strValP(NULL) { };
+    ExpressionValue(const string &aStrValue) : nullValue(false), numVal(0), strValP(new string(aStrValue)) { };
+    ExpressionValue(ErrorPtr aError) : nullValue(false), numVal(0), strValP(NULL), err(aError) { };
     ExpressionValue(const ExpressionValue& aVal); ///< copy constructor
     ~ExpressionValue();
     // Getters
@@ -96,20 +94,21 @@ namespace p44 {
     string stringValue() const; ///< returns a conversion to string if value is numeric
     ErrorPtr error() { return err; }
     // Setters
-    void setNull() { err = ExpressionError::null(); }
-    void setBool(bool aBoolValue) { err.reset(); numVal = aBoolValue ? 1: 0; clrStr(); }
-    void setNumber(double aNumValue) { err.reset(); numVal = aNumValue; clrStr(); }
-    void setString(const string& aStrValue) { err.reset(); numVal = 0; clrStr(); strValP = new string(aStrValue); }
-    void setError(ErrorPtr aError) { err = aError; clrStr(); numVal = 0; }
+    void setNull(const char *aWithInfo = NULL) { if (aWithInfo) setString(aWithInfo); else clrStr(); nullValue = true; err = NULL; numVal = 0; }
+    void setBool(bool aBoolValue) { nullValue = false; err.reset(); numVal = aBoolValue ? 1: 0; clrStr(); }
+    void setNumber(double aNumValue) { nullValue = false; err.reset(); numVal = aNumValue; clrStr(); }
+    void setString(const string& aStrValue) { nullValue = false; err.reset(); numVal = 0; clrStr(); strValP = new string(aStrValue); }
+    void setString(const char *aCStrValue) { nullValue = false; err.reset(); numVal = 0; clrStr(); strValP = new string(aCStrValue); }
+    void setError(ErrorPtr aError) { nullValue = false; err = aError; clrStr(); numVal = 0; }
     void setError(ExpressionError::ErrorCodes aErrCode, const char *aFmt, ...)  __printflike(3,4);
     void setSyntaxError(const char *aFmt, ...)  __printflike(2,3);
     // tests
-    bool isValue() const { return Error::isOK(err); }
-    bool isNull() const { return Error::isError(err, ExpressionError::domain(), ExpressionError::Null); } ///< ok as a value, but can be NULL
+    bool isValue() const { return !nullValue && Error::isOK(err); } ///< not null and not error -> real value
+    bool isNull() const { return nullValue; }
     bool isOK() const { return isValue() || isNull(); } ///< ok as a value, but can be NULL
-    bool syntaxOk() const { return !Error::isError(err, ExpressionError::domain(), ExpressionError::Syntax); } ///< ok for calculations, not a syntax problem
+    bool syntaxOk() const { return !Error::isError(err, ExpressionError::domain(), ExpressionError::Syntax); } ///< might be ok for calculations, not a syntax problem
+    bool isString() const { return !nullValue && strValP!=NULL; }
     bool notValue() const { return !isValue(); }
-    bool isString() const { return strValP!=NULL; }
     // Operators
     ExpressionValue& operator=(const ExpressionValue& aVal); ///< assignment operator
     ExpressionValue operator!() const;
