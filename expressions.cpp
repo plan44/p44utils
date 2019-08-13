@@ -69,43 +69,29 @@ ExpressionValue::~ExpressionValue()
 }
 
 
-ExpressionValue ExpressionValue::withError(ExpressionError::ErrorCodes aErrCode, const char *aFmt, ...)
+void ExpressionValue::setError(ExpressionError::ErrorCodes aErrCode, const char *aFmt, ...)
 {
   err = new ExpressionError(aErrCode);
   va_list args;
   va_start(args, aFmt);
   err->setFormattedMessage(aFmt, args);
   va_end(args);
-  return *this;
 }
 
 
-ExpressionValue ExpressionValue::withSyntaxError(const char *aFmt, ...)
+void ExpressionValue::setSyntaxError(const char *aFmt, ...)
 {
   err = new ExpressionError(ExpressionError::Syntax);
   va_list args;
   va_start(args, aFmt);
   err->setFormattedMessage(aFmt, args);
   va_end(args);
-  return *this;
-}
-
-
-ExpressionValue ExpressionValue::errValue(ExpressionError::ErrorCodes aErrCode, const char *aFmt, ...)
-{
-  ExpressionValue ev;
-  ev.err = new ExpressionError(aErrCode);
-  va_list args;
-  va_start(args, aFmt);
-  ev.err->setFormattedMessage(aFmt, args);
-  va_end(args);
-  return ev;
 }
 
 
 string ExpressionValue::stringValue() const
 {
-  if (isOk()) {
+  if (isValue()) {
     if (isString()) return *strValP;
     else return string_format("%lg", numVal);
   }
@@ -117,7 +103,7 @@ string ExpressionValue::stringValue() const
 
 double ExpressionValue::numValue() const
 {
-  if (!isOk()) return 0;
+  if (!isValue()) return 0;
   if (!isString()) return numVal;
   ExpressionValue v(0);
   size_t lpos = 0;
@@ -126,30 +112,46 @@ double ExpressionValue::numValue() const
 }
 
 
-bool ExpressionValue::operator<(const ExpressionValue& aRightSide) const
+
+ExpressionValue ExpressionValue::operator!() const
 {
-  if (notOk() || aRightSide.notOk()) return false; // nulls and errors are not orderable
+  ExpressionValue res;
+  res.setBool(!boolValue());
+  return res;
+}
+
+
+
+ExpressionValue ExpressionValue::operator<(const ExpressionValue& aRightSide) const
+{
+  if (notValue() || aRightSide.notValue()) return false; // nulls and errors are not orderable
   if (isString()) return *strValP < aRightSide.stringValue();
   return numVal < aRightSide.numValue();
 }
 
 
-bool ExpressionValue::operator!=(const ExpressionValue& aRightSide) const
+ExpressionValue ExpressionValue::operator!=(const ExpressionValue& aRightSide) const
 {
   return !operator==(aRightSide);
 }
 
 
 
-bool ExpressionValue::operator==(const ExpressionValue& aRightSide) const
+ExpressionValue ExpressionValue::operator==(const ExpressionValue& aRightSide) const
 {
-  if (notOk() || aRightSide.notOk()) {
-    // - notOk()'s loosely count as "undefined" (even if not specifically ExpressionError::Null)
+  ExpressionValue res;
+  if (notValue() || aRightSide.notValue()) {
+    // - notValue()'s loosely count as "undefined" (even if not specifically ExpressionError::Null)
     // - do not compare with other side's value, but its ok status
-    return notOk() == aRightSide.notOk();
+    res.setBool(notValue() == aRightSide.notValue());
   }
-  if (isString()) return *strValP == aRightSide.stringValue();
-  else return numVal == aRightSide.numValue();
+  else if (isString()) {
+    res.setBool(*strValP == aRightSide.stringValue());
+  }
+  else {
+    res.setBool(numVal == aRightSide.numValue());
+  }
+  return res;
 }
 
 ExpressionValue ExpressionValue::operator+(const ExpressionValue& aRightSide) const
@@ -170,8 +172,14 @@ ExpressionValue ExpressionValue::operator*(const ExpressionValue& aRightSide) co
 
 ExpressionValue ExpressionValue::operator/(const ExpressionValue& aRightSide) const
 {
-  if (aRightSide.numValue()==0) return ExpressionValue::errValue(ExpressionError::DivisionByZero, "division by zero");
-  return numValue() / aRightSide.numValue();
+  ExpressionValue res;
+  if (aRightSide.numValue()==0) {
+    res.setError(ExpressionError::DivisionByZero, "division by zero");
+  }
+  else {
+    res.setNumber(numValue() / aRightSide.numValue());
+  }
+  return res;
 }
 
 ExpressionValue ExpressionValue::operator&&(const ExpressionValue& aRightSide) const
@@ -342,7 +350,7 @@ bool EvaluationContext::pop()
   }
   // trying to pop last entry - switch to complete/abort first
   if (isEvaluating()) {
-    return newstate(sp().res.valueOk() ? s_complete : s_abort);
+    return newstate(sp().res.isOK() ? s_complete : s_abort);
   }
   return true; // not yielded
 }
@@ -388,7 +396,7 @@ bool EvaluationContext::abortWithError(ErrorPtr aError)
 bool EvaluationContext::errorInArg(ExpressionValue aArg, const char* aExtraPrefix)
 {
   ErrorPtr err;
-  if (aArg.isOk()) {
+  if (aArg.isValue()) {
     err = ExpressionError::err(ExpressionError::Syntax, "unspecific");
   }
   else if (aExtraPrefix) {
@@ -507,7 +515,7 @@ bool EvaluationContext::abort()
   }
   // asynchronous execution
   execTicket.cancel(); // abort pending callback (e.g. from delay())
-  finalResult.withError(Error::err<ExpressionError>(ExpressionError::Aborted, "asynchronously running script aborted"));
+  finalResult.setError(Error::err<ExpressionError>(ExpressionError::Aborted, "asynchronously running script aborted"));
   stack.clear();
   runCallBack();
   runningSince = Never; // force end
@@ -523,7 +531,9 @@ ExpressionValue EvaluationContext::evaluateSynchronously(EvalMode aEvalMode, boo
   evalMode = aEvalMode;
   if (runningSince!=Never) {
     LOG(LOG_WARNING, "Another evaluation is running (since %s) -> cannot start synchronous evaluation: '%s'", MainLoop::string_mltime(runningSince).c_str(), getCode());
-    return ExpressionValue::errValue(ExpressionError::Busy, "Evaluation busy since %s -> cannot start now", MainLoop::string_mltime(runningSince).c_str());
+    ExpressionValue res;
+    res.setError(ExpressionError::Busy, "Evaluation busy since %s -> cannot start now", MainLoop::string_mltime(runningSince).c_str());
+    return res;
   }
   bool notYielded = startEvaluation();
   if (notYielded && continueEvaluation()) {
@@ -532,7 +542,8 @@ ExpressionValue EvaluationContext::evaluateSynchronously(EvalMode aEvalMode, boo
   }
   // FATAL ERROR: has yielded execution
   LOG(LOG_CRIT, "EvaluationContext: state machine has yielded execution while synchronous is set -> implementation error!");
-  return finalResult.withError(ExpressionError::Busy, "state machine has yielded execution while synchronous is set -> implementation error!");
+  finalResult.setError(ExpressionError::Busy, "state machine has yielded execution while synchronous is set -> implementation error!");
+  return finalResult;
 }
 
 
@@ -543,7 +554,7 @@ ErrorPtr EvaluationContext::triggerEvaluation(EvalMode aEvalMode)
     LOG(LOG_WARNING, "triggerEvaluation() with no result handler for expression: '%s'", getCode());
   }
   evaluateSynchronously(aEvalMode, true, true);
-  if (finalResult.notOk()) err = finalResult.err;
+  if (finalResult.notValue()) err = finalResult.err;
   return err;
 }
 
@@ -647,7 +658,7 @@ void EvaluationContext::parseNumericLiteral(ExpressionValue &aResult, const char
   double v;
   int i;
   if (sscanf(aCode+aPos, "%lf%n", &v, &i)!=1) {
-    aResult.withSyntaxError("invalid number, time or date");
+    aResult.setSyntaxError("invalid number, time or date");
     return;
   }
   else {
@@ -661,7 +672,7 @@ void EvaluationContext::parseNumericLiteral(ExpressionValue &aResult, const char
         // we have 'v:', could be time
         double t;
         if (sscanf(aCode+aPos+1, "%lf%n", &t, &i)!=1) {
-          aResult.withSyntaxError("invalid time specification - use hh:mm or hh:mm:ss");
+          aResult.setSyntaxError("invalid time specification - use hh:mm or hh:mm:ss");
           return;
         }
         else {
@@ -671,7 +682,7 @@ void EvaluationContext::parseNumericLiteral(ExpressionValue &aResult, const char
           if (aCode[aPos]==':') {
             // apparently we also have seconds
             if (sscanf(aCode+aPos+1, "%lf", &t)!=1) {
-              aResult.withSyntaxError("Time specification has invalid seconds - use hh:mm:ss");
+              aResult.setSyntaxError("Time specification has invalid seconds - use hh:mm:ss");
               return;
             }
             v += t; // add the seconds
@@ -693,7 +704,7 @@ void EvaluationContext::parseNumericLiteral(ExpressionValue &aResult, const char
           }
           aPos += 3;
           if (d<0) {
-            aResult.withSyntaxError("Invalid date specification - use dd.monthname");
+            aResult.setSyntaxError("Invalid date specification - use dd.monthname");
             return;
           }
         }
@@ -702,7 +713,7 @@ void EvaluationContext::parseNumericLiteral(ExpressionValue &aResult, const char
           aPos = b;
           int l;
           if (sscanf(aCode+aPos, "%d.%d.%n", &d, &m, &l)!=2) {
-            aResult.withSyntaxError("Invalid date specification - use dd.mm.");
+            aResult.setSyntaxError("Invalid date specification - use dd.mm.");
             return;
           }
           aPos += l;
@@ -718,7 +729,7 @@ void EvaluationContext::parseNumericLiteral(ExpressionValue &aResult, const char
       }
     }
   }
-  aResult.withNumber(v);
+  aResult.setNumber(v);
 }
 
 
@@ -853,33 +864,33 @@ bool EvaluationContext::resumeExpression()
     if (!sp().skipping) {
       // - equality comparison is the only thing that also inlcudes "undefined", so do it first
       if (binaryop==op_equal || binaryop==op_assignOrEq)
-        sp().val.setBool(sp().val == sp().res);
+        sp().val = sp().val == sp().res;
       else if (binaryop==op_notequal)
-        sp().val.setBool(sp().val != sp().res);
-      else if (sp().res.isOk()) {
+        sp().val = sp().val != sp().res;
+      else if (sp().res.isValue()) {
         // apply the operation between leftside and rightside
         ExpressionValue opRes;
         switch (binaryop) {
           case op_not: {
             return abortWithSyntaxError("NOT operator not allowed here");
           }
-          case op_divide: opRes.withValue(sp().val / sp().res); break;
-          case op_multiply: opRes.withValue(sp().val * sp().res); break;
-          case op_add: opRes.withValue(sp().val + sp().res); break;
-          case op_subtract: opRes.withValue(sp().val - sp().res); break;
-          case op_less: opRes.setBool(sp().val < sp().res); break;
-          case op_greater: opRes.setBool(!(sp().val < sp().res) && !(sp().val == sp().res)); break;
-          case op_leq: opRes.setBool((sp().val < sp().res) || (sp().val == sp().res)); break;
-          case op_geq: opRes.setBool(!(sp().val < sp().res)); break;
-          case op_and: opRes.withValue(sp().val && sp().res); break;
-          case op_or: opRes.withValue(sp().val || sp().res); break;
+          case op_divide: opRes = sp().val / sp().res; break;
+          case op_multiply: opRes = sp().val * sp().res; break;
+          case op_add: opRes = sp().val + sp().res; break;
+          case op_subtract: opRes = sp().val - sp().res; break;
+          case op_less: opRes = sp().val < sp().res; break;
+          case op_greater: opRes = !(sp().val < sp().res) && !(sp().val == sp().res); break;
+          case op_leq: opRes = (sp().val < sp().res) || (sp().val == sp().res); break;
+          case op_geq: opRes = !(sp().val < sp().res); break;
+          case op_and: opRes = sp().val && sp().res; break;
+          case op_or: opRes = sp().val || sp().res; break;
           default: break;
         }
         sp().val = opRes;
       }
       // duplicate into res in case evaluation ends
       sp().res = sp().val;
-      if (sp().res.isOk()) {
+      if (sp().res.isValue()) {
         ELOG_DBG("Intermediate expression '%.*s' evaluation result: %s", (int)(pos-sp().pos), tail(sp().pos), sp().res.stringValue().c_str());
       }
       else {
@@ -986,13 +997,13 @@ bool EvaluationContext::resumeTerm()
         else {
           // plain identifier
           if (strucmp(idpos, "true", idsz)==0 || strucmp(idpos, "yes", idsz)==0) {
-            sp().res.withNumber(1);
+            sp().res.setNumber(1);
           }
           else if (strucmp(idpos, "false", idsz)==0 || strucmp(idpos, "no", idsz)==0) {
             sp().res.setNumber(0);
           }
           else if (strucmp(idpos, "null", idsz)==0 || strucmp(idpos, "undefined", idsz)==0) {
-            sp().res.withError(ExpressionError::Null, "%.*s", (int)idsz, idpos);
+            sp().res.setError(ExpressionError::Null, "%.*s", (int)idsz, idpos);
           }
           else if (!sp().skipping) {
             // must be identifier representing a variable value
@@ -1003,8 +1014,7 @@ bool EvaluationContext::resumeTerm()
                 // Optimisation, all weekdays have 3 chars
                 for (int w=0; w<7; w++) {
                   if (strucmp(idpos, weekdayNames[w], idsz)==0) {
-                    sp().res.withError(ErrorPtr()); // clear not-found error
-                    sp().res.withNumber(w); // return numeric value of weekday
+                    sp().res.setNumber(w); // return numeric value of weekday
                     pseudovar = true;
                     break;
                   }
@@ -1095,42 +1105,42 @@ bool EvaluationContext::evaluateFunction(const string &aFunc, const FunctionArgu
 {
   if (aFunc=="ifvalid" && aArgs.size()==2) {
     // ifvalid(a, b)   if a is a valid value, return it, otherwise return the default as specified by b
-    aResult = aArgs[0].isOk() ? aArgs[0] : aArgs[1];
+    aResult = aArgs[0].isValue() ? aArgs[0] : aArgs[1];
   }
   else if (aFunc=="isvalid" && aArgs.size()==1) {
     // ifvalid(a, b)   if a is a valid value, return it, otherwise return the default as specified by b
-    aResult.setNumber(aArgs[0].isOk() ? 1 : 0);
+    aResult.setNumber(aArgs[0].isValue() ? 1 : 0);
   }
   else if (aFunc=="if" && aArgs.size()==3) {
     // if (c, a, b)    if c evaluates to true, return a, otherwise b
-    if (aArgs[0].notOk()) return errorInArg(aArgs[0]); // return error from condition
+    if (aArgs[0].notValue()) return errorInArg(aArgs[0]); // return error from condition
     aResult = aArgs[0].boolValue() ? aArgs[1] : aArgs[2];
   }
   else if (aFunc=="abs" && aArgs.size()==1) {
     // abs (a)         absolute value of a
-    if (aArgs[0].notOk()) return errorInArg(aArgs[0]); // return error from argument
+    if (aArgs[0].notValue()) return errorInArg(aArgs[0]); // return error from argument
     aResult.setNumber(fabs(aArgs[0].numValue()));
   }
   else if (aFunc=="int" && aArgs.size()==1) {
     // abs (a)         absolute value of a
-    if (aArgs[0].notOk()) return errorInArg(aArgs[0]); // return error from argument
+    if (aArgs[0].notValue()) return errorInArg(aArgs[0]); // return error from argument
     aResult.setNumber(int(aArgs[0].int64Value()));
   }
   else if (aFunc=="round" && (aArgs.size()>=1 || aArgs.size()<=2)) {
     // round (a)       round value to integer
     // round (a, p)    round value to specified precision (1=integer, 0.5=halves, 100=hundreds, etc...)
-    if (aArgs[0].notOk()) return errorInArg(aArgs[0]); // return error from argument
+    if (aArgs[0].notValue()) return errorInArg(aArgs[0]); // return error from argument
     double precision = 1;
     if (aArgs.size()>=2) {
-      if (aArgs[1].notOk()) return errorInArg(aArgs[1]); // return error from argument
+      if (aArgs[1].notValue()) return errorInArg(aArgs[1]); // return error from argument
       precision = aArgs[1].numValue();
     }
     aResult.setNumber(round(aArgs[0].numValue()/precision)*precision);
   }
   else if (aFunc=="random" && aArgs.size()==2) {
     // random (a,b)     random value from a up to and including b
-    if (aArgs[0].notOk()) return errorInArg(aArgs[0]); // return error from argument
-    if (aArgs[1].notOk()) return errorInArg(aArgs[1]); // return error from argument
+    if (aArgs[0].notValue()) return errorInArg(aArgs[0]); // return error from argument
+    if (aArgs[1].notValue()) return errorInArg(aArgs[1]); // return error from argument
     // rand(): returns a pseudo-random integer value between ​0​ and RAND_MAX (0 and RAND_MAX included).
     aResult.setNumber(aArgs[0].numValue() + (double)rand()*(aArgs[1].numValue()-aArgs[0].numValue())/((double)RAND_MAX));
   }
@@ -1143,25 +1153,25 @@ bool EvaluationContext::evaluateFunction(const string &aFunc, const FunctionArgu
   }
   else if (aFunc=="number" && aArgs.size()==1) {
     // number(anything)
-    if (aArgs[0].notOk()) return errorInArg(aArgs[0]); // pass null and errors
+    if (aArgs[0].notValue()) return errorInArg(aArgs[0]); // pass null and errors
     aResult.setNumber(aArgs[0].numValue()); // force convert to numeric
   }
   else if (aFunc=="strlen" && aArgs.size()==1) {
     // strlen(string)
-    if (aArgs[0].notOk()) return errorInArg(aArgs[0]); // return error from argument
+    if (aArgs[0].notValue()) return errorInArg(aArgs[0]); // return error from argument
     aResult.setNumber(aArgs[0].stringValue().size()); // length of string
   }
   else if (aFunc=="substr" && aArgs.size()>=2 && aArgs.size()<=3) {
     // substr(string, from)
     // substr(string, from, count)
-    if (aArgs[0].notOk()) return errorInArg(aArgs[0]); // return error from argument
+    if (aArgs[0].notValue()) return errorInArg(aArgs[0]); // return error from argument
     string s = aArgs[0].stringValue();
-    if (aArgs[1].notOk()) return errorInArg(aArgs[1]); // return error from argument
+    if (aArgs[1].notValue()) return errorInArg(aArgs[1]); // return error from argument
     size_t start = aArgs[1].intValue();
     if (start>s.size()) start = s.size();
     size_t count = string::npos; // to the end
     if (aArgs.size()>=3) {
-      if (aArgs[2].notOk()) return errorInArg(aArgs[2]); // return error from argument
+      if (aArgs[2].notValue()) return errorInArg(aArgs[2]); // return error from argument
       count = aArgs[2].intValue();
     }
     aResult.setString(s.substr(start, count));
@@ -1170,7 +1180,7 @@ bool EvaluationContext::evaluateFunction(const string &aFunc, const FunctionArgu
     // find(haystack, needle)
     // find(haystack, needle, from)
     string haystack = aArgs[0].stringValue(); // haystack can be anything, including invalid
-    if (aArgs[1].notOk()) return errorInArg(aArgs[1]); // return error from argument
+    if (aArgs[1].notValue()) return errorInArg(aArgs[1]); // return error from argument
     string needle = aArgs[1].stringValue();
     size_t start = 0;
     if (aArgs.size()>=3) {
@@ -1178,7 +1188,7 @@ bool EvaluationContext::evaluateFunction(const string &aFunc, const FunctionArgu
       if (start>haystack.size()) start = haystack.size();
     }
     size_t p = string::npos;
-    if (aArgs[0].isOk()) {
+    if (aArgs[0].isValue()) {
       p = haystack.find(needle, start);
     }
     if (p!=string::npos)
@@ -1189,7 +1199,7 @@ bool EvaluationContext::evaluateFunction(const string &aFunc, const FunctionArgu
   else if (aFunc=="format" && aArgs.size()==2) {
     // format(formatstring, number)
     // only % + - 0..9 . d, x, and f supported
-    if (aArgs[0].notOk()) return errorInArg(aArgs[0]); // return error from argument
+    if (aArgs[0].notValue()) return errorInArg(aArgs[0]); // return error from argument
     string fmt = aArgs[0].stringValue();
     if (
       fmt.size()<2 ||
@@ -1216,7 +1226,7 @@ bool EvaluationContext::evaluateFunction(const string &aFunc, const FunctionArgu
   }
   else if (synchronous && aFunc=="eval" && aArgs.size()==1) {
     // eval(string)    have string evaluated as expression
-    if (aArgs[0].notOk()) return errorInArg(aArgs[0]); // return error from argument
+    if (aArgs[0].notValue()) return errorInArg(aArgs[0]); // return error from argument
     // TODO: for now we use a adhoc evaluation with access only to vars, but no functions.
     //   later, when we have subroutine mechanisms, we'd be able to run the eval within the same context
     aResult = p44::evaluateExpression(
@@ -1225,10 +1235,10 @@ bool EvaluationContext::evaluateFunction(const string &aFunc, const FunctionArgu
       NULL, // no functions from within function for now
       evalLogLevel
     );
-    if (aResult.notOk()) {
+    if (aResult.notValue()) {
       FOCUSLOG("eval(\"%s\") returns error '%s' in expression: '%s'", aArgs[0].stringValue().c_str(), aResult.err->text(), getCode());
       // do not cause syntax error, only invalid result, but with error message included
-      aResult.withError(Error::err<ExpressionError>(ExpressionError::Null, "eval() error: %s -> undefined", aResult.err->text()));
+      aResult.setError(Error::err<ExpressionError>(ExpressionError::Null, "eval() error: %s -> undefined", aResult.err->text()));
     }
   }
   else if (aFunc=="is_weekday" && aArgs.size()>0) {
@@ -1238,7 +1248,7 @@ bool EvaluationContext::evaluateFunction(const string &aFunc, const FunctionArgu
     ExpressionValue newRes(0);
     size_t refpos = aArgs.getPos(0); // Note: we use pos of first argument for freezing the function's result (no need to freeze every single weekday)
     for (int i = 0; i<aArgs.size(); i++) {
-      if (aArgs[i].notOk()) return errorInArg(aArgs[i]); // return error from argument
+      if (aArgs[i].notValue()) return errorInArg(aArgs[i]); // return error from argument
       int w = (int)aArgs[i].numValue();
       if (w==7) w=0; // treat both 0 and 7 as sunday
       if (w==weekday) {
@@ -1260,11 +1270,11 @@ bool EvaluationContext::evaluateFunction(const string &aFunc, const FunctionArgu
   else if ((aFunc=="after_time" || aFunc=="is_time") && aArgs.size()>=1) {
     struct tm loctim; MainLoop::getLocalTime(loctim);
     ExpressionValue newSecs;
-    if (aArgs[0].notOk()) return errorInArg(aArgs[0]); // return error from argument
+    if (aArgs[0].notValue()) return errorInArg(aArgs[0]); // return error from argument
     size_t refpos = aArgs.getPos(0); // Note: we use pos of first argument for freezing the function's result (no need to freeze every single weekday)
     if (aArgs.size()==2) {
       // legacy spec
-      if (aArgs[1].notOk()) return errorInArg(aArgs[1]); // return error from argument
+      if (aArgs[1].notValue()) return errorInArg(aArgs[1]); // return error from argument
       newSecs.setNumber(((int32_t)aArgs[0].numValue() * 60 + (int32_t)aArgs[1].numValue()) * 60);
     }
     else {
@@ -1295,8 +1305,8 @@ bool EvaluationContext::evaluateFunction(const string &aFunc, const FunctionArgu
     aResult = res;
   }
   else if (aFunc=="between_dates" || aFunc=="between_yeardays") {
-    if (aArgs[0].notOk()) return errorInArg(aArgs[0]); // return error from argument
-    if (aArgs[1].notOk()) return errorInArg(aArgs[1]); // return error from argument
+    if (aArgs[0].notValue()) return errorInArg(aArgs[0]); // return error from argument
+    if (aArgs[1].notValue()) return errorInArg(aArgs[1]); // return error from argument
     struct tm loctim; MainLoop::getLocalTime(loctim);
     int smaller = (int)(aArgs[0].numValue());
     int larger = (int)(aArgs[1].numValue());
@@ -1369,7 +1379,7 @@ bool EvaluationContext::evaluateAsyncFunction(const string &aFunc, const Functio
 {
   aNotYielded = true; // by default, so we can use "return errorInArg()" style exits
   if (aFunc=="delay" && aArgs.size()==1) {
-    if (aArgs[0].notOk()) return errorInArg(aArgs[0]);
+    if (aArgs[0].notValue()) return errorInArg(aArgs[0]);
     MLMicroSeconds delay = aArgs[0].numValue()*Second;
     execTicket.executeOnce(boost::bind(&EvaluationContext::continueEvaluation, this), delay);
     aNotYielded = false; // yielded execution
@@ -1587,7 +1597,8 @@ bool ScriptExecutionContext::resumeStatements()
       if (vardef) {
         // is a definition
         if (!glob || variables.find(varName)==variables.end()) {
-          variables[varName] = ExpressionValue::nullValue();
+          ExpressionValue null;
+          variables[varName] = null;
           ELOG_DBG("Defined %svariable %.*s", glob ? "global" : " ", (int)vsz,vn);
         }
       }
@@ -1729,15 +1740,15 @@ bool ScriptExecutionContext::evaluateFunction(const string &aFunc, const Functio
     int loglevel = LOG_INFO;
     int ai = 0;
     if (aArgs.size()>1) {
-      if (aArgs[ai].notOk()) return errorInArg(aArgs[ai]);
+      if (aArgs[ai].notValue()) return errorInArg(aArgs[ai]);
       loglevel = aArgs[ai].intValue();
       ai++;
     }
-    if (aArgs[ai].notOk()) return errorInArg(aArgs[ai]);
+    if (aArgs[ai].notValue()) return errorInArg(aArgs[ai]);
     LOG(loglevel, "Script log: %s", aArgs[ai].stringValue().c_str());
   }
   else if (aFunc=="loglevel" && aArgs.size()==1) {
-    if (aArgs[0].notOk()) return errorInArg(aArgs[0]);
+    if (aArgs[0].notValue()) return errorInArg(aArgs[0]);
     int newLevel = aArgs[0].intValue();
     if (newLevel>=0 && newLevel<=7) {
       int oldLevel = LOGLEVEL;
@@ -1746,7 +1757,7 @@ bool ScriptExecutionContext::evaluateFunction(const string &aFunc, const Functio
     }
   }
   else if (aFunc=="scriptloglevel" && aArgs.size()==1) {
-    if (aArgs[0].notOk()) return errorInArg(aArgs[0]);
+    if (aArgs[0].notValue()) return errorInArg(aArgs[0]);
     int newLevel = aArgs[0].intValue();
     if (newLevel>=0 && newLevel<=7) {
       evalLogLevel = newLevel;
@@ -1856,7 +1867,7 @@ TimedEvaluationContext::FrozenResult* TimedEvaluationContext::newFreeze(FrozenRe
       aNewResult.stringValue().c_str(),
       aFreezeUntil==Never ? "IMMEDIATELY" : MainLoop::string_mltime(aFreezeUntil).c_str()
     );
-    aExistingFreeze->frozenResult.withValue(aNewResult);
+    aExistingFreeze->frozenResult = aNewResult;
     aExistingFreeze->frozenUntil = aFreezeUntil;
   }
   else {
@@ -1886,7 +1897,7 @@ bool TimedEvaluationContext::evaluateFunction(const string &aFunc, const Functio
   if (aFunc=="testlater" && aArgs.size()>=2 && aArgs.size()<=3) {
     // testlater(seconds, timedtest [, retrigger])   return "invalid" now, re-evaluate after given seconds and return value of test then. If repeat is true then, the timer will be re-scheduled
     bool retrigger = false;
-    if (aArgs.size()>=3) retrigger = aArgs[2].isOk() && aArgs[2].numValue()>0;
+    if (aArgs.size()>=3) retrigger = aArgs[2].isValue() && aArgs[2].numValue()>0;
     ExpressionValue secs = aArgs[0];
     if (retrigger && secs.numValue()<MIN_RETRIGGER_SECONDS) {
       // prevent too frequent re-triggering that could eat up too much cpu
@@ -1915,7 +1926,7 @@ bool TimedEvaluationContext::evaluateFunction(const string &aFunc, const Functio
     }
     else {
       // still frozen, return undefined
-      aResult.withError(ExpressionError::Null, "testlater() not yet ready");
+      aResult.setError(ExpressionError::Null, "testlater() not yet ready");
     }
   }
   else if (aFunc=="initial" && aArgs.size()==0) {
@@ -2007,12 +2018,12 @@ ErrorPtr p44::substituteExpressionPlaceholders(string &aString, ValueLookupCB aV
     if (!ctx) ctx = AdHocEvaluationContextPtr(new AdHocEvaluationContext(aValueLookupCB, aFunctionLookpCB));
     ExpressionValue result = ctx->evaluateExpression(expr);
     string rep;
-    if (result.isOk()) {
+    if (result.isValue()) {
       rep = result.stringValue();
     }
     else {
       rep = aNullText;
-      if (Error::isOK(err)) err = result.err; // only report first error
+      if (Error::isOK(err)) err = result.error(); // only report first error
     }
     // replace, even if rep is empty
     aString.replace(p, e-p+1, rep);

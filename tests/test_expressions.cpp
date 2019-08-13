@@ -93,8 +93,8 @@ TEST_CASE("ExpressionValue", "[expressions]" )
   SECTION("Default Value") {
     REQUIRE(ExpressionValue().isNull()); // default expression is NULL
     REQUIRE(ExpressionValue().isString() == false);
-    REQUIRE(ExpressionValue().isOk() == false); // FIXME: for now, is notOK because NULL is an error
-    REQUIRE(ExpressionValue().valueOk() == true);
+    REQUIRE(ExpressionValue().isValue() == false); // FIXME: for now, is notOK because NULL is an error
+    REQUIRE(ExpressionValue().isOK() == true);
     REQUIRE(ExpressionValue().syntaxOk() == true);
     REQUIRE(ExpressionValue().boolValue() == false);
     REQUIRE(ExpressionValue().boolValue() == false);
@@ -120,8 +120,8 @@ TEST_CASE("ExpressionValue", "[expressions]" )
   }
 
   SECTION("Operators") {
-    REQUIRE(ExpressionValue("UA") == ExpressionValue("UA"));
-    REQUIRE(ExpressionValue("UA") < ExpressionValue("ua"));
+    REQUIRE((ExpressionValue("UA") == ExpressionValue("UA")).boolValue() == true);
+    REQUIRE((ExpressionValue("UA") < ExpressionValue("ua")).boolValue() == true);
     REQUIRE((ExpressionValue("UA")+ExpressionValue("ua")).stringValue() == "UAua");
     REQUIRE((ExpressionValue(42.7)+ExpressionValue(42)).numValue() == 42.7+42.0);
     REQUIRE((ExpressionValue(42.7)-ExpressionValue(24)).numValue() == 42.7-24.0);
@@ -178,8 +178,8 @@ TEST_CASE_METHOD(ExpressionFixture, "Expressions", "[expressions]" )
   SECTION("Value Lookup") {
     REQUIRE(runExpression("UA").numValue() == 42);
     REQUIRE(runExpression("dummy").isNull() == false); // unknown var should not be Null..
-    REQUIRE(runExpression("dummy").isOk() == false); // ..but not ok
-    REQUIRE(runExpression("dummy").valueOk() == false); // ..and not value-ok
+    REQUIRE(runExpression("dummy").isValue() == false); // ..but not ok
+    REQUIRE(runExpression("dummy").isOK() == false); // ..and not value-ok
     REQUIRE(runExpression("almostUA").numValue() == 42.7);
     REQUIRE(runExpression("UAtext").stringValue() == "fortyTwo");
     REQUIRE(runExpression("UAtext").stringValue() == "fortyTwo");
@@ -195,7 +195,7 @@ TEST_CASE_METHOD(ExpressionFixture, "Expressions", "[expressions]" )
     REQUIRE(runExpression("42.7-24").numValue() == 42.7-24.0);
     REQUIRE(runExpression("42.7*42").numValue() == 42.7*42.0);
     REQUIRE(runExpression("42.7/24").numValue() == 42.7/24.0);
-    REQUIRE(runExpression("78/0").isOk() == false); // division by zero
+    REQUIRE(runExpression("78/0").isValue() == false); // division by zero
     REQUIRE(runExpression("\"ABC\" + \"abc\"").stringValue() == "ABCabc");
     REQUIRE(runExpression("\"empty\"+\"\"").stringValue() == "empty");
     REQUIRE(runExpression("\"\"+\"empty\"").stringValue() == "empty");
@@ -212,7 +212,7 @@ TEST_CASE_METHOD(ExpressionFixture, "Expressions", "[expressions]" )
     REQUIRE(runExpression("42!=undefined").boolValue() == true); // undefined is not equal to anything else
     REQUIRE(runExpression("null==undefined").boolValue() == true); // undefined and null are the same
     REQUIRE(runExpression("42<>78").boolValue() == true);
-    REQUIRE(runExpression("42=42").isOk() == (EXPRESSION_OPERATOR_MODE!=EXPRESSION_OPERATOR_MODE_C));
+    REQUIRE(runExpression("42=42").isValue() == (EXPRESSION_OPERATOR_MODE!=EXPRESSION_OPERATOR_MODE_C));
     REQUIRE(runExpression("42=42").boolValue() == (EXPRESSION_OPERATOR_MODE!=EXPRESSION_OPERATOR_MODE_C));
     REQUIRE(runExpression("7<28").boolValue() == true);
     REQUIRE(runExpression("7>28").boolValue() == false);
@@ -304,12 +304,12 @@ TEST_CASE_METHOD(ScriptFixture, "Scripts", "[expressions]" )
   }
 
   SECTION("variables") {
-    REQUIRE(runScript("x = 78.42").isOk() == false); // cannot just assign
-    REQUIRE(runScript("let x = 78.42").isOk() == false); // must be defined first
-    REQUIRE(runScript("let x").isOk() == false); // let is not a declaration
-    REQUIRE(runScript("var x = 78.42").isOk() == true); // should be ok
+    REQUIRE(runScript("x = 78.42").isValue() == false); // cannot just assign
+    REQUIRE(runScript("let x = 78.42").isValue() == false); // must be defined first
+    REQUIRE(runScript("let x").isValue() == false); // let is not a declaration
+    REQUIRE(runScript("var x = 78.42").isValue() == true); // should be ok
     REQUIRE(runScript("var x = 78.42").numValue() == 78.42); // last expression returns, even if in assignment
-    REQUIRE(runScript("var x; let x = 1234").isOk() == true);
+    REQUIRE(runScript("var x; let x = 1234").isValue() == true);
     REQUIRE(runScript("var x; let x = 1234").numValue() == 1234);
     REQUIRE(runScript("var x = 4321; X = 1234; return X").numValue() == 1234); // case insensitivity
     REQUIRE(runScript("var x = 4321; x = x + 1234; return x").numValue() == 1234+4321); // case insensitivity

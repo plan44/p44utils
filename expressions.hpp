@@ -43,6 +43,9 @@ using namespace std;
 
 namespace p44 {
 
+  class EvaluationContext;
+
+
   /// Expression Error
   class ExpressionError : public Error
   {
@@ -69,55 +72,57 @@ namespace p44 {
 
   /// expression value, consisting of a value and an error to indicate non-value and reason for it
   class ExpressionValue {
+    friend class EvaluationContext;
+
+//    bool nullValue; ///< set if this is a null value
     string* strValP; ///< string values have a std::string here
     double numVal;
-  public:
     ErrorPtr err;
-    ExpressionValue() : numVal(0), strValP(NULL) { withError(ExpressionError::null()); };
+
+    void clrStr();
+  public:
+    /// Constructors
+    ExpressionValue() : numVal(0), strValP(NULL) { setError(ExpressionError::null()); };
     ExpressionValue(double aNumValue) : numVal(aNumValue), strValP(NULL) { };
     ExpressionValue(const string &aStrValue) : numVal(0), strValP(new string(aStrValue)) { };
     ExpressionValue(ErrorPtr aError) : numVal(0), strValP(NULL), err(aError) { };
     ExpressionValue(const ExpressionValue& aVal); ///< copy constructor
-    ExpressionValue& operator=(const ExpressionValue& aVal); ///< assignment operator
     ~ExpressionValue();
-    bool operator<(const ExpressionValue& aRightSide) const;
-    bool operator==(const ExpressionValue& aRightSide) const;
-    bool operator!=(const ExpressionValue& aRightSide) const;
+    // Getters
+    double numValue() const; ///< returns a conversion to numeric (using literal syntax), if value is string
+    bool boolValue() const { return numValue()!=0; } ///< returns true if value is not 0
+    int intValue() const { return (int)numValue(); }
+    int64_t int64Value() const { return (int64_t)numValue(); }
+    string stringValue() const; ///< returns a conversion to string if value is numeric
+    ErrorPtr error() { return err; }
+    // Setters
+    void setNull() { err = ExpressionError::null(); }
+    void setBool(bool aBoolValue) { err.reset(); numVal = aBoolValue ? 1: 0; clrStr(); }
+    void setNumber(double aNumValue) { err.reset(); numVal = aNumValue; clrStr(); }
+    void setString(const string& aStrValue) { err.reset(); numVal = 0; clrStr(); strValP = new string(aStrValue); }
+    void setError(ErrorPtr aError) { err = aError; clrStr(); numVal = 0; }
+    void setError(ExpressionError::ErrorCodes aErrCode, const char *aFmt, ...)  __printflike(3,4);
+    void setSyntaxError(const char *aFmt, ...)  __printflike(2,3);
+    // tests
+    bool isValue() const { return Error::isOK(err); }
+    bool isNull() const { return Error::isError(err, ExpressionError::domain(), ExpressionError::Null); } ///< ok as a value, but can be NULL
+    bool isOK() const { return isValue() || isNull(); } ///< ok as a value, but can be NULL
+    bool syntaxOk() const { return !Error::isError(err, ExpressionError::domain(), ExpressionError::Syntax); } ///< ok for calculations, not a syntax problem
+    bool notValue() const { return !isValue(); }
+    bool isString() const { return strValP!=NULL; }
+    // Operators
+    ExpressionValue& operator=(const ExpressionValue& aVal); ///< assignment operator
+    ExpressionValue operator!() const;
+    ExpressionValue operator<(const ExpressionValue& aRightSide) const;
+    ExpressionValue operator==(const ExpressionValue& aRightSide) const;
+    ExpressionValue operator!=(const ExpressionValue& aRightSide) const;
     ExpressionValue operator+(const ExpressionValue& aRightSide) const;
     ExpressionValue operator-(const ExpressionValue& aRightSide) const;
     ExpressionValue operator*(const ExpressionValue& aRightSide) const;
     ExpressionValue operator/(const ExpressionValue& aRightSide) const;
     ExpressionValue operator&&(const ExpressionValue& aRightSide) const;
     ExpressionValue operator||(const ExpressionValue& aRightSide) const;
-    void clrStr();
-    void setNull() { err = ExpressionError::null(); }
-    void setNumber(double aNumValue) { err.reset(); numVal = aNumValue; clrStr(); }
-    void setBool(bool aBoolValue) { err.reset(); numVal = aBoolValue ? 1: 0; clrStr(); }
-    void setString(const string& aStrValue) { err.reset(); numVal = 0; clrStr(); strValP = new string(aStrValue); }
-    static ExpressionValue errValue(ExpressionError::ErrorCodes aErrCode, const char *aFmt, ...) __printflike(2,3);
-    static ExpressionValue nullValue() { return ExpressionValue().withError(ExpressionError::null()); }
-    ExpressionValue withError(ErrorPtr aError) { err = aError; return *this; }
-    ExpressionValue withError(ExpressionError::ErrorCodes aErrCode, const char *aFmt, ...)  __printflike(3,4);
-    ExpressionValue withSyntaxError(const char *aFmt, ...)  __printflike(2,3);
-    ExpressionValue withNumber(double aNumValue) { err.reset(); setNumber(aNumValue); return *this; }
-    ExpressionValue withString(const string& aStrValue) { err.reset(); setString(aStrValue); return *this; }
-    ExpressionValue withValue(const ExpressionValue &aExpressionValue) { numVal = aExpressionValue.numVal; err = aExpressionValue.err; if (aExpressionValue.strValP) setString(*aExpressionValue.strValP); return *this; }
-//    ExpressionValue withPos(size_t aPos) { pos = aPos; return *this; }
-    bool isOk() const { return Error::isOK(err); }
-    bool valueOk() const { return isOk() || isNull(); } ///< ok as a value, but can be NULL
-    bool isNull() const { return Error::isError(err, ExpressionError::domain(), ExpressionError::Null); } ///< ok as a value, but can be NULL
-    bool syntaxOk() const { return !Error::isError(err, ExpressionError::domain(), ExpressionError::Syntax); } ///< ok for calculations, not a syntax problem
-    bool notOk() const { return !isOk(); }
-    bool isString() const { return strValP!=NULL; }
-    string stringValue() const; ///< returns a conversion to string if value is numeric
-    double numValue() const; ///< returns a conversion to numeric (using literal syntax), if value is string
-    bool boolValue() const { return numValue()!=0; } ///< returns true if value is not 0
-    int intValue() const { return (int)numValue(); }
-    int64_t int64Value() const { return (int64_t)numValue(); }
   };
-
-
-  class EvaluationContext;
 
   class FunctionArguments
   {
