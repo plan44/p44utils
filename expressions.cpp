@@ -267,13 +267,35 @@ bool EvaluationContext::setCode(const string aCode)
 
 void EvaluationContext::skipWhiteSpace(size_t& aPos)
 {
-  while (code(aPos)==' ' || code(aPos)=='\t' || code(aPos)=='\n' || code(aPos)=='\r') aPos++;
+  bool recheck;
+  do {
+    recheck = false;
+    while (code(aPos)==' ' || code(aPos)=='\t' || code(aPos)=='\n' || code(aPos)=='\r') aPos++;
+    // also check for comments
+    if (code(pos)=='/') {
+      if (code(pos+1)=='/') {
+        pos += 2;
+        // C++ style comment, lasts until EOT or EOL
+        while (code(aPos) && code(aPos)!='\n' && code(aPos)!='\r') aPos++;
+        recheck = true;
+      }
+      else if (code(pos+1)=='*') {
+        // C style comment, lasts until '*/'
+        pos += 2;
+        while (code(aPos) && code(aPos)!='*') aPos++;
+        if (code(aPos+1)=='/') {
+          pos += 2;
+        }
+        recheck = true;
+      }
+    }
+  } while(recheck);
 }
 
 
 void EvaluationContext::skipWhiteSpace()
 {
-  while (currentchar()==' ' || currentchar()=='\t' || currentchar()=='\n' || currentchar()=='\r') pos++;
+  skipWhiteSpace(pos);
 }
 
 
