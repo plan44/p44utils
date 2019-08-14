@@ -56,6 +56,7 @@ namespace p44 {
       Syntax,
       DivisionByZero,
       CyclicReference,
+      Invalid, ///< invalid value
       Busy, ///< currently running
       NotFound, ///< variable, object, function not found (for callback)
       Aborted, ///< externally aborted
@@ -104,12 +105,13 @@ namespace p44 {
     void setError(ExpressionError::ErrorCodes aErrCode, const char *aFmt, ...)  __printflike(3,4);
     void setSyntaxError(const char *aFmt, ...)  __printflike(2,3);
     // tests
-    bool isValue() const { return !nullValue && Error::isOK(err); } ///< not null and not error -> real value
+    bool isOK() const { return !err; } ///< not error, but actual value or null
+    bool isValue() const { return !nullValue && !err; } ///< not null and not error -> real value
+    bool notValue() const { return !isValue(); }
+    bool isError() const { return (bool)err; }
     bool isNull() const { return nullValue; }
-    bool isOK() const { return isValue() || isNull(); } ///< ok as a value, but can be NULL
     bool syntaxOk() const { return !Error::isError(err, ExpressionError::domain(), ExpressionError::Syntax); } ///< might be ok for calculations, not a syntax problem
     bool isString() const { return !nullValue && strValP!=NULL; }
-    bool notValue() const { return !isValue(); }
     // Operators
     ExpressionValue& operator=(const ExpressionValue& aVal); ///< assignment operator
     ExpressionValue operator!() const;
@@ -403,8 +405,18 @@ namespace p44 {
     /// set result to syntax error and unconditionally abort (can't be caught)
     bool abortWithSyntaxError(const char *aFmt, ...) __printflike(2,3);
 
-    /// helper to exit evaluateFunction/evaluateAsyncFunction indicating a argument with an error
-    bool errorInArg(ExpressionValue aArg, const char *aExtraPrefix = NULL);
+    /// helper to exit evaluateFunction indicating a argument with an error or null
+    /// @param aArg the argument which is in error or is null when it should be a valid value
+    /// @param aResult must be passed to allow being set to null when aArg is null
+    /// @note if aArg is an error, this will throw the error
+    /// @return always true
+    bool errorInArg(const ExpressionValue& aArg, ExpressionValue& aResult); ///< for synchronous functions
+
+    /// helper to exit evaluateAsyncFunction indicating a argument with an error or null
+    /// @param aArg the argument which is in error or is null when it should be a valid value
+    /// @param aReturnIfNull if set, the function returns with a null result when aArg is null
+    /// @note if aArg is an error, this will throw the error
+    bool errorInArg(const ExpressionValue& aArg, bool aReturnIfNull); ///< for asynchronous functions
 
     /// re-entry point for asynchronous functions to return a result
     /// @param aResult the result

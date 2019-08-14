@@ -459,7 +459,7 @@ bool HttpComm::evaluateAsyncHttpFunctions(EvaluationContext* aEvalContext, const
   //   geturl("<url>")
   //   posturl("<url>"[,"<data>"])
   //   puturl("<url>"[,"<data>"])
-  if (aArgs[0].notValue()) return aEvalContext->errorInArg(aArgs[0]);
+  if (aArgs[0].notValue()) return aEvalContext->errorInArg(aArgs[0], true);
   string url = aArgs[0].stringValue();
   string method = isGet ? "GET" : (isPut ? "PUT" : "POST");
   string data;

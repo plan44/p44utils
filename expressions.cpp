@@ -488,19 +488,30 @@ bool EvaluationContext::abortWithSyntaxError(const char *aFmt, ...)
 }
 
 
-bool EvaluationContext::errorInArg(ExpressionValue aArg, const char* aExtraPrefix)
+
+bool EvaluationContext::errorInArg(const ExpressionValue& aArg, bool aReturnIfNull)
 {
-  ErrorPtr err;
-  if (aArg.isValue()) {
-    err = ExpressionError::err(ExpressionError::Syntax, "unspecific");
+  ExpressionValue res;
+  errorInArg(aArg, res);
+  if (aArg.isNull() && aReturnIfNull) continueWithAsyncFunctionResult(res);
+  return true; // function known
+}
+
+
+bool EvaluationContext::errorInArg(const ExpressionValue& aArg, ExpressionValue& aResult)
+{
+  if (aArg.isNull()) {
+    // function cannot process nulls -> just pass null as result
+    aResult = aArg;
   }
-  else if (aExtraPrefix) {
-    err->prefixMessage("%s", aExtraPrefix);
+  else if (aArg.error()) {
+    // argument is in error -> throw
+    throwError(aArg.error());
   }
   else {
-    err->prefixMessage("Function argument error: ");
+    // not null and not error, consider it invalid value
+    throwError(ExpressionError::err(ExpressionError::Invalid, "Invalid argument: %s", aArg.stringValue().c_str()));
   }
-  throwError(err);
   return true; // function known
 }
 
@@ -1185,34 +1196,33 @@ bool EvaluationContext::evaluateFunction(const string &aFunc, const FunctionArgu
   }
   else if (aFunc=="if" && aArgs.size()==3) {
     // if (c, a, b)    if c evaluates to true, return a, otherwise b
-    if (aArgs[0].notValue()) return errorInArg(aArgs[0]); // return error from condition
+    if (!aArgs[0].isOK()) return errorInArg(aArgs[0], aResult); // return error from condition
     aResult = aArgs[0].boolValue() ? aArgs[1] : aArgs[2];
   }
   else if (aFunc=="abs" && aArgs.size()==1) {
     // abs (a)         absolute value of a
-    if (aArgs[0].notValue()) return errorInArg(aArgs[0]); // return error from argument
+    if (aArgs[0].notValue()) return errorInArg(aArgs[0], aResult); // return error/null from argument
     aResult.setNumber(fabs(aArgs[0].numValue()));
   }
   else if (aFunc=="int" && aArgs.size()==1) {
     // abs (a)         absolute value of a
-    if (aArgs[0].notValue()) return errorInArg(aArgs[0]); // return error from argument
+    if (aArgs[0].notValue()) return errorInArg(aArgs[0], aResult); // return error/null from argument
     aResult.setNumber(int(aArgs[0].int64Value()));
   }
   else if (aFunc=="round" && (aArgs.size()>=1 || aArgs.size()<=2)) {
     // round (a)       round value to integer
     // round (a, p)    round value to specified precision (1=integer, 0.5=halves, 100=hundreds, etc...)
-    if (aArgs[0].notValue()) return errorInArg(aArgs[0]); // return error from argument
+    if (aArgs[0].notValue()) return errorInArg(aArgs[0], aResult); // return error/null from argument
     double precision = 1;
-    if (aArgs.size()>=2) {
-      if (aArgs[1].notValue()) return errorInArg(aArgs[1]); // return error from argument
+    if (aArgs.size()>=2 && aArgs[1].isValue()) {
       precision = aArgs[1].numValue();
     }
     aResult.setNumber(round(aArgs[0].numValue()/precision)*precision);
   }
   else if (aFunc=="random" && aArgs.size()==2) {
     // random (a,b)     random value from a up to and including b
-    if (aArgs[0].notValue()) return errorInArg(aArgs[0]); // return error from argument
-    if (aArgs[1].notValue()) return errorInArg(aArgs[1]); // return error from argument
+    if (aArgs[0].notValue()) return errorInArg(aArgs[0], aResult); // return error/null from argument
+    if (aArgs[1].notValue()) return errorInArg(aArgs[1], aResult); // return error/null from argument
     // rand(): returns a pseudo-random integer value between ​0​ and RAND_MAX (0 and RAND_MAX included).
     aResult.setNumber(aArgs[0].numValue() + (double)rand()*(aArgs[1].numValue()-aArgs[0].numValue())/((double)RAND_MAX));
   }
@@ -1225,25 +1235,23 @@ bool EvaluationContext::evaluateFunction(const string &aFunc, const FunctionArgu
   }
   else if (aFunc=="number" && aArgs.size()==1) {
     // number(anything)
-    if (aArgs[0].notValue()) return errorInArg(aArgs[0]); // pass null and errors
     aResult.setNumber(aArgs[0].numValue()); // force convert to numeric
   }
   else if (aFunc=="strlen" && aArgs.size()==1) {
     // strlen(string)
-    if (aArgs[0].notValue()) return errorInArg(aArgs[0]); // return error from argument
+    if (aArgs[0].notValue()) return errorInArg(aArgs[0], aResult); // return error/null from argument
     aResult.setNumber(aArgs[0].stringValue().size()); // length of string
   }
   else if (aFunc=="substr" && aArgs.size()>=2 && aArgs.size()<=3) {
     // substr(string, from)
     // substr(string, from, count)
-    if (aArgs[0].notValue()) return errorInArg(aArgs[0]); // return error from argument
+    if (aArgs[0].notValue()) return errorInArg(aArgs[0], aResult); // return error/null from argument
     string s = aArgs[0].stringValue();
-    if (aArgs[1].notValue()) return errorInArg(aArgs[1]); // return error from argument
+    if (aArgs[1].notValue()) return errorInArg(aArgs[1], aResult); // return error/null from argument
     size_t start = aArgs[1].intValue();
     if (start>s.size()) start = s.size();
     size_t count = string::npos; // to the end
-    if (aArgs.size()>=3) {
-      if (aArgs[2].notValue()) return errorInArg(aArgs[2]); // return error from argument
+    if (aArgs.size()>=3 && aArgs[2].isValue()) {
       count = aArgs[2].intValue();
     }
     aResult.setString(s.substr(start, count));
@@ -1252,7 +1260,7 @@ bool EvaluationContext::evaluateFunction(const string &aFunc, const FunctionArgu
     // find(haystack, needle)
     // find(haystack, needle, from)
     string haystack = aArgs[0].stringValue(); // haystack can be anything, including invalid
-    if (aArgs[1].notValue()) return errorInArg(aArgs[1]); // return error from argument
+    if (aArgs[1].notValue()) return errorInArg(aArgs[1], aResult); // return error/null from argument
     string needle = aArgs[1].stringValue();
     size_t start = 0;
     if (aArgs.size()>=3) {
@@ -1271,7 +1279,7 @@ bool EvaluationContext::evaluateFunction(const string &aFunc, const FunctionArgu
   else if (aFunc=="format" && aArgs.size()==2) {
     // format(formatstring, number)
     // only % + - 0..9 . d, x, and f supported
-    if (aArgs[0].notValue()) return errorInArg(aArgs[0]); // return error from argument
+    if (aArgs[0].notValue()) return errorInArg(aArgs[0], aResult); // return error/null from argument
     string fmt = aArgs[0].stringValue();
     if (
       fmt.size()<2 ||
@@ -1289,7 +1297,7 @@ bool EvaluationContext::evaluateFunction(const string &aFunc, const FunctionArgu
   else if (aFunc=="throw" && aArgs.size()==1) {
     // throw(value)       - throw a expression user error with the string value of value as errormessage
     // throw(errvalue)    - (re-)throw with the error of the value passed
-    if (!aArgs[0].isOK()) return throwError(aArgs[0].error()); // just pass as is
+    if (aArgs[0].isError()) return throwError(aArgs[0].error()); // just pass as is
     else return throwError(ExpressionError::User, "%s", aArgs[0].stringValue().c_str());
   }
   else if (aFunc=="error" && aArgs.size()==1) {
@@ -1331,7 +1339,7 @@ bool EvaluationContext::evaluateFunction(const string &aFunc, const FunctionArgu
   }
   else if (synchronous && aFunc=="eval" && aArgs.size()==1) {
     // eval(string)    have string evaluated as expression
-    if (aArgs[0].notValue()) return errorInArg(aArgs[0]); // return error from argument
+    if (aArgs[0].notValue()) return errorInArg(aArgs[0], aResult); // return error/null from argument
     // TODO: for now we use a adhoc evaluation with access only to vars, but no functions.
     //   later, when we have subroutine mechanisms, we'd be able to run the eval within the same context
     aResult = p44::evaluateExpression(
@@ -1353,7 +1361,7 @@ bool EvaluationContext::evaluateFunction(const string &aFunc, const FunctionArgu
     ExpressionValue newRes(0);
     size_t refpos = aArgs.getPos(0); // Note: we use pos of first argument for freezing the function's result (no need to freeze every single weekday)
     for (int i = 0; i<aArgs.size(); i++) {
-      if (aArgs[i].notValue()) return errorInArg(aArgs[i]); // return error from argument
+      if (aArgs[i].notValue()) return errorInArg(aArgs[i], aResult); // return error/null from argument
       int w = (int)aArgs[i].numValue();
       if (w==7) w=0; // treat both 0 and 7 as sunday
       if (w==weekday) {
@@ -1375,11 +1383,11 @@ bool EvaluationContext::evaluateFunction(const string &aFunc, const FunctionArgu
   else if ((aFunc=="after_time" || aFunc=="is_time") && aArgs.size()>=1) {
     struct tm loctim; MainLoop::getLocalTime(loctim);
     ExpressionValue newSecs;
-    if (aArgs[0].notValue()) return errorInArg(aArgs[0]); // return error from argument
+    if (aArgs[0].notValue()) return errorInArg(aArgs[0], aResult); // return error/null from argument
     size_t refpos = aArgs.getPos(0); // Note: we use pos of first argument for freezing the function's result (no need to freeze every single weekday)
     if (aArgs.size()==2) {
       // legacy spec
-      if (aArgs[1].notValue()) return errorInArg(aArgs[1]); // return error from argument
+      if (aArgs[1].notValue()) return errorInArg(aArgs[1], aResult); // return error/null from argument
       newSecs.setNumber(((int32_t)aArgs[0].numValue() * 60 + (int32_t)aArgs[1].numValue()) * 60);
     }
     else {
@@ -1410,8 +1418,8 @@ bool EvaluationContext::evaluateFunction(const string &aFunc, const FunctionArgu
     aResult = res;
   }
   else if (aFunc=="between_dates" || aFunc=="between_yeardays") {
-    if (aArgs[0].notValue()) return errorInArg(aArgs[0]); // return error from argument
-    if (aArgs[1].notValue()) return errorInArg(aArgs[1]); // return error from argument
+    if (aArgs[0].notValue()) return errorInArg(aArgs[0], aResult); // return error/null from argument
+    if (aArgs[1].notValue()) return errorInArg(aArgs[1], aResult); // return error/null from argument
     struct tm loctim; MainLoop::getLocalTime(loctim);
     int smaller = (int)(aArgs[0].numValue());
     int larger = (int)(aArgs[1].numValue());
@@ -1484,7 +1492,7 @@ bool EvaluationContext::evaluateAsyncFunction(const string &aFunc, const Functio
 {
   aNotYielded = true; // by default, so we can use "return errorInArg()" style exits
   if (aFunc=="delay" && aArgs.size()==1) {
-    if (aArgs[0].notValue()) return errorInArg(aArgs[0]);
+    if (aArgs[0].notValue()) return true; // no value specified, consider executed
     MLMicroSeconds delay = aArgs[0].numValue()*Second;
     execTicket.executeOnce(boost::bind(&EvaluationContext::continueEvaluation, this), delay);
     aNotYielded = false; // yielded execution
@@ -1883,15 +1891,15 @@ bool ScriptExecutionContext::evaluateFunction(const string &aFunc, const Functio
     int loglevel = LOG_INFO;
     int ai = 0;
     if (aArgs.size()>1) {
-      if (aArgs[ai].notValue()) return errorInArg(aArgs[ai]);
+      if (aArgs[ai].notValue()) return errorInArg(aArgs[ai], aResult);
       loglevel = aArgs[ai].intValue();
       ai++;
     }
-    if (aArgs[ai].notValue()) return errorInArg(aArgs[ai]);
+    if (aArgs[ai].notValue()) return errorInArg(aArgs[ai], aResult);
     LOG(loglevel, "Script log: %s", aArgs[ai].stringValue().c_str());
   }
   else if (aFunc=="loglevel" && aArgs.size()==1) {
-    if (aArgs[0].notValue()) return errorInArg(aArgs[0]);
+    if (aArgs[0].notValue()) return errorInArg(aArgs[0], aResult);
     int newLevel = aArgs[0].intValue();
     if (newLevel>=0 && newLevel<=7) {
       int oldLevel = LOGLEVEL;
@@ -1900,7 +1908,7 @@ bool ScriptExecutionContext::evaluateFunction(const string &aFunc, const Functio
     }
   }
   else if (aFunc=="scriptloglevel" && aArgs.size()==1) {
-    if (aArgs[0].notValue()) return errorInArg(aArgs[0]);
+    if (aArgs[0].notValue()) return errorInArg(aArgs[0], aResult);
     int newLevel = aArgs[0].intValue();
     if (newLevel>=0 && newLevel<=7) {
       evalLogLevel = newLevel;

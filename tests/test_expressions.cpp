@@ -285,7 +285,7 @@ TEST_CASE_METHOD(ExpressionFixture, "Expressions", "[expressions]" )
     REQUIRE(runExpression("format('%08X', 0x24F5E21)").stringValue() == "024F5E21");
     REQUIRE(runExpression("eval('333*777')").numValue() == 333*777);
     // error handling
-    REQUIRE(runExpression("error('testerror')").stringValue() == "testerror (ExpressionError:8)");
+    REQUIRE(runExpression("error('testerror')").stringValue() == string_format("testerror (ExpressionError:%d)", ExpressionError::User));
     REQUIRE(runExpression("errordomain(error('testerror'))").stringValue() == "ExpressionError");
     REQUIRE(runExpression("errorcode(error('testerror'))").numValue() == ExpressionError::User);
     REQUIRE(runExpression("errormessage(error('testerror')))").stringValue() == "testerror");
