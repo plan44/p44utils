@@ -1675,8 +1675,8 @@ bool ScriptExecutionContext::resumeStatements()
 bool ScriptExecutionContext::resumeAssignment()
 {
   // assign expression result to variable
-  VariablesMap::iterator vpos = variables.find(lowerCase(sp().identifier));
-  if (vpos==variables.end()) return abortWithError(ExpressionError::NotFound, "variable '%s' is not declared - use: var name := expression", sp().identifier.c_str());
+  VariablesMap::iterator vpos = variables.find(sp().identifier);
+  if (vpos==variables.end()) return throwError(ExpressionError::NotFound, "variable '%s' is not declared - use: var name := expression", sp().identifier.c_str());
   if (!sp().skipping) {
     // assign variable
     ELOG("Assigned: %s := %s", sp().identifier.c_str(), sp().res.stringValue().c_str());
@@ -1763,7 +1763,7 @@ bool ScriptExecutionContext::resumeWhile()
 
 bool ScriptExecutionContext::valueLookup(const string &aName, ExpressionValue &aResult)
 {
-  VariablesMap::iterator pos = variables.find(lowerCase(aName));
+  VariablesMap::iterator pos = variables.find(aName);
   if (pos!=variables.end()) {
     aResult = pos->second;
     return true;
@@ -2011,7 +2011,7 @@ protected:
 
   virtual bool valueLookup(const string &aName, ExpressionValue &aResult) P44_OVERRIDE
   {
-    if (valueLookUp && valueLookUp(lowerCase(aName), aResult)) return true;
+    if (valueLookUp && valueLookUp(aName, aResult)) return true;
     return inherited::valueLookup(aName, aResult);
   };
 

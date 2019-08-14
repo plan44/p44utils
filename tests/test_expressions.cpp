@@ -38,9 +38,9 @@ public:
 
   bool valueLookup(const string &aName, ExpressionValue &aResult) P44_OVERRIDE
   {
-    if (aName=="ua") aResult.setNumber(42);
-    else if (aName=="almostua") aResult.setNumber(42.7);
-    else if (aName=="uatext") aResult.setString("fortyTwo");
+    if (strucmp(aName.c_str(),"ua")==0) aResult.setNumber(42);
+    else if (strucmp(aName.c_str(),"almostua")==0) aResult.setNumber(42.7);
+    else if (strucmp(aName.c_str(),"uatext")==0) aResult.setString("fortyTwo");
     else return inherited::valueLookup(aName, aResult);
     return true;
   }
@@ -65,9 +65,9 @@ public:
 
   bool valueLookup(const string &aName, ExpressionValue &aResult) P44_OVERRIDE
   {
-    if (aName=="ua") aResult.setNumber(42);
-    else if (aName=="almostua") aResult.setNumber(42.7);
-    else if (aName=="uatext") aResult.setString("fortyTwo");
+    if (strucmp(aName.c_str(),"ua")==0) aResult.setNumber(42);
+    else if (strucmp(aName.c_str(),"almostua")==0) aResult.setNumber(42.7);
+    else if (strucmp(aName.c_str(),"uatext")==0) aResult.setString("fortyTwo");
     else return inherited::valueLookup(aName, aResult);
     return true;
   }

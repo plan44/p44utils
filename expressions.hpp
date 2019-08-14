@@ -595,7 +595,7 @@ namespace p44 {
   {
     typedef EvaluationContext inherited;
 
-    typedef std::map<string, ExpressionValue> VariablesMap;
+    typedef std::map<string, ExpressionValue, lessStrucmp> VariablesMap;
     VariablesMap variables; ///< script local variables
 
   public:
