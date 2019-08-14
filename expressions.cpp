@@ -102,7 +102,7 @@ string ExpressionValue::stringValue() const
     return "undefined";
   }
   else if (err) {
-    return err->getErrorMessage();
+    return err->description();
   }
   else {
     return string_format("%lg", numVal);
@@ -265,7 +265,7 @@ bool EvaluationContext::setCode(const string aCode)
 }
 
 
-void EvaluationContext::skipWhiteSpace(size_t& aPos)
+void EvaluationContext::skipNonCode(size_t& aPos)
 {
   bool recheck;
   do {
@@ -293,9 +293,9 @@ void EvaluationContext::skipWhiteSpace(size_t& aPos)
 }
 
 
-void EvaluationContext::skipWhiteSpace()
+void EvaluationContext::skipNonCode()
 {
-  skipWhiteSpace(pos);
+  skipNonCode(pos);
 }
 
 
@@ -314,30 +314,41 @@ const char* EvaluationContext::getIdentifier(size_t& aLen)
 
 
 static const char *evalstatenames[EvaluationContext::numEvalStates] = {
+  "s_complete",
+  "s_abort",
+  "s_finalize",
+  // Script States
+  // - basic statements
   "s_body",
   "s_block",
   "s_oneStatement",
   "s_noStatement",
   "s_returnValue",
+  // - if/then/else
   "s_ifCondition",
   "s_ifTrueStatement",
   "s_elseStatement",
+  // - while
   "s_whileCondition",
   "s_whileStatement",
+  // - try/catch
+  "s_tryStatement",
+  "s_catchStatement",
+  // - assignment to variables
   "s_assignToVar",
+  // Special result passing state
+  "s_result",
+  // Expression States
   "s_newExpression",
   "s_expression",
   "s_groupedExpression",
   "s_exprFirstTerm",
   "s_exprLeftSide",
   "s_exprRightSide",
+  // - simple terms
   "s_simpleTerm",
   "s_funcArg",
-  "s_funcExec",
-  "s_result",
-  "s_complete",
-  "s_abort",
-  "s_finalize"
+  "s_funcExec"
 };
 
 
@@ -366,10 +377,10 @@ void EvaluationContext::logStackDump() {
 
 bool EvaluationContext::push(EvalState aNewState, bool aStartSkipping)
 {
-  skipWhiteSpace();
+  skipNonCode();
   stack.push_back(StackFrame(aNewState, aStartSkipping || sp().skipping, sp().precedence));
   if (ELOGGING_DBG) {
-    ELOG_DBG("+++ pushed new frame - code(pos): '%.50s...", tail(pos));
+    ELOG_DBG("+++ pushed new frame - code(pos): '%.50s...'", tail(pos));
     logStackDump();
   }
   return true; // not yielded
@@ -378,12 +389,12 @@ bool EvaluationContext::push(EvalState aNewState, bool aStartSkipping)
 
 bool EvaluationContext::pop()
 {
-  skipWhiteSpace();
+  skipNonCode();
   if (stack.size()>1) {
     // regular pop
     stack.pop_back();
     if (ELOGGING_DBG) {
-      ELOG_DBG("--- popped frame - code(pos): '%.50s...", tail(pos));
+      ELOG_DBG("--- popped frame - code(pos): '%.50s...'", tail(pos));
       logStackDump();
     }
     return true; // not yielded
@@ -403,7 +414,12 @@ bool EvaluationContext::popAndPassResult(ExpressionValue aResult)
   if (stack.empty())
     finalResult = aResult;
   else if (!wasSkipping) {
-    ELOG("Result from %s: '%.*s' is '%s'", evalstatenames[sp().state],  (int)(pos-sp().pos), tail(sp().pos), aResult.stringValue().c_str());
+    // auto-throw error results only at statement ends, not within expressions or function arguments
+    if (sp().state<s_expression_states && !aResult.isOK()) {
+      ELOG("Statement result passed to %s: '%.*s' is error -> THROW: %s", evalstatenames[sp().state],  (int)(pos-sp().pos), tail(sp().pos), aResult.error()->text());
+      return throwError(aResult.error());
+    }
+    ELOG("Result passed to %s: '%.*s' is '%s'", evalstatenames[sp().state],  (int)(pos-sp().pos), tail(sp().pos), aResult.stringValue().c_str());
     sp().res = aResult;
   }
   return true; // not yielded
@@ -425,10 +441,49 @@ bool EvaluationContext::popToLast(EvalState aPreviousState)
 }
 
 
-
-bool EvaluationContext::abortWithError(ErrorPtr aError)
+bool EvaluationContext::throwError(ErrorPtr aError)
 {
-  sp().res.err = aError;
+  // search back the stack for a "try"
+  StackList::iterator spos = stack.end();
+  while (spos!=stack.begin()) {
+    spos--;
+    if (spos->state==s_tryStatement) {
+      // set the decision
+      spos->flowDecision = true; // error caught
+      spos->res.setError(aError); // store the error at the try/catch stack level for later referencing in catch
+      // set everything up to here to skip...
+      while (++spos!=stack.end()) {
+        spos->skipping = true;
+      }
+      // ...and let it run (skip)
+      return true;
+    }
+  }
+  // uncaught, abort
+  sp().res.setError(aError);
+  return newstate(s_abort);
+}
+
+
+bool EvaluationContext::throwError(ExpressionError::ErrorCodes aErrCode, const char *aFmt, ...)
+{
+  ErrorPtr err = Error::err<ExpressionError>(aErrCode);
+  va_list args;
+  va_start(args, aFmt);
+  err->setFormattedMessage(aFmt, args);
+  va_end(args);
+  return throwError(err);
+}
+
+
+bool EvaluationContext::abortWithSyntaxError(const char *aFmt, ...)
+{
+  ErrorPtr err = Error::err<ExpressionError>(ExpressionError::Syntax);
+  va_list args;
+  va_start(args, aFmt);
+  err->setFormattedMessage(aFmt, args);
+  va_end(args);
+  sp().res.err = err;
   return newstate(s_abort);
 }
 
@@ -445,34 +500,11 @@ bool EvaluationContext::errorInArg(ExpressionValue aArg, const char* aExtraPrefi
   else {
     err->prefixMessage("Function argument error: ");
   }
-  abortWithError(err);
+  throwError(err);
   return true; // function known
 }
 
 
-
-
-
-bool EvaluationContext::abortWithError(ExpressionError::ErrorCodes aErrCode, const char *aFmt, ...)
-{
-  ErrorPtr err = Error::err<ExpressionError>(aErrCode);
-  va_list args;
-  va_start(args, aFmt);
-  err->setFormattedMessage(aFmt, args);
-  va_end(args);
-  return abortWithError(err);
-}
-
-
-bool EvaluationContext::abortWithSyntaxError(const char *aFmt, ...)
-{
-  ErrorPtr err = Error::err<ExpressionError>(ExpressionError::Syntax);
-  va_list args;
-  va_start(args, aFmt);
-  err->setFormattedMessage(aFmt, args);
-  va_end(args);
-  return abortWithError(err);
-}
 
 
 bool EvaluationContext::startEvaluationWith(EvalState aState)
@@ -507,7 +539,7 @@ bool EvaluationContext::continueEvaluation()
   }
   while(isEvaluating()) {
     if (execTimeLimit!=0 && MainLoop::now()-runningSince>execTimeLimit) {
-      return abortWithError(ExpressionError::Timeout, "Script ran too long -> aborted");
+      return throwError(ExpressionError::Timeout, "Script ran too long -> aborted");
     }
     if (!resumeEvaluation()) return false; // execution yielded
   }
@@ -671,14 +703,14 @@ bool EvaluationContext::resumeEvaluation()
     // end of expressions, groups, terms
     case s_result:
       if (!sp().res.syntaxOk()) {
-        return abortWithError(sp().res.err);
+        return throwError(sp().res.err);
       }
       // successful expression result
       return popAndPassResult(sp().res);
     default:
       break;
   }
-  return abortWithError(TextError::err("resumed in invalid state %d", sp().state));
+  return throwError(TextError::err("resumed in invalid state %d", sp().state));
 }
 
 
@@ -775,7 +807,7 @@ void EvaluationContext::parseNumericLiteral(ExpressionValue &aResult, const char
 
 EvaluationContext::Operations EvaluationContext::parseOperator(size_t &aPos)
 {
-  skipWhiteSpace(aPos);
+  skipNonCode(aPos);
   // check for operator
   Operations op = op_none;
   switch (code(aPos++)) {
@@ -829,7 +861,7 @@ EvaluationContext::Operations EvaluationContext::parseOperator(size_t &aPos)
       --aPos; // no expression char
       return op_none;
   }
-  skipWhiteSpace(aPos);
+  skipNonCode(aPos);
   return op;
 }
 
@@ -939,7 +971,7 @@ bool EvaluationContext::resumeExpression()
     }
     return newstate(s_exprLeftSide); // back to leftside, more chained operators might follow
   }
-  return abortWithError(TextError::err("expression resumed in invalid state %d", sp().state));
+  return throwError(TextError::err("expression resumed in invalid state %d", sp().state));
 }
 
 
@@ -1017,13 +1049,13 @@ bool EvaluationContext::resumeTerm()
           if (id) pos += s;
           idsz += s;
         }
-        sp().identifier.assign(lowerCase(idpos, idsz)); // save the name
-        skipWhiteSpace();
+        sp().identifier.assign(idpos, idsz); // save the name, in original case
+        skipNonCode();
         if (currentchar()=='(') {
           // function call
           pos++; // skip opening paranthesis
           sp().args.clear();
-          skipWhiteSpace();
+          skipNonCode();
           if (currentchar()!=')') {
             // start scanning argument
             newstate(s_funcArg);
@@ -1061,7 +1093,7 @@ bool EvaluationContext::resumeTerm()
                 }
               }
               if (!pseudovar) {
-                abortWithError(ExpressionError::NotFound, "no variable named '%s'", sp().identifier.c_str());
+                throwError(ExpressionError::NotFound, "no variable named '%s'", sp().identifier.c_str());
               }
             }
           }
@@ -1074,7 +1106,7 @@ bool EvaluationContext::resumeTerm()
   else if (sp().state==s_funcArg) {
     // a function argument, push it
     sp().args.addArg(sp().res, sp().pos);
-    skipWhiteSpace();
+    skipNonCode();
     if (currentchar()==',') {
       // more arguments
       pos++; // consume comma
@@ -1085,7 +1117,7 @@ bool EvaluationContext::resumeTerm()
       pos++; // consume closing ')'
       return newstate(s_funcExec);
     }
-    return abortWithSyntaxError("missing closing ) in function call");
+    return abortWithSyntaxError("missing closing ')' in function call");
   }
   else if (sp().state==s_funcExec) {
     ELOG("Calling Function '%s'", sp().identifier.c_str());
@@ -1096,19 +1128,19 @@ bool EvaluationContext::resumeTerm()
     newstate(s_result); // expecting result from function
     if (!sp().skipping) {
       // - try synchronous functions first
-      if (evaluateFunction(sp().identifier, sp().args, sp().res)) {
+      if (evaluateFunction(lowerCase(sp().identifier), sp().args, sp().res)) {
         return true; // not yielded
       }
       // - must be async
       bool notYielded = true; // default to not yielded, especially for errorInArg()
-      if (synchronous || !evaluateAsyncFunction(sp().identifier, sp().args, notYielded)) {
+      if (synchronous || !evaluateAsyncFunction(lowerCase(sp().identifier), sp().args, notYielded)) {
         return abortWithSyntaxError("Unknown function '%s' with %d arguments", sp().identifier.c_str(), sp().args.size());
       }
       return notYielded;
     }
     return true; // not executed -> not yielded
   }
-  return abortWithError(TextError::err("resumed term in invalid state %d", sp().state));
+  return throwError(TextError::err("resumed term in invalid state %d", sp().state));
 }
 
 
@@ -1254,15 +1286,48 @@ bool EvaluationContext::evaluateFunction(const string &aFunc, const FunctionArgu
     else
       aResult.setString(string_format(fmt.c_str(), aArgs[1].numValue())); // double format
   }
+  else if (aFunc=="throw" && aArgs.size()==1) {
+    // throw(value)       - throw a expression user error with the string value of value as errormessage
+    // throw(errvalue)    - (re-)throw with the error of the value passed
+    if (!aArgs[0].isOK()) return throwError(aArgs[0].error()); // just pass as is
+    else return throwError(ExpressionError::User, "%s", aArgs[0].stringValue().c_str());
+  }
+  else if (aFunc=="error" && aArgs.size()==1) {
+    // error(value)       - create a user error value with the string value of value as errormessage, in all cases, even if value is already an error
+    aResult.setError(ExpressionError::User, "%s", aArgs[0].stringValue().c_str());
+    return true;
+  }
+  else if (aFunc=="error" && aArgs.size()==0) {
+    // error()            - within a catch context only: the error thrown
+    StackList::iterator spos = stack.end();
+    while (spos!=stack.begin()) {
+      spos--;
+      if (spos->state==s_catchStatement) {
+        // here the error is stored
+        aResult = spos->res;
+        return true;
+      }
+    }
+    // try to use error() not within catch
+    return abortWithSyntaxError("error() can only be called from within catch statements");
+  }
+  else if (aFunc=="errordomain" && aArgs.size()==1) {
+    // errordomain(errvalue)
+    ErrorPtr err = aArgs[0].err;
+    if (Error::isOK(err)) aResult.setNull(); // no error, no domain
+    aResult.setString(err->getErrorDomain());
+  }
+  else if (aFunc=="errorcode") {
+    // errorcode(errvalue)
+    ErrorPtr err = aArgs[0].err;
+    if (Error::isOK(err)) aResult.setNull(); // no error, no code
+    aResult.setNumber(err->getErrorCode());
+  }
   else if (aFunc=="errormessage" && aArgs.size()==1) {
     // errormessage(value)
     ErrorPtr err = aArgs[0].err;
     if (Error::isOK(err)) aResult.setNull(); // no error, no message
     aResult.setString(err->getErrorMessage());
-  }
-  else if (aFunc=="errordescription" && aArgs.size()==1) {
-    // errordescription(value)
-    aResult.setString(aArgs[0].err->text());
   }
   else if (synchronous && aFunc=="eval" && aArgs.size()==1) {
     // eval(string)    have string evaluated as expression
@@ -1491,6 +1556,10 @@ bool ScriptExecutionContext::resumeEvaluation()
     case s_elseStatement:
       ret = resumeIfElse(); // a if-elseif-else statement chain
       break;
+    case s_tryStatement:
+    case s_catchStatement:
+      ret = resumeTryCatch(); // a try/catch statement chain
+      break;
     case s_whileCondition:
     case s_whileStatement:
       ret = resumeWhile(); // a while loop statement
@@ -1547,7 +1616,7 @@ bool ScriptExecutionContext::resumeStatements()
   if (currentchar()==';') {
     if (sp().state==s_noStatement) return true; // the separator alone comprises a statement, so we're done
     pos++; // normal statement separator, consume it
-    skipWhiteSpace();
+    skipNonCode();
   }
   // at the beginning of a statement which is not beginning of a new block
   // - could be language keyword, variable assignment
@@ -1555,7 +1624,7 @@ bool ScriptExecutionContext::resumeStatements()
   if (kw) {
     if (strucmp(kw, "if", kwsz)==0) {
       pos += kwsz;
-      skipWhiteSpace();
+      skipNonCode();
       if (currentchar()!='(') return abortWithSyntaxError("missing '(' after 'if'");
       pos++;
       push(s_ifCondition);
@@ -1567,7 +1636,7 @@ bool ScriptExecutionContext::resumeStatements()
     }
     if (strucmp(kw, "while", kwsz)==0) {
       pos += kwsz;
-      skipWhiteSpace();
+      skipNonCode();
       if (currentchar()!='(') return abortWithSyntaxError("missing '(' after 'while'");
       pos++;
       push(s_whileCondition);
@@ -1599,7 +1668,7 @@ bool ScriptExecutionContext::resumeStatements()
     if (strucmp(kw, "return", kwsz)==0) {
       pos += kwsz;
       sp().res.setNull(); // default to no result
-      skipWhiteSpace();
+      skipNonCode();
       if (currentchar() && currentchar()!=';') {
         // switch frame to last thing that will happen: getting the return value
         if (!sp().skipping) sp().state = s_returnValue;
@@ -1607,6 +1676,16 @@ bool ScriptExecutionContext::resumeStatements()
       }
       if (sp().skipping) return true; // skipping, just consume keyword and ignore
       return newstate(s_complete); // not skipping, actually terminate
+    }
+    if (strucmp(kw, "try", kwsz)==0) {
+      pos += kwsz;
+      push(s_tryStatement);
+      sp().flowDecision = false; // nothing caught so far
+      return push(s_oneStatement);
+    }
+    if (strucmp(kw, "catch", kwsz)==0) {
+      // just check to give sensible error message
+      return abortWithSyntaxError("catch without preceeding try");
     }
     // variable handling
     bool vardef = false;
@@ -1627,7 +1706,7 @@ bool ScriptExecutionContext::resumeStatements()
     if (vardef || let) {
       // explicit assignment statement keyword
       pos = apos;
-      skipWhiteSpace();
+      skipNonCode();
       // variable name follows
       size_t vsz; const char *vn = getIdentifier(vsz);
       if (!vn) return abortWithSyntaxError("missing variable name after '%.*s'", (int)kwsz, kw);
@@ -1647,7 +1726,7 @@ bool ScriptExecutionContext::resumeStatements()
       // keyword itself is the variable name
       varName.assign(kw, kwsz);
     }
-    skipWhiteSpace(apos);
+    skipNonCode(apos);
     Operations op = parseOperator(apos);
     // Note: for the unambiguous "var", "global" and "let" cases, allow the equal operator for assignment
     if (op==op_assign || op==op_assignOrEq ||((vardef || let) && op==op_equal)) {
@@ -1687,11 +1766,35 @@ bool ScriptExecutionContext::resumeAssignment()
 }
 
 
+bool ScriptExecutionContext::resumeTryCatch()
+{
+  if (sp().state==s_tryStatement) {
+    // try statement is executed
+    // - check for "catch" following
+    size_t kwsz; const char *kw = getIdentifier(kwsz);
+    if (kw && strucmp(kw, "catch", kwsz)==0) {
+      pos += kwsz;
+      sp().state = s_catchStatement;
+      // - flowdecision is set only if there was an error -> skip catch only if it is not set!
+      return push(s_oneStatement, !sp().flowDecision);
+    }
+    else {
+      return abortWithSyntaxError("missing 'catch' after 'try'");
+    }
+  }
+  if (sp().state==s_catchStatement) {
+    // catch statement is executed
+    return pop(); // end try/catch
+  }
+  return true;
+}
+
+
 bool ScriptExecutionContext::resumeIfElse()
 {
   if (sp().state==s_ifCondition) {
     // if condition is evaluated
-    if (currentchar()!=')')  return abortWithSyntaxError("missing ) after if condition");
+    if (currentchar()!=')')  return abortWithSyntaxError("missing ')' after if condition");
     pos++;
     sp().state = s_ifTrueStatement;
     sp().flowDecision = sp().res.boolValue();
@@ -1703,12 +1806,12 @@ bool ScriptExecutionContext::resumeIfElse()
     size_t kwsz; const char *kw = getIdentifier(kwsz);
     if (kw && strucmp(kw, "else", kwsz)==0) {
       pos += kwsz;
-      skipWhiteSpace();
+      skipNonCode();
       // there might be another if following right away
       kw = getIdentifier(kwsz);
       if (kw && strucmp(kw, "if", kwsz)==0) {
         pos += kwsz;
-        skipWhiteSpace();
+        skipNonCode();
         if (currentchar()!='(') return abortWithSyntaxError("missing '(' after 'else if'");
         pos++;
         // chained if: when preceeding "if" did execute (or would have if not already skipping), rest of if/elseif...else chain will be skipped
@@ -1739,7 +1842,7 @@ bool ScriptExecutionContext::resumeWhile()
 {
   if (sp().state==s_whileCondition) {
     // while condition is evaluated
-    if (currentchar()!=')')  return abortWithSyntaxError("missing ) after while condition");
+    if (currentchar()!=')')  return abortWithSyntaxError("missing ')' after while condition");
     pos++;
     newstate(s_whileStatement);
     if (!sp().skipping) sp().flowDecision = sp().res.boolValue(); // do not change flow decision when skipping (=break)

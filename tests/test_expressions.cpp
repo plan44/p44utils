@@ -24,6 +24,8 @@
 #include "expressions.hpp"
 #include <stdlib.h>
 
+#define SCRIPTLOGLEVEL 0
+
 using namespace p44;
 
 class ExpressionFixture : public EvaluationContext
@@ -33,7 +35,7 @@ public:
   ExpressionFixture() :
     inherited(NULL)
   {
-    evalLogLevel = 0;
+    evalLogLevel = SCRIPTLOGLEVEL;
   };
 
   bool valueLookup(const string &aName, ExpressionValue &aResult) P44_OVERRIDE
@@ -60,7 +62,7 @@ public:
   ScriptFixture() :
     inherited(NULL)
   {
-    evalLogLevel = 0;
+    evalLogLevel = SCRIPTLOGLEVEL;
   };
 
   bool valueLookup(const string &aName, ExpressionValue &aResult) P44_OVERRIDE
@@ -175,10 +177,17 @@ TEST_CASE_METHOD(ExpressionFixture, "Expressions", "[expressions]" )
     REQUIRE(runExpression("thu").intValue() == 4);
   }
 
+  SECTION("Whitespace and comments") {
+    REQUIRE(runExpression("42 // 43").numValue() == 42);
+    REQUIRE(runExpression("/* 43 */ 42").numValue() == 42);
+    REQUIRE(runExpression("/* 43 // 42").isNull() == true);
+  }
+
+
   SECTION("Value Lookup") {
     REQUIRE(runExpression("UA").numValue() == 42);
     REQUIRE(runExpression("dummy").isNull() == false); // unknown var should not be Null..
-    REQUIRE(runExpression("dummy").isValue() == false); // ..but not ok
+    REQUIRE(runExpression("dummy").isValue() == false); // ..but not a value either
     REQUIRE(runExpression("dummy").isOK() == false); // ..and not value-ok
     REQUIRE(runExpression("almostUA").numValue() == 42.7);
     REQUIRE(runExpression("UAtext").stringValue() == "fortyTwo");
@@ -195,7 +204,7 @@ TEST_CASE_METHOD(ExpressionFixture, "Expressions", "[expressions]" )
     REQUIRE(runExpression("42.7-24").numValue() == 42.7-24.0);
     REQUIRE(runExpression("42.7*42").numValue() == 42.7*42.0);
     REQUIRE(runExpression("42.7/24").numValue() == 42.7/24.0);
-    REQUIRE(runExpression("78/0").isValue() == false); // division by zero
+    REQUIRE(runExpression("78/0").isOK() == false); // division by zero
     REQUIRE(runExpression("\"ABC\" + \"abc\"").stringValue() == "ABCabc");
     REQUIRE(runExpression("\"empty\"+\"\"").stringValue() == "empty");
     REQUIRE(runExpression("\"\"+\"empty\"").stringValue() == "empty");
@@ -275,6 +284,11 @@ TEST_CASE_METHOD(ExpressionFixture, "Expressions", "[expressions]" )
     REQUIRE(runExpression("format('%.1f', 33.7)").stringValue() == "33.7");
     REQUIRE(runExpression("format('%08X', 0x24F5E21)").stringValue() == "024F5E21");
     REQUIRE(runExpression("eval('333*777')").numValue() == 333*777);
+    // error handling
+    REQUIRE(runExpression("error('testerror')").stringValue() == "testerror (ExpressionError:8)");
+    REQUIRE(runExpression("errordomain(error('testerror'))").stringValue() == "ExpressionError");
+    REQUIRE(runExpression("errorcode(error('testerror'))").numValue() == ExpressionError::User);
+    REQUIRE(runExpression("errormessage(error('testerror')))").stringValue() == "testerror");
     // special cases
     REQUIRE(runExpression("hour()").numValue() > 0);
     // should be case insensitive
@@ -348,6 +362,14 @@ TEST_CASE_METHOD(ScriptFixture, "Scripts", "[expressions]" )
     // skipping execution of chained expressions
     REQUIRE(runScript("if (false) return string(\"A\" + \"X\" + \"B\")").isNull() == true);
     REQUIRE(runScript("if (false) return string(\"A\" + string(\"\") + \"B\")").isNull() == true);
+    // throw/try/catch
+    REQUIRE(runScript("throw('test error')").isOK() == false);
+    REQUIRE(Error::isError(runScript("throw('test error')").error(), ExpressionError::domain(), ExpressionError::User) == true);
+    REQUIRE(strcmp(runScript("throw('test error')").error()->getErrorMessage(), "test error") == 0);
+    REQUIRE(Error::isError(runScript("try var zerodiv = 7/0; catch return error()").error(), ExpressionError::domain(), ExpressionError::DivisionByZero) == true);
+    REQUIRE(runScript("try var zerodiv = 7/0; catch return 'not allowed'").stringValue() == "not allowed");
+    REQUIRE(runScript("try var zerodiv = 7/1; catch return error(); return zerodiv").numValue() == 7);
+    REQUIRE(runScript("try { var zerodiv = 42; zerodiv = 7/0 } catch { log('CAUGHT!') }; return zerodiv").numValue() == 42);
   }
 
 }

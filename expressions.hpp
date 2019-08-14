@@ -60,6 +60,7 @@ namespace p44 {
       NotFound, ///< variable, object, function not found (for callback)
       Aborted, ///< externally aborted
       Timeout, ///< aborted because max execution time limit reached
+      User, ///< user generated error (with throw)
     } ErrorCodes;
     static const char *domain() { return "ExpressionError"; }
     virtual const char *getErrorDomain() const { return ExpressionError::domain(); };
@@ -92,7 +93,7 @@ namespace p44 {
     int intValue() const { return (int)numValue(); }
     int64_t int64Value() const { return (int64_t)numValue(); }
     string stringValue() const; ///< returns a conversion to string if value is numeric
-    ErrorPtr error() { return err; }
+    ErrorPtr error() const { return err; }
     // Setters
     void setNull(const char *aWithInfo = NULL) { if (aWithInfo) setString(aWithInfo); else clrStr(); nullValue = true; err = NULL; numVal = 0; }
     void setBool(bool aBoolValue) { nullValue = false; err.reset(); numVal = aBoolValue ? 1: 0; clrStr(); }
@@ -135,7 +136,7 @@ namespace p44 {
   };
 
   /// callback function for obtaining variables
-  /// @param aName the name of the value/variable to look up, always passed in in all lowercase
+  /// @param aName the name of the value/variable to look up (any case, comparison must be case insensitive)
   /// @param aResult set the value here
   /// @return true if value returned, false if value is unknown
   typedef boost::function<bool (const string &aName, ExpressionValue &aResult)> ValueLookupCB;
@@ -232,25 +233,36 @@ namespace p44 {
     } Operations;
 
     typedef enum {
+      // Completion states
+      s_complete, ///< completing evaluation
+      s_abort, ///< aborting evaluation
+      s_finalize, ///< ending, will pop last stack frame
       // Script States
+      s_statement_states, ///< marker
       // - basic statements
-      s_body, ///< at the body level (end of expression ends body)
+      s_body = s_statement_states, ///< at the body level (end of expression ends body)
       s_block, ///< within a block, exists when '}' is encountered, but skips ';'
       s_oneStatement, ///< a single statement, exits when ';' is encountered
       s_noStatement, ///< pop back one level
       s_returnValue, ///< "return" statement value calculation
-      // - if then else
+      // - if/then/else
       s_ifCondition, ///< executing the condition of an if
       s_ifTrueStatement, ///< executing the if statement
       s_elseStatement, ///< executing the else statement
       // - while
       s_whileCondition, ///< executing the condition of a while
       s_whileStatement, ///< executing the while statement
+      // - try/catch
+      s_tryStatement, ///< executing the statement to try
+      s_catchStatement, ///< executing the handling of a thrown error
       // - assignment to variables
       s_assignToVar, ///< assign result of an expression to a variable
+      // Special result passing state
+      s_result, ///< result of an expression or term
       // Expression States
+      s_expression_states, ///< marker
       // - expression
-      s_newExpression, ///< at the beginning of an expression which only ends syntactically (end of code, delimiter, etc.) -> resets precedence
+      s_newExpression = s_expression_states, ///< at the beginning of an expression which only ends syntactically (end of code, delimiter, etc.) -> resets precedence
       s_expression, ///< handle (sub)expression start, precedence inherited or set by caller
       s_groupedExpression, ///< handling a paranthesized subexpression result
       s_exprFirstTerm, ///< first term of an expression
@@ -260,12 +272,6 @@ namespace p44 {
       s_simpleTerm, ///< at the beginning of a term
       s_funcArg, ///< handling a function argument
       s_funcExec, ///< handling function execution
-      // - result delivery and error checking
-      s_result, ///< result of an expression or term
-      // - completion
-      s_complete, ///< completing evaluation
-      s_abort, ///< aborting evaluation
-      s_finalize, ///< ending, will pop last stack frame
       numEvalStates
     } EvalState; ///< the state of the evaluation in the current frame
 
@@ -390,9 +396,11 @@ namespace p44 {
     /// @name error reporting, can also be used from external function implementations
     /// @{
 
-    /// set result to specified error and abort
-    bool abortWithError(ErrorPtr aError);
-    bool abortWithError(ExpressionError::ErrorCodes aErrCode, const char *aFmt, ...) __printflike(3,4);
+    /// set result to specified error and throw it as an exception, which can be caught by try/catch
+    bool throwError(ErrorPtr aError);
+    bool throwError(ExpressionError::ErrorCodes aErrCode, const char *aFmt, ...) __printflike(3,4);
+
+    /// set result to syntax error and unconditionally abort (can't be caught)
     bool abortWithSyntaxError(const char *aFmt, ...) __printflike(2,3);
 
     /// helper to exit evaluateFunction/evaluateAsyncFunction indicating a argument with an error
@@ -496,9 +504,9 @@ namespace p44 {
     /// @return current character (at pos), or 0 if at end of code
     char currentchar() const { return code(pos); }
 
-    /// skip white space
-    void skipWhiteSpace();
-    void skipWhiteSpace(size_t& aPos);
+    /// skip non-code (whitespace and comments)
+    void skipNonCode();
+    void skipNonCode(size_t& aPos);
 
     /// @param aPos position
     /// @return c_str of the tail starting at aPos
@@ -528,7 +536,7 @@ namespace p44 {
     virtual void releaseState() { /* NOP: no state in base class */ };
 
     /// lookup variables by name
-    /// @param aName the name of the value/variable to look up, always passed in in all lowercase
+    /// @param aName the name of the value/variable to look up (any case, comparison must be case insensitive)
     /// @param aResult set the value here
     /// @return true if value returned, false if value is unknown
     virtual bool valueLookup(const string &aName, ExpressionValue &aResult);
@@ -616,7 +624,7 @@ namespace p44 {
     virtual void releaseState() P44_OVERRIDE;
 
     /// lookup variables by name
-    /// @param aName the name of the value/variable to look up, always passed in in all lowercase
+    /// @param aName the name of the value/variable to look up (any case, comparison must be case insensitive)
     /// @param aResult set the value here
     /// @return true if value returned, false if value is unknown
     virtual bool valueLookup(const string &aName, ExpressionValue &aResult)  P44_OVERRIDE;
@@ -640,6 +648,7 @@ namespace p44 {
     bool resumeIfElse();
     bool resumeWhile();
     bool resumeAssignment();
+    bool resumeTryCatch();
 
     /// @}
   };
