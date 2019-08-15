@@ -142,33 +142,20 @@ ExpressionValue ExpressionValue::operator!() const
 
 ExpressionValue ExpressionValue::operator<(const ExpressionValue& aRightSide) const
 {
-  if (notValue() || aRightSide.notValue()) return false; // nulls and errors are not orderable
   if (isString()) return *strValP < aRightSide.stringValue();
   return numVal < aRightSide.numValue();
 }
-
 
 ExpressionValue ExpressionValue::operator!=(const ExpressionValue& aRightSide) const
 {
   return !operator==(aRightSide);
 }
 
-
-
 ExpressionValue ExpressionValue::operator==(const ExpressionValue& aRightSide) const
 {
   ExpressionValue res;
-  if (notValue() || aRightSide.notValue()) {
-    // - notValue()'s loosely count as "undefined" (even if not specifically ExpressionError::Null)
-    // - do not compare with other side's value, but its ok status
-    res.setBool(notValue() == aRightSide.notValue());
-  }
-  else if (isString()) {
-    res.setBool(*strValP == aRightSide.stringValue());
-  }
-  else {
-    res.setBool(numVal == aRightSide.numValue());
-  }
+  if (isString()) res.setBool(*strValP == aRightSide.stringValue());
+  else res.setBool(numVal == aRightSide.numValue());
   return res;
 }
 
@@ -915,11 +902,13 @@ bool EvaluationContext::resumeExpression()
   if (sp().state==s_exprFirstTerm) {
     // res now has the first term of an expression, which might need applying unary operations
     Operations unaryop = sp().op;
-    // assign to val, applying unary op
-    switch (unaryop) {
-      case op_not : sp().res.setBool(!sp().res.boolValue()); break;
-      case op_subtract : sp().res.setNumber(-sp().res.numValue()); break;
-      default: break;
+    // assign to val, applying unary op (only if not null)
+    if (sp().res.isValue()) {
+      switch (unaryop) {
+        case op_not : sp().res.setBool(!sp().res.boolValue()); break;
+        case op_subtract : sp().res.setNumber(-sp().res.numValue()); break;
+        default: break;
+      }
     }
     return newstate(s_exprLeftSide);
   }
@@ -945,14 +934,10 @@ bool EvaluationContext::resumeExpression()
     Operations binaryop = sp().op;
     // val = leftside, res = rightside
     if (!sp().skipping) {
-      // - equality comparison is the only thing that also inlcudes "undefined", so do it first
-      if (binaryop==op_equal || binaryop==op_assignOrEq)
-        sp().val = sp().val == sp().res;
-      else if (binaryop==op_notequal)
-        sp().val = sp().val != sp().res;
-      else if (sp().res.isValue()) {
+      ExpressionValue opRes;
+      // all operations involving nulls return null
+      if (sp().res.isValue() && sp().val.isValue()) {
         // apply the operation between leftside and rightside
-        ExpressionValue opRes;
         switch (binaryop) {
           case op_not: {
             return abortWithSyntaxError("NOT operator not allowed here");
@@ -961,6 +946,9 @@ bool EvaluationContext::resumeExpression()
           case op_multiply: opRes = sp().val * sp().res; break;
           case op_add: opRes = sp().val + sp().res; break;
           case op_subtract: opRes = sp().val - sp().res; break;
+          case op_equal:
+          case op_assignOrEq: opRes = sp().val == sp().res; break;
+          case op_notequal: opRes = sp().val != sp().res; break;
           case op_less: opRes = sp().val < sp().res; break;
           case op_greater: opRes = !(sp().val < sp().res) && !(sp().val == sp().res); break;
           case op_leq: opRes = (sp().val < sp().res) || (sp().val == sp().res); break;
@@ -969,8 +957,8 @@ bool EvaluationContext::resumeExpression()
           case op_or: opRes = sp().val || sp().res; break;
           default: break;
         }
-        sp().val = opRes;
       }
+      sp().val = opRes;
       // duplicate into res in case evaluation ends
       sp().res = sp().val;
       if (sp().res.isValue()) {
@@ -1191,7 +1179,7 @@ bool EvaluationContext::evaluateFunction(const string &aFunc, const FunctionArgu
     aResult = aArgs[0].isValue() ? aArgs[0] : aArgs[1];
   }
   else if (aFunc=="isvalid" && aArgs.size()==1) {
-    // ifvalid(a, b)   if a is a valid value, return it, otherwise return the default as specified by b
+    // isvalid(a)      if a is a valid value, return true, otherwise return false
     aResult.setNumber(aArgs[0].isValue() ? 1 : 0);
   }
   else if (aFunc=="if" && aArgs.size()==3) {

@@ -213,13 +213,18 @@ TEST_CASE_METHOD(ExpressionFixture, "Expressions", "[expressions]" )
     REQUIRE(runExpression("0==false").boolValue() == true);
     REQUIRE(runExpression("0==no").boolValue() == true);
     REQUIRE(runExpression("undefined").boolValue() == false);
-    REQUIRE(runExpression("undefined!=undefined").boolValue() == false); // undefined is equal only to itself
-    REQUIRE(runExpression("undefined==undefined").boolValue() == true); // undefined is equal only to itself
-    REQUIRE(runExpression("undefined==42").boolValue() == false); // undefined is not equal to anything else
-    REQUIRE(runExpression("42==undefined").boolValue() == false); // undefined is not equal to anything else
-    REQUIRE(runExpression("undefined!=42").boolValue() == true); // undefined is not equal to anything else
-    REQUIRE(runExpression("42!=undefined").boolValue() == true); // undefined is not equal to anything else
-    REQUIRE(runExpression("null==undefined").boolValue() == true); // undefined and null are the same
+    REQUIRE(runExpression("undefined!=undefined").boolValue() == false);
+    REQUIRE(runExpression("undefined==undefined").boolValue() == false);
+    REQUIRE(runExpression("undefined==42").boolValue() == false);
+    REQUIRE(runExpression("42==undefined").boolValue() == false);
+    REQUIRE(runExpression("undefined!=42").boolValue() == false);
+    REQUIRE(runExpression("42!=undefined").boolValue() == false);
+    REQUIRE(runExpression("42>undefined").isNull() == true);
+    REQUIRE(runExpression("42<undefined").isNull() == true);
+    REQUIRE(runExpression("undefined<42").isNull() == true);
+    REQUIRE(runExpression("undefined>42").isNull() == true);
+    REQUIRE(runExpression("!undefined").isNull() == true);
+    REQUIRE(runExpression("-undefined").isNull() == true);
     REQUIRE(runExpression("42<>78").boolValue() == true);
     REQUIRE(runExpression("42=42").isValue() == (EXPRESSION_OPERATOR_MODE!=EXPRESSION_OPERATOR_MODE_C));
     REQUIRE(runExpression("42=42").boolValue() == (EXPRESSION_OPERATOR_MODE!=EXPRESSION_OPERATOR_MODE_C));
@@ -248,10 +253,16 @@ TEST_CASE_METHOD(ExpressionFixture, "Expressions", "[expressions]" )
     REQUIRE(runExpression("ifvalid(undefined,42)").numValue() == 42);
     REQUIRE(runExpression("ifvalid(33,42)").numValue() == 33);
     REQUIRE(runExpression("isvalid(undefined)").boolValue() == false);
+    REQUIRE(runExpression("isvalid(undefined)").isNull() == false);
     REQUIRE(runExpression("isvalid(1234)").boolValue() == true);
+    REQUIRE(runExpression("isvalid(0)").boolValue() == true);
+    REQUIRE(runExpression("number(undefined)").numValue() == 0);
+    REQUIRE(runExpression("number(undefined)").isNull() == false);
+    REQUIRE(runExpression("number(0)").boolValue() == false);
     REQUIRE(runExpression("if(true, 'TRUE', 'FALSE')").stringValue() == "TRUE");
     REQUIRE(runExpression("if(false, 'TRUE', 'FALSE')").stringValue() == "FALSE");
     REQUIRE(runExpression("abs(33)").numValue() == 33);
+    REQUIRE(runExpression("abs(undefined)").isNull() == true);
     REQUIRE(runExpression("abs(-33)").numValue() == 33);
     REQUIRE(runExpression("abs(0)").numValue() == 0);
     REQUIRE(runExpression("int(33)").numValue() == 33);
@@ -268,6 +279,7 @@ TEST_CASE_METHOD(ExpressionFixture, "Expressions", "[expressions]" )
     REQUIRE(runExpression("random(0,10)").numValue() < 10);
     REQUIRE(runExpression("random(0,10) != random(0,10)").boolValue() == true);
     REQUIRE(runExpression("string(33)").stringValue() == "33");
+    REQUIRE(runExpression("string(undefined)").stringValue() == "undefined");
     REQUIRE(runExpression("number('33')").numValue() == 33);
     REQUIRE(runExpression("number('0x33')").numValue() == 0x33);
     REQUIRE(runExpression("number('33 gugus')").numValue() == 33); // best effort, ignore trailing garbage
