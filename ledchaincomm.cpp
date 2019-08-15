@@ -33,6 +33,8 @@
 using namespace p44;
 
 
+// MARK: - LedChainComm
+
 #if ENABLE_RPIWS281X
 #define TARGET_FREQ WS2811_TARGET_FREQ // in Hz, default is 800kHz
 #define GPIO_PIN 18 // P1 Pin 12, GPIO 18 (PCM_CLK)
@@ -43,22 +45,35 @@ using namespace p44;
 
 
 
-LEDChainComm::LEDChainComm(LedType aLedType, const string aDeviceName, uint16_t aNumLeds, uint16_t aLedsPerRow, bool aXReversed, bool aAlternating, bool aSwapXY, bool aYReversed) :
+LEDChainComm::LEDChainComm(
+  LedType aLedType,
+  const string aDeviceName,
+  uint16_t aNumLeds,
+  uint16_t aLedsPerRow,
+  bool aXReversed,
+  bool aAlternating,
+  bool aSwapXY,
+  bool aYReversed,
+  uint16_t aInactiveStartLeds,
+  uint16_t aInactiveBetweenLeds
+) :
   initialized(false)
 {
   // type and device
   ledType = aLedType;
   deviceName = aDeviceName;
   numColorComponents = ledType==ledtype_sk6812 ? 4 : 3;
+  inactiveStartLeds = aInactiveStartLeds;
+  inactiveBetweenLeds = aInactiveBetweenLeds;
   // number of LEDs
   numLeds = aNumLeds;
   if (aLedsPerRow==0) {
-    ledsPerRow = aNumLeds; // single row
+    ledsPerRow = aNumLeds-aInactiveStartLeds; // single row
     numRows = 1;
   }
   else {
     ledsPerRow = aLedsPerRow; // set row size
-    numRows = (numLeds-1)/ledsPerRow+1; // calculate number of (full or partial) rows
+    numRows = (numLeds-1-inactiveStartLeds)/(ledsPerRow+inactiveBetweenLeds)+1; // calculate number of (full or partial) rows
   }
   xReversed = aXReversed;
   yReversed = aYReversed;
@@ -106,7 +121,7 @@ LEDChainComm::~LEDChainComm()
 
 uint16_t LEDChainComm::getNumLeds()
 {
-  return numLeds;
+  return numLeds-inactiveStartLeds-(numRows-1)*inactiveBetweenLeds;
 }
 
 
@@ -215,7 +230,7 @@ uint16_t LEDChainComm::ledIndexFromXY(uint16_t aX, uint16_t aY)
   FOCUSLOG("ledIndexFromXY: X=%d, Y=%d", aX, aY);
   if (swapXY) { uint16_t tmp = aY; aY = aX; aX = tmp; }
   if (yReversed) { aY = numRows-1-aY; }
-  uint16_t ledindex = aY*ledsPerRow;
+  uint16_t ledindex = aY*(ledsPerRow+inactiveBetweenLeds);
   bool reversed = xReversed;
   if (alternating) {
     if (aY & 0x1) reversed = !reversed;
@@ -227,7 +242,7 @@ uint16_t LEDChainComm::ledIndexFromXY(uint16_t aX, uint16_t aY)
     ledindex += aX;
   }
   FOCUSLOG("--> ledIndex=%d", ledindex);
-  return ledindex;
+  return ledindex+inactiveStartLeds;
 }
 
 
@@ -314,4 +329,267 @@ void LEDChainComm::getColorXY(uint16_t aX, uint16_t aY, uint8_t &aRed, uint8_t &
   #endif
 }
 
+
+#if ENABLE_P44LRGRAPHICS
+
+// MARK: - LEDChainArrangement
+
+LEDChainArrangement::LEDChainArrangement() :
+  covers(zeroRect),
+  hasWhiteLEDs(false),
+  lastUpdate(Never)
+{
+}
+
+
+LEDChainArrangement::~LEDChainArrangement()
+{
+  end();
+}
+
+
+void LEDChainArrangement::clear()
+{
+  for(LedChainVector::iterator pos = ledChains.begin(); pos!=ledChains.end(); ++pos) {
+    pos->ledChain->clear();
+    pos->ledChain->show();
+  }
+}
+
+
+void LEDChainArrangement::setRootView(P44ViewPtr aRootView)
+{
+  rootView = aRootView;
+}
+
+
+void LEDChainArrangement::addLEDChain(const string &aChainSpec)
+{
+  LEDChainComm::LedType ledType = LEDChainComm::ledtype_ws281x; // assume WS2812/13
+  string deviceName;
+  int numleds = 200;
+  bool xReversed = false;
+  bool alternating = false;
+  bool swapXY = false;
+  bool yReversed = false;
+  uint16_t inactiveStartLeds = 0;
+  uint16_t inactiveBetweenLeds = 0;
+  PixelRect covers;
+  covers.x = 0;
+  covers.y = 0;
+  covers.dx = numleds;
+  covers.dy = 1;
+  PixelCoord offsets = { 0, 0 };
+  // parse chain specification
+  // Syntax: [chaintype:[leddevicename:]]numberOfLeds:[x:dx:y:dy:firstoffset:betweenoffset][XYSA]
+  string part;
+  const char *p = aChainSpec.c_str();
+  int nmbrcnt = 0;
+  int txtcnt = 0;
+  while (nextPart(p, part, ':')) {
+    if (!isdigit(part[0])) {
+      // text
+      if (nmbrcnt==0) {
+        // texts before first number
+        if (txtcnt==0) {
+          // chain type
+          if (part=="SK6812") {
+            ledType = LEDChainComm::ledtype_sk6812;
+            hasWhiteLEDs = true;
+          }
+          else if (part=="P9823") {
+            ledType = LEDChainComm::ledtype_p9823;
+          }
+          txtcnt++;
+        }
+        else if (txtcnt==1) {
+          // leddevicename
+          deviceName = part;
+          txtcnt++;
+        }
+      }
+      else {
+        // text after first number are options
+        for (int i=0; i<part.size(); i++) {
+          switch (part[i]) {
+            case 'X': xReversed = true; break;
+            case 'Y': yReversed = true; break;
+            case 'S': swapXY = true; break;
+            case 'A': alternating = true; break;
+          }
+        }
+      }
+    }
+    else {
+      // number
+      int n = atoi(part.c_str());
+      switch (nmbrcnt) {
+        case 0: numleds = n; covers.dx = n; break;
+        case 1: covers.x = n; break;
+        case 2: covers.dx = n; break;
+        case 3: covers.y = n; break;
+        case 4: covers.dy = n; break;
+        case 5: inactiveStartLeds = n; break;
+        case 6: inactiveBetweenLeds = n; break;
+        default: break;
+      }
+      nmbrcnt++;
+    }
+  }
+  LEDChainCommPtr ledChain = LEDChainCommPtr(new LEDChainComm(
+    ledType,
+    deviceName,
+    numleds,
+    covers.dx, // ledsPerRow
+    xReversed,
+    alternating,
+    swapXY,
+    yReversed,
+    inactiveStartLeds,
+    inactiveBetweenLeds
+  ));
+  addLEDChain(ledChain, covers, offsets);
+}
+
+
+void LEDChainArrangement::addLEDChain(LEDChainCommPtr aLedChain, PixelRect aCover, PixelCoord aOffset)
+{
+  if (!aLedChain) return; // no chain
+  ledChains.push_back(LEDChainFixture(aLedChain, aCover, aOffset));
+  recalculateCover();
+}
+
+
+void LEDChainArrangement::recalculateCover()
+{
+  for(LedChainVector::iterator pos = ledChains.begin(); pos!=ledChains.end(); ++pos) {
+    LEDChainFixture& l = *pos;
+    if (l.covers.dx>0 && l.covers.dy>0) {
+      if (covers.dx==0 || l.covers.x<covers.x) covers.x = l.covers.x;
+      if (covers.dy==0 || l.covers.y<covers.y) covers.y = l.covers.y;
+      if (covers.dx==0 || l.covers.x+l.covers.dx>covers.x+covers.dx) covers.dx = l.covers.x+l.covers.dx-covers.x;
+      if (covers.dy==0 || l.covers.y+l.covers.dy>covers.y+covers.dy) covers.dy = l.covers.y+l.covers.dy-covers.y;
+    }
+  }
+}
+
+
+uint8_t LEDChainArrangement::getMinVisibleColorIntensity()
+{
+  uint8_t min = 1; // can't be lower than that, 0 would be off
+  for(LedChainVector::iterator pos = ledChains.begin(); pos!=ledChains.end(); ++pos) {
+    uint8_t lmin = pos->ledChain->getMinVisibleColorIntensity();
+    if (lmin>min) min = lmin;
+  }
+  return min;
+}
+
+
+
+#define MAX_STEP_INTERVAL (1000*MilliSecond) // run a step at least in this interval
+#define MAX_UPDATE_INTERVAL (500*MilliSecond) // send an update at least this often, even if no changes happen (LED refresh)
+#define MIN_UPDATE_INTERVAL (15*MilliSecond) // do not send updates faster than this
+#define MAX_PRIORITY_INTERVAL (50*MilliSecond) // allow synchronizing prioritized timing for this timespan after the last LED refresh
+
+
+MLMicroSeconds LEDChainArrangement::step()
+{
+  MLMicroSeconds nextCall = Infinite;
+  if (rootView) {
+    do {
+      nextCall = rootView->step(lastUpdate+MAX_PRIORITY_INTERVAL);
+    } while (nextCall==0);
+    MLMicroSeconds n = updateDisplay();
+    if (nextCall<0 || (n>0 && n<nextCall)) {
+      nextCall = n;
+    }
+  }
+  return nextCall;
+}
+
+
+MLMicroSeconds LEDChainArrangement::updateDisplay()
+{
+  MLMicroSeconds now = MainLoop::now();
+  if (rootView) {
+    bool dirty = rootView->isDirty();
+    if (dirty || now>lastUpdate+MAX_UPDATE_INTERVAL) {
+      // needs update
+      if (now<lastUpdate+MIN_UPDATE_INTERVAL) {
+        // cannot update noew, but we should update soon
+        return lastUpdate+MIN_UPDATE_INTERVAL;
+      }
+      else {
+        // update now
+        lastUpdate = now;
+        if (dirty) {
+          // update LED chain content buffers from view hierarchy
+          for(LedChainVector::iterator pos = ledChains.begin(); pos!=ledChains.end(); ++pos) {
+            LEDChainFixture& l = *pos;
+            for (int x=0; x<l.covers.dx; ++x) {
+              for (int y=0; y<l.covers.dy; ++y) {
+                // get pixel from view
+                PixelColor pix = rootView->colorAt({
+                  l.covers.x+x,
+                  l.covers.y+y
+                });
+                // set pixel in chain
+                l.ledChain->setColorXY(
+                  l.offset.x+x,
+                  l.offset.y+y,
+                  pix.r, pix.g, pix.b
+                );
+              }
+            }
+          }
+          rootView->updated();
+        }
+        // update hardware (refresh actual LEDs, cleans away possible glitches
+        for(LedChainVector::iterator pos = ledChains.begin(); pos!=ledChains.end(); ++pos) {
+          pos->ledChain->show();
+        }
+      }
+    }
+  }
+  // latest possible update
+  return now+MAX_UPDATE_INTERVAL;
+}
+
+
+void LEDChainArrangement::begin(bool aAutoStep)
+{
+  for(LedChainVector::iterator pos = ledChains.begin(); pos!=ledChains.end(); ++pos) {
+    pos->ledChain->begin();
+    pos->ledChain->clear();
+    pos->ledChain->show();
+  }
+  if (aAutoStep) {
+    autoStepTicket.executeOnce(boost::bind(&LEDChainArrangement::autoStep, this, _1));
+  }
+}
+
+
+void LEDChainArrangement::autoStep(MLTimer &aTimer)
+{
+  MLMicroSeconds nextCall = step();
+  MLMicroSeconds now = MainLoop::now();
+  if (nextCall<0 || nextCall-now>MAX_STEP_INTERVAL) {
+    nextCall = now+MAX_STEP_INTERVAL;
+  }
+  MainLoop::currentMainLoop().retriggerTimer(aTimer, nextCall, 0, MainLoop::absolute);
+
+}
+
+
+void LEDChainArrangement::end()
+{
+  autoStepTicket.cancel();
+  for(LedChainVector::iterator pos = ledChains.begin(); pos!=ledChains.end(); ++pos) {
+    pos->ledChain->end();
+  }
+}
+
+
+
+#endif // ENABLE_P44LRGRAPHICS
 
