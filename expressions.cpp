@@ -1737,8 +1737,8 @@ bool ScriptExecutionContext::resumeStatements()
     }
     // variable handling
     bool vardef = false;
-    bool glob = false;
     bool let = false;
+    bool newVar = false;
     string varName;
     size_t apos = pos + kwsz; // potential assignment location
     if (strucmp(kw, "var", kwsz)==0) {
@@ -1746,10 +1746,6 @@ bool ScriptExecutionContext::resumeStatements()
     }
     else if (strucmp(kw, "let", kwsz)==0) {
       let = true;
-    }
-    else if (strucmp(kw, "glob", kwsz)==0) {
-      vardef = true;
-      glob = true;
     }
     if (vardef || let) {
       // explicit assignment statement keyword
@@ -1763,10 +1759,12 @@ bool ScriptExecutionContext::resumeStatements()
       apos = pos;
       if (vardef) {
         // is a definition
-        if (!glob || variables.find(varName)==variables.end()) {
+        if (variables.find(varName)==variables.end()) {
+          // does not yet exist, create it with null value
           ExpressionValue null;
           variables[varName] = null;
-          ELOG_DBG("Defined %svariable %.*s", glob ? "global" : " ", (int)vsz,vn);
+          ELOG_DBG("Defined variable %.*s", (int)vsz,vn);
+          newVar = true;
         }
       }
     }
@@ -1780,9 +1778,17 @@ bool ScriptExecutionContext::resumeStatements()
     if (op==op_assign || op==op_assignOrEq ||((vardef || let) && op==op_equal)) {
       // definitely: this is an assignment
       pos = apos;
-      push(s_assignToVar);
-      sp().identifier = varName; // new frame needs the name to assign value later
-      return push(s_newExpression); // but first, evaluate the expression
+      if (!vardef || newVar) {
+        // assign vardefs only if not already existing (initial value)
+        push(s_assignToVar);
+        sp().identifier = varName; // new frame needs the name to assign value later
+        return push(s_newExpression); // but first, evaluate the expression
+      }
+      else {
+        // do not initialize again, skip the expression
+        push(s_newExpression);
+        sp().skipping = true;
+      }
     }
     else if (let) {
       // let is not allowed w/o assignment

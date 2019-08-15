@@ -82,11 +82,11 @@ public:
 };
 
 
-//TEST_CASE_METHOD(ScriptFixture, "Focus", "[expressions]" )
-//{
-//  setEvalLogLevel(7);
-//  REQUIRE(runScript("var cond = 2; if (cond==1) return 'one'; else if (cond==2) return 'two'; else return 'not 1 or 2';").stringValue() == "two");
-//}
+TEST_CASE_METHOD(ScriptFixture, "Focus", "[expressions]" )
+{
+  setEvalLogLevel(7);
+  REQUIRE(runScript("var x; x = 78.42").numValue() == 78.42); // last expression returns, even if in assignment
+}
 
 
 TEST_CASE("ExpressionValue", "[expressions]" )
@@ -364,11 +364,12 @@ TEST_CASE_METHOD(ScriptFixture, "Scripts", "[expressions]" )
     REQUIRE(runScript("let x = 78.42").isValue() == false); // must be defined first
     REQUIRE(runScript("let x").isValue() == false); // let is not a declaration
     REQUIRE(runScript("var x = 78.42").isValue() == true); // should be ok
-    REQUIRE(runScript("var x = 78.42").numValue() == 78.42); // last expression returns, even if in assignment
+    REQUIRE(runScript("var x; x = 78.42").numValue() == 78.42); // last expression returns, even if in assignment
     REQUIRE(runScript("var x; let x = 1234").isValue() == true);
     REQUIRE(runScript("var x; let x = 1234").numValue() == 1234);
     REQUIRE(runScript("var x = 4321; X = 1234; return X").numValue() == 1234); // case insensitivity
     REQUIRE(runScript("var x = 4321; x = x + 1234; return x").numValue() == 1234+4321); // case insensitivity
+    REQUIRE(runScript("var x = 1; var x = 2; return x").numValue() == 1); // initialized only once
   }
 
   SECTION("control flow") {
