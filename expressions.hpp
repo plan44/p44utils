@@ -116,6 +116,9 @@ namespace p44 {
     ExpressionValue& operator=(const ExpressionValue& aVal); ///< assignment operator
     ExpressionValue operator!() const;
     ExpressionValue operator<(const ExpressionValue& aRightSide) const;
+    ExpressionValue operator>=(const ExpressionValue& aRightSide) const;
+    ExpressionValue operator>(const ExpressionValue& aRightSide) const;
+    ExpressionValue operator<=(const ExpressionValue& aRightSide) const;
     ExpressionValue operator==(const ExpressionValue& aRightSide) const;
     ExpressionValue operator!=(const ExpressionValue& aRightSide) const;
     ExpressionValue operator+(const ExpressionValue& aRightSide) const;
@@ -405,6 +408,11 @@ namespace p44 {
     /// set result to syntax error and unconditionally abort (can't be caught)
     bool abortWithSyntaxError(const char *aFmt, ...) __printflike(2,3);
 
+    /// @}
+
+    /// @name utilities for implementing functions
+    /// @{
+
     /// helper to exit evaluateFunction indicating a argument with an error or null
     /// @param aArg the argument which is in error or is null when it should be a valid value
     /// @param aResult must be passed to allow being set to null when aArg is null
@@ -425,8 +433,8 @@ namespace p44 {
     /// set the function result from within function implementations
     bool returnFunctionResult(const ExpressionValue& aResult);
 
-
     /// @}
+
 
   protected:
 

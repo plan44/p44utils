@@ -197,6 +197,23 @@ ExpressionValue ExpressionValue::operator||(const ExpressionValue& aRightSide) c
   return numValue() || aRightSide.numValue();
 }
 
+ExpressionValue ExpressionValue::operator>=(const ExpressionValue& aRightSide) const
+{
+  return !operator<(aRightSide);
+}
+
+ExpressionValue ExpressionValue::operator>(const ExpressionValue& aRightSide) const
+{
+  return !operator<(aRightSide) && !operator==(aRightSide);
+}
+
+ExpressionValue ExpressionValue::operator<=(const ExpressionValue& aRightSide) const
+{
+  return operator<(aRightSide) || operator==(aRightSide);
+}
+
+
+
 
 
 // MARK: - expression error
@@ -950,9 +967,9 @@ bool EvaluationContext::resumeExpression()
           case op_assignOrEq: opRes = sp().val == sp().res; break;
           case op_notequal: opRes = sp().val != sp().res; break;
           case op_less: opRes = sp().val < sp().res; break;
-          case op_greater: opRes = !(sp().val < sp().res) && !(sp().val == sp().res); break;
-          case op_leq: opRes = (sp().val < sp().res) || (sp().val == sp().res); break;
-          case op_geq: opRes = !(sp().val < sp().res); break;
+          case op_greater: opRes = sp().val > sp().res; break;
+          case op_leq: opRes = sp().val <= sp().res; break;
+          case op_geq: opRes = sp().val >= sp().res; break;
           case op_and: opRes = sp().val && sp().res; break;
           case op_or: opRes = sp().val || sp().res; break;
           default: break;
@@ -1213,6 +1230,41 @@ bool EvaluationContext::evaluateFunction(const string &aFunc, const FunctionArgu
     if (aArgs[1].notValue()) return errorInArg(aArgs[1], aResult); // return error/null from argument
     // rand(): returns a pseudo-random integer value between ​0​ and RAND_MAX (0 and RAND_MAX included).
     aResult.setNumber(aArgs[0].numValue() + (double)rand()*(aArgs[1].numValue()-aArgs[0].numValue())/((double)RAND_MAX));
+  }
+  else if (aFunc=="min" && aArgs.size()==2) {
+    // min (a, b)    return the smaller value of a and b
+    if (aArgs[0].notValue()) return errorInArg(aArgs[0], aResult); // return error/null from argument
+    if (aArgs[1].notValue()) return errorInArg(aArgs[1], aResult); // return error/null from argument
+    if ((aArgs[0]<aArgs[1]).boolValue()) aResult = aArgs[0];
+    else aResult = aArgs[1];
+  }
+  else if (aFunc=="max" && aArgs.size()==2) {
+    // max (a, b)    return the bigger value of a and b
+    if (aArgs[0].notValue()) return errorInArg(aArgs[0], aResult); // return error/null from argument
+    if (aArgs[1].notValue()) return errorInArg(aArgs[1], aResult); // return error/null from argument
+    if ((aArgs[0]>aArgs[1]).boolValue()) aResult = aArgs[0];
+    else aResult = aArgs[1];
+  }
+  else if (aFunc=="limited" && aArgs.size()==3) {
+    // limited (x, a, b)    return min(max(x,a),b), i.e. x limited to values between and including a and b
+    if (aArgs[0].notValue()) return errorInArg(aArgs[0], aResult); // return error/null from argument
+    if (aArgs[1].notValue()) return errorInArg(aArgs[1], aResult); // return error/null from argument
+    if (aArgs[2].notValue()) return errorInArg(aArgs[2], aResult); // return error/null from argument
+    aResult = aArgs[0];
+    if ((aResult<aArgs[1]).boolValue()) aResult = aArgs[1];
+    else if ((aResult>aArgs[2]).boolValue()) aResult = aArgs[2];
+  }
+  else if (aFunc=="cyclic" && aArgs.size()==3) {
+    // cyclic (x, a, b)    return x with wraparound into range a..b (not including b because it means the same thing as a)
+    if (aArgs[0].notValue()) return errorInArg(aArgs[0], aResult); // return error/null from argument
+    if (aArgs[1].notValue()) return errorInArg(aArgs[1], aResult); // return error/null from argument
+    if (aArgs[2].notValue()) return errorInArg(aArgs[2], aResult); // return error/null from argument
+    double o = aArgs[1].numValue();
+    double x0 = aArgs[0].numValue()-o; // make null based
+    double r = aArgs[2].numValue()-o; // wrap range
+    if (x0>=r) x0 -= int(x0/r)*r;
+    else if (x0<0) x0 += (int(-x0/r)+1)*r;
+    aResult = x0+o;
   }
   else if (aFunc=="string" && aArgs.size()==1) {
     // string(anything)

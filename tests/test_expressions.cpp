@@ -199,7 +199,6 @@ TEST_CASE_METHOD(ExpressionFixture, "Expressions", "[expressions]" )
     REQUIRE(runExpression("-42.42").numValue() == -42.42); // unary minus
     REQUIRE(runExpression("!true").numValue() == 0); // unary not
     REQUIRE(runExpression("\"UA\"").stringValue() == "UA");
-    REQUIRE(runExpression("\"ABC\" < \"abc\"").boolValue() == true);
     REQUIRE(runExpression("42.7+42").numValue() == 42.7+42.0);
     REQUIRE(runExpression("42.7-24").numValue() == 42.7-24.0);
     REQUIRE(runExpression("42.7*42").numValue() == 42.7*42.0);
@@ -228,14 +227,25 @@ TEST_CASE_METHOD(ExpressionFixture, "Expressions", "[expressions]" )
     REQUIRE(runExpression("42<>78").boolValue() == true);
     REQUIRE(runExpression("42=42").isValue() == (EXPRESSION_OPERATOR_MODE!=EXPRESSION_OPERATOR_MODE_C));
     REQUIRE(runExpression("42=42").boolValue() == (EXPRESSION_OPERATOR_MODE!=EXPRESSION_OPERATOR_MODE_C));
-    REQUIRE(runExpression("7<28").boolValue() == true);
-    REQUIRE(runExpression("7>28").boolValue() == false);
-    REQUIRE(runExpression("28>28").boolValue() == false);
-    REQUIRE(runExpression("28>=28").boolValue() == true);
+    // Comparisons
+    REQUIRE(runExpression("7<8").boolValue() == true);
     REQUIRE(runExpression("7<7").boolValue() == false);
+    REQUIRE(runExpression("8<7").boolValue() == false);
+    REQUIRE(runExpression("7<=8").boolValue() == true);
     REQUIRE(runExpression("7<=7").boolValue() == true);
+    REQUIRE(runExpression("8<=7").boolValue() == false);
+    REQUIRE(runExpression("8>7").boolValue() == true);
+    REQUIRE(runExpression("7>7").boolValue() == false);
+    REQUIRE(runExpression("7>8").boolValue() == false);
+    REQUIRE(runExpression("8>=7").boolValue() == true);
+    REQUIRE(runExpression("7>=7").boolValue() == true);
+    REQUIRE(runExpression("7>=8").boolValue() == false);
     REQUIRE(runExpression("7==7").boolValue() == true);
     REQUIRE(runExpression("7!=7").boolValue() == false);
+    REQUIRE(runExpression("7==8").boolValue() == false);
+    REQUIRE(runExpression("7!=8").boolValue() == true);
+    // String comparisons
+    REQUIRE(runExpression("\"ABC\" < \"abc\"").boolValue() == true);
     REQUIRE(runExpression("78==\"78\"").boolValue() == true);
     REQUIRE(runExpression("78==\"78.00\"").boolValue() == true); // numeric comparison, right side is forced to number
     REQUIRE(runExpression("\"78\"==\"78.00\"").boolValue() == false); // string comparison, right side is compared as-is
@@ -250,17 +260,19 @@ TEST_CASE_METHOD(ExpressionFixture, "Expressions", "[expressions]" )
   }
 
   SECTION("functions") {
+    // testing
     REQUIRE(runExpression("ifvalid(undefined,42)").numValue() == 42);
     REQUIRE(runExpression("ifvalid(33,42)").numValue() == 33);
     REQUIRE(runExpression("isvalid(undefined)").boolValue() == false);
     REQUIRE(runExpression("isvalid(undefined)").isNull() == false);
     REQUIRE(runExpression("isvalid(1234)").boolValue() == true);
     REQUIRE(runExpression("isvalid(0)").boolValue() == true);
+    REQUIRE(runExpression("if(true, 'TRUE', 'FALSE')").stringValue() == "TRUE");
+    REQUIRE(runExpression("if(false, 'TRUE', 'FALSE')").stringValue() == "FALSE");
+    // numbers
     REQUIRE(runExpression("number(undefined)").numValue() == 0);
     REQUIRE(runExpression("number(undefined)").isNull() == false);
     REQUIRE(runExpression("number(0)").boolValue() == false);
-    REQUIRE(runExpression("if(true, 'TRUE', 'FALSE')").stringValue() == "TRUE");
-    REQUIRE(runExpression("if(false, 'TRUE', 'FALSE')").stringValue() == "FALSE");
     REQUIRE(runExpression("abs(33)").numValue() == 33);
     REQUIRE(runExpression("abs(undefined)").isNull() == true);
     REQUIRE(runExpression("abs(-33)").numValue() == 33);
@@ -278,12 +290,29 @@ TEST_CASE_METHOD(ExpressionFixture, "Expressions", "[expressions]" )
     REQUIRE(runExpression("round(33.6, 0.5)").numValue() == 33.5);
     REQUIRE(runExpression("random(0,10)").numValue() < 10);
     REQUIRE(runExpression("random(0,10) != random(0,10)").boolValue() == true);
-    REQUIRE(runExpression("string(33)").stringValue() == "33");
-    REQUIRE(runExpression("string(undefined)").stringValue() == "undefined");
     REQUIRE(runExpression("number('33')").numValue() == 33);
     REQUIRE(runExpression("number('0x33')").numValue() == 0x33);
     REQUIRE(runExpression("number('33 gugus')").numValue() == 33); // best effort, ignore trailing garbage
     REQUIRE(runExpression("number('gugus 33')").numValue() == 0); // best effort, nothing readable
+    REQUIRE(runExpression("min(42,78)").numValue() == 42);
+    REQUIRE(runExpression("min(78,42)").numValue() == 42);
+    REQUIRE(runExpression("max(42,78)").numValue() == 78);
+    REQUIRE(runExpression("max(78,42)").numValue() == 78);
+    REQUIRE(runExpression("limited(15,10,20)").numValue() == 15);
+    REQUIRE(runExpression("limited(2,10,20)").numValue() == 10);
+    REQUIRE(runExpression("limited(42,10,20)").numValue() == 20);
+    REQUIRE(runExpression("cyclic(15,10,20)").numValue() == 15);
+    REQUIRE(runExpression("cyclic(2,10,20)").numValue() == 12);
+    REQUIRE(runExpression("cyclic(-18,10,20)").numValue() == 12);
+    REQUIRE(runExpression("cyclic(22,10,20)").numValue() == 12);
+    REQUIRE(runExpression("cyclic(42,10,20)").numValue() == 12);
+    REQUIRE(runExpression("cyclic(-10.8,1,2)").numValue() == Approx(1.2));
+    REQUIRE(runExpression("cyclic(-1.8,1,2)").numValue() == Approx(1.2));
+    REQUIRE(runExpression("cyclic(2.2,1,2)").numValue() == Approx(1.2));
+    REQUIRE(runExpression("cyclic(4.2,1,2)").numValue() == Approx(1.2));
+    // strings
+    REQUIRE(runExpression("string(33)").stringValue() == "33");
+    REQUIRE(runExpression("string(undefined)").stringValue() == "undefined");
     REQUIRE(runExpression("strlen('gugus')").numValue() == 5);
     REQUIRE(runExpression("substr('gugus',3)").stringValue() == "us");
     REQUIRE(runExpression("substr('gugus',3,1)").stringValue() == "u");
@@ -295,6 +324,7 @@ TEST_CASE_METHOD(ExpressionFixture, "Expressions", "[expressions]" )
     REQUIRE(runExpression("format('%4d', 33.7)").stringValue() == "  33");
     REQUIRE(runExpression("format('%.1f', 33.7)").stringValue() == "33.7");
     REQUIRE(runExpression("format('%08X', 0x24F5E21)").stringValue() == "024F5E21");
+    // divs
     REQUIRE(runExpression("eval('333*777')").numValue() == 333*777);
     // error handling
     REQUIRE(runExpression("error('testerror')").stringValue() == string_format("testerror (ExpressionError:%d)", ExpressionError::User));
