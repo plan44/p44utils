@@ -423,7 +423,7 @@ bool EvaluationContext::popAndPassResult(ExpressionValue aResult)
       ELOG("Statement result passed to %s: '%.*s' is error -> THROW: %s", evalstatenames[sp().state],  (int)(pos-sp().pos), tail(sp().pos), aResult.error()->text());
       return throwError(aResult.error());
     }
-    ELOG("Result passed to %s: '%.*s' is '%s'", evalstatenames[sp().state],  (int)(pos-sp().pos), tail(sp().pos), aResult.stringValue().c_str());
+    ELOG_DBG("Result passed to %s: '%.*s' is '%s'", evalstatenames[sp().state],  (int)(pos-sp().pos), tail(sp().pos), aResult.stringValue().c_str());
     sp().res = aResult;
   }
   return true; // not yielded
@@ -578,20 +578,20 @@ void EvaluationContext::continueWithAsyncFunctionResult(const ExpressionValue& a
 }
 
 
-bool EvaluationContext::runCallBack()
+bool EvaluationContext::runCallBack(const ExpressionValue &aResult)
 {
   if (evaluationResultHandler && callBack) {
     // this is where cyclic references could cause re-evaluation, so pretend (again) script running
     EvaluationResultCB cb = evaluationResultHandler;
     if (oneTimeResultHandler) evaluationResultHandler = NULL;
-    cb(finalResult, *this);
+    cb(aResult, *this);
     return true; // called back
   }
   return false; // not called back
 }
 
 
-bool EvaluationContext::abort()
+bool EvaluationContext::abort(bool aDoCallBack)
 {
   if (!isEvaluating()) return true; // already aborted / not running in the first place
   if (synchronous) {
@@ -604,7 +604,7 @@ bool EvaluationContext::abort()
   execTicket.cancel(); // abort pending callback (e.g. from delay())
   finalResult.setError(Error::err<ExpressionError>(ExpressionError::Aborted, "asynchronously running script aborted"));
   stack.clear();
-  runCallBack();
+  if (aDoCallBack) runCallBack(finalResult);
   runningSince = Never; // force end
   ELOG("Evaluation: asynchronous execution aborted (by external demand)");
   return false; // not sure
@@ -698,7 +698,7 @@ bool EvaluationContext::resumeEvaluation()
         ELOG("- finalResult = %s - err = %s", finalResult.stringValue().c_str(), Error::text(finalResult.err));
       }
       stack.clear();
-      runCallBack(); // call back if configured
+      runCallBack(finalResult); // call back if configured
       runningSince = Never;
       return true;
     // expression evaluation states
@@ -896,7 +896,7 @@ bool EvaluationContext::resumeExpression()
     // - check for optional unary op
     Operations unaryop = parseOperator(pos);
     sp().op = unaryop; // store for later
-    if (unaryop!=op_none && unaryop!=op_subtract && unaryop!=op_not) {
+    if (unaryop!=op_none && unaryop!=op_subtract && unaryop!=op_add && unaryop!=op_not) {
       return abortWithSyntaxError("invalid unary operator");
     }
     // evaluate first (or only) term
@@ -924,6 +924,7 @@ bool EvaluationContext::resumeExpression()
       switch (unaryop) {
         case op_not : sp().res.setBool(!sp().res.boolValue()); break;
         case op_subtract : sp().res.setNumber(-sp().res.numValue()); break;
+        case op_add: // dummy, is NOP, allowed for clarification purposes
         default: break;
       }
     }
@@ -1214,7 +1215,7 @@ bool EvaluationContext::evaluateFunction(const string &aFunc, const FunctionArgu
     if (aArgs[0].notValue()) return errorInArg(aArgs[0], aResult); // return error/null from argument
     aResult.setNumber(int(aArgs[0].int64Value()));
   }
-  else if (aFunc=="round" && (aArgs.size()>=1 || aArgs.size()<=2)) {
+  else if (aFunc=="round" && aArgs.size()>=1 && aArgs.size()<=2) {
     // round (a)       round value to integer
     // round (a, p)    round value to specified precision (1=integer, 0.5=halves, 100=hundreds, etc...)
     if (aArgs[0].notValue()) return errorInArg(aArgs[0], aResult); // return error/null from argument
@@ -1358,6 +1359,12 @@ bool EvaluationContext::evaluateFunction(const string &aFunc, const FunctionArgu
     }
     // try to use error() not within catch
     return abortWithSyntaxError("error() can only be called from within catch statements");
+  }
+  else if (!synchronous && oneTimeResultHandler && aFunc=="earlyresult" && aArgs.size()==1) {
+    // send the one time result now, but keep script running
+    if (aArgs[0].notValue()) return errorInArg(aArgs[0], aResult); // return error/null from argument
+    ELOG("earlyresult sends '%s' to caller, script continues running", aResult.stringValue().c_str());
+    runCallBack(aArgs[0]);
   }
   else if (aFunc=="errordomain" && aArgs.size()==1) {
     // errordomain(errvalue)

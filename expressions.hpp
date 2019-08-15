@@ -394,8 +394,9 @@ namespace p44 {
     /// @note this is for asynchronous scripts, and does request aborting, but can only do so after
     ///    operations of the current step (such as a API call) complete, or can be aborted as well.
     /// @note subclasses can override this to abort async operations they know of.
+    /// @param aDoCallBack if set, callback will be executed (if one is set)
     /// @return true if the script is aborted NOW for sure (was aborted before or could be aborted immediately)
-    virtual bool abort();
+    virtual bool abort(bool aDoCallBack = true);
 
 
     /// @name error reporting, can also be used from external function implementations
@@ -438,8 +439,9 @@ namespace p44 {
 
   protected:
 
+    /// @param aResult the result to return via callback
     /// @return true if a callback was set and executed
-    bool runCallBack();
+    bool runCallBack(const ExpressionValue &aResult);
 
     /// @name Evaluation state machine entry points
     /// @note At any one of these entry points the following conditions must be met
@@ -638,10 +640,10 @@ namespace p44 {
     ///   or a permanent one set with setEvaluationResultHandler()
     bool execute(bool aAsynchronously, EvaluationResultCB aOneTimeEvaluationResultHandler = NULL);
 
-  protected:
-
-    /// release all evaluation state (none in base class)
+    /// release all evaluation state (variables)
     virtual void releaseState() P44_OVERRIDE;
+
+  protected:
 
     /// lookup variables by name
     /// @param aName the name of the value/variable to look up (any case, comparison must be case insensitive)
