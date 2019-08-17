@@ -232,13 +232,19 @@ ErrorPtr ExpressionError::err(ErrorCodes aErrCode, const char *aFmt, ...)
 
 // MARK: - EvaluationContext
 
+#define DEFAULT_EXEC_TIME_LIMIT (Infinite)
+#define DEFAULT_SYNC_EXEC_LIMIT (1*Second)
+#define DEFAULT_SYNC_RUN_TIME (50*MilliSecond)
+
 EvaluationContext::EvaluationContext(const GeoLocation* aGeoLocationP) :
   geolocationP(aGeoLocationP),
   runningSince(Never),
   nextEvaluation(Never),
   synchronous(true),
   evalLogLevel(FOCUSLOGGING ? FOCUSLOGLEVEL : 0), // default to focus level
-  execTimeLimit(0),
+  execTimeLimit(DEFAULT_EXEC_TIME_LIMIT),
+  syncExecLimit(DEFAULT_SYNC_EXEC_LIMIT),
+  syncRunTime(DEFAULT_SYNC_RUN_TIME),
   oneTimeResultHandler(false),
   callBack(false)
 {
@@ -552,11 +558,23 @@ bool EvaluationContext::continueEvaluation()
   if (runningSince==Never) {
     LOG(LOG_WARNING, "EvaluationContext: script aborted asynchronously");
   }
+  MLMicroSeconds syncRunSince = MainLoop::now();
+  MLMicroSeconds now = syncRunSince;
+  MLMicroSeconds limit = synchronous ? syncExecLimit : execTimeLimit;
   while(isEvaluating()) {
-    if (execTimeLimit!=0 && MainLoop::now()-runningSince>execTimeLimit) {
+    if (limit!=Infinite && now-runningSince>limit) {
       return throwError(ExpressionError::Timeout, "Script ran too long -> aborted");
     }
-    if (!resumeEvaluation()) return false; // execution yielded
+    if (!resumeEvaluation()) return false; // execution yielded anyway
+    // not yielded yet, check run time
+    now = MainLoop::now();
+    if (!synchronous && syncRunTime!=Infinite && now-syncRunSince>syncRunTime) {
+      // is an async script, yield now and continue later
+      // - yield execution for twice the time we were allowed to run
+      execTicket.executeOnce(boost::bind(&EvaluationContext::continueEvaluation, this), 2*DEFAULT_SYNC_RUN_TIME);
+      // - yield now
+      return false;
+    }
   }
   return true; // ran to end without yielding
 }

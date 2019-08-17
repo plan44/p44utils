@@ -285,7 +285,9 @@ namespace p44 {
     /// @name Evaluation parameters (set before execution starts, not changed afterwards, no nested state)
     /// @{
     EvalMode evalMode; ///< the current evaluation mode
-    MLMicroSeconds execTimeLimit; ///< how long a script may run
+    MLMicroSeconds execTimeLimit; ///< how long any script may run in total, or Infinite to have no limit
+    MLMicroSeconds syncExecLimit; ///< how long a synchronous script may run (blocking everything), or Infinite to have no limit
+    MLMicroSeconds syncRunTime; ///< how long a async script is let running synchronously, before it is made yield execution, or Infinite to have no limit
     const GeoLocation* geolocationP; ///< if set, the current geolocation (e.g. for sun time functions)
     string codeString; ///< the code to evaluate
     bool synchronous; ///< the code must run synchronously to the end, execution may NOT be yielded
