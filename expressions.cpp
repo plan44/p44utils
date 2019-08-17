@@ -847,8 +847,8 @@ EvaluationContext::Operations EvaluationContext::parseOperator(size_t &aPos)
     case '/': op = op_divide; break;
     case '+': op = op_add; break;
     case '-': op = op_subtract; break;
-    case '&': op = op_and; break;
-    case '|': op = op_or; break;
+    case '&': op = op_and; if (code(aPos)=='&') aPos++; break;
+    case '|': op = op_or; if (code(aPos)=='|') aPos++; break;
     case '<': {
       if (code(aPos)=='=') {
         aPos++; op = op_leq; break;
