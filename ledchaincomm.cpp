@@ -24,7 +24,7 @@
 #define ALWAYS_DEBUG 0
 // - set FOCUSLOGLEVEL to non-zero log level (usually, 5,6, or 7==LOG_DEBUG) to get focus (extensive logging) for this file
 //   Note: must be before including "logger.hpp" (or anything that includes "logger.hpp")
-#define FOCUSLOGLEVEL 0
+#define FOCUSLOGLEVEL 7
 
 
 #include "ledchaincomm.hpp"
@@ -227,7 +227,7 @@ uint8_t LEDChainComm::getMinVisibleColorIntensity()
 
 uint16_t LEDChainComm::ledIndexFromXY(uint16_t aX, uint16_t aY)
 {
-  FOCUSLOG("ledIndexFromXY: X=%d, Y=%d", aX, aY);
+  //FOCUSLOG("ledIndexFromXY: X=%d, Y=%d", aX, aY);
   if (swapXY) { uint16_t tmp = aY; aY = aX; aX = tmp; }
   if (yReversed) { aY = numRows-1-aY; }
   uint16_t ledindex = aY*(ledsPerRow+inactiveBetweenLeds);
@@ -241,7 +241,7 @@ uint16_t LEDChainComm::ledIndexFromXY(uint16_t aX, uint16_t aY)
   else {
     ledindex += aX;
   }
-  FOCUSLOG("--> ledIndex=%d", ledindex);
+  //FOCUSLOG("--> ledIndex=%d", ledindex);
   return ledindex+inactiveStartLeds;
 }
 
@@ -272,7 +272,7 @@ void LEDChainComm::setColorXY(uint16_t aX, uint16_t aY, uint8_t aRed, uint8_t aG
 
 void LEDChainComm::setColor(uint16_t aLedNumber, uint8_t aRed, uint8_t aGreen, uint8_t aBlue, uint8_t aWhite)
 {
-  FOCUSLOG("setColor: ledNumber=%d - sizeX=%d, sizeY=%d", aLedNumber, getSizeX(), getSizeY());
+  //FOCUSLOG("setColor: ledNumber=%d - sizeX=%d, sizeY=%d", aLedNumber, getSizeX(), getSizeY());
   int y = aLedNumber / getSizeX();
   int x = aLedNumber % getSizeX();
   setColorXY(x, y, aRed, aGreen, aBlue, aWhite);
@@ -334,10 +334,24 @@ void LEDChainComm::getColorXY(uint16_t aX, uint16_t aY, uint8_t &aRed, uint8_t &
 
 // MARK: - LEDChainArrangement
 
+#if DEBUG
+  #define MAX_STEP_INTERVAL (10*Second) // run a step at least in this interval, even if view step() indicates no need to do so early
+  #define MAX_UPDATE_INTERVAL (10*Second) // send an update at least this often, even if no changes happen (LED refresh)
+#else
+  #define MAX_STEP_INTERVAL (1000*MilliSecond) // run a step at least in this interval, even if view step() indicates no need to do so early
+  #define MAX_UPDATE_INTERVAL (500*MilliSecond) // send an update at least this often, even if no changes happen (LED refresh)
+#endif
+#define DEFAULT_MIN_UPDATE_INTERVAL (15*MilliSecond) // do not send updates faster than this
+#define DEFAULT_MAX_PRIORITY_INTERVAL (50*MilliSecond) // allow synchronizing prioritized timing for this timespan after the last LED refresh
+
+
+
 LEDChainArrangement::LEDChainArrangement() :
   covers(zeroRect),
   hasWhiteLEDs(false),
-  lastUpdate(Never)
+  lastUpdate(Never),
+  minUpdateInterval(DEFAULT_MIN_UPDATE_INTERVAL),
+  maxPriorityInterval(DEFAULT_MAX_PRIORITY_INTERVAL)
 {
 }
 
@@ -485,29 +499,6 @@ uint8_t LEDChainArrangement::getMinVisibleColorIntensity()
 }
 
 
-
-#define MAX_STEP_INTERVAL (1000*MilliSecond) // run a step at least in this interval
-#define MAX_UPDATE_INTERVAL (500*MilliSecond) // send an update at least this often, even if no changes happen (LED refresh)
-#define MIN_UPDATE_INTERVAL (15*MilliSecond) // do not send updates faster than this
-#define MAX_PRIORITY_INTERVAL (50*MilliSecond) // allow synchronizing prioritized timing for this timespan after the last LED refresh
-
-
-MLMicroSeconds LEDChainArrangement::step()
-{
-  MLMicroSeconds nextCall = Infinite;
-  if (rootView) {
-    do {
-      nextCall = rootView->step(lastUpdate+MAX_PRIORITY_INTERVAL);
-    } while (nextCall==0);
-    MLMicroSeconds n = updateDisplay();
-    if (nextCall<0 || (n>0 && n<nextCall)) {
-      nextCall = n;
-    }
-  }
-  return nextCall;
-}
-
-
 MLMicroSeconds LEDChainArrangement::updateDisplay()
 {
   MLMicroSeconds now = MainLoop::now();
@@ -515,9 +506,9 @@ MLMicroSeconds LEDChainArrangement::updateDisplay()
     bool dirty = rootView->isDirty();
     if (dirty || now>lastUpdate+MAX_UPDATE_INTERVAL) {
       // needs update
-      if (now<lastUpdate+MIN_UPDATE_INTERVAL) {
-        // cannot update noew, but we should update soon
-        return lastUpdate+MIN_UPDATE_INTERVAL;
+      if (now<lastUpdate+minUpdateInterval) {
+        // cannot update now, but we should update ASAP
+        return lastUpdate+minUpdateInterval;
       }
       else {
         // update now
@@ -545,9 +536,11 @@ MLMicroSeconds LEDChainArrangement::updateDisplay()
           rootView->updated();
         }
         // update hardware (refresh actual LEDs, cleans away possible glitches
+        DBGFOCUSLOG("######## calling show()");
         for(LedChainVector::iterator pos = ledChains.begin(); pos!=ledChains.end(); ++pos) {
           pos->ledChain->show();
         }
+        DBGFOCUSLOG("######## show() called");
       }
     }
   }
@@ -569,16 +562,47 @@ void LEDChainArrangement::begin(bool aAutoStep)
 }
 
 
-void LEDChainArrangement::autoStep(MLTimer &aTimer)
+
+MLMicroSeconds LEDChainArrangement::step()
 {
-  MLMicroSeconds nextCall = step();
+  MLMicroSeconds nextCall = Infinite;
+  if (rootView) {
+    do {
+      nextCall = rootView->step(lastUpdate+maxPriorityInterval);
+    } while (nextCall==0);
+    MLMicroSeconds n = updateDisplay();
+    if (nextCall<0 || (n>0 && n<nextCall)) {
+      nextCall = n;
+    }
+  }
   MLMicroSeconds now = MainLoop::now();
+  // now we have nextCall according to the view hierarchy's needs
+  // - insert extra steps to avoid stalling completeley in case something goes wrong
   if (nextCall<0 || nextCall-now>MAX_STEP_INTERVAL) {
     nextCall = now+MAX_STEP_INTERVAL;
   }
-  MainLoop::currentMainLoop().retriggerTimer(aTimer, nextCall, 0, MainLoop::absolute);
-
+  // caller MUST call again at nextCall!
+  return nextCall;
 }
+
+
+
+
+void LEDChainArrangement::autoStep(MLTimer &aTimer)
+{
+  DBGFOCUSLOG("######## autostep() called");
+  MLMicroSeconds nextCall = step();
+  MainLoop::currentMainLoop().retriggerTimer(aTimer, nextCall, 0, MainLoop::absolute);
+}
+
+
+void LEDChainArrangement::render()
+{
+  DBGFOCUSLOG("######## render() called");
+  MLMicroSeconds nextCall = step();
+  autoStepTicket.executeOnceAt(boost::bind(&LEDChainArrangement::autoStep, this, _1), nextCall);
+}
+
 
 
 void LEDChainArrangement::end()

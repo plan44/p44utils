@@ -193,6 +193,7 @@ namespace p44 {
 
   class LEDChainArrangement : public P44Obj
   {
+
     class LEDChainFixture {
     public:
       LEDChainFixture(LEDChainCommPtr aLedChain, PixelRect aCovers, PixelCoord aOffset) : ledChain(aLedChain), covers(aCovers), offset(aOffset) {};
@@ -212,6 +213,13 @@ namespace p44 {
     MLTicket autoStepTicket;
 
   public:
+
+    /// minimum interval kept between updates to LED chain hardware
+    MLMicroSeconds minUpdateInterval;
+
+    /// maximum interval during which noisy view children are prevented from requesting rendering updates
+    /// after prioritized (localTimingPriority==true) parent view did
+    MLMicroSeconds maxPriorityInterval;
 
     LEDChainArrangement();
     virtual ~LEDChainArrangement();
@@ -250,19 +258,25 @@ namespace p44 {
     /// @return true if any of the chains do have a separate (fourth) white channel
     bool hasWhite() { return hasWhiteLEDs; }
 
-    /// perform needed LED chain updates
-    /// @return time when step() should be called again latest
-    /// @note even when autostepping, call this to make updates visible done via changes in the views quickly
-    MLMicroSeconds step();
-
     /// start LED chains
     /// @param aAutoStep if true, step() will be called automatically as demanded by the view hierarchy
     void begin(bool aAutoStep);
+
+    /// request re-rendering now
+    /// @note this should be called when views have been changed from the outside
+    /// @note a step() will be triggered ASAP
+    void render();
 
     /// stop LED chains and auto updates
     void end();
 
   private:
+
+    /// perform needed LED chain updates
+    /// @return time when step() should be called again latest
+    /// @note use stepASAP() to request a step an automatically schedule it at the next possible time
+    ///    in case it cannot be executed right noow
+    MLMicroSeconds step();
 
     void recalculateCover();
     MLMicroSeconds updateDisplay();
