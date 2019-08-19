@@ -349,6 +349,7 @@ void LEDChainComm::getColorXY(uint16_t aX, uint16_t aY, uint8_t &aRed, uint8_t &
 LEDChainArrangement::LEDChainArrangement() :
   covers(zeroRect),
   hasWhiteLEDs(false),
+  maxOutValue(255),
   lastUpdate(Never),
   minUpdateInterval(DEFAULT_MIN_UPDATE_INTERVAL),
   maxPriorityInterval(DEFAULT_MAX_PRIORITY_INTERVAL)
@@ -524,6 +525,16 @@ MLMicroSeconds LEDChainArrangement::updateDisplay()
                   l.covers.x+x,
                   l.covers.y+y
                 });
+                dimPixel(pix, pix.a);
+                #if DEBUG
+                //if (x==0 && y==0) pix={ 255,0,0,255 };
+                #endif
+                // limit to max output value
+                if (maxOutValue<255) {
+                  if (pix.r>maxOutValue) pix.r = maxOutValue;
+                  if (pix.g>maxOutValue) pix.g = maxOutValue;
+                  if (pix.b>maxOutValue) pix.b = maxOutValue;
+                }
                 // set pixel in chain
                 l.ledChain->setColorXY(
                   l.offset.x+x,

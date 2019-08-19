@@ -211,6 +211,7 @@ namespace p44 {
 
     MLMicroSeconds lastUpdate;
     MLTicket autoStepTicket;
+    uint8_t maxOutValue;
 
   public:
 
@@ -254,6 +255,11 @@ namespace p44 {
     /// get minimal color intensity that does not completely switch off the color channel of the LED
     /// @return minimum r,g,b value
     uint8_t getMinVisibleColorIntensity();
+
+    /// set max output value (0..255) to be sent to the LED chains
+    void setMaxOutValue(uint8_t aMaxOutValue) { maxOutValue = aMaxOutValue; }
+
+    uint8_t getMaxOutValue() { return maxOutValue; }
 
     /// @return true if any of the chains do have a separate (fourth) white channel
     bool hasWhite() { return hasWhiteLEDs; }
