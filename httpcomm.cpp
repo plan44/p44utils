@@ -454,17 +454,26 @@ bool HttpComm::evaluateAsyncHttpFunctions(EvaluationContext* aEvalContext, const
   else if (strucmp(aFunc.c_str(), "puturl")==0) isPut = true;
   else return false; // unknown function
   if (aArgs.size()<1) return false; // not enough params
-  if (isGet && aArgs.size()>1) return false; // geturl has only one param
+  if (isGet && aArgs.size()>2) return false; // geturl has one or two params
   // one of:
-  //   geturl("<url>")
-  //   posturl("<url>"[,"<data>"])
-  //   puturl("<url>"[,"<data>"])
+  //   geturl("<url>"[,timeout][,"<data>"])
+  //   posturl("<url>"[,timeout][,"<data>"])
+  //   puturl("<url>"[,timeout][,"<data>"])
   if (aArgs[0].notValue()) return aEvalContext->errorInArg(aArgs[0], true);
   string url = aArgs[0].stringValue();
   string method = isGet ? "GET" : (isPut ? "PUT" : "POST");
   string data;
+  MLMicroSeconds timeout = Never;
+  int ai = 1;
+  if (aArgs.size()>ai) {
+    // could be timeout if it is numeric
+    if (!aArgs[ai].isString()) {
+      timeout = aArgs[ai].numValue()*Second;
+      ai++;
+    }
+  }
   if (isPost || isPut) {
-    if (aArgs.size()>=2) data=aArgs[1].stringValue();
+    if (aArgs.size()>ai) data=aArgs[ai].stringValue();
   }
   // extract from url
   string user;
@@ -475,7 +484,9 @@ bool HttpComm::evaluateAsyncHttpFunctions(EvaluationContext* aEvalContext, const
   if (aHttpCommP) *aHttpCommP = httpAction;
   splitURL(url.c_str(), NULL, NULL, NULL, &user, &password);
   httpAction->setHttpAuthCredentials(user, password);
+  if (timeout!=Never) httpAction->setTimeout(timeout);
   LOG(aEvalContext->getEvalLogLevel(), "issuing %s to %s %s", method.c_str(), url.c_str(), data.c_str());
+  httpAction->cancelRequest(); // abort any previous request
   if (!httpAction->httpRequest(
     url.c_str(),
     boost::bind(&HttpComm::httpFunctionDone, aEvalContext, _1, _2),
