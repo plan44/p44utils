@@ -613,7 +613,7 @@ bool EvaluationContext::abort(bool aDoCallBack)
 {
   if (!isEvaluating()) return true; // already aborted / not running in the first place
   if (synchronous) {
-    // must be called from within synchronous execution
+    // apparently, this call is from within synchronous execution (no "outside" code flow can exist)
     LOG(LOG_WARNING, "Evaluation: abort() called from within synchronous script -> probably implementation problem");
     newstate(s_abort); // cause abort at next occasion, i.e. when caller returns back to state machine dispatcher
     return true;
