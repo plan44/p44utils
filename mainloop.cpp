@@ -27,6 +27,7 @@
 #include <unistd.h>
 #include <sys/param.h>
 #include <sys/wait.h>
+#include <math.h>
 
 #include "fdcomm.hpp"
 
