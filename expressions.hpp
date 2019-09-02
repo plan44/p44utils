@@ -131,7 +131,7 @@ namespace p44 {
 
   class FunctionArguments
   {
-    std::vector<pair<size_t, ExpressionValue>> args;
+    std::vector<pair<size_t, ExpressionValue> > args;
   public:
     const ExpressionValue operator[](unsigned int aArgIndex) const { if (aArgIndex<args.size()) return args[aArgIndex].second; else return ExpressionValue(); }
     size_t getPos(unsigned int aArgIndex) const { if (aArgIndex<args.size()) return args[aArgIndex].first; else return 0; }
@@ -215,7 +215,7 @@ namespace p44 {
     friend class ExpressionValue;
 
   public:
-    
+
     // operations with precedence
     typedef enum {
       op_none       = 0x06,
@@ -491,7 +491,7 @@ namespace p44 {
     bool newstate(EvalState aNewState);
 
     void extracted();
-    
+
     /// push new stack frame
     /// @param aNewState the new stack frame's state
     /// @param aStartSkipping if set, new stack frame will have skipping set, otherwise it will inherit previous frame's skipping value

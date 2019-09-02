@@ -1187,7 +1187,8 @@ ExpressionValue TimedEvaluationContext::evaluateSynchronously(EvalMode aEvalMode
   while (fpos!=frozenResults.end()) {
     if (fpos->second.frozenUntil==Never) {
       // already detected expired -> erase (Note: just expired ones in terms of now() MUST wait until checked in next evaluation!)
-      fpos = frozenResults.erase(fpos);
+      FrozenResultsMap::iterator dpos = fpos++;
+      frozenResults.erase(dpos);
       continue;
     }
     updateNextEval(fpos->second.frozenUntil);
