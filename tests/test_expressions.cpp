@@ -36,6 +36,7 @@ public:
     inherited(NULL)
   {
     evalLogLevel = SCRIPTLOGLEVEL;
+    syncExecLimit = Infinite;
   };
 
   bool valueLookup(const string &aName, ExpressionValue &aResult) P44_OVERRIDE
@@ -63,6 +64,7 @@ public:
     inherited(NULL)
   {
     evalLogLevel = SCRIPTLOGLEVEL;
+    syncExecLimit = Infinite;
   };
 
   bool valueLookup(const string &aName, ExpressionValue &aResult) P44_OVERRIDE
@@ -85,7 +87,7 @@ public:
 TEST_CASE_METHOD(ScriptFixture, "Focus", "[expressions]" )
 {
   setEvalLogLevel(7);
-  REQUIRE(runScript("var x; x = 78.42").numValue() == 78.42); // last expression returns, even if in assignment
+//  REQUIRE(runScript("return 78.42; 999").numValue() == 78.42);
 }
 
 
@@ -331,6 +333,8 @@ TEST_CASE_METHOD(ExpressionFixture, "Expressions", "[expressions]" )
     REQUIRE(runExpression("errordomain(error('testerror'))").stringValue() == "ExpressionError");
     REQUIRE(runExpression("errorcode(error('testerror'))").numValue() == ExpressionError::User);
     REQUIRE(runExpression("errormessage(error('testerror')))").stringValue() == "testerror");
+    // separate terrms ARE a syntax error in a expression! (not in a script, see below)
+    REQUIRE(runExpression("42 43 44").stringValue().find(string_format("(ExpressionError:%d)", ExpressionError::Syntax)) != string::npos);
     // special cases
     REQUIRE(runExpression("hour()").numValue() > 0);
     // should be case insensitive
@@ -413,6 +417,11 @@ TEST_CASE_METHOD(ScriptFixture, "Scripts", "[expressions]" )
     REQUIRE(runScript("try var zerodiv = 7/0; catch return 'not allowed'").stringValue() == "not allowed");
     REQUIRE(runScript("try var zerodiv = 7/1; catch return error(); return zerodiv").numValue() == 7);
     REQUIRE(runScript("try { var zerodiv = 42; zerodiv = 7/0 } catch { log('CAUGHT!') }; return zerodiv").numValue() == 42);
+    // Syntax errors
+    REQUIRE(runScript("78/9%").stringValue() == string_format("invalid number, time or date (ExpressionError:%d)", ExpressionError::Syntax));
+    REQUIRE(runScript("78/%9").stringValue() == string_format("invalid number, time or date (ExpressionError:%d)", ExpressionError::Syntax));
+    // Not Syntax error in a script, the three numbers are separate statements, the last one is returned
+    REQUIRE(runScript("42 43 44").intValue() == 44);
   }
 
 }

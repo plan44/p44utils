@@ -58,7 +58,7 @@ namespace p44 {
       CyclicReference,
       Invalid, ///< invalid value
       Busy, ///< currently running
-      NotFound, ///< variable, object, function not found (for callback)
+      NotFound, ///< referenced object not found at runtime
       Aborted, ///< externally aborted
       Timeout, ///< aborted because max execution time limit reached
       User, ///< user generated error (with throw)

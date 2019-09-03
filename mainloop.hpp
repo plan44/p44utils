@@ -417,7 +417,7 @@ namespace p44 {
     /// @param aCallback the functor to be called when execution is done (failed to start or completed)
     /// @param aCommandLine the command line to execute
     /// @param aPipeBackStdOut if true, stdout of the child is collected via a pipe by the parent and passed back in aCallBack
-    /// @param aPipeBackFdP if not NULL, and aPipeBackStdOut is set, this will be set to the file descriptor of the pipe,
+    /// @param aStdOutFdP if not NULL, and aPipeBackStdOut is set, this will be set to the file descriptor of the pipe,
     ///   so caller can handle output data of the process. The caller is responsible for closing the fd.
     /// @return the child's PID (can be used to send signals to it), or -1 if fork fails
     pid_t fork_and_system(ExecCB aCallback, const char *aCommandLine, bool aPipeBackStdOut = false, int* aStdOutFdP = NULL);

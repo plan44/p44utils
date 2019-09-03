@@ -1150,7 +1150,7 @@ bool EvaluationContext::resumeTerm()
                 }
               }
               if (!pseudovar) {
-                throwError(ExpressionError::NotFound, "no variable named '%s'", sp().identifier.c_str());
+                abortWithSyntaxError("no variable named '%s'", sp().identifier.c_str());
               }
             }
           }
@@ -1857,7 +1857,7 @@ bool ScriptExecutionContext::resumeAssignment()
 {
   // assign expression result to variable
   VariablesMap::iterator vpos = variables.find(sp().identifier);
-  if (vpos==variables.end()) return throwError(ExpressionError::NotFound, "variable '%s' is not declared - use: var name := expression", sp().identifier.c_str());
+  if (vpos==variables.end()) return abortWithSyntaxError("variable '%s' is not declared - use: var name := expression", sp().identifier.c_str());
   if (!sp().skipping) {
     // assign variable
     ELOG("Assigned: %s := %s", sp().identifier.c_str(), sp().res.stringValue().c_str());

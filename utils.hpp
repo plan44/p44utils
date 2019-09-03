@@ -67,7 +67,7 @@ namespace p44 {
   void pathstring_format_append(std::string &aPathToAppendTo, const char *aFormat, ...) __printflike(2,3);
 
   /// make path a directory, i.e. make sure it ends in a path delimiter
-  /// @param aPathToMakeDir
+  /// @param aPathToMakeDir path string
   void pathstring_make_dir(std::string &aPathToMakeDir);
 
   /// strftime with output to std::string
