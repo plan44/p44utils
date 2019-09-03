@@ -973,7 +973,7 @@ bool EvaluationContext::resumeExpression()
       ExpressionValue opRes;
       // all operations involving nulls return null
       if (sp().res.isValue() && sp().val.isValue()) {
-        // apply the operation between leftside and rightside
+        // both are values -> apply the operation between leftside and rightside
         switch (binaryop) {
           case op_not: {
             return abortWithSyntaxError("NOT operator not allowed here");
@@ -993,6 +993,14 @@ bool EvaluationContext::resumeExpression()
           case op_or: opRes = sp().val || sp().res; break;
           default: break;
         }
+      }
+      else if (sp().val.isError()) {
+        // if first is error, return that
+        opRes = sp().val;
+      }
+      else if (sp().res.isError()) {
+        // if first is ok but second is error, return that
+        opRes = sp().res;
       }
       sp().val = opRes;
       // duplicate into res in case evaluation ends
