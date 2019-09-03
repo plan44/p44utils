@@ -233,7 +233,7 @@ ErrorPtr ExpressionError::err(ErrorCodes aErrCode, const char *aFmt, ...)
 // MARK: - EvaluationContext
 
 #define DEFAULT_EXEC_TIME_LIMIT (Infinite)
-#define DEFAULT_SYNC_EXEC_LIMIT (1*Second)
+#define DEFAULT_SYNC_EXEC_LIMIT (10*Second)
 #define DEFAULT_SYNC_RUN_TIME (50*MilliSecond)
 
 EvaluationContext::EvaluationContext(const GeoLocation* aGeoLocationP) :
@@ -566,7 +566,9 @@ bool EvaluationContext::continueEvaluation()
   MLMicroSeconds limit = synchronous ? syncExecLimit : execTimeLimit;
   while(isEvaluating()) {
     if (limit!=Infinite && now-runningSince>limit) {
-      return throwError(ExpressionError::Timeout, "Script ran too long -> aborted");
+      throwError(ExpressionError::Timeout, "Script ran too long -> aborted");
+      limit = Infinite; // must not throw another error
+      // but must run to end, so don't exit here!
     }
     if (!resumeEvaluation()) return false; // execution yielded anyway
     // not yielded yet, check run time
