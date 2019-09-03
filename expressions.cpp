@@ -1502,19 +1502,19 @@ bool EvaluationContext::evaluateFunction(const string &aFunc, const FunctionArgu
   }
   else if (aFunc=="sunrise" && aArgs.size()==0) {
     if (!geolocationP) aResult.setNull();
-    aResult.setNumber(sunrise(time(NULL), *geolocationP, false)*3600);
+    else aResult.setNumber(sunrise(time(NULL), *geolocationP, false)*3600);
   }
   else if (aFunc=="dawn" && aArgs.size()==0) {
     if (!geolocationP) aResult.setNull();
-    aResult.setNumber(sunrise(time(NULL), *geolocationP, true)*3600);
+    else aResult.setNumber(sunrise(time(NULL), *geolocationP, true)*3600);
   }
   else if (aFunc=="sunset" && aArgs.size()==0) {
     if (!geolocationP) aResult.setNull();
-    aResult.setNumber(sunset(time(NULL), *geolocationP, false)*3600);
+    else aResult.setNumber(sunset(time(NULL), *geolocationP, false)*3600);
   }
   else if (aFunc=="dusk" && aArgs.size()==0) {
     if (!geolocationP) aResult.setNull();
-    aResult.setNumber(sunset(time(NULL), *geolocationP, true)*3600);
+    else aResult.setNumber(sunset(time(NULL), *geolocationP, true)*3600);
   }
   else {
     double fracSecs;
