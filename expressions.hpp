@@ -239,6 +239,7 @@ namespace p44 {
 
     typedef enum {
       // Completion states
+      s_unwound, ///< stack unwound, can't continue, check for trailing garbage
       s_complete, ///< completing evaluation
       s_abort, ///< aborting evaluation
       s_finalize, ///< ending, will pop last stack frame

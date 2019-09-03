@@ -324,6 +324,7 @@ const char* EvaluationContext::getIdentifier(size_t& aLen)
 
 
 static const char *evalstatenames[EvaluationContext::numEvalStates] = {
+  "s_unwound",
   "s_complete",
   "s_abort",
   "s_finalize",
@@ -411,7 +412,7 @@ bool EvaluationContext::pop()
   }
   // trying to pop last entry - switch to complete/abort first
   if (isEvaluating()) {
-    return newstate(sp().res.isOK() ? s_complete : s_abort);
+    return newstate(sp().res.isOK() ? s_unwound : s_abort);
   }
   return true; // not yielded
 }
@@ -424,8 +425,10 @@ bool EvaluationContext::popAndPassResult(ExpressionValue aResult)
   if (stack.empty())
     finalResult = aResult;
   else if (!wasSkipping) {
-    // auto-throw error results only at statement ends, not within expressions or function arguments
-    if (sp().state<s_expression_states && !aResult.isOK()) {
+    // auto-throw error results if:
+    // - it is a syntax error
+    // - between complete expressions/statements
+    if (aResult.isError() && (sp().state<s_expression_states || !aResult.syntaxOk())) {
       ELOG("Statement result passed to %s: '%.*s' is error -> THROW: %s", evalstatenames[sp().state],  (int)(pos-sp().pos), tail(sp().pos), aResult.error()->text());
       return throwError(aResult.error());
     }
@@ -697,6 +700,14 @@ bool EvaluationContext::resumeEvaluation()
   }
   switch (sp().state) {
     // completion states
+    case s_unwound:
+      // check for actual end of text
+      skipNonCode();
+      if (currentchar()) {
+        sp().res.setSyntaxError("Unexpected character '%c'", currentchar());
+        return newstate(s_abort);
+      }
+      // otherwise, treat like complete
     case s_complete:
       ELOG("Evaluation: execution completed");
       return newstate(s_finalize);
