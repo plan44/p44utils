@@ -794,15 +794,16 @@ void EvaluationContext::parseNumericLiteral(ExpressionValue &aResult, const char
           return;
         }
         else {
-          aPos += i+1;
+          aPos += i+1; // past : and consumation of sscanf
           // we have v:t, take these as hours and minutes
           v = (v*60+t)*60; // in seconds
           if (aCode[aPos]==':') {
             // apparently we also have seconds
-            if (sscanf(aCode+aPos+1, "%lf", &t)!=1) {
+            if (sscanf(aCode+aPos+1, "%lf%n", &t, &i)!=1) {
               aResult.setSyntaxError("Time specification has invalid seconds - use hh:mm:ss");
               return;
             }
+            aPos += i+1; // past : and consumation of sscanf
             v += t; // add the seconds
           }
         }
