@@ -10024,7 +10024,11 @@ read_message(FILE *fp,
   if (conn->dom_ctx->config[REQUEST_TIMEOUT]) {
     /* value of request_timeout is in seconds, config in milliseconds */
     request_timeout = atof(conn->dom_ctx->config[REQUEST_TIMEOUT]) / 1000.0;
-  } else {
+  } else if (conn->client_timeout>=0) {
+    /* use client timeout, if it is set (is NEVER set when this is not a client connection!) */
+    request_timeout = conn->client_timeout;
+  }
+  else {
     request_timeout = -1.0;
   }
   if (conn->handled_requests > 0) {

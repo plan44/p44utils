@@ -27,6 +27,7 @@
 #include <unistd.h>
 #include <sys/param.h>
 #include <sys/wait.h>
+#include <math.h>
 
 #include "fdcomm.hpp"
 
@@ -194,6 +195,48 @@ MLMicroSeconds MainLoop::timeValToMainLoopTime(struct timeval *aTimeValP)
 }
 
 
+void MainLoop::mainLoopTimeTolocalTime(MLMicroSeconds aMLTime, struct tm& aLocalTime)
+{
+  time_t t = mainLoopTimeToUnixTime(aMLTime)/Second;
+  localtime_r(&t, &aLocalTime);
+}
+
+
+MLMicroSeconds MainLoop::localTimeToMainLoopTime(const struct tm& aLocalTime)
+{
+  time_t u = mktime((struct tm*) &aLocalTime);
+  return unixTimeToMainLoopTime(u*Second);
+}
+
+
+void MainLoop::getLocalTime(struct tm& aLocalTime, double* aFractionalSecondsP)
+{
+  double unixsecs = unixtime()/Second;
+  time_t t = unixsecs;
+  localtime_r(&t, &aLocalTime);
+  if (aFractionalSecondsP) {
+    *aFractionalSecondsP = unixsecs-floor(unixsecs);
+  }
+}
+
+
+string MainLoop::string_mltime(MLMicroSeconds aTime)
+{
+  return string_fmltime("%Y-%m-%d %H:%M:%S", aTime);
+}
+
+
+string MainLoop::string_fmltime(const char *aFormat, MLMicroSeconds aTime)
+{
+  struct tm tim;
+  mainLoopTimeTolocalTime(aTime, tim);
+  string ts;
+  string_ftime_append(ts, aFormat, &tim);
+  return ts;
+}
+
+
+
 
 void MainLoop::sleep(MLMicroSeconds aSleepTime)
 {
@@ -225,15 +268,15 @@ MainLoop &MainLoop::currentMainLoop()
 
 
 #if MAINLOOP_STATISTICS
-#define ML_STAT_START_AT(nw) MLMicroSeconds t = (nw);
-#define ML_STAT_ADD_AT(tmr, nw) tmr += (nw)-t;
-#define ML_STAT_START ML_STAT_START_AT(now());
-#define ML_STAT_ADD(tmr) ML_STAT_ADD_AT(tmr, now());
+  #define ML_STAT_START_AT(nw) MLMicroSeconds t = (nw);
+  #define ML_STAT_ADD_AT(tmr, nw) tmr += (nw)-t;
+  #define ML_STAT_START ML_STAT_START_AT(now());
+  #define ML_STAT_ADD(tmr) ML_STAT_ADD_AT(tmr, now());
 #else
-#define ML_STAT_START_AT(now)
-#define ML_STAT_ADD_AT(tmr, nw);
-#define ML_STAT_START
-#define ML_STAT_ADD(tmr)
+  #define ML_STAT_START_AT(now)
+  #define ML_STAT_ADD_AT(tmr, nw);
+  #define ML_STAT_START
+  #define ML_STAT_ADD(tmr)
 #endif
 
 
@@ -904,8 +947,8 @@ string MainLoop::description()
     "- installed I/O poll handlers   : %ld\n"
     "- pending child process waits   : %ld\n"
     "- pending timers right now      : %ld\n"
-    "  - earliest in                 : %lld mS from now\n"
-    "  - latest in                   : %lld mS from now\n"
+    "  - earliest                    : %s - %lld mS from now\n"
+    "  - latest                      : %s - %lld mS from now\n"
     #if MAINLOOP_STATISTICS
     "- statistics period             : %.3f S\n"
     "- I/O poll handler runtime      : %lld mS / %d%% of period\n"
@@ -920,8 +963,8 @@ string MainLoop::description()
     ,(long)ioPollHandlers.size()
     ,(long)waitHandlers.size()
     ,(long)timers.size()
-    ,(long long)(timers.size()>0 ? timers.front().executionTime-now() : 0)/MilliSecond
-    ,(long long)(timers.size()>0 ? timers.back().executionTime-now() : 0)/MilliSecond
+    ,timers.size()>0 ? string_mltime(timers.front().executionTime).c_str() : "none" ,(long long)(timers.size()>0 ? timers.front().executionTime-now() : 0)/MilliSecond
+    ,timers.size()>0 ? string_mltime(timers.back().executionTime).c_str() : "none" ,(long long)(timers.size()>0 ? timers.back().executionTime-now() : 0)/MilliSecond
     #if MAINLOOP_STATISTICS
     ,(double)statisticsPeriod/Second
     ,ioHandlerTime/MilliSecond ,(int)(statisticsPeriod>0 ? 100ll * ioHandlerTime/statisticsPeriod : 0)

@@ -594,18 +594,18 @@ void CmdLineApp::parseCommandLine(int aArgc, char **aArgv)
 bool CmdLineApp::processOption(const CmdLineOptionDescriptor &aOptionDescriptor, const char *aOptionValue)
 {
   // directly process "help" option (long name must be "help", short name can be anything but usually is 'h')
-  if (!aOptionDescriptor.withArgument && strcmp(aOptionDescriptor.longOptionName,"help")==0) {
+  if (!aOptionDescriptor.withArgument && strucmp(aOptionDescriptor.longOptionName,"help")==0) {
     showUsage();
     terminateApp(EXIT_SUCCESS);
   }
-  else if (!aOptionDescriptor.withArgument && strcmp(aOptionDescriptor.longOptionName,"version")==0) {
+  else if (!aOptionDescriptor.withArgument && strucmp(aOptionDescriptor.longOptionName,"version")==0) {
     fprintf(stdout, "%s\n", version().c_str());
     terminateApp(EXIT_SUCCESS);
   }
-  else if (aOptionDescriptor.withArgument && strcmp(aOptionDescriptor.longOptionName,"resourcepath")==0) {
+  else if (aOptionDescriptor.withArgument && strucmp(aOptionDescriptor.longOptionName,"resourcepath")==0) {
     setResourcePath(aOptionValue);
   }
-  else if (aOptionDescriptor.withArgument && strcmp(aOptionDescriptor.longOptionName,"datapath")==0) {
+  else if (aOptionDescriptor.withArgument && strucmp(aOptionDescriptor.longOptionName,"datapath")==0) {
     setDataPath(aOptionValue);
   }
   return false; // not processed

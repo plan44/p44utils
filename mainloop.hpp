@@ -276,6 +276,10 @@ namespace p44 {
     /// @return the mainloop for this thread
     static MainLoop &currentMainLoop();
 
+
+    /// @name time related static utility functions
+    /// @{
+
     /// returns the current microsecond in "Mainloop" time (monotonic as long as app runs, but not necessarily anchored with real time)
     /// @return mainloop time in microseconds
     static MLMicroSeconds now();
@@ -283,6 +287,11 @@ namespace p44 {
     /// returns the Unix epoch time in mainloop time scaling (microseconds)
     /// @return unix epoch time, in microseconds
     static MLMicroSeconds unixtime();
+
+    /// get now as localtime (struct tm)
+    /// @param aLocalTime time components will be updated to represent mainloop::now() in localtime
+    /// @param aFractionalSecondsP if not NULL, the fractional seconds part will be returned [0..1[
+    static void getLocalTime(struct tm& aLocalTime, double* aFractionalSecondsP = NULL);
 
     /// convert a mainloop timestamp to unix epoch time
     /// @param aMLTime a mainloop timestamp in MLMicroSeconds
@@ -294,14 +303,37 @@ namespace p44 {
     /// @return mainloop timestamp in MLMicroSeconds
     static MLMicroSeconds unixTimeToMainLoopTime(const MLMicroSeconds aUnixTime);
 
+    /// convert mainloop time into localtime (struct tm)
+    /// @param aMLTime a mainloop timestamp in MLMicroSeconds
+    /// @param aLocalTime time components will be updated to represent aMLTime in localtime
+    static void mainLoopTimeTolocalTime(MLMicroSeconds aMLTime, struct tm& aLocalTime);
+
+    /// convert a struct tm to mainloop timestamp
+    /// @param aLocalTime local time compontents in a struct tm
+    /// @return mainloop time in MLMicroSeconds
+    static MLMicroSeconds localTimeToMainLoopTime(const struct tm& aLocalTime);
+
     /// convert a struct timeval to mainloop timestamp
     /// @param aTimeValP pointer to a struct timeval
     /// @return mainloop time in MLMicroSeconds
     static MLMicroSeconds timeValToMainLoopTime(struct timeval *aTimeValP);
 
+    /// strftime from mainloop time with output to std::string
+    /// @param aFormat strftime-style format string
+    /// @param aTime time in mainloop now() scale
+    /// @return formatted time string (in local time)
+    static string string_fmltime(const char *aFormat, MLMicroSeconds aTime);
+
+    /// format mainloop time as localtime in YYYY-MM-DD HH:MM:SS format with output to std::string
+    /// @param aTime time in mainloop now() scale
+    /// @return formatted time string (in local time)
+    static string string_mltime(MLMicroSeconds aTime);
+
 
     /// sleeps for given number of microseconds
     static void sleep(MLMicroSeconds aSleepTime);
+
+    /// @}
 
 
     /// @name register timed handlers (fired at specified time)
@@ -402,7 +434,7 @@ namespace p44 {
     /// @param aCallback the functor to be called when execution is done (failed to start or completed)
     /// @param aCommandLine the command line to execute
     /// @param aPipeBackStdOut if true, stdout of the child is collected via a pipe by the parent and passed back in aCallBack
-    /// @param aPipeBackFdP if not NULL, and aPipeBackStdOut is set, this will be set to the file descriptor of the pipe,
+    /// @param aStdOutFdP if not NULL, and aPipeBackStdOut is set, this will be set to the file descriptor of the pipe,
     ///   so caller can handle output data of the process. The caller is responsible for closing the fd.
     /// @return the child's PID (can be used to send signals to it), or -1 if fork fails
     pid_t fork_and_system(ExecCB aCallback, const char *aCommandLine, bool aPipeBackStdOut = false, int* aStdOutFdP = NULL);

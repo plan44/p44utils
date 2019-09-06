@@ -107,7 +107,7 @@ static double FNsun (double d)
 };
 
 
-void p44::getSunParams(time_t aTime, double aLat, double aLong, SunParams &aSunParams)
+void p44::getSunParams(time_t aTime, const GeoLocation &aGeoLocation, SunParams &aSunParams)
 {
   struct tm p;
   double L, g, daylen;
@@ -137,37 +137,37 @@ void p44::getSunParams(time_t aTime, double aLat, double aLong, SunParams &aSunP
   LL = L - alpha;
   if (L < M_PI) LL += 2.0*M_PI;
   equation = 1440.0 * (1.0 - LL / M_PI/2.0);
-  ha = f0(aLat,delta);
-  hb = f1(aLat,delta);
+  ha = f0(aGeoLocation.latitude,delta);
+  hb = f1(aGeoLocation.latitude,delta);
   aSunParams.twilight = hb - ha;  // length of twilight in radians
   aSunParams.twilight = 12.0*aSunParams.twilight/M_PI;    // length of twilight in hours
   // Conversion of angle to hours and minutes //
   daylen = DEGS*ha/7.5;
   if (daylen<0.0001) { daylen = 0.0; }
   // arctic winter
-  aSunParams.sunrise = 12.0 - 12.0 * ha/M_PI + tz - aLong/15.0 + equation/60.0;
-  aSunParams.sunset = 12.0 + 12.0 * ha/M_PI + tz - aLong/15.0 + equation/60.0;
+  aSunParams.sunrise = 12.0 - 12.0 * ha/M_PI + tz - aGeoLocation.longitude/15.0 + equation/60.0;
+  aSunParams.sunset = 12.0 + 12.0 * ha/M_PI + tz - aGeoLocation.longitude/15.0 + equation/60.0;
   aSunParams.noon = aSunParams.sunrise + 12.0 * ha/M_PI;
-  aSunParams.maxAltitude = 90.0 + delta * DEGS - aLat;
+  aSunParams.maxAltitude = 90.0 + delta * DEGS - aGeoLocation.latitude;
   // Correction for S HS suggested by David Smith
   // to express altitude as degrees from the N horizon
-  if (aLat < delta * DEGS) aSunParams.maxAltitude = 180.0 - aSunParams.maxAltitude;
+  if (aGeoLocation.latitude < delta * DEGS) aSunParams.maxAltitude = 180.0 - aSunParams.maxAltitude;
   if (aSunParams.sunrise > 24.0) aSunParams.sunrise-= 24.0;
   if (aSunParams.sunset > 24.0) aSunParams.sunset-= 24.0;
 }
 
 
-double p44::sunrise(time_t aTime, double aLat, double aLong, bool aTwilight)
+double p44::sunrise(time_t aTime, const GeoLocation &aGeoLocation, bool aTwilight)
 {
   SunParams p;
-  getSunParams(aTime, aLat, aLong, p);
+  getSunParams(aTime, aGeoLocation, p);
   return p.sunrise - (aTwilight ? p.twilight : 0);
 }
 
 
-double p44::sunset(time_t aTime, double aLat, double aLong, bool aTwilight)
+double p44::sunset(time_t aTime, const GeoLocation &aGeoLocation, bool aTwilight)
 {
   SunParams p;
-  getSunParams(aTime, aLat, aLong, p);
+  getSunParams(aTime, aGeoLocation, p);
   return p.sunset + (aTwilight ? p.twilight : 0);
 }

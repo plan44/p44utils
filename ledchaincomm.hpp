@@ -23,7 +23,11 @@
 #define __p44utils__ledchaincomm__
 
 #include "p44utils_common.hpp"
+#include "colorutils.hpp"
 
+#if ENABLE_P44LRGRAPHICS
+#include "p44view.hpp"
+#endif
 
 #include <stdint.h>
 #include <stdio.h>
@@ -56,17 +60,6 @@ using namespace std;
 namespace p44 {
 
 
-  /// convert PWM value to brightness
-  /// @param aPWM PWM (energy) value 0..255
-  /// @return brightness 0..255
-  uint8_t pwmToBrightness(uint8_t aPWM);
-
-  /// convert brightness value to PWM
-  /// @param aBrightness brightness 0..255
-  /// @return PWM (energy) value 0..255
-  uint8_t brightnessToPwm(uint8_t aBrightness);
-
-
   class LEDChainComm : public P44Obj
   {
   public:
@@ -83,6 +76,8 @@ namespace p44 {
 
     LedType ledType; // type of LED in the chain
     string deviceName; // the LED device name
+    uint16_t inactiveStartLeds; // number of inactive LEDs at the start of the chain
+    uint16_t inactiveBetweenLeds; // number of inactive LEDs between physical rows
     uint16_t numLeds; // number of LEDs
     uint16_t ledsPerRow; // number of LEDs per row (physically, along WS2812 chain)
     uint16_t numRows; // number of rows (sections of WS2812 chain)
@@ -105,14 +100,27 @@ namespace p44 {
     /// create driver for a WS2812 LED chain
     /// @param aLedType type of LEDs
     /// @param aDeviceName the name of the LED chain device (if any, depends on platform)
-    /// @param aNumLeds number of LEDs in the chain
-    /// @param aLedsPerRow number of consecutive LEDs in the WS2812 chain that build a row
+    /// @param aNumLeds number of LEDs in the chain (physically)
+    /// @param aLedsPerRow number of consecutive LEDs in the WS2812 chain that build a row (active LEDs, not counting ainactiveBetweenLeds)
     ///   (usually x direction, y if swapXY was set). Set to 0 for single line of LEDs
     /// @param aXReversed X direction is reversed
     /// @param aAlternating X direction is reversed in first row, normal in second, reversed in third etc..
     /// @param aSwapXY X and Y reversed (for up/down wiring)
     /// @param aYReversed Y direction is reversed
-    LEDChainComm(LedType aLedType, const string aDeviceName, uint16_t aNumLeds, uint16_t aLedsPerRow=0, bool aXReversed=false, bool aAlternating=false, bool aSwapXY=false, bool aYReversed=false);
+    /// @param aInactiveStartLeds number of extra LEDs at the beginning of the chain that are not active
+    /// @param aInactiveBetweenLeds number of extra LEDs between rows that are not active
+    LEDChainComm(
+      LedType aLedType,
+      const string aDeviceName,
+      uint16_t aNumLeds,
+      uint16_t aLedsPerRow=0,
+      bool aXReversed=false,
+      bool aAlternating=false,
+      bool aSwapXY=false,
+      bool aYReversed=false,
+      uint16_t aInactiveStartLeds=0,
+      uint16_t aInactiveBetweenLeds=0
+    );
 
     /// destructor
     ~LEDChainComm();
@@ -140,6 +148,7 @@ namespace p44 {
     /// @param aGreen intensity of green component, 0..255
     /// @param aBlue intensity of blue component, 0..255
     /// @param aWhite intensity of separate white component for RGBW LEDs, 0..255
+    /// @note aLedNumber is the logical LED number, and aX/aY are logical coordinates, excluding any inactive LEDs
     void setColorXY(uint16_t aX, uint16_t aY, uint8_t aRed, uint8_t aGreen, uint8_t aBlue, uint8_t aWhite=0);
     void setColor(uint16_t aLedNumber, uint8_t aRed, uint8_t aGreen, uint8_t aBlue, uint8_t aWhite=0);
 
@@ -149,6 +158,7 @@ namespace p44 {
     /// @param aBlue intensity of blue component, 0..255
     /// @param aWhite intensity of separate white component for RGBW LEDs, 0..255
     /// @param aBrightness overall brightness, 0..255
+    /// @note aLedNumber is the logical LED number, and aX/aY are logical coordinates, excluding any inactive LEDs
     void setColorDimmedXY(uint16_t aX, uint16_t aY, uint8_t aRed, uint8_t aGreen, uint8_t aBlue, uint8_t aWhite, uint8_t aBrightness);
     void setColorDimmed(uint16_t aLedNumber, uint8_t aRed, uint8_t aGreen, uint8_t aBlue, uint8_t aWhite, uint8_t aBrightness);
 
@@ -158,10 +168,11 @@ namespace p44 {
     /// @param aBlue set to intensity of blue component, 0..255
     /// @note for LEDs set with setColorDimmed(), this returns the scaled down RGB values,
     ///   not the original r,g,b parameters. Note also that internal brightness resolution is 5 bits only.
+    /// @note aLedNumber is the logical LED number, and aX/aY are logical coordinates, excluding any inactive LEDs
     void getColorXY(uint16_t aX, uint16_t aY, uint8_t &aRed, uint8_t &aGreen, uint8_t &aBlue, uint8_t &aWhite);
     void getColor(uint16_t aLedNumber, uint8_t &aRed, uint8_t &aGreen, uint8_t &aBlue, uint8_t &aWhite);
 
-    /// @return number of LEDs
+    /// @return number of active LEDs in the chain (that are active, i.e. minus inactiveStartLeds/inactiveBetweenLeds)
     uint16_t getNumLeds();
 
     /// @return size of array in X direction (x range is 0..getSizeX()-1)
@@ -176,6 +187,114 @@ namespace p44 {
 
   };
   typedef boost::intrusive_ptr<LEDChainComm> LEDChainCommPtr;
+
+
+  #if ENABLE_P44LRGRAPHICS
+
+  class LEDChainArrangement : public P44Obj
+  {
+
+    class LEDChainFixture {
+    public:
+      LEDChainFixture(LEDChainCommPtr aLedChain, PixelRect aCovers, PixelCoord aOffset) : ledChain(aLedChain), covers(aCovers), offset(aOffset) {};
+      LEDChainCommPtr ledChain; ///< a LED chain
+      PixelRect covers; ///< the rectangle in the arrangement covered by this LED chain
+      PixelCoord offset; ///< offset within the LED chain where to start coverage
+    };
+
+    typedef vector<LEDChainFixture> LedChainVector;
+
+    LedChainVector ledChains;
+    P44ViewPtr rootView;
+    PixelRect covers;
+    bool hasWhiteLEDs;
+
+    MLMicroSeconds lastUpdate;
+    MLTicket autoStepTicket;
+    uint8_t maxOutValue;
+
+  public:
+
+    /// minimum interval kept between updates to LED chain hardware
+    MLMicroSeconds minUpdateInterval;
+
+    /// maximum interval during which noisy view children are prevented from requesting rendering updates
+    /// after prioritized (localTimingPriority==true) parent view did
+    MLMicroSeconds maxPriorityInterval;
+
+    LEDChainArrangement();
+    virtual ~LEDChainArrangement();
+
+    /// clear all LEDs to off
+    void clear();
+
+    /// set the root view
+    /// @param  aRootView the view to ask for pixels in the arrangement
+    void setRootView(P44ViewPtr aRootView);
+
+    /// @return return current root view
+    P44ViewPtr getRootView() { return rootView; }
+
+    /// add a LED chain to the arrangement
+    /// @param aLedChain the LED chain
+    /// @param aCover the rectangle of pixels in the arrangement the led chain covers
+    /// @param aOffset an offset within the chain where coverage starts
+    void addLEDChain(LEDChainCommPtr aLedChain, PixelRect aCover, PixelCoord aOffset);
+
+    /// add a LED chain to the arrangement by specification
+    /// @param aChainconfig string describing the LED chain parameters and the coverage in the arrangement
+    /// @note config syntax is as follows:
+    ///   [chaintype:[leddevicename:]]numberOfLeds:[x:dx:y:dy:firstoffset:betweenoffset][XYSA]
+    ///   - chaintype can be SK6812, P9823 or WS281x
+    ///   - XYSA are optional flags for X,Y reversal, x<>y Swap, Alternating chain direction
+    void addLEDChain(const string &aChainSpec);
+
+    /// returns the enclosing rectangle over all LED chains
+    PixelRect totalCover() { return covers; }
+
+    /// get minimal color intensity that does not completely switch off the color channel of the LED
+    /// @return minimum r,g,b value
+    uint8_t getMinVisibleColorIntensity();
+
+    /// set max output value (0..255) to be sent to the LED chains
+    void setMaxOutValue(uint8_t aMaxOutValue) { maxOutValue = aMaxOutValue; }
+
+    uint8_t getMaxOutValue() { return maxOutValue; }
+
+    /// @return true if any of the chains do have a separate (fourth) white channel
+    bool hasWhite() { return hasWhiteLEDs; }
+
+    /// start LED chains
+    /// @param aAutoStep if true, step() will be called automatically as demanded by the view hierarchy
+    void begin(bool aAutoStep);
+
+    /// request re-rendering now
+    /// @note this should be called when views have been changed from the outside
+    /// @note a step() will be triggered ASAP
+    void render();
+
+    /// stop LED chains and auto updates
+    void end();
+
+  private:
+
+    /// perform needed LED chain updates
+    /// @return time when step() should be called again latest
+    /// @note use stepASAP() to request a step an automatically schedule it at the next possible time
+    ///    in case it cannot be executed right noow
+    MLMicroSeconds step();
+
+    void recalculateCover();
+    MLMicroSeconds updateDisplay();
+
+    void autoStep(MLTimer &aTimer);
+
+
+  };
+  typedef boost::intrusive_ptr<LEDChainArrangement> LEDChainArrangementPtr;
+
+
+  #endif // ENABLE_P44LRGRAPHICS
 
 
 } // namespace p44

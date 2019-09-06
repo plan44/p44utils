@@ -19,48 +19,23 @@
 //  along with p44utils. If not, see <http://www.gnu.org/licenses/>.
 //
 
-#ifndef __p44utils__common__
-#define __p44utils__common__
+#ifndef __p44utils__config__
+#define __p44utils__config__
 
-#ifdef HAVE_CONFIG_H
-#include "config.h"
+// NOTE: This is a default (template) config file only
+//                 ******************
+//       Usually, copy this file into a location where is is found BEFORE this
+//       default file is found, and modify the copied version according to
+//       your needs.
+//       DO NOT MODIFY THE ORIGINAL IN the p44utils directory/git submodule!
+
+#ifndef ENABLE_EXPRESSIONS
+  #define ENABLE_EXPRESSIONS 1 // Expression/Script engine support in some of the p44utils components
 #endif
-
-#include "p44utils_config.hpp"
-
-#include <list>
-#include <vector>
-#include <map>
-
-#include <boost/intrusive_ptr.hpp>
-#include <boost/shared_ptr.hpp>
-#include <boost/function.hpp>
-#include <boost/bind.hpp>
-
-#ifndef __printflike
-#define __printflike(...)
-#endif
-
-#if __cplusplus >= 201103L
-  // we have C++ 11
-  #define P44_FINAL final
-  #define P44_OVERRIDE override
-#else
-  #define P44_FINAL
-  #define P44_OVERRIDE
-#endif
-
-#include "p44obj.hpp"
-#include "logger.hpp"
-#include "utils.hpp"
-#include "error.hpp"
-#include "mainloop.hpp"
-
-// build platform dependencies
-#if P44_BUILD_DIGI
-  #define DISABLE_I2C 1 // no user space I2C support
-  #define DISABLE_SPI 1 // no user space SPI support
+#ifndef ENABLE_P44LRGRAPHICS
+  #define ENABLE_P44LRGRAPHICS 1 // p44lrgraphics support in some of the p44utils components
 #endif
 
 
-#endif /* __p44utils__common__ */
+
+#endif // __p44utils__config__

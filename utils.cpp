@@ -205,11 +205,40 @@ const char *p44::nonNullCStr(const char *aNULLOrCStr)
 }
 
 
-string p44::lowerCase(const char *aString)
+int p44::strucmp(const char *s1, const char *s2, size_t len1, size_t len2)
+{
+  // allow NULL as empty strings
+  if (!s1) s1 = "";
+  if (!s2) s2 = "";
+  // s1>s2 : 1, s1==s2 : 0, s1<s2 : -1
+  size_t i;
+  // calc number of chars we must compare
+  size_t len = len1==0 ? len2 : (len2==0 ? len1 : (len1>len2 ? len2 : len1));
+  for (i=0; (!len || i<len) && *s1 && *s2; i++) {
+    // while both strings have chars and not len reached
+    if (toupper(*s1)!=toupper(*s2))
+      return toupper(*s1)>toupper(*s2) ? 1 : -1; // different
+    // next
+    s1++;
+    s2++;
+  }
+  // equal up to end of shorter string or reached len
+  // - if both reached end or len -> equal
+  if ( ((len1 ? i==len1 : false) || *s1==0) && ((len2 ? i==len2 : false) || *s2==0) ) return 0;
+  // - not equal, longer string is larger
+  //   (if not reached end of s1 or stopped before len1, s1 is longer
+  //    but note than len1 can be longer than actual length of s1, so we
+  //    must check for *s1 to make sure we have really not reached end of s1)
+  return (len1 ? i<len1 && *s1 : *s1) ? 1 : -1;
+} // strucmp
+
+
+string p44::lowerCase(const char *aString, size_t aMaxSize)
 {
   string s;
   while (char c=*aString++) {
     s += tolower(c);
+    if (aMaxSize>0 && --aMaxSize==0) break;
   }
   return s;
 }
