@@ -263,6 +263,13 @@ void EvaluationContext::setEvaluationResultHandler(EvaluationResultCB aEvaluatio
 }
 
 
+void EvaluationContext::registerFunctionHandler(FunctionLookupCB aFunctionLookupHandler)
+{
+  functionCallbacks.push_back(aFunctionLookupHandler);
+}
+
+
+
 bool EvaluationContext::setCode(const string aCode)
 {
   if (aCode!=codeString) {
@@ -1184,13 +1191,20 @@ bool EvaluationContext::resumeTerm()
     // run function
     newstate(s_result); // expecting result from function
     if (!sp().skipping) {
-      // - try synchronous functions first
-      if (evaluateFunction(lowerCase(sp().identifier), sp().args, sp().res)) {
+      string funcname = lowerCase(sp().identifier);
+      // - try registered synchronous function handlers first
+      for (FunctionCBList::iterator pos = functionCallbacks.begin(); pos!=functionCallbacks.end(); ++pos) {
+        if ((*pos)(this, funcname, sp().args, sp().res)) {
+          return true; // not yielded
+        }
+      }
+      // - then try built-in synchronous functions first
+      if (evaluateFunction(funcname, sp().args, sp().res)) {
         return true; // not yielded
       }
-      // - must be async
+      // - finally: must be async function
       bool notYielded = true; // default to not yielded, especially for errorInArg()
-      if (synchronous || !evaluateAsyncFunction(lowerCase(sp().identifier), sp().args, notYielded)) {
+      if (synchronous || !evaluateAsyncFunction(funcname, sp().args, notYielded)) {
         return abortWithSyntaxError("Unknown function '%s' with %d arguments", sp().identifier.c_str(), sp().args.size());
       }
       return notYielded;
@@ -2222,7 +2236,7 @@ protected:
 
   virtual bool evaluateFunction(const string &aFunc, const FunctionArguments &aArgs, ExpressionValue &aResult) P44_OVERRIDE
   {
-    if (functionLookUp && functionLookUp(aFunc, aArgs, aResult)) return true;
+    if (functionLookUp && functionLookUp(this, aFunc, aArgs, aResult)) return true;
     return inherited::evaluateFunction(aFunc, aArgs, aResult);
   };
 
