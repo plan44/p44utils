@@ -1666,6 +1666,23 @@ bool ScriptExecutionContext::execute(bool aAsynchronously, EvaluationResultCB aO
 }
 
 
+bool ScriptExecutionContext::chainContext(ScriptExecutionContext& aTargetContext, EvaluationResultCB aChainResultHandler)
+{
+  skipNonCode();
+  if (sp().skipping) {
+    if (aChainResultHandler) aChainResultHandler(ExpressionValue(), *this);
+    return true; // not yielded, done
+  }
+  else {
+    ELOG("chainContext: new context will execute rest of code: %s", tail(pos));
+    aTargetContext.setEvalLogLevel(evalLogLevel); // inherit log level
+    aTargetContext.setCode(tail(pos)); // pass tail
+    pos = codeString.size(); // skip tail
+    return aTargetContext.execute(true, aChainResultHandler);
+  }
+}
+
+
 bool ScriptExecutionContext::resumeEvaluation()
 {
   bool ret = false;

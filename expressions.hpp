@@ -667,6 +667,13 @@ namespace p44 {
     ///   or a permanent one set with setEvaluationResultHandler()
     bool execute(bool aAsynchronously, EvaluationResultCB aOneTimeEvaluationResultHandler = NULL);
 
+    /// continue execution of the current script text in the 
+    /// @param aChainResultHandler is called when the chained script part completes or is aborted
+    /// @return true if chained script has not yielded control (i.e. completed running synchronously)
+    /// @note always calls the evaluation result handler (aOneTimeEvaluationResultHandler if set,
+    ///   or a permanent one set with setEvaluationResultHandler()
+    bool chainContext(ScriptExecutionContext& aTargetContext, EvaluationResultCB aChainResultHandler);
+
     /// release all evaluation state (variables)
     virtual void releaseState() P44_OVERRIDE;
 
