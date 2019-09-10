@@ -208,6 +208,7 @@ namespace p44 {
     #define EXPRESSION_OPERATOR_MODE EXPRESSION_OPERATOR_MODE_FLEXIBLE
   #endif
 
+
   /// Basic Expression Evaluation Context
   class EvaluationContext : public P44Obj
   {
@@ -629,12 +630,29 @@ namespace p44 {
 
   #if EXPRESSION_SCRIPT_SUPPORT
 
+  typedef std::map<string, ExpressionValue, lessStrucmp> VariablesMap;
+
+  class ScriptGlobals
+  {
+    friend class ScriptExecutionContext;
+
+    VariablesMap globalVariables; ///< global variables
+
+  public:
+
+    static ScriptGlobals& sharedScriptGlobals();
+
+  };
+
+  static ScriptGlobals *scriptGlobals = NULL;
+
+
+
   // execution of scripts
   class ScriptExecutionContext : public EvaluationContext
   {
     typedef EvaluationContext inherited;
 
-    typedef std::map<string, ExpressionValue, lessStrucmp> VariablesMap;
     VariablesMap variables; ///< script local variables
 
   public:
