@@ -639,3 +639,22 @@ uint32_t p44::stringToIpv4(const char *aIPv4String)
   }
   return 0; // failed
 }
+
+
+double p44::cyclic(double aValue, double aMin, double aMax)
+{
+  aValue = aValue-aMin; // make null based
+  double r = aMax-aMin; // wrap range
+  if (aValue>=r) aValue -= int(aValue/r)*r;
+  else if (aValue<0) aValue += (int(-aValue/r)+1)*r;
+  return aValue+aMin;
+}
+
+
+double p44::limited(double aValue, double aMin, double aMax)
+{
+  if (aValue<aMin) aValue = aMin;
+  else if (aValue>aMax) aValue = aMax;
+  return aValue;
+}
+
