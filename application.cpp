@@ -84,6 +84,8 @@ void Application::initializeInternal()
 {
   resourcepath = "."; // current directory by default
   datapath = TEMP_DIR_PATH; // tmp by default
+  // make random a bit "random" (not really, but ok for games)
+  srand((unsigned)(MainLoop::now()>>32 ^ MainLoop::now()));
   // "publish" singleton
   sharedApplicationP = this;
   // register signal handlers

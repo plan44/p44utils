@@ -243,9 +243,12 @@ namespace p44 {
   /// @param aIPv4String IPv4 address in x.x.x.x notation
   /// @return IPv4 address as 32bit integer number, or 0 if input string is invalid
   uint32_t stringToIpv4(const char *aIPv4String);
-  
 
+  /// @return aValue, wrapped around at aMax to aMin
+  double cyclic(double aValue, double aMin, double aMax);
 
+  /// @return aValue, limited to be between and including aMin and aMax
+  double limited(double aValue, double aMin, double aMax);
 
 } // namespace p44
 

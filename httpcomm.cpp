@@ -445,7 +445,6 @@ void HttpComm::appendFormValue(string &aDataString, const string &aFieldname, co
 /// from a EvaluationContext's evaluateAsyncFunctions() method to provide http functionality
 bool HttpComm::evaluateAsyncHttpFunctions(EvaluationContext* aEvalContext, const string &aFunc, const FunctionArguments &aArgs, bool &aNotYielded, HttpCommPtr* aHttpCommP)
 {
-  aNotYielded = true; // by default, so we can use "return errorInArg()" style exits
   bool isGet = false;
   bool isPost = false;
   bool isPut = false;
@@ -493,7 +492,7 @@ bool HttpComm::evaluateAsyncHttpFunctions(EvaluationContext* aEvalContext, const
     method.c_str(),
     data.c_str()
   )) {
-    return aEvalContext->returnFunctionResult(ExpressionValue(TextError::err("could not issue http request")));
+    return aEvalContext->throwError(TextError::err("could not issue http request"));
   }
   aNotYielded = false; // callback will get result
   return true; // function found, aNotYielded must be set correctly!

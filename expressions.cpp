@@ -263,6 +263,13 @@ void EvaluationContext::setEvaluationResultHandler(EvaluationResultCB aEvaluatio
 }
 
 
+void EvaluationContext::registerFunctionHandler(FunctionLookupCB aFunctionLookupHandler)
+{
+  functionCallbacks.push_back(aFunctionLookupHandler);
+}
+
+
+
 bool EvaluationContext::setCode(const string aCode)
 {
   if (aCode!=codeString) {
@@ -558,8 +565,9 @@ bool EvaluationContext::startEvaluation()
 
 bool EvaluationContext::continueEvaluation()
 {
-  if (runningSince==Never) {
-    LOG(LOG_WARNING, "EvaluationContext: script aborted asynchronously");
+  if (!isEvaluating()) {
+    LOG(LOG_WARNING, "EvaluationContext: cannot continue, script was already aborted asynchronously");
+    return true; // already ran to end
   }
   MLMicroSeconds syncRunSince = MainLoop::now();
   MLMicroSeconds now = syncRunSince;
@@ -596,6 +604,10 @@ bool EvaluationContext::returnFunctionResult(const ExpressionValue& aResult)
 
 void EvaluationContext::continueWithAsyncFunctionResult(const ExpressionValue& aResult)
 {
+  if (!isEvaluating()) {
+    LOG(LOG_WARNING, "Asynchronous function call ended after calling script was already aborted");
+    return;
+  }
   returnFunctionResult(aResult);
   continueEvaluation();
 }
@@ -1184,13 +1196,20 @@ bool EvaluationContext::resumeTerm()
     // run function
     newstate(s_result); // expecting result from function
     if (!sp().skipping) {
-      // - try synchronous functions first
-      if (evaluateFunction(lowerCase(sp().identifier), sp().args, sp().res)) {
+      string funcname = lowerCase(sp().identifier);
+      // - try registered synchronous function handlers first
+      for (FunctionCBList::iterator pos = functionCallbacks.begin(); pos!=functionCallbacks.end(); ++pos) {
+        if ((*pos)(this, funcname, sp().args, sp().res)) {
+          return true; // not yielded
+        }
+      }
+      // - then try built-in synchronous functions first
+      if (evaluateFunction(funcname, sp().args, sp().res)) {
         return true; // not yielded
       }
-      // - must be async
+      // - finally: must be async function
       bool notYielded = true; // default to not yielded, especially for errorInArg()
-      if (synchronous || !evaluateAsyncFunction(lowerCase(sp().identifier), sp().args, notYielded)) {
+      if (synchronous || !evaluateAsyncFunction(funcname, sp().args, notYielded)) {
         return abortWithSyntaxError("Unknown function '%s' with %d arguments", sp().identifier.c_str(), sp().args.size());
       }
       return notYielded;
@@ -1596,6 +1615,18 @@ bool EvaluationContext::evaluateAsyncFunction(const string &aFunc, const Functio
 
 #if EXPRESSION_SCRIPT_SUPPORT
 
+
+// MARK: - ScriptGlobals
+
+ScriptGlobals& ScriptGlobals::sharedScriptGlobals()
+{
+  if (!scriptGlobals) {
+    scriptGlobals = new ScriptGlobals;
+  }
+  return *scriptGlobals;
+}
+
+
 // MARK: - ScriptExecutionContext
 
 ScriptExecutionContext::ScriptExecutionContext(const GeoLocation* aGeoLocationP) :
@@ -1632,6 +1663,23 @@ bool ScriptExecutionContext::execute(bool aAsynchronously, EvaluationResultCB aO
   bool notYielded = startEvaluation();
   while (notYielded && isEvaluating()) notYielded = continueEvaluation();
   return notYielded;
+}
+
+
+bool ScriptExecutionContext::chainContext(ScriptExecutionContext& aTargetContext, EvaluationResultCB aChainResultHandler)
+{
+  skipNonCode();
+  if (sp().skipping) {
+    if (aChainResultHandler) aChainResultHandler(ExpressionValue(), *this);
+    return true; // not yielded, done
+  }
+  else {
+    ELOG("chainContext: new context will execute rest of code: %s", tail(pos));
+    aTargetContext.setEvalLogLevel(evalLogLevel); // inherit log level
+    aTargetContext.setCode(tail(pos)); // pass tail
+    pos = codeString.size(); // skip tail
+    return aTargetContext.execute(true, aChainResultHandler);
+  }
 }
 
 
@@ -1786,11 +1834,16 @@ bool ScriptExecutionContext::resumeStatements()
     // variable handling
     bool vardef = false;
     bool let = false;
+    bool glob = false;
     bool newVar = false;
     string varName;
     size_t apos = pos + kwsz; // potential assignment location
     if (strucmp(kw, "var", kwsz)==0) {
       vardef = true;
+    }
+    else if (strncasecmp("glob", kw, kwsz)==0) {
+      vardef = true;
+      glob = true;
     }
     else if (strucmp(kw, "let", kwsz)==0) {
       let = true;
@@ -1807,11 +1860,12 @@ bool ScriptExecutionContext::resumeStatements()
       apos = pos;
       if (vardef) {
         // is a definition
-        if (variables.find(varName)==variables.end()) {
+        VariablesMap* varsP = glob ? &ScriptGlobals::sharedScriptGlobals().globalVariables : &variables;
+        if (varsP->find(varName)==varsP->end()) {
           // does not yet exist, create it with null value
           ExpressionValue null;
-          variables[varName] = null;
-          ELOG_DBG("Defined variable %.*s", (int)vsz,vn);
+          (*varsP)[varName] = null;
+          ELOG("Defined %s variable %.*s", glob ? "GLOBAL" : "LOCAL", (int)vsz,vn);
           newVar = true;
         }
       }
@@ -1856,11 +1910,21 @@ bool ScriptExecutionContext::resumeStatements()
 bool ScriptExecutionContext::resumeAssignment()
 {
   // assign expression result to variable
-  VariablesMap::iterator vpos = variables.find(sp().identifier);
-  if (vpos==variables.end()) return abortWithSyntaxError("variable '%s' is not declared - use: var name := expression", sp().identifier.c_str());
+  // - first search local ones
+  bool glob = false;
+  VariablesMap* varsP = &variables;
+  VariablesMap::iterator vpos = varsP->find(sp().identifier);
+  if (vpos==varsP->end()) {
+    varsP = &ScriptGlobals::sharedScriptGlobals().globalVariables;
+    vpos = varsP->find(sp().identifier);
+    if (vpos==varsP->end()) {
+      return abortWithSyntaxError("variable '%s' is not declared - use: var name := expression", sp().identifier.c_str());
+    }
+    glob = true;
+  }
   if (!sp().skipping) {
     // assign variable
-    ELOG("Assigned: %s := %s", sp().identifier.c_str(), sp().res.stringValue().c_str());
+    ELOG("Assigned %s variable: %s := %s", glob ? "global" : "local", sp().identifier.c_str(), sp().res.stringValue().c_str());
     vpos->second = sp().res;
     return popAndPassResult(sp().res);
   }
@@ -1964,16 +2028,21 @@ bool ScriptExecutionContext::resumeWhile()
 }
 
 
-
-
 bool ScriptExecutionContext::valueLookup(const string &aName, ExpressionValue &aResult)
 {
-  VariablesMap::iterator pos = variables.find(aName);
-  if (pos!=variables.end()) {
-    aResult = pos->second;
-    return true;
+  VariablesMap* varsP = &variables;
+  VariablesMap::iterator vpos = varsP->find(sp().identifier);
+  if (vpos==varsP->end()) {
+    // none found locally
+    varsP = &ScriptGlobals::sharedScriptGlobals().globalVariables;
+    vpos = varsP->find(sp().identifier);
+    if (vpos==varsP->end()) {
+      // none found globally
+      return inherited::valueLookup(aName, aResult);
+    }
   }
-  return inherited::valueLookup(aName, aResult);
+  aResult = vpos->second;
+  return true;
 }
 
 
@@ -2222,7 +2291,7 @@ protected:
 
   virtual bool evaluateFunction(const string &aFunc, const FunctionArguments &aArgs, ExpressionValue &aResult) P44_OVERRIDE
   {
-    if (functionLookUp && functionLookUp(aFunc, aArgs, aResult)) return true;
+    if (functionLookUp && functionLookUp(this, aFunc, aArgs, aResult)) return true;
     return inherited::evaluateFunction(aFunc, aArgs, aResult);
   };
 

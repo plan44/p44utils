@@ -151,11 +151,10 @@ namespace p44 {
   /// @param aArgs vector of function arguments, tuple contains expression starting position and value
   /// @param aResult set to function's result
   /// @return true if function executed, false if function signature (name, number of args) is unknown
-  typedef boost::function<bool (const string& aFunc, const FunctionArguments& aArgs, ExpressionValue& aResult)> FunctionLookupCB;
+  typedef boost::function<bool (EvaluationContext* aEvalContext, const string& aFunc, const FunctionArguments& aArgs, ExpressionValue& aResult)> FunctionLookupCB;
 
 
-
-  /// evaluate expression
+  /// evaluate expression in an ad-hoc, isolated context, providing function and value callbacks
   /// @param aExpression the expression text
   /// @param aValueLookupCB this will be called to get variables resolved into values
   /// @param aFunctionLookpCB this will be called to execute functions that are not built-in
@@ -209,10 +208,14 @@ namespace p44 {
     #define EXPRESSION_OPERATOR_MODE EXPRESSION_OPERATOR_MODE_FLEXIBLE
   #endif
 
+
   /// Basic Expression Evaluation Context
   class EvaluationContext : public P44Obj
   {
     friend class ExpressionValue;
+
+    typedef std::list<FunctionLookupCB> FunctionCBList;
+    FunctionCBList functionCallbacks;
 
   public:
 
@@ -387,6 +390,11 @@ namespace p44 {
     ///   (which includes delayed re-evaluations the context triggers itself, e.g. when timed functions are called)
     void setEvaluationResultHandler(EvaluationResultCB aEvaluationResultHandler);
 
+    /// register additional (synchronous) function handler
+    /// @note function handlers will be called to check for functions in the order they are registered, before
+    ///   checking the class hierarchy's built-in functions
+    void registerFunctionHandler(FunctionLookupCB aFunctionLookupHandler);
+
     /// trigger a (re-)evaluation
     /// @param aEvalMode the evaluation mode for this evaluation.
     /// @note evaluation result handler, if set, will be called when complete
@@ -439,6 +447,34 @@ namespace p44 {
 
     /// @}
 
+    /// @name virtual methods that can be overridden in subclasses to extend functionality
+    /// @{
+
+    /// release all evaluation state (none in base class)
+    virtual void releaseState() { /* NOP: no state in base class */ };
+
+    /// lookup variables by name
+    /// @param aName the name of the value/variable to look up (any case, comparison must be case insensitive)
+    /// @param aResult set the value here
+    /// @return true if value returned, false if value is unknown
+    virtual bool valueLookup(const string &aName, ExpressionValue &aResult);
+
+    /// evaluation of synchronously implemented functions which immediately return a result
+    /// @param aFunc the name of the function to execute, always passed in in all lowercase
+    /// @param aResult set the function result here
+    /// @return true if function executed, false if function signature is unknown
+    virtual bool evaluateFunction(const string &aFunc, const FunctionArguments &aArgs, ExpressionValue &aResult);
+
+    /// evaluation of asynchronously implemented functions which may yield execution and resume later
+    /// @param aFunc the name of the function to execute
+    /// @param aNotYielded
+    /// - true when execution has not yieled and the function evaluation is complete
+    /// - false when the execution of the function has yielded and resumeEvaluation() will be called to complete
+    /// @return true if function executed, false if function signature is unknown
+    /// @note this method will not be called when context is set to execute synchronously, so these functions will not be available then.
+    virtual bool evaluateAsyncFunction(const string &aFunc, const FunctionArguments &aArgs, bool &aNotYielded);
+
+    /// @}
 
   protected:
 
@@ -554,35 +590,6 @@ namespace p44 {
     /// @}
 
 
-    /// @name virtual methods that can be overridden in subclasses to extend functionality
-    /// @{
-
-    /// release all evaluation state (none in base class)
-    virtual void releaseState() { /* NOP: no state in base class */ };
-
-    /// lookup variables by name
-    /// @param aName the name of the value/variable to look up (any case, comparison must be case insensitive)
-    /// @param aResult set the value here
-    /// @return true if value returned, false if value is unknown
-    virtual bool valueLookup(const string &aName, ExpressionValue &aResult);
-
-    /// evaluation of synchronously implemented functions which immediately return a result
-    /// @param aFunc the name of the function to execute, always passed in in all lowercase
-    /// @param aResult set the function result here
-    /// @return true if function executed, false if function signature is unknown
-    virtual bool evaluateFunction(const string &aFunc, const FunctionArguments &aArgs, ExpressionValue &aResult);
-
-    /// evaluation of asynchronously implemented functions which may yield execution and resume later
-    /// @param aFunc the name of the function to execute
-    /// @param aNotYielded
-    /// - true when execution has not yieled and the function evaluation is complete
-    /// - false when the execution of the function has yielded and resumeEvaluation() will be called to complete
-    /// @return true if function executed, false if function signature is unknown
-    /// @note this method will not be called when context is set to execute synchronously, so these functions will not be available then.
-    virtual bool evaluateAsyncFunction(const string &aFunc, const FunctionArguments &aArgs, bool &aNotYielded);
-
-    /// @}
-
     /// @name API for timed evaluation and freezing values in functions that can be used in timed evaluations
     /// @note base class does not actually implement freezing, but API with dummy functionalizy
     ///   is defined here so function evaluation can use without knowing the context they will execute in
@@ -623,12 +630,29 @@ namespace p44 {
 
   #if EXPRESSION_SCRIPT_SUPPORT
 
+  typedef std::map<string, ExpressionValue, lessStrucmp> VariablesMap;
+
+  class ScriptGlobals
+  {
+    friend class ScriptExecutionContext;
+
+    VariablesMap globalVariables; ///< global variables
+
+  public:
+
+    static ScriptGlobals& sharedScriptGlobals();
+
+  };
+
+  static ScriptGlobals *scriptGlobals = NULL;
+
+
+
   // execution of scripts
   class ScriptExecutionContext : public EvaluationContext
   {
     typedef EvaluationContext inherited;
 
-    typedef std::map<string, ExpressionValue, lessStrucmp> VariablesMap;
     VariablesMap variables; ///< script local variables
 
   public:
@@ -643,10 +667,15 @@ namespace p44 {
     ///   or a permanent one set with setEvaluationResultHandler()
     bool execute(bool aAsynchronously, EvaluationResultCB aOneTimeEvaluationResultHandler = NULL);
 
+    /// continue execution of the current script text in the 
+    /// @param aChainResultHandler is called when the chained script part completes or is aborted
+    /// @return true if chained script has not yielded control (i.e. completed running synchronously)
+    /// @note always calls the evaluation result handler (aOneTimeEvaluationResultHandler if set,
+    ///   or a permanent one set with setEvaluationResultHandler()
+    bool chainContext(ScriptExecutionContext& aTargetContext, EvaluationResultCB aChainResultHandler);
+
     /// release all evaluation state (variables)
     virtual void releaseState() P44_OVERRIDE;
-
-  protected:
 
     /// lookup variables by name
     /// @param aName the name of the value/variable to look up (any case, comparison must be case insensitive)
@@ -656,6 +685,8 @@ namespace p44 {
 
     /// script context specific functions
     virtual bool evaluateFunction(const string &aFunc, const FunctionArguments &aArgs, ExpressionValue &aResult) P44_OVERRIDE;
+
+  protected:
 
     /// @name Evaluation state machine
     /// @{
@@ -710,6 +741,9 @@ namespace p44 {
     /// @note this will cancel a possibly already scheduled re-evaluation unconditionally
     void scheduleReEvaluation(MLMicroSeconds aAtTime);
 
+    /// timed context specific functions
+    virtual bool evaluateFunction(const string &aFunc, const FunctionArguments &aArgs, ExpressionValue &aResult) P44_OVERRIDE;
+
   protected:
 
     /// release all evaluation state (such as frozen subexpressions)
@@ -731,9 +765,6 @@ namespace p44 {
     /// @param aAtPos the starting character index of the subexpression to unfreeze
     /// @return true if there was a frozen result at aAtPos
     virtual bool unfreeze(size_t aAtPos) P44_OVERRIDE;
-
-    /// timed context specific functions
-    virtual bool evaluateFunction(const string &aFunc, const FunctionArguments &aArgs, ExpressionValue &aResult) P44_OVERRIDE;
 
   private:
 
