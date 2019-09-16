@@ -231,6 +231,7 @@ namespace p44 {
     /// set value of pin (NOP for inputs)
     /// @param aValue new value to set output to
     virtual void setValue(double aValue);
+
   };
 
 

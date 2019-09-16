@@ -30,7 +30,7 @@ using namespace std;
 
 namespace p44 {
 
-  /// Generic digital I/O
+  /// Generic analog I/O
   class AnalogIo : public P44Obj
   {
     AnalogIOPinPtr ioPin; ///< the actual hardware interface to the pin

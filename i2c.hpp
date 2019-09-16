@@ -319,31 +319,6 @@ namespace p44 {
 
 
 
-  /// wrapper class for digital I/O pin
-  class I2CPin : public IOPin
-  {
-    typedef IOPin inherited;
-
-    I2CBitPortDevicePtr bitPortDevice;
-    int pinNumber;
-    bool output;
-    bool lastSetState;
-
-  public:
-
-    /// create i2c based digital input or output pin
-    I2CPin(int aBusNumber, const char *aDeviceId, int aPinNumber, bool aOutput, bool aInitialState, bool aPullUp);
-
-    /// get state of pin
-    /// @return current state (from actual GPIO pin for inputs, from last set state for outputs)
-    virtual bool getState() P44_OVERRIDE;
-
-    /// set state of pin (NOP for inputs)
-    /// @param aState new state to set output to
-    virtual void setState(bool aState) P44_OVERRIDE;
-  };  
-
-
   // MARK: - analog IO
 
 
@@ -426,9 +401,37 @@ namespace p44 {
 
 
 
+  // MARK: - Wrapper classes
 
 
-  /// wrapper class for analog I/O pin
+  /// wrapper class for a pin that is used as digital I/O (can also make use of analog I/O pins for that)
+  class I2CPin : public IOPin
+  {
+    typedef IOPin inherited;
+
+    I2CBitPortDevicePtr bitPortDevice;
+    I2CAnalogPortDevicePtr analogPortDevice;
+    int pinNumber;
+    bool output;
+    bool lastSetState;
+
+  public:
+
+    /// create i2c based digital input or output pin
+    I2CPin(int aBusNumber, const char *aDeviceId, int aPinNumber, bool aOutput, bool aInitialState, bool aPullUp);
+
+    /// get state of pin
+    /// @return current state (from actual GPIO pin for inputs, from last set state for outputs)
+    virtual bool getState() P44_OVERRIDE;
+
+    /// set state of pin (NOP for inputs)
+    /// @param aState new state to set output to
+    virtual void setState(bool aState) P44_OVERRIDE;
+  };
+
+
+
+  /// wrapper class for analog I/O pin actually used as analog I/O
   class AnalogI2CPin : public AnalogIOPin
   {
     typedef AnalogIOPin inherited;

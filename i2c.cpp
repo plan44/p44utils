@@ -669,7 +669,7 @@ void MCP23017::updateDirection(int aForBitNo)
 // MARK: - I2Cpin
 
 
-/// create i2c based digital input or output pin
+/// create i2c based digital input or output pin (or use an analog pin as digital I/O)
 I2CPin::I2CPin(int aBusNumber, const char *aDeviceId, int aPinNumber, bool aOutput, bool aInitialState, bool aPullUp) :
   output(false),
   lastSetState(false)
@@ -678,10 +678,16 @@ I2CPin::I2CPin(int aBusNumber, const char *aDeviceId, int aPinNumber, bool aOutp
   output = aOutput;
   I2CDevicePtr dev = I2CManager::sharedManager().getDevice(aBusNumber, aDeviceId);
   bitPortDevice = boost::dynamic_pointer_cast<I2CBitPortDevice>(dev);
+  analogPortDevice = boost::dynamic_pointer_cast<I2CAnalogPortDevice>(dev);
   if (bitPortDevice) {
+    // bitport device, which is configurable for I/O and pullup
     bitPortDevice->setAsOutput(pinNumber, output, aInitialState, aPullUp);
-    lastSetState = aInitialState;
   }
+  else if (analogPortDevice) {
+    // analog device used as digital signal
+    setState(aInitialState); // just set the state
+  }
+  lastSetState = aInitialState;
 }
 
 
@@ -695,6 +701,12 @@ bool I2CPin::getState()
     else
       return bitPortDevice->getBitState(pinNumber);
   }
+  else if (analogPortDevice) {
+    // use analog pin as digital input
+    double min=0, max=100, res=1;
+    analogPortDevice->getPinRange(pinNumber, min, max, res);
+    return analogPortDevice->getPinValue(pinNumber)>min+(max-min)/2; // above the middle
+  }
   return false;
 }
 
@@ -703,8 +715,17 @@ bool I2CPin::getState()
 /// @param aState new state to set output to
 void I2CPin::setState(bool aState)
 {
-  if (bitPortDevice && output)
-    bitPortDevice->setBitState(pinNumber, aState);
+  if (output) {
+    if (bitPortDevice) {
+      bitPortDevice->setBitState(pinNumber, aState);
+    }
+    else if (analogPortDevice) {
+      // use analog pin as digital output
+      double min=0, max=100, res=1;
+      analogPortDevice->getPinRange(pinNumber, min, max, res);
+      analogPortDevice->setPinValue(pinNumber, aState ? max : min);
+    }
+  }
   lastSetState = aState;
 }
 
