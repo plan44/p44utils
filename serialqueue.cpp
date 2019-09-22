@@ -112,7 +112,6 @@ void SerialOperationSend::appendByte(uint8_t aByte)
 
 bool SerialOperationSend::initiate()
 {
-  if (!canInitiate()) return false;
   FOCUSLOG("SerialOperationSend::initiate: sending %zd bytes now", dataSize);
   size_t res;
   if (dataP && transmitter) {
