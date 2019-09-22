@@ -1678,6 +1678,7 @@ bool ScriptExecutionContext::chainContext(ScriptExecutionContext& aTargetContext
     aTargetContext.setEvalLogLevel(evalLogLevel); // inherit log level
     aTargetContext.setCode(tail(pos)); // pass tail
     pos = codeString.size(); // skip tail
+    aTargetContext.abort(false); // abort previously running script
     return aTargetContext.execute(true, aChainResultHandler);
   }
 }
