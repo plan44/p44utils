@@ -59,6 +59,8 @@ using namespace std;
 
 namespace p44 {
 
+  class LEDChainComm;
+  typedef boost::intrusive_ptr<LEDChainComm> LEDChainCommPtr;
 
   class LEDChainComm : public P44Obj
   {
@@ -78,6 +80,7 @@ namespace p44 {
     string deviceName; // the LED device name
     uint16_t inactiveStartLeds; // number of inactive LEDs at the start of the chain
     uint16_t inactiveBetweenLeds; // number of inactive LEDs between physical rows
+    uint16_t inactiveEndLeds; // number of inactive LEDs at the end of the chain (we have buffer for them, but do not set colors for them)
     uint16_t numLeds; // number of LEDs
     uint16_t ledsPerRow; // number of LEDs per row (physically, along WS2812 chain)
     uint16_t numRows; // number of rows (sections of WS2812 chain)
@@ -88,6 +91,8 @@ namespace p44 {
 
     bool initialized;
     uint8_t numColorComponents; // depends on ledType
+
+    LEDChainCommPtr chainDriver; // the LED chain used for outputting LED values. Usually: myself, but if this instance just maps a second part of another chain, this will point to the other chain
 
     #if ENABLE_RPIWS281X
     ws2811_t ledstring; // the descriptor for the rpi_ws2811 library
@@ -109,6 +114,7 @@ namespace p44 {
     /// @param aYReversed Y direction is reversed
     /// @param aInactiveStartLeds number of extra LEDs at the beginning of the chain that are not active
     /// @param aInactiveBetweenLeds number of extra LEDs between rows that are not active
+    /// @param aInactiveEndLeds number of LEDs at the end of the chain that are not mapped by this instance (but might be in use by other instances which use this one with setChainDriver())
     LEDChainComm(
       LedType aLedType,
       const string aDeviceName,
@@ -119,11 +125,25 @@ namespace p44 {
       bool aSwapXY=false,
       bool aYReversed=false,
       uint16_t aInactiveStartLeds=0,
-      uint16_t aInactiveBetweenLeds=0
+      uint16_t aInactiveBetweenLeds=0,
+      uint16_t aInactiveEndLeds=0
     );
 
     /// destructor
     ~LEDChainComm();
+
+    /// @return device (driver) name of this chain. Must be unqiuely identify the actual hardware output channel
+    const string &getDeviceName() { return deviceName; };
+
+    /// set this LedChainComm to use another chain's actual output driver, i.e. only act as mapping
+    /// layer. This allows to have multiple different mappings on the same chain (i.e. part of the chain wound as tube,
+    /// extending into a linear chain etc.)
+    /// @param aLedChainComm a LedChainComm to be used to output LED values
+    /// @note must be called before begin()
+    void setChainDriver(LEDChainCommPtr aLedChainComm);
+
+    /// @return true if this LedChainComm acts as a hardware driver (and not as a secondary)
+    bool isHardwareDriver() { return chainDriver==NULL; };
 
     /// begin using the driver
     bool begin();
@@ -134,6 +154,7 @@ namespace p44 {
     /// transfer RGB values to LED chain
     /// @note this must be called to update the actual LEDs after modifying RGB values
     /// with setColor() and/or setColorDimmed()
+    /// @note if this is a secondary mapping, show() does nothing - only the driving chain can transfer value to the hardware
     void show();
 
     /// clear all LEDs to off (but must call show() to actually show it
@@ -172,7 +193,7 @@ namespace p44 {
     void getColorXY(uint16_t aX, uint16_t aY, uint8_t &aRed, uint8_t &aGreen, uint8_t &aBlue, uint8_t &aWhite);
     void getColor(uint16_t aLedNumber, uint8_t &aRed, uint8_t &aGreen, uint8_t &aBlue, uint8_t &aWhite);
 
-    /// @return number of active LEDs in the chain (that are active, i.e. minus inactiveStartLeds/inactiveBetweenLeds)
+    /// @return number of active LEDs in the chain (that are active, i.e. minus inactiveStartLeds/inactiveBetweenLeds/inactiveEndLeds)
     uint16_t getNumLeds();
 
     /// @return size of array in X direction (x range is 0..getSizeX()-1)
@@ -185,8 +206,14 @@ namespace p44 {
 
     uint16_t ledIndexFromXY(uint16_t aX, uint16_t aY);
 
+    /// set color at raw LED index with no mapping calculations in between
+    void setColorAtLedIndex(uint16_t aLedIndex, uint8_t aRed, uint8_t aGreen, uint8_t aBlue, uint8_t aWhite);
+
+    /// set color from raw LED index with no mapping calculations in between
+    void getColorAtLedIndex(uint16_t aLedIndex, uint8_t &aRed, uint8_t &aGreen, uint8_t &aBlue, uint8_t &aWhite);
+
+
   };
-  typedef boost::intrusive_ptr<LEDChainComm> LEDChainCommPtr;
 
 
   #if ENABLE_P44LRGRAPHICS
