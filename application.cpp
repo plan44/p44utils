@@ -240,7 +240,7 @@ void Application::setDataPath(const char *aDataPath)
 string Application::tempPath(const string aTempFile)
 {
   if (aTempFile.empty())
-    return TEMP_DIR_PATH; // just return data path
+    return TEMP_DIR_PATH; // just return temp path
   if (aTempFile[0]=='/')
     return aTempFile; // argument is absolute path, use it as-is
   // relative to temp directory

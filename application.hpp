@@ -79,21 +79,21 @@ namespace p44 {
     ///   otherwise, app will log aError's description at LOG_ERR level and then terminate with EXIT_FAILURE
     void terminateAppWith(ErrorPtr aError);
 
-    /// get resource path
+    /// get resource path. Resources are usually readonly files
     /// @param aResource if not empty, and it is an absolute path, the the result will be just this path
     ///   if it is a relative path, the application's resource path will be prepended.
     /// @return if aRelativePath is empty, result is the application's resource directory (no separator at end)
     ///   Otherwise, it is the absolute path to the resource specified with aResource
     string resourcePath(const string aResource = "");
 
-    /// get data path
+    /// get data path. Data are usually persistent read/write files
     /// @param aDataFile if not empty, and it is an absolute path, the the result will be just this path
     ///   if it is a relative path, the application's data path will be prepended.
     /// @return if aDataFile is empty, result is the application's data directory (no separator at end)
     ///   Otherwise, it is the absolute path to the data file specified with aDataFile
     string dataPath(const string aDataFile = "");
 
-    /// get temp path
+    /// get temp path. Temp data are usually non-persistent read/write files located in a ram disk
     /// @param aTempFile if not empty, and it is an absolute path, the the result will be just this path
     ///   if it is a relative path, the application's temp path will be prepended.
     /// @return if aTempFile is empty, result is the application's temp directory (no separator at end)
