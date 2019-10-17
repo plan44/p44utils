@@ -24,7 +24,7 @@
 #define ALWAYS_DEBUG 0
 // - set FOCUSLOGLEVEL to non-zero log level (usually, 5,6, or 7==LOG_DEBUG) to get focus (extensive logging) for this file
 //   Note: must be before including "logger.hpp" (or anything that includes "logger.hpp")
-#define FOCUSLOGLEVEL 7
+#define FOCUSLOGLEVEL 0
 
 #include "expressions.hpp"
 
@@ -241,7 +241,7 @@ EvaluationContext::EvaluationContext(const GeoLocation* aGeoLocationP) :
   runningSince(Never),
   nextEvaluation(Never),
   synchronous(true),
-  evalLogLevel(FOCUSLOGGING ? FOCUSLOGLEVEL : 0), // default to focus level
+  evalLogLevel(FOCUSLOGGING ? FOCUSLOGLEVEL : LOG_INFO), // default to focus level if any, LOG_INFO normally
   execTimeLimit(DEFAULT_EXEC_TIME_LIMIT),
   syncExecLimit(DEFAULT_SYNC_EXEC_LIMIT),
   syncRunTime(DEFAULT_SYNC_RUN_TIME),
@@ -1189,9 +1189,9 @@ bool EvaluationContext::resumeTerm()
     return abortWithSyntaxError("missing closing ')' in function call");
   }
   else if (sp().state==s_funcExec) {
-    ELOG("Calling Function '%s'", sp().identifier.c_str());
+    ELOG_DBG("Calling Function '%s'", sp().identifier.c_str());
     for (int ai=0; ai<sp().args.size(); ai++) {
-      ELOG("- argument at char pos=%zu: %s (err=%s)", sp().args.getPos(ai), sp().args[ai].stringValue().c_str(), Error::text(sp().args[ai].err));
+      ELOG_DBG("- argument at char pos=%zu: %s (err=%s)", sp().args.getPos(ai), sp().args[ai].stringValue().c_str(), Error::text(sp().args[ai].err));
     }
     // run function
     newstate(s_result); // expecting result from function
@@ -1456,7 +1456,7 @@ bool EvaluationContext::evaluateFunction(const string &aFunc, const FunctionArgu
       evalLogLevel
     );
     if (aResult.notValue()) {
-      FOCUSLOG("eval(\"%s\") returns error '%s' in expression: '%s'", aArgs[0].stringValue().c_str(), aResult.err->text(), getCode());
+      ELOG("eval(\"%s\") returns error '%s' in expression: '%s'", aArgs[0].stringValue().c_str(), aResult.err->text(), getCode());
       // do not cause syntax error, only invalid result, but with error message included
       aResult.setNull(string_format("eval() error: %s -> undefined", aResult.err->text()).c_str());
     }
@@ -1866,7 +1866,7 @@ bool ScriptExecutionContext::resumeStatements()
           // does not yet exist, create it with null value
           ExpressionValue null;
           (*varsP)[varName] = null;
-          ELOG("Defined %s variable %.*s", glob ? "GLOBAL" : "LOCAL", (int)vsz,vn);
+          ELOG_DBG("Defined %s variable %.*s", glob ? "GLOBAL" : "LOCAL", (int)vsz,vn);
           newVar = true;
         }
       }
@@ -1925,7 +1925,7 @@ bool ScriptExecutionContext::resumeAssignment()
   }
   if (!sp().skipping) {
     // assign variable
-    ELOG("Assigned %s variable: %s := %s", glob ? "global" : "local", sp().identifier.c_str(), sp().res.stringValue().c_str());
+    ELOG_DBG("Assigned %s variable: %s := %s", glob ? "global" : "local", sp().identifier.c_str(), sp().res.stringValue().c_str());
     vpos->second = sp().res;
     return popAndPassResult(sp().res);
   }
@@ -2147,7 +2147,7 @@ TimedEvaluationContext::FrozenResult* TimedEvaluationContext::getFrozen(Expressi
   if (frozenVal!=frozenResults.end()) {
     frozenResultP = &(frozenVal->second);
     // there is a frozen result for this position in the expression
-    ELOG("- frozen result (%s) for actual result (%s) at char pos %zu exists - will expire %s",
+    ELOG_DBG("- frozen result (%s) for actual result (%s) at char pos %zu exists - will expire %s",
       frozenResultP->frozenResult.stringValue().c_str(),
       aResult.stringValue().c_str(),
       aRefPos,
@@ -2174,11 +2174,11 @@ TimedEvaluationContext::FrozenResult* TimedEvaluationContext::newFreeze(FrozenRe
     newFreeze.frozenResult = aNewResult; // full copy, including pos
     newFreeze.frozenUntil = aFreezeUntil;
     frozenResults[aRefPos] = newFreeze;
-    ELOG("- new result (%s) frozen for pos %zu until %s", aNewResult.stringValue().c_str(), aRefPos, MainLoop::string_mltime(newFreeze.frozenUntil).c_str());
+    ELOG_DBG("- new result (%s) frozen for pos %zu until %s", aNewResult.stringValue().c_str(), aRefPos, MainLoop::string_mltime(newFreeze.frozenUntil).c_str());
     return &frozenResults[aRefPos];
   }
   else if (!aExistingFreeze->frozen() || aUpdate || aFreezeUntil==Never) {
-    ELOG("- existing freeze updated to value %s and to expire %s",
+    ELOG_DBG("- existing freeze updated to value %s and to expire %s",
       aNewResult.stringValue().c_str(),
       aFreezeUntil==Never ? "IMMEDIATELY" : MainLoop::string_mltime(aFreezeUntil).c_str()
     );
@@ -2186,7 +2186,7 @@ TimedEvaluationContext::FrozenResult* TimedEvaluationContext::newFreeze(FrozenRe
     aExistingFreeze->frozenUntil = aFreezeUntil;
   }
   else {
-    ELOG("- no freeze created/updated");
+    ELOG_DBG("- no freeze created/updated");
   }
   return aExistingFreeze;
 }
