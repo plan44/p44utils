@@ -64,12 +64,26 @@ JsonObject::~JsonObject()
 #define MAX_JSON_BUF_SIZE 20000
 
 
+static const char *nextCommentDelimiter(bool aStarting, const char* aText, ssize_t aTextLen)
+{
+  char c1 = aStarting ? '/' : '*';
+  char c2 = aStarting ? '*' : '/';
+  char c;
+  while((c = *aText) && aTextLen>0) {
+    if (c==c1 && *(aText+1)==c2) return aText;
+    aText++;
+    aTextLen--;
+  }
+  return NULL;
+}
+
+
 static const char *nextParsableSegment(const char*& aText, ssize_t& aTextLen, size_t& aSegmentLen, bool aAllowCComments, bool &aInComment)
 {
   const char* seg = NULL;
   if (aAllowCComments) {
     const char* cc;
-    while ((cc = strnstr(aText, aInComment ? "*/" : "/*", aTextLen))) {
+    while ((cc = nextCommentDelimiter(!aInComment, aText, aTextLen))) {
       // change of comment state
       aInComment = !aInComment;
       seg = aText;
