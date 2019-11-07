@@ -2213,7 +2213,7 @@ bool TimedEvaluationContext::evaluateFunction(const string &aFunc, const Functio
   if (aFunc=="testlater" && aArgs.size()>=2 && aArgs.size()<=3) {
     // testlater(seconds, timedtest [, retrigger])   return "invalid" now, re-evaluate after given seconds and return value of test then. If repeat is true then, the timer will be re-scheduled
     bool retrigger = false;
-    if (aArgs.size()>=3) retrigger = aArgs[2].isValue() && aArgs[2].numValue()>0;
+    if (aArgs.size()>=3) retrigger = aArgs[2].isValue() && aArgs[2].boolValue();
     ExpressionValue secs = aArgs[0];
     if (retrigger && secs.numValue()<MIN_RETRIGGER_SECONDS) {
       // prevent too frequent re-triggering that could eat up too much cpu
@@ -2223,12 +2223,13 @@ bool TimedEvaluationContext::evaluateFunction(const string &aFunc, const Functio
     ExpressionValue currentSecs = secs;
     size_t refPos = aArgs.getPos(0);
     FrozenResult* frozenP = getFrozen(currentSecs, refPos);
+    bool evalNow = frozenP && !frozenP->frozen();
     if (evalMode!=evalmode_timed) {
-      if (evalMode!=evalmode_initial) {
-        // evaluating non-timed, non-initial means "not yet ready" and must start or extend freeze period
+      if (evalMode!=evalmode_initial || retrigger) {
+        // evaluating non-timed, non-initial (or retriggering) means "not yet ready" and must start or extend freeze period
         newFreeze(frozenP, secs, refPos, MainLoop::now()+secs.numValue()*Second, true);
       }
-      frozenP = NULL; // not end of freeze for check below
+      evalNow = false; // never evaluate on non-timed run
     }
     else {
       // evaluating timed after frozen period means "now is later" and if retrigger is set, must start a new freeze
@@ -2236,7 +2237,7 @@ bool TimedEvaluationContext::evaluateFunction(const string &aFunc, const Functio
         newFreeze(frozenP, secs, refPos, MainLoop::now()+secs.numValue()*Second);
       }
     }
-    if (frozenP && !frozenP->frozen()) {
+    if (evalNow) {
       // evaluation runs because freeze is over, return test result
       aResult.setNumber(aArgs[1].numValue());
     }
