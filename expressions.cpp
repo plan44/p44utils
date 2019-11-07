@@ -775,7 +775,14 @@ bool EvaluationContext::resumeEvaluation()
 // no variables in base class
 bool EvaluationContext::valueLookup(const string &aName, ExpressionValue &aResult)
 {
-  // no variables by default
+  VariablesMap* varsP = &ScriptGlobals::sharedScriptGlobals().globalVariables;
+  VariablesMap::iterator vpos = varsP->find(aName);
+  if (vpos!=varsP->end()) {
+    // found global variable
+    aResult = vpos->second;
+    return true;
+  }
+  // not found
   return false;
 }
 
@@ -2031,19 +2038,13 @@ bool ScriptExecutionContext::resumeWhile()
 
 bool ScriptExecutionContext::valueLookup(const string &aName, ExpressionValue &aResult)
 {
-  VariablesMap* varsP = &variables;
-  VariablesMap::iterator vpos = varsP->find(sp().identifier);
-  if (vpos==varsP->end()) {
-    // none found locally
-    varsP = &ScriptGlobals::sharedScriptGlobals().globalVariables;
-    vpos = varsP->find(sp().identifier);
-    if (vpos==varsP->end()) {
-      // none found globally
-      return inherited::valueLookup(aName, aResult);
-    }
+  VariablesMap::iterator vpos = variables.find(sp().identifier);
+  if (vpos!=variables.end()) {
+    aResult = vpos->second;
+    return true;
   }
-  aResult = vpos->second;
-  return true;
+  // none found locally. Let base class check for globals
+  return inherited::valueLookup(aName, aResult);
 }
 
 

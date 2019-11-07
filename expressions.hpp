@@ -635,6 +635,7 @@ namespace p44 {
   class ScriptGlobals
   {
     friend class ScriptExecutionContext;
+    friend class EvaluationContext;
 
     VariablesMap globalVariables; ///< global variables
 
