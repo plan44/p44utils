@@ -24,18 +24,16 @@
 
 // NOTE: This is a default (template) config file only
 //                 ******************
-//       Usually, copy this file into a location where is is found BEFORE this
-//       default file is found, and modify the copied version according to
+//       Usually, copy this file into a location outside p44utils in your project,
+//       rename it to p44utils_config.hpp and modify it according to
 //       your needs.
-//       DO NOT MODIFY THE ORIGINAL IN the p44utils directory/git submodule!
 
 #ifndef ENABLE_EXPRESSIONS
   #define ENABLE_EXPRESSIONS 1 // Expression/Script engine support in some of the p44utils components
 #endif
 #ifndef ENABLE_P44LRGRAPHICS
-  #define ENABLE_P44LRGRAPHICS 1 // p44lrgraphics support in some of the p44utils components
+  #define ENABLE_P44LRGRAPHICS 0 // p44lrgraphics support in some of the p44utils components
 #endif
-
 
 
 #endif // __p44utils__config__
