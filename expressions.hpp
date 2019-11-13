@@ -235,7 +235,7 @@ namespace p44 {
       op_leq        = 0xB3,
       op_geq        = 0xC3,
       op_and        = 0xD2,
-      op_or         = 0xE2,
+      op_or         = 0xE1,
       op_assign     = 0xF0,
       opmask_precedence = 0x0F
     } Operations;
