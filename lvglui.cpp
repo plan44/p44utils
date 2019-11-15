@@ -360,7 +360,10 @@ ErrorPtr LvGLUiStyle::configure(JsonObjectPtr aConfig)
     style.body.grad_color = colorFromWebColor(o->stringValue());
   }
   if (aConfig->get("radius", o)) {
-    style.body.radius = (lv_coord_t)o->int32Value();
+    if (o->stringValue()=="circle")
+      style.body.radius = LV_RADIUS_CIRCLE;
+    else
+      style.body.radius = (lv_coord_t)o->int32Value();
   }
   if (aConfig->get("alpha", o)) {
     style.body.opa = (lv_opa_t)o->int32Value();
