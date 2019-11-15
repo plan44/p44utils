@@ -630,7 +630,7 @@ void LVGLUiElement::installEventHandler()
 
 void LVGLUiElement::runEventScript(lv_event_t aEvent, const string &aScriptCode)
 {
-  lvglui.runEventScript(aEvent, this, aScriptCode);
+  lvglui.queueEventScript(aEvent, this, aScriptCode);
 }
 
 
@@ -1139,7 +1139,7 @@ bool LvGLUiScriptContext::evaluateFunction(const string &aFunc, const FunctionAr
   else if (aFunc=="refresh" && aArgs.size()<=1) {
     // refresh([<element>])
     LVGLUiElementPtr elem = currentElement;
-    if (aArgs.size()==0) {
+    if (aArgs.size()!=0) {
       elem = lvglui.namedElement(aArgs[0].stringValue(), currentElement);
     }
     if (elem) {
@@ -1299,17 +1299,30 @@ LVGLUiElementPtr LvGLUi::namedElement(string aElementPath, LVGLUiElementPtr aOri
 }
 
 
-
-
-
-
-void LvGLUi::runEventScript(lv_event_t aEvent, LVGLUiElementPtr aElement, const string &aScriptCode)
+void LvGLUi::queueEventScript(lv_event_t aEvent, LVGLUiElementPtr aElement, const string &aScriptCode)
 {
-  uiScriptContext.abort();
-  uiScriptContext.currentEvent = aEvent;
-  uiScriptContext.currentElement = aElement;
-  uiScriptContext.setCode(aScriptCode);
-  uiScriptContext.execute(true);
+  scriptRequests.push_back(LvGLUiScriptRequest(aEvent, aElement, aScriptCode));
+  if (scriptRequests.size()==1) {
+    // there was no script pending, must start
+    runNextScript();
+  }
+}
+
+void LvGLUi::runNextScript()
+{
+  if (!scriptRequests.empty()) {
+    uiScriptContext.currentEvent = scriptRequests.front().event;
+    uiScriptContext.currentElement = scriptRequests.front().element;
+    uiScriptContext.setCode(scriptRequests.front().scriptCode);
+    uiScriptContext.execute(true, boost::bind(&LvGLUi::scriptDone, this));
+  }
+}
+
+
+void LvGLUi::scriptDone()
+{
+  scriptRequests.pop_front();
+  runNextScript();
 }
 
 

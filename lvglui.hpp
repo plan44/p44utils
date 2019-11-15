@@ -336,9 +336,24 @@ namespace p44 {
 
   // MARK: - LvGLUi
 
+
   class LvGLUi : public LVGLUiContainer
   {
     typedef LVGLUiContainer inherited;
+
+    class LvGLUiScriptRequest
+    {
+      friend class LvGLUi;
+
+      LvGLUiScriptRequest(lv_event_t aEvent, LVGLUiElementPtr aElement, const string &aScriptCode) :
+      event(aEvent), element(aElement), scriptCode(aScriptCode) {};
+      lv_event_t event;
+      LVGLUiElementPtr element;
+      string scriptCode;
+    };
+
+    typedef std::list<LvGLUiScriptRequest> ScriptRequestList;
+    ScriptRequestList scriptRequests;
 
     lv_disp_t *display; ///< the display this gui appears on
 
@@ -386,9 +401,13 @@ namespace p44 {
     /// @return requested element or NULL if none found
     LVGLUiElementPtr namedElement(string aElementPath, LVGLUiElementPtr aOrigin);
 
+    /// queue event script to run (when others scripts are done)
+    void queueEventScript(lv_event_t aEvent, LVGLUiElementPtr aElement, const string &aScriptCode);
 
-    /// run event script
-    void runEventScript(lv_event_t aEvent, LVGLUiElementPtr aElement, const string &aScriptCode);
+  private:
+
+    void runNextScript();
+    void scriptDone();
 
   };
 
