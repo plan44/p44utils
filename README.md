@@ -13,6 +13,9 @@ p44utils
 Usage
 -----
 p44utils are meant to be included as .cpp and .hpp files into a project (usually as a git submodule) and compiled together with the project's other sources.
+
+Some aspects can be configured via the `p44utils_config.hpp` header file, which should be placed somewhere in the project's header search path. There is a template file name `p44utils_config_TEMPLATE.hpp` which can be copied into the project and renamed to `p44utils_config.hpp`.
+
 Examples using p44utils: [p44vdc](https://github.com/plan44/p44vdc)/[vdcd](https://github.com/plan44/vdcd), [pixelboardd](https://github.com/plan44/pixelboardd), [p44wiperd](https://github.com/plan44/p44wiperd), [lethd](https://github.com/plan44/lethd).
 
 License
@@ -44,11 +47,4 @@ Features
 - helper class for serial data controlled RGB and RGBW LED chains (WS281x, SK6812; APA102 planned)
 - other stuff :-)
 
-(c) 2013-2018 by Lukas Zeller / [plan44.ch](http://www.plan44.ch/opensource)
-
-
-
-
-
-
-
+(c) 2013-2019 by Lukas Zeller / [plan44.ch](http://www.plan44.ch/opensource)
