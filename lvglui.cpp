@@ -1126,9 +1126,11 @@ bool LvGLUiScriptContext::evaluateFunction(const string &aFunc, const FunctionAr
     // setText([<element>,] text)
     LVGLUiElementPtr elem = currentElement;
     int arridx = 0;
+    if (aArgs[arridx].notValue()) return errorInArg(aArgs[arridx], aResult); // return error/null from argument
     if (aArgs.size()>1) {
       elem = lvglui.namedElement(aArgs[arridx].stringValue(), currentElement);
       arridx++;
+      if (aArgs[arridx].notValue()) return errorInArg(aArgs[arridx], aResult); // return error/null from argument
     }
     if (elem) {
       elem->setText(aArgs[arridx].stringValue());
@@ -1260,7 +1262,7 @@ LVGLUiElementPtr LvGLUi::namedElement(string aElementPath, LVGLUiElementPtr aOri
     aOrigin = this;
   }
   else {
-    aElementPath.erase(0);
+    aElementPath.erase(0,1); // remove dot
     if (aElementPath.size()==0) return aOrigin; // single dot means origin itself
   }
   // now process as relative lookup
@@ -1270,7 +1272,7 @@ LVGLUiElementPtr LvGLUi::namedElement(string aElementPath, LVGLUiElementPtr aOri
     if (sep==0) {
       // (at least) double dot, step back to parent
       aOrigin = aOrigin->parentP;
-      aElementPath.erase(0);
+      aElementPath.erase(0,1);
       continue;
     }
     string elemname;
@@ -1281,7 +1283,7 @@ LVGLUiElementPtr LvGLUi::namedElement(string aElementPath, LVGLUiElementPtr aOri
     }
     else {
       elemname = aElementPath.substr(0,sep);
-      aElementPath.erase(sep+1);
+      aElementPath.erase(0,sep+1);
     }
     LVGLUiContainerPtr cont = boost::dynamic_pointer_cast<LVGLUiContainer>(aOrigin);
     if (cont) {
