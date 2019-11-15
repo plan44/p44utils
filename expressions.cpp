@@ -1649,7 +1649,7 @@ ScriptExecutionContext::~ScriptExecutionContext()
 
 void ScriptExecutionContext::releaseState()
 {
-  ELOG("All variables released now for expression: '%s'", getCode());
+  ELOG_DBG("All variables released now for expression: '%s'", getCode());
   variables.clear();
 }
 
