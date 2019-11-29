@@ -111,8 +111,7 @@ bool LEDChainComm::begin()
   if (!initialized) {
     if (chainDriver) {
       // another LED chain outputs to the hardware, make sure that one is up
-      chainDriver->begin();
-      initialized = true;
+      initialized = chainDriver->begin();
     }
     else {
       #if ENABLE_RPIWS281X
@@ -177,7 +176,7 @@ void LEDChainComm::clear()
   if (!initialized) return;
   if (chainDriver) {
     // this is just a secondary mapping on a primary chain: clear only the actually mapped LEDs
-    for (uint16_t led = inactiveStartLeds; led<numLeds-inactiveStartLeds; led++) {
+    for (uint16_t led = inactiveStartLeds; led<numLeds-inactiveEndLeds; led++) {
       chainDriver->setColor(led, 0, 0, 0, 0);
     }
   }
@@ -449,11 +448,11 @@ void LEDChainArrangement::addLEDChain(const string &aChainSpec)
   uint16_t inactiveStartLeds = 0;
   uint16_t inactiveBetweenLeds = 0;
   uint16_t remainingInactive = 0;
-  PixelRect covers;
-  covers.x = 0;
-  covers.y = 0;
-  covers.dx = numleds;
-  covers.dy = 1;
+  PixelRect newCover;
+  newCover.x = 0;
+  newCover.y = 0;
+  newCover.dx = numleds;
+  newCover.dy = 1;
   PixelCoord offsets = { 0, 0 };
   // parse chain specification
   // Syntax: [chaintype:[leddevicename:]]numberOfLeds:[x:dx:y:dy:firstoffset:betweenoffset][XYSA]
@@ -499,11 +498,11 @@ void LEDChainArrangement::addLEDChain(const string &aChainSpec)
       // number
       int n = atoi(part.c_str());
       switch (nmbrcnt) {
-        case 0: numleds = n; covers.dx = n; break;
-        case 1: covers.x = n; break;
-        case 2: covers.dx = n; break;
-        case 3: covers.y = n; break;
-        case 4: covers.dy = n; break;
+        case 0: numleds = n; newCover.dx = n; break;
+        case 1: newCover.x = n; break;
+        case 2: newCover.dx = n; break;
+        case 3: newCover.y = n; break;
+        case 4: newCover.dy = n; break;
         case 5: inactiveStartLeds = n; break;
         case 6: inactiveBetweenLeds = n; break;
         default: break;
@@ -512,9 +511,9 @@ void LEDChainArrangement::addLEDChain(const string &aChainSpec)
     }
   }
   // calculate remaining inactive LEDs at end of chain
-  remainingInactive = numleds-inactiveStartLeds-covers.dx*covers.dy-(covers.dy-1)*inactiveBetweenLeds;
-  if (remainingInactive>numleds) {
-    LOG(LOG_WARNING, "Specified area needs more LEDs than actually available, are");
+  remainingInactive = numleds-inactiveStartLeds-newCover.dx*newCover.dy-((swapXY ? newCover.dx : newCover.dy)-1)*inactiveBetweenLeds;
+  if (remainingInactive<0) {
+    LOG(LOG_WARNING, "Specified area needs %d more LEDs than actually are available", -remainingInactive);
     remainingInactive = 0; // overflow, nothing remains
   }
   // now instantiate chain
@@ -522,7 +521,7 @@ void LEDChainArrangement::addLEDChain(const string &aChainSpec)
     ledType,
     deviceName,
     numleds,
-    covers.dx, // ledsPerRow
+    (swapXY ? newCover.dy : newCover.dx), // ledsPerRow
     xReversed,
     alternating,
     swapXY,
@@ -532,8 +531,8 @@ void LEDChainArrangement::addLEDChain(const string &aChainSpec)
     remainingInactive
   ));
   LOG(LOG_INFO,
-    "Installed ledchain covering area x=%d, dx=%d, y=%d, dy=%d on device '%s'. %d LEDs inactive at start, %d at end.",
-    covers.x, covers.dx, covers.y, covers.dy, ledChain->getDeviceName().c_str(),
+    "Installed ledchain covering area: x=%d, dx=%d, y=%d, dy=%d on device '%s'. %d LEDs inactive at start, %d at end.",
+    newCover.x, newCover.dx, newCover.y, newCover.dy, ledChain->getDeviceName().c_str(),
     inactiveStartLeds, remainingInactive
   );
   // check for being a secondary chain mapping for an already driven chain
@@ -546,7 +545,7 @@ void LEDChainArrangement::addLEDChain(const string &aChainSpec)
       break;
     }
   }
-  addLEDChain(ledChain, covers, offsets);
+  addLEDChain(ledChain, newCover, offsets);
 }
 
 
@@ -555,6 +554,10 @@ void LEDChainArrangement::addLEDChain(LEDChainCommPtr aLedChain, PixelRect aCove
   if (!aLedChain) return; // no chain
   ledChains.push_back(LEDChainFixture(aLedChain, aCover, aOffset));
   recalculateCover();
+  LOG(LOG_INFO,
+    "- enclosing rectangle of all covered areas: x=%d, dx=%d, y=%d, dy=%d",
+    covers.x, covers.dx, covers.y, covers.dy
+  );
 }
 
 
@@ -591,7 +594,7 @@ MLMicroSeconds LEDChainArrangement::updateDisplay()
     if (dirty || now>lastUpdate+MAX_UPDATE_INTERVAL) {
       // needs update
       if (now<lastUpdate+minUpdateInterval) {
-        // cannot update now, but we should update ASAP
+        // cannot update now, but return the time when we can update next time
         return lastUpdate+minUpdateInterval;
       }
       else {
@@ -659,24 +662,24 @@ void LEDChainArrangement::begin(bool aAutoStep)
 
 MLMicroSeconds LEDChainArrangement::step()
 {
-  MLMicroSeconds nextCall = Infinite;
+  MLMicroSeconds nextStep = Infinite;
   if (rootView) {
     do {
-      nextCall = rootView->step(lastUpdate+maxPriorityInterval);
-    } while (nextCall==0);
-    MLMicroSeconds n = updateDisplay();
-    if (nextCall<0 || (n>0 && n<nextCall)) {
-      nextCall = n;
+      nextStep = rootView->step(lastUpdate+maxPriorityInterval);
+    } while (nextStep==0);
+    MLMicroSeconds nextDisp = updateDisplay();
+    if (nextStep<0 || (nextDisp>0 && nextDisp<nextStep)) {
+      nextStep = nextDisp;
     }
   }
   MLMicroSeconds now = MainLoop::now();
-  // now we have nextCall according to the view hierarchy's needs
+  // now we have nextStep according to the view hierarchy's step needs and the display's updating needs
   // - insert extra steps to avoid stalling completeley in case something goes wrong
-  if (nextCall<0 || nextCall-now>MAX_STEP_INTERVAL) {
-    nextCall = now+MAX_STEP_INTERVAL;
+  if (nextStep<0 || nextStep-now>MAX_STEP_INTERVAL) {
+    nextStep = now+MAX_STEP_INTERVAL;
   }
-  // caller MUST call again at nextCall!
-  return nextCall;
+  // caller MUST call again at nextStep!
+  return nextStep;
 }
 
 
