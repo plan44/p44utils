@@ -503,6 +503,13 @@ static LVGLUiElementPtr createElement(LvGLUi& aLvGLUI, JsonObjectPtr aConfig, LV
 
 // MARK: - LVGLUiElement
 
+const void* LVGLUiElement::imgSrc(const string& aSource)
+{
+  if (aSource.empty()) return NULL;
+  return aSource.c_str();
+}
+
+
 
 LVGLUiElement::LVGLUiElement(LvGLUi& aLvGLUI, LVGLUiContainer* aParentP, lv_obj_t *aTemplate) :
   inherited(aLvGLUI),
@@ -921,6 +928,19 @@ void LvGLUiButton::setText(const string &aNewText)
 
 // MARK: - LvGLUiImgButton
 
+const void* LvGLUiImgButton::imgBtnSrc(const string& aSource)
+{
+  const void* src = LVGLUiElement::imgSrc(aSource);
+  if (src) {
+    // avoid symbols in image buttons (these only work in normal images)
+    if (lv_img_src_get_type(src)==LV_IMG_SRC_SYMBOL) {
+      src = NULL;
+    }
+  }
+  return src;
+}
+
+
 LvGLUiImgButton::LvGLUiImgButton(LvGLUi& aLvGLUI, LVGLUiContainer* aParentP, lv_obj_t *aTemplate) :
   inherited(aLvGLUI, aParentP, aTemplate)
 {
@@ -931,6 +951,8 @@ LvGLUiImgButton::LvGLUiImgButton(LvGLUi& aLvGLUI, LVGLUiContainer* aParentP, lv_
 ErrorPtr LvGLUiImgButton::configure(JsonObjectPtr aConfig)
 {
   // configure params
+  ErrorPtr err;
+  uint32_t statesMask = 0;
   JsonObjectPtr o;
   if (aConfig->get("toggle", o)) {
     lv_imgbtn_set_toggle(element, o->boolValue());
@@ -939,22 +961,27 @@ ErrorPtr LvGLUiImgButton::configure(JsonObjectPtr aConfig)
   if (aConfig->get("released_image", o) || aConfig->get("image", o)) {
     relImgSrc = lvglui.namedImageSource(o->stringValue());
     lv_imgbtn_set_src(element, LV_BTN_STATE_REL, relImgSrc.c_str());
+    statesMask |= 1<<LV_BTN_STATE_REL;
   }
   if (aConfig->get("pressed_image", o)) {
     prImgSrc = lvglui.namedImageSource(o->stringValue());
     lv_imgbtn_set_src(element, LV_BTN_STATE_PR, prImgSrc.c_str());
+    statesMask |= 1<<LV_BTN_STATE_PR;
   }
   if (aConfig->get("on_image", o)) {
     tglPrImgSrc = lvglui.namedImageSource(o->stringValue());
     lv_imgbtn_set_src(element, LV_BTN_STATE_TGL_PR, tglPrImgSrc.c_str());
+    statesMask |= 1<<LV_BTN_STATE_TGL_PR;
   }
   if (aConfig->get("off_image", o)) {
     tglRelImgSrc = lvglui.namedImageSource(o->stringValue());
     lv_imgbtn_set_src(element, LV_BTN_STATE_TGL_REL, tglRelImgSrc.c_str());
+    statesMask |= 1<<LV_BTN_STATE_TGL_REL;
   }
   if (aConfig->get("disabled_image", o)) {
     inaImgSrc = lvglui.namedImageSource(o->stringValue());
     lv_imgbtn_set_src(element, LV_BTN_STATE_INA, inaImgSrc.c_str());
+    statesMask |= 1<<LV_BTN_STATE_INA;
   }
   // event handling
   if (aConfig->get("onpress", o)) {
@@ -964,6 +991,13 @@ ErrorPtr LvGLUiImgButton::configure(JsonObjectPtr aConfig)
   if (aConfig->get("onrelease", o)) {
     onReleaseScript = o->stringValue();
     installEventHandler();
+  }
+  // make sure all states have an image
+  for (int bs = 0; bs<_LV_BTN_STATE_NUM; bs++) {
+    if ((statesMask & (1<<bs))==0) {
+      // no image specified, use relImgSrc
+      lv_imgbtn_set_src(element, bs, relImgSrc.c_str());
+    }
   }
   return inherited::configure(aConfig);
 }
@@ -1203,6 +1237,7 @@ LvGLUi::LvGLUi() :
 
 void LvGLUi::clear()
 {
+  lv_img_cache_invalidate_src(NULL); // clear image cache
   inherited::clear();
   styles.clear();
   adhocStyles.clear();
@@ -1210,12 +1245,17 @@ void LvGLUi::clear()
 }
 
 
-ErrorPtr LvGLUi::initForDisplay(lv_disp_t* aDisplay, JsonObjectPtr aInitialConfig)
+void LvGLUi::initForDisplay(lv_disp_t* aDisplay)
 {
   clear();
   display = aDisplay;
-  if (aInitialConfig) return configure(aInitialConfig);
-  return ErrorPtr();
+}
+
+
+ErrorPtr LvGLUi::setConfig(JsonObjectPtr aConfig)
+{
+  clear();
+  return configure(aConfig);
 }
 
 
@@ -1377,7 +1417,12 @@ ErrorPtr LvGLUi::configure(JsonObjectPtr aConfig)
 
 string LvGLUi::imagePath(const string aImageSpec)
 {
-  return Application::sharedApplication()->dataPath(aImageSpec);
+  string f = Application::sharedApplication()->dataPath(aImageSpec);
+  if (access(f.c_str(), R_OK)>=0) return f;
+  f = Application::sharedApplication()->resourcePath(aImageSpec);
+  if (access(f.c_str(), R_OK)>=0) return f;
+  //return "";
+  return LV_SYMBOL_DUMMY "missing:" + aImageSpec; // label instead of image
 }
 
 

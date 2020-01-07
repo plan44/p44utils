@@ -195,6 +195,8 @@ typedef struct {
 /// @return LV_RES_OK: no error; LV_RES_INV: can't get the info
 static lv_res_t png_decoder_info(lv_img_decoder_t* decoder, const void* src, lv_img_header_t* header)
 {
+  lv_img_src_t imgtype = lv_img_src_get_type(src);
+  if (imgtype==LV_IMG_SRC_SYMBOL) return LV_RES_INV; // short cut any PNG specifics
   // maintain a PngDecoderState as user data of the decoder
   PngDecoderState* pngDecP = (PngDecoderState*)decoder->user_data;
   if (pngDecP==NULL) {
@@ -213,7 +215,6 @@ static lv_res_t png_decoder_info(lv_img_decoder_t* decoder, const void* src, lv_
     free(pngDecP->pngBuffer);
     pngDecP->pngBuffer = NULL;
   }
-  lv_img_src_t imgtype = lv_img_src_get_type(src);
   if (imgtype==LV_IMG_SRC_FILE) {
     const char *fn = (const char*)src;
     size_t n = strlen(fn);

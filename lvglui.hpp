@@ -159,6 +159,8 @@ namespace p44 {
 
     void installEventHandler();
 
+    static const void* imgSrc(const string& aSource);
+
   };
   typedef std::map<string, LVGLUiElementPtr> ElementMap;
   typedef std::list<LVGLUiElementPtr> ElementList;
@@ -277,6 +279,7 @@ namespace p44 {
     virtual bool wrapperNeeded() P44_OVERRIDE { return true; }; // wrapper stores the image sources, must be kept
   protected:
     virtual void handleEvent(lv_event_t aEvent) P44_OVERRIDE;
+    static const void *imgBtnSrc(const string& aSource);
   };
 
 
@@ -371,10 +374,13 @@ namespace p44 {
 
     LvGLUi();
 
-    /// initialize for use with a specified display and create UI hierarchy from config
-    ErrorPtr initForDisplay(lv_disp_t* aDisplay, JsonObjectPtr aInitialConfig);
+    /// initialize for use with a specified display
+    void initForDisplay(lv_disp_t* aDisplay);
 
-    /// can be used to re-configure UI later (e.g. to add more screens)
+    /// clear current UI and set new config
+    ErrorPtr setConfig(JsonObjectPtr aConfig);
+
+    /// can be used to re-configure UI later (e.g. to add more screens) without clearing existing UI hierarchy
     virtual ErrorPtr configure(JsonObjectPtr aConfig) P44_OVERRIDE;
 
     /// get named theme (from themes defined in config)
