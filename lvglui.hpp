@@ -146,7 +146,7 @@ namespace p44 {
     virtual void setValue(int16_t aValue, uint16_t aAnimationTime = 0) { /* NOP in base class */ }
 
     /// set a new text for an element
-    virtual void setText(const string &aNewText) { /* NOP in base class */ }
+    void setText(const string &aNewText);
 
     /// get value
     /// @return current value of the control
@@ -158,6 +158,8 @@ namespace p44 {
   protected:
 
     void installEventHandler();
+    virtual void setTextRaw(const string &aNewText) { /* NOP in base class */ }
+
 
     static const void* imgSrc(const string& aSource);
 
@@ -233,7 +235,7 @@ namespace p44 {
   public:
     LvGLUiImage(LvGLUi& aLvGLUI, LVGLUiContainer* aParentP, lv_obj_t *aTemplate);
     virtual ErrorPtr configure(JsonObjectPtr aConfig) P44_OVERRIDE;
-    virtual void setText(const string &aNewText) P44_OVERRIDE;
+    virtual void setTextRaw(const string &aNewText) P44_OVERRIDE;
     virtual bool wrapperNeeded() P44_OVERRIDE { return true; }; // wrapper stores the image source, must be kept
 };
 
@@ -244,7 +246,7 @@ namespace p44 {
   public:
     LvGLUiLabel(LvGLUi& aLvGLUI, LVGLUiContainer* aParentP, lv_obj_t *aTemplate);
     virtual ErrorPtr configure(JsonObjectPtr aConfig) P44_OVERRIDE;
-    virtual void setText(const string &aNewText) P44_OVERRIDE;
+    virtual void setTextRaw(const string &aNewText) P44_OVERRIDE;
   };
 
 
@@ -259,7 +261,7 @@ namespace p44 {
     virtual ErrorPtr configure(JsonObjectPtr aConfig) P44_OVERRIDE;
   protected:
     virtual void handleEvent(lv_event_t aEvent) P44_OVERRIDE;
-    virtual void setText(const string &aNewText) P44_OVERRIDE;
+    virtual void setTextRaw(const string &aNewText) P44_OVERRIDE;
   };
 
 

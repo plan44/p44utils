@@ -653,6 +653,37 @@ void LVGLUiElement::handleEvent(lv_event_t aEvent)
 }
 
 
+void LVGLUiElement::setText(const string &aNewText)
+{
+  string out;
+  size_t pos = 0, sym;
+  // replace &sym; pseudo-HTML-entities with symbols.
+  while (true) {
+    sym = aNewText.find('&',pos);
+    if (sym==string::npos)
+      break;
+    out.append(aNewText.substr(pos, sym-pos));
+    pos = sym+1;
+    sym = aNewText.find(';',pos);
+    if (sym==string::npos) {
+      out += '&';
+      continue;
+    }
+    string sy = getSymbolByName(aNewText.substr(pos, sym-pos));
+    if (sy.empty()) {
+      out += aNewText.substr(pos-1, sym-pos+2);
+    }
+    else {
+      out += sy;
+    }
+    pos = sym+1;
+  }
+  // append rest
+  out.append(aNewText.substr(pos));
+  setTextRaw(out);
+}
+
+
 
 // MARK: - LvGLUiLayoutContainer
 
@@ -782,7 +813,7 @@ ErrorPtr LvGLUiImage::configure(JsonObjectPtr aConfig)
 }
 
 
-void LvGLUiImage::setText(const string &aNewText)
+void LvGLUiImage::setTextRaw(const string &aNewText)
 {
   string imgTxt = LV_SYMBOL_DUMMY;
   imgTxt.append(aNewText);
@@ -828,7 +859,7 @@ ErrorPtr LvGLUiLabel::configure(JsonObjectPtr aConfig)
   return inherited::configure(aConfig);
 }
 
-void LvGLUiLabel::setText(const string &aNewText)
+void LvGLUiLabel::setTextRaw(const string &aNewText)
 {
   lv_label_set_text(element, aNewText.c_str());
 }
@@ -920,7 +951,7 @@ void LvGLUiButton::handleEvent(lv_event_t aEvent)
 }
 
 
-void LvGLUiButton::setText(const string &aNewText)
+void LvGLUiButton::setTextRaw(const string &aNewText)
 {
   if (label) lv_label_set_text(label, aNewText.c_str());
 }
