@@ -83,6 +83,10 @@ extern "C" {
     ModbusConnection* modbusConnection = (ModbusConnection*)cbctx;
     if (modbusConnection && modbusConnection->modbusTxEnable) {
       modbusConnection->modbusTxEnable->set(on);
+      if (modbusConnection->modbusRxEnable) {
+        // we have separate Rx enable, set this to the inverse of Tx enable
+        modbusConnection->modbusRxEnable->set(!on);
+      }
     }
   }
 
@@ -92,7 +96,9 @@ extern "C" {
 
 ErrorPtr ModbusConnection::setConnectionSpecification(
   const char* aConnectionSpec, uint16_t aDefaultPort, const char *aDefaultCommParams,
-  const char *aTransmitEnableSpec, MLMicroSeconds aTxDisableDelay, int aByteTimeNs
+  const char *aTransmitEnableSpec, MLMicroSeconds aTxDisableDelay,
+  const char *aReceiveEnableSpec,
+  int aByteTimeNs
 )
 {
   ErrorPtr err;
@@ -126,6 +132,9 @@ ErrorPtr ModbusConnection::setConnectionSpecification(
       if (aTransmitEnableSpec!=NULL && *aTransmitEnableSpec!=0 && strcasecmp("RTS", aTransmitEnableSpec)!=0) {
         // not using native RTS, but digital IO specification
         modbusTxEnable = DigitalIoPtr(new DigitalIo(aTransmitEnableSpec, true, false));
+      }
+      if (aReceiveEnableSpec) {
+        modbusRxEnable = DigitalIoPtr(new DigitalIo(aReceiveEnableSpec, true, true));
       }
     }
     if (baudRate==0 || connectionPath.empty()) {

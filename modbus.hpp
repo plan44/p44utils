@@ -117,6 +117,7 @@ namespace p44 {
     ///    If set to NULL or "RTS", the RTS line enables the RS485 drivers.
     ///    If set to "RS232", the connection is a plain two-point serial connection
     /// @param aTxDisableDelay if>0, time delay in uS before disabling Tx driver after sending
+    /// @param aReceiveEnableSpec optional specification of a DigitalIo used to enable the RS485 receive input (to silence echos)
     /// @param aByteTimeNs if>0, byte time in nanoseconds, in case UART does not have precise baud rate
     /// @return error in case the connection context cannot be created from these parameters
     /// @note commParams syntax is: [baud rate][,[bits][,[parity][,[stopbits][,[H]]]]]
@@ -125,6 +126,7 @@ namespace p44 {
     ErrorPtr setConnectionSpecification(
       const char* aConnectionSpec, uint16_t aDefaultPort, const char *aDefaultCommParams,
       const char *aTransmitEnableSpec = NULL, MLMicroSeconds aTxDisableDelay = Never,
+      const char *aReceiveEnableSpec = NULL,
       int aByteTimeNs = 0
     );
 
@@ -233,6 +235,7 @@ namespace p44 {
   public:
     // stuff that needs to be public because friend declaration does not work in gcc (does in clang)
     DigitalIoPtr modbusTxEnable; ///< if set, this I/O is used to enable sending
+    DigitalIoPtr modbusRxEnable; ///< if set, this I/O is used to enable receiving
 
   };
 
