@@ -431,25 +431,28 @@ namespace p44 {
     /// read single register
     /// @param aRegAddr the register address
     /// @param aRegData will receive the register's data
+    /// @param aInput if set, read from input-only register
     /// @return error, if any
     /// @note if no connection already exists, connection will be opened before and closed after the call
-    ErrorPtr readRegister(int aRegAddr, uint16_t &aRegData);
+    ErrorPtr readRegister(int aRegAddr, uint16_t &aRegData, bool aInput = false);
 
     /// read float register pair
     /// @param aRegAddr address of the first of two registers containing a float value
     /// @param aFloatData will receive the float data
+    /// @param aInput if set, read from input-only register
     /// @return error, if any
     /// @note if no connection already exists, connection will be opened before and closed after the call
     /// @note the byte order in the registers must match the mode set with setFloatMode()
-    ErrorPtr readFloatRegister(int aRegAddr, double &aFloatData);
+    ErrorPtr readFloatRegister(int aRegAddr, double &aFloatData, bool aInput = false);
 
     /// read multiple registers
     /// @param aRegAddr the register address of the first register
     /// @param aNumRegs how many consecutive registers to read
     /// @param aRegsP pointer to where to store the register data (must have room for aNumRegs registers)
+    /// @param aInput if set, read from input-only register
     /// @return error, if any
     /// @note if no connection already exists, connection will be opened before and closed after the call
-    ErrorPtr readRegisters(int aRegAddr, int aNumRegs, uint16_t *aRegsP);
+    ErrorPtr readRegisters(int aRegAddr, int aNumRegs, uint16_t *aRegsP, bool aInput = false);
 
     /// write single register
     /// @param aRegAddr the register address
@@ -473,6 +476,38 @@ namespace p44 {
     /// @return error, if any
     /// @note if no connection already exists, connection will be opened before and closed after the call
     ErrorPtr writeRegisters(int aRegAddr, int aNumRegs, const uint16_t *aRegsP);
+
+    /// read single bit
+    /// @param aBitAddr the bit address
+    /// @param aBitData will receive the bit's state
+    /// @param aInput if set, read from input-only bit
+    /// @return error, if any
+    /// @note if no connection already exists, connection will be opened before and closed after the call
+    ErrorPtr readBit(int aBitAddr, bool &aBitData, bool aInput = false);
+
+    /// read multiple bits
+    /// @param aBitAddr the bit address
+    /// @param aNumBits how many consecutive bits to read
+    /// @param aBitsP pointer to where to store the bit data (must have room for aNumBits bits)
+    /// @param aInput if set, read from input-only bit
+    /// @return error, if any
+    /// @note if no connection already exists, connection will be opened before and closed after the call
+    ErrorPtr readBits(int aBitAddr, int aNumBits, uint8_t *aBitsP, bool aInput = false);
+
+    /// write single bit
+    /// @param aBitAddr the bit address
+    /// @param aBitData data to write to the bit
+    /// @return error, if any
+    /// @note if no connection already exists, connection will be opened before and closed after the call
+    ErrorPtr writeBit(int aBitAddr, bool aBitData);
+
+    /// write multiple bits
+    /// @param aBitAddr the bit address
+    /// @param aNumBits how many consecutive bits to write
+    /// @param aBitsP pointer to data to write to the bits (must be data for aNumRegs bits)
+    /// @return error, if any
+    /// @note if no connection already exists, connection will be opened before and closed after the call
+    ErrorPtr writeBits(int aBitAddr, int aNumBits, const uint8_t *aBitsP);
 
     /// request slave info (ID and run indicator)
     /// @param aId will be set to the id returned from the slave

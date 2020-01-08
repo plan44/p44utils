@@ -443,16 +443,16 @@ ErrorPtr ModbusMaster::findSlaves(SlaveAddrList& aSlaveAddrList, string aMatchSt
 // MARK: - ModbusMaster register and bit access
 
 
-ErrorPtr ModbusMaster::readRegister(int aRegAddr, uint16_t &aRegData)
+ErrorPtr ModbusMaster::readRegister(int aRegAddr, uint16_t &aRegData, bool aInput)
 {
-  return readRegisters(aRegAddr, 1, &aRegData);
+  return readRegisters(aRegAddr, 1, &aRegData, aInput);
 }
 
 
-ErrorPtr ModbusMaster::readFloatRegister(int aRegAddr, double &aFloatData)
+ErrorPtr ModbusMaster::readFloatRegister(int aRegAddr, double &aFloatData, bool aInput)
 {
   uint16_t floatRegs[2];
-  ErrorPtr err = readRegisters(aRegAddr, 2, floatRegs);
+  ErrorPtr err = readRegisters(aRegAddr, 2, floatRegs, aInput);
   if (Error::isOK(err)) {
     aFloatData = getAsDouble(floatRegs);
   }
@@ -461,13 +461,20 @@ ErrorPtr ModbusMaster::readFloatRegister(int aRegAddr, double &aFloatData)
 
 
 
-ErrorPtr ModbusMaster::readRegisters(int aRegAddr, int aNumRegs, uint16_t *aRegsP)
+ErrorPtr ModbusMaster::readRegisters(int aRegAddr, int aNumRegs, uint16_t *aRegsP, bool aInput)
 {
   ErrorPtr err;
   bool wasConnected = isConnected();
   if (!wasConnected) err = connect();
   if (Error::isOK(err)) {
-    if (modbus_read_registers(modbus, aRegAddr, aNumRegs, aRegsP)<0) {
+    int ret;
+    if (aInput) {
+      ret = modbus_read_input_registers(modbus, aRegAddr, aNumRegs, aRegsP);
+    }
+    else {
+      ret = modbus_read_registers(modbus, aRegAddr, aNumRegs, aRegsP);
+    }
+    if (ret<0) {
       err = ModBusError::err<ModBusError>(errno);
     }
   }
@@ -505,6 +512,62 @@ ErrorPtr ModbusMaster::writeRegisters(int aRegAddr, int aNumRegs, const uint16_t
   if (!wasConnected) close();
   return err;
 }
+
+
+ErrorPtr ModbusMaster::readBit(int aBitAddr, bool &aBitData, bool aInput)
+{
+  uint8_t bit;
+  ErrorPtr err = readBits(aBitAddr, 1, &bit, aInput);
+  if (Error::isOK(err)) aBitData = bit!=0;
+  return err;
+}
+
+
+ErrorPtr ModbusMaster::readBits(int aBitAddr, int aNumBits, uint8_t *aBitsP, bool aInput)
+{
+  ErrorPtr err;
+  bool wasConnected = isConnected();
+  if (!wasConnected) err = connect();
+  if (Error::isOK(err)) {
+    int ret;
+    if (aInput) {
+      ret = modbus_read_input_bits(modbus, aBitAddr, aNumBits, aBitsP);
+    }
+    else {
+      ret = modbus_read_bits(modbus, aBitAddr, aNumBits, aBitsP);
+    }
+    if (ret<0) {
+      err = ModBusError::err<ModBusError>(errno);
+    }
+  }
+  if (!wasConnected) close();
+  return err;
+}
+
+
+ErrorPtr ModbusMaster::writeBit(int aBitAddr, bool aBitData)
+{
+  uint8_t bit = aBitData;
+  return writeBits(aBitAddr, 1, &bit);
+}
+
+
+ErrorPtr ModbusMaster::writeBits(int aBitAddr, int aNumBits, const uint8_t *aBitsP)
+{
+  ErrorPtr err;
+  bool wasConnected = isConnected();
+  if (!wasConnected) err = connect();
+  if (Error::isOK(err)) {
+    if (modbus_write_bits(modbus, aBitAddr, aNumBits, aBitsP)<0) {
+      err = ModBusError::err<ModBusError>(errno);
+    }
+  }
+  if (!wasConnected) close();
+  return err;
+}
+
+
+
 
 
 // MARK: - ModbusMaster file record access
