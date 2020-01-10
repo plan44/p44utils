@@ -1190,15 +1190,15 @@ bool LvGLUiScriptContext::evaluateFunction(const string &aFunc, const FunctionAr
   else if (aFunc=="settext" && aArgs.size()>=1 && aArgs.size()<=2) {
     // setText([<element>,] text)
     LVGLUiElementPtr elem = currentElement;
-    int arridx = 0;
-    if (aArgs[arridx].notValue()) return errorInArg(aArgs[arridx], aResult); // return error/null from argument
+    int argidx = 0;
+    if (aArgs[argidx].notValue()) return errorInArg(aArgs[argidx], aResult); // return error/null from argument
     if (aArgs.size()>1) {
-      elem = lvglui.namedElement(aArgs[arridx].stringValue(), currentElement);
-      arridx++;
-      if (aArgs[arridx].notValue()) return errorInArg(aArgs[arridx], aResult); // return error/null from argument
+      elem = lvglui.namedElement(aArgs[argidx].stringValue(), currentElement);
+      argidx++;
+      if (aArgs[argidx].notValue()) return errorInArg(aArgs[argidx], aResult); // return error/null from argument
     }
     if (elem) {
-      elem->setText(aArgs[arridx].stringValue());
+      elem->setText(aArgs[argidx].stringValue());
     }
   }
   else if (aFunc=="refresh" && aArgs.size()<=1) {
@@ -1219,15 +1219,15 @@ bool LvGLUiScriptContext::evaluateFunction(const string &aFunc, const FunctionAr
     }
   }
   else if (aFunc=="configure" && aArgs.size()>=1 && aArgs.size()<=2) {
-    // setText([<element>,] <filename|json>)
+    // configure([<element>,] <filename|json|key=value>)
     LVGLUiElementPtr elem = currentElement;
-    int arridx = 0;
+    int argidx = 0;
     if (aArgs.size()>1) {
-      elem = lvglui.namedElement(aArgs[arridx].stringValue(), currentElement);
-      arridx++;
+      elem = lvglui.namedElement(aArgs[argidx].stringValue(), currentElement);
+      argidx++;
     }
     if (elem) {
-      string cfgstr = aArgs[arridx].stringValue();
+      string cfgstr = aArgs[argidx].stringValue();
       JsonObjectPtr cfg;
       ErrorPtr err;
       if (*cfgstr.c_str()=='{') {
@@ -1235,8 +1235,17 @@ bool LvGLUiScriptContext::evaluateFunction(const string &aFunc, const FunctionAr
         cfg = JsonObject::objFromText(cfgstr.c_str(), -1, &err);
       }
       else {
-        // filename
-        cfg = JsonObject::objFromFile(Application::sharedApplication()->resourcePath(cfgstr).c_str(), &err);
+        // key=value or filename
+        string k,v;
+        if (keyAndValue(cfgstr, k, v, '=')) {
+          // - single property change
+          cfg = JsonObject::newObj();
+          cfg->add(k.c_str(), cfg->newString(v));
+        }
+        else {
+          // filename
+          cfg = JsonObject::objFromFile(Application::sharedApplication()->resourcePath(cfgstr).c_str(), &err);
+        }
       }
       if (Error::isOK(err)) {
         err = elem->configure(cfg);
