@@ -616,9 +616,12 @@ void EvaluationContext::continueWithAsyncFunctionResult(const ExpressionValue& a
 bool EvaluationContext::runCallBack(const ExpressionValue &aResult)
 {
   if (evaluationResultHandler && callBack) {
-    // this is where cyclic references could cause re-evaluation, so pretend (again) script running
     EvaluationResultCB cb = evaluationResultHandler;
     if (oneTimeResultHandler) evaluationResultHandler = NULL;
+    // this is where cyclic references could cause re-evaluation
+    // - if running synchronously, keep evaluation in running state until callback is done to prevent tight loops
+    // - if running asynchronously, consider script terminated already
+    if (!synchronous) runningSince = Never;
     cb(aResult, *this);
     return true; // called back
   }
