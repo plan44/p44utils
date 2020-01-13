@@ -482,9 +482,17 @@ void LvGL::lvglTask(MLTimer &aTimer, MLMicroSeconds aNow)
   // also need to update SDL2
   monitor_sdl_refr_core();
   #endif
+  if (taskCallback && dispdev) {
+    taskCallback();
+  }
   MainLoop::currentMainLoop().retriggerTimer(aTimer, LVGL_TICK_PERIOD);
 }
 
+
+void LvGL::setTaskCallback(SimpleCB aCallback)
+{
+  taskCallback = aCallback;
+}
 
 
 

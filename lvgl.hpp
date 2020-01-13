@@ -69,6 +69,9 @@ namespace p44 {
     bool showCursor; ///< set if a cursor should be shown (for debug)
     lv_disp_buf_t disp_buf; ///< the display buffer descriptors
     lv_color_t *buf1; ///< the buffer
+    uint32_t lastActivity; ///< for activity detection
+    SimpleCB taskCallback; ///< called when detecting user activity
+
     #if LV_USE_FILESYSTEM
     lv_fs_drv_t pf_fs_drv;
     #endif
@@ -81,6 +84,8 @@ namespace p44 {
     static LvGL& lvgl();
 
     void init(bool aShowCursor);
+
+    void setTaskCallback(SimpleCB aCallback);
 
   private:
 
