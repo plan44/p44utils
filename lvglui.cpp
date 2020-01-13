@@ -1272,6 +1272,7 @@ LvGLUi::LvGLUi() :
   inherited(*this, NULL, NULL),
   uiScriptContext(*this)
 {
+  name = "LvGLUi";
 }
 
 
@@ -1379,6 +1380,12 @@ LVGLUiElementPtr LvGLUi::namedElement(string aElementPath, LVGLUiElementPtr aOri
 }
 
 
+void LvGLUi::queueGlobalScript(const string &aScriptCode)
+{
+  queueEventScript(LV_EVENT_REFRESH, this, aScriptCode);
+}
+
+
 void LvGLUi::queueEventScript(lv_event_t aEvent, LVGLUiElementPtr aElement, const string &aScriptCode)
 {
   scriptRequests.push_back(LvGLUiScriptRequest(aEvent, aElement, aScriptCode));
@@ -1394,6 +1401,7 @@ void LvGLUi::runNextScript()
     uiScriptContext.currentEvent = scriptRequests.front().event;
     uiScriptContext.currentElement = scriptRequests.front().element;
     uiScriptContext.setCode(scriptRequests.front().scriptCode);
+    LOG(LOG_INFO, "+++ Starting action script for LVGLUiElement '%s'", uiScriptContext.currentElement ? uiScriptContext.currentElement->getName().c_str() : "<none>");
     uiScriptContext.execute(true, boost::bind(&LvGLUi::scriptDone, this));
   }
 }
@@ -1401,6 +1409,7 @@ void LvGLUi::runNextScript()
 
 void LvGLUi::scriptDone()
 {
+  LOG(LOG_INFO, "--- Finished action script for LVGLUiElement '%s'", uiScriptContext.currentElement ? uiScriptContext.currentElement->getName().c_str() : "<none>");
   scriptRequests.pop_front();
   runNextScript();
 }

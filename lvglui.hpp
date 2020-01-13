@@ -412,6 +412,10 @@ namespace p44 {
     /// queue event script to run (when others scripts are done)
     void queueEventScript(lv_event_t aEvent, LVGLUiElementPtr aElement, const string &aScriptCode);
 
+    /// queue global script (executed as refresh event for the LvGLUi container)
+    void queueGlobalScript(const string &aScriptCode);
+
+
   private:
 
     void runNextScript();
