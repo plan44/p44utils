@@ -112,6 +112,8 @@ namespace p44 {
   /// abstract base class for visible UI elements, wrapping a lv_obj
   class LVGLUiElement : public LvGLUIObject
   {
+    friend class LvGLUi;
+
     typedef LvGLUIObject inherited;
     string onEventScript; ///< script executed to process otherwise unhandled lvgl events on this element
     string onRefreshScript; ///< script executed to specifically process "refresh" event
@@ -414,6 +416,9 @@ namespace p44 {
 
     /// queue global script (executed as refresh event for the LvGLUi container)
     void queueGlobalScript(const string &aScriptCode);
+
+    /// load named screen and call its onrefreshscript
+    void loadScreen(const string aScreenName);
 
 
   private:

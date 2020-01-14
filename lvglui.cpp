@@ -1220,10 +1220,7 @@ bool LvGLUiScriptContext::evaluateFunction(const string &aFunc, const FunctionAr
   }
   else if (aFunc=="showscreen" && aArgs.size()==1) {
     // showScreen(<screenname>)
-    LVGLUiElementPtr screen = lvglui.namedElement(aArgs[0].stringValue(), &lvglui);
-    if (screen) {
-      lv_scr_load(screen->element);
-    }
+    lvglui.loadScreen(aArgs[0].stringValue());
   }
   else if (aFunc=="configure" && aArgs.size()>=1 && aArgs.size()<=2) {
     // configure([<element>,] <filename|json|key=value>)
@@ -1387,6 +1384,16 @@ LVGLUiElementPtr LvGLUi::namedElement(string aElementPath, LVGLUiElementPtr aOri
 }
 
 
+void LvGLUi::loadScreen(const string aScreenName)
+{
+  LVGLUiElementPtr screen = namedElement(aScreenName, &lvglui);
+  if (screen) {
+    lv_scr_load(screen->element);
+    lvglui.queueEventScript(LV_EVENT_REFRESH, screen, screen->onRefreshScript);
+  }
+}
+
+
 void LvGLUi::queueGlobalScript(const string &aScriptCode)
 {
   queueEventScript(LV_EVENT_REFRESH, this, aScriptCode);
@@ -1459,14 +1466,12 @@ ErrorPtr LvGLUi::configure(JsonObjectPtr aConfig)
     lv_disp_set_default(display); // make sure screens are created on the correct display
     addElements(o, NULL, true); // screens are just elements with no parent
   }
-  // check for screens
+  // check for start screen to load
   if (aConfig->get("startscreen", o)) {
-    LVGLUiElementPtr screen = namedElement(o->stringValue(), this);
-    if (screen) lv_scr_load(screen->element);
+    loadScreen(o->stringValue());
   }
-  else {
-    return TextError::err("no screen is activated");
-  }
+  // simulate activity
+  lv_disp_trig_activity(NULL);
   return ErrorPtr();
 }
 
