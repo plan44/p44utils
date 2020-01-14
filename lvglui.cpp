@@ -1110,6 +1110,13 @@ ErrorPtr LvGLUiSlider::configure(JsonObjectPtr aConfig)
   if (aConfig->get("knob_inside", o)) {
     lv_slider_set_knob_in(element, o->boolValue());
   }
+  if (aConfig->get("min", o)) {
+    int min = o->int32Value();
+    if (aConfig->get("max", o)) {
+      int max = o->int32Value();
+      lv_slider_set_range(element, min, max);
+    }
+  }
   // event handling
   if (aConfig->get("onchange", o)) {
     onChangeScript = o->stringValue();
