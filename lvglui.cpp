@@ -355,6 +355,11 @@ ErrorPtr LvGLUiStyle::configure(JsonObjectPtr aConfig)
   // - body
   if (aConfig->get("color", o)) {
     style.body.main_color = colorFromWebColor(o->stringValue());
+    // also set gradient color. Use "main_color" to set main color alone
+    style.body.grad_color = style.body.main_color;
+  }
+  if (aConfig->get("main_color", o)) {
+    style.body.main_color = colorFromWebColor(o->stringValue());
   }
   if (aConfig->get("gradient_color", o)) {
     style.body.grad_color = colorFromWebColor(o->stringValue());
