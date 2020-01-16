@@ -89,7 +89,7 @@ namespace p44 {
 
     lv_style_t style; ///< the LGVL style
 
-    LvGLUiStyle(LvGLUi& aLvGLUI) : inherited(aLvGLUI) {};
+    LvGLUiStyle(LvGLUi& aLvGLUI);
 
     /// configure this object from json
     /// @param aConfig JSON object containing configuration propertyname/values

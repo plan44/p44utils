@@ -338,15 +338,19 @@ ErrorPtr LvGLUiTheme::configure(JsonObjectPtr aConfig)
 
 // MARK: - LvGLUiStyle
 
+LvGLUiStyle::LvGLUiStyle(LvGLUi& aLvGLUI) : inherited(aLvGLUI)
+{
+  lv_style_copy(&style, &lv_style_plain); // base on plain by default
+}
+
+
 ErrorPtr LvGLUiStyle::configure(JsonObjectPtr aConfig)
 {
   JsonObjectPtr o;
   if (aConfig->get("template", o)) {
-    lv_style_copy(&style, getStyleByName(o->stringValue()));
-  }
-  else {
-    // use plain by default
-    lv_style_copy(&style, &lv_style_plain);
+    lv_style_t* s = lvglui.namedStyle(o->stringValue());
+    if (!s) return TextError::err("unknown style '%s' as template", o->stringValue().c_str());
+    lv_style_copy(&style, s);
   }
   // set style properties
   if (aConfig->get("glass", o)) {
@@ -1439,6 +1443,7 @@ void LvGLUi::scriptDone()
 ErrorPtr LvGLUi::configure(JsonObjectPtr aConfig)
 {
   JsonObjectPtr o;
+  ErrorPtr err;
   // check for themes
   if (aConfig->get("themes", o)) {
     for (int i = 0; i<o->arrayLength(); ++i) {
@@ -1454,7 +1459,8 @@ ErrorPtr LvGLUi::configure(JsonObjectPtr aConfig)
     for (int i = 0; i<o->arrayLength(); ++i) {
       JsonObjectPtr styleConfig = o->arrayGet(i);
       LvGLUiStylePtr st = LvGLUiStylePtr(new LvGLUiStyle(*this));
-      st->configure(styleConfig);
+      err = st->configure(styleConfig);
+      if (Error::notOK(err)) return err;
       if (st->getName().empty()) return TextError::err("style must have a 'name'");
       styles[st->getName()] = st;
     }
