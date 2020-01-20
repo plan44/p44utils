@@ -1891,8 +1891,9 @@ bool ScriptExecutionContext::resumeStatements()
     if (op==op_assign || op==op_assignOrEq ||((vardef || let) && op==op_equal)) {
       // definitely: this is an assignment
       pos = apos;
-      if (!vardef || newVar) {
-        // assign vardefs only if not already existing (initial value)
+      if (!glob || newVar) {
+        // assign globals only if not already existing (initial value)
+        // Note: local variables will be redefined each time we pass the "var" statement
         push(s_assignToVar);
         sp().identifier = varName; // new frame needs the name to assign value later
         return push(s_newExpression); // but first, evaluate the expression
