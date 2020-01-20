@@ -885,7 +885,7 @@ LvGLUiButton::LvGLUiButton(LvGLUi& aLvGLUI, LVGLUiContainer* aParentP, lv_obj_t 
 }
 
 
-static void configureButtonStyles(LvGLUi &aUi, lv_obj_t *btn, JsonObjectPtr aConfig)
+static void configureButtonCommon(LvGLUi &aUi, lv_obj_t *btn, JsonObjectPtr aConfig)
 {
   JsonObjectPtr o;
   if (aConfig->get("released_style", o)) {
@@ -907,6 +907,15 @@ static void configureButtonStyles(LvGLUi &aUi, lv_obj_t *btn, JsonObjectPtr aCon
   if (aConfig->get("disabled_style", o)) {
     lv_style_t *style = aUi.namedOrAdHocStyle(o, true);
     if (style) lv_btn_set_style(btn, LV_BTN_STYLE_INA, style);
+  }
+  if (aConfig->get("state", o)) {
+    string st = o->stringValue();
+    lv_btn_state_t sta = LV_BTN_STATE_REL; // default to released
+    if (st=="pressed") sta = LV_BTN_STATE_PR;
+    else if (st=="on") sta = LV_BTN_STATE_TGL_PR;
+    else if (st=="off") sta = LV_BTN_STATE_TGL_REL;
+    else if (st=="inactive") sta = LV_BTN_STATE_INA;
+    lv_btn_set_state(btn, sta);
   }
 }
 
@@ -932,7 +941,8 @@ ErrorPtr LvGLUiButton::configure(JsonObjectPtr aConfig)
     label = lv_label_create(element, NULL);
     setText(o->stringValue());
   }
-  configureButtonStyles(lvglui, element, aConfig);
+  // common button+imgBtn properties
+  configureButtonCommon(lvglui, element, aConfig);
   // event handling
   if (aConfig->get("onpress", o)) {
     onPressScript = o->stringValue();
@@ -997,7 +1007,9 @@ ErrorPtr LvGLUiImgButton::configure(JsonObjectPtr aConfig)
   if (aConfig->get("toggle", o)) {
     lv_imgbtn_set_toggle(element, o->boolValue());
   }
-  configureButtonStyles(lvglui, element, aConfig);
+  // common button+imgBtn properties
+  configureButtonCommon(lvglui, element, aConfig);
+  // images
   if (aConfig->get("released_image", o) || aConfig->get("image", o)) {
     relImgSrc = lvglui.namedImageSource(o->stringValue());
     lv_imgbtn_set_src(element, LV_BTN_STATE_REL, relImgSrc.c_str());
