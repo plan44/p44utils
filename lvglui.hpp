@@ -277,6 +277,7 @@ namespace p44 {
     string tglPrImgSrc;
     string tglRelImgSrc;
     string inaImgSrc;
+    bool imgsAssigned;
   public:
     LvGLUiImgButton(LvGLUi& aLvGLUI, LVGLUiContainer* aParentP, lv_obj_t *aTemplate);
     virtual ErrorPtr configure(JsonObjectPtr aConfig) P44_OVERRIDE;

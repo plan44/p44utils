@@ -982,7 +982,8 @@ const void* LvGLUiImgButton::imgBtnSrc(const string& aSource)
 
 
 LvGLUiImgButton::LvGLUiImgButton(LvGLUi& aLvGLUI, LVGLUiContainer* aParentP, lv_obj_t *aTemplate) :
-  inherited(aLvGLUI, aParentP, aTemplate)
+  inherited(aLvGLUI, aParentP, aTemplate),
+  imgsAssigned(false)
 {
   element = lv_imgbtn_create(lvParent(), aTemplate);
 }
@@ -992,7 +993,6 @@ ErrorPtr LvGLUiImgButton::configure(JsonObjectPtr aConfig)
 {
   // configure params
   ErrorPtr err;
-  uint32_t statesMask = 0;
   JsonObjectPtr o;
   if (aConfig->get("toggle", o)) {
     lv_imgbtn_set_toggle(element, o->boolValue());
@@ -1001,27 +1001,30 @@ ErrorPtr LvGLUiImgButton::configure(JsonObjectPtr aConfig)
   if (aConfig->get("released_image", o) || aConfig->get("image", o)) {
     relImgSrc = lvglui.namedImageSource(o->stringValue());
     lv_imgbtn_set_src(element, LV_BTN_STATE_REL, relImgSrc.c_str());
-    statesMask |= 1<<LV_BTN_STATE_REL;
   }
   if (aConfig->get("pressed_image", o)) {
     prImgSrc = lvglui.namedImageSource(o->stringValue());
     lv_imgbtn_set_src(element, LV_BTN_STATE_PR, prImgSrc.c_str());
-    statesMask |= 1<<LV_BTN_STATE_PR;
   }
   if (aConfig->get("on_image", o)) {
     tglPrImgSrc = lvglui.namedImageSource(o->stringValue());
     lv_imgbtn_set_src(element, LV_BTN_STATE_TGL_PR, tglPrImgSrc.c_str());
-    statesMask |= 1<<LV_BTN_STATE_TGL_PR;
   }
   if (aConfig->get("off_image", o)) {
     tglRelImgSrc = lvglui.namedImageSource(o->stringValue());
     lv_imgbtn_set_src(element, LV_BTN_STATE_TGL_REL, tglRelImgSrc.c_str());
-    statesMask |= 1<<LV_BTN_STATE_TGL_REL;
   }
   if (aConfig->get("disabled_image", o)) {
     inaImgSrc = lvglui.namedImageSource(o->stringValue());
     lv_imgbtn_set_src(element, LV_BTN_STATE_INA, inaImgSrc.c_str());
-    statesMask |= 1<<LV_BTN_STATE_INA;
+  }
+  // - make sure all states have an image, default to released image
+  if (!relImgSrc.empty() && !imgsAssigned) {
+    if (prImgSrc.empty()) { prImgSrc = relImgSrc; lv_imgbtn_set_src(element, LV_BTN_STATE_PR, prImgSrc.c_str()); }
+    if (tglPrImgSrc.empty()) { tglPrImgSrc = relImgSrc; lv_imgbtn_set_src(element, LV_BTN_STATE_TGL_PR, tglPrImgSrc.c_str()); }
+    if (tglRelImgSrc.empty()) { tglRelImgSrc = relImgSrc; lv_imgbtn_set_src(element, LV_BTN_STATE_TGL_REL, tglRelImgSrc.c_str()); }
+    if (inaImgSrc.empty()) { inaImgSrc = relImgSrc; lv_imgbtn_set_src(element, LV_BTN_STATE_INA, inaImgSrc.c_str()); }
+    imgsAssigned = true;
   }
   // event handling
   if (aConfig->get("onpress", o)) {
@@ -1031,13 +1034,6 @@ ErrorPtr LvGLUiImgButton::configure(JsonObjectPtr aConfig)
   if (aConfig->get("onrelease", o)) {
     onReleaseScript = o->stringValue();
     installEventHandler();
-  }
-  // make sure all states have an image
-  for (int bs = 0; bs<_LV_BTN_STATE_NUM; bs++) {
-    if ((statesMask & (1<<bs))==0) {
-      // no image specified, use relImgSrc
-      lv_imgbtn_set_src(element, bs, relImgSrc.c_str());
-    }
   }
   return inherited::configure(aConfig);
 }
