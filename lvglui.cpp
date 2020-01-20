@@ -1127,6 +1127,9 @@ ErrorPtr LvGLUiSlider::configure(JsonObjectPtr aConfig)
   if (aConfig->get("knob_inside", o)) {
     lv_slider_set_knob_in(element, o->boolValue());
   }
+  if (aConfig->get("indicator_sharp", o)) {
+    lv_slider_set_sharp_indic_edge(element, o->boolValue());
+  }
   if (aConfig->get("min", o)) {
     int min = o->int32Value();
     if (aConfig->get("max", o)) {
@@ -1501,8 +1504,7 @@ string LvGLUi::imagePath(const string aImageSpec)
   if (access(f.c_str(), R_OK)>=0) return f;
   f = Application::sharedApplication()->resourcePath(aImageSpec);
   if (access(f.c_str(), R_OK)>=0) return f;
-  //return "";
-  return LV_SYMBOL_DUMMY "missing:" + aImageSpec; // label instead of image
+  return "";
 }
 
 
