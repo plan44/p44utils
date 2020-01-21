@@ -280,6 +280,36 @@ static lv_align_t alignModeByName(const string aAlignMode)
 }
 
 
+static const char *eventName(lv_event_t aEvent)
+{
+  const char *etxt = "";
+  switch(aEvent) {
+    case LV_EVENT_PRESSED: etxt = "pressed"; break; // The object has been pressed
+    case LV_EVENT_PRESSING: etxt = "pressing"; break; // The object is being pressed (sent continuously while pressing)
+    case LV_EVENT_PRESS_LOST: etxt = "lost"; break; // Still pressing but slid from the objects
+    case LV_EVENT_SHORT_CLICKED: etxt = "shortclick"; break; // Released before lLV_INDEV_LONG_PRESS_TIME. Not called if dragged.
+    case LV_EVENT_LONG_PRESSED: etxt = "longpress"; break; // Pressing for LV_INDEV_LONG_PRESS_TIME time. Not called if dragged.
+    case LV_EVENT_LONG_PRESSED_REPEAT: etxt = "longpress_repeat"; break; // Called after LV_INDEV_LONG_PRESS_TIME in every LV_INDEV_LONG_PRESS_REP_TIME ms. Not called if dragged.
+    case LV_EVENT_CLICKED: etxt = "click"; break; // Called on release if not dragged (regardless to long press)
+    case LV_EVENT_RELEASED: etxt = "released"; break; // Called in every case when the object has been released even if it was dragged
+    case LV_EVENT_DRAG_BEGIN: etxt = "drag_begin"; break;
+    case LV_EVENT_DRAG_END: etxt = "drag_end"; break;
+    case LV_EVENT_DRAG_THROW_BEGIN: etxt = "drag_throw"; break; // end of drag with momentum
+    case LV_EVENT_KEY: etxt = "key"; break;
+    case LV_EVENT_FOCUSED: etxt = "focused"; break;
+    case LV_EVENT_DEFOCUSED: etxt = "defocused"; break;
+    case LV_EVENT_VALUE_CHANGED: etxt = "changed"; break; // The object's value has changed (i.e. slider moved)
+    case LV_EVENT_INSERT: etxt = "insert"; break;
+    case LV_EVENT_REFRESH: etxt = "refresh"; break;
+    case LV_EVENT_APPLY: etxt = "apply"; break; // "Ok", "Apply" or similar specific button has clicked
+    case LV_EVENT_CANCEL: etxt = "cancel"; break; // "Close", "Cancel" or similar specific button has clicked
+    case LV_EVENT_DELETE: etxt = "delete"; break; // Object is being deleted
+  }
+  return etxt;
+}
+
+
+
 // MARK: - LvGLUIObject
 
 
@@ -1142,6 +1172,10 @@ ErrorPtr LvGLUiSlider::configure(JsonObjectPtr aConfig)
     onChangeScript = o->stringValue();
     installEventHandler();
   }
+  if (aConfig->get("onrelease", o)) {
+    onReleaseScript = o->stringValue();
+    installEventHandler();
+  }
   return inherited::configure(aConfig);
 }
 
@@ -1150,6 +1184,9 @@ void LvGLUiSlider::handleEvent(lv_event_t aEvent)
 {
   if (aEvent==LV_EVENT_VALUE_CHANGED && !onChangeScript.empty()) {
     runEventScript(aEvent, onChangeScript);
+  }
+  else if (aEvent==LV_EVENT_RELEASED && !onReleaseScript.empty()) {
+    runEventScript(aEvent, onReleaseScript);
   }
   else {
     inherited::handleEvent(aEvent);
@@ -1165,30 +1202,7 @@ bool LvGLUiScriptContext::evaluateFunction(const string &aFunc, const FunctionAr
 {
   if (aFunc=="event" && aArgs.size()==0) {
     // string event()
-    const char *etxt = "";
-    switch(currentEvent) {
-      case LV_EVENT_PRESSED: etxt = "pressed"; break; // The object has been pressed
-      case LV_EVENT_PRESSING: etxt = "pressing"; break; // The object is being pressed (sent continuously while pressing)
-      case LV_EVENT_PRESS_LOST: etxt = "lost"; break; // Still pressing but slid from the objects
-      case LV_EVENT_SHORT_CLICKED: etxt = "shortclick"; break; // Released before lLV_INDEV_LONG_PRESS_TIME. Not called if dragged.
-      case LV_EVENT_LONG_PRESSED: etxt = "longpress"; break; // Pressing for LV_INDEV_LONG_PRESS_TIME time. Not called if dragged.
-      case LV_EVENT_LONG_PRESSED_REPEAT: etxt = "longpress_repeat"; break; // Called after LV_INDEV_LONG_PRESS_TIME in every LV_INDEV_LONG_PRESS_REP_TIME ms. Not called if dragged.
-      case LV_EVENT_CLICKED: etxt = "click"; break; // Called on release if not dragged (regardless to long press)
-      case LV_EVENT_RELEASED: etxt = "released"; break; // Called in every case when the object has been released even if it was dragged
-      case LV_EVENT_DRAG_BEGIN: etxt = "drag_begin"; break;
-      case LV_EVENT_DRAG_END: etxt = "drag_end"; break;
-      case LV_EVENT_DRAG_THROW_BEGIN: etxt = "drag_throw"; break; // end of drag with momentum
-      case LV_EVENT_KEY: etxt = "key"; break;
-      case LV_EVENT_FOCUSED: etxt = "focused"; break;
-      case LV_EVENT_DEFOCUSED: etxt = "defocused"; break;
-      case LV_EVENT_VALUE_CHANGED: etxt = "changed"; break; // The object's value has changed (i.e. slider moved)
-      case LV_EVENT_INSERT: etxt = "insert"; break;
-      case LV_EVENT_REFRESH: etxt = "refresh"; break;
-      case LV_EVENT_APPLY: etxt = "apply"; break; // "Ok", "Apply" or similar specific button has clicked
-      case LV_EVENT_CANCEL: etxt = "cancel"; break; // "Close", "Cancel" or similar specific button has clicked
-      case LV_EVENT_DELETE: etxt = "delete"; break; // Object is being deleted
-    }
-    aResult.setString(etxt);
+    aResult.setString(eventName(currentEvent));
   }
   else if (aFunc=="value" && aArgs.size()<=1) {
     // value([<element>])

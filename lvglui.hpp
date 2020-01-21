@@ -312,6 +312,7 @@ namespace p44 {
   {
     typedef LvGLUiBarBase inherited;
     string onChangeScript;
+    string onReleaseScript;
   public:
     LvGLUiSlider(LvGLUi& aLvGLUI, LVGLUiContainer* aParentP, lv_obj_t *aTemplate);
     virtual ErrorPtr configure(JsonObjectPtr aConfig) P44_OVERRIDE;
