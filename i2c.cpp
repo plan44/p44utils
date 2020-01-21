@@ -131,6 +131,8 @@ I2CDevicePtr I2CManager::getDevice(int aBusNumber, const char *aDeviceID)
       dev = I2CDevicePtr(new PCA9685(deviceAddress, bus.get(), deviceOptions.c_str()));
     else if (typeString=="LM75")
       dev = I2CDevicePtr(new LM75(deviceAddress, bus.get(), deviceOptions.c_str()));
+    else if (typeString=="MCP3021")
+      dev = I2CDevicePtr(new MCP3021(deviceAddress, bus.get(), deviceOptions.c_str()));
     else if (typeString=="generic")
       dev = I2CDevicePtr(new I2CDevice(deviceAddress, bus.get(), deviceOptions.c_str()));
     // TODO: add more device types
@@ -898,6 +900,43 @@ bool LM75::getPinRange(int aPinNo, double &aMin, double &aMax, double &aResoluti
   aResolution = 256.0/(1<<bits);
   return true;
 }
+
+
+// MARK: - MCP3021 (5 pin, 10bit ADC, Microchip)
+
+MCP3021::MCP3021(uint8_t aDeviceAddress, I2CBus *aBusP, const char *aDeviceOptions) :
+  inherited(aDeviceAddress, aBusP, aDeviceOptions)
+{
+}
+
+
+bool MCP3021::isKindOf(const char *aDeviceType)
+{
+  if (strcmp(deviceType(),aDeviceType)==0)
+    return true;
+  else
+    return inherited::isKindOf(aDeviceType);
+}
+
+
+double MCP3021::getPinValue(int aPinNo)
+{
+  uint16_t raw;
+  i2cbus->SMBusReadWord(this, 0x00, raw, true); // MCP3021 delivers MSB first
+  raw = (raw>>2) & 0x3FF; // discard two LSBs, limit to actual 10 bit result
+  return raw;
+}
+
+
+bool MCP3021::getPinRange(int aPinNo, double &aMin, double &aMax, double &aResolution)
+{
+  // as we don't know what will be connected to the inputs, we return raw A/D value.
+  aMin = 0;
+  aMax = 1024;
+  aResolution = 1;
+  return true;
+}
+
 
 
 
