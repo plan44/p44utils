@@ -566,7 +566,7 @@ bool EvaluationContext::startEvaluation()
 bool EvaluationContext::continueEvaluation()
 {
   if (!isEvaluating()) {
-    LOG(LOG_WARNING, "EvaluationContext: cannot continue, script was already aborted asynchronously");
+    LOG(LOG_WARNING, "EvaluationContext: cannot continue, script was already aborted asynchronously, code = %.40s...", getCode());
     return true; // already ran to end
   }
   MLMicroSeconds syncRunSince = MainLoop::now();
