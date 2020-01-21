@@ -1423,7 +1423,7 @@ void LvGLUi::queueGlobalScript(const string &aScriptCode)
 void LvGLUi::queueEventScript(lv_event_t aEvent, LVGLUiElementPtr aElement, const string &aScriptCode)
 {
   scriptRequests.push_back(LvGLUiScriptRequest(aEvent, aElement, aScriptCode));
-  if (scriptRequests.size()==1) {
+  if (!uiScriptContext.isEvaluating()) {
     // there was no script pending, must start
     runNextScript();
   }
