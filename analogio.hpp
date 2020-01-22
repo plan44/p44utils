@@ -44,22 +44,22 @@ namespace p44 {
     /// @param aOutput use as output
     /// @param aInitialValue initial value (to set for output, to expect without triggering change for input)
     /// @note possible pin types are
-    ///   "missing" : dummy (non-connected) pin
-    ///   "pwmchipN.channelNo.pwmPeriod" : numbered Linux PWM output on channelNo of chip N with overall period (in nS) of pwmPeriod
-    ///   "i2cN.DEVICE[-options]@i2caddr.pinNumber" : numbered pin of DEVICE at i2caddr on i2c bus N
+    /// - "missing" : dummy (non-connected) pin
+    /// - "pwmchipN.channelNo.pwmPeriod" : numbered Linux PWM output on channelNo of chip N with overall period (in nS) of pwmPeriod
+    /// - "i2cN.DEVICE[-options]@i2caddr.pinNumber" : numbered pin of DEVICE at i2caddr on i2c bus N
     ///     (DEVICE is name of chip, such as PCA9685)
     ///     (no bus-level options for i2c, options are device specific, such as I and O in PCA9685 for inverted and opendrain operation)
-    ///   "spiXY.DEVICE[-options]@spiaddr.pinNumber" : numbered pin of DEVICE at spiaddr on spidevX.Y
+    /// - "spiXY.DEVICE[-options]@spiaddr.pinNumber" : numbered pin of DEVICE at spiaddr on spidevX.Y
     ///     (DEVICE is name of chip, such as MCP3008. It can also be "generic" to directly access the bus via getBus())
     ///     possible generic SPI options are (devices might have additional specific ones)
-    ///     H: use inverted phase (compared to original microwire SPI)
-    ///     P: use inverted polarity (compared to original microwire SPI)
-    ///     C: chip select high
-    ///     N: no chip select
-    ///     3: 3 wire
-    ///     R: SPI ready, slave pulls low to pause
-    ///     S: slow speed (1/10 of bus' normal speed)
-    ///     s: very slow speed (1/100 of bus' normal speed)
+    ///     - H: use inverted phase (compared to original microwire SPI)
+    ///     - P: use inverted polarity (compared to original microwire SPI)
+    ///     - C: chip select high
+    ///     - N: no chip select
+    ///     - 3: 3 wire
+    ///     - R: SPI ready, slave pulls low to pause
+    ///     - S: slow speed (1/10 of bus' normal speed)
+    ///     - s: very slow speed (1/100 of bus' normal speed)
     AnalogIo(const char* aPinSpec, bool aOutput, double aInitialValue);
     virtual ~AnalogIo();
 

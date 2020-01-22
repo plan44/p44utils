@@ -115,6 +115,7 @@ AnalogIo::AnalogIo(const char* aPinSpec, bool aOutput, double aInitialValue)
   }
   else
   #endif
+  #if !DISABLE_PWM
   if (busName.substr(0,7)=="pwmchip") {
     // Linux generic PWM output
     // pwmchip<chipno>.<channelno>[.<period>]
@@ -130,7 +131,9 @@ AnalogIo::AnalogIo(const char* aPinSpec, bool aOutput, double aInitialValue)
     }
     ioPin = AnalogIOPinPtr(new PWMPin(chipNumber, channelNumber, inverted, aInitialValue, periodNs));
   }
-  else if (busName=="fdsim") {
+  else
+  #endif
+  if (busName=="fdsim") {
     // analog I/O from file descriptor (should be non-blocking or at least minimal-delay files such
     // as quickly served pipes or /sys/class/* files)
     ioPin = AnalogIOPinPtr(new AnalogSimPinFd(pinName.c_str(), output, aInitialValue));

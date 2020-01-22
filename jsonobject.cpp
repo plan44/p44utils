@@ -63,12 +63,120 @@ JsonObject::~JsonObject()
 
 #define MAX_JSON_BUF_SIZE 20000
 
+
+static const char *nextCommentDelimiter(bool aStarting, const char* aText, ssize_t aTextLen)
+{
+  char c1 = aStarting ? '/' : '*';
+  char c2 = aStarting ? '*' : '/';
+  char c;
+  while((c = *aText) && aTextLen>0) {
+    if (c==c1 && *(aText+1)==c2) return aText;
+    aText++;
+    aTextLen--;
+  }
+  return NULL;
+}
+
+
+static const char *nextParsableSegment(const char*& aText, ssize_t& aTextLen, size_t& aSegmentLen, bool aAllowCComments, bool &aInComment)
+{
+  const char* seg = NULL;
+  if (aAllowCComments) {
+    const char* cc;
+    while ((cc = nextCommentDelimiter(!aInComment, aText, aTextLen))) {
+      // change of comment state
+      aInComment = !aInComment;
+      seg = aText;
+      aText = cc+2; // continue after comment delimiter
+      aTextLen -= aText-seg;
+      if (aInComment) {
+        // segment is from beginning to here
+        aSegmentLen = cc-seg;
+        return seg;
+      }
+      else {
+        // out of comment, aText is new segment start, check for next comment beginning
+        continue;
+      }
+    }
+    // no comment change from here to end
+    if (aInComment) {
+      // rest of text is comment, nothing more to parse
+      aText += aTextLen;
+      aTextLen = 0;
+      return NULL;
+    }
+  }
+  // everything from here to end can be parsed
+  seg = aText;
+  aSegmentLen = aTextLen;
+  aText += aTextLen;
+  aTextLen = 0;
+  return seg;
+}
+
+
+static void countLines(int &aLineCount, size_t& aLastLineLenght, const char*& aFrom, const char* aTo)
+{
+  while (aFrom<aTo) {
+    char c;
+    if ((c = *aFrom++)==0) break;
+    if (c=='\n') {
+      aLineCount++;
+      aLastLineLenght = 0;
+      continue;
+    }
+    aLastLineLenght++;
+  }
+}
+
+
+JsonObjectPtr JsonObject::objFromText(const char *aJsonText, ssize_t aMaxChars, ErrorPtr *aErrorP, bool aAllowCComments)
+{
+  JsonObjectPtr obj;
+  if (aMaxChars<0) aMaxChars = strlen(aJsonText);
+  struct json_tokener* tokener = json_tokener_new();
+  bool inComment = false;
+  const char *seg;
+  size_t segLen;
+  int lineCnt = 0;
+  size_t charOffs = 0;
+  const char *ll = aJsonText;
+  while ((seg = nextParsableSegment(aJsonText, aMaxChars, segLen, aAllowCComments, inComment))) {
+    if (aErrorP) countLines(lineCnt, charOffs, ll, seg); // count lines from beginning of text to beginning of segment
+    struct json_object *o = json_tokener_parse_ex(tokener, seg, (int)segLen);
+    if (o) {
+      obj = JsonObject::newObj(o);
+      break;
+    }
+    else {
+      // error (or incomplete JSON, which is fine)
+      JsonError::ErrorCodes jerr = json_tokener_get_error(tokener);
+      if (jerr!=json_tokener_continue) {
+        // real error
+        if (aErrorP) {
+          *aErrorP = ErrorPtr(new JsonError(json_tokener_get_error(tokener)));
+          countLines(lineCnt, charOffs, ll, seg+tokener->char_offset); // count lines from beginning of segment to error position
+          (*aErrorP)->prefixMessage("in line %d at char %lu: ", lineCnt+1, charOffs+1);
+        }
+        break;
+      }
+      if (aErrorP) countLines(lineCnt, charOffs, ll, seg+segLen); // count lines in parsed segment
+    }
+  }
+  json_tokener_free(tokener);
+  return obj;
+}
+
+
+
 // factory method, create JSON object from file
-JsonObjectPtr JsonObject::objFromFile(const char *aJsonFilePath, ErrorPtr *aErrorP)
+JsonObjectPtr JsonObject::objFromFile(const char *aJsonFilePath, ErrorPtr *aErrorP, bool aAllowCComments)
 {
   JsonObjectPtr obj;
   size_t bufSize = MAX_JSON_BUF_SIZE;
   // read file into string
+  bool inComment = false;
   int fd = open(aJsonFilePath, O_RDONLY);
   if (fd>=0) {
     // opened, check buffer needs
@@ -77,36 +185,49 @@ JsonObjectPtr JsonObject::objFromFile(const char *aJsonFilePath, ErrorPtr *aErro
     if (fs.st_size<bufSize) bufSize = fs.st_size; // don't need the entire buffer
     // decode
     struct json_tokener* tokener = json_tokener_new();
-    char *jsontext = new char[bufSize];
+    char *jsonbuf = new char[bufSize];
     ssize_t n;
-    while((n = read(fd, jsontext, bufSize))>0) {
-      struct json_object *o = json_tokener_parse_ex(tokener, jsontext, (int)n);
-      if (o==NULL) {
-        // error (or incomplete JSON, which is fine)
-        JsonError::ErrorCodes jerr = json_tokener_get_error(tokener);
-        if (jerr!=json_tokener_continue) {
-          // real error
-          if (aErrorP) {
-            *aErrorP = ErrorPtr(new JsonError(jerr));
-            (*aErrorP)->prefixMessage("at offset %d: ", tokener->char_offset);
+    int lineCnt = 0;
+    size_t charOffs = 0;
+    while((n = read(fd, jsonbuf, bufSize))>0) {
+      const char *jsontext = jsonbuf;
+      const char *seg;
+      size_t segLen;
+      const char *ll = jsontext;
+      while ((seg = nextParsableSegment(jsontext, n, segLen, aAllowCComments, inComment))) {
+        if (aErrorP) countLines(lineCnt, charOffs, ll, seg); // count lines from beginning of text to beginning of segment
+        struct json_object *o = json_tokener_parse_ex(tokener, seg, (int)segLen);
+        if (o==NULL) {
+          // error (or incomplete JSON, which is fine)
+          JsonError::ErrorCodes jerr = json_tokener_get_error(tokener);
+          if (jerr!=json_tokener_continue) {
+            // real error
+            if (aErrorP) {
+              *aErrorP = ErrorPtr(new JsonError(jerr));
+              countLines(lineCnt, charOffs, ll, seg+tokener->char_offset); // count lines from beginning of segment to error position
+              (*aErrorP)->prefixMessage("in line %d at char %lu: ", lineCnt+1, charOffs+1);
+            }
+            json_tokener_reset(tokener);
+            goto done;
           }
-          json_tokener_reset(tokener);
-          break;
         }
-      }
-      else {
-        // got JSON object
-        obj = JsonObject::newObj(o);
-        break;
-      }
-    }
-    delete[] jsontext;
+        else {
+          // got JSON object
+          obj = JsonObject::newObj(o);
+          goto done;
+        }
+        if (aErrorP) countLines(lineCnt, charOffs, ll, seg+segLen); // count lines in parsed segment
+      } // segments to parse
+    } // data in file
+  done:
+    delete[] jsonbuf;
     json_tokener_free(tokener);
     close(fd);
   }
   else {
     if (aErrorP) {
-      *aErrorP = TextError::err("cannot open file '%s'", aJsonFilePath);
+      *aErrorP = SysError::errNo();
+      (*aErrorP)->prefixMessage("JSON reader cannot open file '%s': ", aJsonFilePath);
     }
   }
   return obj;
@@ -342,28 +463,6 @@ JsonObjectPtr JsonObject::newNull()
   // create wrapper with no embedded object (as a plain C NULL pointer represents NULL in JSON-C)
   return JsonObjectPtr(new JsonObject(NULL));
 }
-
-
-JsonObjectPtr JsonObject::objFromText(const char *aJsonText, ssize_t aMaxChars, ErrorPtr *errP)
-{
-  JsonObjectPtr obj;
-  if (aMaxChars<0) aMaxChars = strlen(aJsonText);
-  struct json_tokener* tokener = json_tokener_new();
-  struct json_object *o = json_tokener_parse_ex(tokener, aJsonText, (int)aMaxChars);
-  if (o) {
-    obj = JsonObject::newObj(o);
-  }
-  else {
-    // error
-    if (errP) {
-      *errP = ErrorPtr(new JsonError(json_tokener_get_error(tokener)));
-      (*errP)->prefixMessage("at offset %d: ", tokener->char_offset);
-    }
-  }
-  json_tokener_free(tokener);
-  return obj;
-}
-
 
 
 JsonObjectPtr JsonObject::newArray()

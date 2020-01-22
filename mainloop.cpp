@@ -121,10 +121,9 @@ bool MLTicket::rescheduleAt(MLMicroSeconds aExecutionTime, MLMicroSeconds aToler
 
 
 
-// MARK: - MainLoop
+// MARK: - Time base
 
-// time reference in microseconds
-MLMicroSeconds MainLoop::now()
+long long _p44_now()
 {
   #if defined(__APPLE__) && __DARWIN_C_LEVEL < 199309L
   // pre-10.12 MacOS does not yet have clock_gettime
@@ -142,6 +141,22 @@ MLMicroSeconds MainLoop::now()
   // return microseconds
   return ((uint64_t)(tsp.tv_sec))*1000000ll + tsp.tv_nsec/1000; // uS
   #endif
+}
+
+
+unsigned long _p44_millis()
+{
+  return _p44_now()/1000; // mS
+}
+
+
+
+// MARK: - MainLoop
+
+// time reference in microseconds
+MLMicroSeconds MainLoop::now()
+{
+  return _p44_now();
 }
 
 

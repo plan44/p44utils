@@ -566,7 +566,7 @@ bool EvaluationContext::startEvaluation()
 bool EvaluationContext::continueEvaluation()
 {
   if (!isEvaluating()) {
-    LOG(LOG_WARNING, "EvaluationContext: cannot continue, script was already aborted asynchronously");
+    LOG(LOG_WARNING, "EvaluationContext: cannot continue, script was already aborted asynchronously, code = %.40s...", getCode());
     return true; // already ran to end
   }
   MLMicroSeconds syncRunSince = MainLoop::now();
@@ -616,9 +616,12 @@ void EvaluationContext::continueWithAsyncFunctionResult(const ExpressionValue& a
 bool EvaluationContext::runCallBack(const ExpressionValue &aResult)
 {
   if (evaluationResultHandler && callBack) {
-    // this is where cyclic references could cause re-evaluation, so pretend (again) script running
     EvaluationResultCB cb = evaluationResultHandler;
     if (oneTimeResultHandler) evaluationResultHandler = NULL;
+    // this is where cyclic references could cause re-evaluation
+    // - if running synchronously, keep evaluation in running state until callback is done to prevent tight loops
+    // - if running asynchronously, consider script terminated already
+    if (!synchronous) runningSince = Never;
     cb(aResult, *this);
     return true; // called back
   }
@@ -1649,7 +1652,7 @@ ScriptExecutionContext::~ScriptExecutionContext()
 
 void ScriptExecutionContext::releaseState()
 {
-  ELOG("All variables released now for expression: '%s'", getCode());
+  ELOG_DBG("All variables released now for expression: '%s'", getCode());
   variables.clear();
 }
 
@@ -1888,8 +1891,9 @@ bool ScriptExecutionContext::resumeStatements()
     if (op==op_assign || op==op_assignOrEq ||((vardef || let) && op==op_equal)) {
       // definitely: this is an assignment
       pos = apos;
-      if (!vardef || newVar) {
-        // assign vardefs only if not already existing (initial value)
+      if (!glob || newVar) {
+        // assign globals only if not already existing (initial value)
+        // Note: local variables will be redefined each time we pass the "var" statement
         push(s_assignToVar);
         sp().identifier = varName; // new frame needs the name to assign value later
         return push(s_newExpression); // but first, evaluate the expression

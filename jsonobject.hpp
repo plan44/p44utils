@@ -165,10 +165,10 @@ namespace p44 {
 
 
     /// create new object from text
-    static JsonObjectPtr objFromText(const char *aJsonText, ssize_t aMaxChars = -1, ErrorPtr *aErrorP = NULL);
+    static JsonObjectPtr objFromText(const char *aJsonText, ssize_t aMaxChars = -1, ErrorPtr *aErrorP = NULL, bool aAllowCComments = false);
 
     /// create new object from text file
-    static JsonObjectPtr objFromFile(const char *aJsonFilePath, ErrorPtr *aErrorP = NULL);
+    static JsonObjectPtr objFromFile(const char *aJsonFilePath, ErrorPtr *aErrorP = NULL, bool aAllowCComments = false);
 
     /// save object to text file
     ErrorPtr saveToFile(const char *aJsonFilePath);

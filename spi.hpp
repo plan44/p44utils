@@ -64,6 +64,17 @@ namespace p44 {
     /// @param aDeviceOptions device options (in base class: SPI mode)
     SPIDevice(uint8_t aDeviceAddress, SPIBus *aBusP, const char *aDeviceOptions);
 
+    /// SPI raw transaction with read and write
+    /// @param aDeviceP device to access
+    /// @param aOutSz number of bytes to send
+    /// @param aOutP pointer to bytes to send
+    /// @param aInSz number of bytes to receive, can be 0
+    /// @param aInP pointer to bytes to receive, can be NULL
+    /// @param aFullDuplex send and receive simultaneously (otherwise: first send, then receive)
+    /// @return true if successful
+    bool SPIRawWriteRead(unsigned int aOutSz, uint8_t *aOutP, unsigned int aInSz, uint8_t *aInP, bool aFullDuplex = false);
+
+
   };
   typedef boost::intrusive_ptr<SPIDevice> SPIDevicePtr;
 
@@ -161,7 +172,7 @@ namespace p44 {
     /// @param aOutP pointer to bytes to send
     /// @param aInSz number of bytes to receive
     /// @param aInP pointer to bytes to receive
-    /// @param aFullDuplex send and receive simultaneously (otherwise: first sent, then received)
+    /// @param aFullDuplex send and receive simultaneously (otherwise: first send, then receive)
     /// @return true if successful
     bool SPIRawWriteRead(SPIDevice *aDeviceP, unsigned int aOutSz, uint8_t *aOutP, unsigned int aInSz, uint8_t *aInP, bool aFullDuplex = false);
 

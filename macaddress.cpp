@@ -185,6 +185,19 @@ bool p44::getMacAddressByIpv4(uint32_t aIPv4Address, uint64_t &aMacAddress)
   return found;
 }
 
+#elif P44_BUILD_WIN
+
+#warning "On windows, getIfInfo(), getMacAddressByIpv4() are dummies never returning anything useful"
+bool p44::getIfInfo(uint64_t *aMacAddressP, uint32_t *aIPv4AddressP, int *aIfIndex, const char *aIfName)
+{
+  return false;
+}
+
+bool p44::getMacAddressByIpv4(uint32_t aIPv4Address, uint64_t &aMacAddress)
+{
+  return false;
+}
+
 
 #else
 
