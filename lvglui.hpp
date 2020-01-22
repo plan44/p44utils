@@ -129,6 +129,20 @@ namespace p44 {
 
     lv_obj_t* lvParent();
 
+    /// set a variable representing a property and return true if value has changed
+    /// @param aTargetValue the variable to update
+    /// @param aNewValue the new value
+    /// @note returns true if variable is actually changed
+    template<typename T> bool setProp(T &aTargetValue, T aNewValue)
+    {
+      if (aTargetValue!=aNewValue) {
+        aTargetValue = aNewValue;
+        return true; // changed value
+      }
+      return false; // not changed value
+    };
+
+
     /// configure this object from json
     /// @param aConfig JSON object containing configuration propertyname/values
     /// @param aParent parent object, or NULL if none

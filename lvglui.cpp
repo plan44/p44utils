@@ -836,8 +836,8 @@ ErrorPtr LvGLUiImage::configure(JsonObjectPtr aConfig)
     lv_img_set_auto_size(element, o->boolValue());
   }
   if (aConfig->get("src", o)) {
-    imgSrc = lvglui.namedImageSource(o->stringValue());
-    lv_img_set_src(element, imgSrc.c_str());
+    if (setProp(imgSrc, lvglui.namedImageSource(o->stringValue())))
+      lv_img_set_src(element, imgSrc.c_str());
   }
   if (aConfig->get("symbol", o)) {
     lv_img_set_src(element, getSymbolByName(o->stringValue()));
@@ -1041,24 +1041,24 @@ ErrorPtr LvGLUiImgButton::configure(JsonObjectPtr aConfig)
   configureButtonCommon(lvglui, element, aConfig);
   // images
   if (aConfig->get("released_image", o) || aConfig->get("image", o)) {
-    relImgSrc = lvglui.namedImageSource(o->stringValue());
-    lv_imgbtn_set_src(element, LV_BTN_STATE_REL, relImgSrc.c_str());
+    if (setProp(relImgSrc, lvglui.namedImageSource(o->stringValue())))
+      lv_imgbtn_set_src(element, LV_BTN_STATE_REL, relImgSrc.c_str());
   }
   if (aConfig->get("pressed_image", o)) {
-    prImgSrc = lvglui.namedImageSource(o->stringValue());
-    lv_imgbtn_set_src(element, LV_BTN_STATE_PR, prImgSrc.c_str());
+    if (setProp(prImgSrc, lvglui.namedImageSource(o->stringValue())))
+      lv_imgbtn_set_src(element, LV_BTN_STATE_PR, prImgSrc.c_str());
   }
   if (aConfig->get("on_image", o)) {
-    tglPrImgSrc = lvglui.namedImageSource(o->stringValue());
-    lv_imgbtn_set_src(element, LV_BTN_STATE_TGL_PR, tglPrImgSrc.c_str());
+    if (setProp(tglPrImgSrc, lvglui.namedImageSource(o->stringValue())))
+      lv_imgbtn_set_src(element, LV_BTN_STATE_TGL_PR, tglPrImgSrc.c_str());
   }
   if (aConfig->get("off_image", o)) {
-    tglRelImgSrc = lvglui.namedImageSource(o->stringValue());
-    lv_imgbtn_set_src(element, LV_BTN_STATE_TGL_REL, tglRelImgSrc.c_str());
+    if (setProp(tglRelImgSrc, lvglui.namedImageSource(o->stringValue())))
+      lv_imgbtn_set_src(element, LV_BTN_STATE_TGL_REL, tglRelImgSrc.c_str());
   }
   if (aConfig->get("disabled_image", o)) {
-    inaImgSrc = lvglui.namedImageSource(o->stringValue());
-    lv_imgbtn_set_src(element, LV_BTN_STATE_INA, inaImgSrc.c_str());
+    if (setProp(inaImgSrc, lvglui.namedImageSource(o->stringValue())))
+      lv_imgbtn_set_src(element, LV_BTN_STATE_INA, inaImgSrc.c_str());
   }
   // - make sure all states have an image, default to released image
   if (!relImgSrc.empty() && !imgsAssigned) {
@@ -1526,7 +1526,9 @@ string LvGLUi::namedImageSource(const string& aImageSpec)
 {
   if (aImageSpec.find('.')!=string::npos) {
     // consider this a file name
-    return imagePath(aImageSpec);
+    string ip = imagePath(aImageSpec);
+    LOG(LOG_INFO, "namedImageSource returns '%s'", ip.c_str());
+    return ip;
   }
   else {
     const char* sym = getSymbolByName(aImageSpec);
