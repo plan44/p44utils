@@ -1527,7 +1527,6 @@ string LvGLUi::namedImageSource(const string& aImageSpec)
   if (aImageSpec.find('.')!=string::npos) {
     // consider this a file name
     string ip = imagePath(aImageSpec);
-    LOG(LOG_INFO, "namedImageSource returns '%s'", ip.c_str());
     return ip;
   }
   else {
