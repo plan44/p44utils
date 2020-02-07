@@ -155,6 +155,7 @@ namespace p44 {
     /// I2C direct read/write without SMBus protocol (old devices like PCF8574)
     bool I2CReadByte(I2CDevice *aDeviceP, uint8_t &aByte);
     bool I2CWriteByte(I2CDevice *aDeviceP, uint8_t aByte);
+    bool I2CReadBytes(I2CDevice *aDeviceP, uint8_t aCount, uint8_t *aBufferP);
 
 
   private:

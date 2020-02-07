@@ -194,6 +194,25 @@ bool I2CBus::I2CReadByte(I2CDevice *aDeviceP, uint8_t &aByte)
 }
 
 
+bool I2CBus::I2CReadBytes(I2CDevice *aDeviceP, uint8_t aCount, uint8_t *aBufferP)
+{
+  if (!accessDevice(aDeviceP)) return false; // cannot read
+  #if !DISABLE_I2C
+  ssize_t res = read(busFD, aBufferP, aCount);
+  #else
+  for (int n=0; n<aCount; n++) {
+    aBufferP[n] = 0x42; // dummy
+  }
+  ssize_t res = aCount;
+  #endif
+  // read is shown only in real Debug log, because button polling creates lots of accesses
+  DBGFOCUSLOG("i2c device read(): first byte = %d / 0x%02X, res=%zd", *aBufferP, *aBufferP, res);
+  if (res<0 || res!=aCount) return false;
+  return true;
+}
+
+
+
 bool I2CBus::I2CWriteByte(I2CDevice *aDeviceP, uint8_t aByte)
 {
   if (!accessDevice(aDeviceP)) return false; // cannot write
@@ -921,9 +940,11 @@ bool MCP3021::isKindOf(const char *aDeviceType)
 
 double MCP3021::getPinValue(int aPinNo)
 {
+  uint8_t buf[2];
   uint16_t raw;
-  i2cbus->SMBusReadWord(this, 0x00, raw, true); // MCP3021 delivers MSB first
-  raw = (raw>>2) & 0x3FF; // discard two LSBs, limit to actual 10 bit result
+  i2cbus->I2CReadBytes(this, 2, buf); // MCP3021 delivers MSB first
+  // discard two LSBs, limit to actual 10 bit result
+  raw = (((uint16_t)buf[0]<<6)) + (buf[1]>>2);
   return raw;
 }
 
