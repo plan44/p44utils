@@ -1428,15 +1428,15 @@ void LvGLUi::loadScreen(const string aScreenName)
 }
 
 
-void LvGLUi::queueGlobalScript(const string &aScriptCode)
+void LvGLUi::queueGlobalScript(const string &aScriptCode, P44ObjPtr aCallerContext)
 {
-  queueEventScript(LV_EVENT_REFRESH, this, aScriptCode);
+  queueEventScript(LV_EVENT_REFRESH, this, aScriptCode, aCallerContext);
 }
 
 
-void LvGLUi::queueEventScript(lv_event_t aEvent, LVGLUiElementPtr aElement, const string &aScriptCode)
+void LvGLUi::queueEventScript(lv_event_t aEvent, LVGLUiElementPtr aElement, const string &aScriptCode, P44ObjPtr aCallerContext)
 {
-  scriptRequests.push_back(LvGLUiScriptRequest(aEvent, aElement, aScriptCode));
+  scriptRequests.push_back(LvGLUiScriptRequest(aEvent, aElement, aScriptCode, aCallerContext));
   if (!uiScriptContext.isEvaluating()) {
     // there was no script pending, must start
     runNextScript();
@@ -1449,6 +1449,7 @@ void LvGLUi::runNextScript()
     uiScriptContext.currentEvent = scriptRequests.front().event;
     uiScriptContext.currentElement = scriptRequests.front().element;
     uiScriptContext.setCode(scriptRequests.front().scriptCode);
+    uiScriptContext.setCallerContext(scriptRequests.front().callerContext);
     LOG(LOG_INFO, "+++ Starting action script for LVGLUiElement '%s'", uiScriptContext.currentElement ? uiScriptContext.currentElement->getName().c_str() : "<none>");
     uiScriptContext.execute(true, boost::bind(&LvGLUi::scriptDone, this));
   }

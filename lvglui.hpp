@@ -368,11 +368,12 @@ namespace p44 {
     {
       friend class LvGLUi;
 
-      LvGLUiScriptRequest(lv_event_t aEvent, LVGLUiElementPtr aElement, const string &aScriptCode) :
-      event(aEvent), element(aElement), scriptCode(aScriptCode) {};
+      LvGLUiScriptRequest(lv_event_t aEvent, LVGLUiElementPtr aElement, const string &aScriptCode, P44ObjPtr aCallerContext) :
+      event(aEvent), element(aElement), scriptCode(aScriptCode), callerContext(aCallerContext) {};
       lv_event_t event;
       LVGLUiElementPtr element;
       string scriptCode;
+      P44ObjPtr callerContext;
     };
 
     typedef std::list<LvGLUiScriptRequest> ScriptRequestList;
@@ -395,30 +396,44 @@ namespace p44 {
     LvGLUi();
 
     /// initialize for use with a specified display
+    /// @param aDisplay the display to use
     void initForDisplay(lv_disp_t* aDisplay);
 
     /// clear current UI and set new config
+    /// @param aConfig the new config for the UI
     ErrorPtr setConfig(JsonObjectPtr aConfig);
 
     /// can be used to re-configure UI later (e.g. to add more screens) without clearing existing UI hierarchy
+    /// @param aConfig configuration to apply to the global lvgl container, e.g. new screen or style
+    /// @return ok or error
     virtual ErrorPtr configure(JsonObjectPtr aConfig) P44_OVERRIDE;
 
     /// get named theme (from themes defined in config)
+    /// @param aThemeName the name of the theme
+    /// @return specified theme or NULL if not found
     lv_theme_t* namedTheme(const string aThemeName);
 
     /// get named style (custom as defined in config or built-in)
+    /// @param aStyleName the name of the style
+    /// @return specified style or NULL if not found
     lv_style_t* namedStyle(const string aStyleName);
 
     /// get named style from styles list or create ad-hoc style from definition
+    /// @param aStyleNameOrDefinition single string with the name of an existing style, or object defining an ad-hoc style
+    /// @param aDefaultToPlain if true, and style does not exist or cannot be defined ad-hoc, return the plain style instead of NULL
+    /// @return specified existig or ad-hoc style, NULL (or plain if aDefaultToPlain is set) if specified style cannot be returned
     lv_style_t* namedOrAdHocStyle(JsonObjectPtr aStyleNameOrDefinition, bool aDefaultToPlain);
 
-    /// get image file path, will possibly look up in different places
-    /// @param aImageSpec a path specifying an image
+    /// get image file path, will possibly look up in different places (resources, data)
+    /// @param aImageSpec a path or filename specifying an image
+    /// @return absolute path to existing image file, or empty string if none of the possible places contain the file
     virtual string imagePath(const string aImageSpec);
 
     /// get image source specification by name
+    /// @param aImageSpec a path specifying an image
     /// @note names containing dots will be considered file paths. Other texts are considered symbol names.
     ///    fallback is a text image label.
+    /// @return image specification (file path or symbol)
     string namedImageSource(const string& aImageSpec);
 
     /// @param aElementPath dot separated absolute path beginning at root container, or dot-prefixed relative path
@@ -428,12 +443,18 @@ namespace p44 {
     LVGLUiElementPtr namedElement(string aElementPath, LVGLUiElementPtr aOrigin);
 
     /// queue event script to run (when others scripts are done)
-    void queueEventScript(lv_event_t aEvent, LVGLUiElementPtr aElement, const string &aScriptCode);
+    /// @param aEvent the LittevGL event that causes the script to execute
+    /// @param aScriptCode the script code string to execute
+    /// @param aCallerContext optional context object for the execution (can be used by custom function implementations)
+    void queueEventScript(lv_event_t aEvent, LVGLUiElementPtr aElement, const string &aScriptCode, P44ObjPtr aCallerContext = NULL);
 
     /// queue global script (executed as refresh event for the LvGLUi container)
-    void queueGlobalScript(const string &aScriptCode);
+    /// @param aScriptCode the script code string to execute
+    /// @param aCallerContext optional context object for the execution (can be used by custom function implementations)
+    void queueGlobalScript(const string &aScriptCode, P44ObjPtr aCallerContext = NULL);
 
     /// load named screen and call its onrefreshscript
+    /// @param aScreenName the name of the screen to load
     void loadScreen(const string aScreenName);
 
 
