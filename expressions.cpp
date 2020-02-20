@@ -579,14 +579,16 @@ bool EvaluationContext::continueEvaluation()
       // but must run to end, so don't exit here!
     }
     if (!resumeEvaluation()) return false; // execution yielded anyway
-    // not yielded yet, check run time
-    now = MainLoop::now();
-    if (!synchronous && syncRunTime!=Infinite && now-syncRunSince>syncRunTime) {
-      // is an async script, yield now and continue later
-      // - yield execution for twice the time we were allowed to run
-      execTicket.executeOnce(boost::bind(&EvaluationContext::continueEvaluation, this), 2*DEFAULT_SYNC_RUN_TIME);
-      // - yield now
-      return false;
+    if (isEvaluating()) {
+      // not yielded yet, and still evaluating after resumeEvaluation(): check run time
+      now = MainLoop::now();
+      if (!synchronous && syncRunTime!=Infinite && now-syncRunSince>syncRunTime) {
+        // is an async script, yield now and continue later
+        // - yield execution for twice the time we were allowed to run
+        execTicket.executeOnce(boost::bind(&EvaluationContext::continueEvaluation, this), 2*DEFAULT_SYNC_RUN_TIME);
+        // - yield now
+        return false;
+      }
     }
   }
   return true; // ran to end without yielding
@@ -744,6 +746,7 @@ bool EvaluationContext::resumeEvaluation()
         ELOG("- finalResult = %s - err = %s", finalResult.stringValue().c_str(), Error::text(finalResult.err));
       }
       stack.clear();
+      execTicket.cancel(); // really stop here
       runCallBack(finalResult); // call back if configured
       runningSince = Never;
       return true;
