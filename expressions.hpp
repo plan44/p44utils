@@ -296,6 +296,7 @@ namespace p44 {
     string codeString; ///< the code to evaluate
     bool synchronous; ///< the code must run synchronously to the end, execution may NOT be yielded
     int evalLogLevel; ///< if set, processing the script will output log info
+    P44ObjPtr callerContext; ///< optional context of the caller of this script, might be accessed by externally implemented custom functions
     /// @}
 
     /// @name  Evaluation state
@@ -359,6 +360,12 @@ namespace p44 {
 
     /// get current code
     const char *getCode() { return codeString.c_str(); };
+
+    /// set caller context
+    void setCallerContext(P44ObjPtr aContext) { callerContext = aContext; };
+
+    /// get caller context
+    P44ObjPtr getCallerContext() { return callerContext; };
 
     /// @return the index into code() of the current evaluation or error
     size_t getPos() { return pos; }
