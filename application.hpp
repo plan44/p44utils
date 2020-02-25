@@ -287,7 +287,7 @@ namespace p44 {
 
     /// get non-option string argument
     /// @param aArgumentIndex the index of the argument (0=first non-option argument, 1=second non-option argument, etc.)
-    /// @param aStr string to store the argument, if any
+    /// @param aArg string to store the argument, if any
     /// @return true if argument indicated by aArgumentIndex exists and is assigned to aStr, false otherwise
     bool getStringArgument(size_t aArgumentIndex, string &aArg);
 
