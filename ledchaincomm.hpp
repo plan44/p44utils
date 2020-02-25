@@ -218,6 +218,21 @@ namespace p44 {
 
   #if ENABLE_P44LRGRAPHICS
 
+  /// - option to construct LEDChainArrangement from command line
+  #define CMDLINE_LEDCHAIN_OPTIONS \
+    { 0,   "ledchain",      true,  "[chaintype:[leddevicename:]]numberOfLeds:[x:dx:y:dy:firstoffset:betweenoffset][XYSA];" \
+                                   "enable support for LED chains forming one or multiple RGB lights" \
+                                   "\n- chaintype can be WS2812 (GRB, default), SK6812 (RGBW), P9823 (RGB)" \
+                                   "\n- leddevicename can be a device name when chain is driven by a kernel module" \
+                                   "\n- x,dx,y,dy,firstoffset,betweenoffset specify how the chain is mapped to the display space" \
+                                   "\n- XYSA are flags: X or Y: x or y reversed, S: x/y swapped, A: alternating (zigzag)" \
+                                   "\nNote: this option can be used multiple times to combine ledchains" }, \
+    { 0,   "ledchainmax",   true,  "max;max output value (0..255) sent to LED. Defaults to 128" }
+
+
+  class LEDChainArrangement;
+  typedef boost::intrusive_ptr<LEDChainArrangement> LEDChainArrangementPtr;
+
   class LEDChainArrangement : public P44Obj
   {
 
@@ -268,10 +283,15 @@ namespace p44 {
     /// @param aOffset an offset within the chain where coverage starts
     void addLEDChain(LEDChainCommPtr aLedChain, PixelRect aCover, PixelCoord aOffset);
 
+    /// Factory helper
+    /// @param aLedChainArrangement if not set, new arrangement will be created, otherwise existing one is used
+    /// @param aChainSpec string describing the LED chain parameters and the coverage in the arrangement
+    static void addLEDChain(LEDChainArrangementPtr &aLedChainArrangement, const string &aChainSpec);
+
     /// add a LED chain to the arrangement by specification
-    /// @param aChainconfig string describing the LED chain parameters and the coverage in the arrangement
+    /// @param aChainSpec string describing the LED chain parameters and the coverage in the arrangement
     /// @note config syntax is as follows:
-    ///   [chaintype:[leddevicename:]]numberOfLeds:[x:dx:y:dy:firstoffset:betweenoffset][XYSA]
+    ///   [chaintype:[leddevicename:]]numberOfLeds[:x:dx:y:dy:firstoffset:betweenoffset][:XYSA]
     ///   - chaintype can be SK6812, P9823 or WS281x
     ///   - XYSA are optional flags for X,Y reversal, x<>y Swap, Alternating chain direction
     void addLEDChain(const string &aChainSpec);
@@ -318,7 +338,6 @@ namespace p44 {
 
 
   };
-  typedef boost::intrusive_ptr<LEDChainArrangement> LEDChainArrangementPtr;
 
 
   #endif // ENABLE_P44LRGRAPHICS

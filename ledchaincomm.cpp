@@ -436,6 +436,17 @@ void LEDChainArrangement::setRootView(P44ViewPtr aRootView)
 }
 
 
+void LEDChainArrangement::addLEDChain(LEDChainArrangementPtr &aLedChainArrangement, const string &aChainSpec)
+{
+  if (aChainSpec.empty()) return;
+  if (!aLedChainArrangement) {
+    aLedChainArrangement = LEDChainArrangementPtr(new LEDChainArrangement);
+  }
+  // now add chain
+  aLedChainArrangement->addLEDChain(aChainSpec);
+}
+
+
 void LEDChainArrangement::addLEDChain(const string &aChainSpec)
 {
   LEDChainComm::LedType ledType = LEDChainComm::ledtype_ws281x; // assume WS2812/13
