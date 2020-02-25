@@ -108,7 +108,7 @@ static const char *nextParsableSegment(const char*& aText, ssize_t& aTextLen, si
     }
   }
   // everything from here to end can be parsed
-  seg = aText;
+  seg = aTextLen ? aText : NULL; // must return NULL if no more text
   aSegmentLen = aTextLen;
   aText += aTextLen;
   aTextLen = 0;
