@@ -464,7 +464,7 @@ void LEDChainArrangement::addLEDChain(const string &aChainSpec)
   newCover.y = 0;
   newCover.dx = numleds;
   newCover.dy = 1;
-  PixelCoord offsets = { 0, 0 };
+  PixelPoint offsets = { 0, 0 };
   // parse chain specification
   // Syntax: [chaintype:[leddevicename:]]numberOfLeds:[x:dx:y:dy:firstoffset:betweenoffset][XYSA]
   string part;
@@ -560,7 +560,7 @@ void LEDChainArrangement::addLEDChain(const string &aChainSpec)
 }
 
 
-void LEDChainArrangement::addLEDChain(LEDChainCommPtr aLedChain, PixelRect aCover, PixelCoord aOffset)
+void LEDChainArrangement::addLEDChain(LEDChainCommPtr aLedChain, PixelRect aCover, PixelPoint aOffset)
 {
   if (!aLedChain) return; // no chain
   ledChains.push_back(LEDChainFixture(aLedChain, aCover, aOffset));

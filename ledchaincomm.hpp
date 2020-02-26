@@ -238,10 +238,10 @@ namespace p44 {
 
     class LEDChainFixture {
     public:
-      LEDChainFixture(LEDChainCommPtr aLedChain, PixelRect aCovers, PixelCoord aOffset) : ledChain(aLedChain), covers(aCovers), offset(aOffset) {};
+      LEDChainFixture(LEDChainCommPtr aLedChain, PixelRect aCovers, PixelPoint aOffset) : ledChain(aLedChain), covers(aCovers), offset(aOffset) {};
       LEDChainCommPtr ledChain; ///< a LED chain
       PixelRect covers; ///< the rectangle in the arrangement covered by this LED chain
-      PixelCoord offset; ///< offset within the LED chain where to start coverage
+      PixelPoint offset; ///< offset within the LED chain where to start coverage
     };
 
     typedef vector<LEDChainFixture> LedChainVector;
@@ -281,7 +281,7 @@ namespace p44 {
     /// @param aLedChain the LED chain
     /// @param aCover the rectangle of pixels in the arrangement the led chain covers
     /// @param aOffset an offset within the chain where coverage starts
-    void addLEDChain(LEDChainCommPtr aLedChain, PixelRect aCover, PixelCoord aOffset);
+    void addLEDChain(LEDChainCommPtr aLedChain, PixelRect aCover, PixelPoint aOffset);
 
     /// Factory helper
     /// @param aLedChainArrangement if not set, new arrangement will be created, otherwise existing one is used
