@@ -25,6 +25,7 @@
 #include "p44utils_common.hpp"
 
 #include "iopin.hpp"
+#include "valueanimator.hpp"
 
 using namespace std;
 
@@ -84,6 +85,8 @@ namespace p44 {
     /// @return false if no range information is available (arguments are not touched then)
     bool getRange(double &aMin, double &aMax, double &aResolution);
 
+    /// get value setter for animations
+    ValueSetterCB getValueSetter(double& aCurrentValue);
 
   };
   typedef boost::intrusive_ptr<AnalogIo> AnalogIoPtr;

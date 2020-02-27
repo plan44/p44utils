@@ -166,3 +166,11 @@ bool AnalogIo::getRange(double &aMin, double &aMax, double &aResolution)
 {
   return ioPin->getRange(aMin, aMax, aResolution);
 }
+
+
+/// get value setter for animations
+ValueSetterCB AnalogIo::getValueSetter(double& aCurrentValue)
+{
+  aCurrentValue = value();
+  return boost::bind(&AnalogIo::setValue, this, _1);
+}
