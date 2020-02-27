@@ -396,7 +396,7 @@ void LEDChainComm::getColorXY(uint16_t aX, uint16_t aY, uint8_t &aRed, uint8_t &
   #define MAX_STEP_INTERVAL (10*Second) // run a step at least in this interval, even if view step() indicates no need to do so early
   #define MAX_UPDATE_INTERVAL (10*Second) // send an update at least this often, even if no changes happen (LED refresh)
 #else
-  #define MAX_STEP_INTERVAL (1000*MilliSecond) // run a step at least in this interval, even if view step() indicates no need to do so early
+  #define MAX_STEP_INTERVAL (1*Second) // run a step at least in this interval, even if view step() indicates no need to do so early
   #define MAX_UPDATE_INTERVAL (500*MilliSecond) // send an update at least this often, even if no changes happen (LED refresh)
 #endif
 #define DEFAULT_MIN_UPDATE_INTERVAL (15*MilliSecond) // do not send updates faster than this
@@ -432,7 +432,26 @@ void LEDChainArrangement::clear()
 
 void LEDChainArrangement::setRootView(P44ViewPtr aRootView)
 {
+  if (rootView) rootView->setNeedStepCB(NULL); // make sure previous rootview will not call back any more!
   rootView = aRootView;
+  rootView->setNeedStepCB(boost::bind(&LEDChainArrangement::rootViewRequestsStep, this));
+}
+
+
+void LEDChainArrangement::rootViewRequestsStep()
+{
+  if (rootView) {
+    if (autoStepTicket) {
+      // interrupt autostepping timer
+      autoStepTicket.cancel();
+      // start new with immediate step call
+      autoStepTicket.executeOnce(boost::bind(&LEDChainArrangement::autoStep, this, _1));
+    }
+    else {
+      // just step
+      step();
+    }
+  }
 }
 
 

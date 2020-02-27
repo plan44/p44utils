@@ -336,6 +336,8 @@ namespace p44 {
 
     void autoStep(MLTimer &aTimer);
 
+    void rootViewRequestsStep();
+
 
   };
 
