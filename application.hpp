@@ -23,6 +23,9 @@
 #define __p44utils__application__
 
 #include "p44utils_common.hpp"
+#if ENABLE_JSON_APPLICATION
+  #include "jsonobject.hpp"
+#endif
 
 #include <signal.h>
 
@@ -99,6 +102,29 @@ namespace p44 {
     /// @return if aTempFile is empty, result is the application's temp directory (no separator at end)
     ///   Otherwise, it is the absolute path to the temp file specified with aTempFile
     string tempPath(const string aTempFile = "");
+
+    #if ENABLE_JSON_APPLICATION
+
+    /// parse JSON literal or get json file from resource
+    /// @param aText the text to parse. If it is a plain string and ends on ".json", treat it as resource file
+    ///   (see resourcePath()) containg JSON which is parsed and returned; if the string does not begin with "./", aPrefix is prepended.
+    ///   Otherwise, aText is parsed as JSON as-is.
+    /// @param aErrorP if set, parsing error is stored here
+    /// @param aPrefix prefix possibly used on resource path (see above)
+    /// @return json or NULL if none found
+    static JsonObjectPtr jsonObjOrResource(const string &aText, ErrorPtr *aErrorP, const string aPrefix="");
+
+    /// parse JSON literal or get json file from resource
+    /// @param aConfig input json. If it is a plain string and ends on ".json", treat it as resource file
+    ///   (see resourcePath()) containg JSON which is parsed and returned; if the string does not begin with "./", aPrefix is prepended.
+    ///   Otherwise, aConfig is returned as-is.
+    /// @param aErrorP if set, parsing error is stored here
+    /// @param aPrefix prefix possibly used on resource path (see above)
+    /// @return json or NULL if none found
+    static JsonObjectPtr jsonObjOrResource(JsonObjectPtr aConfig, ErrorPtr *aErrorP, const string aPrefix="");
+
+
+    #endif // ENABLE_JSON_APPLICATION
 
     /// @return version of this application
     virtual string version() const;

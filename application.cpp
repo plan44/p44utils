@@ -248,6 +248,50 @@ string Application::tempPath(const string aTempFile)
 }
 
 
+#if ENABLE_JSON_APPLICATION
+
+JsonObjectPtr Application::jsonObjOrResource(const string &aText, ErrorPtr *aErrorP, const string aPrefix)
+{
+  JsonObjectPtr obj;
+  if (!aText.empty() && aText[0]=='{') {
+    // parse JSON
+    obj = JsonObject::objFromText(aText.c_str(), -1, aErrorP, true);
+  }
+  else {
+    // pass as a simple string, will try to load resource file
+    obj = jsonObjOrResource(JsonObject::newString(aText), aErrorP, aPrefix);
+  }
+  return obj;
+}
+
+
+JsonObjectPtr Application::jsonObjOrResource(JsonObjectPtr aConfig, ErrorPtr *aErrorP, const string aPrefix)
+{
+  ErrorPtr err;
+  if (aConfig) {
+    if (aConfig->isType(json_type_string)) {
+      // could be resource
+      string resname = aConfig->stringValue();
+      if (resname.substr(resname.size()-5)==".json") {
+        if (resname.substr(0,2)=="./")
+          resname.erase(0,2);
+        else
+          resname.insert(0, aPrefix);
+        string fn = Application::sharedApplication()->resourcePath(resname);
+        aConfig = JsonObject::objFromFile(fn.c_str(), &err, true);
+      }
+    }
+  }
+  else {
+    err = TextError::err("missing JSON or filename");
+  }
+  if (aErrorP) *aErrorP = err;
+  return aConfig;
+}
+
+#endif // ENABLE_JSON_APPLICATION
+
+
 
 string Application::version() const
 {
