@@ -210,8 +210,12 @@ bool p44::RGBtoHSV(const Row3 &RGB, Row3 &HSV)
 
 bool p44::HSVtoRGB(const Row3 &HSV, Row3 &RGB)
 {
-  int hi = (int)floor(HSV[0] / 60) % 6;
-  double f = (HSV[0] / 60 - hi);
+  double hue = HSV[0];
+  if (hue<0 || hue>=360) {
+    hue = ((int)(hue*1000) % (360*1000))/1000;
+  }
+  int hi = (int)floor(hue / 60) % 6;
+  double f = (hue / 60 - hi);
   double p = HSV[2] * (1 - HSV[1]);
   double q = HSV[2] * (1 - (HSV[1]*f));
   double t = HSV[2] * (1 - (HSV[1]*(1-f)));
