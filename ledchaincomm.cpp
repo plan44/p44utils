@@ -432,18 +432,21 @@ void LEDChainArrangement::clear()
 
 void LEDChainArrangement::setRootView(P44ViewPtr aRootView)
 {
-  if (rootView) rootView->setNeedStepCB(NULL); // make sure previous rootview will not call back any more!
+  if (rootView) rootView->setNeedUpdateCB(NULL); // make sure previous rootview will not call back any more!
   rootView = aRootView;
-  rootView->setNeedStepCB(boost::bind(&LEDChainArrangement::rootViewRequestsStep, this));
+  rootView->setNeedUpdateCB(boost::bind(&LEDChainArrangement::rootViewRequestsUpdate, this));
 }
 
 
-void LEDChainArrangement::rootViewRequestsStep()
+void LEDChainArrangement::rootViewRequestsUpdate()
 {
+  DBGFOCUSLOG("######## rootViewRequestsUpdate()");
   if (rootView) {
     if (autoStepTicket) {
       // interrupt autostepping timer
       autoStepTicket.cancel();
+      // update display if dirty
+      updateDisplay();
       // start new with immediate step call
       autoStepTicket.executeOnce(boost::bind(&LEDChainArrangement::autoStep, this, _1));
     }
