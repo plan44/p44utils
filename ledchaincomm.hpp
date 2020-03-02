@@ -227,7 +227,9 @@ namespace p44 {
                                    "\n- x,dx,y,dy,firstoffset,betweenoffset specify how the chain is mapped to the display space" \
                                    "\n- XYSA are flags: X or Y: x or y reversed, S: x/y swapped, A: alternating (zigzag)" \
                                    "\nNote: this option can be used multiple times to combine ledchains" }, \
-    { 0,   "ledchainmax",   true,  "max;max output value (0..255) sent to LED. Defaults to 128" }
+    { 0,   "ledchainmax",   true,  "max;max output value (0..255) sent to LED. Defaults to 128" }, \
+    { 0,   "ledpowerlimit", true,  "max_mW;maximal power in milliwatts the entire LED arrangement is allowed to consume (approximately)." \
+                                   "If power would exceed limit, all LEDs are dimmed to stay below limit. Standby/off power of LED chains is not included in the calculation." }
 
 
   class LEDChainArrangement;
@@ -254,6 +256,7 @@ namespace p44 {
     MLMicroSeconds lastUpdate;
     MLTicket autoStepTicket;
     uint8_t maxOutValue;
+    uint32_t powerLimit; // max power (accumulated PWM values of all LEDs)
 
   public:
 
@@ -306,7 +309,12 @@ namespace p44 {
     /// set max output value (0..255) to be sent to the LED chains
     void setMaxOutValue(uint8_t aMaxOutValue) { maxOutValue = aMaxOutValue; }
 
+    /// get max output value (0..255) to be sent to the LED chains
     uint8_t getMaxOutValue() { return maxOutValue; }
+
+    /// limit total power, dim LED chain output accordingly
+    /// @param aMilliWatts how many milliwatts (approximatively) the total chain may use, 0=no limit
+    void setPowerLimit(int aMilliWatts);
 
     /// @return true if any of the chains do have a separate (fourth) white channel
     bool hasWhite() { return hasWhiteLEDs; }

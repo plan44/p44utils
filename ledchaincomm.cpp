@@ -219,6 +219,7 @@ void LEDChainComm::show()
   if (!chainDriver) {
     // Note: no operation if this is only a secondary mapping - primary driver will update the hardware
     if (!initialized) return;
+
     #if ENABLE_RPIWS281X
     ws2811_render(&ledstring);
     #else
@@ -237,21 +238,26 @@ void LEDChainComm::setColorAtLedIndex(uint16_t aLedIndex, uint8_t aRed, uint8_t 
   else {
     // local driver, store change in my own LED buffer
     if (aLedIndex>=numLeds) return;
+    // get power (PWM values)
+    uint8_t r = pwmtable[aRed];
+    uint8_t g = pwmtable[aGreen];
+    uint8_t b = pwmtable[aBlue];
+    uint8_t w = pwmtable[aBlue];
     #if ENABLE_RPIWS281X
     ws2811_led_t pixel =
-      (pwmtable[aRed] << 16) |
-      (pwmtable[aGreen] << 8) |
-      (pwmtable[aBlue]);
+      ((uint32_t)r << 16) |
+      ((uint32_t)g << 8) |
+      ((uint32_t)b);
     if (numColorComponents>3) {
-      pixel |= (pwmtable[aWhite] << 24);
+      pixel |= ((uint32_t)w << 24);
     }
     ledstring.channel[0].leds[aLedIndex] = pixel;
     #else
-    ledbuffer[numColorComponents*aLedIndex] = pwmtable[aRed];
-    ledbuffer[numColorComponents*aLedIndex+1] = pwmtable[aGreen];
-    ledbuffer[numColorComponents*aLedIndex+2] = pwmtable[aBlue];
+    ledbuffer[numColorComponents*aLedIndex] = r;
+    ledbuffer[numColorComponents*aLedIndex+1] = g;
+    ledbuffer[numColorComponents*aLedIndex+2] = b;
     if (numColorComponents>3) {
-      ledbuffer[numColorComponents*aLedIndex+3] = pwmtable[aWhite];
+      ledbuffer[numColorComponents*aLedIndex+3] = w;
     }
     #endif
   }
@@ -408,6 +414,7 @@ LEDChainArrangement::LEDChainArrangement() :
   covers(zeroRect),
   hasWhiteLEDs(false),
   maxOutValue(255),
+  powerLimit(0),
   lastUpdate(Never),
   minUpdateInterval(DEFAULT_MIN_UPDATE_INTERVAL),
   maxPriorityInterval(DEFAULT_MAX_PRIORITY_INTERVAL)
@@ -435,26 +442,6 @@ void LEDChainArrangement::setRootView(P44ViewPtr aRootView)
   if (rootView) rootView->setNeedUpdateCB(NULL); // make sure previous rootview will not call back any more!
   rootView = aRootView;
   rootView->setNeedUpdateCB(boost::bind(&LEDChainArrangement::rootViewRequestsUpdate, this));
-}
-
-
-void LEDChainArrangement::rootViewRequestsUpdate()
-{
-  DBGFOCUSLOG("######## rootViewRequestsUpdate()");
-  if (rootView) {
-    if (autoStepTicket) {
-      // interrupt autostepping timer
-      autoStepTicket.cancel();
-      // update display if dirty
-      updateDisplay();
-      // start new with immediate step call
-      autoStepTicket.executeOnce(boost::bind(&LEDChainArrangement::autoStep, this, _1));
-    }
-    else {
-      // just step
-      step();
-    }
-  }
 }
 
 
@@ -619,6 +606,15 @@ uint8_t LEDChainArrangement::getMinVisibleColorIntensity()
 }
 
 
+#define MILLIWATTS_PER_LED 95 // empirical measurement for WS2813B
+
+void LEDChainArrangement::setPowerLimit(int aMilliWatts)
+{
+  // internal limit is in PWM units
+  powerLimit = aMilliWatts*255/MILLIWATTS_PER_LED;
+}
+
+
 MLMicroSeconds LEDChainArrangement::updateDisplay()
 {
   MLMicroSeconds now = MainLoop::now();
@@ -634,34 +630,61 @@ MLMicroSeconds LEDChainArrangement::updateDisplay()
         // update now
         lastUpdate = now;
         if (dirty) {
-          // update LED chain content buffers from view hierarchy
-          for(LedChainVector::iterator pos = ledChains.begin(); pos!=ledChains.end(); ++pos) {
-            LEDChainFixture& l = *pos;
-            for (int x=0; x<l.covers.dx; ++x) {
-              for (int y=0; y<l.covers.dy; ++y) {
-                // get pixel from view
-                PixelColor pix = rootView->colorAt({
-                  l.covers.x+x,
-                  l.covers.y+y
-                });
-                dimPixel(pix, pix.a);
-                #if DEBUG
-                //if (x==0 && y==0) pix={ 255,0,0,255 };
-                #endif
-                // limit to max output value
-                if (maxOutValue<255) {
-                  if (pix.r>maxOutValue) pix.r = maxOutValue;
-                  if (pix.g>maxOutValue) pix.g = maxOutValue;
-                  if (pix.b>maxOutValue) pix.b = maxOutValue;
+          uint8_t powerDim = 0; // undefined
+          while (true) {
+            uint32_t lightPower = 0;
+            // update LED chain content buffers from view hierarchy
+            for(LedChainVector::iterator pos = ledChains.begin(); pos!=ledChains.end(); ++pos) {
+              LEDChainFixture& l = *pos;
+              for (int x=0; x<l.covers.dx; ++x) {
+                for (int y=0; y<l.covers.dy; ++y) {
+                  // get pixel from view
+                  PixelColor pix = rootView->colorAt({
+                    l.covers.x+x,
+                    l.covers.y+y
+                  });
+                  dimPixel(pix, pix.a);
+                  #if DEBUG
+                  //if (x==0 && y==0) pix={ 255,0,0,255 };
+                  #endif
+                  // limit to max output value
+                  if (maxOutValue<255) {
+                    if (pix.r>maxOutValue) pix.r = maxOutValue;
+                    if (pix.g>maxOutValue) pix.g = maxOutValue;
+                    if (pix.b>maxOutValue) pix.b = maxOutValue;
+                  }
+                  // accumulate power consumption
+                  if (powerDim) {
+                    // limit
+                    dimPixel(pix, powerDim);
+                    if (DEBUGLOGGING && FOCUSLOGENABLED) {
+                      // re-calculate dimmed result for debug display
+                      lightPower += pwmtable[pix.r]+pwmtable[pix.g]+pwmtable[pix.b];
+                    }
+                  }
+                  else if (powerLimit) {
+                    // measure
+                    lightPower += pwmtable[pix.r]+pwmtable[pix.g]+pwmtable[pix.b];
+                  }
+                  // set pixel in chain
+                  l.ledChain->setColorXY(
+                    l.offset.x+x,
+                    l.offset.y+y,
+                    pix.r, pix.g, pix.b
+                  );
                 }
-                // set pixel in chain
-                l.ledChain->setColorXY(
-                  l.offset.x+x,
-                  l.offset.y+y,
-                  pix.r, pix.g, pix.b
-                );
               }
             }
+            // check if we need power limiting
+            if (lightPower>powerLimit && powerDim==0) {
+              powerDim = brightnesstable[(uint32_t)255*powerLimit/lightPower];
+              DBGFOCUSLOG("!!! power (%d) exceeds limit (%d) -> re-run dimmed", lightPower, powerLimit);
+              continue; // run again with reduced power
+            }
+            else if (powerDim) {
+              DBGFOCUSLOG("--- reduced power is %d now (limit %d), dim=%d", lightPower, powerLimit, powerDim);
+            }
+            break;
           }
           rootView->updated();
         }
@@ -733,6 +756,25 @@ void LEDChainArrangement::render()
   autoStepTicket.executeOnceAt(boost::bind(&LEDChainArrangement::autoStep, this, _1), nextCall);
 }
 
+
+void LEDChainArrangement::rootViewRequestsUpdate()
+{
+  DBGFOCUSLOG("######## rootViewRequestsUpdate()");
+  if (rootView) {
+    if (autoStepTicket) {
+      // interrupt autostepping timer
+      autoStepTicket.cancel();
+      // update display if dirty
+      updateDisplay();
+      // start new with immediate step call
+      autoStepTicket.executeOnce(boost::bind(&LEDChainArrangement::autoStep, this, _1));
+    }
+    else {
+      // just step
+      step();
+    }
+  }
+}
 
 
 void LEDChainArrangement::end()
