@@ -24,6 +24,12 @@
 //  along with p44utils. If not, see <http://www.gnu.org/licenses/>.
 //
 
+// File scope debugging options
+// - Set ALWAYS_DEBUG to 1 to enable DBGLOG output even in non-DEBUG builds of this file
+#define ALWAYS_DEBUG 0
+// - set FOCUSLOGLEVEL to non-zero log level (usually, 5,6, or 7==LOG_DEBUG) to get focus (extensive logging) for this file
+//   Note: must be before including "logger.hpp" (or anything that includes "logger.hpp")
+#define FOCUSLOGLEVEL 6
 
 #include "rfid.hpp"
 
@@ -57,11 +63,6 @@ using namespace p44;
 #define PICC_RESTORE          0xC2               // Transferencia de datos de bloque de buffer
 #define PICC_TRANSFER         0xB0               // Guardar los datos en el bÃºfer
 #define PICC_HALT             0x50               // inactividad
-
-// MF522 Error codes
-#define MI_OK                 0
-#define MI_TIMEOUT            1
-#define MI_ERR                2
 
 // ------------------ MFRC522 registers ---------------
 // Page 0:Command and Status
@@ -137,11 +138,20 @@ using namespace p44;
 
 
 
-RFID522::RFID522(SPIDevicePtr aSPIGenericDev, int aReaderIndex, SelectCB aReaderSelectFunc)
+RFID522::RFID522(SPIDevicePtr aSPIGenericDev, int aReaderIndex, SelectCB aReaderSelectFunc) :
+  cmd(0),
+  irqEn(0),
+  waitIrq(0)
 {
   spidev = aSPIGenericDev;
   readerIndex = aReaderIndex;
   readerSelectFunc = aReaderSelectFunc;
+}
+
+
+RFID522::~RFID522()
+{
+  reset();
 }
 
 
@@ -216,8 +226,14 @@ void RFID522::clrRegBits(uint8_t aReg, uint8_t aBitMask)
 
 void RFID522::reset()
 {
+  #if IRQ_WATCHDOG
+  irqWatchdog.cancel();
+  #endif
   // Soft reset, all registers set to reset values, buffer unchanged
   writeReg(CommandReg, PCD_SOFTRESET);
+  cmd = 0;
+  irqEn = 0;
+  waitIrq = 0;
 }
 
 
@@ -235,14 +251,13 @@ void RFID522::init()
   // - Bit7    : TAuto=1: timer autostarts at end of transmission in all modes
   // - Bit6,5  : TGated=0: non-gated timer mode
   // - Bit4    : TAutoRestart=0: timer does not restart automatically
-  // - Bit3..0 : TPrescalerHi=0x8D
-  writeReg(TModeReg, 0x8D);    // TAuto=1: timer autostart at  ; f(Timer) = 6.78MHz/TPreScaler
+  // - Bit3..0 : TPrescalerHi=0x0D
+  writeReg(TModeReg, 0x8D);    // TAuto=1: timer autostart at end of transmission ; f(Timer) = 6.78MHz/TPreScaler
   // TPrescalerReg
   // - Bit7..0 : TPrescalerLo=0x3E
   writeReg(TPrescalerReg, 0x3E);  //TModeReg[3..0] + TPrescalerReg
   // Timer Reload Value
-  writeReg(TReloadRegL, 30);
-  writeReg(TReloadRegH, 0);
+  setTimer(30);
   // Transmit modulation settings
   // TxASKReg
   // - Bit 6   : Force100ASK=1: force 100% ASK modulation independent of ModGsPReg setting
@@ -258,11 +273,20 @@ void RFID522::init()
   //writeMFRC522(RxSelReg, 0x86); // RxWait = RxSelReg[5..0]
   //writeMFRC522(RFCfgReg, 0x7F); // RxGain = 48dB
 
-  antennaOn(); // Turn on RF field
+  energyFieldOn(); // Turn on RF field
 }
 
 
-void RFID522::antennaOn(void)
+void RFID522::setTimer(uint16_t aTimerReload)
+{
+  writeReg(TReloadRegL, aTimerReload & 0xFF);
+  writeReg(TReloadRegH, (aTimerReload>>8) & 0xFF);
+}
+
+
+
+
+void RFID522::energyFieldOn(void)
 {
   uint8_t temp;
 
@@ -280,179 +304,247 @@ void RFID522::antennaOn(void)
 
 // MARK: ==== Low Level
 
-uint8_t RFID522::execPICCCmd(uint8_t aCmd, uint8_t *aTxDataP, uint8_t aTxBytes, uint8_t *aRxDataP, uint16_t &aRxBits)
-{
-  uint8_t status = MI_ERR;
-  uint8_t irqEn = 0x00;
-  uint8_t waitIRq = 0x00;
+#define COMMAND_TIMEOUT (250*MilliSecond)
 
-  switch (aCmd)
-  {
+void RFID522::execPICCCmd(uint8_t aCmd, const string aTxData, ExecResultCB aResultCB)
+{
+  execResultCB = aResultCB;
+
+  irqEn = 0x00;
+  waitIrq = 0x00;
+  // IRQ enable bits:
+  //            |    7   |   6   |   5   |    4    ||     3      |      2     |    1   |    0     |
+  // CommIEnReg | IRqInv | TxIEn | RxIEn | IdleIEn || HiAlertIEn | LoAlertIEn | ErrIEn | TimerIEn |
+  // CommIrqReg |  Set1  | TxIRq | RxIRq | IdleIRq || HiAlertIRq | LoAlertIRq | ErrIRq | TimerIRq |
+  cmd = aCmd;
+  switch (cmd) {
     case PCD_MFAUTHENT: {
       // MiFare authentication
       irqEn = 0x12; // IdleIEn + ErrIEn interupt enable
-      waitIRq = 0x10; // wait for Idle IRQ
+      waitIrq = 0x11; // wait for Idle (or Timer, even if not enabled)
       break;
     }
     case PCD_TRANSCEIVE: {
       // Transmit and then receive data
-      irqEn = 0x77; // TxIen + RxIen + IdleIEn + LoAlertIEn + ErrIEn + TimerIEn interrupt enable
-      waitIRq = 0x30; // wait for Idle or Rx IRQ
+      //irqEn = 0x77; // TxIen + RxIen + IdleIEn + LoAlertIEn + ErrIEn + TimerIEn interrupt enable
+      irqEn = 0x73; // TxIen + RxIen + IdleIEn + ErrIEn + TimerIEn interrupt enable
+      //irqEn = 0x13; // IdleIEn, ErrIEn, TimerIEn
+      waitIrq = 0x31; // wait for Idle, Rx, Timer
       break;
     }
-    default:
-      break;
+    default: {
+      execResult(Error::err<RFIDError>(RFIDError::UnknownCmd, "Unknown PICC command"));
+      return;
+    }
   }
   // set up interrupts
   writeReg(CommIEnReg, irqEn|0x80); // also set IRqInv=1, IRQ line is inverted
-  clrRegBits(CommIrqReg, 0x80);       // Clear all interrupt request bits
+  //clrRegBits(CommIrqReg, 0x80); // Clear all interrupt request bits %%% not really, probably bug
+  writeReg(CommIrqReg, 0x7F); // Clear all interrupt request bits
+  FOCUSLOG("### debug: initial irqflags after clearing = 0x%02X, enabled = 0x%02X", readReg(CommIrqReg), readReg(CommIEnReg));
   // prepare
-  setRegBits(FIFOLevelReg, 0x80);       // FlushBuffer=1, FIFO initialization
-  writeReg(CommandReg, PCD_IDLE);   // Cancel previously pending commands
+  writeReg(CommandReg, PCD_IDLE); // Cancel previously pending command, if any
+  writeReg(FIFOLevelReg, 0x80); // FlushBuffer=1, FIFO initialization
   // put data into FIFO
-  writeFIFO(aTxDataP, aTxBytes);
-//
-//
-//  //Escribir datos en el FIFO
-//  for (i=0; i<sendLen; i++)
-//  {
-//    writeReg(FIFODataReg, sendData[i]);
-//  }
-
+  writeFIFO((uint8_t *)aTxData.c_str(), aTxData.size());
   // Execute the command
-  writeReg(CommandReg, aCmd);
-  if (aCmd == PCD_TRANSCEIVE) {
+  FOCUSLOG("rfid reader %d: starting command 0x%02X with %lu data bytes, FIFO level = %d", readerIndex, cmd, aTxData.size(), readReg(FIFOLevelReg));
+  writeReg(CommandReg, cmd);
+  if (cmd==PCD_TRANSCEIVE) {
     setRegBits(BitFramingReg, 0x80); // StartSend=1, transmission of data starts
   }
-
-  // %%% ugly busy wait
-  int busyWaitCount = 2000;  // According to the clock frequency setting, the maximum waiting time operation M1 25ms card???
-  uint8_t irqflags;
-  do {
-    // CommIrqReg[7..0]
-    // Set1 TxIRq RxIRq IdleIRq HiAlerIRq LoAlertIRq ErrIRq TimerIRq
-    irqflags = readReg(CommIrqReg);
-    busyWaitCount--;
-    // while
-    // - busy loop not exhaused
-    // - Timer IRQ not happened yet
-    // - none of the other IRQs we are waiting for not happened yet
-  } while ((busyWaitCount!=0) && !(irqflags&0x01) && !(irqflags&waitIRq));
-  clrRegBits(BitFramingReg, 0x80); // StartSend=0
-
-  if (busyWaitCount!=0) {
-    // actually got some IRQ
-    // - any of BufferOvfl Collerr CRCErr ProtecolErr ?
-    if(!(readReg(ErrorReg) & 0x1B)) {
-      // no, everything ok
-      status = MI_OK;
-      if (irqflags&irqEn&0x01) {
-        // Timer IRQ
-        status = MI_TIMEOUT;
-      }
-      if (aCmd==PCD_TRANSCEIVE) {
-        uint8_t receivedBytes = readReg(FIFOLevelReg); // number of bytes (including possibly partially valid last byte)
-        uint8_t lastBits = readReg(ControlReg) & 0x07; // number of valid bits in last byte, 0=all
-        // number of bits
-        if (lastBits) {
-          // not complete
-          aRxBits = (receivedBytes-1)*8 + lastBits;
-        }
-        else {
-          aRxBits = receivedBytes*8;
-        }
-        // get actual data
-        if (receivedBytes==0) {
-          receivedBytes = 1; // still read one byte. Why?? %%%
-        }
-        else if (receivedBytes > MAX_LEN) {
-          receivedBytes = MAX_LEN;
-        }
-        readFIFO(aRxDataP, receivedBytes);
-//        //??FIFO??????? Read the data received in the FIFO
-//        for (i=0; i<n; i++)
-//        {
-//          backData[i] = readReg(FIFODataReg);
-//        }
-      }
-    }
-    else
-    {
-      status = MI_ERR;
-    }
-
-  }
-
-  //SetBitMask(ControlReg,0x80);           //timer stops
-  //Write_MFRC522(CommandReg, PCD_IDLE);
-
-  return status;
+  #if IRQ_WATCHDOG
+  // setup IRQ watchdog, wait for irqHandler() to get called
+  irqWatchdog.executeOnce(boost::bind(&RFID522::irqTimeout, this, _1), COMMAND_TIMEOUT);
+  #else
+  cmdStart = MainLoop::now();
+  #endif
+  return; // wait for IRQ now
 }
 
+#if IRQ_WATCHDOG
 
-/// Function name: MFRC522_Request
-/// Description: Search for letters, read the card type
-/// @param reqMode - find the card mode,
-/// @param TagType - Return card type
-/// - 0x4400 = Mifare_UltraLight
-/// - 0x0400 = Mifare_One(S50)
-/// - 0x0200 = Mifare_One(S70)
-/// - 0x0800 = Mifare_Pro(X)
-/// - 0x4403 = Mifare_DESFire
-/// @return successful return MI_OK
-uint8_t  RFID522::MFRC522Request(uint8_t reqMode, uint8_t *TagType)
+void RFID522::irqTimeout(MLTimer &aTimer)
 {
-  uint8_t status;
-  uint16_t backBits;      //   Recibio bits de datos
-
-  writeReg(BitFramingReg, 0x07);    //TxLastBists = BitFramingReg[2..0]  ???
-
-  TagType[0] = reqMode;
-  status = execPICCCmd(PCD_TRANSCEIVE, TagType, 1, TagType, backBits);
-
-  if ((status != MI_OK) || (backBits != 0x10))
-  {
-    status = MI_ERR;
+  // actual interrupt might be unreliable, so just check irq here again
+  bool pending = irqHandler();
+  if (pending) {
+    MainLoop::currentMainLoop().retriggerTimer(aTimer, COMMAND_TIMEOUT);
   }
+  else {
+    commandTimeout();
+  }
+}
 
-  return status;
+#endif
+
+
+void RFID522::commandTimeout()
+{
+  FOCUSLOG("!!!! rfid reader %d: command timed out -> cancel", readerIndex);
+  writeReg(CommandReg, PCD_IDLE);   // Cancel command
+  writeReg(CommIEnReg, 0x80); // disable all interrupts, but keep polarity inverse!
+  irqEn = 0;
+  waitIrq = 0;
+  execResult(Error::err<RFIDError>(RFIDError::IRQTimeout, "IRQ Timeout -> cancelled command"));
 }
 
 
+
+
+bool RFID522::irqHandler()
+{
+  FOCUSLOG("\nirqHandler()");
+  // Bits: Set1 TxIRq RxIRq IdleIRq HiAlerIRq LoAlertIRq ErrIRq TimerIRq
+  uint8_t irqflags = readReg(CommIrqReg) & 0x7F; // Set1 masked out (probably not needed because reads 0 anyway)
+  if (irqflags & irqEn) {
+    FOCUSLOG(
+      "### debug: found enabled IRQ: CommIrqReg=0x%02X, irqEn=0x%02X, CommIEnReg=0x%02X, waitIrq=0x%02X, status1=0x%02X, FIFOlevel=%d",
+      irqflags, irqEn, readReg(CommIEnReg), waitIrq, readReg(Status1Reg), readReg(FIFOLevelReg)
+    );
+    writeReg(CommIrqReg, irqflags); // ALWAYS clear the flags that are set
+    if (irqflags & waitIrq) {
+      ErrorPtr err;
+      string response;
+      uint16_t totalBits = 0;
+      // one of the interrupts we should handle
+      FOCUSLOG("rfid reader %d: IRQ arrived we are waiting for, flags = 0x%02X", readerIndex, irqflags);
+      // - any of BufferOvfl Collerr CRCErr ProtecolErr ?
+      uint8_t errReg = readReg(ErrorReg);
+      if(!(errReg & 0x1B)) {
+        // no, everything ok
+        if (irqflags&irqEn&0x01) {
+          // we were waiting for timer IRQ
+          err = Error::err<RFIDError>(RFIDError::Timeout, "chip timer timeout");
+        }
+        if (cmd==PCD_TRANSCEIVE) {
+          uint8_t receivedBytes = readReg(FIFOLevelReg); // number of bytes (including possibly partially valid last byte)
+          uint8_t lastBits = readReg(ControlReg) & 0x07; // number of valid bits in last byte, 0=all
+          // number of bits
+          if (lastBits) {
+            // not complete
+            totalBits = (receivedBytes-1)*8 + lastBits;
+          }
+          else {
+            totalBits = receivedBytes*8;
+          }
+          // get actual data
+          if (receivedBytes==0) {
+            receivedBytes = 1; // still read one byte. Why?? %%%
+          }
+          else if (receivedBytes > MAX_LEN) {
+            receivedBytes = MAX_LEN;
+          }
+          uint8_t data[MAX_LEN];
+          readFIFO(data, receivedBytes);
+          response.assign((char *)data, receivedBytes);
+        }
+      }
+      else {
+        err = Error::err<RFIDError>(RFIDError::ChipErr, "chip error register = 0x%02X", errReg);
+      }
+      // done with command
+      waitIrq = 0;
+      #if IRQ_WATCHDOG
+      irqWatchdog.cancel();
+      #else
+      cmdStart = Never;
+      #endif
+      execResult(err, totalBits, response);
+    }
+    #if !IRQ_WATCHDOG
+    else if (cmdStart) {
+      // no IRQ and command started: check command timeout
+      if (MainLoop::now()>cmdStart+COMMAND_TIMEOUT) {
+        commandTimeout();
+      }
+    }
+    #endif
+  }
+  FOCUSLOG("irqHandler() done with CommIrqReg=0x%02X, waitIrq=0x%02X\n", irqflags, waitIrq);
+  return waitIrq!=0;
+}
+
+
+void RFID522::execResult(ErrorPtr aErr, uint16_t aResultBits, const string aResult)
+{
+  FOCUSLOG("### execResult: resultBits=%d, result=%s, err=%s, callback=%s", aResultBits, binaryToHexString(aResult).c_str(), Error::text(aErr), execResultCB ? "YES" : "NO");
+  if (execResultCB) {
+    ExecResultCB cb = execResultCB;
+    execResultCB = NULL;
+    cb(aErr, aResultBits, aResult);
+  }
+}
+
+
+void RFID522::requestPICC(uint8_t aReqCmd, bool aWait, StatusCB aStatusCB)
+{
+  writeReg(BitFramingReg, 0x07); // TxLastBists: BitFramingReg[2..0]=7: alignment: start at bit7 of first byte, then continue in next byte
+  string data;
+  data.append(1,aReqCmd);
+  execPICCCmd(PCD_TRANSCEIVE, data, boost::bind(&RFID522::requestResponse, this, aReqCmd, aStatusCB, aWait, _1, _2, _3));
+}
+
+
+void RFID522::requestResponse(uint8_t aReqCmd, StatusCB aStatusCB, bool aWait, ErrorPtr aErr, uint16_t aResultBits, const string aResult)
+{
+  if (Error::isOK(aErr)) {
+    if (aResultBits!=16) {
+      aErr = Error::err<RFIDError>(RFIDError::BadAnswer, "bad ATQ answer: bits = %d: data=%s", aResultBits, binaryToHexString(aResult).c_str());
+    }
+  }
+  else if (aErr->isError(RFIDError::domain(), RFIDError::Timeout)) {
+    // just timeout, try again
+    RFID522::requestPICC(aReqCmd, true, aStatusCB);
+    return;
+  }
+  if (aStatusCB) aStatusCB(aErr);
+}
 
 
 // MARK: ==== High level
 
-
-bool RFID522::isCard()
+void RFID522::probeTypeA(StatusCB aStatusCB, bool aWait)
 {
-  uint8_t status;
-  uint8_t str[MAX_LEN];
-
-  status = MFRC522Request(PICC_REQA, str); // probe TypeA cards in the field
-  if (status == MI_OK) {
-    return true;
-  } else {
-    return false;
-  }
+  requestPICC(PICC_REQA, aWait, aStatusCB);
 }
 
-bool RFID522::readCardSerial()
+
+void RFID522::antiCollision(ExecResultCB aResultCB, bool aStoreNUID)
 {
-  uint8_t status;
-  uint8_t str[MAX_LEN];
-
-  // Anti-collision, get 4 bytes Card number
-  status = anticoll(str);
-  memcpy(serNum, str, 5);
-
-  if (status == MI_OK) {
-    return true;
-  } else {
-    return false;
-  }
+  //ClearBitMask(Status2Reg, 0x08); // TempSensclear
+  //ClearBitMask(CollReg,0x80); // ValuesAfterColl
+  writeReg(BitFramingReg, 0x00); // TxLastBists = BitFramingReg[2..0]
+  string cmd;
+  cmd.append(1,PICC_ANTICOLL);
+  cmd.append(1,0x20);
+  execPICCCmd(PCD_TRANSCEIVE, cmd, boost::bind(&RFID522::anticollResponse, this, aResultCB, aStoreNUID, _1, _2, _3));
 }
 
+
+void RFID522::anticollResponse(ExecResultCB aResultCB, bool aStoreNUID, ErrorPtr aErr, uint16_t aResultBits, const string aResult)
+{
+  if (Error::isOK(aErr)) {
+    // check validity, BCC (5th byte) must be XOR of previous 4 bytes
+    if (aResult.size()>=5) {
+      uint8_t bcc = 0;
+      for (int i=0; i<4; i++) {
+        bcc ^= (uint8_t)aResult[i];
+      }
+      if (bcc!=(uint8_t)aResult[4]) {
+        aErr = Error::err<RFIDError>(RFIDError::BadAnswer, "anticollision BCC error: bits = %d: data=%s", aResultBits, binaryToHexString(aResult).c_str());
+      }
+      // correct serial
+      if (aStoreNUID) {
+        memcpy(serNum, aResult.c_str(), 5);
+      }
+    }
+    else {
+      aErr = Error::err<RFIDError>(RFIDError::BadAnswer, "bad anticollision answer: bits = %d: data=%s", aResultBits, binaryToHexString(aResult).c_str());
+    }
+  }
+  if (aResultCB) aResultCB(aErr, aResultBits, aResult);
+}
 
 
 
@@ -486,45 +578,7 @@ void RFID522::calculateCRC(uint8_t *pIndata, uint8_t len, uint8_t *pOutData)
 }
 
 
-
-/// MFRC522Anticoll -> anticoll
-/// Anti-collision detection, read card serial number
-/// @param serNum returns the serial 4-byte card nnumber, the first 5 bytes of parity bytes
-/// @return successful return MI_OK
-uint8_t RFID522::anticoll(uint8_t *serNum)
-{
-  uint8_t status;
-  uint8_t i;
-  uint8_t serNumCheck=0;
-  uint16_t unLen;
-
-
-  //ClearBitMask(Status2Reg, 0x08);    //TempSensclear
-  //ClearBitMask(CollReg,0x80);      //ValuesAfterColl
-  writeReg(BitFramingReg, 0x00);    //TxLastBists = BitFramingReg[2..0]
-
-  serNum[0] = PICC_ANTICOLL;
-  serNum[1] = 0x20;
-  status = execPICCCmd(PCD_TRANSCEIVE, serNum, 2, serNum, unLen);
-
-  if (status == MI_OK)
-  {
-    //?????? Compruebe el numero de serie de la tarjeta
-    for (i=0; i<4; i++)
-    {
-      serNumCheck ^= serNum[i];
-    }
-    if (serNumCheck != serNum[i])
-    {
-      status = MI_ERR;
-    }
-  }
-
-  //SetBitMask(CollReg, 0x80);    //ValuesAfterColl=1
-
-  return status;
-}
-
+/*
 /// MFRC522Auth -> auth
 /// Check the auth of the card
 /// @param authMode Authentication mode from password
@@ -640,3 +694,5 @@ void RFID522::halt()
 
   status = execPICCCmd(PCD_TRANSCEIVE, buff, 4, buff,unLen);
 }
+
+*/
