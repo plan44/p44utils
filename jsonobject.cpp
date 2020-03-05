@@ -31,7 +31,7 @@
 using namespace p44;
 
 
-// MARK: - private constructors / destructor
+// MARK: - constructors / destructor / assignment
 
 
 // construct from raw json_object, passing ownership
@@ -56,6 +56,27 @@ JsonObject::~JsonObject()
     json_obj = NULL;
   }
 }
+
+
+/// copy constructor
+JsonObject::JsonObject(const JsonObject& aObj) :
+  json_obj(NULL)
+{
+  *this = aObj;
+}
+
+/// assignment operator
+JsonObject& JsonObject::operator=(const JsonObject& aObj)
+{
+  if (json_obj) {
+    json_object_put(json_obj);
+    json_obj = NULL;
+  }
+  json_object_deep_copy(aObj.json_obj, &json_obj, &json_c_shallow_copy_default);
+  return *this;
+}
+
+
 
 
 // MARK: - read and write from files

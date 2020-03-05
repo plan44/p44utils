@@ -74,6 +74,12 @@ namespace p44 {
     /// destructor, releases internally kept json_object (which is possibly owned by other objects)
     virtual ~JsonObject();
 
+    /// copy constructor
+    JsonObject(const JsonObject& aObj);
+
+    /// assignment operator
+    JsonObject& operator=(const JsonObject& aObj);
+
     /// factory to return smart pointer to new wrapper of a newly created json_object
     /// @param aObjPassingOwnership json_object, ownership is passed into this JsonObject, caller looses ownership!
     static JsonObjectPtr newObj(struct json_object *aObjPassingOwnership);
