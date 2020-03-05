@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2017-2019 plan44.ch / Lukas Zeller, Zurich, Switzerland
+//  Copyright (c) 2017-2020 plan44.ch / Lukas Zeller, Zurich, Switzerland
 //
 //  Author: Lukas Zeller <luz@plan44.ch>
 //
@@ -32,6 +32,14 @@
 #ifndef EXPRESSION_SCRIPT_SUPPORT
   #define EXPRESSION_SCRIPT_SUPPORT 1 // on by default
 #endif
+#ifndef EXPRESSION_JSON_SUPPORT
+  #define EXPRESSION_JSON_SUPPORT 1 // on by default
+#endif
+
+#if EXPRESSION_JSON_SUPPORT
+  #include "jsonobject.hpp"
+#endif
+
 
 #define ELOGGING (evalLogLevel!=0)
 #define ELOGGING_DBG (evalLogLevel>=LOG_DEBUG)
@@ -78,8 +86,12 @@ namespace p44 {
     string* strValP; ///< string values have a std::string here
     double numVal;
     ErrorPtr err;
+    #if EXPRESSION_JSON_SUPPORT
+    JsonObjectPtr json;
+    #endif
 
     void clrStr();
+    void clrExtensions();
   public:
     /// Constructors
     ExpressionValue() : nullValue(true), numVal(0), strValP(NULL) { };
@@ -94,16 +106,25 @@ namespace p44 {
     int intValue() const { return (int)numValue(); }
     int64_t int64Value() const { return (int64_t)numValue(); }
     string stringValue() const; ///< returns a conversion to string if value is numeric
+    #if EXPRESSION_JSON_SUPPORT
+    JsonObjectPtr jsonValue(ErrorPtr *errP = NULL) const; ///< returns a conversion to a JSON value
+    ExpressionValue subField(const string aFieldName);
+    ExpressionValue arrayElement(int aArrayIndex);
+    ExpressionValue subScript(const ExpressionValue& aSubScript);
+    #endif
     ErrorPtr error() const { return err; }
     // Setters
-    void setNull(const char *aWithInfo = NULL) { if (aWithInfo) setString(aWithInfo); else clrStr(); nullValue = true; err = NULL; numVal = 0; }
-    void setBool(bool aBoolValue) { nullValue = false; err.reset(); numVal = aBoolValue ? 1: 0; clrStr(); }
-    void setNumber(double aNumValue) { nullValue = false; err.reset(); numVal = aNumValue; clrStr(); }
-    void setString(const string& aStrValue) { nullValue = false; err.reset(); numVal = 0; clrStr(); strValP = new string(aStrValue); }
-    void setString(const char *aCStrValue) { nullValue = false; err.reset(); numVal = 0; clrStr(); strValP = new string(aCStrValue); }
-    void setError(ErrorPtr aError) { nullValue = false; err = aError; clrStr(); numVal = 0; }
+    void setNull(const char *aWithInfo = NULL) { clrExtensions(); if (aWithInfo) setString(aWithInfo); nullValue = true; err = NULL; numVal = 0; }
+    void setBool(bool aBoolValue) { nullValue = false; numVal = aBoolValue ? 1: 0; clrExtensions(); }
+    void setNumber(double aNumValue) { nullValue = false; numVal = aNumValue; clrExtensions(); }
+    void setString(const string& aStrValue) { nullValue = false; numVal = 0; clrExtensions(); strValP = new string(aStrValue); }
+    void setString(const char *aCStrValue) { nullValue = false; numVal = 0; clrExtensions(); strValP = new string(aCStrValue); }
+    void setError(ErrorPtr aError) { nullValue = false; clrExtensions(); err = aError; numVal = 0; }
     void setError(ExpressionError::ErrorCodes aErrCode, const char *aFmt, ...)  __printflike(3,4);
     void setSyntaxError(const char *aFmt, ...)  __printflike(2,3);
+    #if EXPRESSION_JSON_SUPPORT
+    void setJson(JsonObjectPtr aJson);
+    #endif
     // tests
     bool isOK() const { return !err; } ///< not error, but actual value or null
     bool isValue() const { return !nullValue && !err; } ///< not null and not error -> real value
@@ -112,6 +133,9 @@ namespace p44 {
     bool isNull() const { return nullValue; }
     bool syntaxOk() const { return !Error::isError(err, ExpressionError::domain(), ExpressionError::Syntax); } ///< might be ok for calculations, not a syntax problem
     bool isString() const { return !nullValue && strValP!=NULL; }
+    #if EXPRESSION_JSON_SUPPORT
+    bool isJson() const { return !nullValue && json; }
+    #endif
     // Operators
     ExpressionValue& operator=(const ExpressionValue& aVal); ///< assignment operator
     ExpressionValue operator!() const;
@@ -172,8 +196,6 @@ namespace p44 {
   ErrorPtr substituteExpressionPlaceholders(string& aString, ValueLookupCB aValueLookupCB, FunctionLookupCB aFunctionLookpCB, string aNullText = "null");
 
 
-
-
   /// Expression Evaluation Callback
   /// @param aEvaluationResult the evaluation result (can be error)
   /// @param aContext the evaluation context this result originates from
@@ -207,6 +229,9 @@ namespace p44 {
   #ifndef EXPRESSION_OPERATOR_MODE
     #define EXPRESSION_OPERATOR_MODE EXPRESSION_OPERATOR_MODE_FLEXIBLE
   #endif
+
+
+  typedef std::map<string, ExpressionValue, lessStrucmp> VariablesMap; ///< local or global variables container
 
 
   /// Basic Expression Evaluation Context
@@ -281,6 +306,8 @@ namespace p44 {
       s_simpleTerm, ///< at the beginning of a term
       s_funcArg, ///< handling a function argument
       s_funcExec, ///< handling function execution
+      s_subscriptArg, ///< handling a subscript parameter
+      s_subscriptExec, ///< handling access based on subscript args
       numEvalStates
     } EvalState; ///< the state of the evaluation in the current frame
 
@@ -594,6 +621,13 @@ namespace p44 {
     /// @param aPos the position of the literal to parse within the code
     static void parseNumericLiteral(ExpressionValue &aResult, const char* aCode, size_t& aPos);
 
+    /// get value by (possibly structured) identifier
+    /// @param aVariableMapP pointer to the variable map to look into
+    /// @param aVarPath the variable, possibly a dot-separated path into a structured variable to look up (any case, comparison must be case insensitive)
+    /// @param aResult set the value here
+    /// @return true if value returned, false if value is unknown
+    static bool variableLookup(VariablesMap *aVariableMapP, const string &aVarPath, ExpressionValue &aResult);
+
     /// @}
 
 
@@ -637,19 +671,16 @@ namespace p44 {
 
   #if EXPRESSION_SCRIPT_SUPPORT
 
-  typedef std::map<string, ExpressionValue, lessStrucmp> VariablesMap;
-
   class ScriptGlobals
   {
     friend class ScriptExecutionContext;
     friend class EvaluationContext;
 
-    VariablesMap globalVariables; ///< global variables
-
   public:
 
-    static ScriptGlobals& sharedScriptGlobals();
+    VariablesMap globalVariables; ///< global variables
 
+    static ScriptGlobals& sharedScriptGlobals();
   };
 
   static ScriptGlobals *scriptGlobals = NULL;
@@ -660,6 +691,8 @@ namespace p44 {
   class ScriptExecutionContext : public EvaluationContext
   {
     typedef EvaluationContext inherited;
+
+  protected:
 
     VariablesMap variables; ///< script local variables
 

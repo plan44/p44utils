@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2017-2019 plan44.ch / Lukas Zeller, Zurich, Switzerland
+//  Copyright (c) 2017-2020 plan44.ch / Lukas Zeller, Zurich, Switzerland
 //
 //  Author: Lukas Zeller <luz@plan44.ch>
 //
@@ -54,9 +54,11 @@ ExpressionValue& ExpressionValue::operator=(const ExpressionValue& aVal)
   if (aVal.strValP) {
     strValP = new string(*aVal.strValP);
   }
+  #if EXPRESSION_JSON_SUPPORT
+  json = aVal.json;
+  #endif
   return *this;
 }
-
 
 void ExpressionValue::clrStr()
 {
@@ -64,9 +66,21 @@ void ExpressionValue::clrStr()
   strValP = NULL;
 }
 
-ExpressionValue::~ExpressionValue()
+
+void ExpressionValue::clrExtensions()
 {
   clrStr();
+  err.reset();
+  #if EXPRESSION_JSON_SUPPORT
+  json.reset();
+  #endif
+}
+
+
+
+ExpressionValue::~ExpressionValue()
+{
+  clrExtensions();
 }
 
 
@@ -101,6 +115,11 @@ string ExpressionValue::stringValue() const
     if (strValP) return *strValP; // null value with info
     return "undefined";
   }
+  #if EXPRESSION_JSON_SUPPORT
+  else if (json) {
+    return json->json_str();
+  }
+  #endif
   else if (err) {
     return err->description();
   }
@@ -121,6 +140,11 @@ double ExpressionValue::numValue() const
   else if (isNull()) {
     return 0;
   }
+  #if EXPRESSION_JSON_SUPPORT
+  else if (json) {
+    return json->doubleValue();
+  }
+  #endif
   else if (err) {
     return err->getErrorCode();
   }
@@ -128,6 +152,108 @@ double ExpressionValue::numValue() const
     return numVal;
   }
 }
+
+
+#if EXPRESSION_JSON_SUPPORT
+
+void ExpressionValue::setJson(JsonObjectPtr aJson)
+{
+  // try to break down to non-JSON
+  if (!aJson || aJson->isType(json_type_null)) {
+    setNull();
+    return;
+  }
+  switch (aJson->type()) {
+    case json_type_int:
+    case json_type_double:
+      setNumber(aJson->doubleValue());
+      break;
+    case json_type_boolean:
+      setBool(aJson->boolValue());
+      break;
+    case json_type_string:
+      setString(aJson->stringValue());
+      break;
+    default:
+      // strings and arrays
+      clrExtensions();
+      json = aJson;
+      nullValue = false;
+      break;
+  }
+}
+
+
+JsonObjectPtr ExpressionValue::jsonValue(ErrorPtr *errP) const
+{
+  if (json) {
+    return json;
+  }
+  else if (isNull()) {
+    return JsonObject::newNull();
+  }
+  else if (isError()) {
+    JsonObjectPtr j = JsonObject::newObj();
+    j->add("ErrorCode", JsonObject::newInt32((int32_t)err->getErrorCode()));
+    j->add("ErrorDomain", JsonObject::newString(err->getErrorDomain()));
+    j->add("ErrorMessage", JsonObject::newString(err->getErrorMessage()));
+    return j;
+  }
+  else if (isString()) {
+    const char *p = strValP->c_str();
+    if (*p=='{' || *p=='[') {
+      // try to parse as JSON
+      ErrorPtr jerr;
+      JsonObjectPtr j = JsonObject::objFromText(p, strValP->size(), &jerr, false);
+      if (Error::isOK(jerr)) return j;
+      if (errP) *errP = jerr;
+    }
+    // plain string
+    return JsonObject::newString(*strValP);
+  }
+  else {
+    return JsonObject::newDouble(numVal);
+  }
+}
+
+
+ExpressionValue ExpressionValue::subField(const string aFieldName)
+{
+  ExpressionValue ret;
+  JsonObjectPtr j = jsonValue();
+  if (j && j->isType(json_type_object)) {
+    JsonObjectPtr sf = j->get(aFieldName.c_str());
+    ret.setJson(sf);
+  }
+  return ret;
+}
+
+
+ExpressionValue ExpressionValue::arrayElement(int aArrayIndex)
+{
+  ExpressionValue ret;
+  JsonObjectPtr j = jsonValue();
+  if (j && j->isType(json_type_array)) {
+    JsonObjectPtr sf = j->arrayGet(aArrayIndex);
+    ret.setJson(sf);
+  }
+  return ret;
+}
+
+
+ExpressionValue ExpressionValue::subScript(const ExpressionValue& aSubScript)
+{
+  if (aSubScript.isString()) {
+    return subField(aSubScript.stringValue());
+  }
+  else {
+    return arrayElement(aSubScript.intValue());
+  }
+}
+
+
+#endif // EXPRESSION_JSON_SUPPORT
+
 
 
 
@@ -366,7 +492,9 @@ static const char *evalstatenames[EvaluationContext::numEvalStates] = {
   // - simple terms
   "s_simpleTerm",
   "s_funcArg",
-  "s_funcExec"
+  "s_funcExec",
+  "s_subscriptArg",
+  "s_subscriptExec"
 };
 
 
@@ -756,6 +884,8 @@ bool EvaluationContext::resumeEvaluation()
     case s_exprFirstTerm:
     case s_exprLeftSide:
     case s_exprRightSide:
+    case s_subscriptArg:
+    case s_subscriptExec:
       return resumeExpression();
     // grouped expression
     case s_groupedExpression:
@@ -778,19 +908,39 @@ bool EvaluationContext::resumeEvaluation()
 }
 
 
-// no variables in base class
+// only global variables in base class
 bool EvaluationContext::valueLookup(const string &aName, ExpressionValue &aResult)
 {
   VariablesMap* varsP = &ScriptGlobals::sharedScriptGlobals().globalVariables;
-  VariablesMap::iterator vpos = varsP->find(aName);
-  if (vpos!=varsP->end()) {
-    // found global variable
+  return variableLookup(varsP, aName, aResult);
+}
+
+
+bool EvaluationContext::variableLookup(VariablesMap* aVariableMapP, const string &aVarPath, ExpressionValue &aResult)
+{
+  if (!aVariableMapP) return false;
+  const char *p = aVarPath.c_str();
+  string enam;
+  nextPart(p, enam, '.');
+  VariablesMap::iterator vpos = aVariableMapP->find(enam);
+  if (vpos!=aVariableMapP->end()) {
+    // found base var
     aResult = vpos->second;
+    while (nextPart(p, enam, '.')) {
+      #if EXPRESSION_JSON_SUPPORT
+      if (!aResult.isJson()) return false; // not found
+      aResult = aResult.subField(enam);
+      #else
+      return false; // no structured variables without JSON support
+      #endif
+    }
     return true;
   }
   // not found
   return false;
 }
+
+
 
 
 static const char * const monthNames[12] = { "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec" };
@@ -801,6 +951,7 @@ void EvaluationContext::parseNumericLiteral(ExpressionValue &aResult, const char
   double v;
   int i;
   if (sscanf(aCode+aPos, "%lf%n", &v, &i)!=1) {
+    // Note: sscanf %d also handles hex!
     aResult.setSyntaxError("invalid number, time or date");
     return;
   }
@@ -987,8 +1138,63 @@ bool EvaluationContext::resumeExpression()
     }
     return newstate(s_exprLeftSide);
   }
+  #if EXPRESSION_JSON_SUPPORT
+  if (sp().state==s_subscriptArg) {
+    // a subscript argument, collect like function args
+    sp().args.addArg(sp().res, sp().pos);
+    skipNonCode();
+    if (currentchar()==',') {
+      // more arguments
+      pos++; // consume comma
+      sp().pos = pos; // update argument position
+      return push(s_newExpression);
+    }
+    else if (currentchar()==']') {
+      pos++; // consume closing ']'
+      return newstate(s_subscriptExec);
+    }
+    return abortWithSyntaxError("missing closing ']'");
+  }
+  if (sp().state==s_subscriptExec) {
+    ExpressionValue base = sp().val;
+    ELOG_DBG("Resolving Subscript for '%s'", sp().identifier.c_str());
+    for (int ai=0; ai<sp().args.size(); ai++) {
+      ELOG_DBG("- subscript at char pos=%zu: %s (err=%s)", sp().args.getPos(ai), sp().args[ai].stringValue().c_str(), Error::text(sp().args[ai].err));
+      sp().res = base.subScript(sp().args[ai]);
+      if (sp().res.isNull()) break;
+      base = sp().res;
+    }
+    // after subscript, continue with leftside
+    return newstate(s_exprLeftSide);
+  }
+  #endif // EXPRESSION_JSON_SUPPORT
   if (sp().state==s_exprLeftSide) {
     // res now has the left side value
+    #if EXPRESSION_JSON_SUPPORT
+    // - check postfix "operators": dot and subscript
+    if (currentchar()=='[') {
+      // array-style [x,..] subscript, works similar to function
+      pos++; // skip opening bracket
+      sp().args.clear();
+      skipNonCode();
+      newstate(s_subscriptArg);
+      sp().val = sp().res; // res will get overwritten by subscript argument collection
+      sp().pos = pos; // where the subscript starts
+      return push(s_newExpression);
+    }
+    else if (currentchar()=='.') {
+      // dot notation subscript
+      pos++; // skip dot
+      size_t ssz; const char *ss = getIdentifier(ssz); // get implicit subscript
+      if (ssz==0) return abortWithSyntaxError("missin object field name after dot");
+      pos+=ssz;
+      string fn(ss,ssz);
+      sp().res = sp().res.subField(fn);
+      // after subscript, continue with leftside
+      return newstate(s_exprLeftSide);
+    }
+    #endif // EXPRESSION_JSON_SUPPORT
+    // check binary operators
     size_t opIdx = pos;
     Operations binaryop = parseOperator(opIdx);
     int precedence = binaryop & opmask_precedence;
@@ -1109,6 +1315,22 @@ bool EvaluationContext::resumeTerm()
       pos++; // skip closing quote
       sp().res.setString(str);
     }
+    #if EXPRESSION_JSON_SUPPORT
+    else if (currentchar()=='{' || currentchar()=='[') {
+      // JSON object or array literal
+      const char* p = tail(pos);
+      ssize_t n;
+      ErrorPtr err;
+      JsonObjectPtr j = JsonObject::objFromText(p, -1, &err, false, &n);
+      if (Error::notOK(err)) {
+        return abortWithSyntaxError("invalid JSON literal: %s", err->text());
+      }
+      else {
+        pos += n;
+        sp().res.setJson(j);
+      }
+    }
+    #endif
     else {
       // identifier (variable, function)
       size_t idsz; const char *id = getIdentifier(idsz);
@@ -1124,14 +1346,16 @@ bool EvaluationContext::resumeTerm()
         // identifier, examine
         const char *idpos = id;
         pos += idsz;
-        // - check for subfields
+        // - include all dot notation subfields in identifier, because overridden valueLookup() implementations might
+        //   get subfields by another means than diving into JSON values. Still, we need "." and "[" operators in
+        //   other places
         while (currentchar()=='.') {
           pos++; idsz++;
           size_t s; id = getIdentifier(s);
           if (id) pos += s;
           idsz += s;
         }
-        sp().identifier.assign(idpos, idsz); // save the name, in original case
+        sp().identifier.assign(idpos, idsz); // save the name, in original case, including dot notation
         skipNonCode();
         if (currentchar()=='(') {
           // function call
@@ -1175,7 +1399,7 @@ bool EvaluationContext::resumeTerm()
                 }
               }
               if (!pseudovar) {
-                abortWithSyntaxError("no variable named '%s'", sp().identifier.c_str());
+                return abortWithSyntaxError("no variable named '%s'", sp().identifier.c_str());
               }
             }
           }
@@ -1351,6 +1575,50 @@ bool EvaluationContext::evaluateFunction(const string &aFunc, const FunctionArgu
     // number(anything)
     aResult.setNumber(aArgs[0].numValue()); // force convert to numeric
   }
+  else if (aFunc=="copy" && aArgs.size()==1) {
+    // copy(anything) // make a value copy, including json object references
+    #if EXPRESSION_JSON_SUPPORT
+    if (aArgs[0].isJson()) {
+      // need to make a value copy of the JsonObject itself
+      aResult.setJson(JsonObjectPtr(new JsonObject(*(aArgs[0].jsonValue()))));
+    }
+    else
+    #endif
+    {
+      aResult = aArgs[0]; // just copy the ExpressionValue
+    }
+  }
+  #if EXPRESSION_JSON_SUPPORT
+  else if (aFunc=="json" && aArgs.size()==1) {
+    // json(anything)
+    aResult.setJson(aArgs[0].jsonValue());
+  }
+  else if (aFunc=="setfield" && aArgs.size()==3) {
+    // bool setfield(var, fieldname, value)
+    if (!aArgs[0].isJson()) aResult.setNull(); // not JSON, cannot set value
+    else {
+      aResult.setJson(aArgs[0].jsonValue());
+      if (aArgs[1].notValue()) return errorInArg(aArgs[1], aResult); // return error/null from argument
+      aResult.jsonValue()->add(aArgs[1].stringValue().c_str(), aArgs[2].jsonValue());
+    }
+  }
+  else if (aFunc=="setelement" && aArgs.size()>=2 && aArgs.size()<=3) {
+    // bool setelement(var, index, value) // set
+    // bool setelement(var, value) // append
+    if (!aArgs[0].isJson()) aResult.setNull(); // not JSON, cannot set value
+    else {
+      aResult.setJson(aArgs[0].jsonValue());
+      if (aArgs[1].notValue()) return errorInArg(aArgs[1], aResult); // return error/null from argument
+      if (aArgs.size()==2) {
+        // append
+        aResult.jsonValue()->arrayAppend(aArgs[1].jsonValue());
+      }
+      else {
+        aResult.jsonValue()->arrayPut(aArgs[1].intValue(), aArgs[2].jsonValue());
+      }
+    }
+  }
+  #endif // EXPRESSION_JSON_SUPPORT
   else if (aFunc=="strlen" && aArgs.size()==1) {
     // strlen(string)
     if (aArgs[0].notValue()) return errorInArg(aArgs[0], aResult); // return error/null from argument
@@ -1855,7 +2123,7 @@ bool ScriptExecutionContext::resumeStatements()
     if (strucmp(kw, "var", kwsz)==0) {
       vardef = true;
     }
-    else if (strncasecmp("glob", kw, kwsz)==0) {
+    else if (strucmp(kw, "glob", kwsz)==0) {
       vardef = true;
       glob = true;
     }
@@ -1868,7 +2136,8 @@ bool ScriptExecutionContext::resumeStatements()
       skipNonCode();
       // variable name follows
       size_t vsz; const char *vn = getIdentifier(vsz);
-      if (!vn) return abortWithSyntaxError("missing variable name after '%.*s'", (int)kwsz, kw);
+      if (!vn)
+        return abortWithSyntaxError("missing variable name after '%.*s'", (int)kwsz, kw);
       varName = lowerCase(vn, vsz);
       pos += vsz;
       apos = pos;
@@ -2045,11 +2314,7 @@ bool ScriptExecutionContext::resumeWhile()
 
 bool ScriptExecutionContext::valueLookup(const string &aName, ExpressionValue &aResult)
 {
-  VariablesMap::iterator vpos = variables.find(sp().identifier);
-  if (vpos!=variables.end()) {
-    aResult = vpos->second;
-    return true;
-  }
+  if (variableLookup(&variables, aName, aResult)) return true;
   // none found locally. Let base class check for globals
   return inherited::valueLookup(aName, aResult);
 }
