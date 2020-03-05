@@ -131,7 +131,7 @@ static void countLines(int &aLineCount, size_t& aLastLineLenght, const char*& aF
 }
 
 
-JsonObjectPtr JsonObject::objFromText(const char *aJsonText, ssize_t aMaxChars, ErrorPtr *aErrorP, bool aAllowCComments)
+JsonObjectPtr JsonObject::objFromText(const char *aJsonText, ssize_t aMaxChars, ErrorPtr *aErrorP, bool aAllowCComments, ssize_t* aParsedCharsP)
 {
   JsonObjectPtr obj;
   if (aMaxChars<0) aMaxChars = strlen(aJsonText);
@@ -141,6 +141,7 @@ JsonObjectPtr JsonObject::objFromText(const char *aJsonText, ssize_t aMaxChars, 
   size_t segLen;
   int lineCnt = 0;
   size_t charOffs = 0;
+  const char *beg = aJsonText; // for parsed length calculation
   const char *ll = aJsonText;
   while ((seg = nextParsableSegment(aJsonText, aMaxChars, segLen, aAllowCComments, inComment))) {
     if (aErrorP) countLines(lineCnt, charOffs, ll, seg); // count lines from beginning of text to beginning of segment
@@ -163,6 +164,9 @@ JsonObjectPtr JsonObject::objFromText(const char *aJsonText, ssize_t aMaxChars, 
       }
       if (aErrorP) countLines(lineCnt, charOffs, ll, seg+segLen); // count lines in parsed segment
     }
+  }
+  if (aParsedCharsP) {
+    *aParsedCharsP = seg+tokener->char_offset-beg;
   }
   json_tokener_free(tokener);
   return obj;
