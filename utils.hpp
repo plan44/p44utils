@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2013-2019 plan44.ch / Lukas Zeller, Zurich, Switzerland
+//  Copyright (c) 2013-2020 plan44.ch / Lukas Zeller, Zurich, Switzerland
 //
 //  Author: Lukas Zeller <luz@plan44.ch>
 //
@@ -32,6 +32,8 @@
 #endif
 
 using namespace std;
+
+/// Basic utilities that DO NOT HAVE DEPENDENCIES on other p44utils classes
 
 namespace p44 {
 

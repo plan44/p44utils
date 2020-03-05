@@ -45,6 +45,8 @@ Features
 - support for JSON based http APIs
 - wrappers to abstract various sources of digital and analog inputs (such as GPIO, I2C and SPI peripherals) into easy to use input or output objects, including debouncing for inputs and blinking sequences for indicator outputs.
 - helper class for serial data controlled RGB and RGBW LED chains (WS281x, SK6812; APA102 planned)
+- utils: simple utility functions that DO NOT depend on other p44utils classes
+- extutils: simple utility functions that depend on other p44utils classes
 - other stuff :-)
 
 (c) 2013-2019 by Lukas Zeller / [plan44.ch](http://www.plan44.ch/opensource)

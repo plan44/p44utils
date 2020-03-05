@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2013-2019 plan44.ch / Lukas Zeller, Zurich, Switzerland
+//  Copyright (c) 2013-2020 plan44.ch / Lukas Zeller, Zurich, Switzerland
 //
 //  Author: Lukas Zeller <luz@plan44.ch>
 //
@@ -195,7 +195,6 @@ bool p44::string_fgetfile(FILE *aFile, string &aData)
   }
   return true;
 }
-
 
 
 const char *p44::nonNullCStr(const char *aNULLOrCStr)
