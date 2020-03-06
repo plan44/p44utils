@@ -28,6 +28,8 @@
 
 #include "valueanimator.hpp"
 
+#include <math.h>
+
 using namespace p44;
 
 
