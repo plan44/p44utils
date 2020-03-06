@@ -26,6 +26,8 @@
 
 #define SCRIPTLOGLEVEL 0
 
+#define JSON_TEST_OBJ "{\"array\":[\"first\",2,3,\"fourth\",6.6],\"obj\":{\"objA\":\"A\",\"objB\":42,\"objC\":{\"objD\":\"D\",\"objE\":45}},\"string\":\"abc\",\"number\":42,\"bool\":true}"
+
 using namespace p44;
 
 class ExpressionFixture : public EvaluationContext
@@ -51,6 +53,11 @@ public:
   ExpressionValue runExpression(const string &aExpression)
   {
     setCode(aExpression);
+    // set global jstest to JSON_TEST_OBJ
+    ExpressionValue v;
+    v.setJson(JsonObject::objFromText(JSON_TEST_OBJ));
+    ScriptGlobals::sharedScriptGlobals().globalVariables["jstest"] = v;
+    // evaluate
     return evaluateSynchronously(evalmode_initial);
   }
 };
@@ -79,16 +86,31 @@ public:
   ExpressionValue runScript(const string &aScript)
   {
     setCode(aScript);
+    // set global jstest to JSON_TEST_OBJ
+    ExpressionValue v;
+    v.setJson(JsonObject::objFromText(JSON_TEST_OBJ));
+    ScriptGlobals::sharedScriptGlobals().globalVariables["jstest"] = v;
     return evaluateSynchronously(evalmode_script);
   }
 };
 
 
-TEST_CASE_METHOD(ScriptFixture, "Focus", "[expressions]" )
+TEST_CASE_METHOD(ExpressionFixture, "Focus1", "[FOCUS]" )
 {
   setEvalLogLevel(7);
-//  REQUIRE(runScript("return 78.42; 999").numValue() == 78.42);
+  //REQUIRE(runExpression("42").numValue() == 42);
 }
+
+
+TEST_CASE_METHOD(ScriptFixture, "Focus2", "[FOCUS]" )
+{
+  setEvalLogLevel(7);
+  //REQUIRE(runScript("fortytwo = 42; return fortytwo").numValue() == 42);
+  //REQUIRE(runScript("var js = " JSON_TEST_OBJ "; return js").stringValue() == JSON_TEST_OBJ);
+  //REQUIRE(runScript("var js = " JSON_TEST_OBJ "; return js.obj").stringValue() == "{\"objA\":\"A\",\"objB\":42,\"objC\":{\"objD\":\"D\",\"objE\":45}}");
+  //REQUIRE(runScript("var js = " JSON_TEST_OBJ "; setfield(js.obj, 'objF', 46); return js.obj.objF").numValue() == 46);
+}
+
 
 
 TEST_CASE("ExpressionValue", "[expressions]" )
@@ -177,6 +199,10 @@ TEST_CASE_METHOD(ExpressionFixture, "Expressions", "[expressions]" )
     REQUIRE(runExpression("Sun").intValue() == 0);
     REQUIRE(runExpression("SUN").intValue() == 0);
     REQUIRE(runExpression("thu").intValue() == 4);
+
+    REQUIRE(runExpression("{ 'type':'object', 'test':42 }").stringValue() == "{\"type\":\"object\",\"test\":42}");
+    REQUIRE(runExpression("[ 'first', 2, 3, 'fourth', 6.6 ]").stringValue() == "[\"first\",2,3,\"fourth\",6.6]");
+
   }
 
   SECTION("Whitespace and comments") {
@@ -188,13 +214,29 @@ TEST_CASE_METHOD(ExpressionFixture, "Expressions", "[expressions]" )
 
   SECTION("Value Lookup") {
     REQUIRE(runExpression("UA").numValue() == 42);
-    REQUIRE(runExpression("dummy").isNull() == false); // unknown var should not be Null..
-    REQUIRE(runExpression("dummy").isValue() == false); // ..but not a value either
+    REQUIRE(runExpression("dummy").isValue() == false); // unknown var is not a value
     REQUIRE(runExpression("dummy").isOK() == false); // ..and not value-ok
     REQUIRE(runExpression("almostUA").numValue() == 42.7);
     REQUIRE(runExpression("UAtext").stringValue() == "fortyTwo");
     REQUIRE(runExpression("UAtext").stringValue() == "fortyTwo");
     REQUIRE(runExpression("UAtext").stringValue() == "fortyTwo");
+    // JSON tests, see JSON_TEST_OBJ
+    REQUIRE(runExpression("jstest").stringValue() == JSON_TEST_OBJ);
+    REQUIRE(runExpression("jstest.string").stringValue() == "abc");
+    REQUIRE(runExpression("jstest.number").numValue() == 42);
+    REQUIRE(runExpression("jstest.bool").boolValue() == true);
+    REQUIRE(runExpression("jstest.array[2]").numValue() == 3);
+    REQUIRE(runExpression("jstest.array[0]").stringValue() == "first");
+    REQUIRE(runExpression("jstest['array'][0]").stringValue() == "first");
+    REQUIRE(runExpression("jstest['array',0]").stringValue() == "first");
+    REQUIRE(runExpression("jstest.obj.objA").stringValue() == "A");
+    REQUIRE(runExpression("jstest.obj.objB").numValue() == 42);
+    REQUIRE(runExpression("jstest.obj['objB']").numValue() == 42);
+    REQUIRE(runExpression("jstest['obj'].objB").numValue() == 42);
+    REQUIRE(runExpression("jstest['obj','objB']").numValue() == 42);
+    REQUIRE(runExpression("jstest['obj']['objB']").numValue() == 42);
+    REQUIRE(runExpression("jstest['obj'].objC.objD").stringValue() == "D");
+    REQUIRE(runExpression("jstest['obj'].objC.objE").numValue() == 45);
   }
 
   SECTION("Operations") {
@@ -373,7 +415,16 @@ TEST_CASE_METHOD(ScriptFixture, "Scripts", "[expressions]" )
     REQUIRE(runScript("var x; let x = 1234").numValue() == 1234);
     REQUIRE(runScript("var x = 4321; X = 1234; return X").numValue() == 1234); // case insensitivity
     REQUIRE(runScript("var x = 4321; x = x + 1234; return x").numValue() == 1234+4321); // case insensitivity
-    REQUIRE(runScript("var x = 1; var x = 2; return x").numValue() == 1); // initialized only once
+    REQUIRE(runScript("var x = 1; var x = 2; return x").numValue() == 2); // locals initialized whenerver encountered (now! was different before)
+    REQUIRE(runScript("glob g = 1; glob g = 2; return g").numValue() == 1); // however globals are initialized once and then never again
+    REQUIRE(runScript("glob g = 3; g = 4; return g").numValue() == 4); // normal assignment is possible, however
+  }
+
+  SECTION("json manipulation") {
+    REQUIRE(runScript("var js = " JSON_TEST_OBJ "; setfield(js.obj, 'objF', 46); log(5,js); return js.obj.objF").numValue() == 46);
+    REQUIRE(runScript("var js = " JSON_TEST_OBJ "; setfield(js.obj, 'objA', 'AA'); log(5,js); return js.obj.objA").stringValue() == "AA");
+    REQUIRE(runScript("var js = " JSON_TEST_OBJ "; setelement(js.array, 'AA'); log(5,js); return js.array[5]").stringValue() == "AA");
+    REQUIRE(runScript("var js = " JSON_TEST_OBJ "; setelement(js.array, 0, 'modified'); log(5,js); return js.array[0]").stringValue() == "modified");
   }
 
   SECTION("control flow") {
