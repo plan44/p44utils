@@ -72,7 +72,8 @@ JsonObject& JsonObject::operator=(const JsonObject& aObj)
     json_object_put(json_obj);
     json_obj = NULL;
   }
-  json_object_deep_copy(aObj.json_obj, &json_obj, &json_c_shallow_copy_default);
+  //json_object_deep_copy(aObj.json_obj, &json_obj, &json_c_shallow_copy_default);
+  json_obj = json_tokener_parse(json_object_get_string(aObj.json_obj)); // should do "roughly the same thing"
   return *this;
 }
 
