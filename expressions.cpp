@@ -1440,6 +1440,18 @@ bool EvaluationContext::resumeTerm()
           return true; // not yielded
         }
       }
+      if (ScriptGlobals::exists()) {
+        for (
+          FunctionCBList::iterator pos = ScriptGlobals::sharedScriptGlobals().globalFunctionCallbacks.begin();
+          pos!=ScriptGlobals::sharedScriptGlobals().globalFunctionCallbacks.end();
+          ++pos
+        ) {
+          if ((*pos)(this, funcname, sp().args, sp().res)) {
+            return true; // not yielded
+          }
+        }
+      }
+
       // - then try built-in synchronous functions first
       if (evaluateFunction(funcname, sp().args, sp().res)) {
         return true; // not yielded
@@ -1905,6 +1917,16 @@ ScriptGlobals& ScriptGlobals::sharedScriptGlobals()
     scriptGlobals = new ScriptGlobals;
   }
   return *scriptGlobals;
+}
+
+bool ScriptGlobals::exists()
+{
+  return scriptGlobals!=NULL;
+}
+
+void ScriptGlobals::registerFunctionHandler(FunctionLookupCB aFunctionLookupHandler)
+{
+  globalFunctionCallbacks.push_back(aFunctionLookupHandler);
 }
 
 

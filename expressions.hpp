@@ -238,6 +238,7 @@ namespace p44 {
   class EvaluationContext : public P44Obj
   {
     friend class ExpressionValue;
+    friend class ScriptGlobals;
 
     typedef std::list<FunctionLookupCB> FunctionCBList;
     FunctionCBList functionCallbacks;
@@ -679,8 +680,16 @@ namespace p44 {
   public:
 
     VariablesMap globalVariables; ///< global variables
+    EvaluationContext::FunctionCBList globalFunctionCallbacks; ///< global function callbacks
 
+    static bool exists();
     static ScriptGlobals& sharedScriptGlobals();
+
+    /// register additional (synchronous) function handler
+    /// @note function handlers will be called to check for functions in the order they are registered, before
+    ///   checking the class hierarchy's built-in functions
+    void registerFunctionHandler(FunctionLookupCB aFunctionLookupHandler);
+
   };
 
   static ScriptGlobals *scriptGlobals = NULL;
