@@ -56,6 +56,7 @@
 #define BUS_TO_PHYS(x)                           ((x)&~0xC0000000)
 
 #define OSC_FREQ                                 19200000   // crystal frequency
+#define OSC_FREQ_PI4                             54000000   // Pi 4 crystal frequency
 
 /* 4 colors (R, G, B + W), 8 bits per byte, 3 symbols per bit + 55uS low for reset signal */
 #define LED_COLOURS                              4
@@ -347,10 +348,18 @@ static int setup_pwm(ws2811_t *ws2811)
     uint32_t freq = ws2811->freq;
     int32_t byte_count;
 
+    const rpi_hw_t *rpi_hw = ws2811->rpi_hw;
+    const uint32_t rpi_type = rpi_hw->type;
+    uint32_t osc_freq = OSC_FREQ;
+
+    if(rpi_type == RPI_HWVER_TYPE_PI4){
+        osc_freq = OSC_FREQ_PI4;
+    }
+
     stop_pwm(ws2811);
 
     // Setup the Clock - Use OSC @ 19.2Mhz w/ 3 clocks/tick
-    cm_clk->div = CM_CLK_DIV_PASSWD | CM_CLK_DIV_DIVI(OSC_FREQ / (3 * freq));
+    cm_clk->div = CM_CLK_DIV_PASSWD | CM_CLK_DIV_DIVI(osc_freq / (3 * freq));
     cm_clk->ctl = CM_CLK_CTL_PASSWD | CM_CLK_CTL_SRC_OSC;
     cm_clk->ctl = CM_CLK_CTL_PASSWD | CM_CLK_CTL_SRC_OSC | CM_CLK_CTL_ENAB;
     usleep(10);
@@ -392,7 +401,7 @@ static int setup_pwm(ws2811_t *ws2811)
 
     dma_cb->source_ad = addr_to_bus(device, device->pxl_raw);
 
-    dma_cb->dest_ad = (uint32_t)&((pwm_t *)PWM_PERIPH_PHYS)->fif1;
+    dma_cb->dest_ad = (uintptr_t)&((pwm_t *)PWM_PERIPH_PHYS)->fif1;
     dma_cb->txfr_len = byte_count;
     dma_cb->stride = 0;
     dma_cb->nextconbk = 0;
@@ -422,10 +431,18 @@ static int setup_pcm(ws2811_t *ws2811)
     uint32_t freq = ws2811->freq;
     int32_t byte_count;
 
+    const rpi_hw_t *rpi_hw = ws2811->rpi_hw;
+    const uint32_t rpi_type = rpi_hw->type;
+    uint32_t osc_freq = OSC_FREQ;
+
+    if(rpi_type == RPI_HWVER_TYPE_PI4){
+        osc_freq = OSC_FREQ_PI4;
+    }
+
     stop_pcm(ws2811);
 
     // Setup the PCM Clock - Use OSC @ 19.2Mhz w/ 3 clocks/tick
-    cm_clk->div = CM_CLK_DIV_PASSWD | CM_CLK_DIV_DIVI(OSC_FREQ / (3 * freq));
+    cm_clk->div = CM_CLK_DIV_PASSWD | CM_CLK_DIV_DIVI(osc_freq / (3 * freq));
     cm_clk->ctl = CM_CLK_CTL_PASSWD | CM_CLK_CTL_SRC_OSC;
     cm_clk->ctl = CM_CLK_CTL_PASSWD | CM_CLK_CTL_SRC_OSC | CM_CLK_CTL_ENAB;
     usleep(10);
@@ -457,7 +474,7 @@ static int setup_pcm(ws2811_t *ws2811)
                  RPI_DMA_TI_SRC_INC;          // Increment src addr
 
     dma_cb->source_ad = addr_to_bus(device, device->pxl_raw);
-    dma_cb->dest_ad = (uint32_t)&((pcm_t *)PCM_PERIPH_PHYS)->fifo;
+    dma_cb->dest_ad = (uintptr_t)&((pcm_t *)PCM_PERIPH_PHYS)->fifo;
     dma_cb->txfr_len = byte_count;
     dma_cb->stride = 0;
     dma_cb->nextconbk = 0;
@@ -892,6 +909,7 @@ ws2811_return_t ws2811_init(ws2811_t *ws2811)
     {
         return WS2811_ERROR_OUT_OF_MEMORY;
     }
+    memset(ws2811->device, 0, sizeof(*ws2811->device));
     device = ws2811->device;
 
     if (check_hwver_and_gpionum(ws2811) < 0)
@@ -1251,7 +1269,6 @@ ws2811_return_t  ws2811_render(ws2811_t *ws2811)
 
     return ret;
 }
-
 
 const char * ws2811_get_return_t_str(const ws2811_return_t state)
 {

@@ -68,7 +68,7 @@ void *mapmem(uint32_t base, uint32_t size, const char *mem_dev) {
 
 void *unmapmem(void *addr, uint32_t size) {
     uint32_t pagemask = ~0UL ^ (getpagesize() - 1);
-    uint32_t baseaddr = (uint32_t)addr & pagemask;
+    uintptr_t baseaddr = (uintptr_t)addr & pagemask;
     int s;
 
     s = munmap((void *)baseaddr, size);
@@ -260,50 +260,19 @@ uint32_t execute_qpu(int file_desc, uint32_t num_qpus, uint32_t control,
     return p[5];
 }
 
-
-static int kernel_info_initialised = 0;
-static int kernel_major = 0;
-static int kernel_minor = 0;
-
-static void kernel_info_init()
-{
-    FILE *fp;
-    char buf[64];
-    int maj,min;
-    if (!kernel_info_initialised) {
-        fp = fopen("/proc/sys/kernel/osrelease", "r");
-        if (!fp) {
-            printf("Unable to open /proc/sys/kernel/osrelease\n");
-        }
-        else {
-           if (fgets(buf, 64, fp)) {
-               // read kernel version
-               sscanf(buf,"%d.%d",&kernel_major,&kernel_minor);
-           }
-           close(fp);
-        }
-        kernel_info_initialised = 1;
-    }
-}
-
-
 int mbox_open(void) {
     int file_desc;
     char filename[64];
-    int devmaj;
 
     file_desc = open("/dev/vcio", 0);
     if (file_desc >= 0) {
         return file_desc;
     }
 
-    // depending on kernel version device major number must be 100 or 249
-    kernel_info_init();
-    devmaj = (kernel_major>4) || ((kernel_major==4) && (kernel_minor>=1)) ? 249 : 100;
     // open a char device file used for communicating with kernel mbox driver
-    sprintf(filename, "/dev/rpi-ws281x-mailbox-%d", getpid());
+    sprintf(filename, "/tmp/mailbox-%d", getpid());
     unlink(filename);
-    if (mknod(filename, S_IFCHR|0600, makedev(devmaj, 0)) < 0) {
+    if (mknod(filename, S_IFCHR|0600, makedev(100, 0)) < 0) {
         perror("Failed to create mailbox device\n");
         printf("-mailbox device name %s: %m\n", filename);
         return -1;
