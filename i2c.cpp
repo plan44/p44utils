@@ -41,7 +41,8 @@
     #include <linux/i2c-dev.h>
   #endif
   #ifndef LIB_I2CDEV_H
-  #warning "Most probably, we have the wrong i2c-dev.h header here - maybe i2c-tools not installed?"
+    #warning "Extended i2c-dev.h header not available - including local i2c-dev-extensions.h to augment existing i2c-dev.h"
+    #include "i2c-dev-extensions.h"
   #endif
 #else
   #warning "No i2C supported on this platform - just showing calls in focus debug output"
