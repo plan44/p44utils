@@ -30,7 +30,7 @@
 #include "spi.hpp"
 
 // locally disable actual functionality on unsupported platforms (but still provide console output dummies)
-#if !defined(DISABLE_SPI) && (defined(__APPLE__) || P44_BUILD_DIGI) && !P44_BUILD_RPI && !P44_BUILD_OW
+#if !defined(DISABLE_SPI) && (defined(__APPLE__) || P44_BUILD_DIGI) && !P44_BUILD_RPI && !P44_BUILD_RB && !P44_BUILD_OW
   #define DISABLE_SPI 1
 #endif
 
