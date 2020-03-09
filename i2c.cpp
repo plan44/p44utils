@@ -39,10 +39,10 @@
     #include <linux/lib-i2c-dev.h>
   #else
     #include <linux/i2c-dev.h>
-  #endif
-  #ifndef LIB_I2CDEV_H
-    #warning "Extended i2c-dev.h header not available - including local i2c-dev-extensions.h to augment existing i2c-dev.h"
-    #include "i2c-dev-extensions.h"
+    #ifndef LIB_I2CDEV_H
+      #warning "Extended i2c-dev.h header not available - including local i2c-dev-extensions.h to augment existing i2c-dev.h"
+      #include "i2c-dev-extensions.h"
+    #endif
   #endif
 #else
   #warning "No i2C supported on this platform - just showing calls in focus debug output"
