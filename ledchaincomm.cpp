@@ -415,6 +415,7 @@ LEDChainArrangement::LEDChainArrangement() :
   hasWhiteLEDs(false),
   maxOutValue(255),
   powerLimit(0),
+  powerLimited(false),
   lastUpdate(Never),
   minUpdateInterval(DEFAULT_MIN_UPDATE_INTERVAL),
   maxPriorityInterval(DEFAULT_MAX_PRIORITY_INTERVAL)
@@ -678,11 +679,20 @@ MLMicroSeconds LEDChainArrangement::updateDisplay()
             // check if we need power limiting
             if (lightPower>powerLimit && powerDim==0) {
               powerDim = brightnesstable[(uint32_t)255*powerLimit/lightPower];
-              DBGFOCUSLOG("!!! power (%d) exceeds limit (%d) -> re-run dimmed", lightPower, powerLimit);
+              if (!powerLimited) {
+                powerLimited = true;
+                LOG(LOG_INFO, "!!! LED power (%d) exceeds limit (%d) -> re-run dimmed", lightPower, powerLimit);
+              }
               continue; // run again with reduced power
             }
             else if (powerDim) {
               DBGFOCUSLOG("--- reduced power is %d now (limit %d), dim=%d", lightPower, powerLimit, powerDim);
+            }
+            else {
+              if (powerLimited) {
+                powerLimited = false;
+                LOG(LOG_INFO, "!!! LED power (%d) back below limit (%d) -> no dimm-down active", lightPower, powerLimit);
+              }
             }
             break;
           }

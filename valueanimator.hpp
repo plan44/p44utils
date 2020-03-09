@@ -39,7 +39,7 @@ namespace p44 {
 
   /// callback for end of animation
   /// @param aReachedValue value reached with end of animation
-  /// @param aAbaCompletedorted set if animation successfully ran to end
+  /// @param aCompleted set if animation successfully ran to end
   typedef boost::function<void (double aReachedValue, bool aCompleted)> AnimationDoneCB;
 
   /// Animation function type

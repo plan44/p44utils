@@ -220,16 +220,17 @@ namespace p44 {
 
   /// - option to construct LEDChainArrangement from command line
   #define CMDLINE_LEDCHAIN_OPTIONS \
-    { 0,   "ledchain",      true,  "[chaintype:[leddevicename:]]numberOfLeds:[x:dx:y:dy:firstoffset:betweenoffset][XYSA];" \
+    { 0,   "ledchain",      true,  "[chaintype:[leddevicename:]]numberOfLeds:[x:dx:y:dy:firstoffs:betweenoffs][XYSA];" \
                                    "enable support for LED chains forming one or multiple RGB lights" \
                                    "\n- chaintype can be WS2812 (GRB, default), SK6812 (RGBW), P9823 (RGB)" \
                                    "\n- leddevicename can be a device name when chain is driven by a kernel module" \
-                                   "\n- x,dx,y,dy,firstoffset,betweenoffset specify how the chain is mapped to the display space" \
+                                   "\n- x,dx,y,dy,firstoffs,betweenoffs specify how the chain is mapped to the display space" \
                                    "\n- XYSA are flags: X or Y: x or y reversed, S: x/y swapped, A: alternating (zigzag)" \
                                    "\nNote: this option can be used multiple times to combine ledchains" }, \
-    { 0,   "ledchainmax",   true,  "max;max output value (0..255) sent to LED. Defaults to 128" }, \
+    { 0,   "ledchainmax",   true,  "max;max output value (0..255) sent to LED. Defaults to 255." }, \
     { 0,   "ledpowerlimit", true,  "max_mW;maximal power in milliwatts the entire LED arrangement is allowed to consume (approximately)." \
-                                   "If power would exceed limit, all LEDs are dimmed to stay below limit. Standby/off power of LED chains is not included in the calculation." }
+                                   "If power would exceed limit, all LEDs are dimmed to stay below limit." \
+                                   "Standby/off power of LED chains is not included in the calculation. Defaults to 0=no limit" }
 
 
   class LEDChainArrangement;
@@ -257,6 +258,7 @@ namespace p44 {
     MLTicket autoStepTicket;
     uint8_t maxOutValue;
     uint32_t powerLimit; // max power (accumulated PWM values of all LEDs)
+    bool powerLimited; // set while power is limited
 
   public:
 
