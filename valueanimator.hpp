@@ -50,9 +50,11 @@ namespace p44 {
 
   class ValueAnimator : public P44Obj
   {
+    typedef std::list<ValueAnimatorPtr> AnimatorList;
+
     ValueSetterCB valueSetter;
     AnimationDoneCB doneCB;
-    MLMicroSeconds startTime; // if Never -> not running
+    MLMicroSeconds startedAt; // if Never -> not running
     MLMicroSeconds stepTime;
     MLMicroSeconds duration;
     double startValue;
@@ -64,6 +66,10 @@ namespace p44 {
     MLTicket animationTimer;
     bool autoreverse;
     int cycles;
+    AnimatorList triggerAnimations; ///< the animations to trigger when this one ends
+    bool awaitingTrigger; ///< set when animation awaits a trigger from another animation
+    bool absoluteStartTime; ///< true when startTimeOrDelay is absolute, false when start is relative to the time the animation is triggered
+    MLMicroSeconds startTimeOrDelay; ///< starting time (when relativeStartTime==false) or start delay (when relativeStartTime==true)
 
   public:
 
@@ -83,7 +89,7 @@ namespace p44 {
     /// @param aStepSize the desired step size. If 0, step size is determined by aMinStepTime (or its default)
     /// @note stepsize and steptime is only used when autostepping and for the recommended call-again time returned by step()
     ///   Actual stepping is done whenever step() is called, relative to the start time
-    /// @return Infinite if there is no need to call step (animation has no steps), otherwise mainloop time of when to call again
+    /// @return Infinite if there is no need to call step (animation has no steps or needs trigger first), otherwise mainloop time of when to call again
     MLMicroSeconds animate(double aTo, MLMicroSeconds aDuration, AnimationDoneCB aDoneCB = NULL, MLMicroSeconds aMinStepTime = 0, double aStepSize = 0);
 
     /// set repetition parameters
@@ -109,7 +115,24 @@ namespace p44 {
 
     /// set start value
     /// @param aFrom starting value
+    /// @return the animator to allow chaining
     ValueAnimatorPtr from(double aFrom);
+
+    /// set start time
+    /// @param aStartTime mainloop time when animation should start
+    /// @note if set, this invalidates runAfter and startDelay
+    /// @return the animator to allow chaining
+    ValueAnimatorPtr startTime(MLMicroSeconds aStartTime);
+
+    /// set start delay
+    /// @param aStartDelay start delay from the time when start is enabled (relevant when chained)
+    /// @return the animator to allow chaining
+    ValueAnimatorPtr startDelay(MLMicroSeconds aStartDelay);
+
+    /// run only after another animator ends
+    /// @param aPreceedingAnimation the preceeding animation which should trigger starting this animation (possibly with startDelay)
+    /// @return the animator to allow chaining
+    ValueAnimatorPtr runAfter(ValueAnimatorPtr aPreceedingAnimation);
 
     /// Stop ongoing animation
     /// @param aAndReport if set, the animation done callback, if any, is executed
@@ -120,7 +143,7 @@ namespace p44 {
     /// @return Infinite if there is no immediate need to call step again, otherwise mainloop time of when to call again
     MLMicroSeconds step();
 
-    /// @return true when an animation is in progress
+    /// @return true when an animation is in progress, including waiting for start (after delay or at trigger)
     bool inProgress();
 
     /// @return true when the animator is valid, i.e. has a value setter
@@ -134,6 +157,9 @@ namespace p44 {
     static double easeInOut(double aProgress, double aTuning);
 
   private:
+
+    MLMicroSeconds trigger(); ///< internal: trigger to run (possibly with delay)
+    MLMicroSeconds start(); ///< internal: start
 
     void autoStep(MLTimer &aTimer, MLMicroSeconds aNow);
     void internalStop(bool aReport, bool aCompleted);

@@ -43,9 +43,12 @@ ValueAnimator::ValueAnimator(ValueSetterCB aValueSetter, bool aSelfTiming) :
   startValue(0),
   distance(0),
   currentValue(0),
-  startTime(Never),
+  startedAt(Never),
   cycles(0),
-  autoreverse(false)
+  autoreverse(false),
+  awaitingTrigger(false),
+  startTimeOrDelay(0),
+  absoluteStartTime(false)
 {
 }
 
@@ -64,7 +67,7 @@ bool ValueAnimator::valid()
 
 bool ValueAnimator::inProgress()
 {
-  return valid() && startTime!=Never;
+  return valid() && (startedAt!=Never || startTimeOrDelay!=0 || awaitingTrigger);
 }
 
 
@@ -76,11 +79,20 @@ void ValueAnimator::stop(bool aAndReport)
 
 void ValueAnimator::internalStop(bool aCallback, bool aCompleted)
 {
-  if (startTime!=Never) {
+  if (startedAt!=Never) {
     FOCUSLOG("=== Animation stops with value=%3.2f, completed=%d, callback=%d", currentValue, aCompleted, aCallback);
-    startTime = Never;
+    startedAt = Never;
     cycles = 0;
+    awaitingTrigger = false;
+    startTimeOrDelay = 0;
     animationTimer.cancel();
+    if (!triggerAnimations.empty()) {
+      // trigger next animations
+      FOCUSLOG("=== Animation triggers %d other animations", triggerAnimations.size());
+      for (AnimatorList::iterator pos=triggerAnimations.begin(); pos!=triggerAnimations.end(); ++pos) {
+        (*pos)->trigger();
+      }
+    }
     if (aCallback && doneCB) {
       AnimationDoneCB cb = doneCB;
       doneCB = NULL;
@@ -142,6 +154,37 @@ ValueAnimatorPtr ValueAnimator::param(double aAnimationParam)
 
 
 
+ValueAnimatorPtr ValueAnimator::startTime(MLMicroSeconds aStartTime)
+{
+  if (startedAt==Never) {
+    absoluteStartTime = true;
+    startTimeOrDelay = aStartTime;
+  }
+  return this;
+}
+
+
+ValueAnimatorPtr ValueAnimator::startDelay(MLMicroSeconds aStartDelay)
+{
+  if (startedAt==Never) {
+    absoluteStartTime = false;
+    startTimeOrDelay = aStartDelay;
+  }
+  return this;
+}
+
+
+ValueAnimatorPtr ValueAnimator::runAfter(ValueAnimatorPtr aPreceedingAnimation)
+{
+  // have preceeding animation trigger myself when it is done
+  if (aPreceedingAnimation) {
+    aPreceedingAnimation->triggerAnimations.push_back(this);
+    awaitingTrigger = true;
+  }
+  return this;
+}
+
+
 MLMicroSeconds ValueAnimator::animate(double aTo, MLMicroSeconds aDuration, AnimationDoneCB aDoneCB, MLMicroSeconds aMinStepTime, double aStepSize)
 {
   internalStop(true, false); // abort previous animation, if any
@@ -153,6 +196,7 @@ MLMicroSeconds ValueAnimator::animate(double aTo, MLMicroSeconds aDuration, Anim
     internalStop(true, false);
     return Infinite; // no need to call step()
   }
+  // precalculate operating params
   distance = aTo-startValue;
   if (!animationFunction) animationFunction = &linear; // default to linear
   stepTime = aMinStepTime>0 ? aMinStepTime : ANIMATION_MIN_STEP_TIME; // default to not-too-small steps
@@ -171,27 +215,60 @@ MLMicroSeconds ValueAnimator::animate(double aTo, MLMicroSeconds aDuration, Anim
       if (steps>0) stepTime = duration/steps;
     }
   }
-  FOCUSLOG("=== Start Animation: from=%3.2f, distance=%3.2f, to=%3.2f, duration=%2.3f S, stepTime=%2.3f S, stepcount=%d", startValue, distance, startValue+distance, (double)duration/Second, (double)stepTime/Second, steps);
+  if (steps==0) stepTime = 0; // signals no steps for start()
+  // is startable now
+  if (awaitingTrigger) return Infinite; // ..but needs to wait for trigger first
+  // trigger right now
+  return trigger();
+}
+
+
+MLMicroSeconds ValueAnimator::trigger()
+{
+  if (startTimeOrDelay) {
+    if (!absoluteStartTime) {
+      // make absolute
+      startTimeOrDelay = MainLoop::now()+startTimeOrDelay;
+      absoluteStartTime = true;
+    }
+    FOCUSLOG("=== Triggered Animation, but must await delay of %.2f seconds", (double)(startTimeOrDelay-MainLoop::now())/Second);
+    if (selfTiming) {
+      // schedule a timer to start
+      animationTimer.executeOnceAt(boost::bind(&ValueAnimator::start, this), startTimeOrDelay);
+    }
+    return startTimeOrDelay; // this is when we need to start
+  }
+  // can start right now
+  return start();
+}
+
+
+MLMicroSeconds ValueAnimator::start()
+{
+  awaitingTrigger = false; // not waiting for trigger any more
+  startTimeOrDelay = 0; // no delay any more, step() will run animation
+  absoluteStartTime = false;
+  FOCUSLOG("=== Start Animation: from=%3.2f, distance=%3.2f, to=%3.2f, duration=%2.3f S, stepTime=%2.3f S", startValue, distance, startValue+distance, (double)duration/Second, (double)stepTime/Second);
   // set current value
-  startTime = MainLoop::now();
-  // start animation or just finish it if there are no steps
-  if (steps>0) {
+  startedAt = MainLoop::now();
+  // start animation or just finish it if there are no steps (no step time)
+  if (stepTime>0) {
     valueSetter(currentValue);
-    MLMicroSeconds nextStep = MainLoop::now()+stepTime;
+    MLMicroSeconds nextStep = startedAt+stepTime;
     if (selfTiming) {
       animationTimer.executeOnceAt(boost::bind(&ValueAnimator::autoStep, this, _1, _2), nextStep);
     }
     return nextStep;
   }
   // immediately done (no steps)
-  return cycleComplete(startTime);
+  return cycleComplete(startedAt);
 }
 
 
 MLMicroSeconds ValueAnimator::cycleComplete(MLMicroSeconds aNow)
 {
   // set precise end value
-  FOCUSLOG(">>> Animation Cycle completes after %3.3f S, with last value=%3.2f, final value=%3.2f, cycles=%d, autoreverse=%d", (double)(aNow-startTime)/Second, currentValue, startValue+distance, cycles, autoreverse);
+  FOCUSLOG(">>> Animation Cycle completes after %3.3f S, with last value=%3.2f, final value=%3.2f, cycles=%d, autoreverse=%d", (double)(aNow-startedAt)/Second, currentValue, startValue+distance, cycles, autoreverse);
   currentValue = startValue+distance;
   valueSetter(currentValue);
   // check cycles
@@ -207,7 +284,7 @@ MLMicroSeconds ValueAnimator::cycleComplete(MLMicroSeconds aNow)
       currentValue = startValue;
     }
     // continue stepping
-    startTime = aNow;
+    startedAt = aNow;
     return aNow+stepTime;
   }
   internalStop(true, true);
@@ -217,9 +294,19 @@ MLMicroSeconds ValueAnimator::cycleComplete(MLMicroSeconds aNow)
 
 MLMicroSeconds ValueAnimator::step()
 {
-  if (!inProgress()) return Infinite;
+  if (awaitingTrigger) return Infinite; // still waiting for getting triggered
   MLMicroSeconds now = MainLoop::now();
-  double progress = (double)(now-startTime)/duration;
+  if (startTimeOrDelay) {
+    // delayed start
+    if (now<startTimeOrDelay) {
+      // still waiting for start
+      return startTimeOrDelay; // need to be called again at start time
+    }
+    // now actually start running
+    return start();
+  }
+  if (!inProgress()) return Infinite;
+  double progress = (double)(now-startedAt)/duration;
   if (progress>=1) {
     // reached end of cycle
     return cycleComplete(now);
@@ -229,7 +316,7 @@ MLMicroSeconds ValueAnimator::step()
   }
   // cycle continues
   double fprog = animationFunction(progress, animationParam);
-  FOCUSLOG("--- Animation step: time since cycle start: %3.3f S, start=%3.2f, distance=%+3.2f: progress %.3f -> %.3f (delta = %.3f) -> newValue=%3.2f", (double)(now-startTime)/Second, startValue, distance, progress, fprog, startValue+distance*fprog-currentValue, startValue+distance*fprog);
+  FOCUSLOG("--- Animation step: time since cycle start: %3.3f S, start=%3.2f, distance=%+3.2f: progress %.3f -> %.3f (delta = %.3f) -> newValue=%3.2f", (double)(now-startedAt)/Second, startValue, distance, progress, fprog, startValue+distance*fprog-currentValue, startValue+distance*fprog);
   currentValue = startValue+distance*fprog;
   valueSetter(currentValue);
   return now+stepTime;
