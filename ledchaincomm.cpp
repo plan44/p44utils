@@ -625,6 +625,7 @@ MLMicroSeconds LEDChainArrangement::updateDisplay()
       // needs update
       if (now<lastUpdate+minUpdateInterval) {
         // cannot update now, but return the time when we can update next time
+        DBGFOCUSLOG("updateDisplay update postponed by %lld, rootview.dirty=%d", lastUpdate+minUpdateInterval-now, dirty);
         return lastUpdate+minUpdateInterval;
       }
       else {
@@ -699,7 +700,7 @@ MLMicroSeconds LEDChainArrangement::updateDisplay()
           rootView->updated();
         }
         // update hardware (refresh actual LEDs, cleans away possible glitches
-        DBGFOCUSLOG("######## calling show()");
+        DBGFOCUSLOG("######## calling show(), dirty=%d", dirty);
         for(LedChainVector::iterator pos = ledChains.begin(); pos!=ledChains.end(); ++pos) {
           pos->ledChain->show();
         }
