@@ -2,7 +2,7 @@
 p44utils
 ========
 
-[![Flattr this git repo](http://api.flattr.com/button/flattr-badge-large.png)](https://flattr.com/submit/auto?user_id=luz&url=https://github.com/plan44/p44utils&title=p44utils&language=&tags=github&category=software) 
+*[[if you want to support p44utils development, please consider to sponsor plan44]](https://github.com/sponsors/plan44)* 
 
 "p44utils" is a set of free (opensource, GPLv3) C++ utility classes and functions for creating single-threaded, mainloop event based applications, mainly targeted at linux deamons for automation.
 
