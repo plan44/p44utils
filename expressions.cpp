@@ -313,6 +313,22 @@ ExpressionValue ExpressionValue::operator/(const ExpressionValue& aRightSide) co
   return res;
 }
 
+ExpressionValue ExpressionValue::operator%(const ExpressionValue& aRightSide) const
+{
+  ExpressionValue res;
+  if (aRightSide.numValue()==0) {
+    res.setError(ExpressionError::DivisionByZero, "division by zero");
+  }
+  else {
+    // modulo allowing float dividend and divisor, really meaning "remainder"
+    double a = numValue();
+    double b = aRightSide.numValue();
+    int64_t q = a/b;
+    res.setNumber(a-b*q);
+  }
+  return res;
+}
+
 ExpressionValue ExpressionValue::operator&&(const ExpressionValue& aRightSide) const
 {
   return numValue() && aRightSide.numValue();
@@ -1053,6 +1069,7 @@ EvaluationContext::Operations EvaluationContext::parseOperator(size_t &aPos)
     }
     case '*': op = op_multiply; break;
     case '/': op = op_divide; break;
+    case '%': op = op_modulo; break;
     case '+': op = op_add; break;
     case '-': op = op_subtract; break;
     case '&': op = op_and; if (code(aPos)=='&') aPos++; break;
@@ -1224,6 +1241,7 @@ bool EvaluationContext::resumeExpression()
             return abortWithSyntaxError("NOT operator not allowed here");
           }
           case op_divide: opRes = sp().val / sp().res; break;
+          case op_modulo: opRes = sp().val % sp().res; break;
           case op_multiply: opRes = sp().val * sp().res; break;
           case op_add: opRes = sp().val + sp().res; break;
           case op_subtract: opRes = sp().val - sp().res; break;
@@ -1520,7 +1538,7 @@ bool EvaluationContext::evaluateFunction(const string &aFunc, const FunctionArgu
     aResult.setNumber(fabs(aArgs[0].numValue()));
   }
   else if (aFunc=="int" && aArgs.size()==1) {
-    // abs (a)         absolute value of a
+    // int (a)         integer value of a
     if (aArgs[0].notValue()) return errorInArg(aArgs[0], aResult); // return error/null from argument
     aResult.setNumber(int(aArgs[0].int64Value()));
   }
@@ -1849,6 +1867,9 @@ bool EvaluationContext::evaluateFunction(const string &aFunc, const FunctionArgu
   else if (aFunc=="dusk" && aArgs.size()==0) {
     if (!geolocationP) aResult.setNull();
     else aResult.setNumber(sunset(time(NULL), *geolocationP, true)*3600);
+  }
+  else if (aFunc=="epochtime" && aArgs.size()==0) {
+    aResult.setNumber((double)time(NULL)/24/60/60); // epoch time in days with fractional time
   }
   else {
     double fracSecs;

@@ -149,6 +149,7 @@ namespace p44 {
     ExpressionValue operator-(const ExpressionValue& aRightSide) const;
     ExpressionValue operator*(const ExpressionValue& aRightSide) const;
     ExpressionValue operator/(const ExpressionValue& aRightSide) const;
+    ExpressionValue operator%(const ExpressionValue& aRightSide) const;
     ExpressionValue operator&&(const ExpressionValue& aRightSide) const;
     ExpressionValue operator||(const ExpressionValue& aRightSide) const;
   };
@@ -247,23 +248,24 @@ namespace p44 {
 
     // operations with precedence
     typedef enum {
-      op_none       = 0x06,
-      op_not        = 0x16,
-      op_multiply   = 0x25,
-      op_divide     = 0x35,
-      op_add        = 0x44,
-      op_subtract   = 0x54,
-      op_equal      = 0x63,
-      op_assignOrEq = 0x73,
-      op_notequal   = 0x83,
-      op_less       = 0x93,
-      op_greater    = 0xA3,
-      op_leq        = 0xB3,
-      op_geq        = 0xC3,
-      op_and        = 0xD2,
-      op_or         = 0xE1,
-      op_assign     = 0xF0,
-      opmask_precedence = 0x0F
+      op_none       = (0 << 3) + 6,
+      op_not        = (1 << 3) + 6,
+      op_multiply   = (2 << 3) + 5,
+      op_divide     = (3 << 3) + 5,
+      op_modulo     = (4 << 3) + 5,
+      op_add        = (5 << 3) + 4,
+      op_subtract   = (6 << 3) + 4,
+      op_equal      = (7 << 3) + 3,
+      op_assignOrEq = (8 << 3) + 3,
+      op_notequal   = (9 << 3) + 3,
+      op_less       = (10 << 3) + 3,
+      op_greater    = (11 << 3) + 3,
+      op_leq        = (12 << 3) + 3,
+      op_geq        = (13 << 3) + 3,
+      op_and        = (14 << 3) + 2,
+      op_or         = (15 << 3) + 1,
+      op_assign     = (16 << 3) + 0,
+      opmask_precedence = 0x07
     } Operations;
 
     typedef enum {
