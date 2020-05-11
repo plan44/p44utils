@@ -338,6 +338,10 @@ TEST_CASE_METHOD(ExpressionFixture, "Expressions", "[expressions]" )
     REQUIRE(runExpression("round(-33.6)").numValue() == -34);
     REQUIRE(runExpression("round(33.3, 0.5)").numValue() == 33.5);
     REQUIRE(runExpression("round(33.6, 0.5)").numValue() == 33.5);
+    REQUIRE(runExpression("frac(33)").numValue() == 0);
+    REQUIRE(runExpression("frac(-33)").numValue() == 0);
+    REQUIRE(runExpression("frac(33.6)").numValue() == Approx(0.6));
+    REQUIRE(runExpression("frac(-33.6)").numValue() == Approx(-0.6));
     REQUIRE(runExpression("random(0,10)").numValue() < 10);
     REQUIRE(runExpression("random(0,10) != random(0,10)").boolValue() == true);
     REQUIRE(runExpression("number('33')").numValue() == 33);

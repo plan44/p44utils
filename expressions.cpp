@@ -1542,6 +1542,11 @@ bool EvaluationContext::evaluateFunction(const string &aFunc, const FunctionArgu
     if (aArgs[0].notValue()) return errorInArg(aArgs[0], aResult); // return error/null from argument
     aResult.setNumber(int(aArgs[0].int64Value()));
   }
+  else if (aFunc=="frac" && aArgs.size()==1) {
+    // frac (a)         fractional value of a
+    if (aArgs[0].notValue()) return errorInArg(aArgs[0], aResult); // return error/null from argument
+    aResult.setNumber(aArgs[0].numValue()-aArgs[0].int64Value()); // result retains sign
+  }
   else if (aFunc=="round" && aArgs.size()>=1 && aArgs.size()<=2) {
     // round (a)       round value to integer
     // round (a, p)    round value to specified precision (1=integer, 0.5=halves, 100=hundreds, etc...)
