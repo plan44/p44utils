@@ -154,6 +154,21 @@ double ExpressionValue::numValue() const
 }
 
 
+bool ExpressionValue::boolValue() const
+{
+  #if EXPRESSION_JSON_SUPPORT
+  if (isJson()) {
+    return json->boolValue();
+  }
+  else
+  #endif
+  {
+    return numValue()!=0;
+  }
+}
+
+
+
 #if EXPRESSION_JSON_SUPPORT
 
 void ExpressionValue::setJson(JsonObjectPtr aJson)
