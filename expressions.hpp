@@ -640,7 +640,7 @@ namespace p44 {
     /// get frozen result if any exists
     /// @param aResult On call: the current result of a (sub)expression - pos member must be set!
     ///   On return: replaced by a frozen result, if one exists
-    /// @param aRefPos te reference position that identifies the frozen result
+    /// @param aRefPos the reference position that identifies the frozen result
     virtual FrozenResult* getFrozen(ExpressionValue &aResult, size_t aRefPos) { return NULL; /* base class has no frozen results */ }
 
     /// update existing or create new frozen result

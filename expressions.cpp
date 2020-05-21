@@ -2540,6 +2540,45 @@ bool TimedEvaluationContext::evaluateFunction(const string &aFunc, const Functio
       aResult.setNull("testlater() not yet ready");
     }
   }
+  else if (aFunc=="every" && aArgs.size()>=1 && aArgs.size()<=2) {
+    // every(interval [, syncoffset])
+    // returns true once every interval
+    // Note: first true is returned at first evaluation or, if syncoffset is set,
+    //   at next integer number of intervals calculated from beginning of the day + syncoffset
+    double syncoffset = -1;
+    if (aArgs.size()>=2) {
+      syncoffset = aArgs[2].numValue();
+    }
+    ExpressionValue secs = aArgs[0];
+    if (secs.numValue()<MIN_RETRIGGER_SECONDS) {
+      // prevent too frequent re-triggering that could eat up too much cpu
+      LOG(LOG_WARNING, "every() requests too fast retriggering (%.1f seconds), allowed minimum is %.1f seconds", secs.numValue(), (double)MIN_RETRIGGER_SECONDS);
+      secs.setNumber(MIN_RETRIGGER_SECONDS);
+    }
+    ExpressionValue currentSecs = secs;
+    size_t refPos = aArgs.getPos(0);
+    FrozenResult* frozenP = getFrozen(currentSecs, refPos);
+    bool trigger = frozenP && !frozenP->frozen();
+    if (trigger || evalMode==evalmode_initial) {
+      // setup new interval
+      double interval = secs.numValue();
+      if (syncoffset<0) {
+        // no sync
+        // - interval starts from now
+        newFreeze(frozenP, secs, refPos, MainLoop::now()+secs.numValue()*Second, true);
+        trigger = true; // fire even in initial evaluation
+      }
+      else {
+        // synchronize with real time
+        double fracSecs;
+        struct tm loctim; MainLoop::getLocalTime(loctim, &fracSecs);
+        double secondOfDay = ((loctim.tm_hour*60)+loctim.tm_min)*60+loctim.tm_sec+fracSecs; // second of day right now
+        double untilNext = syncoffset+(floor((secondOfDay-syncoffset)/interval)+1)*interval - secondOfDay; // time to next repetition
+        newFreeze(frozenP, secs, refPos, MainLoop::now()+untilNext*Second, true);
+      }
+    }
+    aResult.setBool(trigger);
+  }
   else if (aFunc=="initial" && aArgs.size()==0) {
     // initial()  returns true if this is a "initial" run of the evaluator, meaning after startup or expression changes
     aResult.setNumber(evalMode==evalmode_initial);

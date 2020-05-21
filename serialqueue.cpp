@@ -227,17 +227,32 @@ SerialOperationQueue::~SerialOperationQueue()
 }
 
 
-// set transmitter
 void SerialOperationQueue::setTransmitter(SerialOperationTransmitter aTransmitter)
 {
   transmitter = aTransmitter;
 }
 
 
-// set receiver
 void SerialOperationQueue::setReceiver(SerialOperationReceiver aReceiver)
 {
   receiver = aReceiver;
+}
+
+
+void SerialOperationQueue::setExtraBytesHandler(SerialOperationExtraBytesHandler aExtraBytesHandler)
+{
+  extraBytesHandler = aExtraBytesHandler;
+}
+
+
+ssize_t SerialOperationQueue::acceptExtraBytes(size_t aNumBytes, uint8_t *aBytes)
+{
+  if (extraBytesHandler) {
+    return extraBytesHandler(aNumBytes, aBytes);
+  }
+  else {
+    return 0; // base class does not accept any extra bytes by default
+  }
 }
 
 
