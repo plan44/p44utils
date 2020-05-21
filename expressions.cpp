@@ -2500,6 +2500,8 @@ bool TimedEvaluationContext::unfreeze(size_t aAtPos)
 
 
 #define MIN_RETRIGGER_SECONDS 10 ///< how soon testlater() is allowed to re-trigger
+#define MIN_EVERY_SECONDS 0.5 ///< how fast every() can go
+
 
 // special functions only available in timed evaluations
 bool TimedEvaluationContext::evaluateFunction(const string &aFunc, const FunctionArguments &aArgs, ExpressionValue &aResult)
@@ -2550,10 +2552,10 @@ bool TimedEvaluationContext::evaluateFunction(const string &aFunc, const Functio
       syncoffset = aArgs[2].numValue();
     }
     ExpressionValue secs = aArgs[0];
-    if (secs.numValue()<MIN_RETRIGGER_SECONDS) {
+    if (secs.numValue()<MIN_EVERY_SECONDS) {
       // prevent too frequent re-triggering that could eat up too much cpu
-      LOG(LOG_WARNING, "every() requests too fast retriggering (%.1f seconds), allowed minimum is %.1f seconds", secs.numValue(), (double)MIN_RETRIGGER_SECONDS);
-      secs.setNumber(MIN_RETRIGGER_SECONDS);
+      LOG(LOG_WARNING, "every() requests too fast retriggering (%.1f seconds), allowed minimum is %.1f seconds", secs.numValue(), (double)MIN_EVERY_SECONDS);
+      secs.setNumber(MIN_EVERY_SECONDS);
     }
     ExpressionValue currentSecs = secs;
     size_t refPos = aArgs.getPos(0);
