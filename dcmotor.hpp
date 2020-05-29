@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2017-2019 plan44.ch / Lukas Zeller, Zurich, Switzerland
+//  Copyright (c) 2017-2020 plan44.ch / Lukas Zeller, Zurich, Switzerland
 //
 //  Author: Lukas Zeller <luz@plan44.ch>
 //
@@ -51,7 +51,13 @@ namespace p44 {
     int currentDirection;
     double currentPower;
 
-    long sequenceTicket;
+    MLTicket sequenceTicket;
+
+    AnalogIoPtr currentSensor;
+    double stopCurrent;
+    MLMicroSeconds sampleInterval;
+    MLTicket sampleTicket;
+    SimpleCB stoppedCB;
 
   public:
 
@@ -65,6 +71,13 @@ namespace p44 {
     ///   so using CCW!=CW will drive the motor, and CCW==CW will brake it
     DcMotorDriver(const char *aPWMOutput, const char *aCWDirectionOutput = NULL, const char *aCCWDirectionOutput = NULL);
     virtual ~DcMotorDriver();
+
+    /// Enable current monitoring for stopping at mechanical endpoints and/or obstacles (prevent motor overload)
+    /// @param aCurrentSensor a analog input sensing the current used by the motor to allow
+    /// @param aStopCurrent sensor value that will stop the motor
+    /// @param aSampleInterval the sample interval for the current
+    /// @param aStoppedCB called when current limiter stops motor
+    void setCurrentLimiter(const char *aCurrentSensor, double aStopCurrent, MLMicroSeconds aSampleInterval, SimpleCB aStoppedCB = NULL);
 
     /// ramp motor from current power to another power
     /// @param aPower 0..100 new brake or drive power to apply
@@ -105,6 +118,7 @@ namespace p44 {
     void setDirection(int aDirection);
     void rampStep(double aStartPower, double aTargetPower, int aNumSteps, int aStepNo , double aRampExp, DCMotorStatusCB aRampDoneCB);
     void sequenceStepDone(SequenceStepList aSteps, DCMotorStatusCB aSequenceDoneCB, ErrorPtr aError);
+    void checkCurrent(MLTimer &aTimer);
 
   };
 

@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2017-2019 plan44.ch / Lukas Zeller, Zurich, Switzerland
+//  Copyright (c) 2017-2020 plan44.ch / Lukas Zeller, Zurich, Switzerland
 //
 //  Author: Lukas Zeller <luz@plan44.ch>
 //
@@ -19,7 +19,7 @@
 //  along with p44ayabd. If not, see <http://www.gnu.org/licenses/>.
 //
 
-#include "dcmotordriver.hpp"
+#include "dcmotor.hpp"
 
 #include "consolekey.hpp"
 #include "application.hpp"
@@ -33,10 +33,10 @@ using namespace p44;
 
 DcMotorDriver::DcMotorDriver(const char *aPWMOutput, const char *aCWDirectionOutput, const char *aCCWDirectionOutput) :
   currentPower(0),
-  currentDirection(0),
-  sequenceTicket(0)
+  currentDirection(0)
 {
   pwmOutput = AnalogIoPtr(new AnalogIo(aPWMOutput, true, 0)); // off to begin with
+  // - direction control
   if (aCWDirectionOutput) {
     cwDirectionOutput = DigitalIoPtr(new DigitalIo(aCWDirectionOutput, true, false));
     if (aCCWDirectionOutput) {
@@ -53,6 +53,17 @@ DcMotorDriver::~DcMotorDriver()
   setPower(0, 0);
 }
 
+
+void DcMotorDriver::setCurrentLimiter(const char *aCurrentSensor, double aStopCurrent, MLMicroSeconds aSampleInterval, SimpleCB aStoppedCB)
+{
+  // - current sensor
+  if (aCurrentSensor) {
+    currentSensor = AnalogIoPtr(new AnalogIo(aCurrentSensor, false, 0));
+  }
+  stopCurrent = aStopCurrent;
+  sampleInterval = aSampleInterval;
+  stoppedCB = aStoppedCB;
+}
 
 
 void DcMotorDriver::setDirection(int aDirection)
@@ -79,6 +90,8 @@ void DcMotorDriver::setPower(double aPower, int aDirection)
     pwmOutput->setValue(0);
     // - off (= hold/brake with no power)
     setDirection(0);
+    // disable current sampling
+    sampleTicket.cancel();
   }
   else {
     // determine current direction
@@ -90,12 +103,32 @@ void DcMotorDriver::setPower(double aPower, int aDirection)
     // now set desired direction and power
     setDirection(aDirection);
     pwmOutput->setValue(aPower);
+    // start current sampling
+    if (currentSensor) {
+      sampleTicket.executeOnce(boost::bind(&DcMotorDriver::checkCurrent, this, _1));
+    }
   }
   if (aPower!=currentPower) {
     LOG(LOG_DEBUG, "Power changed to %.2f%%", aPower);
     currentPower = aPower;
   }
 }
+
+
+void DcMotorDriver::checkCurrent(MLTimer &aTimer)
+{
+  double v = currentSensor->value();
+  LOG(LOG_DEBUG, "checkCurrent: %.3f", v);
+  if (fabs(v)>=stopCurrent) {
+    stop();
+    LOG(LOG_INFO, "stopped because current (%.3f) exceeds max (%.3f)", v, stopCurrent);
+    if (stoppedCB) stoppedCB();
+    return;
+  }
+  // continue sampling
+  MainLoop::currentMainLoop().retriggerTimer(aTimer, sampleInterval);
+}
+
 
 
 #define RAMP_STEP_TIME (20*MilliSecond)
@@ -173,7 +206,7 @@ void DcMotorDriver::rampStep(double aStartPower, double aTargetPower, int aNumSt
     LOG(LOG_DEBUG, "- f=%.3f, pwr=%.2f", f, pwr);
     setPower(pwr, currentDirection);
     // schedule next step
-    sequenceTicket = MainLoop::currentMainLoop().executeOnce(boost::bind(
+    sequenceTicket.executeOnce(boost::bind(
       &DcMotorDriver::rampStep, this, aStartPower, aTargetPower, aNumSteps, aStepNo, aRampExp, aRampDoneCB),
       RAMP_STEP_TIME
     );
