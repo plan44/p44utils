@@ -102,7 +102,7 @@ namespace p44 {
     ~ExpressionValue();
     // Getters
     double numValue() const; ///< returns a conversion to numeric (using literal syntax), if value is string
-    bool boolValue() const { return numValue()!=0; } ///< returns true if value is not 0
+    bool boolValue() const; ///< returns a conversion to boolean (true = not numerically 0, not JSON-falsish)
     int intValue() const { return (int)numValue(); }
     int64_t int64Value() const { return (int64_t)numValue(); }
     string stringValue() const; ///< returns a conversion to string if value is numeric
@@ -642,7 +642,7 @@ namespace p44 {
     /// get frozen result if any exists
     /// @param aResult On call: the current result of a (sub)expression - pos member must be set!
     ///   On return: replaced by a frozen result, if one exists
-    /// @param aRefPos te reference position that identifies the frozen result
+    /// @param aRefPos the reference position that identifies the frozen result
     virtual FrozenResult* getFrozen(ExpressionValue &aResult, size_t aRefPos) { return NULL; /* base class has no frozen results */ }
 
     /// update existing or create new frozen result
