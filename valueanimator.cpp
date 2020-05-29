@@ -249,10 +249,10 @@ MLMicroSeconds ValueAnimator::start()
   startTimeOrDelay = 0; // no delay any more, step() will run animation
   absoluteStartTime = false;
   FOCUSLOG("=== Start Animation: from=%3.2f, distance=%3.2f, to=%3.2f, duration=%2.3f S, stepTime=%2.3f S", startValue, distance, startValue+distance, (double)duration/Second, (double)stepTime/Second);
-  // set current value
   startedAt = MainLoop::now();
   // start animation or just finish it if there are no steps (no step time)
   if (stepTime>0) {
+    // set current value
     valueSetter(currentValue);
     MLMicroSeconds nextStep = startedAt+stepTime;
     if (selfTiming) {
