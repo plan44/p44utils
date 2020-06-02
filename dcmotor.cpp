@@ -105,7 +105,8 @@ void DcMotorDriver::setPower(double aPower, int aDirection)
     pwmOutput->setValue(aPower);
     // start current sampling
     if (currentSensor) {
-      sampleTicket.executeOnce(boost::bind(&DcMotorDriver::checkCurrent, this, _1));
+      lastCurrent = 0;
+      sampleTicket.executeOnce(boost::bind(&DcMotorDriver::checkCurrent, this, _1), sampleInterval);
     }
   }
   if (aPower!=currentPower) {
@@ -118,7 +119,9 @@ void DcMotorDriver::setPower(double aPower, int aDirection)
 void DcMotorDriver::checkCurrent(MLTimer &aTimer)
 {
   double v = currentSensor->value();
-  LOG(LOG_DEBUG, "checkCurrent: %.3f", v);
+  double av = (fabs(v)+lastCurrent)/2; // average
+  lastCurrent = v;
+  LOG(LOG_DEBUG, "checkCurrent: sampled: %.3f, average over 2: %.3f", v, av);
   if (fabs(v)>=stopCurrent) {
     stop();
     LOG(LOG_INFO, "stopped because current (%.3f) exceeds max (%.3f)", v, stopCurrent);

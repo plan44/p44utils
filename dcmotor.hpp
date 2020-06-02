@@ -55,6 +55,7 @@ namespace p44 {
 
     AnalogIoPtr currentSensor;
     double stopCurrent;
+    double lastCurrent;
     MLMicroSeconds sampleInterval;
     MLTicket sampleTicket;
     SimpleCB stoppedCB;
