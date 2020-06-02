@@ -1001,7 +1001,7 @@ double MAX1161x::getPinValue(int aPinNo)
   // - read result
   i2cbus->I2CReadBytes(this, 2, buf); // MAX1161x deliver MSB first
   // actual result is in lower 4 bits of MSByte + 8 bits LSByte
-  raw = (buf[0]<<8) + buf[1];
+  raw = ((buf[0]&0xF)<<8) + buf[1];
   return raw;
 }
 
