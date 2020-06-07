@@ -58,8 +58,13 @@ bool Logger::stdoutLogEnabled(int aErrLevel)
 }
 
 
-bool Logger::logEnabled(int aErrLevel)
+bool Logger::logEnabled(int aErrLevel, int aLevelOffset)
 {
+  if (aLevelOffset && aErrLevel>=LOG_NOTICE) {
+    aErrLevel += aLevelOffset;
+    if (aErrLevel<LOG_NOTICE) aErrLevel = LOG_NOTICE;
+    else if (aErrLevel>LOG_DEBUG) aErrLevel = LOG_DEBUG;
+  }
   return stdoutLogEnabled(aErrLevel) || aErrLevel<=stderrLevel;
 }
 
@@ -85,79 +90,88 @@ void Logger::log(int aErrLevel, const char *aFmt, ... )
     string message;
     string_format_v(message, false, aFmt, args);
     va_end(args);
-    logStr(aErrLevel, message);
+    logStr_always(aErrLevel, message);
   }
 }
 
 
-void Logger::logStr(int aErrLevel, string aMessage)
+void Logger::log_always(int aErrLevel, const char *aFmt, ... )
 {
-  if (logEnabled(aErrLevel)) {
-    pthread_mutex_lock(&reportMutex);
-    // create date + level
-    char tsbuf[42];
-    char *p = tsbuf;
-    struct timeval t;
-    gettimeofday(&t, NULL);
-    p += strftime(p, sizeof(tsbuf), "[%Y-%m-%d %H:%M:%S", localtime(&t.tv_sec));
-    p += sprintf(p, ".%03d", t.tv_usec/1000);
-    if (deltaTime) {
-      long long millisPassed = ((t.tv_sec*1e6+t.tv_usec) - (lastLogTS.tv_sec*1e6+lastLogTS.tv_usec))/1000; // in mS
-      p += sprintf(p, "%6lldmS", millisPassed);
+  va_list args;
+  va_start(args, aFmt);
+  // format the message
+  string message;
+  string_format_v(message, false, aFmt, args);
+  va_end(args);
+  logStr_always(aErrLevel, message);
+}
+
+
+
+void Logger::logStr_always(int aErrLevel, string aMessage)
+{
+  pthread_mutex_lock(&reportMutex);
+  // create date + level
+  char tsbuf[42];
+  char *p = tsbuf;
+  struct timeval t;
+  gettimeofday(&t, NULL);
+  p += strftime(p, sizeof(tsbuf), "[%Y-%m-%d %H:%M:%S", localtime(&t.tv_sec));
+  p += sprintf(p, ".%03d", t.tv_usec/1000);
+  if (deltaTime) {
+    long long millisPassed = ((t.tv_sec*1e6+t.tv_usec) - (lastLogTS.tv_sec*1e6+lastLogTS.tv_usec))/1000; // in mS
+    p += sprintf(p, "%6lldmS", millisPassed);
+  }
+  lastLogTS = t;
+  p += sprintf(p, " %c] ", levelChars[aErrLevel]);
+  // generate empty leading lines, if any
+  string::size_type i=0;
+  while (i<aMessage.length() && aMessage[i]=='\n') {
+    logOutput_always(aErrLevel, "", "");
+    i++;
+  }
+  // now process message, possibly multi-lined
+  const char *prefix = tsbuf;
+  string::size_type linestart=i;
+  while (i<aMessage.length()) {
+    char c = aMessage[i];
+    if (c=='\n') {
+      // end of line
+      aMessage[i] = 0; // terminate
+      // print it
+      logOutput_always(aErrLevel, prefix, aMessage.c_str()+linestart);
+      // set indent instead of date prefix for subsequent lines: 28 chars
+      //   01234567890123456789012345678
+      prefix = deltaTime ? "                                    " : "                            ";
+      // new line starts after terminator
+      i++;
+      linestart = i;
     }
-    lastLogTS = t;
-    p += sprintf(p, " %c] ", levelChars[aErrLevel]);
-    // generate empty leading lines, if any
-    string::size_type i=0;
-    while (i<aMessage.length() && aMessage[i]=='\n') {
-      logOutput(aErrLevel, "", "");
+    else if (!isprint(c) && (uint8_t)c<0x80) {
+      // ASCII control character, but not bit 7 set (UTF8 component char)
+      aMessage.replace(i, 1, string_format("\\x%02x", (unsigned)(c & 0xFF)));
+      i += 4; // single char replaced by 4 chars: \xNN
+    }
+    else {
       i++;
     }
-    // now process message, possibly multi-lined
-    const char *prefix = tsbuf;
-    string::size_type linestart=i;
-    while (i<aMessage.length()) {
-      char c = aMessage[i];
-      if (c=='\n') {
-        // end of line
-        aMessage[i] = 0; // terminate
-        // print it
-        logOutput(aErrLevel, prefix, aMessage.c_str()+linestart);
-        // set indent instead of date prefix for subsequent lines: 28 chars
-        //   01234567890123456789012345678
-        prefix = deltaTime ? "                                    " : "                            ";
-        // new line starts after terminator
-        i++;
-        linestart = i;
-      }
-      else if (!isprint(c) && (uint8_t)c<0x80) {
-        // ASCII control character, but not bit 7 set (UTF8 component char)
-        aMessage.replace(i, 1, string_format("\\x%02x", (unsigned)(c & 0xFF)));
-        i += 4; // single char replaced by 4 chars: \xNN
-      }
-      else {
-        i++;
-      }
-    }
-    logOutput(aErrLevel, prefix, aMessage.c_str()+linestart);
-    pthread_mutex_unlock(&reportMutex);
   }
+  logOutput_always(aErrLevel, prefix, aMessage.c_str()+linestart);
+  pthread_mutex_unlock(&reportMutex);
 }
 
 
-void Logger::logOutput(int aLevel, const char *aLinePrefix, const char *aLogMessage)
+void Logger::logOutput_always(int aLevel, const char *aLinePrefix, const char *aLogMessage)
 {
   // output
   if (loggerCB) {
     loggerCB(loggerContextPtr, aLevel, aLinePrefix, aLogMessage);
   }
   else if (logFILE) {
-    if (stdoutLogEnabled(aLevel)) {
-      fputs(aLinePrefix, logFILE);
-      fputs(aLogMessage, logFILE);
-      fputs("\n", logFILE);
-      fflush(logFILE);
-    }
+    fputs(aLinePrefix, logFILE);
+    fputs(aLogMessage, logFILE);
+    fputs("\n", logFILE);
+    fflush(logFILE);
   }
   else {
     // normal logging to stdout/err
@@ -168,7 +182,7 @@ void Logger::logOutput(int aLevel, const char *aLinePrefix, const char *aLogMess
       fputs("\n", stderr);
       fflush(stderr);
     }
-    if (stdoutLogEnabled(aLevel) && (aLevel>stderrLevel || errToStdout)) {
+    if (aLevel>stderrLevel || errToStdout) {
       // must go to stdout as well
       fputs(aLinePrefix, stdout);
       fputs(aLogMessage, stdout);
@@ -189,22 +203,6 @@ void Logger::setLogFile(const char *aLogFilePath)
       fclose(logFILE);
       logFILE = NULL;
     }
-  }
-}
-
-
-
-void Logger::logSysError(int aErrLevel, int aErrNum)
-{
-  if (logEnabled(aErrLevel)) {
-    // obtain error number if none specified
-    if (aErrNum==0)
-      aErrNum = errno;
-    // obtain error message
-    char buf[LOGBUFSIZ];
-    strerror_r(aErrNum, buf, LOGBUFSIZ);
-    // show it
-    log(aErrLevel, "System error message: %s\n", buf);
   }
 }
 

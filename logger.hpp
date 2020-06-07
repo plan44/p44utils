@@ -74,6 +74,7 @@
 #endif
 
 #define LOGENABLED(lvl) globalLogger.logEnabled(lvl)
+#define LOGENABLEDX(lvl,offs) globalLogger.logEnabled(lvl,offs)
 #define LOG(lvl,...) { if (globalLogger.logEnabled(lvl)) globalLogger.log(lvl,##__VA_ARGS__); }
 
 #define SETLOGLEVEL(lvl) globalLogger.setLogLevel(lvl)
@@ -109,9 +110,11 @@ namespace p44 {
     virtual ~Logger();
 
     /// test if log is enabled at a given level
-    /// @param aErrLevel level to check
+    /// @param aLogLevel level to check
+    /// @param aLevelOffset if aLogLevel is in the 5..7 range, aLevelOffset is added and the result is limited to the 5..7 range.
+    ///   This parameter can be fed from a property of a logging object
     /// @return true if any logging (stderr or stdout) is enabled at the specified level
-    bool logEnabled(int aErrLevel);
+    bool logEnabled(int aLogLevel, int aLevelOffset = 0);
 
     /// test if log to std out is enabled at a given level
     /// @param aErrLevel level to check
@@ -120,20 +123,20 @@ namespace p44 {
     bool stdoutLogEnabled(int aErrLevel);
 
 
-    /// log a message
+    /// log a message if logging is enabled for the specified aErrLevel
     /// @param aErrLevel error level of the message
     /// @param aFmt ... printf style error message
     void log(int aErrLevel, const char *aFmt, ... ) __printflike(3,4);
 
-    /// log a message
-    /// @param aErrLevel error level of the message
-    /// @param aMessage the message string
-    void logStr(int aErrLevel, std::string aMessage);
+    /// log a message unconditionally (even if aErrLevel is not enabled)
+    /// @param aErrLevel error level of the message, for inclusion into log message prefix
+    /// @param aFmt ... printf style error message
+    void log_always(int aErrLevel, const char *aFmt, ... ) __printflike(3,4);
 
-    /// log a system error
-    /// @param aErrLevel error level of the message
-    /// @param aErrNum optional system error code (if none specified, errno global will be used)
-    void logSysError(int aErrLevel, int aErrNum = 0);
+    /// log a message (unconditionally)
+    /// @param aErrLevel error level of the message, for inclusion into log message prefix
+    /// @param aMessage the message string
+    void logStr_always(int aErrLevel, std::string aMessage);
 
     /// set log file
     /// @param aLogFilePath file to write log to instead of stdout
@@ -164,7 +167,7 @@ namespace p44 {
 
   private:
 
-    void logOutput(int aLevel, const char *aLinePrefix, const char *aLogMessage);
+    void logOutput_always(int aLevel, const char *aLinePrefix, const char *aLogMessage);
 
   };
 
