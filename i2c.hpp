@@ -426,6 +426,32 @@ namespace p44 {
   };
 
 
+  class MAX1161x : public I2CAnalogPortDevice
+  {
+    typedef I2CAnalogPortDevice inherited;
+
+  public:
+
+    /// create device
+    /// @param aDeviceAddress slave address of the device
+    /// @param aBusP I2CBus object
+    /// @param aDeviceOptions optional device-level options
+    MAX1161x(uint8_t aDeviceAddress, I2CBus *aBusP, const char *aDeviceOptions);
+
+    /// @return device type identifier
+    virtual const char *deviceType() P44_OVERRIDE { return "MAX1161x"; };
+
+    /// @return true if this device or one of it's ancestors is of the given type
+    virtual bool isKindOf(const char *aDeviceType) P44_OVERRIDE;
+
+    virtual double getPinValue(int aPinNo) P44_OVERRIDE;
+    virtual void setPinValue(int aPinNo, double aValue) P44_OVERRIDE { /* dummy */ };
+    virtual bool getPinRange(int aPinNo, double &aMin, double &aMax, double &aResolution) P44_OVERRIDE;
+
+  };
+
+
+
 
   // MARK: - Wrapper classes
 
