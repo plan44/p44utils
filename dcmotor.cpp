@@ -118,13 +118,13 @@ void DcMotorDriver::setPower(double aPower, int aDirection)
 
 void DcMotorDriver::checkCurrent(MLTimer &aTimer)
 {
-  double v = currentSensor->value();
-  double av = (fabs(v)+lastCurrent)/2; // average
+  double v = fabs(currentSensor->value()); // driving or braking!
+  double av = (v+lastCurrent)/2; // average
   lastCurrent = v;
   LOG(LOG_DEBUG, "checkCurrent: sampled: %.3f, average over 2: %.3f", v, av);
-  if (fabs(v)>=stopCurrent) {
+  if (av>=stopCurrent) {
     stop();
-    LOG(LOG_INFO, "stopped because current (%.3f) exceeds max (%.3f)", v, stopCurrent);
+    LOG(LOG_INFO, "stopped because averaged current (%.3f) exceeds max (%.3f) - last sample = %.3f", av, stopCurrent, v);
     if (stoppedCB) stoppedCB();
     return;
   }
