@@ -43,8 +43,8 @@
 
 #define ELOGGING (evalLogLevel!=0)
 #define ELOGGING_DBG (evalLogLevel>=LOG_DEBUG)
-#define ELOG(...) { if (ELOGGING) LOG(evalLogLevel,##__VA_ARGS__) }
-#define ELOG_DBG(...) { if (ELOGGING_DBG) LOG(FOCUSLOGLEVEL ? FOCUSLOGLEVEL : LOG_DEBUG,##__VA_ARGS__) }
+#define ELOG(...) { if (ELOGGING) OLOG(evalLogLevel,##__VA_ARGS__) }
+#define ELOG_DBG(...) { if (ELOGGING_DBG) OLOG(FOCUSLOGLEVEL ? FOCUSLOGLEVEL : LOG_DEBUG,##__VA_ARGS__) }
 
 
 using namespace std;
@@ -236,8 +236,10 @@ namespace p44 {
 
 
   /// Basic Expression Evaluation Context
-  class EvaluationContext : public P44Obj
+  class EvaluationContext : public P44LoggingObj
   {
+    typedef P44LoggingObj inherited;
+
     friend class ExpressionValue;
     friend class ScriptGlobals;
 
@@ -318,6 +320,8 @@ namespace p44 {
 
     /// @name Evaluation parameters (set before execution starts, not changed afterwards, no nested state)
     /// @{
+    string contextInfo; ///< info string of the context the script runs in (for logging)
+    P44LoggingObj *loggingContextP; ///< if set, logging occurs using the logging context prefix and logLevelOffset of this object
     EvalMode evalMode; ///< the current evaluation mode
     MLMicroSeconds execTimeLimit; ///< how long any script may run in total, or Infinite to have no limit
     MLMicroSeconds syncExecLimit; ///< how long a synchronous script may run (blocking everything), or Infinite to have no limit
@@ -382,6 +386,11 @@ namespace p44 {
     EvaluationContext(const GeoLocation* aGeoLocationP = NULL);
     virtual ~EvaluationContext();
 
+    /// set name of the context (for log messages)
+    /// @param aContextInfo info string of the context the script runs in (for logging)
+    /// @param aLoggingContextP if set, logging occurs using the logging context prefix and logLevelOffset of this object
+    void setContextInfo(const string aContextInfo, P44LoggingObj *aLoggingContextP = NULL);
+
     /// set code to evaluate
     /// @param aCode set the expression to be evaluated in this context
     /// @note setting an expression that differs from the current one unfreezes any frozen arguments
@@ -399,6 +408,12 @@ namespace p44 {
 
     /// @return the index into code() of the current evaluation or error
     size_t getPos() { return pos; }
+
+    /// @return a prefix for log messages from this addressable
+    virtual string logContextPrefix() P44_OVERRIDE;
+
+    /// @return log level offset (overridden to use something other than the P44LoggingObj's)
+    virtual int getLogLevelOffset() P44_OVERRIDE;
 
     /// set the log level for evaluation
     /// @param aLogLevel log level or 0 to disable logging evaluation messages

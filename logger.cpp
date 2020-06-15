@@ -25,6 +25,8 @@
 
 using namespace p44;
 
+// MARK: - Logger
+
 p44::Logger globalLogger;
 
 Logger::Logger() :
@@ -61,7 +63,7 @@ bool Logger::stdoutLogEnabled(int aErrLevel)
 bool Logger::logEnabled(int aErrLevel, int aLevelOffset)
 {
   if (aLevelOffset && aErrLevel>=LOG_NOTICE) {
-    aErrLevel += aLevelOffset;
+    aErrLevel -= aLevelOffset;
     if (aErrLevel<LOG_NOTICE) aErrLevel = LOG_NOTICE;
     else if (aErrLevel>LOG_DEBUG) aErrLevel = LOG_DEBUG;
   }
@@ -226,5 +228,51 @@ void Logger::setLogHandler(LoggerCB aLoggerCB, void *aContextPtr)
 {
   loggerCB = aLoggerCB;
   loggerContextPtr = aContextPtr;
+}
+
+
+// MARK: - P44LoggingObj
+
+P44LoggingObj::P44LoggingObj() :
+  logLevelOffset(0)
+{
+}
+
+
+string P44LoggingObj::logContextPrefix()
+{
+  return string_format("P44LoggingObj @%p", this);
+}
+
+
+bool P44LoggingObj::logEnabled(int aLogLevel)
+{
+  return globalLogger.logEnabled(aLogLevel, getLogLevelOffset());
+}
+
+void P44LoggingObj::log(int aErrLevel, const char *aFmt, ... )
+{
+  if (logEnabled(aErrLevel)) {
+    va_list args;
+    va_start(args, aFmt);
+    // get the prefix
+    string message = logContextPrefix();
+    if (!message.empty()) message+=": ";
+    // format the message
+    string_format_v(message, true, aFmt, args);
+    va_end(args);
+    globalLogger.logStr_always(aErrLevel, message);
+  }
+}
+
+int P44LoggingObj::getLogLevelOffset()
+{
+  return logLevelOffset;
+}
+
+
+void P44LoggingObj::setLogLevelOffset(int aLogLevelOffset)
+{
+  logLevelOffset = aLogLevelOffset;
 }
 

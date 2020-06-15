@@ -46,43 +46,66 @@
 
 #include "p44obj.hpp"
 
-#if defined(DEBUG) || ALWAYS_DEBUG
-#define DEBUGLOGGING 1
-#define DBGLOGENABLED(lvl) globalLogger.logEnabled(lvl)
-#define DBGLOG(lvl,...) { if (globalLogger.logEnabled(lvl)) globalLogger.log(lvl,##__VA_ARGS__); }
-#define DBGFOCUSLOG FOCUSLOG
-#define LOGGER_DEFAULT_LOGLEVEL LOG_DEBUG
-#else
-#define DEBUGLOGGING 0
-#define DBGLOGENABLED(lvl) false
-#define DBGLOG(lvl,...)
-#define DBGFOCUSLOG(...)
-#define LOGGER_DEFAULT_LOGLEVEL LOG_NOTICE
-#endif
-
-#if FOCUSLOGLEVEL
-#define FOCUSLOG(...) LOG(FOCUSLOGLEVEL,##__VA_ARGS__)
-#define FOCUSLOGGING 1
-#define FOCUSLOGENABLED globalLogger.logEnabled(FOCUSLOGLEVEL)
-#if !(defined(DEBUG) || ALWAYS_DEBUG || FOCUSLOGLEVEL>=7)
-#warning "**** FOCUSLOGLEVEL<7 enabled in non-DEBUG build ****"
-#endif
-#else
-#define FOCUSLOGGING 0
-#define FOCUSLOG(...)
-#define FOCUSLOGENABLED false
-#endif
-
+// global object independent logging
 #define LOGENABLED(lvl) globalLogger.logEnabled(lvl)
-#define LOGENABLEDX(lvl,offs) globalLogger.logEnabled(lvl,offs)
 #define LOG(lvl,...) { if (globalLogger.logEnabled(lvl)) globalLogger.log(lvl,##__VA_ARGS__); }
-
 #define SETLOGLEVEL(lvl) globalLogger.setLogLevel(lvl)
 #define SETERRLEVEL(lvl, dup) globalLogger.setErrLevel(lvl, dup)
 #define SETDELTATIME(dt) globalLogger.setDeltaTime(dt)
 #define LOGLEVEL (globalLogger.getLogLevel())
 #define SETLOGHANDLER(lh,ctx) globalLogger.setLogHandler(lh,ctx)
 
+// logging from within a P44LoggingObj (messages prefixed with object's logContextPrefix())
+#define OLOGENABLED(lvl) logEnabled(lvl)
+#define OLOG(lvl,...) { if (logEnabled(lvl)) log(lvl,##__VA_ARGS__); }
+// logging via a specified P44LoggingObj (messages prefixed with object's logContextPrefix())
+#define SOLOGENABLED(obj,lvl) obj.logEnabled(lvl)
+#define SOLOG(obj,lvl,...) { if (obj.logEnabled(lvl)) obj.log(lvl,##__VA_ARGS__); }
+
+// debug build extra logging (not included in release code unless ALWAYS_DEBUG is set)
+#if defined(DEBUG) || ALWAYS_DEBUG
+#define DEBUGLOGGING 1
+#define DBGLOGENABLED(lvl) LOGENABLED(lvl)
+#define DBGLOG(lvl,...) LOG(lvl,##__VA_ARGS__)
+#define DBGFOCUSLOG FOCUSLOG
+#define DBGOLOGENABLED(lvl) OLOGENABLED(lvl)
+#define DBGOLOG(lvl,...) OLOG(lvl,##__VA_ARGS__)
+#define DBGSOLOGENABLED(obj,lvl) SOLOGENABLED(obj,lvl)
+#define DBGSOLOG(obj,lvl,...) SOLOG(obj,lvl,##__VA_ARGS__)
+#define LOGGER_DEFAULT_LOGLEVEL LOG_DEBUG
+#else
+#define DEBUGLOGGING 0
+#define DBGLOGENABLED(lvl) false
+#define DBGLOG(lvl,...)
+#define DBGFOCUSLOG(...)
+#define DBGOLOGENABLED(lvl) false
+#define DBGOLOG(lvl,...)
+#define DBGSOLOGENABLED(obj,lvl) false
+#define DBGSOLOG(obj,lvl,...)
+#define LOGGER_DEFAULT_LOGLEVEL LOG_NOTICE
+#endif
+
+// "focus" logging during development, additional logging that can be enabled per source file
+// (define FOCUSLOGLEVEL before including logger.hpp)
+#if FOCUSLOGLEVEL
+#define FOCUSLOG(...) LOG(FOCUSLOGLEVEL,##__VA_ARGS__)
+#define FOCUSOLOG(...) OLOG(FOCUSLOGLEVEL,##__VA_ARGS__)
+#define FOCUSLOGGING 1
+#define FOCUSLOGENABLED LOGENABLED(FOCUSLOGLEVEL)
+#define FOCUSOLOGENABLED OLOGENABLED(FOCUSLOGLEVEL)
+#if !(defined(DEBUG) || ALWAYS_DEBUG || FOCUSLOGLEVEL>=7)
+#warning "**** FOCUSLOGLEVEL<7 enabled in non-DEBUG build ****"
+#endif
+#else
+#define FOCUSLOGGING 0
+#define FOCUSLOG(...)
+#define FOCUSOLOG(...)
+#define FOCUSLOGENABLED false
+#define FOCUSOLOGENABLED false
+#endif
+
+
+using namespace std;
 
 namespace p44 {
 
@@ -111,8 +134,10 @@ namespace p44 {
 
     /// test if log is enabled at a given level
     /// @param aLogLevel level to check
-    /// @param aLevelOffset if aLogLevel is in the 5..7 range, aLevelOffset is added and the result is limited to the 5..7 range.
-    ///   This parameter can be fed from a property of a logging object
+    /// @param aLevelOffset if aLogLevel is in the 5..7 (LOG_NOTICE..LOG_DEBUG) range, aLevelOffset is subtracted
+    ///   and the result is limited to the 5..7 range.
+    ///   This parameter can be fed from a property of a logging object to elevate (positive aLevelOffset)
+    ///   or silence (negative aLevelOffset) its logging selectively.
     /// @return true if any logging (stderr or stdout) is enabled at the specified level
     bool logEnabled(int aLogLevel, int aLevelOffset = 0);
 
@@ -168,6 +193,41 @@ namespace p44 {
   private:
 
     void logOutput_always(int aLevel, const char *aLinePrefix, const char *aLogMessage);
+
+  };
+
+
+  class P44LoggingObj : public P44Obj
+  {
+    typedef P44Obj inherited;
+
+  protected:
+    
+    int logLevelOffset; ///< will be subtracted from log level for checking (in 7..5 range only)
+
+  public:
+
+    P44LoggingObj();
+
+    /// @return the prefix to be used for logging from this object
+    virtual string logContextPrefix();
+
+    /// test if log is enabled from this object at a given level
+    /// @param aLogLevel level to check
+    bool logEnabled(int aLogLevel);
+
+    /// log a message from this object if logging is enabled for the specified aErrLevel adjusted by local logLevelOffset
+    /// @param aErrLevel error level of the message
+    /// @param aFmt ... printf style error message
+    void log(int aErrLevel, const char *aFmt, ... ) __printflike(3,4);
+
+    /// @return the per-instance log level offset
+    /// @note is virtual because some objects might want to use the log level offset of another object
+    virtual int getLogLevelOffset();
+
+    /// set the log level offset on this addressable or a (not directly addressable) subitem of it
+    /// @param aLogLevelOffset the new log level offset
+    void setLogLevelOffset(int aLogLevelOffset);
 
   };
 

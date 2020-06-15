@@ -395,6 +395,7 @@ ErrorPtr ExpressionError::err(ErrorCodes aErrCode, const char *aFmt, ...)
 
 EvaluationContext::EvaluationContext(const GeoLocation* aGeoLocationP) :
   geolocationP(aGeoLocationP),
+  loggingContextP(NULL),
   runningSince(Never),
   nextEvaluation(Never),
   synchronous(true),
@@ -413,6 +414,31 @@ EvaluationContext::~EvaluationContext()
 }
 
 
+int EvaluationContext::getLogLevelOffset()
+{
+  if (logLevelOffset==0) {
+    // no own offset - inherit context's
+    if (loggingContextP) return loggingContextP->getLogLevelOffset();
+    return 0;
+  }
+  return inherited::getLogLevelOffset();
+}
+
+
+string EvaluationContext::logContextPrefix()
+{
+  string prefix;
+  if (loggingContextP) {
+    prefix = loggingContextP->logContextPrefix();
+    if (!prefix.empty()) prefix += ": ";
+  }
+  if (!contextInfo.empty()) {
+    prefix += contextInfo + ": ";
+  }
+  return prefix;
+}
+
+
 void EvaluationContext::setEvaluationResultHandler(EvaluationResultCB aEvaluationResultHandler)
 {
   evaluationResultHandler = aEvaluationResultHandler;
@@ -425,6 +451,12 @@ void EvaluationContext::registerFunctionHandler(FunctionLookupCB aFunctionLookup
   functionCallbacks.push_back(aFunctionLookupHandler);
 }
 
+
+void EvaluationContext::setContextInfo(const string aContextInfo, P44LoggingObj *aLoggingContextP)
+{
+  contextInfo = aContextInfo;
+  loggingContextP = aLoggingContextP;
+}
 
 
 bool EvaluationContext::setCode(const string aCode)
@@ -2650,6 +2682,7 @@ public:
     valueLookUp(aValueLookupCB),
     functionLookUp(aFunctionLookpCB)
   {
+    setContextInfo("AdHocEval");
   };
 
   virtual ~AdHocEvaluationContext() {};
