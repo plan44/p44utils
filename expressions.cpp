@@ -2013,6 +2013,8 @@ ScriptExecutionContext::ScriptExecutionContext(const GeoLocation* aGeoLocationP)
 
 ScriptExecutionContext::~ScriptExecutionContext()
 {
+  // abort if still running
+  abort();
 }
 
 
@@ -2662,6 +2664,54 @@ bool TimedEvaluationContext::evaluateFunction(const string &aFunc, const Functio
     return inherited::evaluateFunction(aFunc, aArgs, aResult);
   }
   return true;
+}
+
+
+// MARK: - script queue
+
+void ScriptQueue::queueScript(ScriptExecutionContextPtr aScriptContext)
+{
+  queue.push_back(aScriptContext);
+  if (queue.size()==1) {
+    // there was no script pending, must start
+    runNextScript();
+  }
+}
+
+
+void ScriptQueue::runNextScript()
+{
+  if (!queue.empty()) {
+    ScriptExecutionContextPtr script = queue.front();
+    LOG(LOG_INFO, "+++ Starting script");
+    script->execute(true, boost::bind(&ScriptQueue::scriptDone, this, script));
+  }
+}
+
+
+void ScriptQueue::scriptDone(ScriptExecutionContextPtr aScript)
+{
+  LOG(LOG_INFO, "--- Finished feature API script");
+  queue.pop_front();
+  runNextScript();
+}
+
+
+bool ScriptQueue::stopCurrent()
+{
+  if (!queue.empty()) {
+    queue.front()->abort();
+    queue.pop_front();
+    return true;
+  }
+  return false;
+}
+
+
+void ScriptQueue::clear()
+{
+  while (stopCurrent()); // stop all, even those that will which might still be owned by somebody else
+  queue.clear();
 }
 
 

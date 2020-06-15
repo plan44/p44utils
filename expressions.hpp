@@ -775,6 +775,31 @@ namespace p44 {
 
     /// @}
   };
+  typedef boost::intrusive_ptr<ScriptExecutionContext> ScriptExecutionContextPtr;
+
+
+  class ScriptQueue {
+    typedef std::list<ScriptExecutionContextPtr> ScriptExecutionContextsList;
+    ScriptExecutionContextsList queue;
+
+  public:
+
+    /// stop current script (and cause next to execute)
+    /// @return true if there was a script to stop
+    bool stopCurrent();
+
+    /// clear queue, stop all scripts
+    void clear();
+
+    /// queue script for execution
+    /// @param aScriptContext the script to run in sequence
+    void queueScript(ScriptExecutionContextPtr aScriptContext);
+
+  private:
+    void runNextScript();
+    void scriptDone(ScriptExecutionContextPtr aScript);
+  };
+
 
   #endif // EXPRESSION_SCRIPT_SUPPORT
 
@@ -857,6 +882,7 @@ namespace p44 {
 
 
 } // namespace p44
+
 
 #endif // ENABLE_EXPRESSIONS
 
