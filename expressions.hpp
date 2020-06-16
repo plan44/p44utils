@@ -41,12 +41,6 @@
 #endif
 
 
-#define ELOGGING (evalLogLevel!=0)
-#define ELOGGING_DBG (evalLogLevel>=LOG_DEBUG)
-#define ELOG(...) { if (ELOGGING) OLOG(evalLogLevel,##__VA_ARGS__) }
-#define ELOG_DBG(...) { if (ELOGGING_DBG) OLOG(FOCUSLOGLEVEL ? FOCUSLOGLEVEL : LOG_DEBUG,##__VA_ARGS__) }
-
-
 using namespace std;
 
 namespace p44 {
@@ -185,7 +179,7 @@ namespace p44 {
   /// @param aFunctionLookpCB this will be called to execute functions that are not built-in
   /// @param aLogLevel the log level to show evaluation messages on, defaults to LOG_DEBUG
   /// @return the result of the expression
-  ExpressionValue evaluateExpression(const string& aExpression, ValueLookupCB aValueLookupCB, FunctionLookupCB aFunctionLookpCB, int aLogLevel = LOG_DEBUG);
+  ExpressionValue evaluateExpression(const string& aExpression, ValueLookupCB aValueLookupCB, FunctionLookupCB aFunctionLookpCB, int aLogOffset = 0);
 
   /// substitute "@{xxx}" type expression placeholders in string
   /// @param aString string to replace placeholders in
@@ -329,7 +323,6 @@ namespace p44 {
     const GeoLocation* geolocationP; ///< if set, the current geolocation (e.g. for sun time functions)
     string codeString; ///< the code to evaluate
     bool synchronous; ///< the code must run synchronously to the end, execution may NOT be yielded
-    int evalLogLevel; ///< if set, processing the script will output log info
     P44ObjPtr callerContext; ///< optional context of the caller of this script, might be accessed by externally implemented custom functions
     /// @}
 
@@ -414,14 +407,6 @@ namespace p44 {
 
     /// @return log level offset (overridden to use something other than the P44LoggingObj's)
     virtual int getLogLevelOffset() P44_OVERRIDE;
-
-    /// set the log level for evaluation
-    /// @param aLogLevel log level or 0 to disable logging evaluation messages
-    /// @note the level set must be lower or equal to the global log levels for the messages to get written to the log
-    void setEvalLogLevel(int aLogLevel) { evalLogLevel = aLogLevel; }
-
-    /// @return the log level to be used for log messages in this evaluation context
-    int getEvalLogLevel() { return evalLogLevel; }
 
     /// evaluate code synchonously
     /// @param aEvalMode if specified, the evaluation mode for this evaluation. Defaults to current evaluation mode.

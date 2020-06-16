@@ -399,7 +399,6 @@ EvaluationContext::EvaluationContext(const GeoLocation* aGeoLocationP) :
   runningSince(Never),
   nextEvaluation(Never),
   synchronous(true),
-  evalLogLevel(FOCUSLOGGING ? FOCUSLOGLEVEL : LOG_INFO), // default to focus level if any, LOG_INFO normally
   execTimeLimit(DEFAULT_EXEC_TIME_LIMIT),
   syncExecLimit(DEFAULT_SYNC_EXEC_LIMIT),
   syncRunTime(DEFAULT_SYNC_RUN_TIME),
@@ -430,10 +429,10 @@ string EvaluationContext::logContextPrefix()
   string prefix;
   if (loggingContextP) {
     prefix = loggingContextP->logContextPrefix();
-    if (!prefix.empty()) prefix += ": ";
   }
   if (!contextInfo.empty()) {
-    prefix += contextInfo + ": ";
+    if (!prefix.empty()) prefix += ": ";
+    prefix += contextInfo;
   }
   return prefix;
 }
@@ -573,12 +572,12 @@ void EvaluationContext::logStackDump() {
   size_t spidx = stack.size();
   while (spos!=stack.begin()) {
     spos--;
-    ELOG_DBG("- %zu: %s state=%s, identifier='%s', code(sp->pos): '%.50s...'",
+    OLOG(LOG_DEBUG, "- %zu: %s state=%s, identifier='%s', code(sp->pos): '%.50s...'",
       spidx,
       spos->skipping ? "SKIPPING" : "running ",
       evalstatenames[spos->state],
       spos->identifier.c_str(),
-      tail(spos->pos)
+      singleLine(tail(spos->pos), true).c_str()
     );
     spidx--;
   }
@@ -588,8 +587,8 @@ bool EvaluationContext::push(EvalState aNewState, bool aStartSkipping)
 {
   skipNonCode();
   stack.push_back(StackFrame(aNewState, aStartSkipping || sp().skipping, sp().precedence));
-  if (ELOGGING_DBG) {
-    ELOG_DBG("+++ pushed new frame - code(pos): '%.50s...'", tail(pos));
+  if (OLOGENABLED(LOG_DEBUG)) {
+    OLOG(LOG_DEBUG, "+++ pushed new frame - code(pos): '%.50s...'", singleLine(tail(pos)).c_str());
     logStackDump();
   }
   return true; // not yielded
@@ -602,8 +601,8 @@ bool EvaluationContext::pop()
   if (stack.size()>1) {
     // regular pop
     stack.pop_back();
-    if (ELOGGING_DBG) {
-      ELOG_DBG("--- popped frame - code(pos): '%.50s...'", tail(pos));
+    if (OLOGENABLED(LOG_DEBUG)) {
+      OLOG(LOG_DEBUG, "--- popped frame - code(pos): '%.50s...'", singleLine(tail(pos)).c_str());
       logStackDump();
     }
     return true; // not yielded
@@ -627,10 +626,10 @@ bool EvaluationContext::popAndPassResult(ExpressionValue aResult)
     // - it is a syntax error
     // - between complete expressions/statements
     if (aResult.isError() && (sp().state<s_expression_states || !aResult.syntaxOk())) {
-      ELOG("Statement result passed to %s: '%.*s' is error -> THROW: %s", evalstatenames[sp().state],  (int)(pos-sp().pos), tail(sp().pos), aResult.error()->text());
+      OLOG(LOG_NOTICE, "Statement result passed to %s: '%.*s' is error -> THROW: %s", evalstatenames[sp().state],  (int)(pos-sp().pos), tail(sp().pos), aResult.error()->text());
       return throwError(aResult.error());
     }
-    ELOG_DBG("Result passed to %s: '%.*s' is '%s'", evalstatenames[sp().state],  (int)(pos-sp().pos), tail(sp().pos), aResult.stringValue().c_str());
+    OLOG(LOG_DEBUG, "Result passed to %s: '%.*s' is '%s'", evalstatenames[sp().state],  (int)(pos-sp().pos), tail(sp().pos), aResult.stringValue().c_str());
     sp().res = aResult;
   }
   return true; // not yielded
@@ -786,6 +785,9 @@ bool EvaluationContext::continueEvaluation()
 }
 
 
+
+
+
 bool EvaluationContext::returnFunctionResult(const ExpressionValue& aResult)
 {
   if (stack.size()>=1) {
@@ -837,7 +839,7 @@ bool EvaluationContext::abort(bool aDoCallBack)
   stack.clear();
   if (aDoCallBack) runCallBack(finalResult);
   runningSince = Never; // force end
-  ELOG("Evaluation: asynchronous execution aborted (by external demand)");
+  OLOG(LOG_NOTICE, "Evaluation: asynchronous execution aborted (by external demand)");
   return false; // not sure
 }
 
@@ -919,22 +921,24 @@ bool EvaluationContext::resumeEvaluation()
       }
       // otherwise, treat like complete
     case s_complete:
-      ELOG("Evaluation: execution completed");
+      OLOG(LOG_INFO, "Evaluation: execution completed");
       return newstate(s_finalize);
     case s_abort:
-      ELOG("Evaluation: execution aborted (from within script)");
+      OLOG(LOG_INFO, "Evaluation: execution aborted (from within script)");
       return newstate(s_finalize);
     case s_finalize:
       finalResult = sp().res;
-      if (ELOGGING) {
-        string errInd;
+      if (OLOGENABLED(LOG_INFO)) {
         if (!finalResult.syntaxOk()) {
-          errInd = "\n                ";
+          string errInd;
           errInd.append(pos, '-');
           errInd += '^';
+          OLOG(LOG_INFO, "- code        =\n%s\n%s", getCode(), errInd.c_str());
         }
-        ELOG("- code        = %s%s", getCode(), errInd.c_str());
-        ELOG("- finalResult = %s - err = %s", finalResult.stringValue().c_str(), Error::text(finalResult.err));
+        else {
+          OLOG(LOG_INFO, "- code        = %s", singleLine(getCode(), true).c_str());
+        }
+        OLOG(LOG_INFO, "- finalResult = %s - err = %s", finalResult.stringValue().c_str(), Error::text(finalResult.err));
       }
       stack.clear();
       execTicket.cancel(); // really stop here
@@ -1221,9 +1225,9 @@ bool EvaluationContext::resumeExpression()
   }
   if (sp().state==s_subscriptExec) {
     ExpressionValue base = sp().val;
-    ELOG_DBG("Resolving Subscript for '%s'", sp().identifier.c_str());
+    OLOG(LOG_DEBUG, "Resolving Subscript for '%s'", sp().identifier.c_str());
     for (int ai=0; ai<sp().args.size(); ai++) {
-      ELOG_DBG("- subscript at char pos=%zu: %s (err=%s)", sp().args.getPos(ai), sp().args[ai].stringValue().c_str(), Error::text(sp().args[ai].err));
+      OLOG(LOG_DEBUG, "- subscript at char pos=%zu: %s (err=%s)", sp().args.getPos(ai), sp().args[ai].stringValue().c_str(), Error::text(sp().args[ai].err));
       sp().res = base.subScript(sp().args[ai]);
       if (sp().res.isNull()) break;
       base = sp().res;
@@ -1316,10 +1320,10 @@ bool EvaluationContext::resumeExpression()
       // duplicate into res in case evaluation ends
       sp().res = sp().val;
       if (sp().res.isValue()) {
-        ELOG_DBG("Intermediate expression '%.*s' evaluation result: %s", (int)(pos-sp().pos), tail(sp().pos), sp().res.stringValue().c_str());
+        OLOG(LOG_DEBUG, "Intermediate expression '%.*s' evaluation result: %s", (int)(pos-sp().pos), tail(sp().pos), sp().res.stringValue().c_str());
       }
       else {
-        ELOG_DBG("Intermediate expression '%.*s' evaluation result is INVALID", (int)(pos-sp().pos), tail(sp().pos));
+        OLOG(LOG_DEBUG, "Intermediate expression '%.*s' evaluation result is INVALID", (int)(pos-sp().pos), tail(sp().pos));
       }
     }
     return newstate(s_exprLeftSide); // back to leftside, more chained operators might follow
@@ -1491,9 +1495,9 @@ bool EvaluationContext::resumeTerm()
     return abortWithSyntaxError("missing closing ')' in function call");
   }
   else if (sp().state==s_funcExec) {
-    ELOG_DBG("Calling Function '%s'", sp().identifier.c_str());
+    OLOG(LOG_DEBUG, "Calling Function '%s'", sp().identifier.c_str());
     for (int ai=0; ai<sp().args.size(); ai++) {
-      ELOG_DBG("- argument at char pos=%zu: %s (err=%s)", sp().args.getPos(ai), sp().args[ai].stringValue().c_str(), Error::text(sp().args[ai].err));
+      OLOG(LOG_DEBUG, "- argument at char pos=%zu: %s (err=%s)", sp().args.getPos(ai), sp().args[ai].stringValue().c_str(), Error::text(sp().args[ai].err));
     }
     // run function
     newstate(s_result); // expecting result from function
@@ -1550,7 +1554,7 @@ ExpressionValue TimedEvaluationContext::evaluateSynchronously(EvalMode aEvalMode
     fpos++;
   }
   if (nextEvaluation!=Never) {
-    ELOG("Expression demands re-evaluation at %s: '%s'", MainLoop::string_mltime(nextEvaluation).c_str(), getCode());
+    OLOG(LOG_INFO, "Expression demands re-evaluation at %s: '%s'", MainLoop::string_mltime(nextEvaluation).c_str(), singleLine(getCode(), true).c_str());
   }
   if (aScheduleReEval) {
     scheduleReEvaluation(nextEvaluation);
@@ -1786,7 +1790,7 @@ bool EvaluationContext::evaluateFunction(const string &aFunc, const FunctionArgu
   else if (!synchronous && oneTimeResultHandler && aFunc=="earlyresult" && aArgs.size()==1) {
     // send the one time result now, but keep script running
     if (aArgs[0].notValue()) return errorInArg(aArgs[0], aResult); // return error/null from argument
-    ELOG("earlyresult sends '%s' to caller, script continues running", aResult.stringValue().c_str());
+    OLOG(LOG_INFO, "earlyresult sends '%s' to caller, script continues running", aResult.stringValue().c_str());
     runCallBack(aArgs[0]);
   }
   else if (aFunc=="errordomain" && aArgs.size()==1) {
@@ -1816,10 +1820,10 @@ bool EvaluationContext::evaluateFunction(const string &aFunc, const FunctionArgu
       aArgs[0].stringValue().c_str(),
       boost::bind(&EvaluationContext::valueLookup, this, _1, _2),
       NULL, // no functions from within function for now
-      evalLogLevel
+      getLogLevelOffset() // inherit log level offset
     );
     if (aResult.notValue()) {
-      ELOG("eval(\"%s\") returns error '%s' in expression: '%s'", aArgs[0].stringValue().c_str(), aResult.err->text(), getCode());
+      OLOG(LOG_INFO, "eval(\"%s\") returns error '%s' in expression: '%s'", aArgs[0].stringValue().c_str(), aResult.err->text(), singleLine(getCode(), true).c_str());
       // do not cause syntax error, only invalid result, but with error message included
       aResult.setNull(string_format("eval() error: %s -> undefined", aResult.err->text()).c_str());
     }
@@ -1903,7 +1907,7 @@ bool EvaluationContext::evaluateFunction(const string &aFunc, const FunctionArgu
     bool met = daySecs>=secs.numValue();
     // next check at specified time, today if not yet met, tomorrow if already met for today
     loctim.tm_hour = 0; loctim.tm_min = 0; loctim.tm_sec = (int)secs.numValue();
-    ELOG("is/after_time() reference time for current check is: %s", MainLoop::string_mltime(MainLoop::localTimeToMainLoopTime(loctim)).c_str());
+    OLOG(LOG_INFO, "is/after_time() reference time for current check is: %s", MainLoop::string_mltime(MainLoop::localTimeToMainLoopTime(loctim)).c_str());
     bool res = met;
     // limit to a few secs around target if it's is_time
     if (aFunc=="is_time" && met && daySecs<secs.numValue()+IS_TIME_TOLERANCE_SECONDS) {
@@ -2053,7 +2057,7 @@ ScriptExecutionContext::~ScriptExecutionContext()
 
 void ScriptExecutionContext::releaseState()
 {
-  ELOG_DBG("All variables released now for expression: '%s'", getCode());
+  OLOG(LOG_DEBUG, "All variables released now for expression: '%s'", singleLine(getCode(), true).c_str());
   variables.clear();
 }
 
@@ -2085,8 +2089,8 @@ bool ScriptExecutionContext::chainContext(ScriptExecutionContext& aTargetContext
     return true; // not yielded, done
   }
   else {
-    ELOG("chainContext: new context will execute rest of code: %s", tail(pos));
-    aTargetContext.setEvalLogLevel(evalLogLevel); // inherit log level
+    OLOG(LOG_INFO, "chainContext: new context will execute rest of code: %s", singleLine(tail(pos), true).c_str());
+    aTargetContext.setLogLevelOffset(getLocalLogLevelOffset()); // inherit log level offset
     aTargetContext.setCode(tail(pos)); // pass tail
     pos = codeString.size(); // skip tail
     aTargetContext.abort(false); // abort previously running script
@@ -2278,7 +2282,7 @@ bool ScriptExecutionContext::resumeStatements()
           // does not yet exist, create it with null value
           ExpressionValue null;
           (*varsP)[varName] = null;
-          ELOG_DBG("Defined %s variable %.*s", glob ? "GLOBAL" : "LOCAL", (int)vsz,vn);
+          OLOG(LOG_DEBUG, "Defined %s variable %.*s", glob ? "GLOBAL" : "LOCAL", (int)vsz,vn);
           newVar = true;
         }
       }
@@ -2338,7 +2342,7 @@ bool ScriptExecutionContext::resumeAssignment()
   }
   if (!sp().skipping) {
     // assign variable
-    ELOG_DBG("Assigned %s variable: %s := %s", glob ? "global" : "local", sp().identifier.c_str(), sp().res.stringValue().c_str());
+    OLOG(LOG_DEBUG, "Assigned %s variable: %s := %s", glob ? "global" : "local", sp().identifier.c_str(), sp().res.stringValue().c_str());
     vpos->second = sp().res;
     return popAndPassResult(sp().res);
   }
@@ -2470,7 +2474,7 @@ TimedEvaluationContext::~TimedEvaluationContext()
 
 void TimedEvaluationContext::releaseState()
 {
-  ELOG_DBG("All frozen state is released now for expression: '%s'", getCode());
+  OLOG(LOG_DEBUG, "All frozen state is released now for expression: '%s'", singleLine(getCode(), true).c_str());
   frozenResults.clear(); // changing expression unfreezes everything
 }
 
@@ -2490,7 +2494,7 @@ void TimedEvaluationContext::scheduleReEvaluation(MLMicroSeconds aAtTime)
 void TimedEvaluationContext::timedEvaluationHandler(MLTimer &aTimer, MLMicroSeconds aNow)
 {
   // trigger another evaluation
-  ELOG("Timed re-evaluation of expression starting now: '%s'", getCode());
+  OLOG(LOG_INFO, "Timed re-evaluation of expression starting now: '%s'", singleLine(getCode(), true).c_str());
   triggerEvaluation(evalmode_timed);
 }
 
@@ -2510,7 +2514,7 @@ TimedEvaluationContext::FrozenResult* TimedEvaluationContext::getFrozen(Expressi
   if (frozenVal!=frozenResults.end()) {
     frozenResultP = &(frozenVal->second);
     // there is a frozen result for this position in the expression
-    ELOG_DBG("- frozen result (%s) for actual result (%s) at char pos %zu exists - will expire %s",
+    OLOG(LOG_DEBUG, "- frozen result (%s) for actual result (%s) at char pos %zu exists - will expire %s",
       frozenResultP->frozenResult.stringValue().c_str(),
       aResult.stringValue().c_str(),
       aRefPos,
@@ -2537,11 +2541,11 @@ TimedEvaluationContext::FrozenResult* TimedEvaluationContext::newFreeze(FrozenRe
     newFreeze.frozenResult = aNewResult; // full copy, including pos
     newFreeze.frozenUntil = aFreezeUntil;
     frozenResults[aRefPos] = newFreeze;
-    ELOG_DBG("- new result (%s) frozen for pos %zu until %s", aNewResult.stringValue().c_str(), aRefPos, MainLoop::string_mltime(newFreeze.frozenUntil).c_str());
+    OLOG(LOG_DEBUG, "- new result (%s) frozen for pos %zu until %s", aNewResult.stringValue().c_str(), aRefPos, MainLoop::string_mltime(newFreeze.frozenUntil).c_str());
     return &frozenResults[aRefPos];
   }
   else if (!aExistingFreeze->frozen() || aUpdate || aFreezeUntil==Never) {
-    ELOG_DBG("- existing freeze updated to value %s and to expire %s",
+    OLOG(LOG_DEBUG, "- existing freeze updated to value %s and to expire %s",
       aNewResult.stringValue().c_str(),
       aFreezeUntil==Never ? "IMMEDIATELY" : MainLoop::string_mltime(aFreezeUntil).c_str()
     );
@@ -2549,7 +2553,7 @@ TimedEvaluationContext::FrozenResult* TimedEvaluationContext::newFreeze(FrozenRe
     aExistingFreeze->frozenUntil = aFreezeUntil;
   }
   else {
-    ELOG_DBG("- no freeze created/updated");
+    OLOG(LOG_DEBUG, "- no freeze created/updated");
   }
   return aExistingFreeze;
 }
@@ -2676,7 +2680,7 @@ void ScriptQueue::runNextScript()
 {
   if (!queue.empty()) {
     ScriptExecutionContextPtr script = queue.front();
-    LOG(LOG_INFO, "+++ Starting script");
+    SOLOG(*script, LOG_INFO, "+++ Starting script");
     script->execute(true, boost::bind(&ScriptQueue::scriptDone, this, script));
   }
 }
@@ -2684,7 +2688,7 @@ void ScriptQueue::runNextScript()
 
 void ScriptQueue::scriptDone(ScriptExecutionContextPtr aScript)
 {
-  LOG(LOG_INFO, "--- Finished feature API script");
+  SOLOG(*aScript, LOG_INFO, "--- Finished script");
   queue.pop_front();
   runNextScript();
 }
@@ -2754,11 +2758,11 @@ protected:
 typedef boost::intrusive_ptr<AdHocEvaluationContext> AdHocEvaluationContextPtr;
 
 
-ExpressionValue p44::evaluateExpression(const string &aExpression, ValueLookupCB aValueLookupCB, FunctionLookupCB aFunctionLookpCB, int aLogLevel)
+ExpressionValue p44::evaluateExpression(const string &aExpression, ValueLookupCB aValueLookupCB, FunctionLookupCB aFunctionLookpCB, int aLogOffset)
 {
   AdHocEvaluationContext ctx(aValueLookupCB, aFunctionLookpCB);
   ctx.isMemberVariable();
-  ctx.setEvalLogLevel(aLogLevel);
+  ctx.setLogLevelOffset(aLogOffset);
   return ctx.evaluateExpression(aExpression);
 }
 
