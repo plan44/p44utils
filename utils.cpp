@@ -264,6 +264,27 @@ string p44::trimWhiteSpace(const string &aString, bool aLeading, bool aTrailing)
 }
 
 
+string p44::singleLine(const char *aString, bool aCompactWSRuns)
+{
+  string s;
+  bool wsrun = false;
+  while (char c=*aString++) {
+    if (c==' ' || c=='\n' || c=='\r' || c=='\t') {
+      // whitespace
+      if (wsrun && aCompactWSRuns) continue;
+      s += ' ';
+      wsrun = true;
+    }
+    else {
+      wsrun = false;
+      s += c;
+    }
+  }
+  return s;
+}
+
+
+
 string p44::shellQuote(const char *aString)
 {
   string s = "\"";

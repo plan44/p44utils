@@ -141,6 +141,11 @@ namespace p44 {
   /// @return trimmed string
   string trimWhiteSpace(const string &aString, bool aLeading = true, bool aTrailing = true);
 
+  /// return string as single line (LF, CR, TAB converted to spaces)
+  /// @param aString a string
+  /// @param aCompactWSRuns if true, runs of consecutive spaces/LFs/CRs/TABs will be compacted to a single space
+  string singleLine(const char *aString, bool aCompactWSRuns = true);
+
   /// return next line from buffer
   /// @param aCursor at entry, must point to the beginning of a line. At exit, will point
   ///   to the beginning of the next line or the terminating NUL
