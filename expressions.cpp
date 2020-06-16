@@ -2633,7 +2633,7 @@ bool TimedEvaluationContext::evaluateFunction(const string &aFunc, const Functio
     //   at next integer number of intervals calculated from beginning of the day + syncoffset
     double syncoffset = -1;
     if (aArgs.size()>=2) {
-      syncoffset = aArgs[2].numValue();
+      syncoffset = aArgs[1].numValue();
     }
     ExpressionValue secs = aArgs[0];
     if (secs.numValue()<MIN_EVERY_SECONDS) {
