@@ -273,6 +273,7 @@ int P44LoggingObj::getLogLevelOffset()
 
 void P44LoggingObj::setLogLevelOffset(int aLogLevelOffset)
 {
+  log(aLogLevelOffset<0 ? LOG_WARNING : LOG_INFO, "### changed log level offset to %d", aLogLevelOffset);
   logLevelOffset = aLogLevelOffset;
 }
 
