@@ -59,8 +59,8 @@
 #define OLOGENABLED(lvl) logEnabled(lvl)
 #define OLOG(lvl,...) { if (logEnabled(lvl)) log(lvl,##__VA_ARGS__); }
 // logging via a specified P44LoggingObj (messages prefixed with object's logContextPrefix())
-#define SOLOGENABLED(obj,lvl) obj.logEnabled(lvl)
-#define SOLOG(obj,lvl,...) { if (obj.logEnabled(lvl)) obj.log(lvl,##__VA_ARGS__); }
+#define SOLOGENABLED(obj,lvl) (obj).logEnabled(lvl)
+#define SOLOG(obj,lvl,...) { if ((obj).logEnabled(lvl)) (obj).log(lvl,##__VA_ARGS__); }
 
 // debug build extra logging (not included in release code unless ALWAYS_DEBUG is set)
 #if defined(DEBUG) || ALWAYS_DEBUG
@@ -224,6 +224,9 @@ namespace p44 {
     /// @return the per-instance log level offset
     /// @note is virtual because some objects might want to use the log level offset of another object
     virtual int getLogLevelOffset();
+
+    /// @return always locally stored offset, even when getLogLevelOffset() returns something else
+    int getLocalLogLevelOffset() { return logLevelOffset; }
 
     /// set the log level offset on this addressable or a (not directly addressable) subitem of it
     /// @param aLogLevelOffset the new log level offset

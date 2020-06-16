@@ -255,9 +255,15 @@ void P44LoggingObj::log(int aErrLevel, const char *aFmt, ... )
   if (logEnabled(aErrLevel)) {
     va_list args;
     va_start(args, aFmt);
-    // get the prefix
-    string message = logContextPrefix();
-    if (!message.empty()) message+=": ";
+    // get the prefix (can be disabled by starting log line with \r)
+    string message;
+    if (*aFmt!='\r') {
+      message = logContextPrefix();
+      if (!message.empty()) message+=": ";
+    }
+    else {
+      aFmt++; // skip \r
+    }
     // format the message
     string_format_v(message, true, aFmt, args);
     va_end(args);
@@ -273,7 +279,7 @@ int P44LoggingObj::getLogLevelOffset()
 
 void P44LoggingObj::setLogLevelOffset(int aLogLevelOffset)
 {
-  log(aLogLevelOffset<0 ? LOG_WARNING : LOG_INFO, "### changed log level offset to %d", aLogLevelOffset);
+  log(globalLogger.getLogLevel(), "### changed log level offset to %d", aLogLevelOffset);
   logLevelOffset = aLogLevelOffset;
 }
 
