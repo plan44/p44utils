@@ -753,6 +753,12 @@ bool EvaluationContext::startEvaluation()
 }
 
 
+bool EvaluationContext::selfKeepingContinueEvaluation(EvaluationContextPtr aContext)
+{
+  return aContext->continueEvaluation();
+}
+
+
 bool EvaluationContext::continueEvaluation()
 {
   if (!isEvaluating()) {
@@ -775,7 +781,7 @@ bool EvaluationContext::continueEvaluation()
       if (!synchronous && syncRunTime!=Infinite && now-syncRunSince>syncRunTime) {
         // is an async script, yield now and continue later
         // - yield execution for twice the time we were allowed to run
-        execTicket.executeOnce(boost::bind(&EvaluationContext::continueEvaluation, this), 2*DEFAULT_SYNC_RUN_TIME);
+        execTicket.executeOnce(boost::bind(&selfKeepingContinueEvaluation, this), 2*DEFAULT_SYNC_RUN_TIME);
         // - yield now
         return false;
       }

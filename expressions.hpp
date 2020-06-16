@@ -230,6 +230,8 @@ namespace p44 {
 
 
   /// Basic Expression Evaluation Context
+  class EvaluationContext;
+  typedef boost::intrusive_ptr<EvaluationContext> EvaluationContextPtr;
   class EvaluationContext : public P44LoggingObj
   {
     typedef P44LoggingObj inherited;
@@ -668,8 +670,11 @@ namespace p44 {
 
     /// @}
 
+  private:
+
+    static bool selfKeepingContinueEvaluation(EvaluationContextPtr aContext);
+
   };
-  typedef boost::intrusive_ptr<EvaluationContext> EvaluationContextPtr;
 
 
   #if EXPRESSION_SCRIPT_SUPPORT
