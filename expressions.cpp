@@ -1711,6 +1711,12 @@ bool EvaluationContext::evaluateFunction(const string &aFunc, const FunctionArgu
     }
   }
   #endif // EXPRESSION_JSON_SUPPORT
+  else if (aFunc=="lastarg") {
+    // lastarg(expr, expr, exprlast)
+    // (for executing side effects of non-last arg evaluation, before returning the last arg)
+    if (aArgs.size()==0) aResult.setNull(); // no arguments -> null
+    else aResult = aArgs[aArgs.size()-1]; // value of last argument
+  }
   else if (aFunc=="strlen" && aArgs.size()==1) {
     // strlen(string)
     if (aArgs[0].notValue()) return errorInArg(aArgs[0], aResult); // return error/null from argument
