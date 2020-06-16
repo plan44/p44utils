@@ -1824,6 +1824,39 @@ bool EvaluationContext::evaluateFunction(const string &aFunc, const FunctionArgu
       aResult.setNull(string_format("eval() error: %s -> undefined", aResult.err->text()).c_str());
     }
   }
+  else if (aFunc=="log" && aArgs.size()<=2 && (aArgs.size()>1 || (aArgs.size()==1 && aArgs[0].isString()))) {
+    // TODO: Note: complicated check would allow log(number) math function in the future
+    // log (logmessage)
+    // log (loglevel, logmessage)
+    int loglevel = LOG_INFO;
+    int ai = 0;
+    if (aArgs.size()>1) {
+      if (aArgs[ai].notValue()) return errorInArg(aArgs[ai], aResult);
+      loglevel = aArgs[ai].intValue();
+      ai++;
+    }
+    if (aArgs[ai].notValue()) return errorInArg(aArgs[ai], aResult);
+    LOG(loglevel, "Script log: %s", aArgs[ai].stringValue().c_str());
+  }
+  else if (aFunc=="loglevel" && aArgs.size()==1) {
+    if (aArgs[0].notValue()) return errorInArg(aArgs[0], aResult);
+    int newLevel = aArgs[0].intValue();
+    if (newLevel>=0 && newLevel<=7) {
+      int oldLevel = LOGLEVEL;
+      SETLOGLEVEL(newLevel);
+      LOG(newLevel, "\n\n========== script changed log level from %d to %d ===============", oldLevel, newLevel);
+    }
+  }
+  else if (aFunc=="scriptloglevel") {
+    // TODO: remove legacy function
+    LOG(LOG_ERR, "scriptloglevel() function no longer available -> NOP");
+  }
+  else if (aFunc=="logleveloffset" && aArgs.size()==1) {
+    // log level offset for this script object
+    if (aArgs[0].notValue()) return errorInArg(aArgs[0], aResult);
+    int newOffset = aArgs[0].intValue();
+    setLogLevelOffset(newOffset);
+  }
   else if (aFunc=="is_weekday" && aArgs.size()>0) {
     struct tm loctim; MainLoop::getLocalTime(loctim);
     // check if any of the weekdays match
@@ -2414,46 +2447,6 @@ bool ScriptExecutionContext::valueLookup(const string &aName, ExpressionValue &a
   if (variableLookup(&variables, aName, aResult)) return true;
   // none found locally. Let base class check for globals
   return inherited::valueLookup(aName, aResult);
-}
-
-
-bool ScriptExecutionContext::evaluateFunction(const string &aFunc, const FunctionArguments &aArgs, ExpressionValue &aResult)
-{
-  if (aFunc=="log" && aArgs.size()>=1 && aArgs.size()<=2) {
-    // log (logmessage)
-    // log (loglevel, logmessage)
-    int loglevel = LOG_INFO;
-    int ai = 0;
-    if (aArgs.size()>1) {
-      if (aArgs[ai].notValue()) return errorInArg(aArgs[ai], aResult);
-      loglevel = aArgs[ai].intValue();
-      ai++;
-    }
-    if (aArgs[ai].notValue()) return errorInArg(aArgs[ai], aResult);
-    LOG(loglevel, "Script log: %s", aArgs[ai].stringValue().c_str());
-  }
-  else if (aFunc=="loglevel" && aArgs.size()==1) {
-    if (aArgs[0].notValue()) return errorInArg(aArgs[0], aResult);
-    int newLevel = aArgs[0].intValue();
-    if (newLevel>=0 && newLevel<=7) {
-      int oldLevel = LOGLEVEL;
-      SETLOGLEVEL(newLevel);
-      LOG(newLevel, "\n\n========== script changed log level from %d to %d ===============", oldLevel, newLevel);
-    }
-  }
-  else if (aFunc=="scriptloglevel" && aArgs.size()==1) {
-    if (aArgs[0].notValue()) return errorInArg(aArgs[0], aResult);
-    int newLevel = aArgs[0].intValue();
-    if (newLevel>=0 && newLevel<=7) {
-      evalLogLevel = newLevel;
-    }
-  }
-  else {
-    return inherited::evaluateFunction(aFunc, aArgs, aResult);
-  }
-  // procedure with no return value of itself
-  aResult.setNull();
-  return true;
 }
 
 

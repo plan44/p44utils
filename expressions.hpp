@@ -750,9 +750,6 @@ namespace p44 {
     /// @return true if value returned, false if value is unknown
     virtual bool valueLookup(const string &aName, ExpressionValue &aResult)  P44_OVERRIDE;
 
-    /// script context specific functions
-    virtual bool evaluateFunction(const string &aFunc, const FunctionArguments &aArgs, ExpressionValue &aResult) P44_OVERRIDE;
-
   protected:
 
     /// @name Evaluation state machine
