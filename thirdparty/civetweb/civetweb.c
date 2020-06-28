@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2020 the Civetweb developers
+/* Copyright (c) 2013-2018 the Civetweb developers
  * Copyright (c) 2004-2013 Sergey Lyubka
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -1784,7 +1784,7 @@ typedef int socklen_t;
 typedef struct SSL SSL; /* dummy for SSL argument to push/pull */
 typedef struct SSL_CTX SSL_CTX;
 #else
-#if defined(NO_SSL_DL)
+#if defined(NO_SSL_DL) || defined(USE_SSL_HEADERS)
 #include <openssl/bn.h>
 #include <openssl/conf.h>
 #include <openssl/crypto.h>
@@ -1796,6 +1796,7 @@ typedef struct SSL_CTX SSL_CTX;
 #include <openssl/ssl.h>
 #include <openssl/tls1.h>
 #include <openssl/x509.h>
+#include <openssl/x509v3.h>
 
 #if defined(WOLFSSL_VERSION)
 /* Additional defines for WolfSSL, see
@@ -1828,8 +1829,8 @@ typedef struct SSL_CTX SSL_CTX;
 #define OPENSSL_REMOVE_THREAD_STATE() ERR_remove_thread_state(NULL)
 #endif
 
-#else
-
+#endif
+#if !defined(USE_SSL_HEADERS)
 /* SSL loaded dynamically from DLL.
  * I put the prototypes here to be independent from OpenSSL source
  * installation. */
@@ -1893,6 +1894,8 @@ typedef struct x509 X509;
 #define SSL_TLSEXT_ERR_ALERT_FATAL (2)
 #define SSL_TLSEXT_ERR_NOACK (3)
 
+#endif // !USE_SSL_HEADERS
+
 struct ssl_func {
 	const char *name;  /* SSL function name */
 	void (*ptr)(void); /* Function pointer */
@@ -1905,67 +1908,83 @@ struct ssl_func {
 #define SSL_accept (*(int (*)(SSL *))ssl_sw[1].ptr)
 #define SSL_connect (*(int (*)(SSL *))ssl_sw[2].ptr)
 #define SSL_read (*(int (*)(SSL *, void *, int))ssl_sw[3].ptr)
-#define SSL_write (*(int (*)(SSL *, const void *, int))ssl_sw[4].ptr)
+#define SSL_write                                                  \
+				(*(int (*)(SSL *, const void *, int))ssl_sw[4].ptr)
 #define SSL_get_error (*(int (*)(SSL *, int))ssl_sw[5].ptr)
 #define SSL_set_fd (*(int (*)(SSL *, SOCKET))ssl_sw[6].ptr)
 #define SSL_new (*(SSL * (*)(SSL_CTX *)) ssl_sw[7].ptr)
 #define SSL_CTX_new (*(SSL_CTX * (*)(SSL_METHOD *)) ssl_sw[8].ptr)
 #define TLS_server_method (*(SSL_METHOD * (*)(void)) ssl_sw[9].ptr)
-#define OPENSSL_init_ssl                                                       \
-	(*(int (*)(uint64_t opts,                                                  \
-	           const OPENSSL_INIT_SETTINGS *settings))ssl_sw[10]               \
-	      .ptr)
-#define SSL_CTX_use_PrivateKey_file                                            \
-	(*(int (*)(SSL_CTX *, const char *, int))ssl_sw[11].ptr)
-#define SSL_CTX_use_certificate_file                                           \
-	(*(int (*)(SSL_CTX *, const char *, int))ssl_sw[12].ptr)
-#define SSL_CTX_set_default_passwd_cb                                          \
-	(*(void (*)(SSL_CTX *, mg_callback_t))ssl_sw[13].ptr)
+#define OPENSSL_init_ssl                                           \
+				(*(int (*)(uint64_t opts,                                      \
+				           const OPENSSL_INIT_SETTINGS *settings))ssl_sw[10]   \
+				      .ptr)
+#define SSL_CTX_use_PrivateKey_file                                \
+				(*(int (*)(SSL_CTX *, const char *, int))ssl_sw[11].ptr)
+#define SSL_CTX_use_certificate_file                               \
+				(*(int (*)(SSL_CTX *, const char *, int))ssl_sw[12].ptr)
+#define SSL_CTX_set_default_passwd_cb                              \
+				(*(void (*)(SSL_CTX *, mg_callback_t))ssl_sw[13].ptr)
 #define SSL_CTX_free (*(void (*)(SSL_CTX *))ssl_sw[14].ptr)
-#define SSL_CTX_use_certificate_chain_file                                     \
-	(*(int (*)(SSL_CTX *, const char *))ssl_sw[15].ptr)
+#define SSL_CTX_use_certificate_chain_file                         \
+				(*(int (*)(SSL_CTX *, const char *))ssl_sw[15].ptr)
 #define TLS_client_method (*(SSL_METHOD * (*)(void)) ssl_sw[16].ptr)
 #define SSL_pending (*(int (*)(SSL *))ssl_sw[17].ptr)
-#define SSL_CTX_set_verify                                                     \
-	(*(void (*)(SSL_CTX *,                                                     \
-	            int,                                                           \
-	            int (*verify_callback)(int, X509_STORE_CTX *)))ssl_sw[18]      \
-	      .ptr)
+#define SSL_CTX_set_verify                                         \
+				(*(void (*)(SSL_CTX *,                                         \
+				            int,                                               \
+				            int (*verify_callback)(int, X509_STORE_CTX *)))    \
+				      ssl_sw[18]                                               \
+				          .ptr)
 #define SSL_shutdown (*(int (*)(SSL *))ssl_sw[19].ptr)
-#define SSL_CTX_load_verify_locations                                          \
-	(*(int (*)(SSL_CTX *, const char *, const char *))ssl_sw[20].ptr)
-#define SSL_CTX_set_default_verify_paths (*(int (*)(SSL_CTX *))ssl_sw[21].ptr)
-#define SSL_CTX_set_verify_depth (*(void (*)(SSL_CTX *, int))ssl_sw[22].ptr)
-#define SSL_get_peer_certificate (*(X509 * (*)(SSL *)) ssl_sw[23].ptr)
+#define SSL_CTX_load_verify_locations                              \
+				(*(int (*)(SSL_CTX *, const char *, const char *))ssl_sw[20]   \
+				      .ptr)
+#define SSL_CTX_set_default_verify_paths                           \
+				(*(int (*)(SSL_CTX *))ssl_sw[21].ptr)
+#define SSL_CTX_set_verify_depth                                   \
+				(*(void (*)(SSL_CTX *, int))ssl_sw[22].ptr)
+#define SSL_get_peer_certificate                                   \
+				(*(X509 * (*)(SSL *)) ssl_sw[23].ptr)
 #define SSL_get_version (*(const char *(*)(SSL *))ssl_sw[24].ptr)
-#define SSL_get_current_cipher (*(SSL_CIPHER * (*)(SSL *)) ssl_sw[25].ptr)
-#define SSL_CIPHER_get_name                                                    \
-	(*(const char *(*)(const SSL_CIPHER *))ssl_sw[26].ptr)
-#define SSL_CTX_check_private_key (*(int (*)(SSL_CTX *))ssl_sw[27].ptr)
-#define SSL_CTX_set_session_id_context                                         \
-	(*(int (*)(SSL_CTX *, const unsigned char *, unsigned int))ssl_sw[28].ptr)
-#define SSL_CTX_ctrl (*(long (*)(SSL_CTX *, int, long, void *))ssl_sw[29].ptr)
-#define SSL_CTX_set_cipher_list                                                \
-	(*(int (*)(SSL_CTX *, const char *))ssl_sw[30].ptr)
-#define SSL_CTX_set_options                                                    \
-	(*(unsigned long (*)(SSL_CTX *, unsigned long))ssl_sw[31].ptr)
-#define SSL_CTX_set_info_callback                                              \
-	(*(void (*)(SSL_CTX * ctx, void (*callback)(const SSL *, int, int)))       \
-	      ssl_sw[32]                                                           \
-	          .ptr)
-#define SSL_get_ex_data (*(char *(*)(const SSL *, int))ssl_sw[33].ptr)
-#define SSL_set_ex_data (*(void (*)(SSL *, int, char *))ssl_sw[34].ptr)
-#define SSL_CTX_callback_ctrl                                                  \
-	(*(long (*)(SSL_CTX *, int, void (*)(void)))ssl_sw[35].ptr)
-#define SSL_get_servername                                                     \
-	(*(const char *(*)(const SSL *, int type))ssl_sw[36].ptr)
-#define SSL_set_SSL_CTX (*(SSL_CTX * (*)(SSL *, SSL_CTX *)) ssl_sw[37].ptr)
-#define SSL_ctrl (*(long (*)(SSL *, int, long, void *))ssl_sw[38].ptr)
+#define SSL_get_current_cipher                                     \
+				(*(SSL_CIPHER * (*)(SSL *)) ssl_sw[25].ptr)
+#define SSL_CIPHER_get_name                                        \
+				(*(const char *(*)(const SSL_CIPHER *))ssl_sw[26].ptr)
+#define SSL_CTX_check_private_key                                  \
+				(*(int (*)(SSL_CTX *))ssl_sw[27].ptr)
+#define SSL_CTX_set_session_id_context                             \
+				(*(int (*)(SSL_CTX *, const unsigned char *, unsigned int))    \
+				      ssl_sw[28]                                               \
+				          .ptr)
+#define SSL_CTX_ctrl                                               \
+				(*(long (*)(SSL_CTX *, int, long, void *))ssl_sw[29].ptr)
+#define SSL_CTX_set_cipher_list                                    \
+				(*(int (*)(SSL_CTX *, const char *))ssl_sw[30].ptr)
+#define SSL_CTX_set_options                                        \
+				(*(unsigned long (*)(SSL_CTX *, unsigned long))ssl_sw[31].ptr)
+#define SSL_CTX_set_info_callback                                  \
+				(*(void (*)(SSL_CTX * ctx,                                     \
+				            void (*callback)(SSL * s, int, int))) ssl_sw[32]   \
+				      .ptr)
+#define SSL_get_ex_data (*(char *(*)(SSL *, int))ssl_sw[33].ptr)
+#define SSL_set_ex_data                                            \
+				(*(void (*)(SSL *, int, char *))ssl_sw[34].ptr)
+#define SSL_CTX_callback_ctrl                                      \
+				(*(long (*)(SSL_CTX *, int, void (*)(void)))ssl_sw[35].ptr)
+#define SSL_get_servername                                         \
+				(*(const char *(*)(const SSL *, int type))ssl_sw[36].ptr)
+#define SSL_set_SSL_CTX                                            \
+				(*(SSL_CTX * (*)(SSL *, SSL_CTX *)) ssl_sw[37].ptr)
+#define SSL_ctrl													\
+				(*(long (*)(SSL *, int, long, void *))ssl_sw[38].ptr)
+#define SSL_CTX_clear_options			                          \
+				(*(unsigned long (*)(SSL_CTX *, unsigned long))ssl_sw[39].ptr)
+#define SSL_CTX_get0_param 										\
+				(*(__owur X509_VERIFY_PARAM *(*)(SSL_CTX *ctx))ssl_sw[40].ptr)
 
-#define SSL_CTX_clear_options(ctx, op)                                         \
-	SSL_CTX_ctrl((ctx), SSL_CTRL_CLEAR_OPTIONS, (op), NULL)
-#define SSL_CTX_set_ecdh_auto(ctx, onoff)                                      \
-	SSL_CTX_ctrl(ctx, SSL_CTRL_SET_ECDH_AUTO, onoff, NULL)
+#define SSL_CTX_set_ecdh_auto(ctx, onoff)                          \
+				SSL_CTX_ctrl(ctx, SSL_CTRL_SET_ECDH_AUTO, onoff, NULL)
 
 #define SSL_CTRL_SET_TLSEXT_SERVERNAME_CB 53
 #define SSL_CTRL_SET_TLSEXT_SERVERNAME_ARG 54
@@ -1982,7 +2001,8 @@ struct ssl_func {
 #define X509_get_notBefore(x) ((x)->cert_info->validity->notBefore)
 #define X509_get_notAfter(x) ((x)->cert_info->validity->notAfter)
 
-#define SSL_set_app_data(s, arg) (SSL_set_ex_data(s, 0, (char *)arg))
+#define SSL_set_app_data(s, arg)                                   \
+				(SSL_set_ex_data(s, 0, (char *)arg))
 #define SSL_get_app_data(s) (SSL_get_ex_data(s, 0))
 
 #define ERR_get_error (*(unsigned long (*)(void))crypto_sw[0].ptr)
@@ -2056,6 +2076,8 @@ static struct ssl_func ssl_sw[] = {{"SSL_free", NULL},
                                    {"SSL_get_servername", NULL},
                                    {"SSL_set_SSL_CTX", NULL},
                                    {"SSL_ctrl", NULL},
+                                   {"SSL_CTX_clear_options", NULL },
+                                   {"SSL_CTX_get0_param", NULL},
                                    {NULL, NULL}};
 
 
@@ -2077,43 +2099,54 @@ static struct ssl_func crypto_sw[] = {{"ERR_get_error", NULL},
                                       {"BN_free", NULL},
                                       {"CRYPTO_free", NULL},
                                       {"ERR_clear_error", NULL},
+                                      {"X509_VERIFY_PARAM_set_hostflags", NULL},
+                                      {"X509_VERIFY_PARAM_set1_host", NULL},
                                       {NULL, NULL}};
 #else
+/* OpenSSL <1.1 */
 
 #define SSL_free (*(void (*)(SSL *))ssl_sw[0].ptr)
 #define SSL_accept (*(int (*)(SSL *))ssl_sw[1].ptr)
 #define SSL_connect (*(int (*)(SSL *))ssl_sw[2].ptr)
 #define SSL_read (*(int (*)(SSL *, void *, int))ssl_sw[3].ptr)
-#define SSL_write (*(int (*)(SSL *, const void *, int))ssl_sw[4].ptr)
+#define SSL_write                                                  \
+				(*(int (*)(SSL *, const void *, int))ssl_sw[4].ptr)
 #define SSL_get_error (*(int (*)(SSL *, int))ssl_sw[5].ptr)
 #define SSL_set_fd (*(int (*)(SSL *, SOCKET))ssl_sw[6].ptr)
 #define SSL_new (*(SSL * (*)(SSL_CTX *)) ssl_sw[7].ptr)
 #define SSL_CTX_new (*(SSL_CTX * (*)(SSL_METHOD *)) ssl_sw[8].ptr)
-#define SSLv23_server_method (*(SSL_METHOD * (*)(void)) ssl_sw[9].ptr)
+#define SSLv23_server_method                                       \
+				(*(SSL_METHOD * (*)(void)) ssl_sw[9].ptr)
 #define SSL_library_init (*(int (*)(void))ssl_sw[10].ptr)
-#define SSL_CTX_use_PrivateKey_file                                            \
-	(*(int (*)(SSL_CTX *, const char *, int))ssl_sw[11].ptr)
-#define SSL_CTX_use_certificate_file                                           \
-	(*(int (*)(SSL_CTX *, const char *, int))ssl_sw[12].ptr)
-#define SSL_CTX_set_default_passwd_cb                                          \
-	(*(void (*)(SSL_CTX *, mg_callback_t))ssl_sw[13].ptr)
+#define SSL_CTX_use_PrivateKey_file                                \
+				(*(int (*)(SSL_CTX *, const char *, int))ssl_sw[11].ptr)
+#define SSL_CTX_use_certificate_file                               \
+				(*(int (*)(SSL_CTX *, const char *, int))ssl_sw[12].ptr)
+#define SSL_CTX_set_default_passwd_cb                              \
+				(*(void (*)(SSL_CTX *, mg_callback_t))ssl_sw[13].ptr)
 #define SSL_CTX_free (*(void (*)(SSL_CTX *))ssl_sw[14].ptr)
 #define SSL_load_error_strings (*(void (*)(void))ssl_sw[15].ptr)
-#define SSL_CTX_use_certificate_chain_file                                     \
-	(*(int (*)(SSL_CTX *, const char *))ssl_sw[16].ptr)
-#define SSLv23_client_method (*(SSL_METHOD * (*)(void)) ssl_sw[17].ptr)
+#define SSL_CTX_use_certificate_chain_file                         \
+				(*(int (*)(SSL_CTX *, const char *))ssl_sw[16].ptr)
+#define SSLv23_client_method                                       \
+				(*(SSL_METHOD * (*)(void)) ssl_sw[17].ptr)
 #define SSL_pending (*(int (*)(SSL *))ssl_sw[18].ptr)
-#define SSL_CTX_set_verify                                                     \
-	(*(void (*)(SSL_CTX *,                                                     \
-	            int,                                                           \
-	            int (*verify_callback)(int, X509_STORE_CTX *)))ssl_sw[19]      \
-	      .ptr)
+#define SSL_CTX_set_verify                                         \
+				(*(void (*)(SSL_CTX *,                                         \
+				            int,                                               \
+				            int (*verify_callback)(int, X509_STORE_CTX *)))    \
+				      ssl_sw[19]                                               \
+				          .ptr)
 #define SSL_shutdown (*(int (*)(SSL *))ssl_sw[20].ptr)
-#define SSL_CTX_load_verify_locations                                          \
-	(*(int (*)(SSL_CTX *, const char *, const char *))ssl_sw[21].ptr)
-#define SSL_CTX_set_default_verify_paths (*(int (*)(SSL_CTX *))ssl_sw[22].ptr)
-#define SSL_CTX_set_verify_depth (*(void (*)(SSL_CTX *, int))ssl_sw[23].ptr)
-#define SSL_get_peer_certificate (*(X509 * (*)(SSL *)) ssl_sw[24].ptr)
+#define SSL_CTX_load_verify_locations                              \
+				(*(int (*)(SSL_CTX *, const char *, const char *))ssl_sw[21]   \
+				      .ptr)
+#define SSL_CTX_set_default_verify_paths                           \
+				(*(int (*)(SSL_CTX *))ssl_sw[22].ptr)
+#define SSL_CTX_set_verify_depth                                   \
+				(*(void (*)(SSL_CTX *, int))ssl_sw[23].ptr)
+#define SSL_get_peer_certificate                                   \
+				(*(X509 * (*)(SSL *)) ssl_sw[24].ptr)
 #define SSL_get_version (*(const char *(*)(SSL *))ssl_sw[25].ptr)
 #define SSL_get_current_cipher (*(SSL_CIPHER * (*)(SSL *)) ssl_sw[26].ptr)
 #define SSL_CIPHER_get_name                                                    \
@@ -2158,44 +2191,76 @@ static struct ssl_func crypto_sw[] = {{"ERR_get_error", NULL},
 #define X509_get_notBefore(x) ((x)->cert_info->validity->notBefore)
 #define X509_get_notAfter(x) ((x)->cert_info->validity->notAfter)
 
-#define SSL_set_app_data(s, arg) (SSL_set_ex_data(s, 0, (char *)arg))
+#define SSL_set_app_data(s, arg)                                   \
+				(SSL_set_ex_data(s, 0, (char *)arg))
 #define SSL_get_app_data(s) (SSL_get_ex_data(s, 0))
 
 #define CRYPTO_num_locks (*(int (*)(void))crypto_sw[0].ptr)
-#define CRYPTO_set_locking_callback                                            \
-	(*(void (*)(void (*)(int, int, const char *, int)))crypto_sw[1].ptr)
-#define CRYPTO_set_id_callback                                                 \
-	(*(void (*)(unsigned long (*)(void)))crypto_sw[2].ptr)
+#define CRYPTO_set_locking_callback                                \
+				(*(void (*)(                                                   \
+				    void (*)(int, int, const char *, int)))crypto_sw[1]        \
+				      .ptr)
+#define CRYPTO_set_id_callback                                     \
+				(*(void (*)(unsigned long (*)(void)))crypto_sw[2].ptr)
 #define ERR_get_error (*(unsigned long (*)(void))crypto_sw[3].ptr)
 #define ERR_error_string (*(char *(*)(unsigned long, char *))crypto_sw[4].ptr)
 #define ERR_remove_state (*(void (*)(unsigned long))crypto_sw[5].ptr)
 #define ERR_free_strings (*(void (*)(void))crypto_sw[6].ptr)
 #define ENGINE_cleanup (*(void (*)(void))crypto_sw[7].ptr)
 #define CONF_modules_unload (*(void (*)(int))crypto_sw[8].ptr)
-#define CRYPTO_cleanup_all_ex_data (*(void (*)(void))crypto_sw[9].ptr)
+#define CRYPTO_cleanup_all_ex_data                                 \
+				(*(void (*)(void))crypto_sw[9].ptr)
 #define EVP_cleanup (*(void (*)(void))crypto_sw[10].ptr)
 #define X509_free (*(void (*)(X509 *))crypto_sw[11].ptr)
-#define X509_get_subject_name (*(X509_NAME * (*)(X509 *)) crypto_sw[12].ptr)
-#define X509_get_issuer_name (*(X509_NAME * (*)(X509 *)) crypto_sw[13].ptr)
-#define X509_NAME_oneline                                                      \
-	(*(char *(*)(X509_NAME *, char *, int))crypto_sw[14].ptr)
-#define X509_get_serialNumber (*(ASN1_INTEGER * (*)(X509 *)) crypto_sw[15].ptr)
-#define i2c_ASN1_INTEGER                                                       \
-	(*(int (*)(ASN1_INTEGER *, unsigned char **))crypto_sw[16].ptr)
-#define EVP_get_digestbyname                                                   \
-	(*(const EVP_MD *(*)(const char *))crypto_sw[17].ptr)
-#define EVP_Digest                                                             \
-	(*(int (*)(                                                                \
-	    const void *, size_t, void *, unsigned int *, const EVP_MD *, void *)) \
-	      crypto_sw[18]                                                        \
-	          .ptr)
-#define i2d_X509 (*(int (*)(X509 *, unsigned char **))crypto_sw[19].ptr)
+#define X509_get_subject_name                                      \
+				(*(X509_NAME * (*)(X509 *)) crypto_sw[12].ptr)
+#define X509_get_issuer_name                                       \
+				(*(X509_NAME * (*)(X509 *)) crypto_sw[13].ptr)
+#define X509_NAME_oneline                                          \
+				(*(char *(*)(X509_NAME *, char *, int))crypto_sw[14].ptr)
+#define X509_get_serialNumber                                      \
+				(*(ASN1_INTEGER * (*)(X509 *)) crypto_sw[15].ptr)
+#define i2c_ASN1_INTEGER                                           \
+				(*(int (*)(ASN1_INTEGER *, unsigned char **))crypto_sw[16].ptr)
+#define EVP_get_digestbyname                                       \
+				(*(const EVP_MD *(*)(const char *))crypto_sw[17].ptr)
+#define EVP_Digest                                                 \
+				(*(int (*)(const void *,                                       \
+				           size_t,                                             \
+				           void *,                                             \
+				           unsigned int *,                                     \
+				           const EVP_MD *,                                     \
+				           void *))crypto_sw[18]                               \
+				      .ptr)
+#define i2d_X509                                                   \
+				(*(int (*)(X509 *, unsigned char **))crypto_sw[19].ptr)
 #define BN_bn2hex (*(char *(*)(const BIGNUM *a))crypto_sw[20].ptr)
-#define ASN1_INTEGER_to_BN                                                     \
-	(*(BIGNUM * (*)(const ASN1_INTEGER *ai, BIGNUM *bn)) crypto_sw[21].ptr)
+#define ASN1_INTEGER_to_BN                                         \
+				(*(BIGNUM * (*)(const ASN1_INTEGER *ai, BIGNUM *bn))           \
+				      crypto_sw[21]                                            \
+				          .ptr)
 #define BN_free (*(void (*)(const BIGNUM *a))crypto_sw[22].ptr)
 #define CRYPTO_free (*(void (*)(void *addr))crypto_sw[23].ptr)
 #define ERR_clear_error (*(void (*)(void))crypto_sw[24].ptr)
+
+/* for host name verification in OpenSSL 1.0.x only */
+/* - libssl, from offset 38 */
+#define SSL_get_ex_data_X509_STORE_CTX_idx (*(int (*)(void))ssl_sw[38].ptr)
+/* - libcrypto, from offset 24 */
+#define ASN1_STRING_data (*(unsigned char *(*)(ASN1_STRING *))crypto_sw[24].ptr)
+#define ASN1_STRING_length (*(int (*)(const ASN1_STRING *))crypto_sw[25].ptr)
+#define X509_get_ext_d2i (*(void *(*)(X509 *, int, int *, int *))crypto_sw[26].ptr)
+#define X509_NAME_ENTRY_get_data (*(ASN1_STRING *(*)(X509_NAME_ENTRY *))crypto_sw[27].ptr)
+#define X509_NAME_get_entry (*(X509_NAME_ENTRY *(*)(X509_NAME *name, int loc))crypto_sw[28].ptr)
+#define X509_STORE_CTX_get_error_depth (*(int (*)(X509_STORE_CTX *ctx))crypto_sw[29].ptr)
+#define X509_NAME_get_index_by_NID (*(int (*)(X509_NAME *name, int nid, int lastpos))crypto_sw[30].ptr)
+#define X509_STORE_CTX_get_current_cert (*(X509 *(*)(X509_STORE_CTX *ctx))crypto_sw[31].ptr)
+#define X509_STORE_CTX_get_ex_data (*(void *(*)(X509_STORE_CTX *ctx, int idx))crypto_sw[32].ptr)
+#define sk_pop_free (*(void (*)(_STACK *, void (*) (void *)))crypto_sw[33].ptr)
+#define sk_num (*(int (*)(const _STACK *))crypto_sw[34].ptr)
+#define sk_value (*(void *(*)(const _STACK *, int))crypto_sw[35].ptr)
+#define GENERAL_NAME_free_impl (*(void (*)(GENERAL_NAME *))crypto_sw[36].ptr)
+#define ASN1_STRING_to_UTF8 (*(int (*)(unsigned char **out, ASN1_STRING *in))crypto_sw[37].ptr)
 
 #define OPENSSL_free(a) CRYPTO_free(a)
 
@@ -2247,6 +2312,8 @@ static struct ssl_func ssl_sw[] = {{"SSL_free", NULL},
                                    {"SSL_get_servername", NULL},
                                    {"SSL_set_SSL_CTX", NULL},
                                    {"SSL_ctrl", NULL},
+                                   /* for host name verification in OpenSSL 1.0.x only */
+                                   {"SSL_get_ex_data_X509_STORE_CTX_idx", NULL},
                                    {NULL, NULL}};
 
 
@@ -2277,6 +2344,21 @@ static struct ssl_func crypto_sw[] = {{"CRYPTO_num_locks", NULL},
                                       {"BN_free", NULL},
                                       {"CRYPTO_free", NULL},
                                       {"ERR_clear_error", NULL},
+                                      /* for host name verification in OpenSSL 1.0.x only */
+                                      {"ASN1_STRING_data", NULL},
+                                      {"ASN1_STRING_length", NULL},
+                                      {"X509_get_ext_d2i", NULL},
+                                      {"X509_NAME_ENTRY_get_data", NULL},
+                                      {"X509_NAME_get_entry", NULL},
+                                      {"X509_STORE_CTX_get_error_depth", NULL},
+                                      {"X509_NAME_get_index_by_NID", NULL},
+                                      {"X509_STORE_CTX_get_current_cert", NULL},
+                                      {"X509_STORE_CTX_get_ex_data", NULL},
+                                      {"sk_pop_free", NULL},
+                                      {"sk_num", NULL},
+                                      {"sk_value", NULL},
+                                      {"GENERAL_NAME_free", NULL},
+                                      {"ASN1_STRING_to_UTF8", NULL},
                                       {NULL, NULL}};
 #endif /* OPENSSL_API_1_1 */
 #endif /* NO_SSL_DL */
@@ -2412,6 +2494,7 @@ enum {
 	ERROR_LOG_FILE,
 	ENABLE_KEEP_ALIVE,
 	REQUEST_TIMEOUT,
+  FILES_CHANGED_AT_RESTART,
 	KEEP_ALIVE_TIMEOUT,
 #if defined(USE_WEBSOCKET)
 	WEBSOCKET_TIMEOUT,
@@ -2519,6 +2602,7 @@ static const struct mg_option config_options[] = {
     {"error_log_file", MG_CONFIG_TYPE_FILE, NULL},
     {"enable_keep_alive", MG_CONFIG_TYPE_BOOLEAN, "no"},
     {"request_timeout_ms", MG_CONFIG_TYPE_NUMBER, "30000"},
+    {"files_changed_at_restart", MG_CONFIG_TYPE_BOOLEAN, "no"},
     {"keep_alive_timeout_ms", MG_CONFIG_TYPE_NUMBER, "500"},
 #if defined(USE_WEBSOCKET)
     {"websocket_timeout_ms", MG_CONFIG_TYPE_NUMBER, NULL},
@@ -2816,6 +2900,8 @@ struct mg_connection {
 	struct socket client;   /* Connected client */
 	time_t conn_birth_time; /* Time (wall clock) when connection was
 	                         * established */
+  	const char *clienthost; /* host name for SSL verification, not owned by connection */
+  	double client_timeout;  /* timeout for client connections */
 #if defined(USE_SERVER_STATS)
 	time_t conn_close_time; /* Time (wall clock) when connection was
 	                         * closed (or 0 if still open) */
@@ -3727,13 +3813,13 @@ gmt_time_string(char *buf, size_t buf_len, time_t *t)
 	struct tm *tm;
 
 	tm = ((t != NULL) ? gmtime(t) : NULL);
-	if (tm != NULL) {
 #else
 	struct tm _tm;
 	struct tm *tm = &_tm;
-
-	if (t != NULL) {
-		gmtime_r(t, tm);
+#endif
+  if (t != NULL) {
+#ifdef REENTRANT_TIME
+    gmtime_r(t, tm);
 #endif
 		strftime(buf, buf_len, "%a, %d %b %Y %H:%M:%S GMT", tm);
 	} else {
@@ -5373,7 +5459,7 @@ mg_stat(const struct mg_connection *conn,
 		 * runtime,
 		 * so every mg_fopen call may return different data */
 		/* last_modified = conn->phys_ctx.start_time;
-		 * May be used it the data does not change during runtime. This
+		 * May be used if the data does not change during runtime. This
 		 * allows
 		 * browser caching. Since we do not know, we have to assume the file
 		 * in memory may change. */
@@ -5401,7 +5487,13 @@ mg_stat(const struct mg_connection *conn,
 		if (creation_time > filep->last_modified) {
 			filep->last_modified = creation_time;
 		}
-
+    /* check option to force all files to appear new after a server restart */
+    if (conn->ctx && mg_strcasecmp(conn->ctx->config[FILES_CHANGED_AT_RESTART], "yes")==0) {
+      // consider all files not older than start of this server
+      if (filep->modification_time < conn->phys_ctx->start_time) {
+        filep->modification_time = conn->phys_ctx->start_time;
+      }
+    }
 		filep->is_directory = info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY;
 		return 1;
 	}
@@ -5967,7 +6059,14 @@ mg_stat(const struct mg_connection *conn,
 	if (0 == stat(path, &st)) {
 		filep->size = (uint64_t)(st.st_size);
 		filep->last_modified = st.st_mtime;
-		filep->is_directory = S_ISDIR(st.st_mode);
+    /* check option to force all files to appear new after a server restart */
+    if (conn && conn->phys_ctx && mg_strcasecmp(conn->dom_ctx->config[FILES_CHANGED_AT_RESTART], "yes")==0) {
+      // consider all files not older than start of this server
+      if (filep->last_modified < conn->phys_ctx->start_time) {
+        filep->last_modified = conn->phys_ctx->start_time;
+      }
+    }
+    filep->is_directory = S_ISDIR(st.st_mode);
 		return 1;
 	}
 
@@ -6470,7 +6569,8 @@ pull_inner(FILE *fp,
            struct mg_connection *conn,
            char *buf,
            int len,
-           double timeout)
+           double timeout,
+           int *errCause)
 {
 	int nread, err = 0;
 
@@ -6568,7 +6668,8 @@ pull_inner(FILE *fp,
 			/* Error */
 			return -2;
 		} else {
-			/* pollres = 0 means timeout */
+			/* ONLY pollres = 0 really means timeout! other nread==0 cases can just mean "no data right now" */
+      if (errCause) *errCause = EC_TIMEOUT;
 			nread = 0;
 		}
 #endif
@@ -6591,13 +6692,15 @@ pull_inner(FILE *fp,
 			err = (nread < 0) ? ERRNO : 0;
 			if (nread <= 0) {
 				/* shutdown of the socket at client side */
+        if (nread==0 && errCause) *errCause = EC_CLOSED;
 				return -2;
 			}
 		} else if (pollres < 0) {
 			/* error callint poll */
 			return -2;
 		} else {
-			/* pollres = 0 means timeout */
+      /* ONLY pollres = 0 really means timeout! other nread==0 cases can just mean "no data right now" */
+      if (errCause) *errCause = EC_TIMEOUT;
 			nread = 0;
 		}
 	}
@@ -6659,23 +6762,31 @@ pull_inner(FILE *fp,
 }
 
 
+/* note: timeout TMO_NEVER means actually NO timeout. timeout TMO_DEFAULT means using default timeout if one is specified in config */
 static int
-pull_all(FILE *fp, struct mg_connection *conn, char *buf, int len)
+pull_all(FILE *fp, struct mg_connection *conn, char *buf, int len, double timeout, int *errCause)
 {
 	int n, nread = 0;
-	double timeout = -1.0;
 	uint64_t start_time = 0, now = 0, timeout_ns = 0;
 
-	if (conn->dom_ctx->config[REQUEST_TIMEOUT]) {
-		timeout = atoi(conn->dom_ctx->config[REQUEST_TIMEOUT]) / 1000.0;
-	}
-	if (timeout >= 0.0) {
-		start_time = mg_get_current_time_ns();
-		timeout_ns = (uint64_t)(timeout * 1.0E9);
-	}
+    if (timeout==TMO_DEFAULT) {
+        // no call-level timeout, use connection level
+        timeout = conn->client_timeout;
+    }
+    if (timeout==TMO_DEFAULT && conn->dom_ctx->config[REQUEST_TIMEOUT]) {
+        // no timeout defined so far, use domain config level timeout
+        timeout = atoi(conn->dom_ctx->config[REQUEST_TIMEOUT]) / 1000.0;
+    }
+    if (timeout >= 0.0) {
+        start_time = mg_get_current_time_ns();
+        timeout_ns = (uint64_t)(timeout * 1.0E9);
+    }
+    else if (timeout<0) {
+        timeout = -1; // unify, all negative values mean NEVER timeout at this point (which must be <0 for mg_poll)
+    }
 
 	while ((len > 0) && (conn->phys_ctx->stop_flag == 0)) {
-		n = pull_inner(fp, conn, buf + nread, len, timeout);
+		n = pull_inner(fp, conn, buf + nread, len, timeout, errCause);
 		if (n == -2) {
 			if (nread == 0) {
 				nread = -1; /* Propagate the error */
@@ -6683,12 +6794,17 @@ pull_all(FILE *fp, struct mg_connection *conn, char *buf, int len)
 			break;
 		} else if (n == -1) {
 			/* timeout */
-			if (timeout >= 0.0) {
+      if (timeout < 0) {
+        continue; /* no timeout at all, keep pulling */
+      }
+			else if (timeout >= 0.0) {
 				now = mg_get_current_time_ns();
 				if ((now - start_time) <= timeout_ns) {
 					continue;
 				}
 			}
+      /* now, this is a real timeout */
+      if (errCause) *errCause = EC_TIMEOUT;
 			break;
 		} else if (n == 0) {
 			break; /* No more data to read */
@@ -6712,8 +6828,9 @@ discard_unread_request_data(struct mg_connection *conn)
 }
 
 
+/* return: 0 : connection closed/no more data, <0 : error, including timeout, >0 bytes read */
 static int
-mg_read_inner(struct mg_connection *conn, void *buf, size_t len)
+mg_read_inner(struct mg_connection *conn, void *buf, size_t len, double timeout, int *errCause)
 {
 	int64_t content_len, n, buffered_len, nread;
 	int64_t len64 =
@@ -6775,8 +6892,16 @@ mg_read_inner(struct mg_connection *conn, void *buf, size_t len)
 
 
 int
-mg_read(struct mg_connection *conn, void *buf, size_t len)
+mg_read(struct mg_connection *conn, void *buf, size_t len) {
+  return mg_read_ex(conn, buf, len, TMO_NEVER, NULL); /* no timeout */
+}
+
+
+int
+mg_read_ex(struct mg_connection *conn, void *buf, size_t len, double timeout, int *errCause)
 {
+  if (errCause) *errCause = EC_NORMAL; // no specific cause
+
 	if (len > INT_MAX) {
 		len = INT_MAX;
 	}
@@ -6800,7 +6925,8 @@ mg_read(struct mg_connection *conn, void *buf, size_t len)
 
 			if (conn->consumed_content != conn->content_len) {
 				/* copy from the current chunk */
-				int read_ret = mg_read_inner(conn, (char *)buf + all_read, len);
+				int read_ret = mg_read_inner(conn, (char *)buf + all_read,
+				                             len, timeout, errCause);
 
 				if (read_ret < 1) {
 					/* read error */
@@ -6878,7 +7004,7 @@ mg_read(struct mg_connection *conn, void *buf, size_t len)
 
 		return (int)all_read;
 	}
-	return mg_read_inner(conn, buf, len);
+	return mg_read_inner(conn, buf, len, timeout, errCause);
 }
 
 
@@ -9007,6 +9133,7 @@ connect_socket(struct mg_context *ctx /* may be NULL */,
                const char *host,
                int port,
                int use_ssl,
+               double connect_timeout,
                char *ebuf,
                size_t ebuf_len,
                SOCKET *sock /* output: socket, must not be NULL */,
@@ -9180,8 +9307,12 @@ connect_socket(struct mg_context *ctx /* may be NULL */,
 		/* Data for poll */
 		struct mg_pollfd pfd[1];
 		int pollres;
-		int ms_wait = 10000; /* 10 second timeout */
 		int nonstop = 0;
+		int ms_wait;
+   		if (connect_timeout==TMO_NEVER) connect_timeout = 30.0; /* even when entire request is set to "no timeout" (wait for data indefinitely), we dont want to wait forever for a connection */
+    	else if (connect_timeout==TMO_DEFAULT) connect_timeout = 10.0; /* default: 10 second timeout */
+		ms_wait = connect_timeout*1000;
+
 
 		/* For a non-blocking socket, the connect sequence is:
 		 * 1) call connect (will not block)
@@ -10774,30 +10905,34 @@ read_message(FILE *fp,
              int bufsiz,
              int *nread)
 {
-	int request_len, n = 0;
-	struct timespec last_action_time;
-	double request_timeout;
+  int request_len, n = 0;
+  struct timespec last_action_time;
+  double request_timeout;
 
-	if (!conn) {
-		return 0;
-	}
+  if (!conn) {
+    return 0;
+  }
 
-	memset(&last_action_time, 0, sizeof(last_action_time));
+  memset(&last_action_time, 0, sizeof(last_action_time));
 
-	if (conn->dom_ctx->config[REQUEST_TIMEOUT]) {
-		/* value of request_timeout is in seconds, config in milliseconds */
-		request_timeout = atof(conn->dom_ctx->config[REQUEST_TIMEOUT]) / 1000.0;
-	} else {
-		request_timeout = -1.0;
-	}
-	if (conn->handled_requests > 0) {
-		if (conn->dom_ctx->config[KEEP_ALIVE_TIMEOUT]) {
-			request_timeout =
-			    atof(conn->dom_ctx->config[KEEP_ALIVE_TIMEOUT]) / 1000.0;
-		}
-	}
+  if (conn->dom_ctx->config[REQUEST_TIMEOUT]) {
+    /* value of request_timeout is in seconds, config in milliseconds */
+    request_timeout = atof(conn->dom_ctx->config[REQUEST_TIMEOUT]) / 1000.0;
+  } else if (conn->client_timeout>=0) {
+    /* use client timeout, if it is set (is NEVER set when this is not a client connection!) */
+    request_timeout = conn->client_timeout;
+  }
+  else {
+    request_timeout = -1.0;
+  }
+  if (conn->handled_requests > 0) {
+    if (conn->dom_ctx->config[KEEP_ALIVE_TIMEOUT]) {
+      request_timeout =
+          atof(conn->dom_ctx->config[KEEP_ALIVE_TIMEOUT]) / 1000.0;
+    }
+  }
 
-	request_len = get_http_header_len(buf, *nread);
+  request_len = get_http_header_len(buf, *nread);
 
 	while (request_len == 0) {
 		/* Full request not yet received */
@@ -10812,7 +10947,7 @@ read_message(FILE *fp,
 		}
 
 		n = pull_inner(
-		    fp, conn, buf + *nread, bufsiz - *nread, request_timeout);
+		    fp, conn, buf + *nread, bufsiz - *nread, request_timeout, NULL);
 		if (n == -2) {
 			/* Receive error */
 			return -1;
@@ -11439,7 +11574,7 @@ handle_cgi_request(struct mg_connection *conn, const char *prog)
 
 		/* Could not parse the CGI response. Check if some error message on
 		 * stderr. */
-		i = pull_all(err, conn, buf, (int)buflen);
+		i = pull_all(err, conn, buf, (int)buflen, TMO_DEFAULT, NULL); // use default timeout
 		if (i > 0) {
 			/* CGI program explicitly sent an error */
 			/* Write the error message to the internal log */
@@ -11950,26 +12085,75 @@ do_ssi_include(struct mg_connection *conn,
 
 
 #if !defined(NO_POPEN)
+
 static void
 do_ssi_exec(struct mg_connection *conn, char *tag)
 {
-	char cmd[1024] = "";
-	struct mg_file file = STRUCT_FILE_INITIALIZER;
+  char cmd[1024] = "";
+  struct mg_file file = STRUCT_FILE_INITIALIZER;
 
-	if (sscanf(tag, " \"%1023[^\"]\"", cmd) != 1) {
-		mg_cry_internal(conn, "Bad SSI #exec: [%s]", tag);
-	} else {
-		cmd[1023] = 0;
-		if ((file.access.fp = popen(cmd, "r")) == NULL) {
-			mg_cry_internal(conn,
-			                "Cannot SSI #exec: [%s]: %s",
-			                cmd,
-			                strerror(ERRNO));
-		} else {
-			send_file_data(conn, &file, 0, INT64_MAX);
-			pclose(file.access.fp);
-		}
-	}
+  if (sscanf(tag, " \"%1023[^\"]\"", cmd) != 1) {
+    mg_cry_internal(conn, "Bad SSI #exec: [%s]", tag);
+  } else {
+    // susbstitute $P with path and $Q with query string
+    char scmd[1024] = "";
+    char *sP = scmd;
+    const char *cP = cmd;
+    size_t room = 1023;
+    while (*cP) {
+      const char *iP = strchr(cP, '$');
+      size_t n;
+      if (iP) {
+        n = iP-cP; if (n>room) n=room;
+        strncpy(sP, cP, n); sP += n; room -= n; cP += n;
+        iP++;
+        if (*iP=='P') {
+          if (conn->request_info.request_uri) {
+            // replace $P by request uri
+            n = strlen(conn->request_info.request_uri); if (n>room) n=room;
+            strncpy(sP, conn->request_info.request_uri, n); sP += n; room -= n;
+          }
+          cP += 2;
+        }
+        else if (*iP=='Q') {
+          if (conn->request_info.query_string) {
+            // replace $Q by query string, and replace '&' by ':'
+            const char *qP = conn->request_info.query_string;
+            size_t i;
+            n = strlen(conn->request_info.query_string); if (n>room) n=room;
+            for (i=0; i<n; i++) {
+              if (*qP=='&')
+                *sP++ = ':';
+              else
+                *sP++ = *qP;
+              qP++;
+              room--;
+            }
+          }
+          cP += 2;
+        }
+        else {
+          *(sP++) = '$'; room--;
+          cP++;
+        }
+      }
+      else {
+        n = strlen(cP); if (n>room) n=room;
+        strncpy(sP, cP, n); sP += n; room -= n; cP += n;
+        break;
+      }
+    }
+    *sP = 0;
+    if ((file.access.fp = popen(scmd, "r")) == NULL) {
+      mg_cry_internal(conn,
+                      "Cannot SSI #exec: [%s]: %s",
+                      cmd,
+                      strerror(ERRNO));
+    } else {
+      send_file_data(conn, &file, 0, INT64_MAX);
+      pclose(file.access.fp);
+    }
+  }
 }
 #endif /* !NO_POPEN */
 
@@ -12135,6 +12319,10 @@ handle_ssi_file_request(struct mg_connection *conn,
 		                   path,
 		                   strerror(ERRNO));
 	} else {
+        // determine mime type from ssi file's extension
+        struct vec mime_vec;
+        get_mime_type(conn, path, &mime_vec);
+        // deliver SSI file
 		conn->must_close = 1;
 		gmt_time_string(date, sizeof(date), &curtime);
 		fclose_on_exec(&filep->access, conn);
@@ -12144,12 +12332,13 @@ handle_ssi_file_request(struct mg_connection *conn,
 		mg_printf(conn,
 		          "%s%s%s"
 		          "Date: %s\r\n"
-		          "Content-Type: text/html\r\n"
+		          "Content-Type: %.*s\r\n"
 		          "Connection: %s\r\n\r\n",
 		          cors1,
 		          cors2,
 		          cors3,
 		          date,
+                  (int) mime_vec.len, mime_vec.ptr,
 		          suggest_connection_header(conn));
 		send_ssi_file(conn, path, filep, 0);
 		(void)mg_fclose(&filep->access); /* Ignore errors for readonly files */
@@ -14208,10 +14397,11 @@ handle_request(struct mg_connection *conn)
 /* 6.2. this request is a PUT/DELETE to a real file */
 /* 6.2.1. thus, the server must have real files */
 #if defined(NO_FILES)
-		if (1) {
+		if (1)
 #else
-		if (conn->dom_ctx->config[DOCUMENT_ROOT] == NULL) {
+		if (conn->dom_ctx->config[DOCUMENT_ROOT] == NULL)
 #endif
+    {
 			/* This server does not have any real files, thus the
 			 * PUT/DELETE methods are not valid. */
 			mg_send_http_error(conn,
@@ -15467,6 +15657,7 @@ sslize(struct mg_connection *conn,
 		ret = func(conn->ssl);
 		if (ret != 1) {
 			err = SSL_get_error(conn->ssl, ret);
+      //mg_cry_internal(conn, "%5d: SSL_connect ret=%d, SSL_get_error=%d", i, ret, err);
 			if ((err == SSL_ERROR_WANT_CONNECT)
 			    || (err == SSL_ERROR_WANT_ACCEPT)
 			    || (err == SSL_ERROR_WANT_READ) || (err == SSL_ERROR_WANT_WRITE)
@@ -15500,7 +15691,9 @@ sslize(struct mg_connection *conn,
 			} else if (err == SSL_ERROR_SYSCALL) {
 				/* This is an IO error. Look at errno. */
 				err = errno;
-				mg_cry_internal(conn, "SSL syscall error %i", err);
+        mg_cry_internal(conn, "sslize error: SSL_ERROR_SYSCALL %d (%s)", err, strerror(err));
+				/* TODO: set some error message */
+				(void)err;
 				break;
 
 			} else {
@@ -15514,7 +15707,15 @@ sslize(struct mg_connection *conn,
 			/* success */
 			break;
 		}
-	}
+    /* check overall timeout */
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    if (timeout!=TMO_NEVER && mg_difftimespec(&now, &ssl_start_time) > timeout) {
+      break;
+    }
+    /* increase wait time */
+    if (waitms<512) waitms *= 2;
+	};
 
 	if (ret != 1) {
 		SSL_free(conn->ssl);
@@ -15891,6 +16092,7 @@ initialize_ssl(char *ebuf, size_t ebuf_len)
 	SSL_load_error_strings();
 #endif
 
+  ssl_initialized = 1;
 	return 1;
 }
 
@@ -16136,7 +16338,6 @@ init_ssl_ctx_impl(struct mg_context *phys_ctx,
 	SSL_CTX_set_options(dom_ctx->ssl_ctx, SSL_OP_NO_RENEGOTIATION);
 #endif
 
-#if !defined(NO_SSL_DL)
 	SSL_CTX_set_ecdh_auto(dom_ctx->ssl_ctx, 1);
 #endif /* NO_SSL_DL */
 
@@ -16415,6 +16616,7 @@ uninitialize_ssl(void)
 		 * http://stackoverflow.com/questions/29845527/how-to-properly-uninitialize-openssl
 		 */
 		CONF_modules_unload(1);
+  	}
 #else
 	int i;
 
@@ -16438,8 +16640,8 @@ uninitialize_ssl(void)
 		}
 		mg_free(ssl_mutexes);
 		ssl_mutexes = NULL;
+  	}
 #endif /* OPENSSL_API_1_1 */
-	}
 }
 #endif /* !NO_SSL */
 
@@ -16788,6 +16990,80 @@ mg_close_connection(struct mg_connection *conn)
 }
 
 
+/* Only for memory statistics */
+static struct mg_context common_client_context;
+
+
+#if !defined(NO_SSL)
+
+#ifndef OPENSSL_API_1_1
+/* pre-OpenSSL 1.1 cannot do host name verification automatically */
+#include "openssl_hostname_validation.inl"
+
+#if defined(DEBUG)
+
+/* This prints the Common Name (CN), which is the "friendly" */
+/*   name displayed to users in many tools                   */
+void print_cn_name(const char* label, X509_NAME* const name)
+{
+  int idx = -1, success = 0;
+  unsigned char *utf8 = NULL;
+
+  do
+  {
+    if(!name) break; /* failed */
+
+    idx = X509_NAME_get_index_by_NID(name, NID_commonName, -1);
+    if(!(idx > -1))  break; /* failed */
+
+    X509_NAME_ENTRY* entry = X509_NAME_get_entry(name, idx);
+    if(!entry) break; /* failed */
+
+    ASN1_STRING* data = X509_NAME_ENTRY_get_data(entry);
+    if(!data) break; /* failed */
+
+    int length = ASN1_STRING_to_UTF8(&utf8, data);
+    if(!utf8 || !(length > 0))  break; /* failed */
+
+    fprintf(stdout, "%s: %s\n", label, utf8);
+    success = 1;
+
+  } while (0);
+
+  if(utf8)
+    OPENSSL_free(utf8);
+
+  if(!success)
+    fprintf(stdout, "  %s: <not available>\n", label);
+}
+
+#endif /* DEBUG enabled */
+
+
+int verify_callback(int preverify, X509_STORE_CTX* x509_ctx)
+{
+  int depth = X509_STORE_CTX_get_error_depth(x509_ctx);
+#if defined(DEBUG)
+  X509* cert = X509_STORE_CTX_get_current_cert(x509_ctx);
+  X509_NAME* iname = cert ? X509_get_issuer_name(cert) : NULL;
+  X509_NAME* sname = cert ? X509_get_subject_name(cert) : NULL;
+  print_cn_name("Issuer (cn)", iname);
+  print_cn_name("Subject (cn)", sname);
+#endif
+  if (depth==0 && preverify==1) {
+    // this is the server cert
+    const SSL *ssl = X509_STORE_CTX_get_ex_data(x509_ctx, SSL_get_ex_data_X509_STORE_CTX_idx());
+    struct mg_connection *conn = (struct mg_connection *)SSL_get_app_data(ssl);
+    X509* cert = X509_STORE_CTX_get_current_cert(x509_ctx);
+    preverify = validate_hostname(conn->clienthost, cert)==MatchFound;
+  }
+  return preverify;
+}
+
+#endif /* !OPENSSL_API_1_1 */
+#endif /* SSL enabled */
+
+
 static struct mg_connection *
 mg_connect_client_impl(const struct mg_client_options *client_options,
                        int use_ssl,
@@ -16807,9 +17083,8 @@ mg_connect_client_impl(const struct mg_client_options *client_options,
 	size_t conn_size = ((sizeof(struct mg_connection) + 7) >> 3) << 3;
 	size_t ctx_size = ((sizeof(struct mg_context) + 7) >> 3) << 3;
 
-	conn =
-	    (struct mg_connection *)mg_calloc(1,
-	                                      conn_size + ctx_size + max_req_size);
+	conn = (struct mg_connection *)mg_calloc_ctx(
+	    1, conn_size + ctx_size + max_req_size, &common_client_context);
 
 	if (conn == NULL) {
 		mg_snprintf(NULL,
@@ -16838,10 +17113,13 @@ mg_connect_client_impl(const struct mg_client_options *client_options,
 	conn->phys_ctx->context_type = CONTEXT_HTTP_CLIENT;
 	conn->dom_ctx = &(conn->phys_ctx->dd);
 
-	if (!connect_socket(conn->phys_ctx,
+  conn->client_timeout = client_options->timeout;
+
+	if (!connect_socket(&common_client_context,
 	                    client_options->host,
 	                    client_options->port,
 	                    use_ssl,
+                      client_options->timeout,
 	                    ebuf,
 	                    ebuf_len,
 	                    &sock,
@@ -16940,8 +17218,8 @@ mg_connect_client_impl(const struct mg_client_options *client_options,
 				            NULL, /* No truncation check for ebuf */
 				            ebuf,
 				            ebuf_len,
-				            "Can not use SSL client certificate");
 				SSL_CTX_free(conn->dom_ctx->ssl_ctx);
+				            "Can not use SSL client certificate: %s", ERR_error_string(ERR_get_error(), NULL));
 				closesocket(sock);
 				mg_free(conn);
 				return NULL;
@@ -16949,19 +17227,56 @@ mg_connect_client_impl(const struct mg_client_options *client_options,
 		}
 
 		if (client_options->server_cert) {
-			if (SSL_CTX_load_verify_locations(conn->dom_ctx->ssl_ctx,
-			                                  client_options->server_cert,
-			                                  NULL)
-			    != 1) {
-				mg_cry_internal(conn,
-				                "SSL_CTX_load_verify_locations error: %s ",
-				                ssl_error());
-				SSL_CTX_free(conn->dom_ctx->ssl_ctx);
-				closesocket(sock);
-				mg_free(conn);
-				return NULL;
-			}
-			SSL_CTX_set_verify(conn->dom_ctx->ssl_ctx, SSL_VERIFY_PEER, NULL);
+          if (strcmp(client_options->server_cert, "*")==0) {
+            // use default verification
+            if (SSL_CTX_set_default_verify_paths(conn->dom_ctx->ssl_ctx)!=1) {
+              mg_snprintf(NULL,
+                          NULL, /* No truncation check for ebuf */
+                          ebuf,
+                          ebuf_len,
+                          "Error using default certificate verify paths: %s", ERR_error_string(ERR_get_error(), NULL));
+              SSL_CTX_free(conn->dom_ctx->ssl_ctx);
+              closesocket(sock);
+              mg_free(conn);
+              return NULL;
+            }
+          }
+          else {
+            if (client_options->server_cert[0]=='=') {
+              // special syntax for specifying a CAFile: prefix with "="
+              res = SSL_CTX_load_verify_locations(conn->dom_ctx->ssl_ctx,
+                                                  client_options->server_cert+1, // CAFile prefixed with "="
+                                                  NULL); // no CAPath
+            }
+            else {
+              // no special prefix: path passed is a CAPath
+              res = SSL_CTX_load_verify_locations(conn->dom_ctx->ssl_ctx,
+                                                  NULL, // no CAFile
+                                                  client_options->server_cert); // CAPath
+            }
+            if (res!=1) {
+              mg_snprintf(NULL,
+                          NULL, /* No truncation check for ebuf */
+                          ebuf,
+                          ebuf_len,
+                          "Error setting CA file for server certificate verification: %s", ERR_error_string(ERR_get_error(), NULL));
+              SSL_CTX_free(conn->dom_ctx->ssl_ctx);
+              closesocket(sock);
+              mg_free(conn);
+              return NULL;
+            }
+          }
+    #ifdef OPENSSL_API_1_1
+          // OpenSSL 1.1 can do hostname validation
+          X509_VERIFY_PARAM *param = SSL_CTX_get0_param(conn->dom_ctx->ssl_ctx);
+          X509_VERIFY_PARAM_set_hostflags(param, X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS);
+          X509_VERIFY_PARAM_set1_host(param, client_options->host, 0);
+          SSL_CTX_set_verify(conn->dom_ctx->ssl_ctx, SSL_VERIFY_PEER, NULL);
+    #else
+          /* we need to do our own hostname verification, and thus need host in verify_callback */
+          conn->clienthost = client_options->host;
+          SSL_CTX_set_verify(conn->dom_ctx->ssl_ctx, SSL_VERIFY_PEER, verify_callback);
+    #endif
 		} else {
 			SSL_CTX_set_verify(conn->dom_ctx->ssl_ctx, SSL_VERIFY_NONE, NULL);
 		}
@@ -17682,6 +17997,277 @@ mg_download(const char *host,
 }
 
 
+// Digest realm="Simulated VZug Test Device vzug/vzug", nonce="7V4cT0BMBQA=009c37264d0fa0beb3c4d1f826663ddd2263f567", algorithm=MD5, qop="auth"
+#define NONCE_MAX_SZ 256
+
+// Parsed WWW-Authenticate header (including buffer)
+struct wah {
+	char *realm, *domain, *nonce, *opaque, *algorithm, *stale, *qop;
+	int nc;
+	char new_nonce[NONCE_MAX_SZ];
+	size_t buflen;
+	char buf[1]; // actual size of memory block will be larger
+};
+
+// Return 1 on success. Allocates and returns wah structure on success, frees previous wah first.
+static int parse_wwwauth_header(struct mg_connection *conn, struct wah **wahP) {
+	char *name, *value, *s;
+	const char *wwwauth_header;
+	size_t bl;
+
+	if (!wahP) return 0;
+	if ((wwwauth_header = mg_get_header(conn, "WWW-Authenticate")) == NULL ||
+			mg_strncasecmp(wwwauth_header, "Digest ", 7) != 0) {
+		return 0;
+	}
+	if (*wahP) mg_free(*wahP);
+	bl = strlen(wwwauth_header)-7+1;
+	*wahP = mg_malloc(sizeof(struct wah)+bl);
+	(void) memset(*wahP, 0, sizeof(struct wah));
+	(*wahP)->buflen = bl;
+
+	// Make modifiable copy of the auth header
+	(void) mg_strlcpy((*wahP)->buf, wwwauth_header + 7, (*wahP)->buflen);
+	s = (*wahP)->buf;
+
+	// Parse authorization header
+	for (;;) {
+		// Gobble initial spaces
+		while (isspace(* (unsigned char *) s)) {
+			s++;
+		}
+		name = skip_quoted(&s, "=", " ", 0);
+		// Value is either quote-delimited, or ends at first comma or space.
+		if (s[0] == '\"') {
+			s++;
+			value = skip_quoted(&s, "\"", " ", '\\');
+			if (s[0] == ',') {
+				s++;
+			}
+		} else {
+			value = skip_quoted(&s, ", ", " ", 0);	// IE uses commas, FF uses spaces
+		}
+		if (*name == '\0') {
+			break;
+		}
+
+		if (!strcmp(name, "realm")) {
+			(*wahP)->realm = value;
+		} else if (!strcmp(name, "domain")) {
+			(*wahP)->domain = value;
+		} else if (!strcmp(name, "nonce")) {
+			(*wahP)->nonce = value;
+		} else if (!strcmp(name, "opaque")) {
+			(*wahP)->opaque = value;
+		} else if (!strcmp(name, "algorithm")) {
+			(*wahP)->algorithm = value;
+		} else if (!strcmp(name, "stale")) {
+			(*wahP)->stale = value;
+		} else if (!strcmp(name, "qop")) {
+			(*wahP)->qop = value;
+		}
+	}
+	return 1;
+}
+
+
+// Return 1 on success. Always initializes the wah structure.
+static int parse_authinfo_nextnonce(struct mg_connection *conn, char *buf, size_t buf_size) {
+	char *name, *value, *s;
+	const char *authinfo_header;
+	char abuf[MG_BUF_LEN];
+
+	if ((authinfo_header = mg_get_header(conn, "Authentication-Info")) == NULL) {
+		return 0;
+	}
+
+	// Make modifiable copy of the auth header
+	(void) mg_strlcpy(abuf, authinfo_header, MG_BUF_LEN);
+	s = abuf;
+
+	// Parse authorization header
+	for (;;) {
+		// Gobble initial spaces
+		while (isspace(* (unsigned char *) s)) {
+			s++;
+		}
+		name = skip_quoted(&s, "=", " ", 0);
+		// Value is either quote-delimited, or ends at first comma or space.
+		if (s[0] == '\"') {
+			s++;
+			value = skip_quoted(&s, "\"", " ", '\\');
+			if (s[0] == ',') {
+				s++;
+			}
+		} else {
+			value = skip_quoted(&s, ", ", " ", 0);	// IE uses commas, FF uses spaces
+		}
+		if (*name == '\0') {
+			break;
+		}
+
+		if (!strcmp(name, "nextnonce")) {
+			mg_strlcpy(buf, value, buf_size);
+			return 1;
+		}
+	}
+	// nextnonce not found
+	return 0;
+}
+
+
+
+int create_authorization_header(struct wah *wah, const char *uri, const char *method, const char *username, const char *password, char *buf, size_t buf_size) {
+	char ha1[32 + 1];
+	char ha2[32 + 1];
+	char response[32 + 1];
+	char nc[12];
+	char cnonce[12];
+	size_t n;
+
+	if (
+		!uri || !method || !username || !password ||
+		!wah->realm || !wah->nonce || !wah->qop || mg_strcasestr(wah->qop, "auth")==0
+	) {
+		return 0;
+	}
+
+	sprintf(cnonce, "%ld", (unsigned long) time(NULL));
+	wah->nc++;
+	sprintf(nc, "%08X", wah->nc);
+
+	mg_md5(ha1, username, ":", wah->realm, ":", password, NULL);
+	mg_md5(ha2, method, ":", uri, NULL);
+	mg_md5(response, ha1, ":", wah->nonce, ":", nc,
+				 ":", cnonce, ":", wah->qop, ":", ha2, NULL);
+
+	mg_snprintf(NULL, NULL, buf, buf_size,
+		"Authorization: Digest"
+		" username=\"%s\""
+		", realm=\"%s\""
+		", nonce=\"%s\""
+		", uri=\"%s\""
+		", response=\"%s\""
+		", algorithm=\"MD5\""
+		", cnonce=\"%s\""
+		", nc=%s"
+		", qop=\"auth\"", // regardless of what server requests, we just support this
+		username,
+		wah->realm,
+		wah->nonce,
+		uri,
+		response,
+		cnonce,
+		nc
+	);
+	n = strlen(buf);
+	if (wah->opaque) {
+		mg_snprintf(NULL, NULL, buf+n, buf_size-n, ", opaque=\"%s\"", wah->opaque);
+		n = strlen(buf);
+	}
+	mg_snprintf(NULL, NULL, buf+n, buf_size-n, "\r\n");
+	return 1;
+}
+
+
+
+
+
+struct mg_connection *
+mg_download_secure(const struct mg_client_options *client_options,
+									 int use_ssl,
+									 const char *method, const char *requesturi,
+									 const char *username, const char *password, void **opaqueauthP,
+									 char *ebuf, size_t ebuf_len,
+									 const char *fmt, ...)
+{
+	struct mg_connection *conn;
+	char *authorization = NULL;
+	int reused_auth = 0;
+	struct wah *wah = NULL;
+	char *reqText = NULL;
+	int httperr = 0;
+	size_t reqLen = 0;
+	va_list ap;
+	va_start(ap, fmt);
+
+	if (use_ssl && !ssl_initialized) {
+		if (!initialize_ssl(ebuf, ebuf_len)) {
+			return NULL; // error
+		}
+	}
+
+	// if we already have www-auth infos from previous request, use it
+	if (opaqueauthP && *opaqueauthP) {
+		wah = (struct wah *)(*opaqueauthP);
+		*opaqueauthP = NULL; // take ownership for now
+		if (!authorization) authorization = mg_malloc(MG_BUF_LEN);
+		create_authorization_header(wah, requesturi, method, username, password, authorization, MG_BUF_LEN);
+		reused_auth = 1;
+	}
+	while (1) {
+		ebuf[0] = '\0';
+		// produce main message (so it will be sent with a single mg_printf/mg_write below)
+		reqText = NULL;
+		reqLen = alloc_vprintf(&reqText, NULL, 0, fmt, ap);
+		if ((conn = mg_connect_client_impl(client_options, use_ssl, ebuf, ebuf_len)) == NULL) {
+		} else if (
+			mg_printf(conn, "%s %s HTTP/1.1\r\nHost: %s\r\n%s%s", method, requesturi, client_options->host, authorization ? authorization : "", reqText) <= 0
+		) {
+			mg_snprintf(conn, NULL, ebuf, ebuf_len, "%s", "Error sending request");
+		} else {
+			get_response(conn, ebuf, ebuf_len, &httperr);
+		}
+		if (reqText) { mg_free(reqText); reqText = NULL; }
+		if (ebuf[0] != '\0' && conn != NULL) {
+			mg_close_connection(conn);
+			conn = NULL;
+		}
+		if (httperr!=0) {
+			mg_snprintf(conn, NULL, ebuf, ebuf_len, "Error parsing response: %d", httperr);
+			mg_close_connection(conn);
+			conn = NULL;
+		}
+		if (conn) {
+			// check for http auth
+			if (conn->response_info.status_code==401 && username && password && (!authorization || reused_auth)) {
+				// 401 and we have user/pw and we haven't tried auth yet
+				if (parse_wwwauth_header(conn, &wah)) {
+					mg_close_connection(conn);
+					conn = NULL;
+					if (!authorization) authorization = mg_malloc(MG_BUF_LEN);
+					if (create_authorization_header(wah, requesturi, method, username, password, authorization, MG_BUF_LEN)) {
+						// try again with auth
+						reused_auth = 0; // if this fails, do not retry
+						continue;
+					}
+				}
+			}
+		}
+		break;
+	}
+	if (authorization) mg_free(authorization);
+	if (wah && conn) {
+		if (opaqueauthP) {
+			// keep auth info for next request
+			*opaqueauthP = wah; // pass ownership back
+			if (parse_authinfo_nextnonce(conn, (char *)&(wah->new_nonce), NONCE_MAX_SZ)) {
+				wah->nonce = (char *)&(wah->new_nonce);
+			}
+		}
+		else {
+			// one-time use, forget auth info
+			mg_free(wah); // nobody to take ownership, free it
+		}
+	}
+	return conn;
+}
+
+
+
+
+
+
 struct websocket_client_thread_data {
 	struct mg_connection *conn;
 	mg_websocket_data_handler data_handler;
@@ -17919,6 +18505,7 @@ init_connection(struct mg_connection *conn)
 	 * goes to crule42. */
 	conn->data_len = 0;
 	conn->handled_requests = 0;
+  conn->client_timeout = -1; // none, use default for context
 	mg_set_user_connection_data(conn, NULL);
 
 #if defined(USE_SERVER_STATS)
@@ -20706,3 +21293,4 @@ mg_exit_library(void)
 
 
 /* End of civetweb.c */
+

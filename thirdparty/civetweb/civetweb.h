@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2020 the Civetweb developers
+/* Copyright (c) 2013-2019 the Civetweb developers
  * Copyright (c) 2004-2013 Sergey Lyubka
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -293,8 +293,7 @@ struct mg_callbacks {
 	                               void **ssl_ctx,
 	                               void *user_data);
 
-#if defined(MG_LEGACY_INTERFACE)           /* 2015-08-19 */                    \
-    || defined(MG_EXPERIMENTAL_INTERFACES) /* 2019-11-03 */
+#if defined(MG_LEGACY_INTERFACE) /* 2015-08-19 */
 	/* Called when websocket request is received, before websocket handshake.
 	   Return value:
 	     0: civetweb proceeds with websocket handshake.
@@ -1078,6 +1077,19 @@ CIVETWEB_API long long mg_store_body(struct mg_connection *conn,
      > 0   number of bytes read into the buffer. */
 CIVETWEB_API int mg_read(struct mg_connection *, void *buf, size_t len);
 
+/* timeout can be 0 to just read what's ready right now, -1 to use timeout from config, -2 for no timeout, and >0 for timeout in seconds */
+#define TMO_ZERO (0) /* zero waiting, just return data that is available right now */
+#define TMO_NEVER (-2) /* never timeout, might block indefinitely */
+#define TMO_DEFAULT (-1) /* use default timeout from connection */
+/* errCause, when not NULL, will return details about why an error (<0 result) occurred */
+#define EC_NORMAL 0 /* normal error */
+#define EC_CLOSED 1 /* error because peer closed connection */
+#define EC_TIMEOUT 2 /* error due to timeout */
+CIVETWEB_API int mg_read_ex(struct mg_connection *, void *buf, size_t len, double timeout, int *errCause);
+
+
+
+
 
 /* Get the value of particular HTTP header.
 
@@ -1191,6 +1203,27 @@ mg_download(const char *host,
             size_t error_buffer_size,
             PRINTF_FORMAT_STRING(const char *request_fmt),
             ...) PRINTF_ARGS(6, 7);
+
+
+struct mg_client_options {
+  const char *host;
+  int port;
+  const char *client_cert; /* path to client certificate file, or NULL if none */
+  const char *server_cert; /* CAPath (to OpenSSL CA certificates dir), or CAFile path prefixed with "=", or "*" to use default cert checking, or NULL for no checking */
+  double timeout;
+  /* TODO: add more data */
+};
+
+
+CIVETWEB_API struct mg_connection *
+mg_download_secure(const struct mg_client_options *client_options,
+                   int use_ssl,
+                   const char *method, const char *requesturi,
+                   const char *username, const char *password, void **opaqueauthP,
+                   char *ebuf, size_t ebuf_len,
+                   PRINTF_FORMAT_STRING(const char *fmt),
+                   ...) PRINTF_ARGS(10, 11);
+
 
 
 /* Close the connection opened by mg_download(). */
@@ -1619,3 +1652,4 @@ CIVETWEB_API int mg_start_domain2(struct mg_context *ctx,
 #endif /* __cplusplus */
 
 #endif /* CIVETWEB_HEADER_INCLUDED */
+
