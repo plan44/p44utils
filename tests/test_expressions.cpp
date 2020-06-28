@@ -24,7 +24,7 @@
 #include "expressions.hpp"
 #include <stdlib.h>
 
-#define SCRIPTLOGLEVEL 0
+#define LOGLEVELOFFSET 0
 
 #define JSON_TEST_OBJ "{\"array\":[\"first\",2,3,\"fourth\",6.6],\"obj\":{\"objA\":\"A\",\"objB\":42,\"objC\":{\"objD\":\"D\",\"objE\":45}},\"string\":\"abc\",\"number\":42,\"bool\":true}"
 
@@ -37,7 +37,7 @@ public:
   ExpressionFixture() :
     inherited(NULL)
   {
-    evalLogLevel = SCRIPTLOGLEVEL;
+    setLogLevelOffset(LOGLEVELOFFSET);
     syncExecLimit = Infinite;
   };
 
@@ -70,7 +70,7 @@ public:
   ScriptFixture() :
     inherited(NULL)
   {
-    evalLogLevel = SCRIPTLOGLEVEL;
+    setLogLevelOffset(LOGLEVELOFFSET);
     syncExecLimit = Infinite;
   };
 
@@ -97,14 +97,14 @@ public:
 
 TEST_CASE_METHOD(ExpressionFixture, "Focus1", "[FOCUS]" )
 {
-  setEvalLogLevel(7);
+  setLogLevelOffset(2);
   //REQUIRE(runExpression("42").numValue() == 42);
 }
 
 
 TEST_CASE_METHOD(ScriptFixture, "Focus2", "[FOCUS]" )
 {
-  setEvalLogLevel(7);
+  setLogLevelOffset(2);
   //REQUIRE(runScript("fortytwo = 42; return fortytwo").numValue() == 42);
   //REQUIRE(runScript("var js = " JSON_TEST_OBJ "; return js").stringValue() == JSON_TEST_OBJ);
   //REQUIRE(runScript("var js = " JSON_TEST_OBJ "; return js.obj").stringValue() == "{\"objA\":\"A\",\"objB\":42,\"objC\":{\"objD\":\"D\",\"objE\":45}}");
