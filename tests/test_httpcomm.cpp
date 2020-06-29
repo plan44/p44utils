@@ -117,8 +117,9 @@ public:
 
 
 #define TEST_URL "plan44.ch/testing/httptest.php"
-#define NOCERT_TEST_URL "localhost/"
-#define WRONGCN_TEST_URL "plan442.nine.ch/testing/httptest.php"
+#define NOCERT_TEST_URL "self-signed.badssl.com/" // see https://github.com/chromium/badssl.com
+#define WRONGCN_TEST_URL "wrong.host.badssl.com/"
+//#define WRONGCN_TEST_URL "plan442.nine.ch/testing/httptest.php"
 #define ERR404_TEST_URL "plan44.ch/testing/BADhttptest.php"
 #define ERR500_TEST_URL "plan44.ch/testing/httptest.php?err=500"
 #define NOCONTENT204_TEST_URL "plan44.ch/testing/httptest.php?err=204"
