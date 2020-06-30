@@ -753,6 +753,8 @@ bool EvaluationContext::startEvaluation()
 }
 
 
+// This static method can be passed to timers and makes sure that "this" is kept alive by the callback
+// boost::bind object because it is a smart pointer argument
 bool EvaluationContext::selfKeepingContinueEvaluation(EvaluationContextPtr aContext)
 {
   return aContext->continueEvaluation();
@@ -932,7 +934,7 @@ bool EvaluationContext::resumeEvaluation()
     case s_abort:
       OLOG(LOG_INFO, "Evaluation: execution aborted (from within script)");
       return newstate(s_finalize);
-    case s_finalize:
+    case s_finalize: {
       finalResult = sp().res;
       if (OLOGENABLED(LOG_INFO)) {
         if (!finalResult.syntaxOk()) {
@@ -947,10 +949,13 @@ bool EvaluationContext::resumeEvaluation()
         OLOG(LOG_INFO, "- finalResult = %s - err = %s", finalResult.stringValue().c_str(), Error::text(finalResult.err));
       }
       stack.clear();
+      EvaluationContextPtr keepAlive = this;
       execTicket.cancel(); // really stop here
-      runCallBack(finalResult); // call back if configured
       runningSince = Never;
+      runCallBack(finalResult); // call back if configured
+      keepAlive.reset();
       return true;
+    }
     // expression evaluation states
     case s_newExpression:
     case s_expression:
@@ -2016,7 +2021,7 @@ bool EvaluationContext::evaluateAsyncFunction(const string &aFunc, const Functio
   if (aFunc=="delay" && aArgs.size()==1) {
     if (aArgs[0].notValue()) return true; // no value specified, consider executed
     MLMicroSeconds delay = aArgs[0].numValue()*Second;
-    execTicket.executeOnce(boost::bind(&EvaluationContext::continueEvaluation, this), delay);
+    execTicket.executeOnce(boost::bind(&EvaluationContext::selfKeepingContinueEvaluation, this), delay);
     aNotYielded = false; // yielded execution
   }
   else {
