@@ -349,7 +349,7 @@ TEST_CASE_METHOD(HttpFixture, "https 4MBytes GET test", "[https]") {
   REQUIRE(response.size()>4000000);
 }
 
-TEST_CASE_METHOD(HttpFixture, "http 204 no content test", "[http],[FOCUS]") {
+TEST_CASE_METHOD(HttpFixture, "http 204 no content test", "[http]") {
   http->setBufferSize(512*1024);
   REQUIRE(runHttp("http://" NOCONTENT204_TEST_URL, "GET", 15*Second)==EXIT_SUCCESS);
   INFO(Error::text(httpErr));
@@ -357,7 +357,7 @@ TEST_CASE_METHOD(HttpFixture, "http 204 no content test", "[http],[FOCUS]") {
   REQUIRE(response.size()==0);
 }
 
-TEST_CASE_METHOD(HttpFixture, "http 304 not modified test", "[http],[FOCUS]") {
+TEST_CASE_METHOD(HttpFixture, "http 304 not modified test", "[http]") {
   http->setBufferSize(512*1024);
   REQUIRE(runHttp("http://" NOTMODIFIED304_TEST_URL, "GET", 15*Second)==EXIT_SUCCESS);
   INFO(Error::text(httpErr));
