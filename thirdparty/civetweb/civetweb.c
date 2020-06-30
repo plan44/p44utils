@@ -12120,13 +12120,22 @@ do_ssi_exec(struct mg_connection *conn, char *tag)
                 }
                 else if (*iP=='Q') {
                     if (conn->request_info.query_string) {
-                        /*  replace $Q by query string, and replace '&' by ':' */
+                        /* replace $Q by query string
+                         * Note: using this w/o surrounding it by single quotes creates a shell injection
+                         *   vulnerability. So it is assumed to be in single quotes, and any contained
+                         *   single quote will be output as '"'"' to prevent breaking out of quoting
+                         */
                         const char *qP = conn->request_info.query_string;
                         size_t i;
                         n = strlen(conn->request_info.query_string); if (n>room) n=room;
                         for (i=0; i<n; i++) {
-                            if (*qP=='&')
-                                *sP++ = ':';
+                            if (*qP=='\'') {
+                                // expand single quote such that it can be included in a single quoted shell argument
+                                if (room<6) break;
+                                strncpy(sP, "'\"'\"'", 5);
+                                sP += 5;
+                                room -= 4;
+                            }
                             else
                                 *sP++ = *qP;
                             qP++;
@@ -12624,7 +12633,7 @@ read_websocket(struct mg_connection *conn,
     unsigned char mask[4];
 
     /* data points to the place where the message is stored when passed to
-     * the websocket_data callback.  This is either mem on the stack, or a
+     * the websocket_data callback. This is either mem on the stack, or a
      * dynamically allocated buffer if it is too large. */
     unsigned char mem[4096];
     unsigned char mop; /* mask flag and opcode */
