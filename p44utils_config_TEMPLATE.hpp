@@ -34,6 +34,9 @@
 #ifndef ENABLE_P44LRGRAPHICS
   #define ENABLE_P44LRGRAPHICS 0 // p44lrgraphics support in some of the p44utils components
 #endif
+#ifndef ENABLE_APPLICATION_SUPPORT
+  #define ENABLE_APPLICATION_SUPPORT 1 // support for Application (e.g. domain specific commandline options) in other parts of P44 utils
+#endif
 #ifndef ENABLE_JSON_APPLICATION
   #define ENABLE_JSON_APPLICATION 0 // enables JSON utilities in Application, requires json-c
 #endif

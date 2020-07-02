@@ -218,21 +218,6 @@ namespace p44 {
 
   #if ENABLE_P44LRGRAPHICS
 
-  /// - option to construct LEDChainArrangement from command line
-  #define CMDLINE_LEDCHAIN_OPTIONS \
-    { 0,   "ledchain",      true,  "[chaintype:[leddevicename:]]numberOfLeds:[x:dx:y:dy:firstoffs:betweenoffs][XYSA];" \
-                                   "enable support for LED chains forming one or multiple RGB lights" \
-                                   "\n- chaintype can be WS2812 (GRB, default), SK6812 (RGBW), P9823 (RGB)" \
-                                   "\n- leddevicename can be a device name when chain is driven by a kernel module" \
-                                   "\n- x,dx,y,dy,firstoffs,betweenoffs specify how the chain is mapped to the display space" \
-                                   "\n- XYSA are flags: X or Y: x or y reversed, S: x/y swapped, A: alternating (zigzag)" \
-                                   "\nNote: this option can be used multiple times to combine ledchains" }, \
-    { 0,   "ledchainmax",   true,  "max;max output value (0..255) sent to LED. Defaults to 255." }, \
-    { 0,   "ledpowerlimit", true,  "max_mW;maximal power in milliwatts the entire LED arrangement is allowed to consume (approximately)." \
-                                   "If power would exceed limit, all LEDs are dimmed to stay below limit." \
-                                   "Standby/off power of LED chains is not included in the calculation. Defaults to 0=no limit" }
-
-
   class LEDChainArrangement;
   typedef boost::intrusive_ptr<LEDChainArrangement> LEDChainArrangementPtr;
 
@@ -288,11 +273,6 @@ namespace p44 {
     /// @param aOffset an offset within the chain where coverage starts
     void addLEDChain(LEDChainCommPtr aLedChain, PixelRect aCover, PixelPoint aOffset);
 
-    /// Factory helper
-    /// @param aLedChainArrangement if not set, new arrangement will be created, otherwise existing one is used
-    /// @param aChainSpec string describing the LED chain parameters and the coverage in the arrangement
-    static void addLEDChain(LEDChainArrangementPtr &aLedChainArrangement, const string &aChainSpec);
-
     /// add a LED chain to the arrangement by specification
     /// @param aChainSpec string describing the LED chain parameters and the coverage in the arrangement
     /// @note config syntax is as follows:
@@ -332,6 +312,32 @@ namespace p44 {
 
     /// stop LED chains and auto updates
     void end();
+
+    #if ENABLE_APPLICATION_SUPPORT
+
+    /// - option to construct LEDChainArrangement from command line
+    #define CMDLINE_LEDCHAIN_OPTIONS \
+      { 0,   "ledchain",      true,  "[chaintype:[leddevicename:]]numberOfLeds:[x:dx:y:dy:firstoffs:betweenoffs][XYSA];" \
+                                     "enable support for LED chains forming one or multiple RGB lights" \
+                                     "\n- chaintype can be WS2812 (GRB, default), SK6812 (RGBW), P9823 (RGB)" \
+                                     "\n- leddevicename can be a device name when chain is driven by a kernel module" \
+                                     "\n- x,dx,y,dy,firstoffs,betweenoffs specify how the chain is mapped to the display space" \
+                                     "\n- XYSA are flags: X or Y: x or y reversed, S: x/y swapped, A: alternating (zigzag)" \
+                                     "\nNote: this option can be used multiple times to combine ledchains" }, \
+      { 0,   "ledchainmax",   true,  "max;max output value (0..255) sent to LED. Defaults to 255." }, \
+      { 0,   "ledpowerlimit", true,  "max_mW;maximal power in milliwatts the entire LED arrangement is allowed to consume (approximately)." \
+                                     "If power would exceed limit, all LEDs are dimmed to stay below limit." \
+                                     "Standby/off power of LED chains is not included in the calculation. Defaults to 0=no limit" }
+
+    /// Factory helper to create ledchain arrangement with one or multiple led chains from --ledchain command line options
+    /// @param aLedChainArrangement if not set, new arrangement will be created, otherwise existing one is used
+    /// @param aChainSpec string describing the LED chain parameters and the coverage in the arrangement
+    static void addLEDChain(LEDChainArrangementPtr &aLedChainArrangement, const string &aChainSpec);
+
+    /// process ledchain arrangement specific command line options
+    void processCmdlineOptions();
+
+    #endif
 
   private:
 
