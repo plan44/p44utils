@@ -16354,7 +16354,7 @@ init_ssl_ctx_impl(struct mg_context *phys_ctx,
     SSL_CTX_set_options(dom_ctx->ssl_ctx, SSL_OP_NO_RENEGOTIATION);
 #endif
 
-#if !defined(NO_SSL_DL)
+#if !defined(NO_SSL_DL) && !defined(USE_SSL_HEADERS)
     SSL_CTX_set_ecdh_auto(dom_ctx->ssl_ctx, 1);
 #endif /* NO_SSL_DL */
 
