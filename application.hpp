@@ -106,6 +106,14 @@ namespace p44 {
     #if ENABLE_JSON_APPLICATION
 
     /// parse JSON literal or get json file from resource
+    /// @param aResource resource file name (see resourcePath()) containg JSON which is parsed and returned;
+    ///   if the string does not begin with "./", aPrefix is prepended.
+    /// @param aErrorP if set, parsing error is stored here
+    /// @param aPrefix prefix possibly used on resource path (see above)
+    /// @return json or NULL if none found
+    static JsonObjectPtr jsonResource(string aResourceName, ErrorPtr *aErrorP, const string aPrefix="");
+
+    /// parse JSON literal or get json file from resource
     /// @param aText the text to parse. If it is a plain string and ends on ".json", treat it as resource file
     ///   (see resourcePath()) containg JSON which is parsed and returned; if the string does not begin with "./", aPrefix is prepended.
     ///   Otherwise, aText is parsed as JSON as-is.
@@ -122,7 +130,6 @@ namespace p44 {
     /// @param aPrefix prefix possibly used on resource path (see above)
     /// @return json or NULL if none found
     static JsonObjectPtr jsonObjOrResource(JsonObjectPtr aConfig, ErrorPtr *aErrorP, const string aPrefix="");
-
 
     #endif // ENABLE_JSON_APPLICATION
 

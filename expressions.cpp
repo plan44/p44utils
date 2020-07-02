@@ -32,6 +32,11 @@
 
 #include "math.h"
 
+#if ENABLE_JSON_APPLICATION && EXPRESSION_JSON_SUPPORT
+  #include "application.hpp"
+#endif
+
+
 using namespace p44;
 
 
@@ -1645,6 +1650,17 @@ bool EvaluationContext::evaluateFunction(const string &aFunc, const FunctionArgu
       }
     }
   }
+  #if ENABLE_JSON_APPLICATION
+  else if (aFunc=="jsonresource" && aArgs.size()==1) {
+    if (aArgs[0].notValue()) return errorInArg(aArgs[0], aResult); // return error/null from argument
+    ErrorPtr err;
+    JsonObjectPtr j = Application::jsonResource(aArgs[0].stringValue(), &err);
+    if (Error::isOK(err))
+      aResult.setJson(j);
+    else
+      aResult.setError(err);
+  }
+  #endif // ENABLE_JSON_APPLICATION
   #endif // EXPRESSION_JSON_SUPPORT
   else if (aFunc=="strlen" && aArgs.size()==1) {
     // strlen(string)

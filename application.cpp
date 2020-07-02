@@ -265,6 +265,21 @@ JsonObjectPtr Application::jsonObjOrResource(const string &aText, ErrorPtr *aErr
 }
 
 
+JsonObjectPtr Application::jsonResource(string aResourceName, ErrorPtr *aErrorP, const string aPrefix)
+{
+  JsonObjectPtr r;
+  ErrorPtr err;
+  if (aResourceName.substr(0,2)=="./")
+    aResourceName.erase(0,2);
+  else
+    aResourceName.insert(0, aPrefix);
+  string fn = Application::sharedApplication()->resourcePath(aResourceName);
+  r = JsonObject::objFromFile(fn.c_str(), &err, true);
+  if (aErrorP) *aErrorP = err;
+  return r;
+}
+
+
 JsonObjectPtr Application::jsonObjOrResource(JsonObjectPtr aConfig, ErrorPtr *aErrorP, const string aPrefix)
 {
   ErrorPtr err;
@@ -273,12 +288,7 @@ JsonObjectPtr Application::jsonObjOrResource(JsonObjectPtr aConfig, ErrorPtr *aE
       // could be resource
       string resname = aConfig->stringValue();
       if (resname.substr(resname.size()-5)==".json") {
-        if (resname.substr(0,2)=="./")
-          resname.erase(0,2);
-        else
-          resname.insert(0, aPrefix);
-        string fn = Application::sharedApplication()->resourcePath(resname);
-        aConfig = JsonObject::objFromFile(fn.c_str(), &err, true);
+        aConfig = jsonResource(resname, &err, aPrefix);
       }
     }
   }
