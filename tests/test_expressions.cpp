@@ -24,7 +24,7 @@
 #include "expressions.hpp"
 #include <stdlib.h>
 
-#define SCRIPTLOGLEVEL 0
+#define LOGLEVELOFFSET 0
 
 #define JSON_TEST_OBJ "{\"array\":[\"first\",2,3,\"fourth\",6.6],\"obj\":{\"objA\":\"A\",\"objB\":42,\"objC\":{\"objD\":\"D\",\"objE\":45}},\"string\":\"abc\",\"number\":42,\"bool\":true}"
 
@@ -37,7 +37,7 @@ public:
   ExpressionFixture() :
     inherited(NULL)
   {
-    evalLogLevel = SCRIPTLOGLEVEL;
+    setLogLevelOffset(LOGLEVELOFFSET);
     syncExecLimit = Infinite;
   };
 
@@ -70,7 +70,7 @@ public:
   ScriptFixture() :
     inherited(NULL)
   {
-    evalLogLevel = SCRIPTLOGLEVEL;
+    setLogLevelOffset(LOGLEVELOFFSET);
     syncExecLimit = Infinite;
   };
 
@@ -97,14 +97,14 @@ public:
 
 TEST_CASE_METHOD(ExpressionFixture, "Focus1", "[FOCUS]" )
 {
-  setEvalLogLevel(7);
+  setLogLevelOffset(2);
   //REQUIRE(runExpression("42").numValue() == 42);
 }
 
 
 TEST_CASE_METHOD(ScriptFixture, "Focus2", "[FOCUS]" )
 {
-  setEvalLogLevel(7);
+  setLogLevelOffset(2);
   //REQUIRE(runScript("fortytwo = 42; return fortytwo").numValue() == 42);
   //REQUIRE(runScript("var js = " JSON_TEST_OBJ "; return js").stringValue() == JSON_TEST_OBJ);
   //REQUIRE(runScript("var js = " JSON_TEST_OBJ "; return js.obj").stringValue() == "{\"objA\":\"A\",\"objB\":42,\"objC\":{\"objD\":\"D\",\"objE\":45}}");
@@ -247,6 +247,12 @@ TEST_CASE_METHOD(ExpressionFixture, "Expressions", "[expressions]" )
     REQUIRE(runExpression("42.7-24").numValue() == 42.7-24.0);
     REQUIRE(runExpression("42.7*42").numValue() == 42.7*42.0);
     REQUIRE(runExpression("42.7/24").numValue() == 42.7/24.0);
+    REQUIRE(runExpression("5%2").numValue() == 1);
+    REQUIRE(runExpression("5%2.5").numValue() == 0);
+    REQUIRE(runExpression("5%1.5").numValue() == 0.5);
+    REQUIRE(runExpression("5.5%2").numValue() == 1.5);
+    REQUIRE(runExpression("78%9").numValue() == 6.0);
+    REQUIRE(runExpression("77.77%9").numValue() == Approx(5.77));
     REQUIRE(runExpression("78/0").isOK() == false); // division by zero
     REQUIRE(runExpression("\"ABC\" + \"abc\"").stringValue() == "ABCabc");
     REQUIRE(runExpression("\"empty\"+\"\"").stringValue() == "empty");
@@ -332,6 +338,10 @@ TEST_CASE_METHOD(ExpressionFixture, "Expressions", "[expressions]" )
     REQUIRE(runExpression("round(-33.6)").numValue() == -34);
     REQUIRE(runExpression("round(33.3, 0.5)").numValue() == 33.5);
     REQUIRE(runExpression("round(33.6, 0.5)").numValue() == 33.5);
+    REQUIRE(runExpression("frac(33)").numValue() == 0);
+    REQUIRE(runExpression("frac(-33)").numValue() == 0);
+    REQUIRE(runExpression("frac(33.6)").numValue() == Approx(0.6));
+    REQUIRE(runExpression("frac(-33.6)").numValue() == Approx(-0.6));
     REQUIRE(runExpression("random(0,10)").numValue() < 10);
     REQUIRE(runExpression("random(0,10) != random(0,10)").boolValue() == true);
     REQUIRE(runExpression("number('33')").numValue() == 33);
@@ -354,6 +364,7 @@ TEST_CASE_METHOD(ExpressionFixture, "Expressions", "[expressions]" )
     REQUIRE(runExpression("cyclic(-1.8,1,2)").numValue() == Approx(1.2));
     REQUIRE(runExpression("cyclic(2.2,1,2)").numValue() == Approx(1.2));
     REQUIRE(runExpression("cyclic(4.2,1,2)").numValue() == Approx(1.2));
+    REQUIRE(runExpression("epochtime()").numValue() == (double)(time(NULL))/24/60/60);
     // strings
     REQUIRE(runExpression("string(33)").stringValue() == "33");
     REQUIRE(runExpression("string(undefined)").stringValue() == "undefined");
@@ -469,8 +480,8 @@ TEST_CASE_METHOD(ScriptFixture, "Scripts", "[expressions]" )
     REQUIRE(runScript("try var zerodiv = 7/1; catch return error(); return zerodiv").numValue() == 7);
     REQUIRE(runScript("try { var zerodiv = 42; zerodiv = 7/0 } catch { log('CAUGHT!') }; return zerodiv").numValue() == 42);
     // Syntax errors
-    REQUIRE(runScript("78/9%").stringValue() == string_format("invalid number, time or date (ExpressionError:%d)", ExpressionError::Syntax));
-    REQUIRE(runScript("78/%9").stringValue() == string_format("invalid number, time or date (ExpressionError:%d)", ExpressionError::Syntax));
+    REQUIRE(runScript("78/9#").stringValue() == string_format("invalid number, time or date (ExpressionError:%d)", ExpressionError::Syntax));
+    REQUIRE(runScript("78/#9").stringValue() == string_format("invalid number, time or date (ExpressionError:%d)", ExpressionError::Syntax));
     // Not Syntax error in a script, the three numbers are separate statements, the last one is returned
     REQUIRE(runScript("42 43 44").intValue() == 44);
   }

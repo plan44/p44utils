@@ -54,6 +54,7 @@
 #include "logger.hpp"
 #include "utils.hpp"
 #include "error.hpp"
+#include "extutils.hpp"
 #include "mainloop.hpp"
 
 // build platform dependencies

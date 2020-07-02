@@ -134,6 +134,8 @@ I2CDevicePtr I2CManager::getDevice(int aBusNumber, const char *aDeviceID)
       dev = I2CDevicePtr(new LM75(deviceAddress, bus.get(), deviceOptions.c_str()));
     else if (typeString=="MCP3021")
       dev = I2CDevicePtr(new MCP3021(deviceAddress, bus.get(), deviceOptions.c_str()));
+    else if (typeString=="MAX1161x")
+      dev = I2CDevicePtr(new MAX1161x(deviceAddress, bus.get(), deviceOptions.c_str()));
     else if (typeString=="generic")
       dev = I2CDevicePtr(new I2CDevice(deviceAddress, bus.get(), deviceOptions.c_str()));
     // TODO: add more device types
@@ -955,6 +957,60 @@ bool MCP3021::getPinRange(int aPinNo, double &aMin, double &aMax, double &aResol
   // as we don't know what will be connected to the inputs, we return raw A/D value.
   aMin = 0;
   aMax = 1024;
+  aResolution = 1;
+  return true;
+}
+
+
+
+// MARK: - MAX11612-617 (12bit ADCs, Maxim)
+
+MAX1161x::MAX1161x(uint8_t aDeviceAddress, I2CBus *aBusP, const char *aDeviceOptions) :
+  inherited(aDeviceAddress, aBusP, aDeviceOptions)
+{
+  i2cbus->I2CWriteByte(this,
+    (1 << 7) | // B7 = 1 -> setup byte
+    (5 << 4) | // SEL: use internal reference, REF = n/c, AIN_/REF = analog input
+    (0 << 3) | // internal clock
+    (0 << 2) | // unipolar mode
+    (0 << 1) // reset configuration register to default
+  );
+}
+
+
+bool MAX1161x::isKindOf(const char *aDeviceType)
+{
+  if (strcmp(deviceType(),aDeviceType)==0)
+    return true;
+  else
+    return inherited::isKindOf(aDeviceType);
+}
+
+
+double MAX1161x::getPinValue(int aPinNo)
+{
+  uint8_t buf[2];
+  uint16_t raw;
+  // - configure scan
+  i2cbus->I2CWriteByte(this,
+    (0 << 7) | // B7 = 0 -> config byte
+    (3 << 5) | // Scan mode: 3 = just convert single channel
+    ((aPinNo & 0x0F) << 1) | // Channel Select = pin number bits 0..3
+    ((aPinNo & 0x10 ? 0 : 1) << 0) // differential when pin number bit 4 is set, single ended otherwise
+  );
+  // - read result
+  i2cbus->I2CReadBytes(this, 2, buf); // MAX1161x deliver MSB first
+  // actual result is in lower 4 bits of MSByte + 8 bits LSByte
+  raw = ((buf[0]&0xF)<<8) + buf[1];
+  return raw;
+}
+
+
+bool MAX1161x::getPinRange(int aPinNo, double &aMin, double &aMax, double &aResolution)
+{
+  // as we don't know what will be connected to the inputs, we return raw A/D value.
+  aMin = 0;
+  aMax = 4096;
   aResolution = 1;
   return true;
 }

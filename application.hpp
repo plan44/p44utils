@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2013-2019 plan44.ch / Lukas Zeller, Zurich, Switzerland
+//  Copyright (c) 2013-2020 plan44.ch / Lukas Zeller, Zurich, Switzerland
 //
 //  Author: Lukas Zeller <luz@plan44.ch>
 //
@@ -25,6 +25,9 @@
 #include "p44utils_common.hpp"
 #if ENABLE_JSON_APPLICATION
   #include "jsonobject.hpp"
+#endif
+#ifndef ENABLE_APPLICATION_SUPPORT
+  #define ENABLE_APPLICATION_SUPPORT 1 // projects which include application.hpp can include support for it in other files
 #endif
 
 #include <signal.h>

@@ -76,7 +76,7 @@ namespace p44 {
     /// Create an animator for a value
     /// @param aValueSetter the callback to use for changing the value
     /// @param aSelfTiming if set, the animator will time itself by scheduling timers in the mainloop
-    ///    if not set, the animator expects to have it's step() method called as indicated by step() and animate()'s return values
+    ///    if not set, the animator expects to have its step() method called as indicated by step() and animate()'s return values
     ValueAnimator(ValueSetterCB aValueSetter, bool aSelfTiming = false);
     virtual ~ValueAnimator();
 
@@ -89,6 +89,7 @@ namespace p44 {
     /// @param aStepSize the desired step size. If 0, step size is determined by aMinStepTime (or its default)
     /// @note stepsize and steptime is only used when autostepping and for the recommended call-again time returned by step()
     ///   Actual stepping is done whenever step() is called, relative to the start time
+    /// @note if animator was created with aSelfTiming==true, step() is called by an internal timer an MUST NOT be called directly!
     /// @return Infinite if there is no need to call step (animation has no steps or needs trigger first), otherwise mainloop time of when to call again
     MLMicroSeconds animate(double aTo, MLMicroSeconds aDuration, AnimationDoneCB aDoneCB = NULL, MLMicroSeconds aMinStepTime = 0, double aStepSize = 0);
 
@@ -139,8 +140,13 @@ namespace p44 {
     void stop(bool aAndReport = false);
 
     /// calculate and apply changes
-    /// @note this must be called as demanded by return value
-    /// @return Infinite if there is no immediate need to call step again, otherwise mainloop time of when to call again
+    /// @note if animator was created with aSelfTiming==true, step() is called by an internal timer an MUST NOT be called directly!
+    /// @note unless self-timing, this must be called again latest at the time demanded by return value.
+    ///   If it is called more often, animation steps will be smaller, if it is called too late, animation might stutter but will
+    ///   still keep the overall timing as good as possible.
+    /// @note do not call step() too often, as it always causes the value setter to be executed, which might not be
+    ///   efficent to do much more often than needed
+    /// @return Infinite if there is no immediate need to call step again, otherwise mainloop time of when to call again (latest)
     MLMicroSeconds step();
 
     /// @return true when an animation is in progress, including waiting for start (after delay or at trigger)

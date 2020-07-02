@@ -333,6 +333,22 @@ ExpressionValue ExpressionValue::operator/(const ExpressionValue& aRightSide) co
   return res;
 }
 
+ExpressionValue ExpressionValue::operator%(const ExpressionValue& aRightSide) const
+{
+  ExpressionValue res;
+  if (aRightSide.numValue()==0) {
+    res.setError(ExpressionError::DivisionByZero, "division by zero");
+  }
+  else {
+    // modulo allowing float dividend and divisor, really meaning "remainder"
+    double a = numValue();
+    double b = aRightSide.numValue();
+    int64_t q = a/b;
+    res.setNumber(a-b*q);
+  }
+  return res;
+}
+
 ExpressionValue ExpressionValue::operator&&(const ExpressionValue& aRightSide) const
 {
   return numValue() && aRightSide.numValue();
@@ -384,10 +400,10 @@ ErrorPtr ExpressionError::err(ErrorCodes aErrCode, const char *aFmt, ...)
 
 EvaluationContext::EvaluationContext(const GeoLocation* aGeoLocationP) :
   geolocationP(aGeoLocationP),
+  loggingContextP(NULL),
   runningSince(Never),
   nextEvaluation(Never),
   synchronous(true),
-  evalLogLevel(FOCUSLOGGING ? FOCUSLOGLEVEL : LOG_INFO), // default to focus level if any, LOG_INFO normally
   execTimeLimit(DEFAULT_EXEC_TIME_LIMIT),
   syncExecLimit(DEFAULT_SYNC_EXEC_LIMIT),
   syncRunTime(DEFAULT_SYNC_RUN_TIME),
@@ -399,6 +415,31 @@ EvaluationContext::EvaluationContext(const GeoLocation* aGeoLocationP) :
 
 EvaluationContext::~EvaluationContext()
 {
+}
+
+
+int EvaluationContext::getLogLevelOffset()
+{
+  if (logLevelOffset==0) {
+    // no own offset - inherit context's
+    if (loggingContextP) return loggingContextP->getLogLevelOffset();
+    return 0;
+  }
+  return inherited::getLogLevelOffset();
+}
+
+
+string EvaluationContext::logContextPrefix()
+{
+  string prefix;
+  if (loggingContextP) {
+    prefix = loggingContextP->logContextPrefix();
+  }
+  if (!contextInfo.empty()) {
+    if (!prefix.empty()) prefix += ": ";
+    prefix += contextInfo;
+  }
+  return prefix;
 }
 
 
@@ -414,6 +455,12 @@ void EvaluationContext::registerFunctionHandler(FunctionLookupCB aFunctionLookup
   functionCallbacks.push_back(aFunctionLookupHandler);
 }
 
+
+void EvaluationContext::setContextInfo(const string aContextInfo, P44LoggingObj *aLoggingContextP)
+{
+  contextInfo = aContextInfo;
+  loggingContextP = aLoggingContextP;
+}
 
 
 bool EvaluationContext::setCode(const string aCode)
@@ -530,12 +577,12 @@ void EvaluationContext::logStackDump() {
   size_t spidx = stack.size();
   while (spos!=stack.begin()) {
     spos--;
-    ELOG_DBG("- %zu: %s state=%s, identifier='%s', code(sp->pos): '%.50s...'",
+    OLOG(LOG_DEBUG, "- %zu: %s state=%s, identifier='%s', code(sp->pos): '%.50s...'",
       spidx,
       spos->skipping ? "SKIPPING" : "running ",
       evalstatenames[spos->state],
       spos->identifier.c_str(),
-      tail(spos->pos)
+      singleLine(tail(spos->pos), true).c_str()
     );
     spidx--;
   }
@@ -545,8 +592,8 @@ bool EvaluationContext::push(EvalState aNewState, bool aStartSkipping)
 {
   skipNonCode();
   stack.push_back(StackFrame(aNewState, aStartSkipping || sp().skipping, sp().precedence));
-  if (ELOGGING_DBG) {
-    ELOG_DBG("+++ pushed new frame - code(pos): '%.50s...'", tail(pos));
+  if (OLOGENABLED(LOG_DEBUG)) {
+    OLOG(LOG_DEBUG, "+++ pushed new frame - code(pos): '%.50s...'", singleLine(tail(pos)).c_str());
     logStackDump();
   }
   return true; // not yielded
@@ -559,8 +606,8 @@ bool EvaluationContext::pop()
   if (stack.size()>1) {
     // regular pop
     stack.pop_back();
-    if (ELOGGING_DBG) {
-      ELOG_DBG("--- popped frame - code(pos): '%.50s...'", tail(pos));
+    if (OLOGENABLED(LOG_DEBUG)) {
+      OLOG(LOG_DEBUG, "--- popped frame - code(pos): '%.50s...'", singleLine(tail(pos)).c_str());
       logStackDump();
     }
     return true; // not yielded
@@ -584,10 +631,10 @@ bool EvaluationContext::popAndPassResult(ExpressionValue aResult)
     // - it is a syntax error
     // - between complete expressions/statements
     if (aResult.isError() && (sp().state<s_expression_states || !aResult.syntaxOk())) {
-      ELOG("Statement result passed to %s: '%.*s' is error -> THROW: %s", evalstatenames[sp().state],  (int)(pos-sp().pos), tail(sp().pos), aResult.error()->text());
+      OLOG(LOG_NOTICE, "Statement result passed to %s: '%.*s' is error -> THROW: %s", evalstatenames[sp().state],  (int)(pos-sp().pos), tail(sp().pos), aResult.error()->text());
       return throwError(aResult.error());
     }
-    ELOG_DBG("Result passed to %s: '%.*s' is '%s'", evalstatenames[sp().state],  (int)(pos-sp().pos), tail(sp().pos), aResult.stringValue().c_str());
+    OLOG(LOG_DEBUG, "Result passed to %s: '%.*s' is '%s'", evalstatenames[sp().state],  (int)(pos-sp().pos), tail(sp().pos), aResult.stringValue().c_str());
     sp().res = aResult;
   }
   return true; // not yielded
@@ -711,6 +758,14 @@ bool EvaluationContext::startEvaluation()
 }
 
 
+// This static method can be passed to timers and makes sure that "this" is kept alive by the callback
+// boost::bind object because it is a smart pointer argument
+bool EvaluationContext::selfKeepingContinueEvaluation(EvaluationContextPtr aContext)
+{
+  return aContext->continueEvaluation();
+}
+
+
 bool EvaluationContext::continueEvaluation()
 {
   if (!isEvaluating()) {
@@ -733,7 +788,7 @@ bool EvaluationContext::continueEvaluation()
       if (!synchronous && syncRunTime!=Infinite && now-syncRunSince>syncRunTime) {
         // is an async script, yield now and continue later
         // - yield execution for twice the time we were allowed to run
-        execTicket.executeOnce(boost::bind(&EvaluationContext::continueEvaluation, this), 2*DEFAULT_SYNC_RUN_TIME);
+        execTicket.executeOnce(boost::bind(&selfKeepingContinueEvaluation, this), 2*DEFAULT_SYNC_RUN_TIME);
         // - yield now
         return false;
       }
@@ -741,6 +796,9 @@ bool EvaluationContext::continueEvaluation()
   }
   return true; // ran to end without yielding
 }
+
+
+
 
 
 bool EvaluationContext::returnFunctionResult(const ExpressionValue& aResult)
@@ -794,7 +852,7 @@ bool EvaluationContext::abort(bool aDoCallBack)
   stack.clear();
   if (aDoCallBack) runCallBack(finalResult);
   runningSince = Never; // force end
-  ELOG("Evaluation: asynchronous execution aborted (by external demand)");
+  OLOG(LOG_NOTICE, "Evaluation: asynchronous execution aborted (by external demand)");
   return false; // not sure
 }
 
@@ -876,28 +934,33 @@ bool EvaluationContext::resumeEvaluation()
       }
       // otherwise, treat like complete
     case s_complete:
-      ELOG("Evaluation: execution completed");
+      OLOG(LOG_INFO, "Evaluation: execution completed");
       return newstate(s_finalize);
     case s_abort:
-      ELOG("Evaluation: execution aborted (from within script)");
+      OLOG(LOG_INFO, "Evaluation: execution aborted (from within script)");
       return newstate(s_finalize);
-    case s_finalize:
+    case s_finalize: {
       finalResult = sp().res;
-      if (ELOGGING) {
-        string errInd;
+      if (OLOGENABLED(LOG_INFO)) {
         if (!finalResult.syntaxOk()) {
-          errInd = "\n                ";
+          string errInd;
           errInd.append(pos, '-');
           errInd += '^';
+          OLOG(LOG_INFO, "- code        =\n%s\n%s", getCode(), errInd.c_str());
         }
-        ELOG("- code        = %s%s", getCode(), errInd.c_str());
-        ELOG("- finalResult = %s - err = %s", finalResult.stringValue().c_str(), Error::text(finalResult.err));
+        else {
+          OLOG(LOG_INFO, "- code        = %s", singleLine(getCode(), true).c_str());
+        }
+        OLOG(LOG_INFO, "- finalResult = %s - err = %s", finalResult.stringValue().c_str(), Error::text(finalResult.err));
       }
       stack.clear();
+      EvaluationContextPtr keepAlive = this;
       execTicket.cancel(); // really stop here
-      runCallBack(finalResult); // call back if configured
       runningSince = Never;
+      runCallBack(finalResult); // call back if configured
+      keepAlive.reset();
       return true;
+    }
     // expression evaluation states
     case s_newExpression:
     case s_expression:
@@ -1073,6 +1136,7 @@ EvaluationContext::Operations EvaluationContext::parseOperator(size_t &aPos)
     }
     case '*': op = op_multiply; break;
     case '/': op = op_divide; break;
+    case '%': op = op_modulo; break;
     case '+': op = op_add; break;
     case '-': op = op_subtract; break;
     case '&': op = op_and; if (code(aPos)=='&') aPos++; break;
@@ -1177,9 +1241,9 @@ bool EvaluationContext::resumeExpression()
   }
   if (sp().state==s_subscriptExec) {
     ExpressionValue base = sp().val;
-    ELOG_DBG("Resolving Subscript for '%s'", sp().identifier.c_str());
+    OLOG(LOG_DEBUG, "Resolving Subscript for '%s'", sp().identifier.c_str());
     for (int ai=0; ai<sp().args.size(); ai++) {
-      ELOG_DBG("- subscript at char pos=%zu: %s (err=%s)", sp().args.getPos(ai), sp().args[ai].stringValue().c_str(), Error::text(sp().args[ai].err));
+      OLOG(LOG_DEBUG, "- subscript at char pos=%zu: %s (err=%s)", sp().args.getPos(ai), sp().args[ai].stringValue().c_str(), Error::text(sp().args[ai].err));
       sp().res = base.subScript(sp().args[ai]);
       if (sp().res.isNull()) break;
       base = sp().res;
@@ -1244,6 +1308,7 @@ bool EvaluationContext::resumeExpression()
             return abortWithSyntaxError("NOT operator not allowed here");
           }
           case op_divide: opRes = sp().val / sp().res; break;
+          case op_modulo: opRes = sp().val % sp().res; break;
           case op_multiply: opRes = sp().val * sp().res; break;
           case op_add: opRes = sp().val + sp().res; break;
           case op_subtract: opRes = sp().val - sp().res; break;
@@ -1271,10 +1336,10 @@ bool EvaluationContext::resumeExpression()
       // duplicate into res in case evaluation ends
       sp().res = sp().val;
       if (sp().res.isValue()) {
-        ELOG_DBG("Intermediate expression '%.*s' evaluation result: %s", (int)(pos-sp().pos), tail(sp().pos), sp().res.stringValue().c_str());
+        OLOG(LOG_DEBUG, "Intermediate expression '%.*s' evaluation result: %s", (int)(pos-sp().pos), tail(sp().pos), sp().res.stringValue().c_str());
       }
       else {
-        ELOG_DBG("Intermediate expression '%.*s' evaluation result is INVALID", (int)(pos-sp().pos), tail(sp().pos));
+        OLOG(LOG_DEBUG, "Intermediate expression '%.*s' evaluation result is INVALID", (int)(pos-sp().pos), tail(sp().pos));
       }
     }
     return newstate(s_exprLeftSide); // back to leftside, more chained operators might follow
@@ -1446,9 +1511,9 @@ bool EvaluationContext::resumeTerm()
     return abortWithSyntaxError("missing closing ')' in function call");
   }
   else if (sp().state==s_funcExec) {
-    ELOG_DBG("Calling Function '%s'", sp().identifier.c_str());
+    OLOG(LOG_DEBUG, "Calling Function '%s'", sp().identifier.c_str());
     for (int ai=0; ai<sp().args.size(); ai++) {
-      ELOG_DBG("- argument at char pos=%zu: %s (err=%s)", sp().args.getPos(ai), sp().args[ai].stringValue().c_str(), Error::text(sp().args[ai].err));
+      OLOG(LOG_DEBUG, "- argument at char pos=%zu: %s (err=%s)", sp().args.getPos(ai), sp().args[ai].stringValue().c_str(), Error::text(sp().args[ai].err));
     }
     // run function
     newstate(s_result); // expecting result from function
@@ -1505,7 +1570,7 @@ ExpressionValue TimedEvaluationContext::evaluateSynchronously(EvalMode aEvalMode
     fpos++;
   }
   if (nextEvaluation!=Never) {
-    ELOG("Expression demands re-evaluation at %s: '%s'", MainLoop::string_mltime(nextEvaluation).c_str(), getCode());
+    OLOG(LOG_INFO, "Expression demands re-evaluation at %s: '%s'", MainLoop::string_mltime(nextEvaluation).c_str(), singleLine(getCode(), true).c_str());
   }
   if (aScheduleReEval) {
     scheduleReEvaluation(nextEvaluation);
@@ -1540,9 +1605,14 @@ bool EvaluationContext::evaluateFunction(const string &aFunc, const FunctionArgu
     aResult.setNumber(fabs(aArgs[0].numValue()));
   }
   else if (aFunc=="int" && aArgs.size()==1) {
-    // abs (a)         absolute value of a
+    // int (a)         integer value of a
     if (aArgs[0].notValue()) return errorInArg(aArgs[0], aResult); // return error/null from argument
     aResult.setNumber(int(aArgs[0].int64Value()));
+  }
+  else if (aFunc=="frac" && aArgs.size()==1) {
+    // frac (a)         fractional value of a
+    if (aArgs[0].notValue()) return errorInArg(aArgs[0], aResult); // return error/null from argument
+    aResult.setNumber(aArgs[0].numValue()-aArgs[0].int64Value()); // result retains sign
   }
   else if (aFunc=="round" && aArgs.size()>=1 && aArgs.size()<=2) {
     // round (a)       round value to integer
@@ -1662,6 +1732,12 @@ bool EvaluationContext::evaluateFunction(const string &aFunc, const FunctionArgu
   }
   #endif // ENABLE_JSON_APPLICATION
   #endif // EXPRESSION_JSON_SUPPORT
+  else if (aFunc=="lastarg") {
+    // lastarg(expr, expr, exprlast)
+    // (for executing side effects of non-last arg evaluation, before returning the last arg)
+    if (aArgs.size()==0) aResult.setNull(); // no arguments -> null
+    else aResult = aArgs[aArgs.size()-1]; // value of last argument
+  }
   else if (aFunc=="strlen" && aArgs.size()==1) {
     // strlen(string)
     if (aArgs[0].notValue()) return errorInArg(aArgs[0], aResult); // return error/null from argument
@@ -1747,7 +1823,7 @@ bool EvaluationContext::evaluateFunction(const string &aFunc, const FunctionArgu
   else if (!synchronous && oneTimeResultHandler && aFunc=="earlyresult" && aArgs.size()==1) {
     // send the one time result now, but keep script running
     if (aArgs[0].notValue()) return errorInArg(aArgs[0], aResult); // return error/null from argument
-    ELOG("earlyresult sends '%s' to caller, script continues running", aResult.stringValue().c_str());
+    OLOG(LOG_INFO, "earlyresult sends '%s' to caller, script continues running", aResult.stringValue().c_str());
     runCallBack(aArgs[0]);
   }
   else if (aFunc=="errordomain" && aArgs.size()==1) {
@@ -1777,13 +1853,46 @@ bool EvaluationContext::evaluateFunction(const string &aFunc, const FunctionArgu
       aArgs[0].stringValue().c_str(),
       boost::bind(&EvaluationContext::valueLookup, this, _1, _2),
       NULL, // no functions from within function for now
-      evalLogLevel
+      getLogLevelOffset() // inherit log level offset
     );
     if (aResult.notValue()) {
-      ELOG("eval(\"%s\") returns error '%s' in expression: '%s'", aArgs[0].stringValue().c_str(), aResult.err->text(), getCode());
+      OLOG(LOG_INFO, "eval(\"%s\") returns error '%s' in expression: '%s'", aArgs[0].stringValue().c_str(), aResult.err->text(), singleLine(getCode(), true).c_str());
       // do not cause syntax error, only invalid result, but with error message included
       aResult.setNull(string_format("eval() error: %s -> undefined", aResult.err->text()).c_str());
     }
+  }
+  else if (aFunc=="log" && aArgs.size()<=2 && (aArgs.size()>1 || (aArgs.size()==1 && aArgs[0].isString()))) {
+    // TODO: Note: complicated check would allow log(number) math function in the future
+    // log (logmessage)
+    // log (loglevel, logmessage)
+    int loglevel = LOG_INFO;
+    int ai = 0;
+    if (aArgs.size()>1) {
+      if (aArgs[ai].notValue()) return errorInArg(aArgs[ai], aResult);
+      loglevel = aArgs[ai].intValue();
+      ai++;
+    }
+    if (aArgs[ai].notValue()) return errorInArg(aArgs[ai], aResult);
+    LOG(loglevel, "Script log: %s", aArgs[ai].stringValue().c_str());
+  }
+  else if (aFunc=="loglevel" && aArgs.size()==1) {
+    if (aArgs[0].notValue()) return errorInArg(aArgs[0], aResult);
+    int newLevel = aArgs[0].intValue();
+    if (newLevel>=0 && newLevel<=7) {
+      int oldLevel = LOGLEVEL;
+      SETLOGLEVEL(newLevel);
+      LOG(newLevel, "\n\n========== script changed log level from %d to %d ===============", oldLevel, newLevel);
+    }
+  }
+  else if (aFunc=="scriptloglevel") {
+    // TODO: remove legacy function
+    LOG(LOG_ERR, "scriptloglevel() function no longer available -> NOP");
+  }
+  else if (aFunc=="logleveloffset" && aArgs.size()==1) {
+    // log level offset for this script object
+    if (aArgs[0].notValue()) return errorInArg(aArgs[0], aResult);
+    int newOffset = aArgs[0].intValue();
+    setLogLevelOffset(newOffset);
   }
   else if (aFunc=="is_weekday" && aArgs.size()>0) {
     struct tm loctim; MainLoop::getLocalTime(loctim);
@@ -1831,7 +1940,7 @@ bool EvaluationContext::evaluateFunction(const string &aFunc, const FunctionArgu
     bool met = daySecs>=secs.numValue();
     // next check at specified time, today if not yet met, tomorrow if already met for today
     loctim.tm_hour = 0; loctim.tm_min = 0; loctim.tm_sec = (int)secs.numValue();
-    ELOG("is/after_time() reference time for current check is: %s", MainLoop::string_mltime(MainLoop::localTimeToMainLoopTime(loctim)).c_str());
+    OLOG(LOG_INFO, "is/after_time() reference time for current check is: %s", MainLoop::string_mltime(MainLoop::localTimeToMainLoopTime(loctim)).c_str());
     bool res = met;
     // limit to a few secs around target if it's is_time
     if (aFunc=="is_time" && met && daySecs<secs.numValue()+IS_TIME_TOLERANCE_SECONDS) {
@@ -1881,6 +1990,9 @@ bool EvaluationContext::evaluateFunction(const string &aFunc, const FunctionArgu
     if (!geolocationP) aResult.setNull();
     else aResult.setNumber(sunset(time(NULL), *geolocationP, true)*3600);
   }
+  else if (aFunc=="epochtime" && aArgs.size()==0) {
+    aResult.setNumber((double)time(NULL)/24/60/60); // epoch time in days with fractional time
+  }
   else {
     double fracSecs;
     struct tm loctim; MainLoop::getLocalTime(loctim, &fracSecs);
@@ -1925,7 +2037,7 @@ bool EvaluationContext::evaluateAsyncFunction(const string &aFunc, const Functio
   if (aFunc=="delay" && aArgs.size()==1) {
     if (aArgs[0].notValue()) return true; // no value specified, consider executed
     MLMicroSeconds delay = aArgs[0].numValue()*Second;
-    execTicket.executeOnce(boost::bind(&EvaluationContext::continueEvaluation, this), delay);
+    execTicket.executeOnce(boost::bind(&EvaluationContext::selfKeepingContinueEvaluation, this), delay);
     aNotYielded = false; // yielded execution
   }
   else {
@@ -1971,12 +2083,14 @@ ScriptExecutionContext::ScriptExecutionContext(const GeoLocation* aGeoLocationP)
 
 ScriptExecutionContext::~ScriptExecutionContext()
 {
+  // abort if still running
+  abort();
 }
 
 
 void ScriptExecutionContext::releaseState()
 {
-  ELOG_DBG("All variables released now for expression: '%s'", getCode());
+  OLOG(LOG_DEBUG, "All variables released now for expression: '%s'", singleLine(getCode(), true).c_str());
   variables.clear();
 }
 
@@ -2008,8 +2122,8 @@ bool ScriptExecutionContext::chainContext(ScriptExecutionContext& aTargetContext
     return true; // not yielded, done
   }
   else {
-    ELOG("chainContext: new context will execute rest of code: %s", tail(pos));
-    aTargetContext.setEvalLogLevel(evalLogLevel); // inherit log level
+    OLOG(LOG_INFO, "chainContext: new context will execute rest of code: %s", singleLine(tail(pos), true).c_str());
+    aTargetContext.setLogLevelOffset(getLocalLogLevelOffset()); // inherit log level offset
     aTargetContext.setCode(tail(pos)); // pass tail
     pos = codeString.size(); // skip tail
     aTargetContext.abort(false); // abort previously running script
@@ -2201,7 +2315,7 @@ bool ScriptExecutionContext::resumeStatements()
           // does not yet exist, create it with null value
           ExpressionValue null;
           (*varsP)[varName] = null;
-          ELOG_DBG("Defined %s variable %.*s", glob ? "GLOBAL" : "LOCAL", (int)vsz,vn);
+          OLOG(LOG_DEBUG, "Defined %s variable %.*s", glob ? "GLOBAL" : "LOCAL", (int)vsz,vn);
           newVar = true;
         }
       }
@@ -2261,7 +2375,7 @@ bool ScriptExecutionContext::resumeAssignment()
   }
   if (!sp().skipping) {
     // assign variable
-    ELOG_DBG("Assigned %s variable: %s := %s", glob ? "global" : "local", sp().identifier.c_str(), sp().res.stringValue().c_str());
+    OLOG(LOG_DEBUG, "Assigned %s variable: %s := %s", glob ? "global" : "local", sp().identifier.c_str(), sp().res.stringValue().c_str());
     vpos->second = sp().res;
     return popAndPassResult(sp().res);
   }
@@ -2373,46 +2487,6 @@ bool ScriptExecutionContext::valueLookup(const string &aName, ExpressionValue &a
 }
 
 
-bool ScriptExecutionContext::evaluateFunction(const string &aFunc, const FunctionArguments &aArgs, ExpressionValue &aResult)
-{
-  if (aFunc=="log" && aArgs.size()>=1 && aArgs.size()<=2) {
-    // log (logmessage)
-    // log (loglevel, logmessage)
-    int loglevel = LOG_INFO;
-    int ai = 0;
-    if (aArgs.size()>1) {
-      if (aArgs[ai].notValue()) return errorInArg(aArgs[ai], aResult);
-      loglevel = aArgs[ai].intValue();
-      ai++;
-    }
-    if (aArgs[ai].notValue()) return errorInArg(aArgs[ai], aResult);
-    LOG(loglevel, "Script log: %s", aArgs[ai].stringValue().c_str());
-  }
-  else if (aFunc=="loglevel" && aArgs.size()==1) {
-    if (aArgs[0].notValue()) return errorInArg(aArgs[0], aResult);
-    int newLevel = aArgs[0].intValue();
-    if (newLevel>=0 && newLevel<=7) {
-      int oldLevel = LOGLEVEL;
-      SETLOGLEVEL(newLevel);
-      LOG(newLevel, "\n\n========== script changed log level from %d to %d ===============", oldLevel, newLevel);
-    }
-  }
-  else if (aFunc=="scriptloglevel" && aArgs.size()==1) {
-    if (aArgs[0].notValue()) return errorInArg(aArgs[0], aResult);
-    int newLevel = aArgs[0].intValue();
-    if (newLevel>=0 && newLevel<=7) {
-      evalLogLevel = newLevel;
-    }
-  }
-  else {
-    return inherited::evaluateFunction(aFunc, aArgs, aResult);
-  }
-  // procedure with no return value of itself
-  aResult.setNull();
-  return true;
-}
-
-
 #endif // EXPRESSION_SCRIPT_SUPPORT
 
 
@@ -2433,7 +2507,7 @@ TimedEvaluationContext::~TimedEvaluationContext()
 
 void TimedEvaluationContext::releaseState()
 {
-  ELOG_DBG("All frozen state is released now for expression: '%s'", getCode());
+  OLOG(LOG_DEBUG, "All frozen state is released now for expression: '%s'", singleLine(getCode(), true).c_str());
   frozenResults.clear(); // changing expression unfreezes everything
 }
 
@@ -2453,7 +2527,7 @@ void TimedEvaluationContext::scheduleReEvaluation(MLMicroSeconds aAtTime)
 void TimedEvaluationContext::timedEvaluationHandler(MLTimer &aTimer, MLMicroSeconds aNow)
 {
   // trigger another evaluation
-  ELOG("Timed re-evaluation of expression starting now: '%s'", getCode());
+  OLOG(LOG_INFO, "Timed re-evaluation of expression starting now: '%s'", singleLine(getCode(), true).c_str());
   triggerEvaluation(evalmode_timed);
 }
 
@@ -2473,7 +2547,7 @@ TimedEvaluationContext::FrozenResult* TimedEvaluationContext::getFrozen(Expressi
   if (frozenVal!=frozenResults.end()) {
     frozenResultP = &(frozenVal->second);
     // there is a frozen result for this position in the expression
-    ELOG_DBG("- frozen result (%s) for actual result (%s) at char pos %zu exists - will expire %s",
+    OLOG(LOG_DEBUG, "- frozen result (%s) for actual result (%s) at char pos %zu exists - will expire %s",
       frozenResultP->frozenResult.stringValue().c_str(),
       aResult.stringValue().c_str(),
       aRefPos,
@@ -2500,11 +2574,11 @@ TimedEvaluationContext::FrozenResult* TimedEvaluationContext::newFreeze(FrozenRe
     newFreeze.frozenResult = aNewResult; // full copy, including pos
     newFreeze.frozenUntil = aFreezeUntil;
     frozenResults[aRefPos] = newFreeze;
-    ELOG_DBG("- new result (%s) frozen for pos %zu until %s", aNewResult.stringValue().c_str(), aRefPos, MainLoop::string_mltime(newFreeze.frozenUntil).c_str());
+    OLOG(LOG_DEBUG, "- new result (%s) frozen for pos %zu until %s", aNewResult.stringValue().c_str(), aRefPos, MainLoop::string_mltime(newFreeze.frozenUntil).c_str());
     return &frozenResults[aRefPos];
   }
   else if (!aExistingFreeze->frozen() || aUpdate || aFreezeUntil==Never) {
-    ELOG_DBG("- existing freeze updated to value %s and to expire %s",
+    OLOG(LOG_DEBUG, "- existing freeze updated to value %s and to expire %s",
       aNewResult.stringValue().c_str(),
       aFreezeUntil==Never ? "IMMEDIATELY" : MainLoop::string_mltime(aFreezeUntil).c_str()
     );
@@ -2512,7 +2586,7 @@ TimedEvaluationContext::FrozenResult* TimedEvaluationContext::newFreeze(FrozenRe
     aExistingFreeze->frozenUntil = aFreezeUntil;
   }
   else {
-    ELOG_DBG("- no freeze created/updated");
+    OLOG(LOG_DEBUG, "- no freeze created/updated");
   }
   return aExistingFreeze;
 }
@@ -2580,7 +2654,7 @@ bool TimedEvaluationContext::evaluateFunction(const string &aFunc, const Functio
     //   at next integer number of intervals calculated from beginning of the day + syncoffset
     double syncoffset = -1;
     if (aArgs.size()>=2) {
-      syncoffset = aArgs[2].numValue();
+      syncoffset = aArgs[1].numValue();
     }
     ExpressionValue secs = aArgs[0];
     if (secs.numValue()<MIN_EVERY_SECONDS) {
@@ -2623,6 +2697,54 @@ bool TimedEvaluationContext::evaluateFunction(const string &aFunc, const Functio
 }
 
 
+// MARK: - script queue
+
+void ScriptQueue::queueScript(ScriptExecutionContextPtr aScriptContext)
+{
+  queue.push_back(aScriptContext);
+  if (queue.size()==1) {
+    // there was no script pending, must start
+    runNextScript();
+  }
+}
+
+
+void ScriptQueue::runNextScript()
+{
+  if (!queue.empty()) {
+    ScriptExecutionContextPtr script = queue.front();
+    SOLOG(*script, LOG_INFO, "+++ Starting script");
+    script->execute(true, boost::bind(&ScriptQueue::scriptDone, this, script));
+  }
+}
+
+
+void ScriptQueue::scriptDone(ScriptExecutionContextPtr aScript)
+{
+  SOLOG(*aScript, LOG_INFO, "--- Finished script");
+  queue.pop_front();
+  runNextScript();
+}
+
+
+bool ScriptQueue::stopCurrent()
+{
+  if (!queue.empty()) {
+    queue.front()->abort();
+    queue.pop_front();
+    return true;
+  }
+  return false;
+}
+
+
+void ScriptQueue::clear()
+{
+  while (stopCurrent()); // stop all, even those that will which might still be owned by somebody else
+  queue.clear();
+}
+
+
 
 
 // MARK: - ad hoc expression evaluation
@@ -2640,6 +2762,7 @@ public:
     valueLookUp(aValueLookupCB),
     functionLookUp(aFunctionLookpCB)
   {
+    setContextInfo("AdHocEval");
   };
 
   virtual ~AdHocEvaluationContext() {};
@@ -2668,11 +2791,11 @@ protected:
 typedef boost::intrusive_ptr<AdHocEvaluationContext> AdHocEvaluationContextPtr;
 
 
-ExpressionValue p44::evaluateExpression(const string &aExpression, ValueLookupCB aValueLookupCB, FunctionLookupCB aFunctionLookpCB, int aLogLevel)
+ExpressionValue p44::evaluateExpression(const string &aExpression, ValueLookupCB aValueLookupCB, FunctionLookupCB aFunctionLookpCB, int aLogOffset)
 {
   AdHocEvaluationContext ctx(aValueLookupCB, aFunctionLookpCB);
   ctx.isMemberVariable();
-  ctx.setEvalLogLevel(aLogLevel);
+  ctx.setLogLevelOffset(aLogOffset);
   return ctx.evaluateExpression(aExpression);
 }
 

@@ -28,7 +28,9 @@
 
 
 #include "ledchaincomm.hpp"
-
+#if ENABLE_APPLICATION_SUPPORT
+  #include "application.hpp"
+#endif
 
 using namespace p44;
 
@@ -446,6 +448,8 @@ void LEDChainArrangement::setRootView(P44ViewPtr aRootView)
 }
 
 
+#if ENABLE_APPLICATION_SUPPORT
+
 void LEDChainArrangement::addLEDChain(LEDChainArrangementPtr &aLedChainArrangement, const string &aChainSpec)
 {
   if (aChainSpec.empty()) return;
@@ -455,6 +459,20 @@ void LEDChainArrangement::addLEDChain(LEDChainArrangementPtr &aLedChainArrangeme
   // now add chain
   aLedChainArrangement->addLEDChain(aChainSpec);
 }
+
+
+void LEDChainArrangement::processCmdlineOptions()
+{
+  int v;
+  if (CmdLineApp::sharedCmdLineApp()->getIntOption("ledchainmax", v)) {
+    setMaxOutValue(v);
+  }
+  if (CmdLineApp::sharedCmdLineApp()->getIntOption("ledpowerlimit", v)) {
+    setPowerLimit(v);
+  }
+}
+
+#endif // ENABLE_APPLICATION_SUPPORT
 
 
 void LEDChainArrangement::addLEDChain(const string &aChainSpec)

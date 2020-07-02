@@ -484,7 +484,7 @@ bool HttpComm::evaluateAsyncHttpFunctions(EvaluationContext* aEvalContext, const
   splitURL(url.c_str(), NULL, NULL, NULL, &user, &password);
   httpAction->setHttpAuthCredentials(user, password);
   if (timeout!=Never) httpAction->setTimeout(timeout);
-  LOG(aEvalContext->getEvalLogLevel(), "issuing %s to %s %s", method.c_str(), url.c_str(), data.c_str());
+  SOLOG(*aEvalContext, LOG_INFO, "issuing %s to %s %s", method.c_str(), url.c_str(), data.c_str());
   httpAction->cancelRequest(); // abort any previous request
   if (!httpAction->httpRequest(
     url.c_str(),
@@ -501,7 +501,7 @@ bool HttpComm::evaluateAsyncHttpFunctions(EvaluationContext* aEvalContext, const
 
 void HttpComm::httpFunctionDone(EvaluationContext* aEvalContext, const string &aResponse, ErrorPtr aError)
 {
-  LOG(aEvalContext->getEvalLogLevel(), "http action returns '%s', error = %s", aResponse.c_str(), Error::text(aError));
+  SOLOG(*aEvalContext, LOG_INFO, "http action returns '%s', error = %s", aResponse.c_str(), Error::text(aError));
   ExpressionValue res;
   if (Error::isOK(aError)) {
     res.setString(aResponse);
