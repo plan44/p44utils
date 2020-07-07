@@ -40,12 +40,16 @@
 
 using namespace std;
 
-namespace p44 {
+namespace p44 { namespace Script {
 
   class ScriptObj;
   typedef boost::intrusive_ptr<ScriptObj> ScriptObjPtr;
   class ExpressionValue;
   typedef boost::intrusive_ptr<ExpressionValue> ExpressionValuePtr;
+  class ErrorValue;
+  class NumericValue;
+  class StringValue;
+
   class ExecutableObj;
   class ScriptCodeObj;
   class ScriptingDomain;
@@ -53,14 +57,18 @@ namespace p44 {
   class ExecutionContext;
   typedef boost::intrusive_ptr<ExecutionContext> ExecutionContextPtr;
   class ExecutionThread;
+  typedef boost::intrusive_ptr<ExecutionThread> ExecutionThreadPtr;
 
   class CodeItem;
   class SourceProcessor;
   class Compiler;
   class Processor;
 
-  class MemberLookup;
+  class ClassMemberLookup;
+  typedef boost::intrusive_ptr<ClassMemberLookup> ClassMemberLookupPtr;
 
+
+  // MARK: - Scripting Error
 
   /// Script Error
   class ScriptError : public Error
@@ -74,66 +82,98 @@ namespace p44 {
       CyclicReference,
       Immutable, ///< object/field is immutable and cannot be assigned
       Invalid, ///< invalid value
+      Internal, ///< internal inconsistency
       Busy, ///< currently running
       NotFound, ///< referenced object not found at runtime
       Aborted, ///< externally aborted
       Timeout, ///< aborted because max execution time limit reached
       User, ///< user generated error (with throw)
     } ErrorCodes;
-    static const char *domain() { return "ExpressionError"; }
-    virtual const char *getErrorDomain() const { return ExpressionError::domain(); };
-    ExpressionError(ErrorCodes aError) : Error(ErrorCode(aError)) {};
+    static const char *domain() { return "ScriptError"; }
+    virtual const char *getErrorDomain() const { return ScriptError::domain(); };
+    ScriptError(ErrorCodes aError) : Error(ErrorCode(aError)) {};
     /// factory method to create string error fprint style
     static ErrorPtr err(ErrorCodes aErrCode, const char *aFmt, ...) __printflike(2,3);
   };
 
 
+  // MARK: - Script namespace types
+
+  /// Evaluation flags
+  typedef enum {
+    initial = 0x0001,
+    timed = 0x0002,
+    synchronously = 0x1000
+    // FIXME: real flags
+  } EvaluationFlags;
+
+  /// Type info
+  enum {
+    // exclusive content type identifiers (but combinable bits for type selection/filtering
+    typeMask = 0x00FF,
+    none = 0x0000, ///< no content type, because it is a container
+    null = 0x0001, ///< NULL/undefined
+    error = 0x0002, ///< Error
+    numeric = 0x0004, ///< numeric value
+    text = 0x0008, ///< text/string value
+    json = 0x0010, ///< JSON value
+    executable = 0x0080, ///< executable code
+    any = 0x00FF, ///< any type
+    // attributes
+    attrMask = 0xFF00,
+    field = 0x0100, ///< is a (leaf) field
+    object = 0x0200, ///< is a object with named members
+    array = 0x0400, ///< is an array with indexed elements
+    mutablemembers = 0x0800, ///< members are mutable
+    // for argument checking
+    multiple = 0x1000, ///< this argument type can occur mutiple times (... signature)
+    autoconvert = 0x2000, ///< type is not required to match, as long as it can be converted
+  };
+  typedef uint16_t TypeInfo;
+
+  /// Argument descriptor
+  typedef struct {
+    TypeInfo allowed; ///< these type bits may be set
+    TypeInfo required; ///< these type bits must be set
+    const char* name; ///< the name of the argument, can be NULL if unnamed positional argument
+  } ArgumentDesciptor;
+
+  /// Script call signature
+  typedef const ArgumentDesciptor* ScriptCallSignature;
+
+  // MARK: - ScriptObj base class
 
   /// evaluation callback
   /// @param aEvaluationResult the result of the evaluation
-  typedef boost::function<bool (ExpressionValue aEvaluationResult)> EvaluationCB;
+  typedef boost::function<bool (ScriptObjPtr aEvaluationResult)> EvaluationCB;
 
   /// Base Object in scripting
   class ScriptObj : public P44Obj
   {
   public:
 
-    /// Evaluation flags
-    typedef enum {
-      initial = 0x0001,
-      timed = 0x0002,
-      synchronously = 0x1000
-      // FIXME: real flags
-    } EvaluationFlags;
-
-    /// Type info
-    typedef enum {
-      // exclusive content type identifier
-      typeMask = 0x00FF,
-      none = 0x0000, ///< no content type, because it is a container
-      null = 0x0001, ///< NULL/undefined
-      error = 0x0002, ///< Error
-      numeric = 0x0003, ///< numeric value
-      json = 0x0004, ///< JSON value
-      executable = 0x0010, ///< executable code
-      // attributes
-      attrMask = 0xFF00,
-      field = 0x0100, ///< is a (leaf) field
-      object = 0x0200, ///< is a object with named members
-      array = 0x0400, ///< is an array with indexed elements
-      mutablemembers = 0x0800, ///< members are mutable
-    } TypeInfo;
+    /// @name information
+    /// @{
 
     /// get type of this value
     /// @return get type info
-    virtual TypeInfo getTypeInfo() { return null; }; // base object is a null/undefined
+    virtual TypeInfo getTypeInfo() const { return null; }; // base object is a null/undefined
 
     /// get annotation text
-    virtual string getAnnotation() { return "ScriptObj" };
+    virtual string getAnnotation() const { return "ScriptObj"; };
+
+    /// @}
+
+    /// @name evaluation
+    /// @{
 
     /// @return true if this object is evaluated.
     /// @note to obtain a evaluated version of the object, evaluate() must be called
-    virtual bool isEvaluated() { return true; } // base class is always in evaluated state (a null object)
+    virtual bool isEvaluated() const { return true; } // base class is always in evaluated state (a null object)
+
+    /// @return the / a context in which this object can or should be evaluated.
+    ///   parameters/arguments to be passed to the evaluation must be set into this context
+    virtual ExecutionContextPtr newExecutionContext() { return ExecutionContextPtr(); };
 
     /// Evaluate the object
     /// @param aEvaluationCB will be called to deliver the result of the evaluation
@@ -141,6 +181,8 @@ namespace p44 {
     /// @param aExecutionContext the context in which the execution should take place (vars, constants, domain)
     /// @note the evaluation result might be a Ptr to the same object
     virtual void evaluate(EvaluationCB aEvaluationCB, EvaluationFlags aEvalFlags, ExecutionContextPtr aExecutionContext);
+
+    /// @}
 
     /// @name value getters
     /// @{
@@ -161,126 +203,343 @@ namespace p44 {
     /// @{
 
     /// get object subfield/member by name
-    /// @param aMemberName name of the member to find
+    /// @param aName name of the member to find
     /// @param aTypeRequirements what type and type attributes the returned member must have, defaults to no restriction
     /// @return ScriptObj representing the member, or NULL if none
     /// @note only possibly returns something in objects with type attribute "object"
-    virtual ScriptObjPtr memberByName(const string aMemberName, TypeInfo aTypeRequirements = none) const { return ScriptObjPtr(); };
-
-    /// get object subfield/member by index, for example positional arguments in a ExecutionContext
-    /// @param aMemberName name of the member to find
-    /// @param aTypeRequirements what type and type attributes the returned member must have, defaults to no restriction
-    /// @return ScriptObj representing the member with index
-    /// @note only possibly returns something in objects with type attribute "array"
-    virtual ScriptObjPtr memberByIndex(int aIndex, TypeInfo aTypeRequirements = none) const { return ScriptObjPtr(); };
+    virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aTypeRequirements = none) const { return ScriptObjPtr(); };
 
     /// number of members accessible by index (e.g. positional parameters or array elements)
     /// @return number of members
     /// @note may or may not overlap with named members of the same object
-    virtual int numIndexedMembers() const { return 0; }
+    virtual size_t numIndexedMembers() const { return 0; }
+
+    /// get object subfield/member by index, for example positional arguments in a ExecutionContext
+    /// @param aIndex index of the member to find
+    /// @param aTypeRequirements what type and type attributes the returned member must have, defaults to no restriction
+    /// @return ScriptObj representing the member with index
+    /// @note only possibly returns something in objects with type attribute "array"
+    virtual const ScriptObjPtr memberAtIndex(size_t aIndex, TypeInfo aTypeRequirements = none) const { return ScriptObjPtr(); };
 
     /// set new object for named member
-    /// @param aMemberName name of the member to assign
+    /// @param aName name of the member to assign
+    /// @param aMember the member to assign
     /// @return ok or Error describing reason for assignment failure
     /// @note only possibly works on objects with type attribute "mutablemembers"
-    virtual ErrorPtr setMemberByName(const string aMemberName, const ScriptObjPtr aMember) { return ScriptObjPtr(new ErrorValue(Immutable, "'%s' is immutable", aMemberName)); }
+    virtual ErrorPtr setMemberByName(const string aName, const ScriptObjPtr aMember);
 
-    %%%
-    virtual ErrorPtr setMemberByIndex(int aIndex, const ScriptObjPtr aMember, const string aName = "");
-
+    /// set new object for member at index (array, positional parameter)
+    /// @param aIndex name of the member to assign
+    /// @param aMember the member to assign
+    /// @param aName optional name of the member (for containers where members have an index AND an name, such as function parameters)
+    /// @return ok or Error describing reason for assignment failure
+    /// @note only possibly works on objects with type attribute "mutablemembers"
+    virtual ErrorPtr setMemberAtIndex(size_t aIndex, const ScriptObjPtr aMember, const string aName = "");
 
     /// @}
+
+    /// @name executable support
+    /// @{
+
+    /// Get signature (description of arguments) required to call this object
+    /// @return NULL or pointer to an array of argument descriptors, terminated with a entry with .allowed==none
+    virtual ScriptCallSignature callSignature() const { return NULL; };
+
+    /// @}
+
+
+    /// @name triggering support
+    /// @{
+
+    // TODO: add triggering support methods
+
+    /// @}
+
   };
 
 
+  // MARK: - Value classes
+
   /// a value for use in expressions
-  class ExpressionValue : public ScriptObj
+  class ScriptValue : public ScriptObj
   {
+    typedef ScriptObj inherited;
   public:
-    virtual TypeInfo getTypeInfo() P44_OVERRIDE { return field; };
-  }
+    virtual TypeInfo getTypeInfo() const P44_OVERRIDE { return field; };
+  };
 
   /// an explicitly annotated null value (in contrast to ScriptObj base class which is a non-annotated null)
-  class AnnotatedNullValue : public ExpressionValue
+  class AnnotatedNullValue : public ScriptValue
   {
+    typedef ScriptValue inherited;
     string annotation;
   public:
     AnnotatedNullValue(string aAnnotation) : annotation(aAnnotation) {};
-    virtual string getAnnotation() P44_OVERRIDE { return annotation; };
-  }
+    virtual string getAnnotation() const P44_OVERRIDE { return annotation; };
+  };
 
 
-  class ErrorValue : public ExpressionValue
+  class ErrorValue : public ScriptValue
   {
+    typedef ScriptValue inherited;
     ErrorPtr err;
   public:
     ErrorValue(ErrorPtr aError) : err(aError) {};
-    ErrorValue(ExpressionError::ErrorCodes aErrCode, const char *aFmt, ...);
-    virtual string getAnnotation() P44_OVERRIDE { return "error"; };
-    virtual TypeInfo getTypeInfo() P44_OVERRIDE { return field+error; };
+    ErrorValue(ScriptError::ErrorCodes aErrCode, const char *aFmt, ...);
+    virtual string getAnnotation() const P44_OVERRIDE { return "error"; };
+    virtual TypeInfo getTypeInfo() const P44_OVERRIDE { return field|error; };
     // value getters
     virtual double numValue() const P44_OVERRIDE { return err ? 0 : err->getErrorCode(); };
     virtual string stringValue() const P44_OVERRIDE { return Error::text(err); };
     #if SCRIPTING_JSON_SUPPORT
     virtual JsonObjectPtr jsonValue() const P44_OVERRIDE;
     #endif
-  }
+  };
 
 
-  class NumericValue : public ExpressionValue
+  class NumericValue : public ScriptValue
   {
-    double number;
+    typedef ScriptValue inherited;
+    double num;
   public:
-    NumericValue(double aNumber) : number(aNumber) {};
-    virtual string getAnnotation() P44_OVERRIDE { return "numeric" };
-    virtual TypeInfo getTypeInfo() P44_OVERRIDE { return field+number; };
+    NumericValue(double aNumber) : num(aNumber) {};
+    virtual string getAnnotation() const P44_OVERRIDE { return "numeric"; };
+    virtual TypeInfo getTypeInfo() const P44_OVERRIDE { return field+numeric; };
     // value getters
-    virtual double numValue() const P44_OVERRIDE { return number; }; // native
-    virtual string stringValue() const P44_OVERRIDE { return string_format("%lg", number); };
+    virtual double numValue() const P44_OVERRIDE { return num; }; // native
+    virtual string stringValue() const P44_OVERRIDE { return string_format("%lg", num); };
     #if SCRIPTING_JSON_SUPPORT
-    virtual JsonObjectPtr jsonValue() const P44_OVERRIDE { JsonObject::newDouble(number); };
+    virtual JsonObjectPtr jsonValue() const P44_OVERRIDE { return JsonObject::newDouble(num); };
     #endif
-  }
+  };
 
 
-  class StringValue : public ExpressionValue
+  class StringValue : public ScriptValue
   {
+    typedef ScriptValue inherited;
     string str;
   public:
     StringValue(string aString) : str(aString) {};
-    virtual string getAnnotation() P44_OVERRIDE { return "string" };
-    virtual TypeInfo getTypeInfo() P44_OVERRIDE { return field+string; };
+    virtual string getAnnotation() const P44_OVERRIDE { return "string"; };
+    virtual TypeInfo getTypeInfo() const P44_OVERRIDE { return field+text; };
     // value getters
     virtual string stringValue() const P44_OVERRIDE { return str; }; // native
     virtual double numValue() const P44_OVERRIDE;
     #if SCRIPTING_JSON_SUPPORT
     virtual JsonObjectPtr jsonValue() const P44_OVERRIDE;
     #endif
-  }
+  };
 
 
   #if SCRIPTING_JSON_SUPPORT
-  class JsonValue : public ExpressionValue
+  class JsonValue : public ScriptValue
   {
-    JsonObjectPtr json;
+    typedef ScriptValue inherited;
+    JsonObjectPtr jsonval;
   public:
-    JsonValue(JsonObjectPtr aJson) : json(aJson) {};
-    virtual string getAnnotation() P44_OVERRIDE { return "json" };
-    virtual TypeInfo getTypeInfo() P44_OVERRIDE { return field+json; };
+    JsonValue(JsonObjectPtr aJson) : jsonval(aJson) {};
+    virtual string getAnnotation() const P44_OVERRIDE { return "json"; };
+    virtual TypeInfo getTypeInfo() const P44_OVERRIDE;
     // value getters
-    virtual JsonObjectPtr jsonValue() const P44_OVERRIDE { return json; } // native
+    virtual JsonObjectPtr jsonValue() const P44_OVERRIDE { return jsonval; } // native
     virtual double numValue() const P44_OVERRIDE;
     virtual string stringValue() const P44_OVERRIDE;
     virtual bool boolValue() const P44_OVERRIDE;
-  }
+    // member access
+    virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aTypeRequirements = none) const P44_OVERRIDE;
+    virtual size_t numIndexedMembers() const P44_OVERRIDE;
+    virtual const ScriptObjPtr memberAtIndex(size_t aIndex, TypeInfo aTypeRequirements = none) const P44_OVERRIDE;
+    // TODO: also implement setting members later
+  };
   #endif // SCRIPTING_JSON_SUPPORT
 
 
-  class JsonValue : public ExpressionValue
+  // MARK: - Executable Script Objects
+
+
+  class ExecutableObj : public ScriptObj
+  {
+    typedef ScriptObj inherited;
+  public:
+
+  };
+
+
+
+  /// Basic execution context, can hold indexed (positional) arguments as needed for callimng built-in functions
+  class ExecutionContext : public ScriptObj
+  {
+    typedef ScriptObj inherited;
+
+    typedef std::vector<ScriptObjPtr> IndexedVarVector;
+    IndexedVarVector indexedVars;
+
+  public:
+
+    virtual size_t numIndexedMembers() const P44_OVERRIDE;
+    virtual const ScriptObjPtr memberAtIndex(size_t aIndex, TypeInfo aTypeRequirements = none) const P44_OVERRIDE;
+    virtual ErrorPtr setMemberAtIndex(size_t aIndex, const ScriptObjPtr aMember, const string aName = "") P44_OVERRIDE;
+
+  };
+
+
+  /// Execution context for function implemented as script with access to local variables (and named access to arguments)
+  class LocalVarContext : public ExecutionContext
+  {
+    typedef ExecutionContext inherited;
+
+    typedef std::map<string, ScriptObjPtr, lessStrucmp> NamedVarMap;
+    NamedVarMap namedVars;
+
+  public:
+
+    virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aTypeRequirements = none) const P44_OVERRIDE;
+    virtual ErrorPtr setMemberByName(const string aName, const ScriptObjPtr aMember) P44_OVERRIDE;
+
+  };
+
+
+  // MARK: - Member Lookup
+
+
+  class ClassMemberLookup : public P44Obj
+  {
+  public:
+
+    /// return mask of all types that may be (but not necessarily are) in this lookup
+    /// @note this is for optimizing lookups for certain types
+    virtual TypeInfo containsTypes() const { return none; }
+
+    /// get object subfield/member by name
+    /// @param aThisObj the object _instance_ of which we want to access a member (can be NULL in case of singletons)
+    /// @param aName name of the member to find
+    /// @param aTypeRequirements what type and type attributes the returned member must have, defaults to no restriction
+    /// @return ScriptObj representing the member, or NULL if none
+    virtual ScriptObjPtr memberByNameFrom(ScriptObjPtr aThisObj, const string aName, TypeInfo aTypeRequirements = none) const = 0;
+
+    /// set new object for named member
+    /// @param aThisObj the object _instance_ of which we want to access a member (can be NULL in case of singletons)
+    /// @param aName name of the member to assign
+    /// @param aMember the member to assign
+    /// @return ok or Error describing reason for assignment failure
+    /// @note only possibly works on objects with type attribute "mutablemembers"
+    virtual ErrorPtr setMemberByNameFrom(ScriptObjPtr aThisObj, const string aName, const ScriptObjPtr aMember) { return ScriptError::err(ScriptError::Immutable, "cannot assign '%s'", aName.c_str()); };
+
+  };
+
+
+
+  // MARK: - Built-in function support
+
+  class BuiltInFunctionLookup;
+  class BuiltinFunctionObj;
+  class BuiltinFunctionContext;
+  typedef boost::intrusive_ptr<BuiltinFunctionContext> BuiltinFunctionContextPtr;
+
+
+  /// Signature for built-in function/method implementation
+  /// @param aContext execution context, containing parameters and expecting result
+  /// @note must call resume() or resumeWithResult() on the context when function has finished executing.
+  typedef void (*BuiltinFunctionImplementation)(BuiltinFunctionContextPtr aContext);
+
+  typedef struct {
+    const char* name;
+    TypeInfo returnType;
+    const ArgumentDesciptor* arguments;
+    BuiltinFunctionImplementation implementation;
+  } BuiltinFunctionDescriptor;
+
+
+  /// member lookup for built-in functions, driven by static const struct table to describe functions and link implementations
+  class BuiltInFunctionLookup : public ClassMemberLookup
+  {
+    typedef ClassMemberLookup inherited;
+    typedef std::map<const string, const BuiltinFunctionDescriptor*, lessStrucmp> FunctionMap;
+    FunctionMap functions;
+
+  public:
+    /// create a builtin function lookup from descriptor table
+    /// @param aFunctionDescriptors pointer to an array of function descriptors, terminated with an entry with .name==NULL
+    BuiltInFunctionLookup(const BuiltinFunctionDescriptor* aFunctionDescriptors);
+
+    virtual TypeInfo containsTypes() const P44_OVERRIDE { return executable; } // executables only
+    virtual ScriptObjPtr memberByNameFrom(ScriptObjPtr aThisObj, const string aName, TypeInfo aTypeRequirements = none) const P44_OVERRIDE;
+
+  };
+
+
+  /// represents a built-in function
+  class BuiltinFunctionObj : public ExecutableObj
+  {
+    typedef ExecutableObj inherited;
+
+    const BuiltinFunctionDescriptor *descriptor; ///< function signature
+    ScriptObjPtr thisObj; ///< the object this function is a method of
+
+  public:
+    BuiltinFunctionObj(const BuiltinFunctionDescriptor *aDescriptor, ScriptObjPtr aThisObj) : descriptor(aDescriptor), thisObj(aThisObj) {};
+
+    /// Get signature (description of arguments) required to call this object
+    /// @return NULL or pointer to an array of argument descriptors, terminated with a entry with .allowed==none
+    virtual ScriptCallSignature callSignature() const P44_OVERRIDE { return descriptor->arguments; };
+
+    /// @return a context for running built-in functions (only needs the arguments)
+    virtual ExecutionContextPtr newExecutionContext() P44_OVERRIDE;
+
+    /// Evaluate the (function) object
+    /// @param aEvaluationCB will be called to deliver the result of the evaluation
+    /// @param aEvalFlags evaluation flags
+    /// @param aExecutionContext the context in which the execution should take place (vars, constants, domain)
+    /// @note the evaluation result might be a Ptr to the same object
+    virtual void evaluate(EvaluationCB aEvaluationCB, EvaluationFlags aEvalFlags, ExecutionContextPtr aExecutionContext) P44_OVERRIDE;
+
+  };
+
+
+  class BuiltinFunctionContext : public ExecutionContext
+  {
+    typedef ExecutionContext inherited;
+    friend class BuiltinFunctionObj;
+
+    ScriptObjPtr thisObject; ///< the object this function is a method of
+    ScriptObj nullObj; ///< dummy null object for arg() to return reference to for invalid indices
+    EvaluationCB evaluationCB; ///< to be called back
+
+  public:
+
+    BuiltinFunctionContext(ScriptObjPtr aThisObj) : thisObject(aThisObj) { nullObj.isMemberVariable(); };
+
+    /// @name builtin function implementation interface
+    /// @{
+
+    /// convenience access to arguments for implementing built-in functions
+    /// @param aArgIndex must be in the range of 0..numIndexedMembers()-1
+    /// @note essentially is just a convenience wrapper for memberAtIndex()
+    /// @note built-in functions are called with a context that matches their signature, so usually
+    ///   implementation can just access the arguments it expects to be there by index w/o checking.
+    const ScriptObj& arg(size_t aArgIndex) const;
+
+    /// return result and execution thread back to script
+    /// @param aResult the function result, if any.
+    /// @note this must be called when a builtin function implementation completes
+    void finish(ScriptObjPtr aResult = ScriptObjPtr());
+
+    /// @return the object _instance_ this function is a method of
+    /// @note can be null if this function is a plain global function
+    ScriptObjPtr thisObj() { return thisObject; }
+
+    /// builtin functions accept optional member names, but do not store them
+    virtual ErrorPtr setMemberAtIndex(size_t aIndex, const ScriptObjPtr aMember, const string aName = "") P44_OVERRIDE;
+
+    /// @}
+  };
 
 
 
 
+
+
+  #if 0
 
   /// expression value, consisting of a value and an error to indicate non-value and reason for it
   class ExpressionValue {
@@ -1078,8 +1337,9 @@ namespace p44 {
   #endif
 
 
-} // namespace p44
+#endif // #if 0
 
+}} // namespace p44::Script
 
 #endif // ENABLE_SCRIPTING
 

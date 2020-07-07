@@ -21,6 +21,7 @@
 
 #include "catch.hpp"
 
+#include "scripting.hpp"
 #include "expressions.hpp"
 #include <stdlib.h>
 
@@ -30,11 +31,11 @@
 
 using namespace p44;
 
-class ExpressionFixture : public EvaluationContext
+class ScriptingExpressionFixture : public EvaluationContext
 {
   typedef EvaluationContext inherited;
 public:
-  ExpressionFixture() :
+  ScriptingExpressionFixture() :
     inherited(NULL)
   {
     setLogLevelOffset(LOGLEVELOFFSET);
@@ -95,7 +96,7 @@ public:
 };
 
 
-TEST_CASE_METHOD(ExpressionFixture, "Focus1", "[FOCUS]" )
+TEST_CASE_METHOD(ScriptingExpressionFixture, "Focus1", "[FOCUS]" )
 {
   setLogLevelOffset(2);
   //REQUIRE(runExpression("42").numValue() == 42);
@@ -159,7 +160,7 @@ TEST_CASE("ExpressionValue", "[expressions]" )
 
 
 
-TEST_CASE_METHOD(ExpressionFixture, "Expressions", "[expressions]" )
+TEST_CASE_METHOD(ScriptingExpressionFixture, "Expressions", "[expressions]" )
 {
 
   SECTION("Literals") {
@@ -397,7 +398,7 @@ TEST_CASE_METHOD(ExpressionFixture, "Expressions", "[expressions]" )
 
 
   SECTION("AdHoc expression evaluation") {
-    REQUIRE(p44::evaluateExpression("42", boost::bind(&ExpressionFixture::valueLookup, this, _1, _2), NULL).numValue() == 42 );
+    REQUIRE(p44::evaluateExpression("42", boost::bind(&ScriptingExpressionFixture::valueLookup, this, _1, _2), NULL).numValue() == 42 );
   }
 
 }

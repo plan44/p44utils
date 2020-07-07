@@ -70,5 +70,9 @@
   #define DISABLE_SYSCMDIO 1
 #endif
 
+// FIXME: development of new scripting only
+#if ENABLE_EXPRESSIONS && !defined(ENABLE_SCRIPTING)
+#define ENABLE_SCRIPTING 1
+#endif
 
 #endif /* __p44utils__common__ */

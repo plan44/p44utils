@@ -38,6 +38,20 @@
 
 
 using namespace p44;
+using namespace p44::Script;
+
+
+// MARK: - expression error
+
+ErrorPtr ScriptError::err(ErrorCodes aErrCode, const char *aFmt, ...)
+{
+  Error *errP = new ScriptError(aErrCode);
+  va_list args;
+  va_start(args, aFmt);
+  errP->setFormattedMessage(aFmt, args);
+  va_end(args);
+  return ErrorPtr(errP);
+}
 
 
 // MARK: - ScriptObj
@@ -49,12 +63,23 @@ void ScriptObj::evaluate(EvaluationCB aEvaluationCB, EvaluationFlags aEvalFlags,
 }
 
 
-
-// MARK: - ExpressionValue and subclasses
-
-ErrorValue::ErrorValue(ExpressionError::ErrorCodes aErrCode, const char *aFmt, ...)
+ErrorPtr ScriptObj::setMemberByName(const string aName, const ScriptObjPtr aMember)
 {
-  err = new ExpressionError(aErrCode);
+  return ScriptError::err(ScriptError::Immutable, "cannot assign '%s'", aName.c_str());
+}
+
+ErrorPtr ScriptObj::setMemberAtIndex(size_t aIndex, const ScriptObjPtr aMember, const string aName)
+{
+  return ScriptError::err(ScriptError::Immutable, "cannot assign at %zu", aIndex);
+}
+
+
+
+// MARK: - Value classes
+
+ErrorValue::ErrorValue(ScriptError::ErrorCodes aErrCode, const char *aFmt, ...)
+{
+  err = new ScriptError(aErrCode);
   va_list args;
   va_start(args, aFmt);
   err->setFormattedMessage(aFmt, args);
@@ -84,12 +109,6 @@ JsonObjectPtr ErrorValue::jsonValue() const
 }
 
 
-JsonObjectPtr NumericValue::jsonValue() const
-{
-  return JsonObject::newDouble(number);
-}
-
-
 JsonObjectPtr StringValue::jsonValue() const
 {
   return JsonObject::newString(str);
@@ -104,24 +123,233 @@ JsonObjectPtr StringValue::jsonValue() const
 string JsonValue::stringValue() const
 {
   if (!json) return ScriptObj::stringValue(); // undefined
-  return json->json_str();
+  return jsonval->json_str();
 }
 
 
-string JsonValue::numValue() const
+double JsonValue::numValue() const
 {
-  if (!json) return ScriptObj::stringValue(); // undefined
-  return json->doubleValue();
+  if (!jsonval) return ScriptObj::numValue(); // undefined
+  return jsonval->doubleValue();
 }
 
 
-string JsonValue::boolValue() const
+bool JsonValue::boolValue() const
 {
-  if (!json) return ScriptObj::stringValue(); // undefined
-  return json->boolValue();
+  if (!jsonval) return ScriptObj::boolValue(); // undefined
+  return jsonval->boolValue();
+}
+
+
+TypeInfo JsonValue::getTypeInfo() const
+{
+  if (!jsonval) return null;
+  if (jsonval->isType(json_type_object)) return json+object;
+  if (jsonval->isType(json_type_array)) return json+array;
+  return json+field;
+}
+
+
+const ScriptObjPtr JsonValue::memberByName(const string aName, TypeInfo aTypeRequirements) const
+{
+  ScriptObjPtr m;
+  if (jsonval && ((aTypeRequirements & json)==aTypeRequirements)) {
+    JsonObjectPtr j = jsonval->get(aName.c_str());
+    if (j) {
+      m = ScriptObjPtr(new JsonValue(j));
+    }
+  }
+  return m;
+}
+
+
+size_t JsonValue::numIndexedMembers() const
+{
+  if (jsonval) return jsonval->arrayLength();
+  return 0;
+}
+
+
+const ScriptObjPtr JsonValue::memberAtIndex(size_t aIndex, TypeInfo aTypeRequirements) const
+{
+  ScriptObjPtr m;
+  if (aIndex>=0 && aIndex<numIndexedMembers()) {
+    m = ScriptObjPtr(new JsonValue(jsonval->arrayGet((int)aIndex)));
+  }
+  return m;
 }
 
 #endif // SCRIPTING_JSON_SUPPORT
+
+
+// MARK: - Executable Script Objects and Context
+
+size_t ExecutionContext::numIndexedMembers() const
+{
+  return indexedVars.size();
+}
+
+
+const ScriptObjPtr ExecutionContext::memberAtIndex(size_t aIndex, TypeInfo aTypeRequirements) const
+{
+  ScriptObjPtr v;
+  if (aIndex<indexedVars.size()) {
+    ScriptObjPtr v = indexedVars[aIndex];
+    if ((v->getTypeInfo()&aTypeRequirements)!=aTypeRequirements) return ScriptObjPtr();
+  }
+  return v;
+}
+
+
+ErrorPtr ExecutionContext::setMemberAtIndex(size_t aIndex, const ScriptObjPtr aMember, const string aName)
+{
+  ErrorPtr err;
+
+  if (aIndex==indexedVars.size()) {
+    // specially optimized case: appending
+    indexedVars.push_back(aMember);
+  }
+  else {
+    if (aIndex>indexedVars.size()) {
+      // resize, will result in sparse array
+      indexedVars.resize(aIndex+1);
+    }
+    indexedVars[aIndex] = aMember;
+  }
+  if (!aName.empty()) {
+    err = setMemberByName(aName, aMember);
+  }
+  return err;
+}
+
+
+const ScriptObjPtr LocalVarContext::memberByName(const string aName, TypeInfo aTypeRequirements) const
+{
+  ScriptObjPtr v;
+  NamedVarMap::const_iterator pos = namedVars.find(aName);
+  if (pos!=namedVars.end()) {
+    v = pos->second;
+    if ((v->getTypeInfo()&aTypeRequirements)!=aTypeRequirements) return ScriptObjPtr();
+  }
+  return v;
+}
+
+
+ErrorPtr LocalVarContext::setMemberByName(const string aName, const ScriptObjPtr aMember)
+{
+  namedVars[aName] = aMember;
+  return ErrorPtr();
+}
+
+
+
+
+// MARK: - Class Member Lookup
+
+
+
+
+// MARK: - Built-in function support
+
+BuiltInFunctionLookup::BuiltInFunctionLookup(const BuiltinFunctionDescriptor* aFunctionDescriptors)
+{
+  // build name lookup map
+  if (aFunctionDescriptors) {
+    while (aFunctionDescriptors->name) {
+      functions[aFunctionDescriptors->name]=aFunctionDescriptors;
+      aFunctionDescriptors++;
+    }
+  }
+}
+
+
+ScriptObjPtr BuiltInFunctionLookup::memberByNameFrom(ScriptObjPtr aThisObj, const string aName, TypeInfo aTypeRequirements) const
+{
+  ScriptObjPtr func;
+
+  if ((executable & aTypeRequirements)==aTypeRequirements) {
+    FunctionMap::const_iterator pos = functions.find(aName);
+    if (pos!=functions.end()) {
+      func = ScriptObjPtr(new BuiltinFunctionObj(pos->second, aThisObj));
+    }
+  }
+  return func;
+}
+
+
+ExecutionContextPtr BuiltinFunctionObj::newExecutionContext()
+{
+  return new BuiltinFunctionContext(thisObj);
+}
+
+
+void BuiltinFunctionObj::evaluate(EvaluationCB aEvaluationCB, EvaluationFlags aEvalFlags, ExecutionContextPtr aExecutionContext)
+{
+  BuiltinFunctionContextPtr bfc = dynamic_pointer_cast<BuiltinFunctionContext>(aExecutionContext);
+  if (!bfc || !descriptor) {
+    aEvaluationCB(new ErrorValue(ScriptError::Internal, "builtin function call inconsistency"));
+  }
+  else {
+    bfc->evaluationCB = aEvaluationCB;
+    descriptor->implementation(bfc);
+  }
+}
+
+
+ErrorPtr BuiltinFunctionContext::setMemberAtIndex(size_t aIndex, const ScriptObjPtr aMember, const string aName)
+{
+  // just ignore name passed, avoid overhead of storing argument names
+  return inherited::ScriptObj::setMemberAtIndex(aIndex, aMember);
+}
+
+
+const ScriptObj& BuiltinFunctionContext::arg(size_t aArgIndex) const
+{
+  if (aArgIndex<0 || aArgIndex>numIndexedMembers()) {
+    // no such argument, return a dummy null (safety in case signature/implementation dont match)
+    return nullObj;
+  }
+  return *(memberAtIndex(aArgIndex).get());
+}
+
+
+void BuiltinFunctionContext::finish(ScriptObjPtr aResult)
+{
+  evaluationCB(aResult);
+}
+
+
+// MARK: - Standard functions
+
+
+// FIXME: test only
+static const ArgumentDesciptor testFuncArgs[] = { { any }, { numeric }, { none } };
+static void testFunc(BuiltinFunctionContextPtr f)
+{
+  LOG(LOG_INFO, "testFunc called with arg1=%s, arg2=%g", f->arg(0).stringValue().c_str(), f->arg(1).numValue());
+  f->finish(new NumericValue(42.42));
+}
+
+
+static const BuiltinFunctionDescriptor standardFunctions[] = {
+  { "testFunc", numeric, testFuncArgs, &testFunc },
+  { NULL } // terminator
+};
+
+// FIXME: just a test object
+static BuiltInFunctionLookup standardFunctionLookup(standardFunctions);
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -161,11 +389,6 @@ ExpressionValue ExpressionValue::subScript(const ExpressionValue& aSubScript)
     return arrayElement(aSubScript.intValue());
   }
 }
-
-
-#endif // EXPRESSION_JSON_SUPPORT
-
-
 
 
 ExpressionValue ExpressionValue::operator!() const
@@ -2729,98 +2952,7 @@ ErrorPtr p44::substituteExpressionPlaceholders(string &aString, ValueLookupCB aV
   return err;
 }
 
-
-#if EXPRESSION_LEGACY_PLACEHOLDERS
-
-// MARK: - legacy @{placeholder} substitution
-
-ErrorPtr p44::substitutePlaceholders(string &aString, StringValueLookupCB aValueLookupCB)
-{
-  ErrorPtr err;
-  size_t p = 0;
-  // Syntax of placeholders:
-  //   @{var[*ff][+|-oo][%frac]}
-  //   ff is an optional float factor to scale the channel value, or 'B' to output JSON-compatible boolean true or false
-  //   oo is an float offset to apply
-  //   frac are number of fractional digits to use in output
-  while ((p = aString.find("@{",p))!=string::npos) {
-    size_t e = aString.find("}",p+2);
-    if (e==string::npos) {
-      // syntactically incorrect, no closing "}"
-      err = ExpressionError::err(ExpressionError::Syntax, "unterminated placeholder: %s", aString.c_str()+p);
-      break;
-    }
-    string v = aString.substr(p+2,e-2-p);
-    // process operations
-    double chfactor = 1;
-    double choffset = 0;
-    int numFracDigits = 0;
-    bool boolFmt = false;
-    bool calc = false;
-    size_t varend = string::npos;
-    size_t i = 0;
-    while (true) {
-      i = v.find_first_of("*+-%",i);
-      if (varend==string::npos) {
-        varend = i==string::npos ? v.size() : i;
-      }
-      if (i==string::npos) break; // no more factors, offsets or format specs
-      // factor and/or offset
-      if (v[i]=='%') {
-        // format, check special cases
-        if (v[i+1]=='B') {
-          // binary true/false
-          boolFmt = true;
-          i+=2;
-          continue;
-        }
-      }
-      calc = true;
-      double dd;
-      if (sscanf(v.c_str()+i+1, "%lf", &dd)==1) {
-        switch (v[i]) {
-          case '*' : chfactor *= dd; break;
-          case '+' : choffset += dd; break;
-          case '-' : choffset -= dd; break;
-          case '%' : numFracDigits = dd; break;
-        }
-      }
-      i++;
-    }
-    // process variable
-    string rep = v.substr(0, varend);
-    if (aValueLookupCB) {
-      // if no replacement is found, original text is used
-      err = aValueLookupCB(rep, rep);
-      if (Error::notOK(err))
-        break; // abort
-    }
-    // apply calculations if any
-    if (calc) {
-      // parse as double
-      double dv;
-      if (sscanf(rep.c_str(), "%lf", &dv)==1) {
-        // got double value, apply calculations
-        dv = dv * chfactor + choffset;
-        // render back to string
-        if (boolFmt) {
-          rep = dv>0 ? "true" : "false";
-        }
-        else {
-          rep = string_format("%.*lf", numFracDigits, dv);
-        }
-      }
-    }
-    // replace, even if rep is empty
-    aString.replace(p, e-p+1, rep);
-    p+=rep.size();
-  }
-  return err;
-}
-
 #endif // #if 0
-
-#endif // EXPRESSION_LEGACY_PLACEHOLDERS
 
 #endif // ENABLE_EXPRESSIONS
 
