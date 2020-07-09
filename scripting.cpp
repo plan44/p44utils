@@ -56,21 +56,153 @@ ErrorPtr ScriptError::err(ErrorCodes aErrCode, const char *aFmt, ...)
 
 // MARK: - ScriptObj
 
-void ScriptObj::evaluate(EvaluationCB aEvaluationCB, EvaluationFlags aEvalFlags, ExecutionContextPtr aExecutionContext)
+ErrorPtr ScriptObj::setMemberByName(const string aName, const ScriptObjPtr aMember, TypeInfo aStorageAttributes)
 {
-  // base class is already evaluated
-  if (aEvaluationCB) aEvaluationCB(this); // already evaluated -> return myself
-}
-
-
-ErrorPtr ScriptObj::setMemberByName(const string aName, const ScriptObjPtr aMember)
-{
-  return ScriptError::err(ScriptError::Immutable, "cannot assign '%s'", aName.c_str());
+  if (aStorageAttributes & create) {
+    return ScriptError::err(ScriptError::NotCreated, "cannot create '%s'", aName.c_str());
+  }
+  else {
+    return ScriptError::err(ScriptError::NotFound, "'%s' not found", aName.c_str());
+  }
 }
 
 ErrorPtr ScriptObj::setMemberAtIndex(size_t aIndex, const ScriptObjPtr aMember, const string aName)
 {
-  return ScriptError::err(ScriptError::Immutable, "cannot assign at %zu", aIndex);
+  return ScriptError::err(ScriptError::NotFound, "cannot assign at %zu", aIndex);
+}
+
+
+// MARK: - Generic Operators
+
+bool ScriptObj::operator!() const
+{
+  return !boolValue();
+}
+
+bool ScriptObj::operator&&(const ScriptObj& aRightSide) const
+{
+  return boolValue() && aRightSide.boolValue();
+}
+
+bool ScriptObj::operator||(const ScriptObj& aRightSide) const
+{
+  return boolValue() || aRightSide.boolValue();
+}
+
+
+// MARK: - Equality Operator (all value classes)
+
+bool ScriptObj::operator==(const ScriptObj& aRightSide) const
+{
+  return (this==&aRightSide) ; // undefined comparisons are always false, unless we have object _instance_ identity
+}
+
+bool NumericValue::operator==(const ScriptObj& aRightSide) const
+{
+  return num==aRightSide.numValue();
+}
+
+bool StringValue::operator==(const ScriptObj& aRightSide) const
+{
+  return str==aRightSide.stringValue();
+}
+
+bool ErrorValue::operator==(const ScriptObj& aRightSide) const
+{
+  ErrorPtr e = aRightSide.errorValue();
+  return errorValue()->isError(e->domain(), e->getErrorCode());
+}
+
+
+// MARK: - Less-Than Operator (all value classes)
+
+bool ScriptObj::operator<(const ScriptObj& aRightSide) const
+{
+  return false; // undefined comparisons are always false
+}
+
+bool NumericValue::operator<(const ScriptObj& aRightSide) const
+{
+  return num<aRightSide.numValue();
+}
+
+bool StringValue::operator<(const ScriptObj& aRightSide) const
+{
+  return str<aRightSide.stringValue();
+}
+
+
+// MARK: - Derived boolean operators
+
+bool ScriptObj::operator!=(const ScriptObj& aRightSide) const
+{
+  return !operator==(aRightSide);
+}
+
+bool ScriptObj::operator>=(const ScriptObj& aRightSide) const
+{
+  return !operator<(aRightSide);
+}
+
+bool ScriptObj::operator>(const ScriptObj& aRightSide) const
+{
+  return !operator<(aRightSide) && !operator==(aRightSide);
+}
+
+bool ScriptObj::operator<=(const ScriptObj& aRightSide) const
+{
+  return operator==(aRightSide) || operator<(aRightSide);
+}
+
+
+
+
+// MARK: - Arithmetic Operators (all value classes)
+
+ScriptObjPtr NumericValue::operator+(const ScriptObj& aRightSide) const
+{
+  return new NumericValue(num + aRightSide.numValue());
+}
+
+
+ScriptObjPtr StringValue::operator+(const ScriptObj& aRightSide) const
+{
+  return new StringValue(str + aRightSide.stringValue());
+}
+
+
+ScriptObjPtr NumericValue::operator-(const ScriptObj& aRightSide) const
+{
+  return new NumericValue(num - aRightSide.numValue());
+}
+
+ScriptObjPtr NumericValue::operator*(const ScriptObj& aRightSide) const
+{
+  return new NumericValue(num * aRightSide.numValue());
+}
+
+ScriptObjPtr NumericValue::operator/(const ScriptObj& aRightSide) const
+{
+  if (aRightSide.numValue()==0) {
+    return new ErrorValue(ScriptError::DivisionByZero, "division by zero");
+  }
+  else {
+    return new NumericValue(num / aRightSide.numValue());
+  }
+}
+
+ScriptObjPtr NumericValue::operator%(const ScriptObj& aRightSide) const
+{
+  if (aRightSide.numValue()==0) {
+    return new ErrorValue(ScriptError::DivisionByZero, "modulo by zero");
+  }
+  else {
+    // modulo allowing float dividend and divisor, really meaning "remainder"
+    double a = numValue();
+    double b = aRightSide.numValue();
+    int64_t q = a/b;
+    return new NumericValue(a-b*q);
+  }
 }
 
 
@@ -146,7 +278,7 @@ TypeInfo JsonValue::getTypeInfo() const
   if (!jsonval) return null;
   if (jsonval->isType(json_type_object)) return json+object;
   if (jsonval->isType(json_type_array)) return json+array;
-  return json+field;
+  return json;
 }
 
 
@@ -182,7 +314,11 @@ const ScriptObjPtr JsonValue::memberAtIndex(size_t aIndex, TypeInfo aTypeRequire
 #endif // SCRIPTING_JSON_SUPPORT
 
 
-// MARK: - Executable Script Objects and Context
+// MARK: - Executable Script Objects
+
+// TODO: do we need this as an object?
+
+// MARK: - Execution contexts
 
 size_t ExecutionContext::numIndexedMembers() const
 {
@@ -203,8 +339,6 @@ const ScriptObjPtr ExecutionContext::memberAtIndex(size_t aIndex, TypeInfo aType
 
 ErrorPtr ExecutionContext::setMemberAtIndex(size_t aIndex, const ScriptObjPtr aMember, const string aName)
 {
-  ErrorPtr err;
-
   if (aIndex==indexedVars.size()) {
     // specially optimized case: appending
     indexedVars.push_back(aMember);
@@ -216,10 +350,14 @@ ErrorPtr ExecutionContext::setMemberAtIndex(size_t aIndex, const ScriptObjPtr aM
     }
     indexedVars[aIndex] = aMember;
   }
-  if (!aName.empty()) {
-    err = setMemberByName(aName, aMember);
-  }
-  return err;
+  return ErrorPtr();
+}
+
+
+GeoLocation* ExecutionContext::geoLocation()
+{
+  if (!domain) return NULL; // no domain to fallback to
+  return domain->geoLocation(); // return domain's location
 }
 
 
@@ -235,17 +373,118 @@ const ScriptObjPtr LocalVarContext::memberByName(const string aName, TypeInfo aT
 }
 
 
-ErrorPtr LocalVarContext::setMemberByName(const string aName, const ScriptObjPtr aMember)
+ErrorPtr LocalVarContext::setMemberByName(const string aName, const ScriptObjPtr aMember, TypeInfo aStorageAttributes)
 {
-  namedVars[aName] = aMember;
-  return ErrorPtr();
+  ErrorPtr err;
+  NamedVarMap::iterator pos = namedVars.find(aName);
+  if (pos!=namedVars.end()) {
+    // exists in local vars
+    pos->second = aMember;
+  }
+  else if (aStorageAttributes & create) {
+    // create it
+    namedVars[aName] = aMember;
+  }
+  else {
+    err = ScriptError::err(ScriptError::NotFound, "no local variable '%s'", aName.c_str());
+  }
+  return err;
+}
+
+
+ErrorPtr LocalVarContext::setMemberAtIndex(size_t aIndex, const ScriptObjPtr aMember, const string aName)
+{
+  ErrorPtr err = inherited::setMemberAtIndex(aIndex, aMember, aName);
+  if (!aName.empty() && Error::isOK(err)) {
+    err = setMemberByName(aName, aMember, create);
+  }
+  return err;
 }
 
 
 
 
-// MARK: - Class Member Lookup
+LocalExecutionContext::LocalExecutionContext(ScriptObjPtr aExecObj, ExecutionContextPtr aParentContext, ScriptingDomainPtr aDomain) :
+  inherited(aExecObj, aDomain),
+  parentContext(aParentContext)
+{
+}
 
+
+const ScriptObjPtr LocalExecutionContext::memberByName(const string aName, TypeInfo aTypeRequirements) const
+{
+  ScriptObjPtr m;
+  // member lookup during execution of a function or script body
+  // 1) lookup local variables/arguments in this context
+  if ((m = inherited::memberByName(aName, aTypeRequirements))) return m;
+  // 2) members of the object we are executing
+  if (thisObj() && (m = thisObj()->memberByName(aName, aTypeRequirements))) return m;
+  // 3) members from registered lookups
+  LookupList::const_iterator pos = lookups.begin();
+  while (pos!=lookups.end()) {
+    ClassMemberLookupPtr lookup = *pos;
+    if ((lookup->containsTypes() & aTypeRequirements)==aTypeRequirements) {
+      if ((m = lookup->memberByNameFrom(thisObj(), aName, aTypeRequirements))) return m;
+    }
+    ++pos;
+  }
+  // 4) lookup functions/methods (BUT NO VARIABLES) defined in the parent context
+  if (parentContext && (m = parentContext->memberByName(aName, aTypeRequirements|executable))) return m;
+  // 5) lookup global members in the script domain (vars, functions, constants)
+  if (globals() && (m = globals()->memberByName(aName, aTypeRequirements|executable))) return m;
+  // nothing found (note that inherited was queried early above, already!)
+  return m;
+}
+
+
+ErrorPtr LocalExecutionContext::setMemberByName(const string aName, const ScriptObjPtr aMember, TypeInfo aStorageAttributes)
+{
+  ErrorPtr err;
+  if (globals() && (aStorageAttributes & global)) {
+    // 5) explicitly requested global storage
+    return globals()->setMemberByName(aName, aMember, aStorageAttributes);
+  }
+  else {
+    // Not explicit global storage, use normal chain
+    // 1) local variables have precedence
+    if (Error::isOK(err = inherited::setMemberByName(aName, aMember, aStorageAttributes))) return err; // modified or created an existing local variable
+    // 2) properties in thisObj (if no local member exists)
+    if (err->isError(ScriptError::domain(), ScriptError::NotFound)) {
+      err = thisObj()->setMemberByName(aName, aMember, aStorageAttributes);
+      if (Error::isOK(err)) return err; // modified or created a property in thisObj
+    }
+    // 3) properties in lookup chain on those lookups which have mutablemembers (if no local or thisObj variable exists)
+    if (err->isError(ScriptError::domain(), ScriptError::NotFound)) {
+      LookupList::const_iterator pos = lookups.begin();
+      while (pos!=lookups.end()) {
+        ClassMemberLookupPtr lookup = *pos;
+        if (lookup->containsTypes() & mutablemembers) {
+          if (Error::isOK(err =lookup->setMemberByNameFrom(thisObj(), aName, aMember, aStorageAttributes))) return err; // modified or created a property in mutable lookup
+          if (!err->isError(ScriptError::domain(), ScriptError::NotFound)) {
+            break;
+          }
+          // continue searching as long as property just does not exist.
+        }
+        ++pos;
+      }
+    }
+    // 4) parent context variables are not visible (only functions are, and those are immutable)
+    // 5) modify (but never create w/o global storage attribute) global variables (if no local, thisObj or lookup chain variable of this name exists)
+    if (globals() && err->isError(ScriptError::domain(), ScriptError::NotFound)) {
+      err = globals()->ScriptObj::setMemberByName(aName, aMember, aStorageAttributes & ~create);
+    }
+  }
+  return err;
+}
+
+
+void LocalExecutionContext::registerMemberLookup(ClassMemberLookupPtr aMemberLookup)
+{
+  if (aMemberLookup) {
+    // last registered lookup overrides same named objects in lookups registered before
+    lookups.push_front(aMemberLookup);
+  }
+}
 
 
 
@@ -277,39 +516,33 @@ ScriptObjPtr BuiltInFunctionLookup::memberByNameFrom(ScriptObjPtr aThisObj, cons
 }
 
 
-ExecutionContextPtr BuiltinFunctionObj::newExecutionContext()
+ExecutionContextPtr BuiltinFunctionObj::contextForCallingFrom(ExecutionContextPtr aCallerContext) const
 {
-  return new BuiltinFunctionContext(thisObj);
+  // built-in functions get their this from the lookup they come from
+  return new BuiltinFunctionContext(thisObj, aCallerContext->globals());
 }
 
 
-void BuiltinFunctionObj::evaluate(EvaluationCB aEvaluationCB, EvaluationFlags aEvalFlags, ExecutionContextPtr aExecutionContext)
+void BuiltinFunctionContext::evaluate(ScriptObjPtr aToEvaluate, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB)
 {
-  BuiltinFunctionContextPtr bfc = dynamic_pointer_cast<BuiltinFunctionContext>(aExecutionContext);
-  if (!bfc || !descriptor) {
+  BuiltinFunctionObjPtr obj = dynamic_pointer_cast<BuiltinFunctionObj>(aToEvaluate);
+  if (!obj || !obj->descriptor) {
     aEvaluationCB(new ErrorValue(ScriptError::Internal, "builtin function call inconsistency"));
   }
   else {
-    bfc->evaluationCB = aEvaluationCB;
-    descriptor->implementation(bfc);
+    evaluationCB = aEvaluationCB;
+    obj->descriptor->implementation(this);
   }
 }
 
 
-ErrorPtr BuiltinFunctionContext::setMemberAtIndex(size_t aIndex, const ScriptObjPtr aMember, const string aName)
-{
-  // just ignore name passed, avoid overhead of storing argument names
-  return inherited::ScriptObj::setMemberAtIndex(aIndex, aMember);
-}
-
-
-const ScriptObj& BuiltinFunctionContext::arg(size_t aArgIndex) const
+ScriptObjPtr BuiltinFunctionContext::arg(size_t aArgIndex)
 {
   if (aArgIndex<0 || aArgIndex>numIndexedMembers()) {
     // no such argument, return a dummy null (safety in case signature/implementation dont match)
-    return nullObj;
+    return new ScriptObj();
   }
-  return *(memberAtIndex(aArgIndex).get());
+  return memberAtIndex(aArgIndex);
 }
 
 
@@ -319,25 +552,875 @@ void BuiltinFunctionContext::finish(ScriptObjPtr aResult)
 }
 
 
+// TODO: change all function implementations.
+// Here's a BBEdit find & replace sequence to prepare:
+
+// ===== FIND:
+//  (else *)?if \(aFunc=="([^"]*)".*\n */?/? ?(.*)
+// ===== REPLACE:
+//  //#DESC  { "\2", any, \2_args, \&\2_func },
+//  // \3
+//  static const ArgumentDescriptor \2_args[] = { { any } };
+//  static void \2_func(BuiltinFunctionContextPtr f)
+//  {
+
 // MARK: - Standard functions
 
-
-// FIXME: test only
-static const ArgumentDesciptor testFuncArgs[] = { { any }, { numeric }, { none } };
-static void testFunc(BuiltinFunctionContextPtr f)
+// ifvalid(a, b)   if a is a valid value, return it, otherwise return the default as specified by b
+static const ArgumentDescriptor ifvalid_args[] = { { any }, { any }, { STOP } };
+static void ifvalid_func(BuiltinFunctionContextPtr f)
 {
-  LOG(LOG_INFO, "testFunc called with arg1=%s, arg2=%g", f->arg(0).stringValue().c_str(), f->arg(1).numValue());
-  f->finish(new NumericValue(42.42));
+  f->finish(f->arg(0)->hasType(value) ? f->arg(0) : f->arg(1));
+}
+
+// isvalid(a)      if a is a valid value, return true, otherwise return false
+static const ArgumentDescriptor isvalid_args[] = { { any }, { STOP } };
+static void isvalid_func(BuiltinFunctionContextPtr f)
+{
+  f->finish(new NumericValue(f->arg(0)->hasType(value) ? 1 : 0));
 }
 
 
+// if (c, a, b)    if c evaluates to true, return a, otherwise b
+static const ArgumentDescriptor if_args[] = { { value }, { any }, { any }, { STOP } };
+static void if_func(BuiltinFunctionContextPtr f)
+{
+  f->finish(f->arg(0)->boolValue() ? f->arg(1) : f->arg(2));
+}
+
+// abs (a)         absolute value of a
+static const ArgumentDescriptor abs_args[] = { { value+undefres }, { STOP } };
+static void abs_func(BuiltinFunctionContextPtr f)
+{
+  f->finish(new NumericValue(fabs(f->arg(0)->numValue())));
+}
+
+
+// int (a)         integer value of a
+static const ArgumentDescriptor int_args[] = { { value+undefres }, { STOP } };
+static void int_func(BuiltinFunctionContextPtr f)
+{
+  f->finish(new NumericValue(int(f->arg(0)->int64Value())));
+}
+
+
+// frac (a)         fractional value of a
+static const ArgumentDescriptor frac_args[] = { { value+undefres }, { STOP } };
+static void frac_func(BuiltinFunctionContextPtr f)
+{
+  f->finish(new NumericValue(f->arg(0)->numValue()-f->arg(0)->int64Value())); // result retains sign
+}
+
+
+// round (a)       round value to integer
+// round (a, p)    round value to specified precision (1=integer, 0.5=halves, 100=hundreds, etc...)
+static const ArgumentDescriptor round_args[] = { { value+undefres }, { numeric+optional }, { STOP } };
+static void round_func(BuiltinFunctionContextPtr f)
+{
+  double precision = 1;
+  if (f->arg(1)->defined()) {
+    precision = f->arg(1)->numValue();
+  }
+  f->finish(new NumericValue(round(f->arg(0)->numValue()/precision)*precision));
+}
+
+
+// random (a,b)     random value from a up to and including b
+static const ArgumentDescriptor random_args[] = { { numeric }, { numeric }, { STOP } };
+static void random_func(BuiltinFunctionContextPtr f)
+{
+  // rand(): returns a pseudo-random integer value between ​0​ and RAND_MAX (0 and RAND_MAX included).
+  f->finish(new NumericValue(f->arg(0)->numValue() + (double)rand()*(f->arg(1)->numValue()-f->arg(0)->numValue())/((double)RAND_MAX)));
+}
+
+
+// min (a, b)    return the smaller value of a and b
+static const ArgumentDescriptor min_args[] = { { value+undefres }, { value+undefres }, { STOP } };
+static void min_func(BuiltinFunctionContextPtr f)
+{
+  if (f->argval(0)<f->argval(1)) f->finish(f->arg(0));
+  else f->finish(f->arg(1));
+}
+
+
+// max (a, b)    return the bigger value of a and b
+static const ArgumentDescriptor max_args[] = { { value+undefres }, { value+undefres }, { STOP } };
+static void max_func(BuiltinFunctionContextPtr f)
+{
+  if (f->argval(0)>f->argval(1)) f->finish(f->arg(0));
+  else f->finish(f->arg(1));
+}
+
+
+// limited (x, a, b)    return min(max(x,a),b), i.e. x limited to values between and including a and b
+static const ArgumentDescriptor limited_args[] = { { value+undefres }, { numeric }, { numeric }, { STOP } };
+static void limited_func(BuiltinFunctionContextPtr f)
+{
+  ScriptObj &a = f->argval(0);
+  if (a<f->argval(1)) f->finish(f->arg(1));
+  else if (a>f->argval(2)) f->finish(f->arg(2));
+}
+
+
+// cyclic (x, a, b)    return x with wraparound into range a..b (not including b because it means the same thing as a)
+static const ArgumentDescriptor cyclic_args[] = { { value+undefres }, { numeric }, { numeric }, { STOP } };
+static void cyclic_func(BuiltinFunctionContextPtr f)
+{
+  double o = f->arg(1)->numValue();
+  double x0 = f->arg(0)->numValue()-o; // make null based
+  double r = f->arg(2)->numValue()-o; // wrap range
+  if (x0>=r) x0 -= int(x0/r)*r;
+  else if (x0<0) x0 += (int(-x0/r)+1)*r;
+  f->finish(new NumericValue(x0+o));
+}
+
+
+// string(anything)
+static const ArgumentDescriptor string_args[] = { { any }, { STOP } };
+static void string_func(BuiltinFunctionContextPtr f)
+{
+  if (f->arg(0)->undefined())
+    f->finish(new StringValue("undefined")); // make it visible
+  else
+    f->finish(new StringValue(f->arg(0)->stringValue())); // force convert to string, including nulls and errors
+}
+
+
+// number(anything)
+static const ArgumentDescriptor number_args[] = { { any }, { STOP } };
+static void number_func(BuiltinFunctionContextPtr f)
+{
+  f->finish(new NumericValue(f->arg(0)->numValue())); // force convert to numeric
+}
+
+
+// copy(anything) // make a value copy, including json object references
+static const ArgumentDescriptor copy_args[] = { { any }, { STOP } };
+static void copy_func(BuiltinFunctionContextPtr f)
+{
+  #if SCRIPTING_JSON_SUPPORT
+  if (f->arg(0)->hasType(json)) {
+    // need to make a value copy of the JsonObject itself
+    f->finish(new JsonValue(JsonObjectPtr(new JsonObject(*(f->arg(0)->jsonValue())))));
+  }
+  else
+  #endif
+  {
+    f->finish(f->arg(0)); // just copy the ExpressionValue
+  }
+}
+
+
+#if SCRIPTING_JSON_SUPPORT
+
+// json(anything)
+static const ArgumentDescriptor json_args[] = { { any }, { STOP } };
+static void json_func(BuiltinFunctionContextPtr f)
+{
+  f->finish(new JsonValue(f->arg(0)->jsonValue()));
+}
+
+
+// TODO: jsonvalue should have writable member access
+//  // bool setfield(var, fieldname, value)
+//  static const ArgumentDescriptor setfield_args[] = { { any }, { STOP } };
+//  static void setfield_func(BuiltinFunctionContextPtr f)
+//  {
+//    if (!f->arg(0)->hasType(json)) f->finish(new NullValue()); // not JSON, cannot set value
+//    else {
+//
+//      f->finish(new JsonValue(f->arg(0)->jsonValue()));
+//      if (f->arg(1)->notValue()) return errorInArg(f->arg(1), aResult); // return error/null from argument
+//      aResult.jsonValue()->add(f->arg(1)->stringValue().c_str(), f->arg(2)->jsonValue());
+//    }
+//  }
+//
+//
+//  // bool setelement(var, index, value) // set
+//  static const ArgumentDescriptor setelement_args[] = { { any }, { STOP } };
+//  static void setelement_func(BuiltinFunctionContextPtr f)
+//  {
+//    // bool setelement(var, value) // append
+//    if (!f->arg(0)->isJson()) f->finish(new NullValue()); // not JSON, cannot set value
+//    else {
+//      f->finish(new JsonValue(f->arg(0)->jsonValue()));
+//      if (f->arg(1)->notValue()) return errorInArg(f->arg(1), aResult); // return error/null from argument
+//      if (f->numArgs()==2) {
+//        // append
+//        aResult.jsonValue()->arrayAppend(f->arg(1)->jsonValue());
+//      }
+//      else {
+//        aResult.jsonValue()->arrayPut(f->arg(1)->intValue(), f->arg(2)->jsonValue());
+//      }
+//    }
+//  }
+
+
+#if ENABLE_JSON_APPLICATION
+
+
+static const ArgumentDescriptor jsonresource_args[] = { { text+undefres }, { STOP } };
+static void jsonresource_func(BuiltinFunctionContextPtr f)
+{
+  ErrorPtr err;
+  JsonObjectPtr j = Application::jsonResource(f->arg(0)->stringValue(), &err);
+  if (Error::isOK(err))
+    f->finish(new JsonValue(j));
+  else
+    f->finish(new ErrorValue(err));
+}
+#endif // ENABLE_JSON_APPLICATION
+#endif // SCRIPTING_JSON_SUPPORT
+
+
+// lastarg(expr, expr, exprlast)
+static const ArgumentDescriptor lastarg_args[] = { { any+multiple, "side-effect" }, { STOP } };
+static void lastarg_func(BuiltinFunctionContextPtr f)
+{
+  // (for executing side effects of non-last arg evaluation, before returning the last arg)
+  if (f->numArgs()==0) f->finish(); // no arguments -> null
+  else f->finish(f->arg(f->numArgs()-1)); // value of last argument
+}
+
+
+// strlen(string)
+static const ArgumentDescriptor strlen_args[] = { { text+undefres }, { STOP } };
+static void strlen_func(BuiltinFunctionContextPtr f)
+{
+  f->finish(new NumericValue(f->arg(0)->stringValue().size())); // length of string
+}
+
+
+// substr(string, from)
+// substr(string, from, count)
+static const ArgumentDescriptor substr_args[] = { { text+undefres }, { numeric }, { numeric+optional }, { STOP } };
+static void substr_func(BuiltinFunctionContextPtr f)
+{
+  string s = f->arg(0)->stringValue();
+  size_t start = f->arg(1)->intValue();
+  if (start>s.size()) start = s.size();
+  size_t count = string::npos; // to the end
+  if (f->arg(2)->defined()) {
+    count = f->arg(2)->intValue();
+  }
+  f->finish(new StringValue(s.substr(start, count)));
+}
+
+
+// find(haystack, needle)
+// find(haystack, needle, from)
+static const ArgumentDescriptor find_args[] = { { text+undefres }, { text }, { numeric+optional }  };
+static void find_func(BuiltinFunctionContextPtr f)
+{
+  string haystack = f->arg(0)->stringValue(); // haystack can be anything, including invalid
+  string needle = f->arg(1)->stringValue();
+  size_t start = 0;
+  if (f->arg(2)->defined()) {
+    start = f->arg(2)->intValue();
+    if (start>haystack.size()) start = haystack.size();
+  }
+  size_t p = haystack.find(needle, start);
+  if (p!=string::npos)
+    f->finish(new NumericValue(p));
+  else
+    f->finish(new AnnotatedNullValue("not found")); // not found
+}
+
+
+// format(formatstring, number)
+// only % + - 0..9 . d, x, and f supported
+static const ArgumentDescriptor format_args[] = { { text }, { numeric }, { STOP } };
+static void format_func(BuiltinFunctionContextPtr f)
+{
+  string fmt = f->arg(0)->stringValue();
+  if (
+    fmt.size()<2 ||
+    fmt[0]!='%' ||
+    fmt.substr(1,fmt.size()-2).find_first_not_of("+-0123456789.")!=string::npos || // excluding last digit
+    fmt.find_first_not_of("duxXeEgGf", fmt.size()-1)!=string::npos // which must be d,x or f
+  ) {
+    f->finish(new ErrorValue(ScriptError::Syntax, "invalid format string, only basic %%duxXeEgGf specs allowed"));
+  }
+  else {
+    if (fmt.find_first_of("duxX", fmt.size()-1)!=string::npos)
+      f->finish(new StringValue(string_format(fmt.c_str(), f->arg(1)->intValue()))); // int format
+    else
+      f->finish(new StringValue(string_format(fmt.c_str(), f->arg(1)->numValue()))); // double format
+  }
+}
+
+
+// TODO: refresh implementation of throw() later
+//
+//  // throw(value)       - throw a expression user error with the string value of value as errormessage
+//  static const ArgumentDescriptor throw_args[] = { { any }, { STOP } };
+//  static void throw_func(BuiltinFunctionContextPtr f)
+//  {
+//    // throw(errvalue)    - (re-)throw with the error of the value passed
+//    if (f->arg(0)->isError()) return throwError(f->arg(0)->error()); // just pass as is
+//    else return throwError(ExpressionError::User, "%s", f->arg(0)->stringValue().c_str());
+//  }
+
+
+// error(value)       - create a user error value with the string value of value as errormessage, in all cases, even if value is already an error
+static const ArgumentDescriptor error_args[] = { { any }, { STOP } };
+static void error_func(BuiltinFunctionContextPtr f)
+{
+  f->finish(new ErrorValue(ScriptError::User, "%s", f->arg(0)->stringValue().c_str()));
+}
+
+
+// TODO: refresh implementation of error() within throw() later
+//  // error()            - within a catch context only: the error thrown
+//  static const ArgumentDescriptor error_args[] = { { any }, { STOP } };
+//  static void error_func(BuiltinFunctionContextPtr f)
+//  {
+//    StackList::iterator spos = stack.end();
+//    while (spos!=stack.begin()) {
+//      spos--;
+//      if (spos->state==s_catchStatement) {
+//        // here the error is stored
+//        f->finish(spos->res);
+//        return true;
+//      }
+//    }
+//    // try to use error() not within catch
+//    return abortWithSyntaxError("error() can only be called from within catch statements");
+//  }
+//  else if (!synchronous && oneTimeResultHandler && aFunc=="earlyresult" && f->numArgs()==1) {
+//    // send the one time result now, but keep script running
+//    if (f->arg(0)->notValue()) return errorInArg(f->arg(0), aResult); // return error/null from argument
+//    OLOG(LOG_INFO, "earlyresult sends '%s' to caller, script continues running", aResult.stringValue().c_str());
+//    runCallBack(f->arg(0));
+//  }
+
+
+// errordomain(errvalue)
+static const ArgumentDescriptor errordomain_args[] = { { error+undefres }, { STOP } };
+static void errordomain_func(BuiltinFunctionContextPtr f)
+{
+  ErrorPtr err = f->arg(0)->errorValue();
+  if (Error::isOK(err)) f->finish(new AnnotatedNullValue("no error")); // no error, no domain
+  f->finish(new StringValue(err->getErrorDomain()));
+}
+
+
+// errorcode(errvalue)
+static const ArgumentDescriptor errorcode_args[] = { { error+undefres }, { STOP } };
+static void errorcode_func(BuiltinFunctionContextPtr f)
+{
+  ErrorPtr err = f->arg(0)->errorValue();
+  if (Error::isOK(err)) f->finish(new AnnotatedNullValue("no error")); // no error, no code
+  f->finish(new NumericValue(err->getErrorCode()));
+}
+
+
+// errormessage(value)
+static const ArgumentDescriptor errormessage_args[] = { { error+undefres }, { STOP } };
+static void errormessage_func(BuiltinFunctionContextPtr f)
+{
+  ErrorPtr err = f->arg(0)->errorValue();
+  if (Error::isOK(err)) f->finish(new AnnotatedNullValue("no error")); // no error, no message
+  f->finish(new StringValue(err->getErrorMessage()));
+}
+
+
+// eval(string, [args...])    have string executed as script code, with access to optional args as arg0, arg1, argN...
+static const ArgumentDescriptor eval_args[] = { { text+executable }, { any+multiple }, { STOP } };
+static void eval_func(BuiltinFunctionContextPtr f)
+{
+  ScriptObjPtr evalcode;
+  if (f->arg(0)->hasType(executable)) {
+    evalcode = f->arg(0);
+  }
+  else {
+    // need to compile string first
+    evalcode = f->globals()->compile(f->arg(0)->stringValue(), "eval function");
+  }
+  if (!evalcode->hasType(executable)) {
+    f->finish(evalcode); // return object itself, is an error
+  }
+  else {
+    // get the context to run it
+    ExecutionContextPtr ctx = evalcode->contextForCallingFrom(f);
+    // pass args, if any
+    for (size_t i = 1; i<f->numArgs(); i++) {
+      ctx->setMemberAtIndex(i-1, f->arg(i-1), string_format("arg%lu", i-1));
+    }
+    // evaluate
+    ctx->evaluate(evalcode, script, boost::bind(&BuiltinFunctionContext::finish, f, _1));
+  }
+}
+
+
+// log (logmessage)
+// log (loglevel, logmessage)
+static const ArgumentDescriptor log_args[] = { { text+numeric }, { text+optional }, { STOP } };
+static void log_func(BuiltinFunctionContextPtr f)
+{
+  int loglevel = LOG_INFO;
+  size_t ai = 0;
+  if (f->numArgs()>1) {
+    loglevel = f->arg(ai)->intValue();
+    ai++;
+  }
+  LOG(loglevel, "Script log: %s", f->arg(ai)->stringValue().c_str());
+  f->finish();
+}
+
+
+// loglevel()
+// loglevel(newlevel)
+static const ArgumentDescriptor loglevel_args[] = { { numeric+optional }, { STOP } };
+static void loglevel_func(BuiltinFunctionContextPtr f)
+{
+  int oldLevel = LOGLEVEL;
+  if (f->numArgs()>0) {
+    int newLevel = f->arg(0)->intValue();
+    if (newLevel>=0 && newLevel<=7) {
+      SETLOGLEVEL(newLevel);
+      LOG(newLevel, "\n\n========== script changed log level from %d to %d ===============", oldLevel, newLevel);
+    }
+  }
+  f->finish(new NumericValue(oldLevel));
+}
+
+
+// logleveloffset()
+// logleveloffset(newoffset)
+static const ArgumentDescriptor logleveloffset_args[] = { { numeric+optional }, { STOP } };
+static void logleveloffset_func(BuiltinFunctionContextPtr f)
+{
+  int oldOffset = f->getLogLevelOffset();
+  if (f->numArgs()>0) {
+    int newOffset = f->arg(0)->intValue();
+    f->setLogLevelOffset(newOffset);
+  }
+  f->finish(new NumericValue(oldOffset));
+}
+
+
+// TODO: implement when event handler mechanisms are in place
+// is_weekday(w,w,w,...)
+static const ArgumentDescriptor is_weekday_args[] = { { numeric+multiple }, { STOP } };
+static void is_weekday_func(BuiltinFunctionContextPtr f)
+{
+  f->finish(new ErrorValue(ScriptError::Internal, "To be implemented"));
+//  struct tm loctim; MainLoop::getLocalTime(loctim);
+//  // check if any of the weekdays match
+//  int weekday = loctim.tm_wday; // 0..6, 0=sunday
+//  ExpressionValue newRes(0);
+//  size_t refpos = aArgs.getPos(0); // Note: we use pos of first argument for freezing the function's result (no need to freeze every single weekday)
+//  for (int i = 0; i<f->numArgs(); i++) {
+//    if (f->arg(i).notValue()) return errorInArg(f->arg(i), aResult); // return error/null from argument
+//    int w = (int)f->arg(i).numValue();
+//    if (w==7) w=0; // treat both 0 and 7 as sunday
+//    if (w==weekday) {
+//      // today is one of the days listed
+//      newRes.setNumber(1);
+//      break;
+//    }
+//  }
+//  // freeze until next check: next day 0:00:00
+//  loctim.tm_mday++;
+//  loctim.tm_hour = 0;
+//  loctim.tm_min = 0;
+//  loctim.tm_sec = 0;
+//  ExpressionValue res = newRes;
+//  FrozenResult* frozenP = getFrozen(res,refpos);
+//  newFreeze(frozenP, newRes, refpos, MainLoop::localTimeToMainLoopTime(loctim));
+//  f->finish(res); // freeze time over, use actual, newly calculated result
+}
+
+
+// TODO: implement when event handler mechanisms are in place
+// common implementation for after_time() and is_time()
+static void timeCheckFunc(bool aAfterTime, BuiltinFunctionContextPtr f)
+{
+  f->finish(new ErrorValue(ScriptError::Internal, "To be implemented"));
+//  struct tm loctim; MainLoop::getLocalTime(loctim);
+//  ExpressionValue newSecs;
+//  if (aArgs[0].notValue()) return errorInArg(aArgs[0], aResult); // return error/null from argument
+//  size_t refpos = aArgs.getPos(0); // Note: we use pos of first argument for freezing the function's result (no need to freeze every single weekday)
+//  if (aArgs.size()==2) {
+//    // legacy spec
+//    if (aArgs[1].notValue()) return errorInArg(aArgs[1], aResult); // return error/null from argument
+//    newSecs.setNumber(((int32_t)aArgs[0].numValue() * 60 + (int32_t)aArgs[1].numValue()) * 60);
+//  }
+//  else {
+//    // specification in seconds, usually using time literal
+//    newSecs.setNumber((int32_t)(aArgs[0].numValue()));
+//  }
+//  ExpressionValue secs = newSecs;
+//  FrozenResult* frozenP = getFrozen(secs, refpos);
+//  int32_t daySecs = ((loctim.tm_hour*60)+loctim.tm_min)*60+loctim.tm_sec;
+//  bool met = daySecs>=secs.numValue();
+//  // next check at specified time, today if not yet met, tomorrow if already met for today
+//  loctim.tm_hour = 0; loctim.tm_min = 0; loctim.tm_sec = (int)secs.numValue();
+//  OLOG(LOG_INFO, "is/after_time() reference time for current check is: %s", MainLoop::string_mltime(MainLoop::localTimeToMainLoopTime(loctim)).c_str());
+//  bool res = met;
+//  // limit to a few secs around target if it's is_time
+//  if (aFunc=="is_time" && met && daySecs<secs.numValue()+IS_TIME_TOLERANCE_SECONDS) {
+//    // freeze again for a bit
+//    newFreeze(frozenP, secs, refpos, MainLoop::localTimeToMainLoopTime(loctim)+IS_TIME_TOLERANCE_SECONDS*Second);
+//  }
+//  else {
+//    loctim.tm_hour = 0; loctim.tm_min = 0; loctim.tm_sec = (int)newSecs.numValue();
+//    if (met) {
+//      loctim.tm_mday++; // already met today, check again tomorrow
+//      if (aFunc=="is_time") res = false;
+//    }
+//    newFreeze(frozenP, newSecs, refpos, MainLoop::localTimeToMainLoopTime(loctim));
+//  }
+//  aResult = res;
+}
+
+// after_time(time)
+static const ArgumentDescriptor after_time_args[] = { { numeric }, { STOP } };
+static void after_time_func(BuiltinFunctionContextPtr f)
+{
+  timeCheckFunc(true, f);
+}
+
+// is_time(time)
+static const ArgumentDescriptor is_time_args[] = { { numeric }, { STOP } };
+static void is_time_func(BuiltinFunctionContextPtr f)
+{
+  timeCheckFunc(false, f);
+}
+
+
+
+// TODO: implement when event handler mechanisms are in place
+static const ArgumentDescriptor between_dates_args[] = { { numeric }, { numeric }, { STOP } };
+static void between_dates_func(BuiltinFunctionContextPtr f)
+{
+  f->finish(new ErrorValue(ScriptError::Internal, "To be implemented"));
+//  struct tm loctim; MainLoop::getLocalTime(loctim);
+//  int smaller = (int)(f->arg(0)->numValue());
+//  int larger = (int)(f->arg(1)->numValue());
+//  int currentYday = loctim.tm_yday;
+//  loctim.tm_hour = 0; loctim.tm_min = 0; loctim.tm_sec = 0;
+//  loctim.tm_mon = 0;
+//  bool lastBeforeFirst = smaller>larger;
+//  if (lastBeforeFirst) swap(larger, smaller);
+//  if (currentYday<smaller) loctim.tm_mday = 1+smaller;
+//  else if (currentYday<=larger) loctim.tm_mday = 1+larger;
+//  else { loctim.tm_mday = smaller; loctim.tm_year += 1; } // check one day too early, to make sure no day is skipped in a leap year to non leap year transition
+//  updateNextEval(loctim);
+//  f->finish(new BoolValue((currentYday>=smaller && currentYday<=larger)!=lastBeforeFirst));
+}
+
+
+// helper for geolocation dependent functions, returns annotated NULL when no location is set
+static bool checkGeoLocation(BuiltinFunctionContextPtr f)
+{
+  if (!f->geoLocation()) {
+    f->finish(new AnnotatedNullValue("no geolocation information available"));
+    return false;
+  }
+  return true;
+}
+
+// sunrise()
+static void sunrise_func(BuiltinFunctionContextPtr f)
+{
+  if (checkGeoLocation(f)) {
+    f->finish(new NumericValue(sunrise(time(NULL), *(f->geoLocation()), false)*3600));
+  }
+}
+
+
+// dawn()
+static void dawn_func(BuiltinFunctionContextPtr f)
+{
+  if (checkGeoLocation(f)) {
+    f->finish(new NumericValue(sunrise(time(NULL), *(f->geoLocation()), true)*3600));
+  }
+}
+
+
+// sunset()
+static void sunset_func(BuiltinFunctionContextPtr f)
+{
+  if (checkGeoLocation(f)) {
+    f->finish(new NumericValue(sunset(time(NULL), *(f->geoLocation()), false)*3600));
+  }
+}
+
+
+// dusk()
+static void dusk_func(BuiltinFunctionContextPtr f)
+{
+  if (checkGeoLocation(f)) {
+    f->finish(new NumericValue(sunset(time(NULL), *(f->geoLocation()), true)*3600));
+  }
+}
+
+
+// epochtime()
+static void epochtime_func(BuiltinFunctionContextPtr f)
+{
+  f->finish(new NumericValue(MainLoop::unixtime()/Day)); // epoch time in days with fractional time
+}
+
+
+
+// TODO: convert into single function returning a structured time object
+
+// helper macro for getting time
+#define prepTime \
+  MLMicroSeconds t; \
+  if (f->arg(0)->defined()) { \
+    t = f->arg(0)->numValue()*Second; \
+  } \
+  else { \
+    t = MainLoop::unixtime(); \
+  } \
+  double fracSecs; \
+  struct tm loctim; \
+  MainLoop::getLocalTime(loctim, &fracSecs, t);
+
+// common argument descriptor for all time funcs
+static const ArgumentDescriptor timegetter_args[] = { { numeric+null }, { STOP } };
+
+// timeofday([epochtime])
+static void timeofday_func(BuiltinFunctionContextPtr f)
+{
+  prepTime
+  f->finish(new NumericValue(((loctim.tm_hour*60)+loctim.tm_min)*60+loctim.tm_sec+fracSecs));
+}
+
+
+// hour([epochtime])
+static void hour_func(BuiltinFunctionContextPtr f)
+{
+  prepTime
+  f->finish(new NumericValue(loctim.tm_hour));
+}
+
+
+// minute([epochtime])
+static void minute_func(BuiltinFunctionContextPtr f)
+{
+  prepTime
+  f->finish(new NumericValue(loctim.tm_min));
+}
+
+
+// second([epochtime])
+static void second_func(BuiltinFunctionContextPtr f)
+{
+  prepTime
+  f->finish(new NumericValue(loctim.tm_sec));
+}
+
+
+// year([epochtime])
+static void year_func(BuiltinFunctionContextPtr f)
+{
+  prepTime
+  f->finish(new NumericValue(loctim.tm_year+1900));
+}
+
+
+// month([epochtime])
+static void month_func(BuiltinFunctionContextPtr f)
+{
+  prepTime
+  f->finish(new NumericValue(loctim.tm_mon+1));
+}
+
+
+// day([epochtime])
+static void day_func(BuiltinFunctionContextPtr f)
+{
+  prepTime
+  f->finish(new NumericValue(loctim.tm_mday));
+}
+
+
+// weekday([epochtime])
+static void weekday_func(BuiltinFunctionContextPtr f)
+{
+  prepTime
+  f->finish(new NumericValue(loctim.tm_wday));
+}
+
+
+// yearday([epochtime])
+static void yearday_func(BuiltinFunctionContextPtr f)
+{
+  prepTime
+  f->finish(new NumericValue(loctim.tm_yday));
+}
+
+
+// The standard function descriptor table
 static const BuiltinFunctionDescriptor standardFunctions[] = {
-  { "testFunc", numeric, testFuncArgs, &testFunc },
+  { "ifvalid", any, ifvalid_args, &ifvalid_func },
+  { "isvalid", any, isvalid_args, &isvalid_func },
+  { "if", any, if_args, &if_func },
+  { "abs", numeric+null, abs_args, &abs_func },
+  { "int", numeric+null, int_args, &int_func },
+  { "frac", numeric+null, frac_args, &frac_func },
+  { "round", numeric+null, round_args, &round_func },
+  { "random", numeric, random_args, &random_func },
+  { "min", numeric+null, min_args, &min_func },
+  { "max", numeric+null, max_args, &max_func },
+  { "limited", numeric+null, limited_args, &limited_func },
+  { "cyclic", numeric+null, cyclic_args, &cyclic_func },
+  { "string", text, string_args, &string_func },
+  { "number", numeric, number_args, &number_func },
+  { "copy", any, copy_args, &copy_func },
+  { "json", json, json_args, &json_func },
+  //  { "setfield", any, setfield_args, &setfield_func },
+  //  { "setelement", any, setelement_args, &setelement_func },
+  { "jsonresource", json+error, jsonresource_args, &jsonresource_func },
+  { "lastarg", any, lastarg_args, &lastarg_func },
+  { "strlen", numeric+null, strlen_args, &strlen_func },
+  { "substr", text+null, substr_args, &substr_func },
+  { "find", numeric+null, find_args, &find_func },
+  { "format", text, format_args, &format_func },
+  //  { "throw", any, throw_args, &throw_func },
+  { "error", error, error_args, &error_func },
+  //  { "error", any, error_args, &error_func },
+  { "errordomain", text+null, errordomain_args, &errordomain_func },
+  { "errorcode", numeric+null, errorcode_args, &errorcode_func },
+  { "errormessage", text+null, errormessage_args, &errormessage_func },
+  { "eval", any, eval_args, &eval_func },
+  { "log", null, log_args, &log_func },
+  { "loglevel", numeric, loglevel_args, &loglevel_func },
+  { "logleveloffset", numeric, logleveloffset_args, &logleveloffset_func },
+  { "is_weekday", any, is_weekday_args, &is_weekday_func },
+  { "after_time", numeric, after_time_args, &after_time_func },
+  { "is_time", numeric, is_time_args, &is_time_func },
+  { "between_dates", numeric, between_dates_args, &between_dates_func },
+  { "sunrise", numeric+null, NULL, &sunrise_func },
+  { "dawn", numeric+null, NULL, &dawn_func },
+  { "sunset", numeric+null, NULL, &sunset_func },
+  { "dusk", numeric+null, NULL, &dusk_func },
+  { "epochtime", any, NULL, &epochtime_func },
+  { "timeofday", numeric, timegetter_args, &timeofday_func },
+  { "hour", any, timegetter_args, &hour_func },
+  { "minute", any, timegetter_args, &minute_func },
+  { "second", any, timegetter_args, &second_func },
+  { "year", any, timegetter_args, &year_func },
+  { "month", any, timegetter_args, &month_func },
+  { "day", any, timegetter_args, &day_func },
+  { "weekday", any, timegetter_args, &weekday_func },
+  { "yearday", any, timegetter_args, &yearday_func },
   { NULL } // terminator
 };
 
-// FIXME: just a test object
-static BuiltInFunctionLookup standardFunctionLookup(standardFunctions);
+
+
+// MARK: - Standard Scripting Domain
+
+static ScriptingDomain* standardScriptingDomainP = NULL;
+
+ScriptingDomain& StandardScriptingDomain::sharedDomain()
+{
+  if (!standardScriptingDomainP) {
+    standardScriptingDomainP = new StandardScriptingDomain();
+    // the standard scripting domains has the standard functions
+    standardScriptingDomainP->registerMemberLookup(new BuiltInFunctionLookup(standardFunctions));
+  }
+  return *standardScriptingDomainP;
+};
+
+
+
+
+// MARK: - CodeCursor
+
+CodeCursor::CodeCursor(const char* aText) :
+  ptr(aText),
+  bol(aText),
+  line(1)
+{
+}
+
+CodeCursor::CodeCursor(const CodeCursor &aCursor) :
+  ptr(aCursor.ptr),
+  bol(aCursor.ptr),
+  line(aCursor.line)
+{
+}
+
+
+size_t CodeCursor::lineno() const
+{
+  return line;
+}
+
+
+size_t CodeCursor::charpos() const
+{
+  if (!ptr || !bol) return 0;
+  return ptr-bol;
+}
+
+
+bool CodeCursor::next()
+{
+  if (!ptr || *ptr==0) return false;
+  if (*ptr=='\n') {
+    line++; // count line
+    bol = ++ptr;
+  }
+  else {
+    ptr++;
+  }
+  return true; // could advance the pointer, does not mean there is anything here, though.
+}
+
+
+bool CodeCursor::advance(size_t aNumChars)
+{
+  while(aNumChars>0) {
+    if (!next()) return false;
+  }
+  return true;
+}
+
+
+
+char CodeCursor::currentchar() const
+{
+  if (!ptr) return 0;
+  return *ptr;
+}
+
+
+void CodeCursor::skipNonCode()
+{
+  if (!ptr) return;
+  bool recheck;
+  do {
+    recheck = false;
+    while (*ptr==' ' || *ptr=='\t' || *ptr=='\n' || *ptr=='\r') next();
+    // also check for comments
+    if (*ptr=='/') {
+      if (*(ptr+1)=='/') {
+        advance(2);
+        // C++ style comment, lasts until EOT or EOL
+        while (*ptr && *ptr!='\n' && *ptr!='\r') next();
+        recheck = true;
+      }
+      else if (*ptr=='*') {
+        // C style comment, lasts until '*/'
+        advance(2);
+        while (*ptr && *ptr!='*') next();
+        if (*ptr=='/') {
+          advance(2);
+        }
+        recheck = true;
+      }
+    }
+  } while(recheck);
+}
+
 
 
 
@@ -355,155 +1438,6 @@ static BuiltInFunctionLookup standardFunctionLookup(standardFunctions);
 
 #if 0
 
-
-ExpressionValue ExpressionValue::subField(const string aFieldName)
-{
-  ExpressionValue ret;
-  JsonObjectPtr j = jsonValue();
-  if (j && j->isType(json_type_object)) {
-    JsonObjectPtr sf = j->get(aFieldName.c_str());
-    ret.setJson(sf);
-  }
-  return ret;
-}
-
-
-ExpressionValue ExpressionValue::arrayElement(int aArrayIndex)
-{
-  ExpressionValue ret;
-  JsonObjectPtr j = jsonValue();
-  if (j && j->isType(json_type_array)) {
-    JsonObjectPtr sf = j->arrayGet(aArrayIndex);
-    ret.setJson(sf);
-  }
-  return ret;
-}
-
-
-ExpressionValue ExpressionValue::subScript(const ExpressionValue& aSubScript)
-{
-  if (aSubScript.isString()) {
-    return subField(aSubScript.stringValue());
-  }
-  else {
-    return arrayElement(aSubScript.intValue());
-  }
-}
-
-
-ExpressionValue ExpressionValue::operator!() const
-{
-  ExpressionValue res;
-  res.setBool(!boolValue());
-  return res;
-}
-
-
-
-ExpressionValue ExpressionValue::operator<(const ExpressionValue& aRightSide) const
-{
-  if (isString()) return *strValP < aRightSide.stringValue();
-  return numVal < aRightSide.numValue();
-}
-
-ExpressionValue ExpressionValue::operator!=(const ExpressionValue& aRightSide) const
-{
-  return !operator==(aRightSide);
-}
-
-ExpressionValue ExpressionValue::operator==(const ExpressionValue& aRightSide) const
-{
-  ExpressionValue res;
-  if (isString()) res.setBool(*strValP == aRightSide.stringValue());
-  else res.setBool(numVal == aRightSide.numValue());
-  return res;
-}
-
-ExpressionValue ExpressionValue::operator+(const ExpressionValue& aRightSide) const
-{
-  if (isString()) return *strValP + aRightSide.stringValue();
-  return numVal + aRightSide.numValue();
-}
-
-ExpressionValue ExpressionValue::operator-(const ExpressionValue& aRightSide) const
-{
-  return numValue() - aRightSide.numValue();
-}
-
-ExpressionValue ExpressionValue::operator*(const ExpressionValue& aRightSide) const
-{
-  return numValue() * aRightSide.numValue();
-}
-
-ExpressionValue ExpressionValue::operator/(const ExpressionValue& aRightSide) const
-{
-  ExpressionValue res;
-  if (aRightSide.numValue()==0) {
-    res.setError(ExpressionError::DivisionByZero, "division by zero");
-  }
-  else {
-    res.setNumber(numValue() / aRightSide.numValue());
-  }
-  return res;
-}
-
-ExpressionValue ExpressionValue::operator%(const ExpressionValue& aRightSide) const
-{
-  ExpressionValue res;
-  if (aRightSide.numValue()==0) {
-    res.setError(ExpressionError::DivisionByZero, "division by zero");
-  }
-  else {
-    // modulo allowing float dividend and divisor, really meaning "remainder"
-    double a = numValue();
-    double b = aRightSide.numValue();
-    int64_t q = a/b;
-    res.setNumber(a-b*q);
-  }
-  return res;
-}
-
-ExpressionValue ExpressionValue::operator&&(const ExpressionValue& aRightSide) const
-{
-  return numValue() && aRightSide.numValue();
-}
-
-ExpressionValue ExpressionValue::operator||(const ExpressionValue& aRightSide) const
-{
-  return numValue() || aRightSide.numValue();
-}
-
-ExpressionValue ExpressionValue::operator>=(const ExpressionValue& aRightSide) const
-{
-  return !operator<(aRightSide);
-}
-
-ExpressionValue ExpressionValue::operator>(const ExpressionValue& aRightSide) const
-{
-  return !operator<(aRightSide) && !operator==(aRightSide);
-}
-
-ExpressionValue ExpressionValue::operator<=(const ExpressionValue& aRightSide) const
-{
-  return operator<(aRightSide) || operator==(aRightSide);
-}
-
-
-
-
-
-// MARK: - expression error
-
-
-ErrorPtr ExpressionError::err(ErrorCodes aErrCode, const char *aFmt, ...)
-{
-  Error *errP = new ExpressionError(aErrCode);
-  va_list args;
-  va_start(args, aFmt);
-  errP->setFormattedMessage(aFmt, args);
-  va_end(args);
-  return ErrorPtr(errP);
-}
 
 
 // MARK: - EvaluationContext
@@ -1124,7 +2058,7 @@ bool EvaluationContext::variableLookup(VariablesMap* aVariableMapP, const string
     // found base var
     aResult = vpos->second;
     while (nextPart(p, enam, '.')) {
-      #if EXPRESSION_JSON_SUPPORT
+      #if SCRIPTING_JSON_SUPPORT
       if (!aResult.isJson()) return false; // not found
       aResult = aResult.subField(enam);
       #else
@@ -1336,7 +2270,7 @@ bool EvaluationContext::resumeExpression()
     }
     return newstate(s_exprLeftSide);
   }
-  #if EXPRESSION_JSON_SUPPORT
+  #if SCRIPTING_JSON_SUPPORT
   if (sp().state==s_subscriptArg) {
     // a subscript argument, collect like function args
     sp().args.addArg(sp().res, sp().pos);
@@ -1365,10 +2299,10 @@ bool EvaluationContext::resumeExpression()
     // after subscript, continue with leftside
     return newstate(s_exprLeftSide);
   }
-  #endif // EXPRESSION_JSON_SUPPORT
+  #endif // SCRIPTING_JSON_SUPPORT
   if (sp().state==s_exprLeftSide) {
     // res now has the left side value
-    #if EXPRESSION_JSON_SUPPORT
+    #if SCRIPTING_JSON_SUPPORT
     // - check postfix "operators": dot and subscript
     if (currentchar()=='[') {
       // array-style [x,..] subscript, works similar to function
@@ -1391,7 +2325,7 @@ bool EvaluationContext::resumeExpression()
       // after subscript, continue with leftside
       return newstate(s_exprLeftSide);
     }
-    #endif // EXPRESSION_JSON_SUPPORT
+    #endif // SCRIPTING_JSON_SUPPORT
     // check binary operators
     size_t opIdx = pos;
     Operations binaryop = parseOperator(opIdx);
@@ -1514,7 +2448,7 @@ bool EvaluationContext::resumeTerm()
       pos++; // skip closing quote
       sp().res.setString(str);
     }
-    #if EXPRESSION_JSON_SUPPORT
+    #if SCRIPTING_JSON_SUPPORT
     else if (currentchar()=='{' || currentchar()=='[') {
       // JSON object or array literal
       const char* p = tail(pos);
@@ -1793,7 +2727,7 @@ bool EvaluationContext::evaluateFunction(const string &aFunc, const FunctionArgu
   }
   else if (aFunc=="copy" && aArgs.size()==1) {
     // copy(anything) // make a value copy, including json object references
-    #if EXPRESSION_JSON_SUPPORT
+    #if SCRIPTING_JSON_SUPPORT
     if (aArgs[0].isJson()) {
       // need to make a value copy of the JsonObject itself
       aResult.setJson(JsonObjectPtr(new JsonObject(*(aArgs[0].jsonValue()))));
@@ -1804,7 +2738,7 @@ bool EvaluationContext::evaluateFunction(const string &aFunc, const FunctionArgu
       aResult = aArgs[0]; // just copy the ExpressionValue
     }
   }
-  #if EXPRESSION_JSON_SUPPORT
+  #if SCRIPTING_JSON_SUPPORT
   else if (aFunc=="json" && aArgs.size()==1) {
     // json(anything)
     aResult.setJson(aArgs[0].jsonValue());
@@ -1845,7 +2779,7 @@ bool EvaluationContext::evaluateFunction(const string &aFunc, const FunctionArgu
       aResult.setError(err);
   }
   #endif // ENABLE_JSON_APPLICATION
-  #endif // EXPRESSION_JSON_SUPPORT
+  #endif // SCRIPTING_JSON_SUPPORT
   else if (aFunc=="lastarg") {
     // lastarg(expr, expr, exprlast)
     // (for executing side effects of non-last arg evaluation, before returning the last arg)

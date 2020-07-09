@@ -50,9 +50,11 @@ namespace p44 { namespace Script {
   class NumericValue;
   class StringValue;
 
-  class ExecutableObj;
+  class ImplementationObj;
   class ScriptCodeObj;
+  typedef boost::intrusive_ptr<ScriptCodeObj> ScriptCodeObjPtr;
   class ScriptingDomain;
+  typedef boost::intrusive_ptr<ScriptingDomain> ScriptingDomainPtr;
 
   class ExecutionContext;
   typedef boost::intrusive_ptr<ExecutionContext> ExecutionContextPtr;
@@ -80,11 +82,12 @@ namespace p44 { namespace Script {
       Syntax,
       DivisionByZero,
       CyclicReference,
-      Immutable, ///< object/field is immutable and cannot be assigned
       Invalid, ///< invalid value
       Internal, ///< internal inconsistency
       Busy, ///< currently running
-      NotFound, ///< referenced object not found at runtime
+      NotFound, ///< referenced object not found at runtime (and cannot be created)
+      NotCreated, ///< object/field does not exist and cannot be created, either
+      Immutable, ///< object/field exists but is immutable and cannot be assigned
       Aborted, ///< externally aborted
       Timeout, ///< aborted because max execution time limit reached
       User, ///< user generated error (with throw)
@@ -100,12 +103,22 @@ namespace p44 { namespace Script {
   // MARK: - Script namespace types
 
   /// Evaluation flags
-  typedef enum {
-    initial = 0x0001,
-    timed = 0x0002,
-    synchronously = 0x1000
-    // FIXME: real flags
-  } EvaluationFlags;
+  enum {
+    modeMask = 0x00FF,
+    unspecific = 0, ///< no specific mode
+    initial = 0x0001, ///< initial trigger expression run (no external event, implicit event is startup or code change)
+    externaltrigger = 0x0002, ///< externally triggered evaluation
+    timed = 0x0003, ///< timed evaluation by timed retrigger
+    script = 0x0004, ///< evaluate as script code
+    // modifiers
+    modifierMask = 0xFF00,
+    synchronously = 0x0100, ///< evaluate synchronously, error out on async code
+    abortrunning = 0x0200, ///< abort running evaluation in the same context before starting a new one
+    queue = 0x0400, ///< queue for evaluation if other evaluations are still running/pending
+    reset = 0x0800, ///< reset the context (clear local vars) before starting
+    concurrently = 0x1000, ///< reset the context (clear local vars) before starting
+  };
+  typedef uint16_t EvaluationFlags;
 
   /// Type info
   enum {
@@ -118,37 +131,45 @@ namespace p44 { namespace Script {
     text = 0x0008, ///< text/string value
     json = 0x0010, ///< JSON value
     executable = 0x0080, ///< executable code
-    any = 0x00FF, ///< any type
     // attributes
     attrMask = 0xFF00,
-    field = 0x0100, ///< is a (leaf) field
-    object = 0x0200, ///< is a object with named members
-    array = 0x0400, ///< is an array with indexed elements
-    mutablemembers = 0x0800, ///< members are mutable
+    object = 0x0100, ///< is a object with named members
+    array = 0x0200, ///< is an array with indexed elements
+    mutablemembers = 0x0400, ///< members are mutable
+    // type classes
+    scalar = numeric+text+json, ///< scalar types (json can also be structured)
+    structured = object+array, ///< structured types
+    value = scalar+structured, ///< value types (excludes executables)
+    any = 0x00FF, ///< any type
     // for argument checking
-    multiple = 0x1000, ///< this argument type can occur mutiple times (... signature)
-    autoconvert = 0x2000, ///< type is not required to match, as long as it can be converted
+    STOP = none, ///< terminator for argument descriptors
+    optional = null, ///< if set, the argument is optional (means: is is allowed to be null even when null is not explicitly allowed)
+    multiple = 0x0800, ///< this argument type can occur mutiple times (... signature)
+    exacttype = 0x1000, ///< if set, type of argument must match, no autoconversion
+    undefres = 0x2000, ///< if set, and an argument does not match type, the function result is automatically made null/undefined without executing the implementation
+    // for storage of named members
+    create = 0x4000, ///< set to create member if not yet existing
+    global = 0x8000, ///< set to store in global context
   };
   typedef uint16_t TypeInfo;
 
   /// Argument descriptor
   typedef struct {
-    TypeInfo allowed; ///< these type bits may be set
-    TypeInfo required; ///< these type bits must be set
+    TypeInfo typeInfo; ///< info about allowed types, checking, open argument lists, etc.
     const char* name; ///< the name of the argument, can be NULL if unnamed positional argument
-  } ArgumentDesciptor;
+  } ArgumentDescriptor;
 
   /// Script call signature
-  typedef const ArgumentDesciptor* ScriptCallSignature;
+  typedef const ArgumentDescriptor* ScriptCallSignature;
 
   // MARK: - ScriptObj base class
 
   /// evaluation callback
-  /// @param aEvaluationResult the result of the evaluation
-  typedef boost::function<bool (ScriptObjPtr aEvaluationResult)> EvaluationCB;
+  /// @param aEvaluationResult the result of an evaluation
+  typedef boost::function<void (ScriptObjPtr aEvaluationResult)> EvaluationCB;
 
   /// Base Object in scripting
-  class ScriptObj : public P44Obj
+  class ScriptObj : public P44LoggingObj
   {
   public:
 
@@ -162,25 +183,14 @@ namespace p44 { namespace Script {
     /// get annotation text
     virtual string getAnnotation() const { return "ScriptObj"; };
 
-    /// @}
+    /// check type compatibility
+    bool hasType(TypeInfo aTypeInfo) const { return (getTypeInfo() & aTypeInfo)!=0; }
 
-    /// @name evaluation
-    /// @{
+    /// check for null/undefined
+    bool undefined() const { return (getTypeInfo() & null)!=0; }
 
-    /// @return true if this object is evaluated.
-    /// @note to obtain a evaluated version of the object, evaluate() must be called
-    virtual bool isEvaluated() const { return true; } // base class is always in evaluated state (a null object)
-
-    /// @return the / a context in which this object can or should be evaluated.
-    ///   parameters/arguments to be passed to the evaluation must be set into this context
-    virtual ExecutionContextPtr newExecutionContext() { return ExecutionContextPtr(); };
-
-    /// Evaluate the object
-    /// @param aEvaluationCB will be called to deliver the result of the evaluation
-    /// @param aEvalFlags evaluation flags
-    /// @param aExecutionContext the context in which the execution should take place (vars, constants, domain)
-    /// @note the evaluation result might be a Ptr to the same object
-    virtual void evaluate(EvaluationCB aEvaluationCB, EvaluationFlags aEvalFlags, ExecutionContextPtr aExecutionContext);
+    /// check for null/undefined
+    bool defined() const { return !undefined(); }
 
     /// @}
 
@@ -190,6 +200,7 @@ namespace p44 { namespace Script {
     virtual double numValue() const { return 0; }; ///< @return a conversion to numeric (using literal syntax), if value is string
     virtual bool boolValue() const { return numValue()!=0; }; ///< @return a conversion to boolean (true = not numerically 0, not JSON-falsish)
     virtual string stringValue() const { return "undefined"; }; ///< @return a conversion to string of the value
+    virtual ErrorPtr errorValue() const { return Error::ok(); } ///< @return error value (always an object, OK if not in error)
     #if SCRIPTING_JSON_SUPPORT
     virtual JsonObjectPtr jsonValue() const { return JsonObject::newNull(); } ///< @return a JSON value
     #endif
@@ -224,9 +235,10 @@ namespace p44 { namespace Script {
     /// set new object for named member
     /// @param aName name of the member to assign
     /// @param aMember the member to assign
+    /// @param aStorageAttributes flags directing storage (such as global vs local vars).
     /// @return ok or Error describing reason for assignment failure
     /// @note only possibly works on objects with type attribute "mutablemembers"
-    virtual ErrorPtr setMemberByName(const string aName, const ScriptObjPtr aMember);
+    virtual ErrorPtr setMemberByName(const string aName, const ScriptObjPtr aMember, TypeInfo aStorageAttributes = none);
 
     /// set new object for member at index (array, positional parameter)
     /// @param aIndex name of the member to assign
@@ -245,7 +257,39 @@ namespace p44 { namespace Script {
     /// @return NULL or pointer to an array of argument descriptors, terminated with a entry with .allowed==none
     virtual ScriptCallSignature callSignature() const { return NULL; };
 
+    /// get new subroutine context to call this object as a subroutine/function call from a given context
+    /// @param aCallerContext the context from where to call from (evaluate in) this implementation
+    /// @return new context suitable for evaluating this implementation, NULL if none
+    virtual ExecutionContextPtr contextForCallingFrom(ExecutionContextPtr aCallerContext) const { return ExecutionContextPtr(); }
+
     /// @}
+
+
+    /// @name operators
+    /// @{
+
+    // boolean, always returning native C++ boolean
+    // - generic
+    bool operator!() const;
+    bool operator&&(const ScriptObj& aRightSide) const;
+    bool operator||(const ScriptObj& aRightSide) const;
+    // - derived
+    bool operator!=(const ScriptObj& aRightSide) const;
+    bool operator>=(const ScriptObj& aRightSide) const;
+    bool operator>(const ScriptObj& aRightSide) const;
+    bool operator<=(const ScriptObj& aRightSide) const;
+    // - virtual, type-specific
+    virtual bool operator<(const ScriptObj& aRightSide) const;
+    virtual bool operator==(const ScriptObj& aRightSide) const;
+    // arithmetic, returning a SciptObjPtr, type-specific
+    virtual ScriptObjPtr operator+(const ScriptObj& aRightSide) const { return new ScriptObj(); };
+    virtual ScriptObjPtr operator-(const ScriptObj& aRightSide) const { return new ScriptObj(); };
+    virtual ScriptObjPtr operator*(const ScriptObj& aRightSide) const { return new ScriptObj(); };
+    virtual ScriptObjPtr operator/(const ScriptObj& aRightSide) const { return new ScriptObj(); };
+    virtual ScriptObjPtr operator%(const ScriptObj& aRightSide) const { return new ScriptObj(); };
+
+    /// @}
+
 
 
     /// @name triggering support
@@ -265,7 +309,7 @@ namespace p44 { namespace Script {
   {
     typedef ScriptObj inherited;
   public:
-    virtual TypeInfo getTypeInfo() const P44_OVERRIDE { return field; };
+    virtual TypeInfo getTypeInfo() const P44_OVERRIDE { return scalar; };
   };
 
   /// an explicitly annotated null value (in contrast to ScriptObj base class which is a non-annotated null)
@@ -287,13 +331,16 @@ namespace p44 { namespace Script {
     ErrorValue(ErrorPtr aError) : err(aError) {};
     ErrorValue(ScriptError::ErrorCodes aErrCode, const char *aFmt, ...);
     virtual string getAnnotation() const P44_OVERRIDE { return "error"; };
-    virtual TypeInfo getTypeInfo() const P44_OVERRIDE { return field|error; };
+    virtual TypeInfo getTypeInfo() const P44_OVERRIDE { return error; };
     // value getters
     virtual double numValue() const P44_OVERRIDE { return err ? 0 : err->getErrorCode(); };
     virtual string stringValue() const P44_OVERRIDE { return Error::text(err); };
+    virtual ErrorPtr errorValue() const P44_OVERRIDE { return err ? err : Error::ok(); };
     #if SCRIPTING_JSON_SUPPORT
     virtual JsonObjectPtr jsonValue() const P44_OVERRIDE;
     #endif
+    // operators
+    virtual bool operator==(const ScriptObj& aRightSide) const P44_OVERRIDE;
   };
 
 
@@ -304,13 +351,21 @@ namespace p44 { namespace Script {
   public:
     NumericValue(double aNumber) : num(aNumber) {};
     virtual string getAnnotation() const P44_OVERRIDE { return "numeric"; };
-    virtual TypeInfo getTypeInfo() const P44_OVERRIDE { return field+numeric; };
+    virtual TypeInfo getTypeInfo() const P44_OVERRIDE { return numeric; };
     // value getters
     virtual double numValue() const P44_OVERRIDE { return num; }; // native
     virtual string stringValue() const P44_OVERRIDE { return string_format("%lg", num); };
     #if SCRIPTING_JSON_SUPPORT
     virtual JsonObjectPtr jsonValue() const P44_OVERRIDE { return JsonObject::newDouble(num); };
     #endif
+    // operators
+    virtual bool operator<(const ScriptObj& aRightSide) const P44_OVERRIDE;
+    virtual bool operator==(const ScriptObj& aRightSide) const P44_OVERRIDE;
+    virtual ScriptObjPtr operator+(const ScriptObj& aRightSide) const P44_OVERRIDE;
+    virtual ScriptObjPtr operator-(const ScriptObj& aRightSide) const P44_OVERRIDE;
+    virtual ScriptObjPtr operator*(const ScriptObj& aRightSide) const P44_OVERRIDE;
+    virtual ScriptObjPtr operator/(const ScriptObj& aRightSide) const P44_OVERRIDE;
+    virtual ScriptObjPtr operator%(const ScriptObj& aRightSide) const P44_OVERRIDE;
   };
 
 
@@ -321,13 +376,17 @@ namespace p44 { namespace Script {
   public:
     StringValue(string aString) : str(aString) {};
     virtual string getAnnotation() const P44_OVERRIDE { return "string"; };
-    virtual TypeInfo getTypeInfo() const P44_OVERRIDE { return field+text; };
+    virtual TypeInfo getTypeInfo() const P44_OVERRIDE { return text; };
     // value getters
     virtual string stringValue() const P44_OVERRIDE { return str; }; // native
     virtual double numValue() const P44_OVERRIDE;
     #if SCRIPTING_JSON_SUPPORT
     virtual JsonObjectPtr jsonValue() const P44_OVERRIDE;
     #endif
+    // operators
+    virtual bool operator<(const ScriptObj& aRightSide) const P44_OVERRIDE;
+    virtual bool operator==(const ScriptObj& aRightSide) const P44_OVERRIDE;
+    virtual ScriptObjPtr operator+(const ScriptObj& aRightSide) const P44_OVERRIDE;
   };
 
 
@@ -354,54 +413,9 @@ namespace p44 { namespace Script {
   #endif // SCRIPTING_JSON_SUPPORT
 
 
-  // MARK: - Executable Script Objects
+  // MARK: - Extendable class member lookup
 
-
-  class ExecutableObj : public ScriptObj
-  {
-    typedef ScriptObj inherited;
-  public:
-
-  };
-
-
-
-  /// Basic execution context, can hold indexed (positional) arguments as needed for callimng built-in functions
-  class ExecutionContext : public ScriptObj
-  {
-    typedef ScriptObj inherited;
-
-    typedef std::vector<ScriptObjPtr> IndexedVarVector;
-    IndexedVarVector indexedVars;
-
-  public:
-
-    virtual size_t numIndexedMembers() const P44_OVERRIDE;
-    virtual const ScriptObjPtr memberAtIndex(size_t aIndex, TypeInfo aTypeRequirements = none) const P44_OVERRIDE;
-    virtual ErrorPtr setMemberAtIndex(size_t aIndex, const ScriptObjPtr aMember, const string aName = "") P44_OVERRIDE;
-
-  };
-
-
-  /// Execution context for function implemented as script with access to local variables (and named access to arguments)
-  class LocalVarContext : public ExecutionContext
-  {
-    typedef ExecutionContext inherited;
-
-    typedef std::map<string, ScriptObjPtr, lessStrucmp> NamedVarMap;
-    NamedVarMap namedVars;
-
-  public:
-
-    virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aTypeRequirements = none) const P44_OVERRIDE;
-    virtual ErrorPtr setMemberByName(const string aName, const ScriptObjPtr aMember) P44_OVERRIDE;
-
-  };
-
-
-  // MARK: - Member Lookup
-
-
+  /// implements a lookup step that can be used
   class ClassMemberLookup : public P44Obj
   {
   public:
@@ -423,16 +437,223 @@ namespace p44 { namespace Script {
     /// @param aMember the member to assign
     /// @return ok or Error describing reason for assignment failure
     /// @note only possibly works on objects with type attribute "mutablemembers"
-    virtual ErrorPtr setMemberByNameFrom(ScriptObjPtr aThisObj, const string aName, const ScriptObjPtr aMember) { return ScriptError::err(ScriptError::Immutable, "cannot assign '%s'", aName.c_str()); };
+    virtual ErrorPtr setMemberByNameFrom(ScriptObjPtr aThisObj, const string aName, const ScriptObjPtr aMember, TypeInfo aStorageAttributes = none)
+       { return ScriptError::err(ScriptError::NotFound, "cannot assign '%s'", aName.c_str()); }
 
   };
 
 
 
-  // MARK: - Built-in function support
+  // MARK: - Execution contexts
+
+  /// Basic execution context, can hold indexed (positional) arguments as needed for calling built-in functions
+  class ExecutionContext : public ScriptObj
+  {
+    typedef ScriptObj inherited;
+
+    typedef std::vector<ScriptObjPtr> IndexedVarVector;
+    IndexedVarVector indexedVars;
+    ScriptingDomainPtr domain; ///< the scripting domain
+    ScriptObjPtr thisObject; ///< the object being executed in this context
+
+  public:
+
+    ExecutionContext(ScriptObjPtr aExecObj, ScriptingDomainPtr aDomain) : thisObject(aExecObj) {};
+
+    // access to function arguments (positional) by index plus optionally a name
+    virtual size_t numIndexedMembers() const P44_OVERRIDE;
+    virtual const ScriptObjPtr memberAtIndex(size_t aIndex, TypeInfo aTypeRequirements = none) const P44_OVERRIDE;
+    virtual ErrorPtr setMemberAtIndex(size_t aIndex, const ScriptObjPtr aMember, const string aName = "") P44_OVERRIDE;
+
+    /// @return the object _instance_ being executed
+    /// @note can be null if this function is a plain global function
+    ScriptObjPtr thisObj() const { return thisObject; }
+
+    /// "Compile" (for now, just scan for function definitions and syntax errors)
+    /// @param aCodeString the code to compile
+    /// @param aOriginLabel a string indicating where the code comes from (e.g. "evaluator action", "init script" etc.)
+    /// @return an ImplementationObj when successful, a ErrorValue otherwise
+    ScriptObjPtr compile(const string aCodeString, const string aOriginLabel);
+
+    /// Evaluate a object
+    /// @param aToEvaluate the object to be evaluated
+    /// @param aEvalFlags evaluation control flags
+    /// @param aEvaluationCB will be called to deliver the result of the evaluation
+    virtual void evaluate(ScriptObjPtr aToEvaluate, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB);
+
+
+    /// @name execution environment info
+    /// @{
+
+    /// @return return the domain, which is the context for resolving global variables
+    virtual ScriptingDomainPtr globals() const { return domain; }
+
+    /// @return geolocation for this context or NULL if none
+    /// @note returns geolocation of domain by default.
+    virtual GeoLocation* geoLocation();
+
+    /// @}
+
+  };
+
+
+  /// context for a local execution block, such as a function implemented as script
+  /// with access to local variables (and named access to arguments)
+  class LocalVarContext : public ExecutionContext
+  {
+    typedef ExecutionContext inherited;
+
+    typedef std::map<string, ScriptObjPtr, lessStrucmp> NamedVarMap;
+    NamedVarMap namedVars;
+
+  public:
+
+    LocalVarContext(ScriptObjPtr aExecObj, ScriptingDomainPtr aDomain) : inherited(aExecObj, aDomain) {};
+
+    // access to local variables by name
+    virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aTypeRequirements = none) const P44_OVERRIDE;
+    virtual ErrorPtr setMemberByName(const string aName, const ScriptObjPtr aMember, TypeInfo aStorageAttributes = none) P44_OVERRIDE;
+    virtual ErrorPtr setMemberAtIndex(size_t aIndex, const ScriptObjPtr aMember, const string aName = "") P44_OVERRIDE;
+
+  };
+
+
+  class LocalExecutionContext : public LocalVarContext
+  {
+    typedef LocalVarContext inherited;
+
+    ExecutionContextPtr parentContext;
+
+    typedef std::list<ClassMemberLookupPtr> LookupList;
+    LookupList lookups;
+
+  public:
+    LocalExecutionContext(ScriptObjPtr aExecObj, ExecutionContextPtr aParentContext, ScriptingDomainPtr aDomain);
+
+    // access to objects in the context hierarchy of a local execution
+    // (local objects, parent context objects, global objects)
+    virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aTypeRequirements = none) const P44_OVERRIDE;
+    virtual ErrorPtr setMemberByName(const string aName, const ScriptObjPtr aMember, TypeInfo aStorageAttributes = none) P44_OVERRIDE;
+
+    /// @return return the execution's main (parent context
+    ExecutionContextPtr parent() { return parentContext; }
+
+    /// register an additional lookup
+    /// @param aMemberLookup a lookup object
+    void registerMemberLookup(ClassMemberLookupPtr aMemberLookup);
+
+  };
+
+
+  /// Scripting domain, usually singleton, containing global variables and event handlers
+  class ScriptingDomain : public LocalExecutionContext
+  {
+    typedef LocalExecutionContext inherited;
+
+    GeoLocation *geoLocationP;
+
+    // TODO: global function storage
+    // TODO: global event handler storage
+
+    // TODO:
+
+  public:
+
+    ScriptingDomain() : inherited(ScriptObjPtr(), ExecutionContextPtr(), ScriptingDomainPtr()), geoLocationP(NULL) {};
+
+    /// set geolocation to use for functions that refer to location
+    void setGeoLocation(GeoLocation* aGeoLocationP) { geoLocationP = aGeoLocationP; };
+
+    // environment
+    virtual GeoLocation* geoLocation() P44_OVERRIDE { return geoLocationP; };
+
+  };
+
+
+  class ImplementationObj : public ScriptObj
+  {
+    typedef ScriptObj inherited;
+  public:
+
+  };
+
+
+
+
+  // MARK: - Script code scanning / processing
+
+
+  class CodeCursor
+  {
+    const char* ptr; ///< pointer to current position in the scource text
+    const char* bol; ///< pointer to beginning of current line
+    size_t line; ///< line number
+  public:
+    CodeCursor(const char* aText);
+    CodeCursor(const CodeCursor &aCursor);
+    // info
+    size_t lineno() const;
+    size_t charpos() const;
+    // access
+    bool next(); ///< advance to next char, @return false if not possible to advance
+    bool advance(size_t aNumChars); ///< advance by specified number of chars @param aNumChars number of chars to advance
+    char currentchar() const; ///< return current character
+    void skipNonCode(); ///< skip non-code, i.e. whitespace and comments
+    // operators as convenience
+    bool operator++() { return next(); }
+    char operator*() { return currentchar(); }
+  };
+
+
+  class SourcePos
+  {
+    CodeCursor pos;
+  public:
+    // TODO: define
+
+  };
+
+
+  class SourceProcessor
+  {
+  public:
+    // TODO: define
+
+
+  };
+
+
+  class ScriptCompiler : public SourceProcessor
+  {
+    typedef SourceProcessor inherited;
+
+  public:
+
+    /// Scan code, extract function definitions, global vars, event handlers into scripting domain, return actual code
+    ScriptCodeObjPtr compile(ScriptingDomain& aDomain, const string aSource, const string aLabel, P44LoggingObj* aLoggingContextP = NULL);
+
+  protected:
+
+    ScriptCodeObjPtr compilePart(CodeCursor& aCursor);
+
+  };
+
+
+  class CodeRunner : public SourceProcessor
+  {
+    typedef SourceProcessor inherited;
+  public:
+
+  };
+
+
+
+
+ // MARK: - Built-in function support
 
   class BuiltInFunctionLookup;
   class BuiltinFunctionObj;
+  typedef boost::intrusive_ptr<BuiltinFunctionObj> BuiltinFunctionObjPtr;
   class BuiltinFunctionContext;
   typedef boost::intrusive_ptr<BuiltinFunctionContext> BuiltinFunctionContextPtr;
 
@@ -443,10 +664,10 @@ namespace p44 { namespace Script {
   typedef void (*BuiltinFunctionImplementation)(BuiltinFunctionContextPtr aContext);
 
   typedef struct {
-    const char* name;
-    TypeInfo returnType;
-    const ArgumentDesciptor* arguments;
-    BuiltinFunctionImplementation implementation;
+    const char* name; ///< name of the function
+    TypeInfo returnTypeInfo; ///< possible return types
+    const ArgumentDescriptor* arguments; ///< arguments
+    BuiltinFunctionImplementation implementation; ///< function pointer to implementation (as a plain function)
   } BuiltinFunctionDescriptor;
 
 
@@ -469,12 +690,13 @@ namespace p44 { namespace Script {
 
 
   /// represents a built-in function
-  class BuiltinFunctionObj : public ExecutableObj
+  class BuiltinFunctionObj : public ImplementationObj
   {
-    typedef ExecutableObj inherited;
+    typedef ImplementationObj inherited;
+    friend class BuiltinFunctionContext;
 
-    const BuiltinFunctionDescriptor *descriptor; ///< function signature
-    ScriptObjPtr thisObj; ///< the object this function is a method of
+    const BuiltinFunctionDescriptor *descriptor; ///< function signature, name and pointer to actual implementation function
+    ScriptObjPtr thisObj; ///< the object this function is a method of (if it's not a plain function)
 
   public:
     BuiltinFunctionObj(const BuiltinFunctionDescriptor *aDescriptor, ScriptObjPtr aThisObj) : descriptor(aDescriptor), thisObj(aThisObj) {};
@@ -484,14 +706,7 @@ namespace p44 { namespace Script {
     virtual ScriptCallSignature callSignature() const P44_OVERRIDE { return descriptor->arguments; };
 
     /// @return a context for running built-in functions (only needs the arguments)
-    virtual ExecutionContextPtr newExecutionContext() P44_OVERRIDE;
-
-    /// Evaluate the (function) object
-    /// @param aEvaluationCB will be called to deliver the result of the evaluation
-    /// @param aEvalFlags evaluation flags
-    /// @param aExecutionContext the context in which the execution should take place (vars, constants, domain)
-    /// @note the evaluation result might be a Ptr to the same object
-    virtual void evaluate(EvaluationCB aEvaluationCB, EvaluationFlags aEvalFlags, ExecutionContextPtr aExecutionContext) P44_OVERRIDE;
+    virtual ExecutionContextPtr contextForCallingFrom(ExecutionContextPtr aCallerContext) const P44_OVERRIDE;
 
   };
 
@@ -501,40 +716,54 @@ namespace p44 { namespace Script {
     typedef ExecutionContext inherited;
     friend class BuiltinFunctionObj;
 
-    ScriptObjPtr thisObject; ///< the object this function is a method of
-    ScriptObj nullObj; ///< dummy null object for arg() to return reference to for invalid indices
     EvaluationCB evaluationCB; ///< to be called back
 
   public:
 
-    BuiltinFunctionContext(ScriptObjPtr aThisObj) : thisObject(aThisObj) { nullObj.isMemberVariable(); };
+    BuiltinFunctionContext(ScriptObjPtr aThisObj, ScriptingDomainPtr aDomain) : inherited(aThisObj, aDomain) {};
+
+    /// evaluate built-in function
+    virtual void evaluate(ScriptObjPtr aToEvaluate, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB) P44_OVERRIDE;
 
     /// @name builtin function implementation interface
     /// @{
 
+    /// @return convenience access to numIndexedMembers() in built-in function implementations
+    inline size_t numArgs() const { return numIndexedMembers(); };
+
     /// convenience access to arguments for implementing built-in functions
     /// @param aArgIndex must be in the range of 0..numIndexedMembers()-1
     /// @note essentially is just a convenience wrapper for memberAtIndex()
-    /// @note built-in functions are called with a context that matches their signature, so usually
-    ///   implementation can just access the arguments it expects to be there by index w/o checking.
-    const ScriptObj& arg(size_t aArgIndex) const;
+    /// @note built-in functions should be called with a context that matches their signature
+    ///   so implementation wants to just access the arguments it expects to be there by index w/o checking.
+    ///   To avoid crashes in case a builtin function is evaluated w/o proper signature checking
+    ScriptObjPtr arg(size_t aArgIndex);
+
+    /// @return argument as reference for applying C++ operators to them (and not to the smart pointers)
+    inline ScriptObj& argval(size_t aArgIndex) { return *(arg(aArgIndex)); }
 
     /// return result and execution thread back to script
     /// @param aResult the function result, if any.
     /// @note this must be called when a builtin function implementation completes
-    void finish(ScriptObjPtr aResult = ScriptObjPtr());
-
-    /// @return the object _instance_ this function is a method of
-    /// @note can be null if this function is a plain global function
-    ScriptObjPtr thisObj() { return thisObject; }
-
-    /// builtin functions accept optional member names, but do not store them
-    virtual ErrorPtr setMemberAtIndex(size_t aIndex, const ScriptObjPtr aMember, const string aName = "") P44_OVERRIDE;
+    void finish(const ScriptObjPtr aResult = ScriptObjPtr());
 
     /// @}
   };
 
 
+  // MARK: - Standard scripting domain
+
+  /// Standard scripting domain, with standard set of built-in functions
+  class StandardScriptingDomain : public ScriptingDomain
+  {
+    typedef ScriptingDomain inherited;
+
+  public:
+
+    /// get shared global scripting domain with standard functions
+    static ScriptingDomain& sharedDomain();
+
+  };
 
 
 
