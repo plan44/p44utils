@@ -291,7 +291,8 @@ namespace p44 {
     /// get now as localtime (struct tm)
     /// @param aLocalTime time components will be updated to represent mainloop::now() in localtime
     /// @param aFractionalSecondsP if not NULL, the fractional seconds part will be returned [0..1[
-    static void getLocalTime(struct tm& aLocalTime, double* aFractionalSecondsP = NULL);
+    /// @param aUnixTime optional unix time to calculate local time from. Defaults to current unixtime()
+    static void getLocalTime(struct tm& aLocalTime, double* aFractionalSecondsP = NULL, MLMicroSeconds aUnixTime = unixtime());
 
     /// convert a mainloop timestamp to unix epoch time
     /// @param aMLTime a mainloop timestamp in MLMicroSeconds

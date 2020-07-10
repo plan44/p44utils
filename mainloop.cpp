@@ -209,9 +209,9 @@ MLMicroSeconds MainLoop::localTimeToMainLoopTime(const struct tm& aLocalTime)
 }
 
 
-void MainLoop::getLocalTime(struct tm& aLocalTime, double* aFractionalSecondsP)
+void MainLoop::getLocalTime(struct tm& aLocalTime, double* aFractionalSecondsP, MLMicroSeconds aUnixTime)
 {
-  double unixsecs = unixtime()/Second;
+  double unixsecs = aUnixTime/Second;
   time_t t = unixsecs;
   localtime_r(&t, &aLocalTime);
   if (aFractionalSecondsP) {
