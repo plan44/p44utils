@@ -314,15 +314,18 @@ const ScriptObjPtr JsonValue::memberAtIndex(size_t aIndex, TypeInfo aTypeRequire
 #endif // SCRIPTING_JSON_SUPPORT
 
 
-// MARK: - Executable Script Objects
-
-// TODO: do we need this as an object?
-
-// MARK: - Execution contexts
+// MARK: - ExecutionContext
 
 size_t ExecutionContext::numIndexedMembers() const
 {
   return indexedVars.size();
+}
+
+
+GeoLocation* ExecutionContext::geoLocation()
+{
+  if (!domain) return NULL; // no domain to fallback to
+  return domain->geoLocation(); // return domain's location
 }
 
 
@@ -354,12 +357,107 @@ ErrorPtr ExecutionContext::setMemberAtIndex(size_t aIndex, const ScriptObjPtr aM
 }
 
 
-GeoLocation* ExecutionContext::geoLocation()
+// FIXME: move source code to ScriptObj
+string ScriptObj::typeDescription(TypeInfo aInfo)
 {
-  if (!domain) return NULL; // no domain to fallback to
-  return domain->geoLocation(); // return domain's location
+  string s;
+  if ((aInfo & any)==any) {
+    s = "any type";
+    if (aInfo & null) s += " including undefined";
+  }
+  else {
+    // structure
+    if (aInfo & array) {
+      s = "array";
+    }
+    if (aInfo & array) {
+      if (!s.empty()) s += ", ";
+      s += "object";
+    }
+    if (!s.empty()) s += ", ";
+    // scalar
+    string sc;
+    if (aInfo & numeric) {
+      sc += "numeric";
+    }
+    if (aInfo & text) {
+      if (!sc.empty()) s += ", ";
+      s += "text";
+    }
+    if (aInfo & json) {
+      if (!sc.empty()) s += ", ";
+      s += "json";
+    }
+    if (aInfo & executable) {
+      if (!sc.empty()) s += ", ";
+      s += "script";
+    }
+    if (aInfo & error) {
+      if (!sc.empty()) s += " or ";
+      s += "error";
+    }
+    if (aInfo & null) {
+      if (!sc.empty()) s += " or ";
+      s += "undefined";
+    }
+  }
+  return s;
 }
 
+
+
+ErrorPtr ExecutionContext::checkAndSetArgument(ScriptObjPtr aArgument, size_t aIndex, ScriptObjPtr aCallee)
+{
+  if (!aCallee) return ScriptError::err(ScriptError::Internal, "missing callee");
+  const ArgumentDescriptor* info = aCallee->argumentInfo(aIndex);
+  if (!info) {
+    return ScriptError::err(ScriptError::Syntax, "too many arguments for '%s'", aCallee->getIdentifier().c_str());
+  }
+  TypeInfo required = info->typeInfo;
+  if (!aArgument) {
+    // check if there should be an argument at aIndex (but we have none)
+    if ((required & optional)==0) {
+      // at aIndex is a non-optional argument expected
+      return ScriptError::err(ScriptError::Syntax,
+        "missing argument %zu (%s) in call to '%s'",
+        aIndex, typeDescription(required & scalarMask).c_str(), aCallee->getIdentifier().c_str()
+      );
+    }
+  }
+  // now check argument
+  TypeInfo argInfo = aArgument->getTypeInfo();
+  if ((required & structuredMask)!=0 && (argInfo & required & structuredMask)==0) {
+    // structure requirement not met
+    if (required & undefres)
+      return ScriptError::err(ScriptError::Invalid, "undefined"); // special signal to just return NULL, no error
+    else
+      return ScriptError::err(ScriptError::Syntax,
+        "extected %s for argument %zu in call to '%s'",
+        typeDescription(required & scalarMask).c_str(), aIndex, aCallee->getIdentifier().c_str()
+      );
+  }
+  if ((required & scalarMask)!=0 && (argInfo & required & scalarMask)==0) {
+    // scalar requirements not met, check if exact match needed
+    if ((required & structuredMask)!=0 || (required & exacttype)!=0) {
+      if (required & undefres)
+        return ScriptError::err(ScriptError::Invalid, "undefined"); // special signal to just return NULL, no error
+      else
+        return ScriptError::err(ScriptError::Syntax,
+          "expected %s for argument %zu in call to '%s'",
+          typeDescription(required).c_str(), aIndex, aCallee->getIdentifier().c_str()
+        );
+    }
+    // argument is considerd ok, will be converted as needed
+  }
+  // argument is fine, set it
+  setMemberAtIndex(aIndex, aArgument, nonNullCStr(info->name));
+  return ErrorPtr(); // argument
+}
+
+
+
+
+// MARK: - LocalVarContext
 
 const ScriptObjPtr LocalVarContext::memberByName(const string aName, TypeInfo aTypeRequirements) const
 {
@@ -402,7 +500,7 @@ ErrorPtr LocalVarContext::setMemberAtIndex(size_t aIndex, const ScriptObjPtr aMe
 }
 
 
-
+// MARK: - LocalExecutionContext
 
 LocalExecutionContext::LocalExecutionContext(ScriptObjPtr aExecObj, ExecutionContextPtr aParentContext, ScriptingDomainPtr aDomain) :
   inherited(aExecObj, aDomain),
@@ -487,7 +585,6 @@ void LocalExecutionContext::registerMemberLookup(ClassMemberLookupPtr aMemberLoo
 }
 
 
-
 // MARK: - Built-in function support
 
 BuiltInFunctionLookup::BuiltInFunctionLookup(const BuiltinFunctionDescriptor* aFunctionDescriptors)
@@ -520,6 +617,19 @@ ExecutionContextPtr BuiltinFunctionObj::contextForCallingFrom(ExecutionContextPt
 {
   // built-in functions get their this from the lookup they come from
   return new BuiltinFunctionContext(thisObj, aCallerContext->globals());
+}
+
+
+const ArgumentDescriptor* BuiltinFunctionObj::argumentInfo(size_t aIndex) const
+{
+  if (aIndex<descriptor->numArgs) {
+    return &(descriptor->arguments[aIndex]);
+  }
+  // no arguemnt with this index, check for open argument list
+  if (descriptor->numArgs>0 && (descriptor->arguments[descriptor->numArgs-1].typeInfo & multiple)) {
+    return &(descriptor->arguments[descriptor->numArgs-1]); // last descriptor is for all further args
+  }
+  return NULL; // no such argument
 }
 
 
@@ -567,14 +677,16 @@ void BuiltinFunctionContext::finish(ScriptObjPtr aResult)
 // MARK: - Standard functions
 
 // ifvalid(a, b)   if a is a valid value, return it, otherwise return the default as specified by b
-static const ArgumentDescriptor ifvalid_args[] = { { any }, { any }, { STOP } };
+static const ArgumentDescriptor ifvalid_args[] = { { any }, { any } };
+static const size_t ifvalid_numargs = sizeof(ifvalid_args)/sizeof(ArgumentDescriptor);
 static void ifvalid_func(BuiltinFunctionContextPtr f)
 {
   f->finish(f->arg(0)->hasType(value) ? f->arg(0) : f->arg(1));
 }
 
 // isvalid(a)      if a is a valid value, return true, otherwise return false
-static const ArgumentDescriptor isvalid_args[] = { { any }, { STOP } };
+static const ArgumentDescriptor isvalid_args[] = { { any } };
+static const size_t isvalid_numargs = sizeof(isvalid_args)/sizeof(ArgumentDescriptor);
 static void isvalid_func(BuiltinFunctionContextPtr f)
 {
   f->finish(new NumericValue(f->arg(0)->hasType(value) ? 1 : 0));
@@ -582,14 +694,16 @@ static void isvalid_func(BuiltinFunctionContextPtr f)
 
 
 // if (c, a, b)    if c evaluates to true, return a, otherwise b
-static const ArgumentDescriptor if_args[] = { { value }, { any }, { any }, { STOP } };
+static const ArgumentDescriptor if_args[] = { { value }, { any }, { any } };
+static const size_t if_numargs = sizeof(if_args)/sizeof(ArgumentDescriptor);
 static void if_func(BuiltinFunctionContextPtr f)
 {
   f->finish(f->arg(0)->boolValue() ? f->arg(1) : f->arg(2));
 }
 
 // abs (a)         absolute value of a
-static const ArgumentDescriptor abs_args[] = { { value+undefres }, { STOP } };
+static const ArgumentDescriptor abs_args[] = { { value+undefres } };
+static const size_t abs_numargs = sizeof(abs_args)/sizeof(ArgumentDescriptor);
 static void abs_func(BuiltinFunctionContextPtr f)
 {
   f->finish(new NumericValue(fabs(f->arg(0)->numValue())));
@@ -597,7 +711,8 @@ static void abs_func(BuiltinFunctionContextPtr f)
 
 
 // int (a)         integer value of a
-static const ArgumentDescriptor int_args[] = { { value+undefres }, { STOP } };
+static const ArgumentDescriptor int_args[] = { { value+undefres } };
+static const size_t int_numargs = sizeof(int_args)/sizeof(ArgumentDescriptor);
 static void int_func(BuiltinFunctionContextPtr f)
 {
   f->finish(new NumericValue(int(f->arg(0)->int64Value())));
@@ -605,7 +720,8 @@ static void int_func(BuiltinFunctionContextPtr f)
 
 
 // frac (a)         fractional value of a
-static const ArgumentDescriptor frac_args[] = { { value+undefres }, { STOP } };
+static const ArgumentDescriptor frac_args[] = { { value+undefres } };
+static const size_t frac_numargs = sizeof(frac_args)/sizeof(ArgumentDescriptor);
 static void frac_func(BuiltinFunctionContextPtr f)
 {
   f->finish(new NumericValue(f->arg(0)->numValue()-f->arg(0)->int64Value())); // result retains sign
@@ -614,7 +730,8 @@ static void frac_func(BuiltinFunctionContextPtr f)
 
 // round (a)       round value to integer
 // round (a, p)    round value to specified precision (1=integer, 0.5=halves, 100=hundreds, etc...)
-static const ArgumentDescriptor round_args[] = { { value+undefres }, { numeric+optional }, { STOP } };
+static const ArgumentDescriptor round_args[] = { { value+undefres }, { numeric+optional } };
+static const size_t round_numargs = sizeof(round_args)/sizeof(ArgumentDescriptor);
 static void round_func(BuiltinFunctionContextPtr f)
 {
   double precision = 1;
@@ -626,7 +743,8 @@ static void round_func(BuiltinFunctionContextPtr f)
 
 
 // random (a,b)     random value from a up to and including b
-static const ArgumentDescriptor random_args[] = { { numeric }, { numeric }, { STOP } };
+static const ArgumentDescriptor random_args[] = { { numeric }, { numeric } };
+static const size_t random_numargs = sizeof(random_args)/sizeof(ArgumentDescriptor);
 static void random_func(BuiltinFunctionContextPtr f)
 {
   // rand(): returns a pseudo-random integer value between ​0​ and RAND_MAX (0 and RAND_MAX included).
@@ -635,7 +753,8 @@ static void random_func(BuiltinFunctionContextPtr f)
 
 
 // min (a, b)    return the smaller value of a and b
-static const ArgumentDescriptor min_args[] = { { value+undefres }, { value+undefres }, { STOP } };
+static const ArgumentDescriptor min_args[] = { { value+undefres }, { value+undefres } };
+static const size_t min_numargs = sizeof(min_args)/sizeof(ArgumentDescriptor);
 static void min_func(BuiltinFunctionContextPtr f)
 {
   if (f->argval(0)<f->argval(1)) f->finish(f->arg(0));
@@ -644,7 +763,8 @@ static void min_func(BuiltinFunctionContextPtr f)
 
 
 // max (a, b)    return the bigger value of a and b
-static const ArgumentDescriptor max_args[] = { { value+undefres }, { value+undefres }, { STOP } };
+static const ArgumentDescriptor max_args[] = { { value+undefres }, { value+undefres } };
+static const size_t max_numargs = sizeof(max_args)/sizeof(ArgumentDescriptor);
 static void max_func(BuiltinFunctionContextPtr f)
 {
   if (f->argval(0)>f->argval(1)) f->finish(f->arg(0));
@@ -653,7 +773,8 @@ static void max_func(BuiltinFunctionContextPtr f)
 
 
 // limited (x, a, b)    return min(max(x,a),b), i.e. x limited to values between and including a and b
-static const ArgumentDescriptor limited_args[] = { { value+undefres }, { numeric }, { numeric }, { STOP } };
+static const ArgumentDescriptor limited_args[] = { { value+undefres }, { numeric }, { numeric } };
+static const size_t limited_numargs = sizeof(limited_args)/sizeof(ArgumentDescriptor);
 static void limited_func(BuiltinFunctionContextPtr f)
 {
   ScriptObj &a = f->argval(0);
@@ -663,7 +784,8 @@ static void limited_func(BuiltinFunctionContextPtr f)
 
 
 // cyclic (x, a, b)    return x with wraparound into range a..b (not including b because it means the same thing as a)
-static const ArgumentDescriptor cyclic_args[] = { { value+undefres }, { numeric }, { numeric }, { STOP } };
+static const ArgumentDescriptor cyclic_args[] = { { value+undefres }, { numeric }, { numeric } };
+static const size_t cyclic_numargs = sizeof(cyclic_args)/sizeof(ArgumentDescriptor);
 static void cyclic_func(BuiltinFunctionContextPtr f)
 {
   double o = f->arg(1)->numValue();
@@ -676,7 +798,8 @@ static void cyclic_func(BuiltinFunctionContextPtr f)
 
 
 // string(anything)
-static const ArgumentDescriptor string_args[] = { { any }, { STOP } };
+static const ArgumentDescriptor string_args[] = { { any } };
+static const size_t string_numargs = sizeof(string_args)/sizeof(ArgumentDescriptor);
 static void string_func(BuiltinFunctionContextPtr f)
 {
   if (f->arg(0)->undefined())
@@ -687,7 +810,8 @@ static void string_func(BuiltinFunctionContextPtr f)
 
 
 // number(anything)
-static const ArgumentDescriptor number_args[] = { { any }, { STOP } };
+static const ArgumentDescriptor number_args[] = { { any } };
+static const size_t number_numargs = sizeof(number_args)/sizeof(ArgumentDescriptor);
 static void number_func(BuiltinFunctionContextPtr f)
 {
   f->finish(new NumericValue(f->arg(0)->numValue())); // force convert to numeric
@@ -695,7 +819,8 @@ static void number_func(BuiltinFunctionContextPtr f)
 
 
 // copy(anything) // make a value copy, including json object references
-static const ArgumentDescriptor copy_args[] = { { any }, { STOP } };
+static const ArgumentDescriptor copy_args[] = { { any } };
+static const size_t copy_numargs = sizeof(copy_args)/sizeof(ArgumentDescriptor);
 static void copy_func(BuiltinFunctionContextPtr f)
 {
   #if SCRIPTING_JSON_SUPPORT
@@ -714,7 +839,8 @@ static void copy_func(BuiltinFunctionContextPtr f)
 #if SCRIPTING_JSON_SUPPORT
 
 // json(anything)
-static const ArgumentDescriptor json_args[] = { { any }, { STOP } };
+static const ArgumentDescriptor json_args[] = { { any } };
+static const size_t json_numargs = sizeof(json_args)/sizeof(ArgumentDescriptor);
 static void json_func(BuiltinFunctionContextPtr f)
 {
   f->finish(new JsonValue(f->arg(0)->jsonValue()));
@@ -723,7 +849,8 @@ static void json_func(BuiltinFunctionContextPtr f)
 
 // TODO: jsonvalue should have writable member access
 //  // bool setfield(var, fieldname, value)
-//  static const ArgumentDescriptor setfield_args[] = { { any }, { STOP } };
+//  static const ArgumentDescriptor setfield_args[] = { { any } };
+//  static const size_t setfield_numargs = sizeof(setfield_args)/sizeof(ArgumentDescriptor);
 //  static void setfield_func(BuiltinFunctionContextPtr f)
 //  {
 //    if (!f->arg(0)->hasType(json)) f->finish(new NullValue()); // not JSON, cannot set value
@@ -737,7 +864,8 @@ static void json_func(BuiltinFunctionContextPtr f)
 //
 //
 //  // bool setelement(var, index, value) // set
-//  static const ArgumentDescriptor setelement_args[] = { { any }, { STOP } };
+//  static const ArgumentDescriptor setelement_args[] = { { any } };
+//  static const size_t setelement_numargs = sizeof(setelement_args)/sizeof(ArgumentDescriptor);
 //  static void setelement_func(BuiltinFunctionContextPtr f)
 //  {
 //    // bool setelement(var, value) // append
@@ -759,7 +887,8 @@ static void json_func(BuiltinFunctionContextPtr f)
 #if ENABLE_JSON_APPLICATION
 
 
-static const ArgumentDescriptor jsonresource_args[] = { { text+undefres }, { STOP } };
+static const ArgumentDescriptor jsonresource_args[] = { { text+undefres } };
+static const size_t jsonresource_numargs = sizeof(jsonresource_args)/sizeof(ArgumentDescriptor);
 static void jsonresource_func(BuiltinFunctionContextPtr f)
 {
   ErrorPtr err;
@@ -774,7 +903,8 @@ static void jsonresource_func(BuiltinFunctionContextPtr f)
 
 
 // lastarg(expr, expr, exprlast)
-static const ArgumentDescriptor lastarg_args[] = { { any+multiple, "side-effect" }, { STOP } };
+static const ArgumentDescriptor lastarg_args[] = { { any+multiple, "side-effect" } };
+static const size_t lastarg_numargs = sizeof(lastarg_args)/sizeof(ArgumentDescriptor);
 static void lastarg_func(BuiltinFunctionContextPtr f)
 {
   // (for executing side effects of non-last arg evaluation, before returning the last arg)
@@ -784,7 +914,8 @@ static void lastarg_func(BuiltinFunctionContextPtr f)
 
 
 // strlen(string)
-static const ArgumentDescriptor strlen_args[] = { { text+undefres }, { STOP } };
+static const ArgumentDescriptor strlen_args[] = { { text+undefres } };
+static const size_t strlen_numargs = sizeof(strlen_args)/sizeof(ArgumentDescriptor);
 static void strlen_func(BuiltinFunctionContextPtr f)
 {
   f->finish(new NumericValue(f->arg(0)->stringValue().size())); // length of string
@@ -793,7 +924,8 @@ static void strlen_func(BuiltinFunctionContextPtr f)
 
 // substr(string, from)
 // substr(string, from, count)
-static const ArgumentDescriptor substr_args[] = { { text+undefres }, { numeric }, { numeric+optional }, { STOP } };
+static const ArgumentDescriptor substr_args[] = { { text+undefres }, { numeric }, { numeric+optional } };
+static const size_t substr_numargs = sizeof(substr_args)/sizeof(ArgumentDescriptor);
 static void substr_func(BuiltinFunctionContextPtr f)
 {
   string s = f->arg(0)->stringValue();
@@ -810,6 +942,7 @@ static void substr_func(BuiltinFunctionContextPtr f)
 // find(haystack, needle)
 // find(haystack, needle, from)
 static const ArgumentDescriptor find_args[] = { { text+undefres }, { text }, { numeric+optional }  };
+static const size_t find_numargs = sizeof(find_args)/sizeof(ArgumentDescriptor);
 static void find_func(BuiltinFunctionContextPtr f)
 {
   string haystack = f->arg(0)->stringValue(); // haystack can be anything, including invalid
@@ -829,7 +962,8 @@ static void find_func(BuiltinFunctionContextPtr f)
 
 // format(formatstring, number)
 // only % + - 0..9 . d, x, and f supported
-static const ArgumentDescriptor format_args[] = { { text }, { numeric }, { STOP } };
+static const ArgumentDescriptor format_args[] = { { text }, { numeric } };
+static const size_t format_numargs = sizeof(format_args)/sizeof(ArgumentDescriptor);
 static void format_func(BuiltinFunctionContextPtr f)
 {
   string fmt = f->arg(0)->stringValue();
@@ -853,7 +987,8 @@ static void format_func(BuiltinFunctionContextPtr f)
 // TODO: refresh implementation of throw() later
 //
 //  // throw(value)       - throw a expression user error with the string value of value as errormessage
-//  static const ArgumentDescriptor throw_args[] = { { any }, { STOP } };
+//  static const ArgumentDescriptor throw_args[] = { { any } };
+//  static const size_t throw_numargs = sizeof(throw_args)/sizeof(ArgumentDescriptor);
 //  static void throw_func(BuiltinFunctionContextPtr f)
 //  {
 //    // throw(errvalue)    - (re-)throw with the error of the value passed
@@ -863,7 +998,8 @@ static void format_func(BuiltinFunctionContextPtr f)
 
 
 // error(value)       - create a user error value with the string value of value as errormessage, in all cases, even if value is already an error
-static const ArgumentDescriptor error_args[] = { { any }, { STOP } };
+static const ArgumentDescriptor error_args[] = { { any } };
+static const size_t error_numargs = sizeof(error_args)/sizeof(ArgumentDescriptor);
 static void error_func(BuiltinFunctionContextPtr f)
 {
   f->finish(new ErrorValue(ScriptError::User, "%s", f->arg(0)->stringValue().c_str()));
@@ -872,7 +1008,8 @@ static void error_func(BuiltinFunctionContextPtr f)
 
 // TODO: refresh implementation of error() within throw() later
 //  // error()            - within a catch context only: the error thrown
-//  static const ArgumentDescriptor error_args[] = { { any }, { STOP } };
+//  static const ArgumentDescriptor error_args[] = { { any } };
+//  static const size_t error_numargs = sizeof(error_args)/sizeof(ArgumentDescriptor);
 //  static void error_func(BuiltinFunctionContextPtr f)
 //  {
 //    StackList::iterator spos = stack.end();
@@ -896,7 +1033,8 @@ static void error_func(BuiltinFunctionContextPtr f)
 
 
 // errordomain(errvalue)
-static const ArgumentDescriptor errordomain_args[] = { { error+undefres }, { STOP } };
+static const ArgumentDescriptor errordomain_args[] = { { error+undefres } };
+static const size_t errordomain_numargs = sizeof(errordomain_args)/sizeof(ArgumentDescriptor);
 static void errordomain_func(BuiltinFunctionContextPtr f)
 {
   ErrorPtr err = f->arg(0)->errorValue();
@@ -906,7 +1044,8 @@ static void errordomain_func(BuiltinFunctionContextPtr f)
 
 
 // errorcode(errvalue)
-static const ArgumentDescriptor errorcode_args[] = { { error+undefres }, { STOP } };
+static const ArgumentDescriptor errorcode_args[] = { { error+undefres } };
+static const size_t errorcode_numargs = sizeof(errorcode_args)/sizeof(ArgumentDescriptor);
 static void errorcode_func(BuiltinFunctionContextPtr f)
 {
   ErrorPtr err = f->arg(0)->errorValue();
@@ -916,7 +1055,8 @@ static void errorcode_func(BuiltinFunctionContextPtr f)
 
 
 // errormessage(value)
-static const ArgumentDescriptor errormessage_args[] = { { error+undefres }, { STOP } };
+static const ArgumentDescriptor errormessage_args[] = { { error+undefres } };
+static const size_t errormessage_numargs = sizeof(errormessage_args)/sizeof(ArgumentDescriptor);
 static void errormessage_func(BuiltinFunctionContextPtr f)
 {
   ErrorPtr err = f->arg(0)->errorValue();
@@ -926,7 +1066,8 @@ static void errormessage_func(BuiltinFunctionContextPtr f)
 
 
 // eval(string, [args...])    have string executed as script code, with access to optional args as arg0, arg1, argN...
-static const ArgumentDescriptor eval_args[] = { { text+executable }, { any+multiple }, { STOP } };
+static const ArgumentDescriptor eval_args[] = { { text+executable }, { any+multiple } };
+static const size_t eval_numargs = sizeof(eval_args)/sizeof(ArgumentDescriptor);
 static void eval_func(BuiltinFunctionContextPtr f)
 {
   ScriptObjPtr evalcode;
@@ -955,7 +1096,8 @@ static void eval_func(BuiltinFunctionContextPtr f)
 
 // log (logmessage)
 // log (loglevel, logmessage)
-static const ArgumentDescriptor log_args[] = { { text+numeric }, { text+optional }, { STOP } };
+static const ArgumentDescriptor log_args[] = { { text+numeric }, { text+optional } };
+static const size_t log_numargs = sizeof(log_args)/sizeof(ArgumentDescriptor);
 static void log_func(BuiltinFunctionContextPtr f)
 {
   int loglevel = LOG_INFO;
@@ -971,7 +1113,8 @@ static void log_func(BuiltinFunctionContextPtr f)
 
 // loglevel()
 // loglevel(newlevel)
-static const ArgumentDescriptor loglevel_args[] = { { numeric+optional }, { STOP } };
+static const ArgumentDescriptor loglevel_args[] = { { numeric+optional } };
+static const size_t loglevel_numargs = sizeof(loglevel_args)/sizeof(ArgumentDescriptor);
 static void loglevel_func(BuiltinFunctionContextPtr f)
 {
   int oldLevel = LOGLEVEL;
@@ -988,7 +1131,8 @@ static void loglevel_func(BuiltinFunctionContextPtr f)
 
 // logleveloffset()
 // logleveloffset(newoffset)
-static const ArgumentDescriptor logleveloffset_args[] = { { numeric+optional }, { STOP } };
+static const ArgumentDescriptor logleveloffset_args[] = { { numeric+optional } };
+static const size_t logleveloffset_numargs = sizeof(logleveloffset_args)/sizeof(ArgumentDescriptor);
 static void logleveloffset_func(BuiltinFunctionContextPtr f)
 {
   int oldOffset = f->getLogLevelOffset();
@@ -1002,7 +1146,8 @@ static void logleveloffset_func(BuiltinFunctionContextPtr f)
 
 // TODO: implement when event handler mechanisms are in place
 // is_weekday(w,w,w,...)
-static const ArgumentDescriptor is_weekday_args[] = { { numeric+multiple }, { STOP } };
+static const ArgumentDescriptor is_weekday_args[] = { { numeric+multiple } };
+static const size_t is_weekday_numargs = sizeof(is_weekday_args)/sizeof(ArgumentDescriptor);
 static void is_weekday_func(BuiltinFunctionContextPtr f)
 {
   f->finish(new ErrorValue(ScriptError::Internal, "To be implemented"));
@@ -1076,14 +1221,16 @@ static void timeCheckFunc(bool aAfterTime, BuiltinFunctionContextPtr f)
 }
 
 // after_time(time)
-static const ArgumentDescriptor after_time_args[] = { { numeric }, { STOP } };
+static const ArgumentDescriptor after_time_args[] = { { numeric } };
+static const size_t after_time_numargs = sizeof(after_time_args)/sizeof(ArgumentDescriptor);
 static void after_time_func(BuiltinFunctionContextPtr f)
 {
   timeCheckFunc(true, f);
 }
 
 // is_time(time)
-static const ArgumentDescriptor is_time_args[] = { { numeric }, { STOP } };
+static const ArgumentDescriptor is_time_args[] = { { numeric } };
+static const size_t is_time_numargs = sizeof(is_time_args)/sizeof(ArgumentDescriptor);
 static void is_time_func(BuiltinFunctionContextPtr f)
 {
   timeCheckFunc(false, f);
@@ -1092,7 +1239,8 @@ static void is_time_func(BuiltinFunctionContextPtr f)
 
 
 // TODO: implement when event handler mechanisms are in place
-static const ArgumentDescriptor between_dates_args[] = { { numeric }, { numeric }, { STOP } };
+static const ArgumentDescriptor between_dates_args[] = { { numeric }, { numeric } };
+static const size_t between_dates_numargs = sizeof(between_dates_args)/sizeof(ArgumentDescriptor);
 static void between_dates_func(BuiltinFunctionContextPtr f)
 {
   f->finish(new ErrorValue(ScriptError::Internal, "To be implemented"));
@@ -1182,7 +1330,8 @@ static void epochtime_func(BuiltinFunctionContextPtr f)
   MainLoop::getLocalTime(loctim, &fracSecs, t);
 
 // common argument descriptor for all time funcs
-static const ArgumentDescriptor timegetter_args[] = { { numeric+null }, { STOP } };
+static const ArgumentDescriptor timegetter_args[] = { { numeric+null } };
+static const size_t timegetter_numargs = sizeof(timegetter_args)/sizeof(ArgumentDescriptor);
 
 // timeofday([epochtime])
 static void timeofday_func(BuiltinFunctionContextPtr f)
@@ -1258,58 +1407,59 @@ static void yearday_func(BuiltinFunctionContextPtr f)
 
 // The standard function descriptor table
 static const BuiltinFunctionDescriptor standardFunctions[] = {
-  { "ifvalid", any, ifvalid_args, &ifvalid_func },
-  { "isvalid", any, isvalid_args, &isvalid_func },
-  { "if", any, if_args, &if_func },
-  { "abs", numeric+null, abs_args, &abs_func },
-  { "int", numeric+null, int_args, &int_func },
-  { "frac", numeric+null, frac_args, &frac_func },
-  { "round", numeric+null, round_args, &round_func },
-  { "random", numeric, random_args, &random_func },
-  { "min", numeric+null, min_args, &min_func },
-  { "max", numeric+null, max_args, &max_func },
-  { "limited", numeric+null, limited_args, &limited_func },
-  { "cyclic", numeric+null, cyclic_args, &cyclic_func },
-  { "string", text, string_args, &string_func },
-  { "number", numeric, number_args, &number_func },
-  { "copy", any, copy_args, &copy_func },
-  { "json", json, json_args, &json_func },
-  //  { "setfield", any, setfield_args, &setfield_func },
-  //  { "setelement", any, setelement_args, &setelement_func },
-  { "jsonresource", json+error, jsonresource_args, &jsonresource_func },
-  { "lastarg", any, lastarg_args, &lastarg_func },
-  { "strlen", numeric+null, strlen_args, &strlen_func },
-  { "substr", text+null, substr_args, &substr_func },
-  { "find", numeric+null, find_args, &find_func },
-  { "format", text, format_args, &format_func },
-  //  { "throw", any, throw_args, &throw_func },
-  { "error", error, error_args, &error_func },
-  //  { "error", any, error_args, &error_func },
-  { "errordomain", text+null, errordomain_args, &errordomain_func },
-  { "errorcode", numeric+null, errorcode_args, &errorcode_func },
-  { "errormessage", text+null, errormessage_args, &errormessage_func },
-  { "eval", any, eval_args, &eval_func },
-  { "log", null, log_args, &log_func },
-  { "loglevel", numeric, loglevel_args, &loglevel_func },
-  { "logleveloffset", numeric, logleveloffset_args, &logleveloffset_func },
-  { "is_weekday", any, is_weekday_args, &is_weekday_func },
-  { "after_time", numeric, after_time_args, &after_time_func },
-  { "is_time", numeric, is_time_args, &is_time_func },
-  { "between_dates", numeric, between_dates_args, &between_dates_func },
-  { "sunrise", numeric+null, NULL, &sunrise_func },
-  { "dawn", numeric+null, NULL, &dawn_func },
-  { "sunset", numeric+null, NULL, &sunset_func },
-  { "dusk", numeric+null, NULL, &dusk_func },
-  { "epochtime", any, NULL, &epochtime_func },
-  { "timeofday", numeric, timegetter_args, &timeofday_func },
-  { "hour", any, timegetter_args, &hour_func },
-  { "minute", any, timegetter_args, &minute_func },
-  { "second", any, timegetter_args, &second_func },
-  { "year", any, timegetter_args, &year_func },
-  { "month", any, timegetter_args, &month_func },
-  { "day", any, timegetter_args, &day_func },
-  { "weekday", any, timegetter_args, &weekday_func },
-  { "yearday", any, timegetter_args, &yearday_func },
+  { "ifvalid", any, ifvalid_numargs, ifvalid_args, &ifvalid_func },
+  { "ifvalid", any, ifvalid_numargs, ifvalid_args, &ifvalid_func },
+  { "isvalid", any, isvalid_numargs, isvalid_args, &isvalid_func },
+  { "if", any, if_numargs, if_args, &if_func },
+  { "abs", numeric+null, abs_numargs, abs_args, &abs_func },
+  { "int", numeric+null, int_numargs, int_args, &int_func },
+  { "frac", numeric+null, frac_numargs, frac_args, &frac_func },
+  { "round", numeric+null, round_numargs, round_args, &round_func },
+  { "random", numeric, random_numargs, random_args, &random_func },
+  { "min", numeric+null, min_numargs, min_args, &min_func },
+  { "max", numeric+null, max_numargs, max_args, &max_func },
+  { "limited", numeric+null, limited_numargs, limited_args, &limited_func },
+  { "cyclic", numeric+null, cyclic_numargs, cyclic_args, &cyclic_func },
+  { "string", text, string_numargs, string_args, &string_func },
+  { "number", numeric, number_numargs, number_args, &number_func },
+  { "copy", any, copy_numargs, copy_args, &copy_func },
+  { "json", json, json_numargs, json_args, &json_func },
+  //  { "setfield", any, setfield_numargs, setfield_args, &setfield_func },
+  //  { "setelement", any, setelement_numargs, setelement_args, &setelement_func },
+  { "jsonresource", json+error, jsonresource_numargs, jsonresource_args, &jsonresource_func },
+  { "lastarg", any, lastarg_numargs, lastarg_args, &lastarg_func },
+  { "strlen", numeric+null, strlen_numargs, strlen_args, &strlen_func },
+  { "substr", text+null, substr_numargs, substr_args, &substr_func },
+  { "find", numeric+null, find_numargs, find_args, &find_func },
+  { "format", text, format_numargs, format_args, &format_func },
+  //  { "throw", any, throw_numargs, throw_args, &throw_func },
+  { "error", error, error_numargs, error_args, &error_func },
+  //  { "error", any, error_numargs, error_args, &error_func },
+  { "errordomain", text+null, errordomain_numargs, errordomain_args, &errordomain_func },
+  { "errorcode", numeric+null, errorcode_numargs, errorcode_args, &errorcode_func },
+  { "errormessage", text+null, errormessage_numargs, errormessage_args, &errormessage_func },
+  { "eval", any, eval_numargs, eval_args, &eval_func },
+  { "log", null, log_numargs, log_args, &log_func },
+  { "loglevel", numeric, loglevel_numargs, loglevel_args, &loglevel_func },
+  { "logleveloffset", numeric, logleveloffset_numargs, logleveloffset_args, &logleveloffset_func },
+  { "is_weekday", any, is_weekday_numargs, is_weekday_args, &is_weekday_func },
+  { "after_time", numeric, after_time_numargs, after_time_args, &after_time_func },
+  { "is_time", numeric, is_time_numargs, is_time_args, &is_time_func },
+  { "between_dates", numeric, between_dates_numargs, between_dates_args, &between_dates_func },
+  { "sunrise", numeric+null, 0, NULL, &sunrise_func },
+  { "dawn", numeric+null, 0, NULL, &dawn_func },
+  { "sunset", numeric+null, 0, NULL, &sunset_func },
+  { "dusk", numeric+null, 0, NULL, &dusk_func },
+  { "epochtime", any, 0, NULL, &epochtime_func },
+  { "timeofday", numeric, timegetter_numargs, timegetter_args, &timeofday_func },
+  { "hour", any, timegetter_numargs, timegetter_args, &hour_func },
+  { "minute", any, timegetter_numargs, timegetter_args, &minute_func },
+  { "second", any, timegetter_numargs, timegetter_args, &second_func },
+  { "year", any, timegetter_numargs, timegetter_args, &year_func },
+  { "month", any, timegetter_numargs, timegetter_args, &month_func },
+  { "day", any, timegetter_numargs, timegetter_args, &day_func },
+  { "weekday", any, timegetter_numargs, timegetter_args, &weekday_func },
+  { "yearday", any, timegetter_numargs, timegetter_args, &yearday_func },
   { NULL } // terminator
 };
 

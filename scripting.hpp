@@ -122,34 +122,34 @@ namespace p44 { namespace Script {
 
   /// Type info
   enum {
-    // exclusive content type identifiers (but combinable bits for type selection/filtering
+    // content type flags, usually one per object, but object/array can be combined with regular type
     typeMask = 0x00FF,
-    none = 0x0000, ///< no content type, because it is a container
+    scalarMask = 0x003F,
     null = 0x0001, ///< NULL/undefined
     error = 0x0002, ///< Error
     numeric = 0x0004, ///< numeric value
     text = 0x0008, ///< text/string value
     json = 0x0010, ///< JSON value
-    executable = 0x0080, ///< executable code
-    // attributes
-    attrMask = 0xFF00,
-    object = 0x0100, ///< is a object with named members
-    array = 0x0200, ///< is an array with indexed elements
-    mutablemembers = 0x0400, ///< members are mutable
+    executable = 0x0020, ///< executable code
+    structuredMask = 0x00C0,
+    object = 0x0040, ///< is a object with named members
+    array = 0x0080, ///< is an array with indexed elements
     // type classes
+    any = typeMask-null, ///< any type except null
     scalar = numeric+text+json, ///< scalar types (json can also be structured)
     structured = object+array, ///< structured types
     value = scalar+structured, ///< value types (excludes executables)
-    any = 0x00FF, ///< any type
-    // for argument checking
-    STOP = none, ///< terminator for argument descriptors
+    // attributes
+    attrMask = 0xFF00,
+    // - for argument checking
     optional = null, ///< if set, the argument is optional (means: is is allowed to be null even when null is not explicitly allowed)
-    multiple = 0x0800, ///< this argument type can occur mutiple times (... signature)
-    exacttype = 0x1000, ///< if set, type of argument must match, no autoconversion
-    undefres = 0x2000, ///< if set, and an argument does not match type, the function result is automatically made null/undefined without executing the implementation
-    // for storage of named members
-    create = 0x4000, ///< set to create member if not yet existing
-    global = 0x8000, ///< set to store in global context
+    multiple = 0x0100, ///< this argument type can occur mutiple times (... signature)
+    exacttype = 0x0200, ///< if set, type of argument must match, no autoconversion
+    undefres = 0x0400, ///< if set, and an argument does not match type, the function result is automatically made null/undefined without executing the implementation
+    // - for storage of named members
+    mutablemembers = 0x1000, ///< members are mutable
+    create = 0x2000, ///< set to create member if not yet existing
+    global = 0x4000, ///< set to store in global context
   };
   typedef uint16_t TypeInfo;
 
@@ -158,9 +158,6 @@ namespace p44 { namespace Script {
     TypeInfo typeInfo; ///< info about allowed types, checking, open argument lists, etc.
     const char* name; ///< the name of the argument, can be NULL if unnamed positional argument
   } ArgumentDescriptor;
-
-  /// Script call signature
-  typedef const ArgumentDescriptor* ScriptCallSignature;
 
   // MARK: - ScriptObj base class
 
@@ -179,6 +176,12 @@ namespace p44 { namespace Script {
     /// get type of this value
     /// @return get type info
     virtual TypeInfo getTypeInfo() const { return null; }; // base object is a null/undefined
+
+    /// @return a type description for logs and error messages
+    static string typeDescription(TypeInfo aInfo);
+
+    /// get name
+    virtual string getIdentifier() const { return "unnamed"; };
 
     /// get annotation text
     virtual string getAnnotation() const { return "ScriptObj"; };
@@ -253,9 +256,11 @@ namespace p44 { namespace Script {
     /// @name executable support
     /// @{
 
-    /// Get signature (description of arguments) required to call this object
-    /// @return NULL or pointer to an array of argument descriptors, terminated with a entry with .allowed==none
-    virtual ScriptCallSignature callSignature() const { return NULL; };
+    /// get information (typeInfo and possibly a name) for a positional argument
+    /// @param aIndex the argument index (0..N)
+    /// @return the argument descriptor or NULL if there is no argument at this position
+    /// @note functions might have an open argument list, so do not try to exhaust this
+    virtual const ArgumentDescriptor* argumentInfo(size_t aIndex) const { return NULL; };
 
     /// get new subroutine context to call this object as a subroutine/function call from a given context
     /// @param aCallerContext the context from where to call from (evaluate in) this implementation
@@ -481,6 +486,11 @@ namespace p44 { namespace Script {
     /// @param aEvaluationCB will be called to deliver the result of the evaluation
     virtual void evaluate(ScriptObjPtr aToEvaluate, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB);
 
+    /// check argument against signature and add to context if ok
+    /// @param aArgument the object to be passed as argument. Pass NULL to check if aCallee has more non-optional arguments
+    /// @param aIndex argument index
+    /// @param aCallee the object to be called with this argument (provides the signature)
+    ErrorPtr checkAndSetArgument(ScriptObjPtr aArgument, size_t aIndex, ScriptObjPtr aCallee);
 
     /// @name execution environment info
     /// @{
@@ -666,6 +676,7 @@ namespace p44 { namespace Script {
   typedef struct {
     const char* name; ///< name of the function
     TypeInfo returnTypeInfo; ///< possible return types
+    size_t numArgs; ///< number of arguemnts
     const ArgumentDescriptor* arguments; ///< arguments
     BuiltinFunctionImplementation implementation; ///< function pointer to implementation (as a plain function)
   } BuiltinFunctionDescriptor;
@@ -701,9 +712,11 @@ namespace p44 { namespace Script {
   public:
     BuiltinFunctionObj(const BuiltinFunctionDescriptor *aDescriptor, ScriptObjPtr aThisObj) : descriptor(aDescriptor), thisObj(aThisObj) {};
 
-    /// Get signature (description of arguments) required to call this object
-    /// @return NULL or pointer to an array of argument descriptors, terminated with a entry with .allowed==none
-    virtual ScriptCallSignature callSignature() const P44_OVERRIDE { return descriptor->arguments; };
+    /// Get description of arguments required to call this internal function
+    virtual const ArgumentDescriptor* argumentInfo(size_t aIndex) const P44_OVERRIDE;
+
+    /// get identifier (name) of this function object
+    virtual string getIdentifier() const P44_OVERRIDE { return descriptor->name; };
 
     /// @return a context for running built-in functions (only needs the arguments)
     virtual ExecutionContextPtr contextForCallingFrom(ExecutionContextPtr aCallerContext) const P44_OVERRIDE;
