@@ -219,6 +219,16 @@ ErrorValue::ErrorValue(ScriptError::ErrorCodes aErrCode, const char *aFmt, ...)
 }
 
 
+ErrorValue::ErrorValue(ScriptError::ErrorCodes aErrCode, const SourceRef &aSrcRef, const char *aFmt, ...)
+{
+  err = new SourceRefError(aSrcRef, aErrCode);
+  va_list args;
+  va_start(args, aFmt);
+  err->setFormattedMessage(aFmt, args);
+  va_end(args);
+}
+
+
 double StringValue::numValue() const
 {
   // FIXME: something like: EvaluationContext::parseNumericLiteral(v, strValP->c_str(), lpos);
@@ -315,6 +325,13 @@ const ScriptObjPtr JsonValue::memberAtIndex(size_t aIndex, TypeInfo aTypeRequire
 
 
 // MARK: - ExecutionContext
+
+
+void ExecutionContext::clearVars()
+{
+  indexedVars.clear();
+}
+
 
 void ExecutionContext::releaseObjsFromSource(SourceContainerPtr aSource)
 {
@@ -460,7 +477,7 @@ ErrorPtr ExecutionContext::checkAndSetArgument(ScriptObjPtr aArgument, size_t aI
   }
   // argument is fine, set it
   setMemberAtIndex(aIndex, aArgument, nonNullCStr(info->name));
-  return ErrorPtr(); // argument
+  return ErrorPtr(); // ok
 }
 
 
@@ -468,36 +485,48 @@ ErrorPtr ExecutionContext::checkAndSetArgument(ScriptObjPtr aArgument, size_t aI
 ScriptObjPtr ExecutionContext::compile(SourceContainerPtr aSource)
 {
   // TODO: implement
-  return new ErrorValue(ScriptError::Internal, "Compiler not yet implemented");
+  string res = string_format("Compiler not yet implemented, echoing input: %s", aSource->source.c_str());
+  return new StringValue(res);
 }
 
-void ExecutionContext::evaluate(ScriptObjPtr aToEvaluate, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB)
+// receives result for synchronous execution
+static void syncExecDone(ScriptObjPtr* aResultStorageP, bool* aFinishedP, ScriptObjPtr aResult)
 {
-  // TODO: implement
-  if (aEvaluationCB) aEvaluationCB(new ErrorValue(ScriptError::Internal, "Evaluation not yet implemented"));
+  *aResultStorageP = aResult;
+  *aFinishedP = true;
 }
-
-
-void ExecutionContext::abort(bool aDoCallBack)
-{
-  // call abort handlers of all child contexts
-  %%%
-}
-
 
 ScriptObjPtr ExecutionContext::evaluateSynchronously(ScriptObjPtr aToEvaluate, EvaluationFlags aEvalFlags)
 {
+  ScriptObjPtr syncResult;
 
+  bool finished = false;
+  aEvalFlags |= synchronously;
+  evaluate(aToEvaluate, aEvalFlags, boost::bind(&syncExecDone, &syncResult, &finished, _1));
+  if (!finished) {
+    // despite having requested synchronous execution, evaluation is not finished by now
+    finished = true;
+    // kill started async operations, syncResult will be set by callback
+    abort(stopall, new ErrorValue(ScriptError::Internal,
+      "Fatal error: synchronous Evaluation of '%s' turned out to be still async",
+      aToEvaluate->getIdentifier().c_str()
+    ));
+  }
+  return syncResult;
 }
 
 
 
 
 
-// MARK: - LocalVarContext
+// MARK: - ScriptCodeContext
+
+#define DEFAULT_EXEC_TIME_LIMIT (Infinite)
+#define DEFAULT_SYNC_EXEC_LIMIT (10*Second)
+#define DEFAULT_SYNC_RUN_TIME (50*MilliSecond)
 
 
-void LocalVarContext::releaseObjsFromSource(SourceContainerPtr aSource)
+void ScriptCodeContext::releaseObjsFromSource(SourceContainerPtr aSource)
 {
   NamedVarMap::iterator pos = namedVars.begin();
   while (pos!=namedVars.end()) {
@@ -512,22 +541,33 @@ void LocalVarContext::releaseObjsFromSource(SourceContainerPtr aSource)
 }
 
 
-
-const ScriptObjPtr LocalVarContext::memberByName(const string aName, TypeInfo aTypeRequirements) const
+void ScriptCodeContext::clearVars()
 {
-  ScriptObjPtr v;
-  NamedVarMap::const_iterator pos = namedVars.find(aName);
-  if (pos!=namedVars.end()) {
-    v = pos->second;
-    if ((v->getTypeInfo()&aTypeRequirements)!=aTypeRequirements) return ScriptObjPtr();
-  }
-  return v;
+  namedVars.clear();
+  inherited::clearVars();
 }
 
 
-ErrorPtr LocalVarContext::setMemberByName(const string aName, const ScriptObjPtr aMember, TypeInfo aStorageAttributes)
+const ScriptObjPtr ScriptCodeContext::memberByName(const string aName, TypeInfo aTypeRequirements) const
+{
+  ScriptObjPtr m;
+  // 1) local variables/objects
+  NamedVarMap::const_iterator pos = namedVars.find(aName);
+  if (pos!=namedVars.end()) {
+    m = pos->second;
+    if ((m->getTypeInfo()&aTypeRequirements)!=aTypeRequirements) return ScriptObjPtr();
+  }
+  // 2) functions from the main level (but no local objects/vars of main, these must be passed into functions as arguments)
+  if (mainContext && (m = mainContext->memberByName(aName, aTypeRequirements|executable|constant))) return m;
+  // nothing found
+  return m;
+}
+
+
+ErrorPtr ScriptCodeContext::setMemberByName(const string aName, const ScriptObjPtr aMember, TypeInfo aStorageAttributes)
 {
   ErrorPtr err;
+  // 1) ONLY local variables/objects
   NamedVarMap::iterator pos = namedVars.find(aName);
   if (pos!=namedVars.end()) {
     // exists in local vars
@@ -540,11 +580,12 @@ ErrorPtr LocalVarContext::setMemberByName(const string aName, const ScriptObjPtr
   else {
     err = ScriptError::err(ScriptError::NotFound, "no local variable '%s'", aName.c_str());
   }
+  // 2) No variables/objects from main are available (only functions, and those are not modifiable)
   return err;
 }
 
 
-ErrorPtr LocalVarContext::setMemberAtIndex(size_t aIndex, const ScriptObjPtr aMember, const string aName)
+ErrorPtr ScriptCodeContext::setMemberAtIndex(size_t aIndex, const ScriptObjPtr aMember, const string aName)
 {
   ErrorPtr err = inherited::setMemberAtIndex(aIndex, aMember, aName);
   if (!aName.empty() && Error::isOK(err)) {
@@ -554,23 +595,109 @@ ErrorPtr LocalVarContext::setMemberAtIndex(size_t aIndex, const ScriptObjPtr aMe
 }
 
 
-// MARK: - LocalExecutionContext
+void ScriptCodeContext::abort(EvaluationFlags aAbortFlags, ScriptObjPtr aAbortResult)
+{
+  if (aAbortFlags & queue) {
+    // empty queue first to make sure no queued threads get started when last running thread is killed below
+    while (!queuedThreads.empty()) {
+      queuedThreads.back()->abort(new ErrorValue(ScriptError::Aborted, "Removed queued execution before it could start"));
+      queuedThreads.pop_back();
+    }
+  }
+  if (aAbortFlags & stoprunning) {
+    while (!threads.empty()) {
+      threads.back()->abort(aAbortResult);
+      threads.pop_back();
+    }
+  }
+}
 
-LocalExecutionContext::LocalExecutionContext(ScriptObjPtr aExecObj, ExecutionContextPtr aParentContext, ScriptingDomainPtr aDomain) :
-  inherited(aExecObj, aDomain),
-  parentContext(aParentContext)
+
+void ScriptCodeContext::evaluate(ScriptObjPtr aToEvaluate, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB)
+{
+  // must be compiled code at this point
+  CompiledCodePtr code = dynamic_pointer_cast<CompiledCode>(aToEvaluate);
+  if (!code) {
+    if (aEvaluationCB) aEvaluationCB(new ErrorValue(ScriptError::Internal, "Object to be run must be compiled code!"));
+    return;
+  }
+  // can be evaluated
+  if ((aEvalFlags & keepvars)==0) {
+    clearVars();
+  }
+  // prepare a thread for executing now or later
+  // Note: thread gets an owning Ptr back to this, so this context cannot be destructed before all
+  //   threads have ended.
+  ScriptCodeThreadPtr newThread = ScriptCodeThreadPtr(new ScriptCodeThread(this, code->srcRef));
+  newThread->prepare(aEvaluationCB, aEvalFlags /* FIXME: also pass timing params */);
+  // now check how and when to run it
+  if (!threads.empty()) {
+    // some threads already running
+    if (aEvalFlags & stoprunning) {
+      // kill all current threads first...
+      abort(stopall, new ErrorValue(ScriptError::Aborted, "Aborted by another script starting"));
+      // ...then start new
+    }
+    else if (aEvalFlags & queue) {
+      // queue for later
+      queuedThreads.push_back(newThread);
+      return;
+    }
+    else if ((aEvalFlags & concurrently)==0) {
+      // none of the multithread modes and already running: just report busy
+      newThread->abort(new ErrorValue(ScriptError::Busy, "Already busy executing script"));
+      return;
+    }
+  }
+  // can start new thread now
+  threads.push_back(newThread);
+  newThread->run();
+}
+
+
+void ScriptCodeContext::threadTerminated(ScriptCodeThreadPtr aThread)
+{
+  // a thread has ended, remove it from the list
+  ThreadList::iterator pos=threads.begin();
+  while (pos!=threads.end()) {
+    if (pos->get()==aThread.get()) {
+      threads.erase(pos);
+      // thread object should get disposed now, along with its SourceRef
+    }
+    ++pos;
+  }
+  // check for queued executions to start now
+  if (!queuedThreads.empty()) {
+    // get next thread from the queue
+    ScriptCodeThreadPtr nextThread = queuedThreads.front();
+    queuedThreads.pop_front();
+    // and start it
+    threads.push_back(nextThread);
+    nextThread->run();
+  }
+}
+
+
+
+// MARK: - ScriptMainContext
+
+ScriptMainContext::ScriptMainContext(ScriptObjPtr aExecObj, ScriptingDomainPtr aDomain) :
+  inherited(aExecObj, ExecutionContextPtr(), aDomain)
 {
 }
 
 
-const ScriptObjPtr LocalExecutionContext::memberByName(const string aName, TypeInfo aTypeRequirements) const
+const ScriptObjPtr ScriptMainContext::memberByName(const string aName, TypeInfo aTypeRequirements) const
 {
   ScriptObjPtr m;
   // member lookup during execution of a function or script body
-  // 1) lookup local variables/arguments in this context
-  if ((m = inherited::memberByName(aName, aTypeRequirements))) return m;
-  // 2) members of the object we are executing
-  if (thisObj() && (m = thisObj()->memberByName(aName, aTypeRequirements))) return m;
+  if ((aTypeRequirements & constant)==0) {
+    // Only if not looking only for constant members (in the sense of: not settable by scripts)
+    // 1) lookup local variables/arguments in this context
+    if ((m = inherited::memberByName(aName, aTypeRequirements))) return m;
+    // 2) members of the object we are executing
+    if (thisObj() && (m = thisObj()->memberByName(aName, aTypeRequirements))) return m;
+  }
   // 3) members from registered lookups
   LookupList::const_iterator pos = lookups.begin();
   while (pos!=lookups.end()) {
@@ -580,16 +707,14 @@ const ScriptObjPtr LocalExecutionContext::memberByName(const string aName, TypeI
     }
     ++pos;
   }
-  // 4) lookup functions/methods (BUT NO VARIABLES) defined in the parent context
-  if (parentContext && (m = parentContext->memberByName(aName, aTypeRequirements|executable))) return m;
-  // 5) lookup global members in the script domain (vars, functions, constants)
+  // 4) lookup global members in the script domain (vars, functions, constants)
   if (globals() && (m = globals()->memberByName(aName, aTypeRequirements|executable))) return m;
   // nothing found (note that inherited was queried early above, already!)
   return m;
 }
 
 
-ErrorPtr LocalExecutionContext::setMemberByName(const string aName, const ScriptObjPtr aMember, TypeInfo aStorageAttributes)
+ErrorPtr ScriptMainContext::setMemberByName(const string aName, const ScriptObjPtr aMember, TypeInfo aStorageAttributes)
 {
   ErrorPtr err;
   if (globals() && (aStorageAttributes & global)) {
@@ -620,8 +745,7 @@ ErrorPtr LocalExecutionContext::setMemberByName(const string aName, const Script
         ++pos;
       }
     }
-    // 4) parent context variables are not visible (only functions are, and those are immutable)
-    // 5) modify (but never create w/o global storage attribute) global variables (if no local, thisObj or lookup chain variable of this name exists)
+    // 4) modify (but never create w/o global storage attribute) global variables (if no local, thisObj or lookup chain variable of this name exists)
     if (globals() && err->isError(ScriptError::domain(), ScriptError::NotFound)) {
       err = globals()->ScriptObj::setMemberByName(aName, aMember, aStorageAttributes & ~create);
     }
@@ -630,7 +754,7 @@ ErrorPtr LocalExecutionContext::setMemberByName(const string aName, const Script
 }
 
 
-void LocalExecutionContext::registerMemberLookup(ClassMemberLookupPtr aMemberLookup)
+void ScriptMainContext::registerMemberLookup(ClassMemberLookupPtr aMemberLookup)
 {
   if (aMemberLookup) {
     // last registered lookup overrides same named objects in lookups registered before
@@ -687,26 +811,41 @@ const ArgumentDescriptor* BuiltinFunctionObj::argumentInfo(size_t aIndex) const
 }
 
 
+
+void BuiltinFunctionContext::setAbortCallback(SimpleCB aAbortCB)
+{
+  abortCB = aAbortCB;
+}
+
+
 void BuiltinFunctionContext::evaluate(ScriptObjPtr aToEvaluate, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB)
 {
-  BuiltinFunctionObjPtr obj = dynamic_pointer_cast<BuiltinFunctionObj>(aToEvaluate);
-  if (!obj || !obj->descriptor) {
+  func = dynamic_pointer_cast<BuiltinFunctionObj>(aToEvaluate);
+  if (!func || !func->descriptor) {
+    func.reset();
     aEvaluationCB(new ErrorValue(ScriptError::Internal, "builtin function call inconsistency"));
   }
-  else if ((aEvalFlags & synchronously) && (obj->descriptor->returnTypeInfo & async)) {
-    aEvaluationCB(new ErrorValue(ScriptError::AsyncNotAllowed, "builtin function '%s' cannot be used in synchronous evaluation", obj->descriptor->name));
+  else if ((aEvalFlags & synchronously) && (func->descriptor->returnTypeInfo & async)) {
+    aEvaluationCB(new ErrorValue(ScriptError::AsyncNotAllowed, "builtin function '%s' cannot be used in synchronous evaluation", func->descriptor->name));
   }
   else {
+    abortCB = NULL; // no abort callback so far, implementation must set one if it returns before finishing
     evaluationCB = aEvaluationCB;
-    obj->descriptor->implementation(this);
+    func->descriptor->implementation(this);
   }
 }
 
 
-void BuiltinFunctionContext::abort(bool aDoCallBack)
+void BuiltinFunctionContext::abort(EvaluationFlags aAbortFlags, ScriptObjPtr aAbortResult)
 {
-  if (abortCB) abortCB();
-  inherited::abort(aDoCallBack);
+  if (abortCB) abortCB(); // stop external things the function call has started
+  abortCB = NULL;
+  if (evaluationCB) {
+    if (!aAbortResult) aAbortResult = new ErrorValue(ScriptError::Aborted, "builtin function '%s' aborted", func->descriptor->name);
+    evaluationCB(aAbortResult);
+    evaluationCB = NULL;
+  }
+  func = NULL;
 }
 
 
@@ -723,7 +862,10 @@ ScriptObjPtr BuiltinFunctionContext::arg(size_t aArgIndex)
 
 void BuiltinFunctionContext::finish(ScriptObjPtr aResult)
 {
+  abortCB = NULL; // finished
+  func = NULL;
   evaluationCB(aResult);
+  evaluationCB = NULL;
 }
 
 
@@ -1249,8 +1391,10 @@ static void is_weekday_func(BuiltinFunctionContextPtr f)
 
 
 // TODO: implement when event handler mechanisms are in place
+
+#define IS_TIME_TOLERANCE_SECONDS 5 ///< matching window for is_time() function
 // common implementation for after_time() and is_time()
-static void timeCheckFunc(bool aAfterTime, BuiltinFunctionContextPtr f)
+static void timeCheckFunc(bool aIsTime, BuiltinFunctionContextPtr f)
 {
   f->finish(new ErrorValue(ScriptError::Internal, "To be implemented"));
 //  struct tm loctim; MainLoop::getLocalTime(loctim);
@@ -1275,7 +1419,7 @@ static void timeCheckFunc(bool aAfterTime, BuiltinFunctionContextPtr f)
 //  OLOG(LOG_INFO, "is/after_time() reference time for current check is: %s", MainLoop::string_mltime(MainLoop::localTimeToMainLoopTime(loctim)).c_str());
 //  bool res = met;
 //  // limit to a few secs around target if it's is_time
-//  if (aFunc=="is_time" && met && daySecs<secs.numValue()+IS_TIME_TOLERANCE_SECONDS) {
+//  if (aIsTime && met && daySecs<secs.numValue()+IS_TIME_TOLERANCE_SECONDS) {
 //    // freeze again for a bit
 //    newFreeze(frozenP, secs, refpos, MainLoop::localTimeToMainLoopTime(loctim)+IS_TIME_TOLERANCE_SECONDS*Second);
 //  }
@@ -1283,7 +1427,7 @@ static void timeCheckFunc(bool aAfterTime, BuiltinFunctionContextPtr f)
 //    loctim.tm_hour = 0; loctim.tm_min = 0; loctim.tm_sec = (int)newSecs.numValue();
 //    if (met) {
 //      loctim.tm_mday++; // already met today, check again tomorrow
-//      if (aFunc=="is_time") res = false;
+//      if (aIsTime) res = false;
 //    }
 //    newFreeze(frozenP, newSecs, refpos, MainLoop::localTimeToMainLoopTime(loctim));
 //  }
@@ -1295,7 +1439,7 @@ static const ArgumentDescriptor after_time_args[] = { { numeric } };
 static const size_t after_time_numargs = sizeof(after_time_args)/sizeof(ArgumentDescriptor);
 static void after_time_func(BuiltinFunctionContextPtr f)
 {
-  timeCheckFunc(true, f);
+  timeCheckFunc(false, f);
 }
 
 // is_time(time)
@@ -1303,7 +1447,7 @@ static const ArgumentDescriptor is_time_args[] = { { numeric } };
 static const size_t is_time_numargs = sizeof(is_time_args)/sizeof(ArgumentDescriptor);
 static void is_time_func(BuiltinFunctionContextPtr f)
 {
-  timeCheckFunc(false, f);
+  timeCheckFunc(true, f);
 }
 
 
@@ -1481,10 +1625,9 @@ static const size_t delay_numargs = sizeof(delay_args)/sizeof(ArgumentDescriptor
 static void delay_func(BuiltinFunctionContextPtr f)
 {
   MLMicroSeconds delay = f->arg(0)->numValue()*Second;
-
-  execTicket.executeOnce(boost::bind(&EvaluationContext::selfKeepingContinueEvaluation, this), delay);
-  aNotYielded = false; // yielded execution
-
+  TicketObjPtr delayTicket = TicketObjPtr(new TicketObj);
+  delayTicket->ticket.executeOnce(boost::bind(&BuiltinFunctionContext::finish, f, new AnnotatedNullValue("delayed")), delay);
+  f->setAbortCallback(boost::bind(&MLTicket::cancel, &(delayTicket->ticket)));
 }
 
 
@@ -1565,8 +1708,6 @@ ScriptingDomain& StandardScriptingDomain::sharedDomain()
   }
   return *standardScriptingDomainP;
 };
-
-
 
 
 // MARK: - CodeCursor
@@ -1734,6 +1875,156 @@ void ScriptSource::run(EvaluationCB aEvaluationCB)
 }
 
 
+// MARK: - ScriptCodeThread
+
+ScriptCodeThread::ScriptCodeThread(ScriptCodeContextPtr aOwner, const SourceRef aSource) :
+  owner(aOwner),
+  pc(aSource),
+  maxBlockTime(0),
+  maxRunTime(Infinite),
+  runningSince(Never),
+  aborted(false),
+  resuming(false),
+  resumed(false)
+{
+}
+
+
+
+void ScriptCodeThread::prepare(
+  EvaluationCB aTerminationCB,
+  EvaluationFlags aEvalFlags,
+  MLMicroSeconds aMaxBlockTime,
+  MLMicroSeconds aMaxRunTime
+)
+{
+  terminationCB = aTerminationCB;
+  evaluationFlags = aEvalFlags;
+  maxBlockTime = aMaxBlockTime;
+  maxRunTime = aMaxRunTime;
+}
+
+
+void ScriptCodeThread::run()
+{
+  runningSince = MainLoop::now();
+  // TODO: clear the stack
+  // TODO: setup initial state (body/function/expression)
+  resume();
+}
+
+
+void ScriptCodeThread::abort(ScriptObjPtr aAbortResult)
+{
+  if (aAbortResult) {
+    result = aAbortResult;
+  }
+  aborted = true; // signal end at next resume()
+  if (childContext) {
+    // abort the child context and let it pass its abort result up the chain
+    childContext->abort(stopall, aAbortResult); // will call resume() via its callback
+  }
+  else {
+    resume(); // resume, but aborted state will immediately terminate thread
+  }
+}
+
+
+void ScriptCodeThread::endThread()
+{
+  if (terminationCB) {
+    autoResumeTicket.cancel();
+    EvaluationCB cb = terminationCB;
+    terminationCB = NULL;
+    cb(result);
+  }
+  owner->threadTerminated(this);
+}
+
+
+// This static method can be passed to timers and makes sure that "this" is kept alive by the callback
+// boost::bind object because it is a smart pointer argument
+void ScriptCodeThread::selfKeepingResume(ScriptCodeThreadPtr aThread)
+{
+  aThread->resume();
+}
+
+
+void ScriptCodeThread::resume(ScriptObjPtr aResult)
+{
+  // Store latest result, if any (resuming with NULL pointer does not change the result)
+  if (aResult) {
+    result = aResult;
+  }
+  // Am I getting called from a chain of calls originating from
+  // myself via step() in the execution loop below?
+  if (resuming) {
+    // YES: avoid creating an endless call chain recursively
+    resumed = true; // flag having resumed already to allow looping below
+    return; // but now let chain of calls wind down to our last call (originating from step() in the loop)
+  }
+  // NO: this is a real re-entry
+  // - start running the loop
+  resuming = true; // now actually start resuming
+  MLMicroSeconds loopingSince = MainLoop::now();
+  do {
+    MLMicroSeconds now = MainLoop::now();
+    // check for abort
+    if (aborted) {
+      result = new ErrorValue(ScriptError::Aborted, pc, "Aborted script code");
+      endThread();
+      return;
+    }
+    // Check maximum execution time
+    if (maxRunTime!=Infinite && now-runningSince) {
+      // Note: not calling abort as we are WITHIN the call chain
+      result = new ErrorValue(ScriptError::Timeout, pc, "Aborted because of overall execution limit");
+      endThread();
+      return;
+    }
+    else if (maxBlockTime!=Infinite && now-loopingSince>maxBlockTime) {
+      // time expired
+      if (evaluationFlags & synchronously) {
+        // Note: not calling abort as we are WITHIN the call chain
+        result = new ErrorValue(ScriptError::Timeout, pc, "Aborted because of synchronous execution limit");
+        endThread();
+        return;
+      }
+      // in an async script, just give mainloop time to do other things for a while
+      autoResumeTicket.executeOnce(boost::bind(&selfKeepingResume, this), 2*maxBlockTime);
+    }
+    // run next statemachine step
+    resumed = false; // start of a new
+    step(); // will cause resumed to be set when resume() is called in this call's chain
+    // repeat as long as we are already resumed
+  } while(resumed);
+  // not resumed in the current chain of calls, resume will be called from
+  // an independent call site later -> re-enable normal processing
+  resuming = false;
+}
+
+
+void ScriptCodeThread::step()
+{
+  if (result && result->hasType(error)) {
+    if (result->errorValue()->getErrorCode()>=ScriptError::FatalErrors) {
+      // just end the thread unconditionally
+      endThread();
+    }
+    else {
+      // TODO: walk back the stack and look for a catch()
+      endThread(); // FIXME: for now, we just terminate as well
+    }
+  }
+  // result is fine for continuing normal processing
+  // FIXME: %%% Test only, always return dummy for now
+  result = new StringValue("DUMMY evaluation result");
+  endThread();
+}
+
+
+
+
 #if SIMPLE_REPL_APP
 
 // MARK: - Simple REPL (Read Execute Print Loop) App
@@ -1819,9 +2110,6 @@ int main(int argc, char **argv)
 
 // MARK: - EvaluationContext
 
-#define DEFAULT_EXEC_TIME_LIMIT (Infinite)
-#define DEFAULT_SYNC_EXEC_LIMIT (10*Second)
-#define DEFAULT_SYNC_RUN_TIME (50*MilliSecond)
 
 EvaluationContext::EvaluationContext(const GeoLocation* aGeoLocationP) :
   geolocationP(aGeoLocationP),
@@ -3002,475 +3290,6 @@ ExpressionValue TimedEvaluationContext::evaluateSynchronously(EvalMode aEvalMode
   }
   return res;
 }
-
-
-// MARK: - standard functions available in every context
-
-#define IS_TIME_TOLERANCE_SECONDS 5 ///< matching window for is_time() function
-
-// standard functions available in every context
-bool EvaluationContext::evaluateFunction(const string &aFunc, const FunctionArguments &aArgs, ExpressionValue &aResult)
-{
-  if (aFunc=="ifvalid" && aArgs.size()==2) {
-    // ifvalid(a, b)   if a is a valid value, return it, otherwise return the default as specified by b
-    aResult = aArgs[0].isValue() ? aArgs[0] : aArgs[1];
-  }
-  else if (aFunc=="isvalid" && aArgs.size()==1) {
-    // isvalid(a)      if a is a valid value, return true, otherwise return false
-    aResult.setNumber(aArgs[0].isValue() ? 1 : 0);
-  }
-  else if (aFunc=="if" && aArgs.size()==3) {
-    // if (c, a, b)    if c evaluates to true, return a, otherwise b
-    if (!aArgs[0].isOK()) return errorInArg(aArgs[0], aResult); // return error from condition
-    aResult = aArgs[0].boolValue() ? aArgs[1] : aArgs[2];
-  }
-  else if (aFunc=="abs" && aArgs.size()==1) {
-    // abs (a)         absolute value of a
-    if (aArgs[0].notValue()) return errorInArg(aArgs[0], aResult); // return error/null from argument
-    aResult.setNumber(fabs(aArgs[0].numValue()));
-  }
-  else if (aFunc=="int" && aArgs.size()==1) {
-    // int (a)         integer value of a
-    if (aArgs[0].notValue()) return errorInArg(aArgs[0], aResult); // return error/null from argument
-    aResult.setNumber(int(aArgs[0].int64Value()));
-  }
-  else if (aFunc=="frac" && aArgs.size()==1) {
-    // frac (a)         fractional value of a
-    if (aArgs[0].notValue()) return errorInArg(aArgs[0], aResult); // return error/null from argument
-    aResult.setNumber(aArgs[0].numValue()-aArgs[0].int64Value()); // result retains sign
-  }
-  else if (aFunc=="round" && aArgs.size()>=1 && aArgs.size()<=2) {
-    // round (a)       round value to integer
-    // round (a, p)    round value to specified precision (1=integer, 0.5=halves, 100=hundreds, etc...)
-    if (aArgs[0].notValue()) return errorInArg(aArgs[0], aResult); // return error/null from argument
-    double precision = 1;
-    if (aArgs.size()>=2 && aArgs[1].isValue()) {
-      precision = aArgs[1].numValue();
-    }
-    aResult.setNumber(round(aArgs[0].numValue()/precision)*precision);
-  }
-  else if (aFunc=="random" && aArgs.size()==2) {
-    // random (a,b)     random value from a up to and including b
-    if (aArgs[0].notValue()) return errorInArg(aArgs[0], aResult); // return error/null from argument
-    if (aArgs[1].notValue()) return errorInArg(aArgs[1], aResult); // return error/null from argument
-    // rand(): returns a pseudo-random integer value between ​0​ and RAND_MAX (0 and RAND_MAX included).
-    aResult.setNumber(aArgs[0].numValue() + (double)rand()*(aArgs[1].numValue()-aArgs[0].numValue())/((double)RAND_MAX));
-  }
-  else if (aFunc=="min" && aArgs.size()==2) {
-    // min (a, b)    return the smaller value of a and b
-    if (aArgs[0].notValue()) return errorInArg(aArgs[0], aResult); // return error/null from argument
-    if (aArgs[1].notValue()) return errorInArg(aArgs[1], aResult); // return error/null from argument
-    if ((aArgs[0]<aArgs[1]).boolValue()) aResult = aArgs[0];
-    else aResult = aArgs[1];
-  }
-  else if (aFunc=="max" && aArgs.size()==2) {
-    // max (a, b)    return the bigger value of a and b
-    if (aArgs[0].notValue()) return errorInArg(aArgs[0], aResult); // return error/null from argument
-    if (aArgs[1].notValue()) return errorInArg(aArgs[1], aResult); // return error/null from argument
-    if ((aArgs[0]>aArgs[1]).boolValue()) aResult = aArgs[0];
-    else aResult = aArgs[1];
-  }
-  else if (aFunc=="limited" && aArgs.size()==3) {
-    // limited (x, a, b)    return min(max(x,a),b), i.e. x limited to values between and including a and b
-    if (aArgs[0].notValue()) return errorInArg(aArgs[0], aResult); // return error/null from argument
-    if (aArgs[1].notValue()) return errorInArg(aArgs[1], aResult); // return error/null from argument
-    if (aArgs[2].notValue()) return errorInArg(aArgs[2], aResult); // return error/null from argument
-    aResult = aArgs[0];
-    if ((aResult<aArgs[1]).boolValue()) aResult = aArgs[1];
-    else if ((aResult>aArgs[2]).boolValue()) aResult = aArgs[2];
-  }
-  else if (aFunc=="cyclic" && aArgs.size()==3) {
-    // cyclic (x, a, b)    return x with wraparound into range a..b (not including b because it means the same thing as a)
-    if (aArgs[0].notValue()) return errorInArg(aArgs[0], aResult); // return error/null from argument
-    if (aArgs[1].notValue()) return errorInArg(aArgs[1], aResult); // return error/null from argument
-    if (aArgs[2].notValue()) return errorInArg(aArgs[2], aResult); // return error/null from argument
-    double o = aArgs[1].numValue();
-    double x0 = aArgs[0].numValue()-o; // make null based
-    double r = aArgs[2].numValue()-o; // wrap range
-    if (x0>=r) x0 -= int(x0/r)*r;
-    else if (x0<0) x0 += (int(-x0/r)+1)*r;
-    aResult = x0+o;
-  }
-  else if (aFunc=="string" && aArgs.size()==1) {
-    // string(anything)
-    if (aArgs[0].isNull())
-      aResult.setString("undefined"); // make it visible
-    else
-      aResult.setString(aArgs[0].stringValue()); // force convert to string, including nulls and errors
-  }
-  else if (aFunc=="number" && aArgs.size()==1) {
-    // number(anything)
-    aResult.setNumber(aArgs[0].numValue()); // force convert to numeric
-  }
-  else if (aFunc=="copy" && aArgs.size()==1) {
-    // copy(anything) // make a value copy, including json object references
-    #if SCRIPTING_JSON_SUPPORT
-    if (aArgs[0].isJson()) {
-      // need to make a value copy of the JsonObject itself
-      aResult.setJson(JsonObjectPtr(new JsonObject(*(aArgs[0].jsonValue()))));
-    }
-    else
-    #endif
-    {
-      aResult = aArgs[0]; // just copy the ExpressionValue
-    }
-  }
-  #if SCRIPTING_JSON_SUPPORT
-  else if (aFunc=="json" && aArgs.size()==1) {
-    // json(anything)
-    aResult.setJson(aArgs[0].jsonValue());
-  }
-  else if (aFunc=="setfield" && aArgs.size()==3) {
-    // bool setfield(var, fieldname, value)
-    if (!aArgs[0].isJson()) aResult.setNull(); // not JSON, cannot set value
-    else {
-      aResult.setJson(aArgs[0].jsonValue());
-      if (aArgs[1].notValue()) return errorInArg(aArgs[1], aResult); // return error/null from argument
-      aResult.jsonValue()->add(aArgs[1].stringValue().c_str(), aArgs[2].jsonValue());
-    }
-  }
-  else if (aFunc=="setelement" && aArgs.size()>=2 && aArgs.size()<=3) {
-    // bool setelement(var, index, value) // set
-    // bool setelement(var, value) // append
-    if (!aArgs[0].isJson()) aResult.setNull(); // not JSON, cannot set value
-    else {
-      aResult.setJson(aArgs[0].jsonValue());
-      if (aArgs[1].notValue()) return errorInArg(aArgs[1], aResult); // return error/null from argument
-      if (aArgs.size()==2) {
-        // append
-        aResult.jsonValue()->arrayAppend(aArgs[1].jsonValue());
-      }
-      else {
-        aResult.jsonValue()->arrayPut(aArgs[1].intValue(), aArgs[2].jsonValue());
-      }
-    }
-  }
-  #if ENABLE_JSON_APPLICATION
-  else if (aFunc=="jsonresource" && aArgs.size()==1) {
-    if (aArgs[0].notValue()) return errorInArg(aArgs[0], aResult); // return error/null from argument
-    ErrorPtr err;
-    JsonObjectPtr j = Application::jsonResource(aArgs[0].stringValue(), &err);
-    if (Error::isOK(err))
-      aResult.setJson(j);
-    else
-      aResult.setError(err);
-  }
-  #endif // ENABLE_JSON_APPLICATION
-  #endif // SCRIPTING_JSON_SUPPORT
-  else if (aFunc=="lastarg") {
-    // lastarg(expr, expr, exprlast)
-    // (for executing side effects of non-last arg evaluation, before returning the last arg)
-    if (aArgs.size()==0) aResult.setNull(); // no arguments -> null
-    else aResult = aArgs[aArgs.size()-1]; // value of last argument
-  }
-  else if (aFunc=="strlen" && aArgs.size()==1) {
-    // strlen(string)
-    if (aArgs[0].notValue()) return errorInArg(aArgs[0], aResult); // return error/null from argument
-    aResult.setNumber(aArgs[0].stringValue().size()); // length of string
-  }
-  else if (aFunc=="substr" && aArgs.size()>=2 && aArgs.size()<=3) {
-    // substr(string, from)
-    // substr(string, from, count)
-    if (aArgs[0].notValue()) return errorInArg(aArgs[0], aResult); // return error/null from argument
-    string s = aArgs[0].stringValue();
-    if (aArgs[1].notValue()) return errorInArg(aArgs[1], aResult); // return error/null from argument
-    size_t start = aArgs[1].intValue();
-    if (start>s.size()) start = s.size();
-    size_t count = string::npos; // to the end
-    if (aArgs.size()>=3 && aArgs[2].isValue()) {
-      count = aArgs[2].intValue();
-    }
-    aResult.setString(s.substr(start, count));
-  }
-  else if (aFunc=="find" && aArgs.size()>=2 && aArgs.size()<=3) {
-    // find(haystack, needle)
-    // find(haystack, needle, from)
-    string haystack = aArgs[0].stringValue(); // haystack can be anything, including invalid
-    if (aArgs[1].notValue()) return errorInArg(aArgs[1], aResult); // return error/null from argument
-    string needle = aArgs[1].stringValue();
-    size_t start = 0;
-    if (aArgs.size()>=3) {
-      start = aArgs[2].intValue();
-      if (start>haystack.size()) start = haystack.size();
-    }
-    size_t p = string::npos;
-    if (aArgs[0].isValue()) {
-      p = haystack.find(needle, start);
-    }
-    if (p!=string::npos)
-      aResult.setNumber(p);
-    else
-      aResult.setNull(); // not found
-  }
-  else if (aFunc=="format" && aArgs.size()==2) {
-    // format(formatstring, number)
-    // only % + - 0..9 . d, x, and f supported
-    if (aArgs[0].notValue()) return errorInArg(aArgs[0], aResult); // return error/null from argument
-    string fmt = aArgs[0].stringValue();
-    if (
-      fmt.size()<2 ||
-      fmt[0]!='%' ||
-      fmt.substr(1,fmt.size()-2).find_first_not_of("+-0123456789.")!=string::npos || // excluding last digit
-      fmt.find_first_not_of("duxXeEgGf", fmt.size()-1)!=string::npos // which must be d,x or f
-    ) {
-      abortWithSyntaxError("invalid format string, only basic %%duxXeEgGf specs allowed");
-    }
-    if (fmt.find_first_of("duxX", fmt.size()-1)!=string::npos)
-      aResult.setString(string_format(fmt.c_str(), aArgs[1].intValue())); // int format
-    else
-      aResult.setString(string_format(fmt.c_str(), aArgs[1].numValue())); // double format
-  }
-  else if (aFunc=="throw" && aArgs.size()==1) {
-    // throw(value)       - throw a expression user error with the string value of value as errormessage
-    // throw(errvalue)    - (re-)throw with the error of the value passed
-    if (aArgs[0].isError()) return throwError(aArgs[0].error()); // just pass as is
-    else return throwError(ExpressionError::User, "%s", aArgs[0].stringValue().c_str());
-  }
-  else if (aFunc=="error" && aArgs.size()==1) {
-    // error(value)       - create a user error value with the string value of value as errormessage, in all cases, even if value is already an error
-    aResult.setError(ExpressionError::User, "%s", aArgs[0].stringValue().c_str());
-    return true;
-  }
-  else if (aFunc=="error" && aArgs.size()==0) {
-    // error()            - within a catch context only: the error thrown
-    StackList::iterator spos = stack.end();
-    while (spos!=stack.begin()) {
-      spos--;
-      if (spos->state==s_catchStatement) {
-        // here the error is stored
-        aResult = spos->res;
-        return true;
-      }
-    }
-    // try to use error() not within catch
-    return abortWithSyntaxError("error() can only be called from within catch statements");
-  }
-  else if (!synchronous && oneTimeResultHandler && aFunc=="earlyresult" && aArgs.size()==1) {
-    // send the one time result now, but keep script running
-    if (aArgs[0].notValue()) return errorInArg(aArgs[0], aResult); // return error/null from argument
-    OLOG(LOG_INFO, "earlyresult sends '%s' to caller, script continues running", aResult.stringValue().c_str());
-    runCallBack(aArgs[0]);
-  }
-  else if (aFunc=="errordomain" && aArgs.size()==1) {
-    // errordomain(errvalue)
-    ErrorPtr err = aArgs[0].err;
-    if (Error::isOK(err)) aResult.setNull(); // no error, no domain
-    aResult.setString(err->getErrorDomain());
-  }
-  else if (aFunc=="errorcode") {
-    // errorcode(errvalue)
-    ErrorPtr err = aArgs[0].err;
-    if (Error::isOK(err)) aResult.setNull(); // no error, no code
-    aResult.setNumber(err->getErrorCode());
-  }
-  else if (aFunc=="errormessage" && aArgs.size()==1) {
-    // errormessage(value)
-    ErrorPtr err = aArgs[0].err;
-    if (Error::isOK(err)) aResult.setNull(); // no error, no message
-    aResult.setString(err->getErrorMessage());
-  }
-  else if (synchronous && aFunc=="eval" && aArgs.size()==1) {
-    // eval(string)    have string evaluated as expression
-    if (aArgs[0].notValue()) return errorInArg(aArgs[0], aResult); // return error/null from argument
-    // TODO: for now we use a adhoc evaluation with access only to vars, but no functions.
-    //   later, when we have subroutine mechanisms, we'd be able to run the eval within the same context
-    aResult = p44::evaluateExpression(
-      aArgs[0].stringValue().c_str(),
-      boost::bind(&EvaluationContext::valueLookup, this, _1, _2),
-      NULL, // no functions from within function for now
-      getLogLevelOffset() // inherit log level offset
-    );
-    if (aResult.notValue()) {
-      OLOG(LOG_INFO, "eval(\"%s\") returns error '%s' in expression: '%s'", aArgs[0].stringValue().c_str(), aResult.err->text(), singleLine(getCode(), true).c_str());
-      // do not cause syntax error, only invalid result, but with error message included
-      aResult.setNull(string_format("eval() error: %s -> undefined", aResult.err->text()).c_str());
-    }
-  }
-  else if (aFunc=="log" && aArgs.size()<=2 && (aArgs.size()>1 || (aArgs.size()==1 && aArgs[0].isString()))) {
-    // TODO: Note: complicated check would allow log(number) math function in the future
-    // log (logmessage)
-    // log (loglevel, logmessage)
-    int loglevel = LOG_INFO;
-    int ai = 0;
-    if (aArgs.size()>1) {
-      if (aArgs[ai].notValue()) return errorInArg(aArgs[ai], aResult);
-      loglevel = aArgs[ai].intValue();
-      ai++;
-    }
-    if (aArgs[ai].notValue()) return errorInArg(aArgs[ai], aResult);
-    LOG(loglevel, "Script log: %s", aArgs[ai].stringValue().c_str());
-  }
-  else if (aFunc=="loglevel" && aArgs.size()==1) {
-    if (aArgs[0].notValue()) return errorInArg(aArgs[0], aResult);
-    int newLevel = aArgs[0].intValue();
-    if (newLevel>=0 && newLevel<=7) {
-      int oldLevel = LOGLEVEL;
-      SETLOGLEVEL(newLevel);
-      LOG(newLevel, "\n\n========== script changed log level from %d to %d ===============", oldLevel, newLevel);
-    }
-  }
-  else if (aFunc=="scriptloglevel") {
-    // TODO: remove legacy function
-    LOG(LOG_ERR, "scriptloglevel() function no longer available -> NOP");
-  }
-  else if (aFunc=="logleveloffset" && aArgs.size()==1) {
-    // log level offset for this script object
-    if (aArgs[0].notValue()) return errorInArg(aArgs[0], aResult);
-    int newOffset = aArgs[0].intValue();
-    setLogLevelOffset(newOffset);
-  }
-  else if (aFunc=="is_weekday" && aArgs.size()>0) {
-    struct tm loctim; MainLoop::getLocalTime(loctim);
-    // check if any of the weekdays match
-    int weekday = loctim.tm_wday; // 0..6, 0=sunday
-    ExpressionValue newRes(0);
-    size_t refpos = aArgs.getPos(0); // Note: we use pos of first argument for freezing the function's result (no need to freeze every single weekday)
-    for (int i = 0; i<aArgs.size(); i++) {
-      if (aArgs[i].notValue()) return errorInArg(aArgs[i], aResult); // return error/null from argument
-      int w = (int)aArgs[i].numValue();
-      if (w==7) w=0; // treat both 0 and 7 as sunday
-      if (w==weekday) {
-        // today is one of the days listed
-        newRes.setNumber(1);
-        break;
-      }
-    }
-    // freeze until next check: next day 0:00:00
-    loctim.tm_mday++;
-    loctim.tm_hour = 0;
-    loctim.tm_min = 0;
-    loctim.tm_sec = 0;
-    ExpressionValue res = newRes;
-    FrozenResult* frozenP = getFrozen(res,refpos);
-    newFreeze(frozenP, newRes, refpos, MainLoop::localTimeToMainLoopTime(loctim));
-    aResult = res; // freeze time over, use actual, newly calculated result
-  }
-  else if ((aFunc=="after_time" || aFunc=="is_time") && aArgs.size()>=1) {
-    struct tm loctim; MainLoop::getLocalTime(loctim);
-    ExpressionValue newSecs;
-    if (aArgs[0].notValue()) return errorInArg(aArgs[0], aResult); // return error/null from argument
-    size_t refpos = aArgs.getPos(0); // Note: we use pos of first argument for freezing the function's result (no need to freeze every single weekday)
-    if (aArgs.size()==2) {
-      // legacy spec
-      if (aArgs[1].notValue()) return errorInArg(aArgs[1], aResult); // return error/null from argument
-      newSecs.setNumber(((int32_t)aArgs[0].numValue() * 60 + (int32_t)aArgs[1].numValue()) * 60);
-    }
-    else {
-      // specification in seconds, usually using time literal
-      newSecs.setNumber((int32_t)(aArgs[0].numValue()));
-    }
-    ExpressionValue secs = newSecs;
-    FrozenResult* frozenP = getFrozen(secs, refpos);
-    int32_t daySecs = ((loctim.tm_hour*60)+loctim.tm_min)*60+loctim.tm_sec;
-    bool met = daySecs>=secs.numValue();
-    // next check at specified time, today if not yet met, tomorrow if already met for today
-    loctim.tm_hour = 0; loctim.tm_min = 0; loctim.tm_sec = (int)secs.numValue();
-    OLOG(LOG_INFO, "is/after_time() reference time for current check is: %s", MainLoop::string_mltime(MainLoop::localTimeToMainLoopTime(loctim)).c_str());
-    bool res = met;
-    // limit to a few secs around target if it's is_time
-    if (aFunc=="is_time" && met && daySecs<secs.numValue()+IS_TIME_TOLERANCE_SECONDS) {
-      // freeze again for a bit
-      newFreeze(frozenP, secs, refpos, MainLoop::localTimeToMainLoopTime(loctim)+IS_TIME_TOLERANCE_SECONDS*Second);
-    }
-    else {
-      loctim.tm_hour = 0; loctim.tm_min = 0; loctim.tm_sec = (int)newSecs.numValue();
-      if (met) {
-        loctim.tm_mday++; // already met today, check again tomorrow
-        if (aFunc=="is_time") res = false;
-      }
-      newFreeze(frozenP, newSecs, refpos, MainLoop::localTimeToMainLoopTime(loctim));
-    }
-    aResult = res;
-  }
-  else if (aFunc=="between_dates" || aFunc=="between_yeardays") {
-    if (aArgs[0].notValue()) return errorInArg(aArgs[0], aResult); // return error/null from argument
-    if (aArgs[1].notValue()) return errorInArg(aArgs[1], aResult); // return error/null from argument
-    struct tm loctim; MainLoop::getLocalTime(loctim);
-    int smaller = (int)(aArgs[0].numValue());
-    int larger = (int)(aArgs[1].numValue());
-    int currentYday = loctim.tm_yday;
-    loctim.tm_hour = 0; loctim.tm_min = 0; loctim.tm_sec = 0;
-    loctim.tm_mon = 0;
-    bool lastBeforeFirst = smaller>larger;
-    if (lastBeforeFirst) swap(larger, smaller);
-    if (currentYday<smaller) loctim.tm_mday = 1+smaller;
-    else if (currentYday<=larger) loctim.tm_mday = 1+larger;
-    else { loctim.tm_mday = smaller; loctim.tm_year += 1; } // check one day too early, to make sure no day is skipped in a leap year to non leap year transition
-    updateNextEval(loctim);
-    aResult.setBool((currentYday>=smaller && currentYday<=larger)!=lastBeforeFirst);
-  }
-  else if (aFunc=="sunrise" && aArgs.size()==0) {
-    if (!geolocationP) aResult.setNull();
-    else aResult.setNumber(sunrise(time(NULL), *geolocationP, false)*3600);
-  }
-  else if (aFunc=="dawn" && aArgs.size()==0) {
-    if (!geolocationP) aResult.setNull();
-    else aResult.setNumber(sunrise(time(NULL), *geolocationP, true)*3600);
-  }
-  else if (aFunc=="sunset" && aArgs.size()==0) {
-    if (!geolocationP) aResult.setNull();
-    else aResult.setNumber(sunset(time(NULL), *geolocationP, false)*3600);
-  }
-  else if (aFunc=="dusk" && aArgs.size()==0) {
-    if (!geolocationP) aResult.setNull();
-    else aResult.setNumber(sunset(time(NULL), *geolocationP, true)*3600);
-  }
-  else if (aFunc=="epochtime" && aArgs.size()==0) {
-    aResult.setNumber((double)time(NULL)/24/60/60); // epoch time in days with fractional time
-  }
-  else {
-    double fracSecs;
-    struct tm loctim; MainLoop::getLocalTime(loctim, &fracSecs);
-    if (aFunc=="timeofday" && aArgs.size()==0) {
-      aResult.setNumber(((loctim.tm_hour*60)+loctim.tm_min)*60+loctim.tm_sec+fracSecs);
-    }
-    else if (aFunc=="hour" && aArgs.size()==0) {
-      aResult.setNumber(loctim.tm_hour);
-    }
-    else if (aFunc=="minute" && aArgs.size()==0) {
-      aResult.setNumber(loctim.tm_min);
-    }
-    else if (aFunc=="second" && aArgs.size()==0) {
-      aResult.setNumber(loctim.tm_sec);
-    }
-    else if (aFunc=="year" && aArgs.size()==0) {
-      aResult.setNumber(loctim.tm_year+1900);
-    }
-    else if (aFunc=="month" && aArgs.size()==0) {
-      aResult.setNumber(loctim.tm_mon+1);
-    }
-    else if (aFunc=="day" && aArgs.size()==0) {
-      aResult.setNumber(loctim.tm_mday);
-    }
-    else if (aFunc=="weekday" && aArgs.size()==0) {
-      aResult.setNumber(loctim.tm_wday);
-    }
-    else if (aFunc=="yearday" && aArgs.size()==0) {
-      aResult.setNumber(loctim.tm_yday);
-    }
-    else {
-      return false; // not found
-    }
-  }
-  return true;
-}
-
-
-bool EvaluationContext::evaluateAsyncFunction(const string &aFunc, const FunctionArguments &aArgs, bool &aNotYielded)
-{
-  aNotYielded = true; // by default, so we can use "return errorInArg()" style exits
-  if (aFunc=="delay" && aArgs.size()==1) {
-    if (aArgs[0].notValue()) return true; // no value specified, consider executed
-    MLMicroSeconds delay = aArgs[0].numValue()*Second;
-    execTicket.executeOnce(boost::bind(&EvaluationContext::selfKeepingContinueEvaluation, this), delay);
-    aNotYielded = false; // yielded execution
-  }
-  else {
-    return false; // no such async function
-  }
-  return true; // function found, aNotYielded must be set correctly!
-}
-
 
 
 

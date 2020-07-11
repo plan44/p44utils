@@ -42,6 +42,8 @@ using namespace std;
 
 namespace p44 { namespace Script {
 
+  // MARK: - class and smart pointer forward definitions
+
   class ScriptObj;
   typedef boost::intrusive_ptr<ScriptObj> ScriptObjPtr;
   class ExpressionValue;
@@ -56,10 +58,14 @@ namespace p44 { namespace Script {
 
   class ExecutionContext;
   typedef boost::intrusive_ptr<ExecutionContext> ExecutionContextPtr;
-  class ExecutionThread;
-  typedef boost::intrusive_ptr<ExecutionThread> ExecutionThreadPtr;
+  class ScriptCodeContext;
+  typedef boost::intrusive_ptr<ScriptCodeContext> ScriptCodeContextPtr;
+  class ScriptMainContext;
   class ScriptingDomain;
   typedef boost::intrusive_ptr<ScriptingDomain> ScriptingDomainPtr;
+
+  class ScriptCodeThread;
+  typedef boost::intrusive_ptr<ScriptCodeThread> ScriptCodeThreadPtr;
 
   class CodeCursor;
   class SourceRef;
@@ -84,19 +90,22 @@ namespace p44 { namespace Script {
     // Errors
     typedef enum {
       OK,
-      Syntax,
+      // Catchable errors
+      User, ///< user generated error (with throw)
       DivisionByZero,
       CyclicReference,
-      AsyncNotAllowed, ///< async executable encountered during synchronous execution
       Invalid, ///< invalid value
-      Internal, ///< internal inconsistency
-      Busy, ///< currently running
       NotFound, ///< referenced object not found at runtime (and cannot be created)
       NotCreated, ///< object/field does not exist and cannot be created, either
       Immutable, ///< object/field exists but is immutable and cannot be assigned
+      Busy, ///< currently running
+      // Fatal errors, cannot be catched
+      FatalErrors,
+      Syntax = FatalErrors, ///< script syntax error
       Aborted, ///< externally aborted
       Timeout, ///< aborted because max execution time limit reached
-      User, ///< user generated error (with throw)
+      AsyncNotAllowed, ///< async executable encountered during synchronous execution
+      Internal, ///< internal inconsistency
       numErrorCodes
     } ErrorCodes;
     static const char *domain() { return "ScriptError"; }
@@ -141,10 +150,11 @@ namespace p44 { namespace Script {
     // modifiers
     modifierMask = 0xFF00,
     synchronously = 0x0100, ///< evaluate synchronously, error out on async code
-    abortrunning = 0x0200, ///< abort running evaluation in the same context before starting a new one
+    stoprunning = 0x0200, ///< abort running evaluation in the same context before starting a new one
     queue = 0x0400, ///< queue for evaluation if other evaluations are still running/pending
-    reset = 0x0800, ///< reset the context (clear local vars) before starting
-    concurrently = 0x1000, ///< reset the context (clear local vars) before starting
+    stopall = stoprunning+queue, ///< stop everything
+    concurrently = 0x0800, ///< reset the context (clear local vars) before starting
+    keepvars = 0x1000, ///< keep the local variables already set in the context
   };
   typedef uint16_t EvaluationFlags;
 
@@ -176,10 +186,11 @@ namespace p44 { namespace Script {
     exacttype = 0x0200, ///< if set, type of argument must match, no autoconversion
     undefres = 0x0400, ///< if set, and an argument does not match type, the function result is automatically made null/undefined without executing the implementation
     async = 0x0800, ///< if set, the object cannot evaluate synchronously
-    // - for storage of named members
+    // - storage attributes and directives for named members
     mutablemembers = 0x1000, ///< members are mutable
     create = 0x2000, ///< set to create member if not yet existing
     global = 0x4000, ///< set to store in global context
+    constant = 0x8000, ///< set to select only constant  (in the sense of: not settable by scripts) members
   };
   typedef uint16_t TypeInfo;
 
@@ -372,6 +383,7 @@ namespace p44 { namespace Script {
   public:
     ErrorValue(ErrorPtr aError) : err(aError) {};
     ErrorValue(ScriptError::ErrorCodes aErrCode, const char *aFmt, ...);
+    ErrorValue(ScriptError::ErrorCodes aErrCode, const SourceRef &aSrcRef, const char *aFmt, ...);
     virtual string getAnnotation() const P44_OVERRIDE { return "error"; };
     virtual TypeInfo getTypeInfo() const P44_OVERRIDE { return error; };
     // value getters
@@ -488,7 +500,9 @@ namespace p44 { namespace Script {
 
   // MARK: - Execution contexts
 
-  /// Basic execution context, can hold indexed (positional) arguments as needed for calling built-in functions
+  /// Abstract base class for executables.
+  /// Can hold indexed (positional) arguments as these are needed for all types
+  /// of implementations (e.g. built-ins as well as script defined functions)
   class ExecutionContext : public ScriptObj
   {
     typedef ScriptObj inherited;
@@ -501,6 +515,9 @@ namespace p44 { namespace Script {
   public:
 
     ExecutionContext(ScriptObjPtr aExecObj, ScriptingDomainPtr aDomain) : thisObject(aExecObj) {};
+
+    /// clear local variables (indexed arguments)
+    virtual void clearVars();
 
     // access to function arguments (positional) by index plus optionally a name
     virtual size_t numIndexedMembers() const P44_OVERRIDE;
@@ -523,11 +540,12 @@ namespace p44 { namespace Script {
     /// @param aToEvaluate the object to be evaluated
     /// @param aEvalFlags evaluation control flags
     /// @param aEvaluationCB will be called to deliver the result of the evaluation
-    virtual void evaluate(ScriptObjPtr aToEvaluate, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB);
+    virtual void evaluate(ScriptObjPtr aToEvaluate, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB) = 0;
 
     /// abort evaluation (of all threads if context has more than one)
-    /// @param aDoCallBack if set, the callback provided to evaluate() is executed
-    virtual void abort(bool aDoCallBack);
+    /// @param aAbortFlags set stoprunning to abort currently running threads, queue to empty the queued threads
+    /// @param aAbortResult if set, this is what abort will report back
+    virtual void abort(EvaluationFlags aAbortFlags = stoprunning+queue, ScriptObjPtr aAbortResult = ScriptObjPtr()) = 0;
 
     /// synchronously evaluate the object, abort if async executables are encountered
     ScriptObjPtr evaluateSynchronously(ScriptObjPtr aToEvaluate, EvaluationFlags aEvalFlags);
@@ -553,47 +571,75 @@ namespace p44 { namespace Script {
   };
 
 
-  /// context for a local execution block, such as a function implemented as script
-  /// with access to local variables (and named access to arguments)
-  class LocalVarContext : public ExecutionContext
+  /// Base class providing context for executing any script code (vs. built-in executables).
+  /// Can hold named local variables (and provides named access to arguments).
+  class ScriptCodeContext : public ExecutionContext
   {
     typedef ExecutionContext inherited;
+    friend class ScriptCodeThread;
 
     typedef std::map<string, ScriptObjPtr, lessStrucmp> NamedVarMap;
-    NamedVarMap namedVars;
+    NamedVarMap namedVars; ///< the named local variables/objects of this context
+
+    typedef std::list<ScriptCodeThreadPtr> ThreadList;
+    ThreadList threads; ///< the running "threads" in this context. First is the main thread of the evaluation.
+    ThreadList queuedThreads; ///< the queued threads in this context
+
+    ExecutionContextPtr mainContext; ///< the main context
 
   public:
 
-    LocalVarContext(ScriptObjPtr aExecObj, ScriptingDomainPtr aDomain) : inherited(aExecObj, aDomain) {};
+    ScriptCodeContext(ScriptObjPtr aExecObj, ExecutionContextPtr aMainContext, ScriptingDomainPtr aDomain) :
+      inherited(aExecObj, aDomain), mainContext(aMainContext) {};
     virtual void releaseObjsFromSource(SourceContainerPtr aSource) P44_OVERRIDE;
+
+    /// clear local variables (named members)
+    virtual void clearVars() P44_OVERRIDE;
 
     // access to local variables by name
     virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aTypeRequirements = none) const P44_OVERRIDE;
     virtual ErrorPtr setMemberByName(const string aName, const ScriptObjPtr aMember, TypeInfo aStorageAttributes = none) P44_OVERRIDE;
     virtual ErrorPtr setMemberAtIndex(size_t aIndex, const ScriptObjPtr aMember, const string aName = "") P44_OVERRIDE;
 
+    /// Evaluate a object
+    /// @param aToEvaluate the object to be evaluated
+    /// @param aEvalFlags evaluation mode/flags. Script thread can evaluate...
+    /// - 
+    /// @param aEvaluationCB will be called to deliver the result of the evaluation
+    virtual void evaluate(ScriptObjPtr aToEvaluate, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB) P44_OVERRIDE;
+
+    /// abort evaluation of all threads
+    /// @param aAbortFlags set stoprunning to abort currently running threads, queue to empty the queued threads
+    /// @param aAbortResult if set, this is what abort will report back
+    virtual void abort(EvaluationFlags aAbortFlags = stoprunning+queue, ScriptObjPtr aAbortResult = ScriptObjPtr()) P44_OVERRIDE;
+
+    /// @return return main's context
+    ExecutionContextPtr main() const { return mainContext; }
+
+  private:
+
+    /// called by threads ending
+    void threadTerminated(ScriptCodeThreadPtr aThread);
+
   };
 
 
-  class LocalExecutionContext : public LocalVarContext
+  /// Context for a script's main body, which can bring objects and functions into scope
+  /// from the script's environment in the overall application structure via member lookups
+  class ScriptMainContext : public ScriptCodeContext
   {
-    typedef LocalVarContext inherited;
-
-    ExecutionContextPtr parentContext;
+    typedef ScriptCodeContext inherited;
 
     typedef std::list<ClassMemberLookupPtr> LookupList;
     LookupList lookups;
 
   public:
-    LocalExecutionContext(ScriptObjPtr aExecObj, ExecutionContextPtr aParentContext, ScriptingDomainPtr aDomain);
+    ScriptMainContext(ScriptObjPtr aExecObj, ScriptingDomainPtr aDomain);
 
     // access to objects in the context hierarchy of a local execution
     // (local objects, parent context objects, global objects)
     virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aTypeRequirements = none) const P44_OVERRIDE;
     virtual ErrorPtr setMemberByName(const string aName, const ScriptObjPtr aMember, TypeInfo aStorageAttributes = none) P44_OVERRIDE;
-
-    /// @return return the execution's main (parent context
-    ExecutionContextPtr parent() { return parentContext; }
 
     /// register an additional lookup
     /// @param aMemberLookup a lookup object
@@ -603,20 +649,19 @@ namespace p44 { namespace Script {
 
 
   /// Scripting domain, usually singleton, containing global variables and event handlers
-  class ScriptingDomain : public LocalExecutionContext
+  /// No code directly runs in this context
+  class ScriptingDomain : public ScriptMainContext
   {
-    typedef LocalExecutionContext inherited;
+    typedef ScriptMainContext inherited;
 
     GeoLocation *geoLocationP;
 
-    // TODO: global function storage
+    // TODO: global script defined function storage -> no, are just vars of the domains
     // TODO: global event handler storage
-
-    // TODO:
 
   public:
 
-    ScriptingDomain() : inherited(ScriptObjPtr(), ExecutionContextPtr(), ScriptingDomainPtr()), geoLocationP(NULL) {};
+    ScriptingDomain() : inherited(ScriptObjPtr(), ScriptingDomainPtr()), geoLocationP(NULL) {};
 
     /// set geolocation to use for functions that refer to location
     void setGeoLocation(GeoLocation* aGeoLocationP) { geoLocationP = aGeoLocationP; };
@@ -631,7 +676,7 @@ namespace p44 { namespace Script {
   {
     typedef ScriptObj inherited;
   public:
-
+    virtual TypeInfo getTypeInfo() const { return executable; };
   };
 
 
@@ -664,9 +709,23 @@ namespace p44 { namespace Script {
   {
   public:
     SourceContainerPtr source; ///< the source containing the string we're pointing to
-    CodeCursor pos;
+    CodeCursor pos; ///< the position within the source
     bool refersTo(SourceContainerPtr aSource) const { return source==aSource; }
   };
+
+  /// extended error class to carry source reference
+  class SourceRefError : public ScriptError
+  {
+    SourceRef srcRef;
+  public:
+    virtual const char *getErrorDomain() const P44_OVERRIDE { return ScriptError::domain(); };
+    SourceRefError(const SourceRef &aSourceRef, ErrorCodes aError) :
+      ScriptError(aError), srcRef(aSourceRef) {};
+    const SourceRef& sourceRef() const { return srcRef; };
+  };
+
+
+
 
 
   /// the actual script source text, shared among ScriptSource and possibly multiple SourceRefs
@@ -675,6 +734,7 @@ namespace p44 { namespace Script {
     friend class SourceRef;
     friend class ScriptSource;
     friend class CompiledCode;
+    friend class ExecutionContext;
 
     const char *originLabel; ///< a label used for logging and error reporting
     P44LoggingObj* loggingContextP; ///< the logging context
@@ -719,6 +779,7 @@ namespace p44 { namespace Script {
   class CompiledCode : public ImplementationObj
   {
     typedef ImplementationObj inherited;
+    friend class ScriptCodeContext;
 
     SourceRef srcRef; ///< reference to the source part from which this object originates from
   public:
@@ -760,9 +821,83 @@ namespace p44 { namespace Script {
   };
 
 
+  // MARK: - ScriptCodeThread
+
+  #define DEFAULT_EXEC_TIME_LIMIT (Infinite)
+  #define DEFAULT_MAX_BLOCK_TIME (50*MilliSecond)
+
+  /// represents a code execution "thread" and its "stack"
+  /// Note that the scope such a "thread" is only within one context.
+  /// The "stack" is NOT a function calling stack, but only the stack
+  /// needed to walk the nested code/expression structure with
+  /// a state machine.
+  class ScriptCodeThread : public P44Obj
+  {
+    ScriptCodeContextPtr owner; ///< the execution context which owns (has started) this thread
+    EvaluationCB terminationCB; ///< to be called when the thread ends
+    EvaluationFlags evaluationFlags; ///< the evaluation flags in use
+    MLMicroSeconds maxBlockTime; ///< how long the thread is allowed to block in evaluate()
+    MLMicroSeconds maxRunTime; ///< how long the thread is allowed to run overall
+
+    MLMicroSeconds runningSince; ///< time the thread was started
+    ExecutionContextPtr childContext; ///< set during calls to other contexts, e.g. to propagate abort()
+    MLTicket autoResumeTicket; ///< auto-resume ticket
+
+    SourceRef pc; ///< the "program counter"
+    ScriptObjPtr result; ///< current result
+    bool aborted; ///< if set when entering continueThread, the thread will immediately end
+    bool resuming; ///< detector for resume calling itself (synchronous execution)
+    bool resumed; ///< detector for resume calling itself (synchronous execution)
+
+  public:
+
+    /// @param aOwner the context which owns this thread and will be notified when it ends
+    /// @param aSourceRef the start point for the script
+    ScriptCodeThread(ScriptCodeContextPtr aOwner, const SourceRef aSourceRef);
+
+    /// prepare for running
+    /// @param aTerminationCB will be called to deliver when the thread ends
+    /// @param aEvalFlags evaluation control flags
+    ///   (not how long it takes until aEvaluationCB is called, which can be much later for async execution)
+    /// @param aMaxBlockTime max time this call may continue evaluating before returning
+    /// @param aMaxRunTime max time this evaluation might take, even when call does not block
+    void prepare(
+      EvaluationCB aTerminationCB,
+      EvaluationFlags aEvalFlags,
+      MLMicroSeconds aMaxBlockTime=DEFAULT_MAX_BLOCK_TIME,
+      MLMicroSeconds aMaxRunTime=DEFAULT_EXEC_TIME_LIMIT
+    );
+
+    /// evaluate (= run the thread)
+    virtual void run();
+
+    /// abort the current thread, including child context
+    /// @param aAbortResult if set, this is what abort will report back
+    void abort(ScriptObjPtr aAbortResult = ScriptObjPtr());
+
+  protected:
+
+    /// end the thread, delivers current result via callback
+    void endThread();
+
+    /// resume running the script code
+    /// @param aResult result, if any is expected at that stage
+    /// @note : this is the main statemachine (re-)entry point.
+    /// - child contexts evaluation will call back here
+    /// - step() will call back here
+    /// - automatically takes care of winding back call chain if called recursively
+    /// - automatically takes care of not running too long
+    void resume(ScriptObjPtr aResult = ScriptObjPtr());
+    static void selfKeepingResume(ScriptCodeThreadPtr aContext);
+
+    /// run next statemachine step
+    void step();
+
+  };
 
 
- // MARK: - Built-in function support
+
+  // MARK: - Built-in function support
 
   class BuiltInFunctionLookup;
   class BuiltinFunctionObj;
@@ -832,8 +967,9 @@ namespace p44 { namespace Script {
     typedef ExecutionContext inherited;
     friend class BuiltinFunctionObj;
 
-    EvaluationCB evaluationCB; ///< to be called back
-    SimpleCB abortCB; ///< called when aborting
+    BuiltinFunctionObjPtr func; ///< the currently executing function
+    EvaluationCB evaluationCB; ///< to be called when built-in function has finished
+    SimpleCB abortCB; ///< called when aborting. async built-in might set this to cause external operations to stop at abort
 
   public:
 
@@ -843,7 +979,9 @@ namespace p44 { namespace Script {
     virtual void evaluate(ScriptObjPtr aToEvaluate, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB) P44_OVERRIDE;
 
     /// abort (async) built-in function
-    virtual void abort(bool aDoCallBack) P44_OVERRIDE;
+    /// @param aAbortFlags set stoprunning to abort currently running threads, queue to empty the queued threads
+    /// @param aAbortResult if set, this is what abort will report back
+    virtual void abort(EvaluationFlags aAbortFlags = stoprunning+queue, ScriptObjPtr aAbortResult = ScriptObjPtr()) P44_OVERRIDE;
 
     /// @name builtin function implementation interface
     /// @{
