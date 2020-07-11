@@ -28,6 +28,9 @@
 //       rename it to p44utils_config.hpp and modify it according to
 //       your needs.
 
+#ifndef ENABLE_NAMED_ERRORS
+  #define ENABLE_NAMED_ERRORS P44_CPP11_FEATURE // Enable if compiler can do C++11
+#endif
 #ifndef ENABLE_EXPRESSIONS
   #define ENABLE_EXPRESSIONS 1 // Expression/Script engine support in some of the p44utils components
 #endif

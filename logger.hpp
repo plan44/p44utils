@@ -22,6 +22,8 @@
 #ifndef __p44utils__logger__
 #define __p44utils__logger__
 
+#include "p44utils_minimal.hpp"
+
 #include <sys/time.h>
 #include <netinet/in.h>
 #include <netdb.h>

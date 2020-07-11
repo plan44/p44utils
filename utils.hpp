@@ -22,6 +22,8 @@
 #ifndef __p44utils__utils__
 #define __p44utils__utils__
 
+#include "p44utils_minimal.hpp"
+
 #include <string>
 #include <stdarg.h>
 #include <stdint.h>

@@ -19,6 +19,8 @@
 //  along with p44utils. If not, see <http://www.gnu.org/licenses/>.
 //
 
+#include "p44utils_minimal.hpp"
+
 #include <stdint.h>
 
 #ifndef __p44utils__colorutils__

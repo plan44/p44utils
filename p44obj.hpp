@@ -22,6 +22,8 @@
 #ifndef __p44utils__p44obj__
 #define __p44utils__p44obj__
 
+#include "p44utils_minimal.hpp"
+
 #include <boost/intrusive_ptr.hpp>
 
 namespace p44 {
