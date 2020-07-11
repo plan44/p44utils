@@ -34,6 +34,24 @@
 using namespace p44;
 
 
+#if ENABLE_NAMED_ERRORS
+const char* JsonRpcError::errorName() const
+{
+  switch(getErrorCode()) {
+    case ParseError: return "ParseError";
+    case InvalidRequest: return "InvalidRequest";
+    case MethodNotFound: return "MethodNotFound";
+    case InvalidParams: return "InvalidParams";
+    case InternalError: return "InternalError";
+  }
+  if (getErrorCode()>=ServerError && getErrorCode()<=ServerErrorMax) {
+    return "ServerError";
+  }
+  return NULL;
+}
+#endif // ENABLE_NAMED_ERRORS
+
+
 JsonRpcComm::JsonRpcComm(MainLoop &aMainLoop) :
   inherited(aMainLoop),
   requestIdCounter(0),

@@ -61,6 +61,10 @@ namespace p44 {
     static const char *domain() { return "HttpComm"; }
     virtual const char *getErrorDomain() const { return HttpCommError::domain(); };
     HttpCommError(ErrorCodes aError) : Error(ErrorCode(aError)) {};
+    #if ENABLE_NAMED_ERRORS
+  protected:
+    virtual const char* errorName() const P44_OVERRIDE;
+    #endif // ENABLE_NAMED_ERRORS
   };
 
 

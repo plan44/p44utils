@@ -87,6 +87,7 @@ namespace p44 { namespace Script {
       Syntax,
       DivisionByZero,
       CyclicReference,
+      AsyncNotAllowed, ///< async executable encountered during synchronous execution
       Invalid, ///< invalid value
       Internal, ///< internal inconsistency
       Busy, ///< currently running
@@ -96,12 +97,34 @@ namespace p44 { namespace Script {
       Aborted, ///< externally aborted
       Timeout, ///< aborted because max execution time limit reached
       User, ///< user generated error (with throw)
+      numErrorCodes
     } ErrorCodes;
     static const char *domain() { return "ScriptError"; }
-    virtual const char *getErrorDomain() const { return ScriptError::domain(); };
+    virtual const char *getErrorDomain() const P44_OVERRIDE { return ScriptError::domain(); };
     ScriptError(ErrorCodes aError) : Error(ErrorCode(aError)) {};
     /// factory method to create string error fprint style
     static ErrorPtr err(ErrorCodes aErrCode, const char *aFmt, ...) __printflike(2,3);
+    #if ENABLE_NAMED_ERRORS
+  protected:
+    virtual const char* errorName() const P44_OVERRIDE { return errNames[getErrorCode()]; };
+  private:
+    static constexpr const char* const errNames[numErrorCodes] = {
+      "OK",
+      "Syntax",
+      "DivisionByZero",
+      "CyclicReference",
+      "AsyncNotAllowed",
+      "Invalid",
+      "Internal",
+      "Busy",
+      "NotFound",
+      "NotCreated",
+      "Immutable",
+      "Aborted",
+      "Timeout",
+      "User",
+    };
+    #endif // ENABLE_NAMED_ERRORS
   };
 
 
@@ -152,6 +175,7 @@ namespace p44 { namespace Script {
     multiple = 0x0100, ///< this argument type can occur mutiple times (... signature)
     exacttype = 0x0200, ///< if set, type of argument must match, no autoconversion
     undefres = 0x0400, ///< if set, and an argument does not match type, the function result is automatically made null/undefined without executing the implementation
+    async = 0x0800, ///< if set, the object cannot evaluate synchronously
     // - for storage of named members
     mutablemembers = 0x1000, ///< members are mutable
     create = 0x2000, ///< set to create member if not yet existing
@@ -501,6 +525,13 @@ namespace p44 { namespace Script {
     /// @param aEvaluationCB will be called to deliver the result of the evaluation
     virtual void evaluate(ScriptObjPtr aToEvaluate, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB);
 
+    /// abort evaluation (of all threads if context has more than one)
+    /// @param aDoCallBack if set, the callback provided to evaluate() is executed
+    virtual void abort(bool aDoCallBack);
+
+    /// synchronously evaluate the object, abort if async executables are encountered
+    ScriptObjPtr evaluateSynchronously(ScriptObjPtr aToEvaluate, EvaluationFlags aEvalFlags);
+
     /// check argument against signature and add to context if ok
     /// @param aArgument the object to be passed as argument. Pass NULL to check if aCallee has more non-optional arguments
     /// @param aIndex argument index
@@ -802,6 +833,7 @@ namespace p44 { namespace Script {
     friend class BuiltinFunctionObj;
 
     EvaluationCB evaluationCB; ///< to be called back
+    SimpleCB abortCB; ///< called when aborting
 
   public:
 
@@ -809,6 +841,9 @@ namespace p44 { namespace Script {
 
     /// evaluate built-in function
     virtual void evaluate(ScriptObjPtr aToEvaluate, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB) P44_OVERRIDE;
+
+    /// abort (async) built-in function
+    virtual void abort(bool aDoCallBack) P44_OVERRIDE;
 
     /// @name builtin function implementation interface
     /// @{
@@ -826,6 +861,11 @@ namespace p44 { namespace Script {
 
     /// @return argument as reference for applying C++ operators to them (and not to the smart pointers)
     inline ScriptObj& argval(size_t aArgIndex) { return *(arg(aArgIndex)); }
+
+    /// set abort callback
+    /// @param aAbortCB will be called when context receives abort() before implementation call finish()
+    /// @note async built-ins must set this callback implementing immediate termination of any ongoing action
+    void setAbortCallback(SimpleCB aAbortCB);
 
     /// return result and execution thread back to script
     /// @param aResult the function result, if any.

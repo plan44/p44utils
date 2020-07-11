@@ -478,6 +478,20 @@ void ExecutionContext::evaluate(ScriptObjPtr aToEvaluate, EvaluationFlags aEvalF
 }
 
 
+void ExecutionContext::abort(bool aDoCallBack)
+{
+  // call abort handlers of all child contexts
+  %%%
+}
+
+
+ScriptObjPtr ExecutionContext::evaluateSynchronously(ScriptObjPtr aToEvaluate, EvaluationFlags aEvalFlags)
+{
+
+}
+
+
+
 
 
 // MARK: - LocalVarContext
@@ -679,11 +693,22 @@ void BuiltinFunctionContext::evaluate(ScriptObjPtr aToEvaluate, EvaluationFlags 
   if (!obj || !obj->descriptor) {
     aEvaluationCB(new ErrorValue(ScriptError::Internal, "builtin function call inconsistency"));
   }
+  else if ((aEvalFlags & synchronously) && (obj->descriptor->returnTypeInfo & async)) {
+    aEvaluationCB(new ErrorValue(ScriptError::AsyncNotAllowed, "builtin function '%s' cannot be used in synchronous evaluation", obj->descriptor->name));
+  }
   else {
     evaluationCB = aEvaluationCB;
     obj->descriptor->implementation(this);
   }
 }
+
+
+void BuiltinFunctionContext::abort(bool aDoCallBack)
+{
+  if (abortCB) abortCB();
+  inherited::abort(aDoCallBack);
+}
+
 
 
 ScriptObjPtr BuiltinFunctionContext::arg(size_t aArgIndex)
@@ -1450,6 +1475,21 @@ static void yearday_func(BuiltinFunctionContextPtr f)
 }
 
 
+// delay(seconds)
+static const ArgumentDescriptor delay_args[] = { { numeric } };
+static const size_t delay_numargs = sizeof(delay_args)/sizeof(ArgumentDescriptor);
+static void delay_func(BuiltinFunctionContextPtr f)
+{
+  MLMicroSeconds delay = f->arg(0)->numValue()*Second;
+
+  execTicket.executeOnce(boost::bind(&EvaluationContext::selfKeepingContinueEvaluation, this), delay);
+  aNotYielded = false; // yielded execution
+
+}
+
+
+
+
 // The standard function descriptor table
 static const BuiltinFunctionDescriptor standardFunctions[] = {
   { "ifvalid", any, ifvalid_numargs, ifvalid_args, &ifvalid_func },
@@ -1505,6 +1545,8 @@ static const BuiltinFunctionDescriptor standardFunctions[] = {
   { "day", any, timegetter_numargs, timegetter_args, &day_func },
   { "weekday", any, timegetter_numargs, timegetter_args, &weekday_func },
   { "yearday", any, timegetter_numargs, timegetter_args, &yearday_func },
+  // Async
+  { "delay", null+async, delay_numargs, delay_args, &delay_func },
   { NULL } // terminator
 };
 

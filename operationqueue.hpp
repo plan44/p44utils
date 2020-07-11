@@ -38,11 +38,22 @@ namespace p44 {
       OK,
       Aborted,
       TimedOut,
+      numErrorCodes
     } ErrorCodes;
     
     static const char *domain() { return "OperationQueue"; };
-    virtual const char *getErrorDomain() const { return OQError::domain(); };
+    virtual const char *getErrorDomain() const P44_OVERRIDE { return OQError::domain(); };
     OQError(ErrorCodes aError) : Error(ErrorCode(aError)) {};
+    #if ENABLE_NAMED_ERRORS
+  protected:
+    virtual const char* errorName() const P44_OVERRIDE { return errNames[getErrorCode()]; };
+  private:
+    static constexpr const char* const errNames[numErrorCodes] = {
+      "OK",
+      "Aborted",
+      "TimedOut",
+    };
+    #endif // ENABLE_NAMED_ERRORS
   };
 
 

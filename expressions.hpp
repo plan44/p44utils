@@ -64,13 +64,31 @@ namespace p44 {
       Aborted, ///< externally aborted
       Timeout, ///< aborted because max execution time limit reached
       User, ///< user generated error (with throw)
+      numErrorCodes
     } ErrorCodes;
     static const char *domain() { return "ExpressionError"; }
-    virtual const char *getErrorDomain() const { return ExpressionError::domain(); };
+    virtual const char *getErrorDomain() const P44_OVERRIDE { return ExpressionError::domain(); };
     ExpressionError(ErrorCodes aError) : Error(ErrorCode(aError)) {};
     /// factory method to create string error fprint style
     static ErrorPtr err(ErrorCodes aErrCode, const char *aFmt, ...) __printflike(2,3);
-  };
+    #if ENABLE_NAMED_ERRORS
+  protected:
+    virtual const char* errorName() const P44_OVERRIDE { return errNames[getErrorCode()]; };
+  private:
+    static constexpr const char* const errNames[numErrorCodes] = {
+      "OK",
+      "Syntax",
+      "DivisionByZero",
+      "CyclicReference",
+      "Invalid",
+      "Busy",
+      "NotFound",
+      "Aborted",
+      "Timeout",
+      "User",
+    };
+    #endif // ENABLE_NAMED_ERRORS
+};
 
   /// expression value, consisting of a value and an error to indicate non-value and reason for it
   class ExpressionValue {

@@ -24,6 +24,19 @@
 
 using namespace p44;
 
+#if ENABLE_NAMED_ERRORS
+const char* HttpCommError::errorName() const
+{
+  switch(getErrorCode()) {
+    case invalidParameters: return "invalidParameters";
+    case noConnection: return "noConnection";
+    case read: return "read";
+    case write: return "write";
+    case civetwebError: return "civetwebError";
+  }
+  return NULL;
+}
+#endif // ENABLE_NAMED_ERRORS
 
 typedef enum {
   httpThreadSignalDataReady = threadSignalUserSignal

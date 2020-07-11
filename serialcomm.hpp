@@ -57,11 +57,22 @@ namespace p44 {
       OK,
       InvalidHost,
       UnknownBaudrate,
+      numErrorCodes
     } ErrorCodes;
     
     static const char *domain() { return "SerialComm"; }
-    virtual const char *getErrorDomain() const { return SerialCommError::domain(); };
+    virtual const char *getErrorDomain() const P44_OVERRIDE { return SerialCommError::domain(); };
     SerialCommError(ErrorCodes aError) : Error(ErrorCode(aError)) {};
+    #if ENABLE_NAMED_ERRORS
+  protected:
+    virtual const char* errorName() const P44_OVERRIDE { return errNames[getErrorCode()]; };
+  private:
+    static constexpr const char* const errNames[numErrorCodes] = {
+      "OK",
+      "InvalidHost",
+      "UnknownBaudrate",
+    };
+    #endif // ENABLE_NAMED_ERRORS
   };
 
 

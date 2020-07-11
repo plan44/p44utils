@@ -102,7 +102,22 @@ string Error::description() const
   else
     errorText = "Error";
   // Append domain and code to message text
+  #if ENABLE_NAMED_ERRORS
+  string_format_append(errorText, " (%s", getErrorDomain());
+  const char *errName = errorName();
+  if (!errName) errName = getErrorCode()==0 ? "OK" : "NotOK";
+  // Note: errorName() returning empty string means error has no error codes to show, only domain
+  if (*errName) {
+    errorText += "::";
+    errorText += errName;
+    if (getErrorCode()!=0) {
+      string_format_append(errorText, "[%ld]", getErrorCode());
+    }
+  }
+  errorText += ')';
+  #else
   string_format_append(errorText, " (%s:%ld)", getErrorDomain() , errorCode);
+  #endif
   return errorText;
 }
 

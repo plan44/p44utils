@@ -53,7 +53,8 @@ namespace p44 {
 
     enum {
       OK,
-      NotOK
+      NotOK,
+      numErrorCodes
     };
     typedef ErrorCode ErrorCodes;
 
@@ -185,6 +186,13 @@ namespace p44 {
     /// @return OK error object if aError is OK or NULL, aError otherwise
     static ErrorPtr ok(ErrorPtr aError = ErrorPtr());
 
+    #if ENABLE_NAMED_ERRORS
+  protected:
+    /// return name of the error
+    /// @return error name or NULL if subclass has no named error, empty string for
+    ///   subclasses without meaningful error codes beyond OK/notOK
+    virtual const char* errorName() const { return NULL; }
+    #endif // ENABLE_NAMED_ERRORS
   };
 
 
@@ -228,7 +236,6 @@ namespace p44 {
     /// factory function to create a ErrorPtr either containing NULL (if aErrNo indicates OK)
     /// or a SysError (if aErrNo indicates error)
     static ErrorPtr webErr(uint16_t aHTTPError, const char *aFmt, ... ) __printflike(2,3);
-
   };
 
 
@@ -237,11 +244,15 @@ namespace p44 {
   {
   public:
     static const char *domain() { return "TextError"; }
-    virtual const char *getErrorDomain() const { return TextError::domain(); };
+    virtual const char *getErrorDomain() const P44_OVERRIDE { return TextError::domain(); };
     TextError() : Error(Error::NotOK) {};
 
     /// factory method to create string error fprint style
     static ErrorPtr err(const char *aFmt, ...) __printflike(1,2);
+    #if ENABLE_NAMED_ERRORS
+  protected:
+    virtual const char* errorName() const P44_OVERRIDE { return ""; };
+    #endif // ENABLE_NAMED_ERRORS
   };
 
 

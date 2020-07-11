@@ -52,11 +52,27 @@ namespace p44 {
       HungUp, ///< other side closed connection (hung up, HUP)
       Closed, ///< closed from my side
       FDErr, ///< error on file descriptor
+      numErrorCodes
     } ErrorCodes;
     
     static const char *domain() { return "SocketComm"; }
-    virtual const char *getErrorDomain() const { return SocketCommError::domain(); };
+    virtual const char *getErrorDomain() const P44_OVERRIDE { return SocketCommError::domain(); };
     SocketCommError(ErrorCodes aError) : Error(ErrorCode(aError)) {};
+    #if ENABLE_NAMED_ERRORS
+  protected:
+    virtual const char* errorName() const P44_OVERRIDE { return errNames[getErrorCode()]; };
+  private:
+    static constexpr const char* const errNames[numErrorCodes] = {
+      "OK",
+      "NoParams",
+      "Unsupported",
+      "CannotResolve",
+      "NoConnection",
+      "HungUp",
+      "Closed",
+      "FDErr",
+    };
+    #endif // ENABLE_NAMED_ERRORS
   };
 
 

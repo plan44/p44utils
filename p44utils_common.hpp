@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2014-2019 plan44.ch / Lukas Zeller, Zurich, Switzerland
+//  Copyright (c) 2014-2020 plan44.ch / Lukas Zeller, Zurich, Switzerland
 //
 //  Author: Lukas Zeller <luz@plan44.ch>
 //
@@ -22,11 +22,7 @@
 #ifndef __p44utils__common__
 #define __p44utils__common__
 
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-#endif
-
-#include "p44utils_config.hpp"
+#include "p44utils_minimal.hpp"
 
 #include <list>
 #include <vector>
@@ -39,15 +35,6 @@
 
 #ifndef __printflike
 #define __printflike(...)
-#endif
-
-#if __cplusplus >= 201103L
-  // we have C++ 11
-  #define P44_FINAL final
-  #define P44_OVERRIDE override
-#else
-  #define P44_FINAL
-  #define P44_OVERRIDE
 #endif
 
 #include "p44obj.hpp"
@@ -72,7 +59,7 @@
 
 // FIXME: development of new scripting only
 #if ENABLE_EXPRESSIONS && !defined(ENABLE_SCRIPTING)
-#define ENABLE_SCRIPTING 1
+  #define ENABLE_SCRIPTING 1
 #endif
 
 #endif /* __p44utils__common__ */
