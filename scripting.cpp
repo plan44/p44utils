@@ -316,6 +316,15 @@ const ScriptObjPtr JsonValue::memberAtIndex(size_t aIndex, TypeInfo aTypeRequire
 
 // MARK: - ExecutionContext
 
+void ExecutionContext::releaseObjsFromSource(SourceContainerPtr aSource)
+{
+  // Note we can ignore indexed members, as these are temporary.
+  if (domain && domain.get()!=this) {
+    domain->releaseObjsFromSource(aSource);
+  }
+}
+
+
 size_t ExecutionContext::numIndexedMembers() const
 {
   return indexedVars.size();
@@ -456,8 +465,39 @@ ErrorPtr ExecutionContext::checkAndSetArgument(ScriptObjPtr aArgument, size_t aI
 
 
 
+ScriptObjPtr ExecutionContext::compile(SourceContainerPtr aSource)
+{
+  // TODO: implement
+  return new ErrorValue(ScriptError::Internal, "Compiler not yet implemented");
+}
+
+void ExecutionContext::evaluate(ScriptObjPtr aToEvaluate, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB)
+{
+  // TODO: implement
+  if (aEvaluationCB) aEvaluationCB(new ErrorValue(ScriptError::Internal, "Evaluation not yet implemented"));
+}
+
+
+
 
 // MARK: - LocalVarContext
+
+
+void LocalVarContext::releaseObjsFromSource(SourceContainerPtr aSource)
+{
+  NamedVarMap::iterator pos = namedVars.begin();
+  while (pos!=namedVars.end()) {
+    if (pos->second->originatesFrom(aSource)) {
+      pos = namedVars.erase(pos); // source is gone -> remove
+    }
+    else {
+      ++pos;
+    }
+  }
+  inherited::releaseObjsFromSource(aSource);
+}
+
+
 
 const ScriptObjPtr LocalVarContext::memberByName(const string aName, TypeInfo aTypeRequirements) const
 {
@@ -662,7 +702,12 @@ void BuiltinFunctionContext::finish(ScriptObjPtr aResult)
 }
 
 
-// TODO: change all function implementations.
+
+// MARK: - Built-in Standard functions
+
+namespace BuiltinFunctions {
+
+// TODO: change all function implementations in other files
 // Here's a BBEdit find & replace sequence to prepare:
 
 // ===== FIND:
@@ -674,7 +719,6 @@ void BuiltinFunctionContext::finish(ScriptObjPtr aResult)
 //  static void \2_func(BuiltinFunctionContextPtr f)
 //  {
 
-// MARK: - Standard functions
 
 // ifvalid(a, b)   if a is a valid value, return it, otherwise return the default as specified by b
 static const ArgumentDescriptor ifvalid_args[] = { { any }, { any } };
@@ -1076,7 +1120,8 @@ static void eval_func(BuiltinFunctionContextPtr f)
   }
   else {
     // need to compile string first
-    evalcode = f->globals()->compile(f->arg(0)->stringValue(), "eval function");
+    ScriptSource src("eval function", f->thisObj()->loggingContext(), f->arg(0)->stringValue(), f->globals());
+    evalcode = src.getExecutable();
   }
   if (!evalcode->hasType(executable)) {
     f->finish(evalcode); // return object itself, is an error
@@ -1463,7 +1508,7 @@ static const BuiltinFunctionDescriptor standardFunctions[] = {
   { NULL } // terminator
 };
 
-
+} // BuiltinFunctions
 
 // MARK: - Standard Scripting Domain
 
@@ -1474,7 +1519,7 @@ ScriptingDomain& StandardScriptingDomain::sharedDomain()
   if (!standardScriptingDomainP) {
     standardScriptingDomainP = new StandardScriptingDomain();
     // the standard scripting domains has the standard functions
-    standardScriptingDomainP->registerMemberLookup(new BuiltInFunctionLookup(standardFunctions));
+    standardScriptingDomainP->registerMemberLookup(new BuiltInFunctionLookup(BuiltinFunctions::standardFunctions));
   }
   return *standardScriptingDomainP;
 };
@@ -1572,18 +1617,158 @@ void CodeCursor::skipNonCode()
 }
 
 
+// MARK: - ScriptSource
+
+ScriptSource::ScriptSource(const char* aOriginLabel, P44LoggingObj* aLoggingContextP) :
+  originLabel(aOriginLabel),
+  loggingContextP(aLoggingContextP)
+{
+}
+
+ScriptSource::ScriptSource(const char* aOriginLabel, P44LoggingObj* aLoggingContextP, const string aSource, ExecutionContextPtr aCompilerContext) :
+  originLabel(aOriginLabel),
+  loggingContextP(aLoggingContextP)
+{
+  setCompilerContext(aCompilerContext);
+  setSource(aSource);
+}
+
+ScriptSource::~ScriptSource()
+{
+  setSource(""); // force removal of global objects depending on this
+}
+
+void ScriptSource::setCompilerContext(ExecutionContextPtr aCompilerContext)
+{
+  compilerContext = aCompilerContext;
+};
 
 
+void ScriptSource::setSource(const string aSource)
+{
+  if (cachedExecutable) {
+    cachedExecutable.reset(); // release cached executable (will release sourceRef holding our source)
+  }
+  if (source && compilerContext) {
+    compilerContext->releaseObjsFromSource(source); // release all global objects from this source
+    source.reset(); // release it myself
+  }
+  // create new source
+  if (!aSource.empty()) {
+    source = SourceContainerPtr(new SourceContainer(originLabel, loggingContextP, aSource));
+  }
+}
 
 
+ScriptObjPtr ScriptSource::getExecutable()
+{
+  if (source) {
+    if (!cachedExecutable) {
+      if (!compilerContext) {
+        // none assigned so far, assign default
+        compilerContext = ExecutionContextPtr(&StandardScriptingDomain::sharedDomain());
+      }
+      cachedExecutable = compilerContext->compile(source);
+    }
+  }
+  return cachedExecutable;
+}
 
 
+void ScriptSource::run(EvaluationCB aEvaluationCB)
+{
+  ScriptObjPtr code = getExecutable();
+  // get the context to run it
+  if (code && code->hasType(executable)) {
+    ExecutionContextPtr ctx = code->contextForCallingFrom(compilerContext);
+    if (ctx) {
+      ctx->evaluate(code, script, aEvaluationCB);
+      return;
+    }
+    // cannot evaluate due to missing context
+    code = new ErrorValue(ScriptError::Internal, "No context to execute code in");
+  }
+  if (aEvaluationCB) aEvaluationCB(code);
+}
 
 
+#if SIMPLE_REPL_APP
+
+// MARK: - Simple REPL (Read Execute Print Loop) App
+
+class SimpleREPLApp : public CmdLineApp
+{
+  typedef CmdLineApp inherited;
+
+  ScriptSource source;
+  char *buffer;
+  size_t bufsize = 4096;
+  size_t characters;
+
+public:
+
+  SimpleREPLApp() :
+    source("REPL")
+  {
+    buffer = (char *)malloc(bufsize * sizeof(char));
+  }
+
+  virtual int main(int argc, char **argv)
+  {
+    const char *usageText =
+      "Usage: %1$s [options]\n";
+    const CmdLineOptionDescriptor options[] = {
+      CMDLINE_APPLICATION_LOGOPTIONS,
+      CMDLINE_APPLICATION_STDOPTIONS,
+      { 0, NULL } // list terminator
+    };
+    // parse the command line, exits when syntax errors occur
+    setCommandDescriptors(usageText, options);
+    parseCommandLine(argc, argv);
+    // app now ready to run (or cleanup when already terminated)
+    return run();
+  }
+
+  virtual void initialize()
+  {
+    printf("p44Script REPL - type 'quit' to leave\n\n");
+    RE();
+  }
+
+  void RE()
+  {
+    printf("p44Script: ");
+    characters = getline(&buffer,&bufsize,stdin);
+    if (strucmp(buffer, "quit", 4)==0) {
+      printf("\nquitting p44Script REPL - bye!\n");
+      terminateApp(EXIT_SUCCESS);
+      return;
+    }
+    source.setSource(buffer);
+    source.run(boost::bind(&SimpleREPLApp::PL, this, _1));
+  }
+
+  void PL(ScriptObjPtr aResult)
+  {
+    printf("   result: %s\n\n", aResult->stringValue().c_str());
+    MainLoop::currentMainLoop().executeNow(boost::bind(&SimpleREPLApp::RE, this));
+  }
+};
 
 
+int main(int argc, char **argv)
+{
+  // prevent debug output before application.main scans command line
+  SETLOGLEVEL(LOG_NOTICE);
+  SETERRLEVEL(LOG_NOTICE, false); // messages, if any, go to stderr
+  // create app with current mainloop
+  static SimpleREPLApp application;
+  // pass control
+  return application.main(argc, argv);
+}
 
 
+#endif // SIMPLE_REPL_APP
 
 
 #if 0

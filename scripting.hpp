@@ -51,17 +51,22 @@ namespace p44 { namespace Script {
   class StringValue;
 
   class ImplementationObj;
-  class ScriptCodeObj;
-  typedef boost::intrusive_ptr<ScriptCodeObj> ScriptCodeObjPtr;
-  class ScriptingDomain;
-  typedef boost::intrusive_ptr<ScriptingDomain> ScriptingDomainPtr;
+  class CompiledCode;
+  typedef boost::intrusive_ptr<CompiledCode> CompiledCodePtr;
 
   class ExecutionContext;
   typedef boost::intrusive_ptr<ExecutionContext> ExecutionContextPtr;
   class ExecutionThread;
   typedef boost::intrusive_ptr<ExecutionThread> ExecutionThreadPtr;
+  class ScriptingDomain;
+  typedef boost::intrusive_ptr<ScriptingDomain> ScriptingDomainPtr;
 
-  class CodeItem;
+  class CodeCursor;
+  class SourceRef;
+  class SourceContainer;
+  typedef boost::intrusive_ptr<SourceContainer> SourceContainerPtr;
+  class ScriptSource;
+
   class SourceProcessor;
   class Compiler;
   class Processor;
@@ -125,6 +130,7 @@ namespace p44 { namespace Script {
     // content type flags, usually one per object, but object/array can be combined with regular type
     typeMask = 0x00FF,
     scalarMask = 0x003F,
+    none = 0x0000, ///< no type specification
     null = 0x0001, ///< NULL/undefined
     error = 0x0002, ///< Error
     numeric = 0x0004, ///< numeric value
@@ -194,6 +200,9 @@ namespace p44 { namespace Script {
 
     /// check for null/undefined
     bool defined() const { return !undefined(); }
+
+    /// logging context to use
+    virtual P44LoggingObj* loggingContext() const { return NULL; };
 
     /// @}
 
@@ -266,6 +275,10 @@ namespace p44 { namespace Script {
     /// @param aCallerContext the context from where to call from (evaluate in) this implementation
     /// @return new context suitable for evaluating this implementation, NULL if none
     virtual ExecutionContextPtr contextForCallingFrom(ExecutionContextPtr aCallerContext) const { return ExecutionContextPtr(); }
+
+    /// @return true if this object originates from the specified source
+    /// @note this is needed to remove objects such as functions and handlers when their source changes or is deleted
+    virtual bool originatesFrom(SourceContainerPtr aSource) const { return false; }
 
     /// @}
 
@@ -475,10 +488,12 @@ namespace p44 { namespace Script {
     ScriptObjPtr thisObj() const { return thisObject; }
 
     /// "Compile" (for now, just scan for function definitions and syntax errors)
-    /// @param aCodeString the code to compile
-    /// @param aOriginLabel a string indicating where the code comes from (e.g. "evaluator action", "init script" etc.)
+    /// @param aSource the script source to compile
     /// @return an ImplementationObj when successful, a ErrorValue otherwise
-    ScriptObjPtr compile(const string aCodeString, const string aOriginLabel);
+    ScriptObjPtr compile(SourceContainerPtr aSource);
+
+    /// release all objects stored in this container and other known containers which were defined by aSource
+    virtual void releaseObjsFromSource(SourceContainerPtr aSource); // no source-derived permanent objects here
 
     /// Evaluate a object
     /// @param aToEvaluate the object to be evaluated
@@ -519,6 +534,7 @@ namespace p44 { namespace Script {
   public:
 
     LocalVarContext(ScriptObjPtr aExecObj, ScriptingDomainPtr aDomain) : inherited(aExecObj, aDomain) {};
+    virtual void releaseObjsFromSource(SourceContainerPtr aSource) P44_OVERRIDE;
 
     // access to local variables by name
     virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aTypeRequirements = none) const P44_OVERRIDE;
@@ -588,8 +604,6 @@ namespace p44 { namespace Script {
   };
 
 
-
-
   // MARK: - Script code scanning / processing
 
 
@@ -615,12 +629,70 @@ namespace p44 { namespace Script {
   };
 
 
-  class SourcePos
+  class SourceRef
   {
-    CodeCursor pos;
   public:
-    // TODO: define
+    SourceContainerPtr source; ///< the source containing the string we're pointing to
+    CodeCursor pos;
+    bool refersTo(SourceContainerPtr aSource) const { return source==aSource; }
+  };
 
+
+  /// the actual script source text, shared among ScriptSource and possibly multiple SourceRefs
+  class SourceContainer : public P44Obj
+  {
+    friend class SourceRef;
+    friend class ScriptSource;
+    friend class CompiledCode;
+
+    const char *originLabel; ///< a label used for logging and error reporting
+    P44LoggingObj* loggingContextP; ///< the logging context
+    string source; ///< the source code as written by the script author
+
+    SourceContainer(const char *aOriginLabel, P44LoggingObj* aLoggingContextP, const string aSource) : originLabel(aOriginLabel), source(aSource) {};
+  };
+
+
+  /// class representing a script source in its entiety
+  class ScriptSource
+  {
+    ExecutionContextPtr compilerContext; ///< the compile context
+    ScriptObjPtr cachedExecutable; ///< the compiled executable for the script's body.
+    const char *originLabel; ///< a label used for logging and error reporting
+    P44LoggingObj* loggingContextP; ///< the logging context
+    SourceContainerPtr source; ///< the container of the source
+
+  public:
+    ScriptSource(const char* aOriginLabel = NULL, P44LoggingObj* aLoggingContextP = NULL);
+    /// all-in-one adhoc script source constructor
+    ScriptSource(const char* aOriginLabel, P44LoggingObj* aLoggingContextP, const string aSource, ExecutionContextPtr aCompilerContext = ExecutionContextPtr());
+    ~ScriptSource();
+
+    /// set compiler context
+    /// @param aCompilerContext the compiler context. Defaults to StandardScriptingDomain::sharedDomain()
+    void setCompilerContext(ExecutionContextPtr aCompilerContext);
+
+    /// set source code
+    void setSource(const string aSource);
+
+    /// get executable ((re-)compile if needed)
+    /// @return executable from this source
+    ScriptObjPtr getExecutable();
+
+    /// convenience quick runner
+    void run(EvaluationCB aEvaluationCB);
+
+  };
+
+
+  class CompiledCode : public ImplementationObj
+  {
+    typedef ImplementationObj inherited;
+
+    SourceRef srcRef; ///< reference to the source part from which this object originates from
+  public:
+    virtual bool originatesFrom(SourceContainerPtr aSource) const P44_OVERRIDE { return srcRef.refersTo(aSource); };
+    virtual P44LoggingObj* loggingContext() const P44_OVERRIDE { return srcRef.source ? srcRef.source->loggingContextP : NULL; };
   };
 
 
@@ -640,11 +712,11 @@ namespace p44 { namespace Script {
   public:
 
     /// Scan code, extract function definitions, global vars, event handlers into scripting domain, return actual code
-    ScriptCodeObjPtr compile(ScriptingDomain& aDomain, const string aSource, const string aLabel, P44LoggingObj* aLoggingContextP = NULL);
+    CompiledCodePtr compile(ScriptingDomain& aDomain, SourceContainerPtr aSource);
 
   protected:
 
-    ScriptCodeObjPtr compilePart(CodeCursor& aCursor);
+    CompiledCodePtr compilePart(CodeCursor& aCursor);
 
   };
 
@@ -777,7 +849,6 @@ namespace p44 { namespace Script {
     static ScriptingDomain& sharedDomain();
 
   };
-
 
 
 

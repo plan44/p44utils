@@ -513,7 +513,7 @@ const char* EvaluationContext::getIdentifier(size_t& aLen)
 {
   aLen = 0;
   const char* p = tail(pos);
-  if (!isalpha(*p)) return NULL; // is ot an identifier
+  if (!isalpha(*p)) return NULL; // is not an identifier
   // is identifier
   const char* b = p; // begins here
   p++;
