@@ -207,6 +207,13 @@ namespace p44 {
 
   };
 
+  class TicketObj : public P44Obj
+  {
+  public:
+    MLTicket ticket;
+  };
+  typedef boost::intrusive_ptr<TicketObj> TicketObjPtr;
+
 
   /// A main loop for a thread
   class MainLoop : public P44Obj
