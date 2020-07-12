@@ -484,7 +484,7 @@ ErrorPtr ExecutionContext::checkAndSetArgument(ScriptObjPtr aArgument, size_t aI
 
 ScriptObjPtr ExecutionContext::compile(SourceContainerPtr aSource)
 {
-  // TODO: implement
+  // FIXME: implement
   string res = string_format("Compiler not yet implemented, echoing input: %s", aSource->source.c_str());
   return new StringValue(res);
 }
@@ -866,6 +866,597 @@ void BuiltinFunctionContext::finish(ScriptObjPtr aResult)
   func = NULL;
   evaluationCB(aResult);
   evaluationCB = NULL;
+}
+
+
+// MARK: - CodeCursor
+
+CodeCursor::CodeCursor(const char* aText, size_t aLen) :
+  ptr(aText),
+  bol(aText),
+  eot(aText+aLen),
+  line(0)
+{
+}
+
+
+CodeCursor::CodeCursor(const string &aText) :
+  ptr(aText.c_str()),
+  bol(aText.c_str()),
+  eot(ptr+aText.size()),
+  line(0)
+{
+}
+
+
+CodeCursor::CodeCursor(const CodeCursor &aCursor) :
+  ptr(aCursor.ptr),
+  bol(aCursor.ptr),
+  eot(aCursor.ptr),
+  line(aCursor.line)
+{
+}
+
+
+size_t CodeCursor::lineno() const
+{
+  return line;
+}
+
+
+size_t CodeCursor::charpos() const
+{
+  if (!ptr || !bol) return 0;
+  return ptr-bol;
+}
+
+
+char CodeCursor::c(size_t aOffset) const
+{
+  if (!ptr || ptr+aOffset>=eot) return 0;
+  return *(ptr+aOffset);
+}
+
+
+size_t CodeCursor::charsleft() const
+{
+  return ptr ? eot-ptr : 0;
+}
+
+
+bool CodeCursor::EOT()
+{
+  return !ptr || ptr>=eot || *ptr==0;
+}
+
+
+bool CodeCursor::next()
+{
+  if (EOT()) return false;
+  if (*ptr=='\n') {
+    line++; // count line
+    bol = ++ptr;
+  }
+  else {
+    ptr++;
+  }
+  return true; // could advance the pointer, does not mean there is anything here, though.
+}
+
+
+bool CodeCursor::advance(size_t aNumChars)
+{
+  while(aNumChars>0) {
+    if (!next()) return false;
+    --aNumChars;
+  }
+  return true;
+}
+
+
+bool CodeCursor::nextIf(char aChar)
+{
+  if (c()==aChar) {
+    next();
+    return true;
+  }
+  return false;
+}
+
+
+
+void CodeCursor::skipNonCode()
+{
+  if (!ptr) return;
+  bool recheck;
+  do {
+    recheck = false;
+    while (c()==' ' || c()=='\t' || c()=='\n' || c()=='\r') next();
+    // also check for comments
+    if (c()=='/') {
+      if (c(1)=='/') {
+        advance(2);
+        // C++ style comment, lasts until EOT or EOL
+        while (c() && c()!='\n' && c()!='\r') next();
+        recheck = true;
+      }
+      else if (c(1)=='*') {
+        // C style comment, lasts until '*/'
+        advance(2);
+        while (c() && c()!='*') next();
+        if (c(1)=='/') {
+          advance(2);
+        }
+        recheck = true;
+      }
+    }
+  } while(recheck);
+}
+
+
+//  const char* CodeCursor::checkForIdentifier(size_t& aLen)
+//  {
+//    if (!ptr) return NULL;
+//    aLen = 0;
+//    size_t o = 0; // offset
+//    if (!isalpha(c(o))) return NULL; // is not an identifier
+//    // is identifier
+//    o++;
+//    while (c(o) && (isalnum(c(o)) || c(o)=='_')) o++;
+//    aLen = o;
+//    return ptr;
+//  }
+
+
+bool CodeCursor::parseIdentifier(string& aIdentifier, size_t* aIdentifierLenP)
+{
+  if (EOT()) return false;
+  size_t o = 0; // offset
+  if (!isalpha(c(o))) return false; // is not an identifier
+  // is identifier
+  o++;
+  while (c(o) && (isalnum(c(o)) || c(o)=='_')) o++;
+  aIdentifier.assign(ptr, o);
+  if (aIdentifierLenP) *aIdentifierLenP = o; // return length, keep cursor at beginning
+  else ptr += o; // advance
+  return true;
+}
+
+
+ScriptOperator CodeCursor::parseOperator()
+{
+  skipNonCode();
+  // check for operator
+  ScriptOperator op = op_none;
+  size_t o = 0; // offset
+  switch (c(o++)) {
+    // assignment and equality
+    case ':': {
+      if (c(o)!='=') goto no_op;
+      o++; op = op_assign; break;
+    }
+    case '=': {
+      if (c(o)=='=') {
+        o++; op = op_equal; break;
+      }
+      #if EXPRESSION_OPERATOR_MODE==EXPRESSION_OPERATOR_MODE_C
+      op = op_assign; break;
+      #elif EXPRESSION_OPERATOR_MODE==EXPRESSION_OPERATOR_MODE_PASCAL
+      op = op_equal; break;
+      #else
+      op = op_assignOrEq; break;
+      #endif
+    }
+    case '*': op = op_multiply; break;
+    case '/': op = op_divide; break;
+    case '%': op = op_modulo; break;
+    case '+': op = op_add; break;
+    case '-': op = op_subtract; break;
+    case '&': op = op_and; if (c(o)=='&') o++; break;
+    case '|': op = op_or; if (c(o)=='|') o++; break;
+    case '<': {
+      if (c(o)=='=') {
+        o++; op = op_leq; break;
+      }
+      else if (c(o)=='>') {
+        o++; op = op_notequal; break;
+      }
+      op = op_less; break;
+    }
+    case '>': {
+      if (c(o)=='=') {
+        o++; op = op_geq; break;
+      }
+      op = op_greater; break;
+    }
+    case '!': {
+      if (c(o)=='=') {
+        o++; op = op_notequal; break;
+      }
+      op = op_not; break;
+      break;
+    }
+    default:
+    no_op:
+      return op_none;
+  }
+  advance(o);
+  skipNonCode();
+  return op;
+}
+
+
+static const char * const monthNames[12] = { "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec" };
+static const char * const weekdayNames[7] = { "sun", "mon", "tue", "wed", "thu", "fri", "sat" };
+
+ErrorPtr CodeCursor::parseNumericLiteral(double &aNumber)
+{
+  int o;
+  if (sscanf(ptr, "%lf%n", &aNumber, &o)!=1) {
+    // Note: sscanf %d also handles hex!
+    return ScriptError::err(ScriptError::Syntax, "invalid number, time or date");
+  }
+  else {
+    // o is now past consumation of sscanf
+    // check for time/date literals
+    // - time literals (returned in seconds) are in the form h:m or h:m:s, where all parts are allowed to be fractional
+    // - month/day literals (returned in yeardays) are in the form dd.monthname or dd.mm. (mid the closing dot)
+    if (c(o)) {
+      if (c(o)==':') {
+        // we have 'v:', could be time
+        double t; int i;
+        if (sscanf(ptr+o+1, "%lf%n", &t, &i)!=1) {
+          return ScriptError::err(ScriptError::Syntax, "invalid time specification - use hh:mm or hh:mm:ss");
+        }
+        else {
+          o += i+1; // past : and consumation of sscanf
+          // we have v:t, take these as hours and minutes
+          aNumber = (aNumber*60+t)*60; // in seconds
+          if (c(o)==':') {
+            // apparently we also have seconds
+            if (sscanf(ptr+o+1, "%lf%n", &t, &i)!=1) {
+              return ScriptError::err(ScriptError::Syntax, "Time specification has invalid seconds - use hh:mm:ss");
+            }
+            o += i+1; // past : and consumation of sscanf
+            aNumber += t; // add the seconds
+          }
+        }
+      }
+      else {
+        int m = -1; int d = -1;
+        if (c(o-1)=='.' && isalpha(c(o))) {
+          // could be dd.monthname
+          for (m=0; m<12; m++) {
+            if (strucmp(ptr+o, monthNames[m], 3)==0) {
+              // valid monthname following number
+              // v = day, m = month-1
+              m += 1;
+              d = aNumber;
+              break;
+            }
+          }
+          o += 3;
+          if (d<0) {
+            return ScriptError::err(ScriptError::Syntax, "Invalid date specification - use dd.monthname");
+          }
+        }
+        else if (c(o)=='.') {
+          // must be dd.mm. (with mm. alone, sscanf would have eaten it)
+          o = 0; // start over
+          int l;
+          if (sscanf(ptr+o, "%d.%d.%n", &d, &m, &l)!=2) {
+            return ScriptError::err(ScriptError::Syntax, "Invalid date specification - use dd.mm.");
+          }
+          o += l;
+        }
+        if (d>=0) {
+          struct tm loctim; MainLoop::getLocalTime(loctim);
+          loctim.tm_hour = 12; loctim.tm_min = 0; loctim.tm_sec = 0; // noon - avoid miscalculations that could happen near midnight due to DST offsets
+          loctim.tm_mon = m-1;
+          loctim.tm_mday = d;
+          mktime(&loctim);
+          aNumber = loctim.tm_yday;
+        }
+      }
+    }
+  }
+  advance(o);
+  return ErrorPtr(); // ok
+}
+
+
+ErrorPtr CodeCursor::parseStringLiteral(string &aString)
+{
+  // string literal (c-like with double quotes or php-like with single quotes and no escaping inside)
+  char delimiter = c();
+  if (delimiter!='"' && delimiter!='\'') {
+    return ScriptError::err(ScriptError::Syntax, "invalid string literal");
+  }
+  aString.clear();
+  next();
+  char sc;
+  while(true) {
+    sc = c();
+    if (sc==delimiter) {
+      if (delimiter=='\'' && c(1)==delimiter) {
+        // single quoted strings allow including delimiter by doubling it
+        aString += delimiter;
+        advance(2);
+        continue;
+      }
+      break; // end of string
+    }
+    if (sc==0) {
+      return ScriptError::err(ScriptError::Syntax, "unterminated string, missing %c delimiter", delimiter);
+    }
+    if (delimiter!='\'' && sc=='\\') {
+      next();
+      sc = c();
+      if (sc==0) {
+        return ScriptError::err(ScriptError::Syntax, "incomplete \\-escape");
+      }
+      else if (sc=='n') sc='\n';
+      else if (sc=='r') sc='\r';
+      else if (sc=='t') sc='\t';
+      else if (sc=='x') {
+        unsigned int h = 0;
+        next();
+        if (sscanf(ptr, "%02x", &h)==1) next();
+        sc = (char)h;
+      }
+      // everything else
+    }
+    aString += sc;
+    next();
+  }
+  next(); // skip closing delimiter
+  return ErrorPtr(); // ok
+}
+
+
+#if SCRIPTING_JSON_SUPPORT
+
+ErrorPtr CodeCursor::parseJSONLiteral(JsonObjectPtr &aJsonObject)
+{
+  if (c()!='{' && c()!='[') {
+    return ScriptError::err(ScriptError::Syntax, "invalid JSON literal");
+  }
+  // JSON object or array literal
+  ssize_t n;
+  ErrorPtr err;
+  aJsonObject = JsonObject::objFromText(ptr, charsleft(), &err, false, &n);
+  if (Error::notOK(err)) {
+    return ScriptError::err(ScriptError::Syntax, "invalid JSON literal: %s", err->text());
+  }
+  advance(n);
+  return ErrorPtr(); // ok
+}
+
+#endif
+
+
+
+
+// MARK: - ScriptSource
+
+ScriptSource::ScriptSource(const char* aOriginLabel, P44LoggingObj* aLoggingContextP) :
+  originLabel(aOriginLabel),
+  loggingContextP(aLoggingContextP)
+{
+}
+
+ScriptSource::ScriptSource(const char* aOriginLabel, P44LoggingObj* aLoggingContextP, const string aSource, ExecutionContextPtr aCompilerContext) :
+  originLabel(aOriginLabel),
+  loggingContextP(aLoggingContextP)
+{
+  setCompilerContext(aCompilerContext);
+  setSource(aSource);
+}
+
+ScriptSource::~ScriptSource()
+{
+  setSource(""); // force removal of global objects depending on this
+}
+
+void ScriptSource::setCompilerContext(ExecutionContextPtr aCompilerContext)
+{
+  compilerContext = aCompilerContext;
+};
+
+
+void ScriptSource::setSource(const string aSource)
+{
+  if (cachedExecutable) {
+    cachedExecutable.reset(); // release cached executable (will release sourceRef holding our source)
+  }
+  if (source && compilerContext) {
+    compilerContext->releaseObjsFromSource(source); // release all global objects from this source
+    source.reset(); // release it myself
+  }
+  // create new source
+  if (!aSource.empty()) {
+    source = SourceContainerPtr(new SourceContainer(originLabel, loggingContextP, aSource));
+  }
+}
+
+
+ScriptObjPtr ScriptSource::getExecutable()
+{
+  if (source) {
+    if (!cachedExecutable) {
+      if (!compilerContext) {
+        // none assigned so far, assign default
+        compilerContext = ExecutionContextPtr(&StandardScriptingDomain::sharedDomain());
+      }
+      cachedExecutable = compilerContext->compile(source);
+    }
+  }
+  return cachedExecutable;
+}
+
+
+void ScriptSource::run(EvaluationCB aEvaluationCB)
+{
+  ScriptObjPtr code = getExecutable();
+  // get the context to run it
+  if (code && code->hasType(executable)) {
+    ExecutionContextPtr ctx = code->contextForCallingFrom(compilerContext);
+    if (ctx) {
+      ctx->evaluate(code, script, aEvaluationCB);
+      return;
+    }
+    // cannot evaluate due to missing context
+    code = new ErrorValue(ScriptError::Internal, "No context to execute code in");
+  }
+  if (aEvaluationCB) aEvaluationCB(code);
+}
+
+
+// MARK: - ScriptCodeThread
+
+ScriptCodeThread::ScriptCodeThread(ScriptCodeContextPtr aOwner, const SourceRef aSourceRef) :
+  owner(aOwner),
+  pc(aSourceRef),
+  maxBlockTime(0),
+  maxRunTime(Infinite),
+  runningSince(Never),
+  aborted(false),
+  resuming(false),
+  resumed(false)
+{
+}
+
+
+
+void ScriptCodeThread::prepare(
+  EvaluationCB aTerminationCB,
+  EvaluationFlags aEvalFlags,
+  MLMicroSeconds aMaxBlockTime,
+  MLMicroSeconds aMaxRunTime
+)
+{
+  terminationCB = aTerminationCB;
+  evaluationFlags = aEvalFlags;
+  maxBlockTime = aMaxBlockTime;
+  maxRunTime = aMaxRunTime;
+}
+
+
+void ScriptCodeThread::run()
+{
+  runningSince = MainLoop::now();
+  // FIXME: clear the stack
+  // FIXME: setup initial state (body/function/expression)
+  resume();
+}
+
+
+void ScriptCodeThread::abort(ScriptObjPtr aAbortResult)
+{
+  if (aAbortResult) {
+    result = aAbortResult;
+  }
+  aborted = true; // signal end at next resume()
+  if (childContext) {
+    // abort the child context and let it pass its abort result up the chain
+    childContext->abort(stopall, aAbortResult); // will call resume() via its callback
+  }
+  else {
+    resume(); // resume, but aborted state will immediately terminate thread
+  }
+}
+
+
+void ScriptCodeThread::endThread()
+{
+  if (terminationCB) {
+    autoResumeTicket.cancel();
+    EvaluationCB cb = terminationCB;
+    terminationCB = NULL;
+    cb(result);
+  }
+  owner->threadTerminated(this);
+}
+
+
+// This static method can be passed to timers and makes sure that "this" is kept alive by the callback
+// boost::bind object because it is a smart pointer argument
+void ScriptCodeThread::selfKeepingResume(ScriptCodeThreadPtr aThread)
+{
+  aThread->resume();
+}
+
+
+void ScriptCodeThread::resume(ScriptObjPtr aResult)
+{
+  // Store latest result, if any (resuming with NULL pointer does not change the result)
+  if (aResult) {
+    result = aResult;
+  }
+  // Am I getting called from a chain of calls originating from
+  // myself via step() in the execution loop below?
+  if (resuming) {
+    // YES: avoid creating an endless call chain recursively
+    resumed = true; // flag having resumed already to allow looping below
+    return; // but now let chain of calls wind down to our last call (originating from step() in the loop)
+  }
+  // NO: this is a real re-entry
+  // - start running the loop
+  resuming = true; // now actually start resuming
+  MLMicroSeconds loopingSince = MainLoop::now();
+  do {
+    MLMicroSeconds now = MainLoop::now();
+    // check for abort
+    if (aborted) {
+      result = new ErrorValue(ScriptError::Aborted, pc, "Aborted script code");
+      endThread();
+      return;
+    }
+    // Check maximum execution time
+    if (maxRunTime!=Infinite && now-runningSince) {
+      // Note: not calling abort as we are WITHIN the call chain
+      result = new ErrorValue(ScriptError::Timeout, pc, "Aborted because of overall execution limit");
+      endThread();
+      return;
+    }
+    else if (maxBlockTime!=Infinite && now-loopingSince>maxBlockTime) {
+      // time expired
+      if (evaluationFlags & synchronously) {
+        // Note: not calling abort as we are WITHIN the call chain
+        result = new ErrorValue(ScriptError::Timeout, pc, "Aborted because of synchronous execution limit");
+        endThread();
+        return;
+      }
+      // in an async script, just give mainloop time to do other things for a while
+      autoResumeTicket.executeOnce(boost::bind(&selfKeepingResume, this), 2*maxBlockTime);
+    }
+    // run next statemachine step
+    resumed = false; // start of a new
+    step(); // will cause resumed to be set when resume() is called in this call's chain
+    // repeat as long as we are already resumed
+  } while(resumed);
+  // not resumed in the current chain of calls, resume will be called from
+  // an independent call site later -> re-enable normal processing
+  resuming = false;
+}
+
+
+void ScriptCodeThread::step()
+{
+  if (result && result->hasType(error)) {
+    if (result->errorValue()->getErrorCode()>=ScriptError::FatalErrors) {
+      // just end the thread unconditionally
+      endThread();
+    }
+    else {
+      // TODO: walk back the stack and look for a catch()
+      endThread(); // FIXME: for now, we just terminate as well
+    }
+  }
+  // result is fine for continuing normal processing
+  // FIXME: %%% Test only, always return dummy for now
+  result = new StringValue("DUMMY evaluation result");
+  endThread();
 }
 
 
@@ -1710,320 +2301,6 @@ ScriptingDomain& StandardScriptingDomain::sharedDomain()
 };
 
 
-// MARK: - CodeCursor
-
-CodeCursor::CodeCursor(const char* aText) :
-  ptr(aText),
-  bol(aText),
-  line(1)
-{
-}
-
-CodeCursor::CodeCursor(const CodeCursor &aCursor) :
-  ptr(aCursor.ptr),
-  bol(aCursor.ptr),
-  line(aCursor.line)
-{
-}
-
-
-size_t CodeCursor::lineno() const
-{
-  return line;
-}
-
-
-size_t CodeCursor::charpos() const
-{
-  if (!ptr || !bol) return 0;
-  return ptr-bol;
-}
-
-
-bool CodeCursor::next()
-{
-  if (!ptr || *ptr==0) return false;
-  if (*ptr=='\n') {
-    line++; // count line
-    bol = ++ptr;
-  }
-  else {
-    ptr++;
-  }
-  return true; // could advance the pointer, does not mean there is anything here, though.
-}
-
-
-bool CodeCursor::advance(size_t aNumChars)
-{
-  while(aNumChars>0) {
-    if (!next()) return false;
-  }
-  return true;
-}
-
-
-
-char CodeCursor::currentchar() const
-{
-  if (!ptr) return 0;
-  return *ptr;
-}
-
-
-void CodeCursor::skipNonCode()
-{
-  if (!ptr) return;
-  bool recheck;
-  do {
-    recheck = false;
-    while (*ptr==' ' || *ptr=='\t' || *ptr=='\n' || *ptr=='\r') next();
-    // also check for comments
-    if (*ptr=='/') {
-      if (*(ptr+1)=='/') {
-        advance(2);
-        // C++ style comment, lasts until EOT or EOL
-        while (*ptr && *ptr!='\n' && *ptr!='\r') next();
-        recheck = true;
-      }
-      else if (*ptr=='*') {
-        // C style comment, lasts until '*/'
-        advance(2);
-        while (*ptr && *ptr!='*') next();
-        if (*ptr=='/') {
-          advance(2);
-        }
-        recheck = true;
-      }
-    }
-  } while(recheck);
-}
-
-
-// MARK: - ScriptSource
-
-ScriptSource::ScriptSource(const char* aOriginLabel, P44LoggingObj* aLoggingContextP) :
-  originLabel(aOriginLabel),
-  loggingContextP(aLoggingContextP)
-{
-}
-
-ScriptSource::ScriptSource(const char* aOriginLabel, P44LoggingObj* aLoggingContextP, const string aSource, ExecutionContextPtr aCompilerContext) :
-  originLabel(aOriginLabel),
-  loggingContextP(aLoggingContextP)
-{
-  setCompilerContext(aCompilerContext);
-  setSource(aSource);
-}
-
-ScriptSource::~ScriptSource()
-{
-  setSource(""); // force removal of global objects depending on this
-}
-
-void ScriptSource::setCompilerContext(ExecutionContextPtr aCompilerContext)
-{
-  compilerContext = aCompilerContext;
-};
-
-
-void ScriptSource::setSource(const string aSource)
-{
-  if (cachedExecutable) {
-    cachedExecutable.reset(); // release cached executable (will release sourceRef holding our source)
-  }
-  if (source && compilerContext) {
-    compilerContext->releaseObjsFromSource(source); // release all global objects from this source
-    source.reset(); // release it myself
-  }
-  // create new source
-  if (!aSource.empty()) {
-    source = SourceContainerPtr(new SourceContainer(originLabel, loggingContextP, aSource));
-  }
-}
-
-
-ScriptObjPtr ScriptSource::getExecutable()
-{
-  if (source) {
-    if (!cachedExecutable) {
-      if (!compilerContext) {
-        // none assigned so far, assign default
-        compilerContext = ExecutionContextPtr(&StandardScriptingDomain::sharedDomain());
-      }
-      cachedExecutable = compilerContext->compile(source);
-    }
-  }
-  return cachedExecutable;
-}
-
-
-void ScriptSource::run(EvaluationCB aEvaluationCB)
-{
-  ScriptObjPtr code = getExecutable();
-  // get the context to run it
-  if (code && code->hasType(executable)) {
-    ExecutionContextPtr ctx = code->contextForCallingFrom(compilerContext);
-    if (ctx) {
-      ctx->evaluate(code, script, aEvaluationCB);
-      return;
-    }
-    // cannot evaluate due to missing context
-    code = new ErrorValue(ScriptError::Internal, "No context to execute code in");
-  }
-  if (aEvaluationCB) aEvaluationCB(code);
-}
-
-
-// MARK: - ScriptCodeThread
-
-ScriptCodeThread::ScriptCodeThread(ScriptCodeContextPtr aOwner, const SourceRef aSource) :
-  owner(aOwner),
-  pc(aSource),
-  maxBlockTime(0),
-  maxRunTime(Infinite),
-  runningSince(Never),
-  aborted(false),
-  resuming(false),
-  resumed(false)
-{
-}
-
-
-
-void ScriptCodeThread::prepare(
-  EvaluationCB aTerminationCB,
-  EvaluationFlags aEvalFlags,
-  MLMicroSeconds aMaxBlockTime,
-  MLMicroSeconds aMaxRunTime
-)
-{
-  terminationCB = aTerminationCB;
-  evaluationFlags = aEvalFlags;
-  maxBlockTime = aMaxBlockTime;
-  maxRunTime = aMaxRunTime;
-}
-
-
-void ScriptCodeThread::run()
-{
-  runningSince = MainLoop::now();
-  // TODO: clear the stack
-  // TODO: setup initial state (body/function/expression)
-  resume();
-}
-
-
-void ScriptCodeThread::abort(ScriptObjPtr aAbortResult)
-{
-  if (aAbortResult) {
-    result = aAbortResult;
-  }
-  aborted = true; // signal end at next resume()
-  if (childContext) {
-    // abort the child context and let it pass its abort result up the chain
-    childContext->abort(stopall, aAbortResult); // will call resume() via its callback
-  }
-  else {
-    resume(); // resume, but aborted state will immediately terminate thread
-  }
-}
-
-
-void ScriptCodeThread::endThread()
-{
-  if (terminationCB) {
-    autoResumeTicket.cancel();
-    EvaluationCB cb = terminationCB;
-    terminationCB = NULL;
-    cb(result);
-  }
-  owner->threadTerminated(this);
-}
-
-
-// This static method can be passed to timers and makes sure that "this" is kept alive by the callback
-// boost::bind object because it is a smart pointer argument
-void ScriptCodeThread::selfKeepingResume(ScriptCodeThreadPtr aThread)
-{
-  aThread->resume();
-}
-
-
-void ScriptCodeThread::resume(ScriptObjPtr aResult)
-{
-  // Store latest result, if any (resuming with NULL pointer does not change the result)
-  if (aResult) {
-    result = aResult;
-  }
-  // Am I getting called from a chain of calls originating from
-  // myself via step() in the execution loop below?
-  if (resuming) {
-    // YES: avoid creating an endless call chain recursively
-    resumed = true; // flag having resumed already to allow looping below
-    return; // but now let chain of calls wind down to our last call (originating from step() in the loop)
-  }
-  // NO: this is a real re-entry
-  // - start running the loop
-  resuming = true; // now actually start resuming
-  MLMicroSeconds loopingSince = MainLoop::now();
-  do {
-    MLMicroSeconds now = MainLoop::now();
-    // check for abort
-    if (aborted) {
-      result = new ErrorValue(ScriptError::Aborted, pc, "Aborted script code");
-      endThread();
-      return;
-    }
-    // Check maximum execution time
-    if (maxRunTime!=Infinite && now-runningSince) {
-      // Note: not calling abort as we are WITHIN the call chain
-      result = new ErrorValue(ScriptError::Timeout, pc, "Aborted because of overall execution limit");
-      endThread();
-      return;
-    }
-    else if (maxBlockTime!=Infinite && now-loopingSince>maxBlockTime) {
-      // time expired
-      if (evaluationFlags & synchronously) {
-        // Note: not calling abort as we are WITHIN the call chain
-        result = new ErrorValue(ScriptError::Timeout, pc, "Aborted because of synchronous execution limit");
-        endThread();
-        return;
-      }
-      // in an async script, just give mainloop time to do other things for a while
-      autoResumeTicket.executeOnce(boost::bind(&selfKeepingResume, this), 2*maxBlockTime);
-    }
-    // run next statemachine step
-    resumed = false; // start of a new
-    step(); // will cause resumed to be set when resume() is called in this call's chain
-    // repeat as long as we are already resumed
-  } while(resumed);
-  // not resumed in the current chain of calls, resume will be called from
-  // an independent call site later -> re-enable normal processing
-  resuming = false;
-}
-
-
-void ScriptCodeThread::step()
-{
-  if (result && result->hasType(error)) {
-    if (result->errorValue()->getErrorCode()>=ScriptError::FatalErrors) {
-      // just end the thread unconditionally
-      endThread();
-    }
-    else {
-      // TODO: walk back the stack and look for a catch()
-      endThread(); // FIXME: for now, we just terminate as well
-    }
-  }
-  // result is fine for continuing normal processing
-  // FIXME: %%% Test only, always return dummy for now
-  result = new StringValue("DUMMY evaluation result");
-  endThread();
-}
-
-
-
 
 #if SIMPLE_REPL_APP
 
@@ -2102,1987 +2379,6 @@ int main(int argc, char **argv)
 
 
 #endif // SIMPLE_REPL_APP
-
-
-#if 0
-
-
-
-// MARK: - EvaluationContext
-
-
-EvaluationContext::EvaluationContext(const GeoLocation* aGeoLocationP) :
-  geolocationP(aGeoLocationP),
-  loggingContextP(NULL),
-  runningSince(Never),
-  nextEvaluation(Never),
-  synchronous(true),
-  execTimeLimit(DEFAULT_EXEC_TIME_LIMIT),
-  syncExecLimit(DEFAULT_SYNC_EXEC_LIMIT),
-  syncRunTime(DEFAULT_SYNC_RUN_TIME),
-  oneTimeResultHandler(false),
-  callBack(false)
-{
-}
-
-
-EvaluationContext::~EvaluationContext()
-{
-}
-
-
-int EvaluationContext::getLogLevelOffset()
-{
-  if (logLevelOffset==0) {
-    // no own offset - inherit context's
-    if (loggingContextP) return loggingContextP->getLogLevelOffset();
-    return 0;
-  }
-  return inherited::getLogLevelOffset();
-}
-
-
-string EvaluationContext::logContextPrefix()
-{
-  string prefix;
-  if (loggingContextP) {
-    prefix = loggingContextP->logContextPrefix();
-  }
-  if (!contextInfo.empty()) {
-    if (!prefix.empty()) prefix += ": ";
-    prefix += contextInfo;
-  }
-  return prefix;
-}
-
-
-void EvaluationContext::setEvaluationResultHandler(EvaluationResultCB aEvaluationResultHandler)
-{
-  evaluationResultHandler = aEvaluationResultHandler;
-  oneTimeResultHandler = false;
-}
-
-
-void EvaluationContext::registerFunctionHandler(FunctionLookupCB aFunctionLookupHandler)
-{
-  functionCallbacks.push_back(aFunctionLookupHandler);
-}
-
-
-void EvaluationContext::setContextInfo(const string aContextInfo, P44LoggingObj *aLoggingContextP)
-{
-  contextInfo = aContextInfo;
-  loggingContextP = aLoggingContextP;
-}
-
-
-bool EvaluationContext::setCode(const string aCode)
-{
-  if (aCode!=codeString) {
-    abort(); // asynchronously running script, if any, will abort when EvaluationContext gets control next time
-    releaseState(); // changing expression unfreezes everything
-    codeString = aCode;
-    return true;
-  }
-  return false;
-}
-
-
-void EvaluationContext::skipNonCode(size_t& aPos)
-{
-  bool recheck;
-  do {
-    recheck = false;
-    while (code(aPos)==' ' || code(aPos)=='\t' || code(aPos)=='\n' || code(aPos)=='\r') aPos++;
-    // also check for comments
-    if (code(pos)=='/') {
-      if (code(pos+1)=='/') {
-        pos += 2;
-        // C++ style comment, lasts until EOT or EOL
-        while (code(aPos) && code(aPos)!='\n' && code(aPos)!='\r') aPos++;
-        recheck = true;
-      }
-      else if (code(pos+1)=='*') {
-        // C style comment, lasts until '*/'
-        pos += 2;
-        while (code(aPos) && code(aPos)!='*') aPos++;
-        if (code(aPos+1)=='/') {
-          pos += 2;
-        }
-        recheck = true;
-      }
-    }
-  } while(recheck);
-}
-
-
-void EvaluationContext::skipNonCode()
-{
-  skipNonCode(pos);
-}
-
-
-const char* EvaluationContext::getIdentifier(size_t& aLen)
-{
-  aLen = 0;
-  const char* p = tail(pos);
-  if (!isalpha(*p)) return NULL; // is ot an identifier
-  // is identifier
-  const char* b = p; // begins here
-  p++;
-  while (*p && (isalnum(*p) || *p=='_')) p++;
-  aLen = p-b;
-  return b;
-}
-
-
-static const char *evalstatenames[EvaluationContext::numEvalStates] = {
-  "s_unwound",
-  "s_complete",
-  "s_abort",
-  "s_finalize",
-  // Script States
-  // - basic statements
-  "s_body",
-  "s_block",
-  "s_oneStatement",
-  "s_noStatement",
-  "s_returnValue",
-  // - if/then/else
-  "s_ifCondition",
-  "s_ifTrueStatement",
-  "s_elseStatement",
-  // - while
-  "s_whileCondition",
-  "s_whileStatement",
-  // - try/catch
-  "s_tryStatement",
-  "s_catchStatement",
-  // - assignment to variables
-  "s_assignToVar",
-  // Special result passing state
-  "s_result",
-  // Expression States
-  "s_newExpression",
-  "s_expression",
-  "s_groupedExpression",
-  "s_exprFirstTerm",
-  "s_exprLeftSide",
-  "s_exprRightSide",
-  // - simple terms
-  "s_simpleTerm",
-  "s_funcArg",
-  "s_funcExec",
-  "s_subscriptArg",
-  "s_subscriptExec"
-};
-
-
-bool EvaluationContext::newstate(EvalState aNewState)
-{
-  sp().state = aNewState;
-  return true; // not yielded
-}
-
-
-void EvaluationContext::logStackDump() {
-  StackList::iterator spos = stack.end();
-  size_t spidx = stack.size();
-  while (spos!=stack.begin()) {
-    spos--;
-    OLOG(LOG_DEBUG, "- %zu: %s state=%s, identifier='%s', code(sp->pos): '%.50s...'",
-      spidx,
-      spos->skipping ? "SKIPPING" : "running ",
-      evalstatenames[spos->state],
-      spos->identifier.c_str(),
-      singleLine(tail(spos->pos), true).c_str()
-    );
-    spidx--;
-  }
-}
-
-bool EvaluationContext::push(EvalState aNewState, bool aStartSkipping)
-{
-  skipNonCode();
-  stack.push_back(StackFrame(aNewState, aStartSkipping || sp().skipping, sp().precedence));
-  if (OLOGENABLED(LOG_DEBUG)) {
-    OLOG(LOG_DEBUG, "+++ pushed new frame - code(pos): '%.50s...'", singleLine(tail(pos)).c_str());
-    logStackDump();
-  }
-  return true; // not yielded
-}
-
-
-bool EvaluationContext::pop()
-{
-  skipNonCode();
-  if (stack.size()>1) {
-    // regular pop
-    stack.pop_back();
-    if (OLOGENABLED(LOG_DEBUG)) {
-      OLOG(LOG_DEBUG, "--- popped frame - code(pos): '%.50s...'", singleLine(tail(pos)).c_str());
-      logStackDump();
-    }
-    return true; // not yielded
-  }
-  // trying to pop last entry - switch to complete/abort first
-  if (isEvaluating()) {
-    return newstate(sp().res.isOK() ? s_unwound : s_abort);
-  }
-  return true; // not yielded
-}
-
-
-bool EvaluationContext::popAndPassResult(ExpressionValue aResult)
-{
-  bool wasSkipping = sp().skipping;
-  pop();
-  if (stack.empty())
-    finalResult = aResult;
-  else if (!wasSkipping) {
-    // auto-throw error results if:
-    // - it is a syntax error
-    // - between complete expressions/statements
-    if (aResult.isError() && (sp().state<s_expression_states || !aResult.syntaxOk())) {
-      OLOG(LOG_NOTICE, "Statement result passed to %s: '%.*s' is error -> THROW: %s", evalstatenames[sp().state],  (int)(pos-sp().pos), tail(sp().pos), aResult.error()->text());
-      return throwError(aResult.error());
-    }
-    OLOG(LOG_DEBUG, "Result passed to %s: '%.*s' is '%s'", evalstatenames[sp().state],  (int)(pos-sp().pos), tail(sp().pos), aResult.stringValue().c_str());
-    sp().res = aResult;
-  }
-  return true; // not yielded
-}
-
-
-bool EvaluationContext::popToLast(EvalState aPreviousState)
-{
-  StackList::iterator spos = stack.end();
-  while (spos!=stack.begin()) {
-    spos--;
-    if (spos->state==aPreviousState) {
-      // found, pop everything on top
-      stack.erase(++spos, stack.end());
-      return true;
-    }
-  }
-  return false;
-}
-
-
-bool EvaluationContext::throwError(ErrorPtr aError)
-{
-  // search back the stack for a "try"
-  StackList::iterator spos = stack.end();
-  while (spos!=stack.begin()) {
-    spos--;
-    if (spos->state==s_tryStatement) {
-      // set the decision
-      spos->flowDecision = true; // error caught
-      spos->res.setError(aError); // store the error at the try/catch stack level for later referencing in catch
-      // set everything up to here to skip...
-      while (++spos!=stack.end()) {
-        spos->skipping = true;
-      }
-      // ...and let it run (skip)
-      return true;
-    }
-  }
-  // uncaught, abort
-  sp().res.setError(aError);
-  return newstate(s_abort);
-}
-
-
-bool EvaluationContext::throwError(ExpressionError::ErrorCodes aErrCode, const char *aFmt, ...)
-{
-  ErrorPtr err = Error::err<ExpressionError>(aErrCode);
-  va_list args;
-  va_start(args, aFmt);
-  err->setFormattedMessage(aFmt, args);
-  va_end(args);
-  return throwError(err);
-}
-
-
-bool EvaluationContext::abortWithSyntaxError(const char *aFmt, ...)
-{
-  ErrorPtr err = Error::err<ExpressionError>(ExpressionError::Syntax);
-  va_list args;
-  va_start(args, aFmt);
-  err->setFormattedMessage(aFmt, args);
-  va_end(args);
-  sp().res.err = err;
-  return newstate(s_abort);
-}
-
-
-
-bool EvaluationContext::errorInArg(const ExpressionValue& aArg, bool aReturnIfNull)
-{
-  ExpressionValue res;
-  errorInArg(aArg, res);
-  if (aArg.isNull() && aReturnIfNull) continueWithAsyncFunctionResult(res);
-  return true; // function known
-}
-
-
-bool EvaluationContext::errorInArg(const ExpressionValue& aArg, ExpressionValue& aResult)
-{
-  if (aArg.isNull()) {
-    // function cannot process nulls -> just pass null as result
-    aResult = aArg;
-  }
-  else if (aArg.error()) {
-    // argument is in error -> throw
-    throwError(aArg.error());
-  }
-  else {
-    // not null and not error, consider it invalid value
-    throwError(ExpressionError::err(ExpressionError::Invalid, "Invalid argument: %s", aArg.stringValue().c_str()));
-  }
-  return true; // function known
-}
-
-
-
-
-bool EvaluationContext::startEvaluationWith(EvalState aState)
-{
-  if (runningSince!=Never) {
-    LOG(LOG_WARNING, "Already evaluating (since %s) -> cannot start again: '%s'", MainLoop::string_mltime(runningSince).c_str(), getCode());
-    return false; // MUST NOT call again!
-  }
-  // can start
-  runningSince = MainLoop::now();
-  // reset state
-  stack.clear();
-  finalResult.setNull();
-  nextEvaluation = Never;
-  pos = 0;
-  // push first frame with initial values
-  stack.push_back(StackFrame(aState, evalMode==evalmode_syntaxcheck, 0));
-  return true;
-}
-
-
-bool EvaluationContext::startEvaluation()
-{
-  return startEvaluationWith(s_newExpression);
-}
-
-
-// This static method can be passed to timers and makes sure that "this" is kept alive by the callback
-// boost::bind object because it is a smart pointer argument
-bool EvaluationContext::selfKeepingContinueEvaluation(EvaluationContextPtr aContext)
-{
-  return aContext->continueEvaluation();
-}
-
-
-bool EvaluationContext::continueEvaluation()
-{
-  if (!isEvaluating()) {
-    LOG(LOG_WARNING, "EvaluationContext: cannot continue, script was already aborted asynchronously, code = %.40s...", getCode());
-    return true; // already ran to end
-  }
-  MLMicroSeconds syncRunSince = MainLoop::now();
-  MLMicroSeconds now = syncRunSince;
-  MLMicroSeconds limit = synchronous ? syncExecLimit : execTimeLimit;
-  while(isEvaluating()) {
-    if (limit!=Infinite && now-runningSince>limit) {
-      throwError(ExpressionError::Timeout, "Script ran too long -> aborted");
-      limit = Infinite; // must not throw another error
-      // but must run to end, so don't exit here!
-    }
-    if (!resumeEvaluation()) return false; // execution yielded anyway
-    if (isEvaluating()) {
-      // not yielded yet, and still evaluating after resumeEvaluation(): check run time
-      now = MainLoop::now();
-      if (!synchronous && syncRunTime!=Infinite && now-syncRunSince>syncRunTime) {
-        // is an async script, yield now and continue later
-        // - yield execution for twice the time we were allowed to run
-        execTicket.executeOnce(boost::bind(&selfKeepingContinueEvaluation, this), 2*DEFAULT_SYNC_RUN_TIME);
-        // - yield now
-        return false;
-      }
-    }
-  }
-  return true; // ran to end without yielding
-}
-
-
-
-
-
-bool EvaluationContext::returnFunctionResult(const ExpressionValue& aResult)
-{
-  if (stack.size()>=1) {
-    sp().res = aResult;
-  }
-  return true;
-}
-
-
-void EvaluationContext::continueWithAsyncFunctionResult(const ExpressionValue& aResult)
-{
-  if (!isEvaluating()) {
-    LOG(LOG_WARNING, "Asynchronous function call ended after calling script was already aborted");
-    return;
-  }
-  returnFunctionResult(aResult);
-  continueEvaluation();
-}
-
-
-bool EvaluationContext::runCallBack(const ExpressionValue &aResult)
-{
-  if (evaluationResultHandler && callBack) {
-    EvaluationResultCB cb = evaluationResultHandler;
-    if (oneTimeResultHandler) evaluationResultHandler = NULL;
-    // this is where cyclic references could cause re-evaluation
-    // - if running synchronously, keep evaluation in running state until callback is done to prevent tight loops
-    // - if running asynchronously, consider script terminated already
-    if (!synchronous) runningSince = Never;
-    cb(aResult, *this);
-    return true; // called back
-  }
-  return false; // not called back
-}
-
-
-bool EvaluationContext::abort(bool aDoCallBack)
-{
-  if (!isEvaluating()) return true; // already aborted / not running in the first place
-  if (synchronous) {
-    // apparently, this call is from within synchronous execution (no "outside" code flow can exist)
-    LOG(LOG_WARNING, "Evaluation: abort() called from within synchronous script -> probably implementation problem");
-    newstate(s_abort); // cause abort at next occasion, i.e. when caller returns back to state machine dispatcher
-    return true;
-  }
-  // asynchronous execution
-  execTicket.cancel(); // abort pending callback (e.g. from delay())
-  finalResult.setError(Error::err<ExpressionError>(ExpressionError::Aborted, "asynchronously running script aborted"));
-  stack.clear();
-  if (aDoCallBack) runCallBack(finalResult);
-  runningSince = Never; // force end
-  OLOG(LOG_NOTICE, "Evaluation: asynchronous execution aborted (by external demand)");
-  return false; // not sure
-}
-
-
-ExpressionValue EvaluationContext::evaluateSynchronously(EvalMode aEvalMode, bool aScheduleReEval, bool aCallBack)
-{
-  synchronous = true; // force synchronous operation, disable functionality that would need yielding execution
-  callBack = aCallBack;
-  evalMode = aEvalMode;
-  if (runningSince!=Never) {
-    LOG(LOG_WARNING, "Another evaluation is running (since %s) -> cannot start synchronous evaluation: '%s'", MainLoop::string_mltime(runningSince).c_str(), getCode());
-    ExpressionValue res;
-    res.setError(ExpressionError::Busy, "Evaluation busy since %s -> cannot start now", MainLoop::string_mltime(runningSince).c_str());
-    return res;
-  }
-  bool notYielded = startEvaluation();
-  if (notYielded && continueEvaluation()) {
-    // has run to end
-    return finalResult;
-  }
-  // FATAL ERROR: has yielded execution
-  LOG(LOG_CRIT, "EvaluationContext: state machine has yielded execution while synchronous is set -> implementation error!");
-  finalResult.setError(ExpressionError::Busy, "state machine has yielded execution while synchronous is set -> implementation error!");
-  return finalResult;
-}
-
-
-ErrorPtr EvaluationContext::triggerEvaluation(EvalMode aEvalMode)
-{
-  ErrorPtr err;
-  if (!evaluationResultHandler) {
-    LOG(LOG_WARNING, "triggerEvaluation() with no result handler for expression: '%s'", getCode());
-  }
-  evaluateSynchronously(aEvalMode, true, true);
-  if (finalResult.notValue()) err = finalResult.err;
-  return err;
-}
-
-
-
-// MARK: - re-evaluation timing mechanisms
-
-bool EvaluationContext::updateNextEval(const MLMicroSeconds aLatestEval)
-{
-  if (aLatestEval==Never || aLatestEval==Infinite) return false; // no next evaluation needed, no need to update
-  if (nextEvaluation==Never || aLatestEval<nextEvaluation) {
-    // new time is more recent than previous, update
-    nextEvaluation = aLatestEval;
-    return true;
-  }
-  return false;
-}
-
-
-bool EvaluationContext::updateNextEval(const struct tm& aLatestEvalTm)
-{
-  MLMicroSeconds latestEval = MainLoop::localTimeToMainLoopTime(aLatestEvalTm);
-  return updateNextEval(latestEval);
-}
-
-
-
-// MARK: - Evaluation State machine
-
-bool EvaluationContext::resumeEvaluation()
-{
-  if (runningSince==Never) {
-    LOG(LOG_ERR, "resumeEvaluation() while not started");
-    return false; // DO NOT CALL AGAIN!
-  }
-  switch (sp().state) {
-    // completion states
-    case s_unwound:
-      // check for actual end of text
-      skipNonCode();
-      if (currentchar()) {
-        sp().res.setSyntaxError("Unexpected character '%c'", currentchar());
-        return newstate(s_abort);
-      }
-      // otherwise, treat like complete
-    case s_complete:
-      OLOG(LOG_INFO, "Evaluation: execution completed");
-      return newstate(s_finalize);
-    case s_abort:
-      OLOG(LOG_INFO, "Evaluation: execution aborted (from within script)");
-      return newstate(s_finalize);
-    case s_finalize: {
-      finalResult = sp().res;
-      if (OLOGENABLED(LOG_INFO)) {
-        if (!finalResult.syntaxOk()) {
-          string errInd;
-          errInd.append(pos, '-');
-          errInd += '^';
-          OLOG(LOG_INFO, "- code        =\n%s\n%s", getCode(), errInd.c_str());
-        }
-        else {
-          OLOG(LOG_INFO, "- code        = %s", singleLine(getCode(), true).c_str());
-        }
-        OLOG(LOG_INFO, "- finalResult = %s - err = %s", finalResult.stringValue().c_str(), Error::text(finalResult.err));
-      }
-      stack.clear();
-      EvaluationContextPtr keepAlive = this;
-      execTicket.cancel(); // really stop here
-      runningSince = Never;
-      runCallBack(finalResult); // call back if configured
-      keepAlive.reset();
-      return true;
-    }
-    // expression evaluation states
-    case s_newExpression:
-    case s_expression:
-    case s_exprFirstTerm:
-    case s_exprLeftSide:
-    case s_exprRightSide:
-    case s_subscriptArg:
-    case s_subscriptExec:
-      return resumeExpression();
-    // grouped expression
-    case s_groupedExpression:
-      return resumeGroupedExpression();
-    case s_simpleTerm:
-    case s_funcArg:
-    case s_funcExec:
-      return resumeTerm();
-    // end of expressions, groups, terms
-    case s_result:
-      if (!sp().res.syntaxOk()) {
-        return throwError(sp().res.err);
-      }
-      // successful expression result
-      return popAndPassResult(sp().res);
-    default:
-      break;
-  }
-  return throwError(TextError::err("resumed in invalid state %d", sp().state));
-}
-
-
-// only global variables in base class
-bool EvaluationContext::valueLookup(const string &aName, ExpressionValue &aResult)
-{
-  VariablesMap* varsP = &ScriptGlobals::sharedScriptGlobals().globalVariables;
-  return variableLookup(varsP, aName, aResult);
-}
-
-
-bool EvaluationContext::variableLookup(VariablesMap* aVariableMapP, const string &aVarPath, ExpressionValue &aResult)
-{
-  if (!aVariableMapP) return false;
-  const char *p = aVarPath.c_str();
-  string enam;
-  nextPart(p, enam, '.');
-  VariablesMap::iterator vpos = aVariableMapP->find(enam);
-  if (vpos!=aVariableMapP->end()) {
-    // found base var
-    aResult = vpos->second;
-    while (nextPart(p, enam, '.')) {
-      #if SCRIPTING_JSON_SUPPORT
-      if (!aResult.isJson()) return false; // not found
-      aResult = aResult.subField(enam);
-      #else
-      return false; // no structured variables without JSON support
-      #endif
-    }
-    return true;
-  }
-  // not found
-  return false;
-}
-
-
-
-
-static const char * const monthNames[12] = { "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec" };
-static const char * const weekdayNames[7] = { "sun", "mon", "tue", "wed", "thu", "fri", "sat" };
-
-void EvaluationContext::parseNumericLiteral(ExpressionValue &aResult, const char* aCode, size_t& aPos)
-{
-  double v;
-  int i;
-  if (sscanf(aCode+aPos, "%lf%n", &v, &i)!=1) {
-    // Note: sscanf %d also handles hex!
-    aResult.setSyntaxError("invalid number, time or date");
-    return;
-  }
-  else {
-    size_t b = aPos;
-    aPos += i; // past consumation of sscanf
-    // check for time/date literals
-    // - time literals (returned in seconds) are in the form h:m or h:m:s, where all parts are allowed to be fractional
-    // - month/day literals (returned in yeardays) are in the form dd.monthname or dd.mm. (mid the closing dot)
-    if (aCode[aPos]) {
-      if (aCode[aPos]==':') {
-        // we have 'v:', could be time
-        double t;
-        if (sscanf(aCode+aPos+1, "%lf%n", &t, &i)!=1) {
-          aResult.setSyntaxError("invalid time specification - use hh:mm or hh:mm:ss");
-          return;
-        }
-        else {
-          aPos += i+1; // past : and consumation of sscanf
-          // we have v:t, take these as hours and minutes
-          v = (v*60+t)*60; // in seconds
-          if (aCode[aPos]==':') {
-            // apparently we also have seconds
-            if (sscanf(aCode+aPos+1, "%lf%n", &t, &i)!=1) {
-              aResult.setSyntaxError("Time specification has invalid seconds - use hh:mm:ss");
-              return;
-            }
-            aPos += i+1; // past : and consumation of sscanf
-            v += t; // add the seconds
-          }
-        }
-      }
-      else {
-        int m = -1; int d = -1;
-        if (aCode[aPos-1]=='.' && isalpha(aCode[aPos])) {
-          // could be dd.monthname
-          for (m=0; m<12; m++) {
-            if (strucmp(aCode+aPos, monthNames[m], 3)==0) {
-              // valid monthname following number
-              // v = day, m = month-1
-              m += 1;
-              d = v;
-              break;
-            }
-          }
-          aPos += 3;
-          if (d<0) {
-            aResult.setSyntaxError("Invalid date specification - use dd.monthname");
-            return;
-          }
-        }
-        else if (aCode[aPos]=='.') {
-          // must be dd.mm. (with mm. alone, sscanf would have eaten it)
-          aPos = b;
-          int l;
-          if (sscanf(aCode+aPos, "%d.%d.%n", &d, &m, &l)!=2) {
-            aResult.setSyntaxError("Invalid date specification - use dd.mm.");
-            return;
-          }
-          aPos += l;
-        }
-        if (d>=0) {
-          struct tm loctim; MainLoop::getLocalTime(loctim);
-          loctim.tm_hour = 12; loctim.tm_min = 0; loctim.tm_sec = 0; // noon - avoid miscalculations that could happen near midnight due to DST offsets
-          loctim.tm_mon = m-1;
-          loctim.tm_mday = d;
-          mktime(&loctim);
-          v = loctim.tm_yday;
-        }
-      }
-    }
-  }
-  aResult.setNumber(v);
-}
-
-
-EvaluationContext::Operations EvaluationContext::parseOperator(size_t &aPos)
-{
-  skipNonCode(aPos);
-  // check for operator
-  Operations op = op_none;
-  switch (code(aPos++)) {
-    // assignment and equality
-    case ':': {
-      if (code(aPos)!='=') goto no_op;
-      aPos++; op = op_assign; break;
-    }
-    case '=': {
-      if (code(aPos)=='=') {
-        aPos++; op = op_equal; break;
-      }
-      #if EXPRESSION_OPERATOR_MODE==EXPRESSION_OPERATOR_MODE_C
-      op = op_assign; break;
-      #elif EXPRESSION_OPERATOR_MODE==EXPRESSION_OPERATOR_MODE_PASCAL
-      op = op_equal; break;
-      #else
-      op = op_assignOrEq; break;
-      #endif
-    }
-    case '*': op = op_multiply; break;
-    case '/': op = op_divide; break;
-    case '%': op = op_modulo; break;
-    case '+': op = op_add; break;
-    case '-': op = op_subtract; break;
-    case '&': op = op_and; if (code(aPos)=='&') aPos++; break;
-    case '|': op = op_or; if (code(aPos)=='|') aPos++; break;
-    case '<': {
-      if (code(aPos)=='=') {
-        aPos++; op = op_leq; break;
-      }
-      else if (code(aPos)=='>') {
-        aPos++; op = op_notequal; break;
-      }
-      op = op_less; break;
-    }
-    case '>': {
-      if (code(aPos)=='=') {
-        aPos++; op = op_geq; break;
-      }
-      op = op_greater; break;
-    }
-    case '!': {
-      if (code(aPos)=='=') {
-        aPos++; op = op_notequal; break;
-      }
-      op = op_not; break;
-      break;
-    }
-    default:
-    no_op:
-      --aPos; // no expression char
-      return op_none;
-  }
-  skipNonCode(aPos);
-  return op;
-}
-
-
-// MARK: - expression state machine entry points
-
-
-bool EvaluationContext::resumeExpression()
-{
-  if (sp().state==s_newExpression) {
-    sp().precedence = 0;
-    sp().state = s_expression;
-  }
-  if (sp().state==s_expression) {
-    // at start of an expression
-    sp().pos = pos; // remember start of any expression, even if it's only a precedence terminated subexpression
-    // - check for optional unary op
-    Operations unaryop = parseOperator(pos);
-    sp().op = unaryop; // store for later
-    if (unaryop!=op_none && unaryop!=op_subtract && unaryop!=op_add && unaryop!=op_not) {
-      return abortWithSyntaxError("invalid unary operator");
-    }
-    // evaluate first (or only) term
-    newstate(s_exprFirstTerm);
-    // - check for paranthesis term
-    if (currentchar()=='(') {
-      // term is expression in paranthesis
-      pos++;
-      push(s_groupedExpression);
-      return push(s_newExpression);
-    }
-    // must be simple term
-    // - a variable reference
-    // - a function call
-    // - a literal number or timespec (h:m or h:m:s)
-    // - a literal string (C-string like)
-    // Note: a non-simple term is the parantesized expression as handled above
-    return push(s_simpleTerm);
-  }
-  if (sp().state==s_exprFirstTerm) {
-    // res now has the first term of an expression, which might need applying unary operations
-    Operations unaryop = sp().op;
-    // assign to val, applying unary op (only if not null)
-    if (sp().res.isValue()) {
-      switch (unaryop) {
-        case op_not : sp().res.setBool(!sp().res.boolValue()); break;
-        case op_subtract : sp().res.setNumber(-sp().res.numValue()); break;
-        case op_add: // dummy, is NOP, allowed for clarification purposes
-        default: break;
-      }
-    }
-    return newstate(s_exprLeftSide);
-  }
-  #if SCRIPTING_JSON_SUPPORT
-  if (sp().state==s_subscriptArg) {
-    // a subscript argument, collect like function args
-    sp().args.addArg(sp().res, sp().pos);
-    skipNonCode();
-    if (currentchar()==',') {
-      // more arguments
-      pos++; // consume comma
-      sp().pos = pos; // update argument position
-      return push(s_newExpression);
-    }
-    else if (currentchar()==']') {
-      pos++; // consume closing ']'
-      return newstate(s_subscriptExec);
-    }
-    return abortWithSyntaxError("missing closing ']'");
-  }
-  if (sp().state==s_subscriptExec) {
-    ExpressionValue base = sp().val;
-    OLOG(LOG_DEBUG, "Resolving Subscript for '%s'", sp().identifier.c_str());
-    for (int ai=0; ai<sp().args.size(); ai++) {
-      OLOG(LOG_DEBUG, "- subscript at char pos=%zu: %s (err=%s)", sp().args.getPos(ai), sp().args[ai].stringValue().c_str(), Error::text(sp().args[ai].err));
-      sp().res = base.subScript(sp().args[ai]);
-      if (sp().res.isNull()) break;
-      base = sp().res;
-    }
-    // after subscript, continue with leftside
-    return newstate(s_exprLeftSide);
-  }
-  #endif // SCRIPTING_JSON_SUPPORT
-  if (sp().state==s_exprLeftSide) {
-    // res now has the left side value
-    #if SCRIPTING_JSON_SUPPORT
-    // - check postfix "operators": dot and subscript
-    if (currentchar()=='[') {
-      // array-style [x,..] subscript, works similar to function
-      pos++; // skip opening bracket
-      sp().args.clear();
-      skipNonCode();
-      newstate(s_subscriptArg);
-      sp().val = sp().res; // res will get overwritten by subscript argument collection
-      sp().pos = pos; // where the subscript starts
-      return push(s_newExpression);
-    }
-    else if (currentchar()=='.') {
-      // dot notation subscript
-      pos++; // skip dot
-      size_t ssz; const char *ss = getIdentifier(ssz); // get implicit subscript
-      if (ssz==0) return abortWithSyntaxError("missin object field name after dot");
-      pos+=ssz;
-      string fn(ss,ssz);
-      sp().res = sp().res.subField(fn);
-      // after subscript, continue with leftside
-      return newstate(s_exprLeftSide);
-    }
-    #endif // SCRIPTING_JSON_SUPPORT
-    // check binary operators
-    size_t opIdx = pos;
-    Operations binaryop = parseOperator(opIdx);
-    int precedence = binaryop & opmask_precedence;
-    // end parsing here if no operator found or operator with a lower or same precedence as the passed in precedence is reached
-    if (binaryop==op_none || precedence<=sp().precedence) {
-      return newstate(s_result); // end of this expression
-    }
-    // must parse right side of operator as subexpression
-    pos = opIdx; // advance past operator
-    sp().op = binaryop;
-    sp().val = sp().res; // duplicate so rightside expression can be put into res
-    newstate(s_exprRightSide);
-    push(s_expression);
-    sp().precedence = precedence; // subexpression needs to exit when finding an operator weaker than this one
-    return true;
-  }
-  if (sp().state==s_exprRightSide) {
-    Operations binaryop = sp().op;
-    // val = leftside, res = rightside
-    if (!sp().skipping) {
-      ExpressionValue opRes;
-      // all operations involving nulls return null
-      if (sp().res.isValue() && sp().val.isValue()) {
-        // both are values -> apply the operation between leftside and rightside
-        switch (binaryop) {
-          case op_not: {
-            return abortWithSyntaxError("NOT operator not allowed here");
-          }
-          case op_divide: opRes = sp().val / sp().res; break;
-          case op_modulo: opRes = sp().val % sp().res; break;
-          case op_multiply: opRes = sp().val * sp().res; break;
-          case op_add: opRes = sp().val + sp().res; break;
-          case op_subtract: opRes = sp().val - sp().res; break;
-          case op_equal:
-          case op_assignOrEq: opRes = sp().val == sp().res; break;
-          case op_notequal: opRes = sp().val != sp().res; break;
-          case op_less: opRes = sp().val < sp().res; break;
-          case op_greater: opRes = sp().val > sp().res; break;
-          case op_leq: opRes = sp().val <= sp().res; break;
-          case op_geq: opRes = sp().val >= sp().res; break;
-          case op_and: opRes = sp().val && sp().res; break;
-          case op_or: opRes = sp().val || sp().res; break;
-          default: break;
-        }
-      }
-      else if (sp().val.isError()) {
-        // if first is error, return that
-        opRes = sp().val;
-      }
-      else if (sp().res.isError()) {
-        // if first is ok but second is error, return that
-        opRes = sp().res;
-      }
-      sp().val = opRes;
-      // duplicate into res in case evaluation ends
-      sp().res = sp().val;
-      if (sp().res.isValue()) {
-        OLOG(LOG_DEBUG, "Intermediate expression '%.*s' evaluation result: %s", (int)(pos-sp().pos), tail(sp().pos), sp().res.stringValue().c_str());
-      }
-      else {
-        OLOG(LOG_DEBUG, "Intermediate expression '%.*s' evaluation result is INVALID", (int)(pos-sp().pos), tail(sp().pos));
-      }
-    }
-    return newstate(s_exprLeftSide); // back to leftside, more chained operators might follow
-  }
-  return throwError(TextError::err("expression resumed in invalid state %d", sp().state));
-}
-
-
-bool EvaluationContext::resumeGroupedExpression()
-{
-  if (currentchar()!=')') {
-    return abortWithSyntaxError("Missing ')'");
-  }
-  pos++;
-  return popAndPassResult(sp().res);
-}
-
-
-bool EvaluationContext::resumeTerm()
-{
-  if (sp().state==s_simpleTerm) {
-    if (currentchar()=='"' || currentchar()=='\'') {
-      // string literal (c-like with double quotes or php-like with single quotes and no escaping inside)
-      char delimiter = currentchar();
-      // string literal
-      string str;
-      pos++;
-      char c;
-      while(true) {
-        c = currentchar();
-        if (c==delimiter) {
-          if (delimiter=='\'' && code(pos+1)==delimiter) {
-            // single quoted strings allow including delimiter by doubling it
-            str += delimiter;
-            pos += 2;
-            continue;
-          }
-          break; // end of string
-        }
-        if (c==0) return abortWithSyntaxError("unterminated string, missing %c delimiter", delimiter);
-        if (delimiter!='\'' && c=='\\') {
-          c = code(++pos);
-          if (c==0) abortWithSyntaxError("incomplete \\-escape");
-          else if (c=='n') c='\n';
-          else if (c=='r') c='\r';
-          else if (c=='t') c='\t';
-          else if (c=='x') {
-            unsigned int h = 0;
-            pos++;
-            if (sscanf(tail(pos), "%02x", &h)==1) pos++;
-            c = (char)h;
-          }
-          // everything else
-        }
-        str += c;
-        pos++;
-      }
-      pos++; // skip closing quote
-      sp().res.setString(str);
-    }
-    #if SCRIPTING_JSON_SUPPORT
-    else if (currentchar()=='{' || currentchar()=='[') {
-      // JSON object or array literal
-      const char* p = tail(pos);
-      ssize_t n;
-      ErrorPtr err;
-      JsonObjectPtr j = JsonObject::objFromText(p, -1, &err, false, &n);
-      if (Error::notOK(err)) {
-        return abortWithSyntaxError("invalid JSON literal: %s", err->text());
-      }
-      else {
-        pos += n;
-        sp().res.setJson(j);
-      }
-    }
-    #endif
-    else {
-      // identifier (variable, function)
-      size_t idsz; const char *id = getIdentifier(idsz);
-      if (!id) {
-        // we can get here depending on how statement delimiters are used, and should not try to parse a numeric, then
-        if (currentchar() && currentchar()!='}' && currentchar()!=';') {
-          // checking for statement separating chars is safe, there's no way one of these could appear at the beginning of a term
-          parseNumericLiteral(sp().res, getCode(), pos);
-        }
-        return newstate(s_result);
-      }
-      else {
-        // identifier, examine
-        const char *idpos = id;
-        pos += idsz;
-        // - include all dot notation subfields in identifier, because overridden valueLookup() implementations might
-        //   get subfields by another means than diving into JSON values. Still, we need "." and "[" operators in
-        //   other places
-        while (currentchar()=='.') {
-          pos++; idsz++;
-          size_t s; id = getIdentifier(s);
-          if (id) pos += s;
-          idsz += s;
-        }
-        sp().identifier.assign(idpos, idsz); // save the name, in original case, including dot notation
-        skipNonCode();
-        if (currentchar()=='(') {
-          // function call
-          pos++; // skip opening paranthesis
-          sp().args.clear();
-          skipNonCode();
-          if (currentchar()!=')') {
-            // start scanning argument
-            newstate(s_funcArg);
-            sp().pos = pos; // where the argument starts
-            return push(s_newExpression);
-          }
-          // function w/o arguments, directly go to execute
-          pos++; // skip closing paranthesis
-          return newstate(s_funcExec);
-        } // function call
-        else {
-          // plain identifier
-          if (strucmp(idpos, "true", idsz)==0 || strucmp(idpos, "yes", idsz)==0) {
-            sp().res.setNumber(1);
-          }
-          else if (strucmp(idpos, "false", idsz)==0 || strucmp(idpos, "no", idsz)==0) {
-            sp().res.setNumber(0);
-          }
-          else if (strucmp(idpos, "null", idsz)==0 || strucmp(idpos, "undefined", idsz)==0) {
-            sp().res.setNull(string(idpos, idsz).c_str());
-          }
-          else if (!sp().skipping) {
-            // must be identifier representing a variable value
-            if (!valueLookup(sp().identifier, sp().res)) {
-              // also match some convenience pseudo-vars
-              bool pseudovar = false;
-              if (idsz==3) {
-                // Optimisation, all weekdays have 3 chars
-                for (int w=0; w<7; w++) {
-                  if (strucmp(idpos, weekdayNames[w], idsz)==0) {
-                    sp().res.setNumber(w); // return numeric value of weekday
-                    pseudovar = true;
-                    break;
-                  }
-                }
-              }
-              if (!pseudovar) {
-                return abortWithSyntaxError("no variable named '%s'", sp().identifier.c_str());
-              }
-            }
-          }
-        } // plain identifier
-      } // plain identifier or function call
-    } // not string literal
-    // res is what we've got, return it
-    return newstate(s_result);
-  } // simpleterm
-  else if (sp().state==s_funcArg) {
-    // a function argument, push it
-    sp().args.addArg(sp().res, sp().pos);
-    skipNonCode();
-    if (currentchar()==',') {
-      // more arguments
-      pos++; // consume comma
-      sp().pos = pos; // update argument position
-      return push(s_newExpression);
-    }
-    else if (currentchar()==')') {
-      pos++; // consume closing ')'
-      return newstate(s_funcExec);
-    }
-    return abortWithSyntaxError("missing closing ')' in function call");
-  }
-  else if (sp().state==s_funcExec) {
-    OLOG(LOG_DEBUG, "Calling Function '%s'", sp().identifier.c_str());
-    for (int ai=0; ai<sp().args.size(); ai++) {
-      OLOG(LOG_DEBUG, "- argument at char pos=%zu: %s (err=%s)", sp().args.getPos(ai), sp().args[ai].stringValue().c_str(), Error::text(sp().args[ai].err));
-    }
-    // run function
-    newstate(s_result); // expecting result from function
-    if (!sp().skipping) {
-      string funcname = lowerCase(sp().identifier);
-      // - try registered synchronous function handlers first
-      for (FunctionCBList::iterator pos = functionCallbacks.begin(); pos!=functionCallbacks.end(); ++pos) {
-        if ((*pos)(this, funcname, sp().args, sp().res)) {
-          return true; // not yielded
-        }
-      }
-      if (ScriptGlobals::exists()) {
-        for (
-          FunctionCBList::iterator pos = ScriptGlobals::sharedScriptGlobals().globalFunctionCallbacks.begin();
-          pos!=ScriptGlobals::sharedScriptGlobals().globalFunctionCallbacks.end();
-          ++pos
-        ) {
-          if ((*pos)(this, funcname, sp().args, sp().res)) {
-            return true; // not yielded
-          }
-        }
-      }
-
-      // - then try built-in synchronous functions first
-      if (evaluateFunction(funcname, sp().args, sp().res)) {
-        return true; // not yielded
-      }
-      // - finally: must be async function
-      bool notYielded = true; // default to not yielded, especially for errorInArg()
-      if (synchronous || !evaluateAsyncFunction(funcname, sp().args, notYielded)) {
-        return abortWithSyntaxError("Unknown function '%s' with %d arguments", sp().identifier.c_str(), sp().args.size());
-      }
-      return notYielded;
-    }
-    return true; // not executed -> not yielded
-  }
-  return throwError(TextError::err("resumed term in invalid state %d", sp().state));
-}
-
-
-ExpressionValue TimedEvaluationContext::evaluateSynchronously(EvalMode aEvalMode, bool aScheduleReEval, bool aCallBack)
-{
-  ExpressionValue res = inherited::evaluateSynchronously(aEvalMode, aScheduleReEval, aCallBack);
-  // take unfreeze time of frozen results into account for next evaluation
-  FrozenResultsMap::iterator fpos = frozenResults.begin();
-  while (fpos!=frozenResults.end()) {
-    if (fpos->second.frozenUntil==Never) {
-      // already detected expired -> erase (Note: just expired ones in terms of now() MUST wait until checked in next evaluation!)
-      FrozenResultsMap::iterator dpos = fpos++;
-      frozenResults.erase(dpos);
-      continue;
-    }
-    updateNextEval(fpos->second.frozenUntil);
-    fpos++;
-  }
-  if (nextEvaluation!=Never) {
-    OLOG(LOG_INFO, "Expression demands re-evaluation at %s: '%s'", MainLoop::string_mltime(nextEvaluation).c_str(), singleLine(getCode(), true).c_str());
-  }
-  if (aScheduleReEval) {
-    scheduleReEvaluation(nextEvaluation);
-  }
-  return res;
-}
-
-
-
-#if EXPRESSION_SCRIPT_SUPPORT
-
-
-// MARK: - ScriptGlobals
-
-ScriptGlobals& ScriptGlobals::sharedScriptGlobals()
-{
-  if (!scriptGlobals) {
-    scriptGlobals = new ScriptGlobals;
-  }
-  return *scriptGlobals;
-}
-
-bool ScriptGlobals::exists()
-{
-  return scriptGlobals!=NULL;
-}
-
-void ScriptGlobals::registerFunctionHandler(FunctionLookupCB aFunctionLookupHandler)
-{
-  globalFunctionCallbacks.push_back(aFunctionLookupHandler);
-}
-
-
-// MARK: - ScriptExecutionContext
-
-ScriptExecutionContext::ScriptExecutionContext(const GeoLocation* aGeoLocationP) :
-  inherited(aGeoLocationP)
-{
-}
-
-
-ScriptExecutionContext::~ScriptExecutionContext()
-{
-  // abort if still running
-  abort();
-}
-
-
-void ScriptExecutionContext::releaseState()
-{
-  OLOG(LOG_DEBUG, "All variables released now for expression: '%s'", singleLine(getCode(), true).c_str());
-  variables.clear();
-}
-
-
-bool ScriptExecutionContext::startEvaluation()
-{
-  return startEvaluationWith(s_body);
-}
-
-bool ScriptExecutionContext::execute(bool aAsynchronously, EvaluationResultCB aOneTimeEvaluationResultHandler)
-{
-  synchronous = !aAsynchronously;
-  callBack = true; // always call back!
-  if (aOneTimeEvaluationResultHandler) {
-    oneTimeResultHandler = true;
-    evaluationResultHandler = aOneTimeEvaluationResultHandler;
-  }
-  bool notYielded = startEvaluation();
-  while (notYielded && isEvaluating()) notYielded = continueEvaluation();
-  return notYielded;
-}
-
-
-bool ScriptExecutionContext::chainContext(ScriptExecutionContext& aTargetContext, EvaluationResultCB aChainResultHandler)
-{
-  skipNonCode();
-  if (sp().skipping) {
-    if (aChainResultHandler) aChainResultHandler(ExpressionValue(), *this);
-    return true; // not yielded, done
-  }
-  else {
-    OLOG(LOG_INFO, "chainContext: new context will execute rest of code: %s", singleLine(tail(pos), true).c_str());
-    aTargetContext.setLogLevelOffset(getLocalLogLevelOffset()); // inherit log level offset
-    aTargetContext.setCode(tail(pos)); // pass tail
-    pos = codeString.size(); // skip tail
-    aTargetContext.abort(false); // abort previously running script
-    return aTargetContext.execute(true, aChainResultHandler);
-  }
-}
-
-
-bool ScriptExecutionContext::resumeEvaluation()
-{
-  bool ret = false;
-  switch (sp().state) {
-    case s_body:
-    //case s_functionbody:
-    case s_block:
-    case s_oneStatement:
-    case s_noStatement:
-    case s_returnValue:
-      ret = resumeStatements(); // list of statements or single statement
-      break;
-    case s_ifCondition:
-    case s_ifTrueStatement:
-    case s_elseStatement:
-      ret = resumeIfElse(); // a if-elseif-else statement chain
-      break;
-    case s_tryStatement:
-    case s_catchStatement:
-      ret = resumeTryCatch(); // a try/catch statement chain
-      break;
-    case s_whileCondition:
-    case s_whileStatement:
-      ret = resumeWhile(); // a while loop statement
-      break;
-    case s_assignToVar:
-      ret = resumeAssignment();
-      break;
-    default:
-      ret = inherited::resumeEvaluation();
-      break;
-  }
-  return ret;
-}
-
-
-bool ScriptExecutionContext::resumeStatements()
-{
-  // at a statement boundary, within a body/block/functionbody
-  if (sp().state==s_noStatement) {
-    // no more statements may follow in this level, a single terminator is allowed (but not required)
-    if (currentchar()==';') pos++; // just consume it
-    return pop();
-  }
-  if (sp().state==s_returnValue) {
-    sp().state = s_complete;
-    return true;
-  }
-  if (sp().state==s_oneStatement) {
-    // only one statement allowed, next call must pop level ANYWAY (but might do so before because encountering a separator)
-    sp().state = s_noStatement;
-  }
-  // - could be start of a new block
-  if (currentchar()==0) {
-    // end of code
-    if (sp().state==s_body) {
-      sp().state = s_complete;
-      return true;
-    }
-    else {
-      // unexpected end of code
-      return abortWithSyntaxError("Unexpected end of code");
-    }
-  }
-  if (currentchar()=='{') {
-    // start new block
-    pos++;
-    return push(s_block);
-  }
-  if (sp().state==s_block && currentchar()=='}') {
-    // end block
-    pos++;
-    return pop();
-  }
-  if (currentchar()==';') {
-    if (sp().state==s_noStatement) return true; // the separator alone comprises a statement, so we're done
-    pos++; // normal statement separator, consume it
-    skipNonCode();
-  }
-  // at the beginning of a statement which is not beginning of a new block
-  // - could be language keyword, variable assignment
-  size_t kwsz; const char *kw = getIdentifier(kwsz);
-  if (kw) {
-    if (strucmp(kw, "if", kwsz)==0) {
-      pos += kwsz;
-      skipNonCode();
-      if (currentchar()!='(') return abortWithSyntaxError("missing '(' after 'if'");
-      pos++;
-      push(s_ifCondition);
-      return push(s_newExpression);
-    }
-    if (strucmp(kw, "else", kwsz)==0) {
-      // just check to give sensible error message
-      return abortWithSyntaxError("else without preceeding if");
-    }
-    if (strucmp(kw, "while", kwsz)==0) {
-      pos += kwsz;
-      skipNonCode();
-      if (currentchar()!='(') return abortWithSyntaxError("missing '(' after 'while'");
-      pos++;
-      push(s_whileCondition);
-      sp().pos = pos; // save position of the condition, we will jump here later
-      return push(s_newExpression);
-    }
-    if (strucmp(kw, "break", kwsz)==0) {
-      pos += kwsz;
-      if (!sp().skipping) {
-        if (!popToLast(s_whileStatement)) return abortWithSyntaxError("break must be within while statement");
-        pos = sp().pos; // restore position saved
-        newstate(s_whileCondition); // switch back to condition
-        sp().skipping = true; // will avoid assignment of the condition, just skipping it and the while statement
-        sp().flowDecision = false; // must make flow decision false to exit the loop
-        return push(s_newExpression);
-      }
-      return true; // skipping, just consume keyword and ignore
-    }
-    if (strucmp(kw, "continue", kwsz)==0) {
-      pos += kwsz;
-      if (!sp().skipping) {
-        if (!popToLast(s_whileStatement)) return abortWithSyntaxError("continue must be within while statement");
-        pos = sp().pos; // restore position saved
-        newstate(s_whileCondition); // switch back to condition
-        return push(s_newExpression);
-      }
-      return true; // skipping, just consume keyword and ignore
-    }
-    if (strucmp(kw, "return", kwsz)==0) {
-      pos += kwsz;
-      sp().res.setNull(); // default to no result
-      skipNonCode();
-      if (currentchar() && currentchar()!=';') {
-        // switch frame to last thing that will happen: getting the return value
-        if (!sp().skipping) sp().state = s_returnValue;
-        return push(s_newExpression);
-      }
-      if (sp().skipping) return true; // skipping, just consume keyword and ignore
-      return newstate(s_complete); // not skipping, actually terminate
-    }
-    if (strucmp(kw, "try", kwsz)==0) {
-      pos += kwsz;
-      push(s_tryStatement);
-      sp().flowDecision = false; // nothing caught so far
-      return push(s_oneStatement);
-    }
-    if (strucmp(kw, "catch", kwsz)==0) {
-      // just check to give sensible error message
-      return abortWithSyntaxError("catch without preceeding try");
-    }
-    // variable handling
-    bool vardef = false;
-    bool let = false;
-    bool glob = false;
-    bool newVar = false;
-    string varName;
-    size_t apos = pos + kwsz; // potential assignment location
-    if (strucmp(kw, "var", kwsz)==0) {
-      vardef = true;
-    }
-    else if (strucmp(kw, "glob", kwsz)==0) {
-      vardef = true;
-      glob = true;
-    }
-    else if (strucmp(kw, "let", kwsz)==0) {
-      let = true;
-    }
-    if (vardef || let) {
-      // explicit assignment statement keyword
-      pos = apos;
-      skipNonCode();
-      // variable name follows
-      size_t vsz; const char *vn = getIdentifier(vsz);
-      if (!vn)
-        return abortWithSyntaxError("missing variable name after '%.*s'", (int)kwsz, kw);
-      varName = lowerCase(vn, vsz);
-      pos += vsz;
-      apos = pos;
-      if (vardef) {
-        // is a definition
-        VariablesMap* varsP = glob ? &ScriptGlobals::sharedScriptGlobals().globalVariables : &variables;
-        if (varsP->find(varName)==varsP->end()) {
-          // does not yet exist, create it with null value
-          ExpressionValue null;
-          (*varsP)[varName] = null;
-          OLOG(LOG_DEBUG, "Defined %s variable %.*s", glob ? "GLOBAL" : "LOCAL", (int)vsz,vn);
-          newVar = true;
-        }
-      }
-    }
-    else {
-      // keyword itself is the variable name
-      varName.assign(kw, kwsz);
-    }
-    skipNonCode(apos);
-    Operations op = parseOperator(apos);
-    // Note: for the unambiguous "var", "global" and "let" cases, allow the equal operator for assignment
-    if (op==op_assign || op==op_assignOrEq ||((vardef || let) && op==op_equal)) {
-      // definitely: this is an assignment
-      pos = apos;
-      if (!glob || newVar) {
-        // assign globals only if not already existing (initial value)
-        // Note: local variables will be redefined each time we pass the "var" statement
-        push(s_assignToVar);
-        sp().identifier = varName; // new frame needs the name to assign value later
-        return push(s_newExpression); // but first, evaluate the expression
-      }
-      else {
-        // do not initialize again, skip the expression
-        push(s_newExpression);
-        sp().skipping = true;
-      }
-    }
-    else if (let) {
-      // let is not allowed w/o assignment
-      return abortWithSyntaxError("let must always assign a value");
-    }
-    else if (vardef) {
-      // declaration only
-      pos = apos;
-      return true;
-    }
-  }
-  // no special language construct, statement just evaluates an expression
-  return push(s_newExpression);
-}
-
-
-bool ScriptExecutionContext::resumeAssignment()
-{
-  // assign expression result to variable
-  // - first search local ones
-  bool glob = false;
-  VariablesMap* varsP = &variables;
-  VariablesMap::iterator vpos = varsP->find(sp().identifier);
-  if (vpos==varsP->end()) {
-    varsP = &ScriptGlobals::sharedScriptGlobals().globalVariables;
-    vpos = varsP->find(sp().identifier);
-    if (vpos==varsP->end()) {
-      return abortWithSyntaxError("variable '%s' is not declared - use: var name := expression", sp().identifier.c_str());
-    }
-    glob = true;
-  }
-  if (!sp().skipping) {
-    // assign variable
-    OLOG(LOG_DEBUG, "Assigned %s variable: %s := %s", glob ? "global" : "local", sp().identifier.c_str(), sp().res.stringValue().c_str());
-    vpos->second = sp().res;
-    return popAndPassResult(sp().res);
-  }
-  return pop();
-}
-
-
-bool ScriptExecutionContext::resumeTryCatch()
-{
-  if (sp().state==s_tryStatement) {
-    // try statement is executed
-    // - check for "catch" following
-    size_t kwsz; const char *kw = getIdentifier(kwsz);
-    if (kw && strucmp(kw, "catch", kwsz)==0) {
-      pos += kwsz;
-      sp().state = s_catchStatement;
-      // - flowdecision is set only if there was an error -> skip catch only if it is not set!
-      return push(s_oneStatement, !sp().flowDecision);
-    }
-    else {
-      return abortWithSyntaxError("missing 'catch' after 'try'");
-    }
-  }
-  if (sp().state==s_catchStatement) {
-    // catch statement is executed
-    return pop(); // end try/catch
-  }
-  return true;
-}
-
-
-bool ScriptExecutionContext::resumeIfElse()
-{
-  if (sp().state==s_ifCondition) {
-    // if condition is evaluated
-    if (currentchar()!=')')  return abortWithSyntaxError("missing ')' after if condition");
-    pos++;
-    sp().state = s_ifTrueStatement;
-    sp().flowDecision = sp().res.boolValue();
-    return push(s_oneStatement, !sp().flowDecision);
-  }
-  if (sp().state==s_ifTrueStatement) {
-    // if statement (or block of statements) is executed
-    // - check for "else" following
-    size_t kwsz; const char *kw = getIdentifier(kwsz);
-    if (kw && strucmp(kw, "else", kwsz)==0) {
-      pos += kwsz;
-      skipNonCode();
-      // there might be another if following right away
-      kw = getIdentifier(kwsz);
-      if (kw && strucmp(kw, "if", kwsz)==0) {
-        pos += kwsz;
-        skipNonCode();
-        if (currentchar()!='(') return abortWithSyntaxError("missing '(' after 'else if'");
-        pos++;
-        // chained if: when preceeding "if" did execute (or would have if not already skipping), rest of if/elseif...else chain will be skipped
-        if (sp().flowDecision) sp().skipping = true;
-        push(s_ifCondition);
-        return push(s_newExpression);
-      }
-      else {
-        // last else in chain
-        sp().state = s_elseStatement;
-        return push(s_oneStatement, sp().flowDecision);
-      }
-    }
-    else {
-      // if without else
-      return pop(); // end if/then/else
-    }
-  }
-  if (sp().state==s_elseStatement) {
-    // last else in chain, no if following
-    return pop();
-  }
-  return true;
-}
-
-
-bool ScriptExecutionContext::resumeWhile()
-{
-  if (sp().state==s_whileCondition) {
-    // while condition is evaluated
-    if (currentchar()!=')')  return abortWithSyntaxError("missing ')' after while condition");
-    pos++;
-    newstate(s_whileStatement);
-    if (!sp().skipping) sp().flowDecision = sp().res.boolValue(); // do not change flow decision when skipping (=break)
-    return push(s_oneStatement, !sp().flowDecision);
-  }
-  if (sp().state==s_whileStatement) {
-    // while statement (or block of statements) is executed
-    if (sp().flowDecision==false) {
-      return pop(); // end while
-    }
-    // not skipping, means we need to loop
-    pos = sp().pos; // restore position saved - that of the condition expression
-    newstate(s_whileCondition); // switch back to condition
-    return push(s_newExpression);
-  }
-  return true;
-}
-
-
-bool ScriptExecutionContext::valueLookup(const string &aName, ExpressionValue &aResult)
-{
-  if (variableLookup(&variables, aName, aResult)) return true;
-  // none found locally. Let base class check for globals
-  return inherited::valueLookup(aName, aResult);
-}
-
-
-#endif // EXPRESSION_SCRIPT_SUPPORT
-
-
-
-// MARK: - TimedEvaluationContext
-
-TimedEvaluationContext::TimedEvaluationContext(const GeoLocation* aGeoLocationP) :
-  inherited(aGeoLocationP)
-{
-}
-
-
-TimedEvaluationContext::~TimedEvaluationContext()
-{
-
-}
-
-
-void TimedEvaluationContext::releaseState()
-{
-  OLOG(LOG_DEBUG, "All frozen state is released now for expression: '%s'", singleLine(getCode(), true).c_str());
-  frozenResults.clear(); // changing expression unfreezes everything
-}
-
-
-void TimedEvaluationContext::scheduleReEvaluation(MLMicroSeconds aAtTime)
-{
-  nextEvaluation = aAtTime;
-  if (nextEvaluation!=Never) {
-    reEvaluationTicket.executeOnceAt(boost::bind(&TimedEvaluationContext::timedEvaluationHandler, this, _1, _2), nextEvaluation);
-  }
-  else {
-    reEvaluationTicket.cancel();
-  }
-}
-
-
-void TimedEvaluationContext::timedEvaluationHandler(MLTimer &aTimer, MLMicroSeconds aNow)
-{
-  // trigger another evaluation
-  OLOG(LOG_INFO, "Timed re-evaluation of expression starting now: '%s'", singleLine(getCode(), true).c_str());
-  triggerEvaluation(evalmode_timed);
-}
-
-
-void TimedEvaluationContext::scheduleLatestEvaluation(MLMicroSeconds aAtTime)
-{
-  if (updateNextEval(aAtTime)) {
-    scheduleReEvaluation(nextEvaluation);
-  }
-}
-
-
-TimedEvaluationContext::FrozenResult* TimedEvaluationContext::getFrozen(ExpressionValue &aResult, size_t aRefPos)
-{
-  FrozenResultsMap::iterator frozenVal = frozenResults.find(aRefPos);
-  FrozenResult* frozenResultP = NULL;
-  if (frozenVal!=frozenResults.end()) {
-    frozenResultP = &(frozenVal->second);
-    // there is a frozen result for this position in the expression
-    OLOG(LOG_DEBUG, "- frozen result (%s) for actual result (%s) at char pos %zu exists - will expire %s",
-      frozenResultP->frozenResult.stringValue().c_str(),
-      aResult.stringValue().c_str(),
-      aRefPos,
-      frozenResultP->frozen() ? MainLoop::string_mltime(frozenResultP->frozenUntil).c_str() : "NOW"
-    );
-    aResult = frozenVal->second.frozenResult;
-    if (!frozenResultP->frozen()) frozenVal->second.frozenUntil = Never; // mark expired
-  }
-  return frozenResultP;
-}
-
-
-bool TimedEvaluationContext::FrozenResult::frozen()
-{
-  return frozenUntil==Infinite || (frozenUntil!=Never && frozenUntil>MainLoop::now());
-}
-
-
-TimedEvaluationContext::FrozenResult* TimedEvaluationContext::newFreeze(FrozenResult* aExistingFreeze, const ExpressionValue &aNewResult, size_t aRefPos, MLMicroSeconds aFreezeUntil, bool aUpdate)
-{
-  if (!aExistingFreeze) {
-    // nothing frozen yet, freeze it now
-    FrozenResult newFreeze;
-    newFreeze.frozenResult = aNewResult; // full copy, including pos
-    newFreeze.frozenUntil = aFreezeUntil;
-    frozenResults[aRefPos] = newFreeze;
-    OLOG(LOG_DEBUG, "- new result (%s) frozen for pos %zu until %s", aNewResult.stringValue().c_str(), aRefPos, MainLoop::string_mltime(newFreeze.frozenUntil).c_str());
-    return &frozenResults[aRefPos];
-  }
-  else if (!aExistingFreeze->frozen() || aUpdate || aFreezeUntil==Never) {
-    OLOG(LOG_DEBUG, "- existing freeze updated to value %s and to expire %s",
-      aNewResult.stringValue().c_str(),
-      aFreezeUntil==Never ? "IMMEDIATELY" : MainLoop::string_mltime(aFreezeUntil).c_str()
-    );
-    aExistingFreeze->frozenResult = aNewResult;
-    aExistingFreeze->frozenUntil = aFreezeUntil;
-  }
-  else {
-    OLOG(LOG_DEBUG, "- no freeze created/updated");
-  }
-  return aExistingFreeze;
-}
-
-
-bool TimedEvaluationContext::unfreeze(size_t aAtPos)
-{
-  FrozenResultsMap::iterator frozenVal = frozenResults.find(aAtPos);
-  if (frozenVal!=frozenResults.end()) {
-    frozenResults.erase(frozenVal);
-    return true;
-  }
-  return false;
-}
-
-
-
-#define MIN_RETRIGGER_SECONDS 10 ///< how soon testlater() is allowed to re-trigger
-#define MIN_EVERY_SECONDS 0.5 ///< how fast every() can go
-
-
-// special functions only available in timed evaluations
-bool TimedEvaluationContext::evaluateFunction(const string &aFunc, const FunctionArguments &aArgs, ExpressionValue &aResult)
-{
-  if (aFunc=="testlater" && aArgs.size()>=2 && aArgs.size()<=3) {
-    // testlater(seconds, timedtest [, retrigger])   return "invalid" now, re-evaluate after given seconds and return value of test then. If repeat is true then, the timer will be re-scheduled
-    bool retrigger = false;
-    if (aArgs.size()>=3) retrigger = aArgs[2].isValue() && aArgs[2].boolValue();
-    ExpressionValue secs = aArgs[0];
-    if (retrigger && secs.numValue()<MIN_RETRIGGER_SECONDS) {
-      // prevent too frequent re-triggering that could eat up too much cpu
-      LOG(LOG_WARNING, "testlater() requests too fast retriggering (%.1f seconds), allowed minimum is %.1f seconds", secs.numValue(), (double)MIN_RETRIGGER_SECONDS);
-      secs.setNumber(MIN_RETRIGGER_SECONDS);
-    }
-    ExpressionValue currentSecs = secs;
-    size_t refPos = aArgs.getPos(0);
-    FrozenResult* frozenP = getFrozen(currentSecs, refPos);
-    bool evalNow = frozenP && !frozenP->frozen();
-    if (evalMode!=evalmode_timed) {
-      if (evalMode!=evalmode_initial || retrigger) {
-        // evaluating non-timed, non-initial (or retriggering) means "not yet ready" and must start or extend freeze period
-        newFreeze(frozenP, secs, refPos, MainLoop::now()+secs.numValue()*Second, true);
-      }
-      evalNow = false; // never evaluate on non-timed run
-    }
-    else {
-      // evaluating timed after frozen period means "now is later" and if retrigger is set, must start a new freeze
-      if (frozenP && retrigger) {
-        newFreeze(frozenP, secs, refPos, MainLoop::now()+secs.numValue()*Second);
-      }
-    }
-    if (evalNow) {
-      // evaluation runs because freeze is over, return test result
-      aResult.setNumber(aArgs[1].numValue());
-    }
-    else {
-      // still frozen, return undefined
-      aResult.setNull("testlater() not yet ready");
-    }
-  }
-  else if (aFunc=="every" && aArgs.size()>=1 && aArgs.size()<=2) {
-    // every(interval [, syncoffset])
-    // returns true once every interval
-    // Note: first true is returned at first evaluation or, if syncoffset is set,
-    //   at next integer number of intervals calculated from beginning of the day + syncoffset
-    double syncoffset = -1;
-    if (aArgs.size()>=2) {
-      syncoffset = aArgs[1].numValue();
-    }
-    ExpressionValue secs = aArgs[0];
-    if (secs.numValue()<MIN_EVERY_SECONDS) {
-      // prevent too frequent re-triggering that could eat up too much cpu
-      LOG(LOG_WARNING, "every() requests too fast retriggering (%.1f seconds), allowed minimum is %.1f seconds", secs.numValue(), (double)MIN_EVERY_SECONDS);
-      secs.setNumber(MIN_EVERY_SECONDS);
-    }
-    ExpressionValue currentSecs = secs;
-    size_t refPos = aArgs.getPos(0);
-    FrozenResult* frozenP = getFrozen(currentSecs, refPos);
-    bool trigger = frozenP && !frozenP->frozen();
-    if (trigger || evalMode==evalmode_initial) {
-      // setup new interval
-      double interval = secs.numValue();
-      if (syncoffset<0) {
-        // no sync
-        // - interval starts from now
-        newFreeze(frozenP, secs, refPos, MainLoop::now()+secs.numValue()*Second, true);
-        trigger = true; // fire even in initial evaluation
-      }
-      else {
-        // synchronize with real time
-        double fracSecs;
-        struct tm loctim; MainLoop::getLocalTime(loctim, &fracSecs);
-        double secondOfDay = ((loctim.tm_hour*60)+loctim.tm_min)*60+loctim.tm_sec+fracSecs; // second of day right now
-        double untilNext = syncoffset+(floor((secondOfDay-syncoffset)/interval)+1)*interval - secondOfDay; // time to next repetition
-        newFreeze(frozenP, secs, refPos, MainLoop::now()+untilNext*Second, true);
-      }
-    }
-    aResult.setBool(trigger);
-  }
-  else if (aFunc=="initial" && aArgs.size()==0) {
-    // initial()  returns true if this is a "initial" run of the evaluator, meaning after startup or expression changes
-    aResult.setNumber(evalMode==evalmode_initial);
-  }
-  else {
-    return inherited::evaluateFunction(aFunc, aArgs, aResult);
-  }
-  return true;
-}
-
-
-// MARK: - script queue
-
-void ScriptQueue::queueScript(ScriptExecutionContextPtr aScriptContext)
-{
-  queue.push_back(aScriptContext);
-  if (queue.size()==1) {
-    // there was no script pending, must start
-    runNextScript();
-  }
-}
-
-
-void ScriptQueue::runNextScript()
-{
-  if (!queue.empty()) {
-    ScriptExecutionContextPtr script = queue.front();
-    SOLOG(*script, LOG_INFO, "+++ Starting script");
-    script->execute(true, boost::bind(&ScriptQueue::scriptDone, this, script));
-  }
-}
-
-
-void ScriptQueue::scriptDone(ScriptExecutionContextPtr aScript)
-{
-  SOLOG(*aScript, LOG_INFO, "--- Finished script");
-  queue.pop_front();
-  runNextScript();
-}
-
-
-bool ScriptQueue::stopCurrent()
-{
-  if (!queue.empty()) {
-    queue.front()->abort();
-    queue.pop_front();
-    return true;
-  }
-  return false;
-}
-
-
-void ScriptQueue::clear()
-{
-  while (stopCurrent()); // stop all, even those that will which might still be owned by somebody else
-  queue.clear();
-}
-
-
-
-
-// MARK: - ad hoc expression evaluation
-
-/// helper class for ad-hoc expression evaluation
-class AdHocEvaluationContext : public EvaluationContext
-{
-  typedef EvaluationContext inherited;
-  ValueLookupCB valueLookUp;
-  FunctionLookupCB functionLookUp;
-
-public:
-  AdHocEvaluationContext(ValueLookupCB aValueLookupCB, FunctionLookupCB aFunctionLookpCB) :
-    inherited(NULL),
-    valueLookUp(aValueLookupCB),
-    functionLookUp(aFunctionLookpCB)
-  {
-    setContextInfo("AdHocEval");
-  };
-
-  virtual ~AdHocEvaluationContext() {};
-
-  ExpressionValue evaluateExpression(const string &aExpression)
-  {
-    setCode(aExpression);
-    return evaluateSynchronously(evalmode_initial);
-  };
-
-protected:
-
-  virtual bool valueLookup(const string &aName, ExpressionValue &aResult) P44_OVERRIDE
-  {
-    if (valueLookUp && valueLookUp(aName, aResult)) return true;
-    return inherited::valueLookup(aName, aResult);
-  };
-
-  virtual bool evaluateFunction(const string &aFunc, const FunctionArguments &aArgs, ExpressionValue &aResult) P44_OVERRIDE
-  {
-    if (functionLookUp && functionLookUp(this, aFunc, aArgs, aResult)) return true;
-    return inherited::evaluateFunction(aFunc, aArgs, aResult);
-  };
-
-};
-typedef boost::intrusive_ptr<AdHocEvaluationContext> AdHocEvaluationContextPtr;
-
-
-ExpressionValue p44::evaluateExpression(const string &aExpression, ValueLookupCB aValueLookupCB, FunctionLookupCB aFunctionLookpCB, int aLogOffset)
-{
-  AdHocEvaluationContext ctx(aValueLookupCB, aFunctionLookpCB);
-  ctx.isMemberVariable();
-  ctx.setLogLevelOffset(aLogOffset);
-  return ctx.evaluateExpression(aExpression);
-}
-
-
-
-// MARK: - placeholder expression substitution - @{expression}
-
-
-ErrorPtr p44::substituteExpressionPlaceholders(string &aString, ValueLookupCB aValueLookupCB, FunctionLookupCB aFunctionLookpCB, string aNullText)
-{
-  ErrorPtr err;
-  size_t p = 0;
-  AdHocEvaluationContextPtr ctx; // create it lazily when actually required, prevent allocation when aString has no substitutions at all
-
-  // Syntax of placeholders:
-  //   @{expression}
-  while ((p = aString.find("@{",p))!=string::npos) {
-    size_t e = aString.find("}",p+2);
-    if (e==string::npos) {
-      // syntactically incorrect, no closing "}"
-      err = ExpressionError::err(ExpressionError::Syntax, "unterminated placeholder: %s", aString.c_str()+p);
-      break;
-    }
-    string expr = aString.substr(p+2,e-2-p);
-    // evaluate expression
-    if (!ctx) ctx = AdHocEvaluationContextPtr(new AdHocEvaluationContext(aValueLookupCB, aFunctionLookpCB));
-    ExpressionValue result = ctx->evaluateExpression(expr);
-    string rep;
-    if (result.isValue()) {
-      rep = result.stringValue();
-    }
-    else {
-      rep = aNullText;
-      if (Error::isOK(err)) err = result.error(); // only report first error
-    }
-    // replace, even if rep is empty
-    aString.replace(p, e-p+1, rep);
-    p+=rep.size();
-  }
-  return err;
-}
-
-#endif // #if 0
 
 #endif // ENABLE_EXPRESSIONS
 

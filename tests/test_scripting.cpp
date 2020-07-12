@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2016-2019 plan44.ch / Lukas Zeller, Zurich, Switzerland
+//  Copyright (c) 2016-2020 plan44.ch / Lukas Zeller, Zurich, Switzerland
 //
 //  Author: Lukas Zeller <luz@plan44.ch>
 //
@@ -22,7 +22,6 @@
 #include "catch.hpp"
 
 #include "scripting.hpp"
-#include "expressions.hpp"
 #include <stdlib.h>
 
 #define LOGLEVELOFFSET 0
@@ -30,6 +29,153 @@
 #define JSON_TEST_OBJ "{\"array\":[\"first\",2,3,\"fourth\",6.6],\"obj\":{\"objA\":\"A\",\"objB\":42,\"objC\":{\"objD\":\"D\",\"objE\":45}},\"string\":\"abc\",\"number\":42,\"bool\":true}"
 
 using namespace p44;
+using namespace p44::Script;
+
+// MARK: CodeCursor tests
+
+double numParse(const string input) {
+  CodeCursor c(input);
+  double num;
+  c.parseNumericLiteral(num);
+  return num;
+}
+
+string strParse(const string input) {
+  CodeCursor c(input);
+  string str;
+  c.parseStringLiteral(str);
+  return str;
+}
+
+string jsonParse(const string input) {
+  CodeCursor c(input);
+  JsonObjectPtr o;
+  c.parseJSONLiteral(o);
+  return o->json_str();
+}
+
+
+TEST_CASE("CodeCursor", "[scripting],[FOCUS]" )
+{
+  SECTION("Cursor") {
+    // basic
+    CodeCursor cursor("test");
+    REQUIRE(cursor.charsleft() == 4);
+    REQUIRE(cursor.lineno() == 0); // first line
+    REQUIRE(cursor.charpos() == 0); // first char
+    REQUIRE(cursor.c() == 't');
+    REQUIRE(cursor.c(1) == 'e');
+    REQUIRE(cursor.c(4) == 0); // at end
+    REQUIRE(cursor.c(5) == 0); // beyond end, still 0
+    REQUIRE(cursor.next() == true);
+    REQUIRE(cursor.c() == 'e');
+    REQUIRE(cursor.advance(2) == true);
+    REQUIRE(cursor.c() == 't');
+    REQUIRE(cursor.charpos() == 3);
+    REQUIRE(cursor.advance(2) == false); // cannot advance 2 chars, only 1
+    // end of buffer
+    CodeCursor cursor2("part of buffer passed", 7); // only "part of" should be visible
+    REQUIRE(cursor2.charsleft() == 7);
+    cursor2.advance(5);
+    REQUIRE(cursor2.c() == 'o');
+    REQUIRE(cursor2.next() == true);
+    REQUIRE(cursor2.c() == 'f');
+    REQUIRE(cursor2.next() == true); // reaching end now
+    REQUIRE(cursor2.c() == 0);
+    REQUIRE(cursor2.next() == false); // cannot move further
+  }
+
+  SECTION("Identifiers") {
+    // multi line + identifiers
+    CodeCursor cursor3("multiple words /*   on\nmore */ than // one\nline: one.a2-a3_a4");
+    string i;
+    // "multiple"
+    REQUIRE(cursor3.parseIdentifier(i) == true);
+    REQUIRE(cursor3.lineno() == 0);
+    REQUIRE(i == "multiple");
+    REQUIRE(cursor3.charpos() == 8);
+    // at space
+    REQUIRE(cursor3.parseIdentifier(i) == false);
+    cursor3.skipNonCode();
+    // "words"
+    size_t l;
+    REQUIRE(cursor3.parseIdentifier(i,&l) == true);
+    REQUIRE(i == "words");
+    REQUIRE(l == 5);
+    REQUIRE(cursor3.charpos() == 9);
+    REQUIRE(cursor3.advance(l) == true);
+    REQUIRE(cursor3.lineno() == 0);
+    REQUIRE(cursor3.charpos() == 14);
+    // skip 2-line comment
+    cursor3.skipNonCode();
+    REQUIRE(cursor3.lineno() == 1);
+    // "than"
+    REQUIRE(cursor3.parseIdentifier(i) == true);
+    REQUIRE(i == "than");
+    REQUIRE(cursor3.lineno() == 1);
+    REQUIRE(cursor3.charpos() == 12);
+    // skip EOL comment
+    cursor3.skipNonCode();
+    REQUIRE(cursor3.lineno() == 2);
+    REQUIRE(cursor3.charpos() == 0);
+    // "line"
+    REQUIRE(cursor3.parseIdentifier(i) == true);
+    REQUIRE(i == "line");
+    REQUIRE(cursor3.lineno() == 2);
+    REQUIRE(cursor3.charpos() == 4);
+    // identifier and dots
+    REQUIRE(cursor3.nextIf(':') == true);
+    cursor3.skipNonCode();
+    // "one"
+    REQUIRE(cursor3.parseIdentifier(i) == true);
+    REQUIRE(i == "one");
+    REQUIRE(cursor3.nextIf('.') == true);
+    // "a2"
+    REQUIRE(cursor3.parseIdentifier(i) == true);
+    REQUIRE(i == "a2");
+    REQUIRE(cursor3.nextIf('+') == false);
+    REQUIRE(cursor3.nextIf('-') == true);
+    // "a3_a4"
+    REQUIRE(cursor3.parseIdentifier(i) == true);
+    REQUIRE(i == "a3_a4");
+    // nothing more
+    REQUIRE(cursor3.EOT() == true);
+    REQUIRE(cursor3.next() == false);
+    REQUIRE(cursor3.EOT() == true);
+  }
+
+  SECTION("Literals") {
+    REQUIRE(numParse("42") == 42);
+    REQUIRE(numParse("0x42") == 0x42);
+    REQUIRE(numParse("42.42") == 42.42);
+
+    REQUIRE(strParse("\"Hello\"") == "Hello");
+    REQUIRE(strParse("\"He\\x65llo\"") == "Heello");
+    REQUIRE(strParse("\"\\tHello\\nWorld, \\\"double quoted\\\"\"") == "\tHello\nWorld, \"double quoted\""); // C string style
+    REQUIRE(strParse("'Hello\\nWorld, \"double quoted\" text'") == "Hello\\nWorld, \"double quoted\" text"); // PHP single quoted style
+    REQUIRE(strParse("'Hello\\nWorld, ''single quoted'' text'") == "Hello\\nWorld, 'single quoted' text"); // include single quotes in single quoted text by doubling them
+    REQUIRE(strParse("\"\"") == ""); // empty string
+
+    REQUIRE(numParse("12:35") == 45300);
+    REQUIRE(numParse("14:57:42") == 53862);
+    REQUIRE(numParse("14:57:42.328") == 53862.328);
+    REQUIRE(numParse("1.Jan") == 0);
+    REQUIRE(numParse("1.1.") == 0);
+    REQUIRE(numParse("19.Feb") == 49);
+    REQUIRE(numParse("19.FEB") == 49);
+    REQUIRE(numParse("19.2.") == 49);
+
+    REQUIRE(jsonParse("{ 'type':'object', 'test':42 }") == "{\"type\":\"object\",\"test\":42}");
+    REQUIRE(jsonParse("[ 'first', 2, 3, 'fourth', 6.6 ]") == "[\"first\",2,3,\"fourth\",6.6]");
+  }
+
+}
+
+
+
+
+
+#if 0
 
 class ScriptingExpressionFixture : public EvaluationContext
 {
@@ -488,3 +634,5 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "Scripts", "[expressions]" )
   }
 
 }
+
+#endif // 0
