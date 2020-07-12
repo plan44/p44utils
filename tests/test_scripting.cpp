@@ -33,6 +33,7 @@ using namespace p44::Script;
 
 // MARK: CodeCursor tests
 
+/*
 double numParse(const string input) {
   CodeCursor c(input);
   double num;
@@ -53,7 +54,7 @@ string jsonParse(const string input) {
   c.parseJSONLiteral(o);
   return o->json_str();
 }
-
+*/
 
 TEST_CASE("CodeCursor", "[scripting],[FOCUS]" )
 {
@@ -144,6 +145,7 @@ TEST_CASE("CodeCursor", "[scripting],[FOCUS]" )
     REQUIRE(cursor3.EOT() == true);
   }
 
+  /*
   SECTION("Literals") {
     REQUIRE(numParse("42") == 42);
     REQUIRE(numParse("0x42") == 0x42);
@@ -168,6 +170,7 @@ TEST_CASE("CodeCursor", "[scripting],[FOCUS]" )
     REQUIRE(jsonParse("{ 'type':'object', 'test':42 }") == "{\"type\":\"object\",\"test\":42}");
     REQUIRE(jsonParse("[ 'first', 2, 3, 'fourth', 6.6 ]") == "[\"first\",2,3,\"fourth\",6.6]");
   }
+  */
 
 }
 

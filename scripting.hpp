@@ -53,14 +53,15 @@ namespace p44 { namespace Script {
   class StringValue;
 
   class ImplementationObj;
-  class CompiledCode;
-  typedef boost::intrusive_ptr<CompiledCode> CompiledCodePtr;
+  class CompiledScript;
+  typedef boost::intrusive_ptr<CompiledScript> CompiledCodePtr;
 
   class ExecutionContext;
   typedef boost::intrusive_ptr<ExecutionContext> ExecutionContextPtr;
   class ScriptCodeContext;
   typedef boost::intrusive_ptr<ScriptCodeContext> ScriptCodeContextPtr;
   class ScriptMainContext;
+  typedef boost::intrusive_ptr<ScriptMainContext> ScriptMainContextPtr;
   class ScriptingDomain;
   typedef boost::intrusive_ptr<ScriptingDomain> ScriptingDomainPtr;
 
@@ -77,8 +78,8 @@ namespace p44 { namespace Script {
   class Compiler;
   class Processor;
 
-  class ClassMemberLookup;
-  typedef boost::intrusive_ptr<ClassMemberLookup> ClassMemberLookupPtr;
+  class ClassLevelLookup;
+  typedef boost::intrusive_ptr<ClassLevelLookup> ClassMemberLookupPtr;
 
 
   // MARK: - Scripting Error
@@ -119,19 +120,19 @@ namespace p44 { namespace Script {
   private:
     static constexpr const char* const errNames[numErrorCodes] = {
       "OK",
-      "Syntax",
+      "User",
       "DivisionByZero",
       "CyclicReference",
-      "AsyncNotAllowed",
       "Invalid",
-      "Internal",
-      "Busy",
       "NotFound",
       "NotCreated",
       "Immutable",
+      "Busy",
+      "Syntax",
       "Aborted",
       "Timeout",
-      "User",
+      "AsyncNotAllowed",
+      "Internal",
     };
     #endif // ENABLE_NAMED_ERRORS
   };
@@ -141,14 +142,18 @@ namespace p44 { namespace Script {
 
   /// Evaluation flags
   enum {
-    modeMask = 0x00FF,
-    unspecific = 0, ///< no specific mode
-    initial = 0x0001, ///< initial trigger expression run (no external event, implicit event is startup or code change)
-    externaltrigger = 0x0002, ///< externally triggered evaluation
-    timed = 0x0003, ///< timed evaluation by timed retrigger
-    script = 0x0004, ///< evaluate as script code
+    // run mode
+    runModeMask = 0x000F,
+    scanning = 0, ///< scanning only (compiling)
+    initial = 0x0001, ///< handler, initial trigger expression run (no external event, implicit event is startup or code change)
+    triggered = 0x0002, ///< handler, externally triggered (re-)evaluation
+    timed = 0x0003, ///< handler, timed evaluation by timed retrigger
+    regular = 0x0004, ///< regular script or expression code
     // modifiers
-    modifierMask = 0xFF00,
+    modifierMask = 0xFFF0,
+    expression = 0x0010, ///< evaluate as an expression (no flow control, variable assignments, blocks etc.)
+    scriptbody = 0x0020, ///< evaluate as script body (no function or handler definitions)
+    source = 0x0040, ///< evaluate as script (include parsing functions and handlers)
     synchronously = 0x0100, ///< evaluate synchronously, error out on async code
     stoprunning = 0x0200, ///< abort running evaluation in the same context before starting a new one
     queue = 0x0400, ///< queue for evaluation if other evaluations are still running/pending
@@ -179,7 +184,7 @@ namespace p44 { namespace Script {
     structured = object+array, ///< structured types
     value = scalar+structured, ///< value types (excludes executables)
     // attributes
-    attrMask = 0xFF00,
+    attrMask = 0xFFFFFF00,
     // - for argument checking
     optional = null, ///< if set, the argument is optional (means: is is allowed to be null even when null is not explicitly allowed)
     multiple = 0x0100, ///< this argument type can occur mutiple times (... signature)
@@ -191,8 +196,10 @@ namespace p44 { namespace Script {
     create = 0x2000, ///< set to create member if not yet existing
     global = 0x4000, ///< set to store in global context
     constant = 0x8000, ///< set to select only constant  (in the sense of: not settable by scripts) members
+    objscope = 0x10000, ///< set to select only object scope members
+    classscope = 0x20000, ///< set to select only class scope members
   };
-  typedef uint16_t TypeInfo;
+  typedef uint32_t TypeInfo;
 
   /// Argument descriptor
   typedef struct {
@@ -224,8 +231,8 @@ namespace p44 { namespace Script {
     /// get name
     virtual string getIdentifier() const { return "unnamed"; };
 
-    /// get annotation text
-    virtual string getAnnotation() const { return "ScriptObj"; };
+    /// get annotation text - defaults to type description
+    virtual string getAnnotation() const { return typeDescription(getTypeInfo()); };
 
     /// check type compatibility
     bool hasType(TypeInfo aTypeInfo) const { return (getTypeInfo() & aTypeInfo)!=0; }
@@ -236,10 +243,28 @@ namespace p44 { namespace Script {
     /// check for null/undefined
     bool defined() const { return !undefined(); }
 
+    /// check for error
+    bool isErr() const { return (getTypeInfo() & error)!=0; }
+
     /// logging context to use
     virtual P44LoggingObj* loggingContext() const { return NULL; };
 
     /// @}
+
+    /// @name lazy value loading / proxy objects
+    /// @{
+
+    /// @return true when the object's value is available. Might be false when this object is just a proxy
+    /// @note call makeValid() to get a valid version from this object
+    virtual bool valid() const { return true; } // base class objects are always valid
+
+    /// @param aEvaluationCB will be called with a valid version of the object.
+    /// @note if called on an already valid object, it returns itself in the callback, so
+    ///   makeValid() can always be called. But for performance reasons, checking valid() before is recommended
+    virtual void makeValid(EvaluationCB aEvaluationCB);
+
+    /// @}
+
 
     /// @name value getters
     /// @{
@@ -265,7 +290,7 @@ namespace p44 { namespace Script {
     /// @param aTypeRequirements what type and type attributes the returned member must have, defaults to no restriction
     /// @return ScriptObj representing the member, or NULL if none
     /// @note only possibly returns something in objects with type attribute "object"
-    virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aTypeRequirements = none) const { return ScriptObjPtr(); };
+    virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aTypeRequirements = none) { return ScriptObjPtr(); };
 
     /// number of members accessible by index (e.g. positional parameters or array elements)
     /// @return number of members
@@ -277,7 +302,7 @@ namespace p44 { namespace Script {
     /// @param aTypeRequirements what type and type attributes the returned member must have, defaults to no restriction
     /// @return ScriptObj representing the member with index
     /// @note only possibly returns something in objects with type attribute "array"
-    virtual const ScriptObjPtr memberAtIndex(size_t aIndex, TypeInfo aTypeRequirements = none) const { return ScriptObjPtr(); };
+    virtual const ScriptObjPtr memberAtIndex(size_t aIndex, TypeInfo aTypeRequirements = none) { return ScriptObjPtr(); };
 
     /// set new object for named member
     /// @param aName name of the member to assign
@@ -306,10 +331,14 @@ namespace p44 { namespace Script {
     /// @note functions might have an open argument list, so do not try to exhaust this
     virtual const ArgumentDescriptor* argumentInfo(size_t aIndex) const { return NULL; };
 
-    /// get new subroutine context to call this object as a subroutine/function call from a given context
-    /// @param aCallerContext the context from where to call from (evaluate in) this implementation
+    /// get context to call this object as a (sub)routine of a given context
+    /// @param aMainContext the context from where to call from (evaluate in) this implementation
+    ///   For executing script body code, aMainContext is always the domain (but can be passed NULL as script bodies
+    ///   should know their domain already (if passed, it will be checked for consistency)
+    /// @note the context might be pre-existing (in case of scriptbody code which gets associated with the context it
+    ///    is hosted in) or created new (in case of functions which run in a temporary private context)
     /// @return new context suitable for evaluating this implementation, NULL if none
-    virtual ExecutionContextPtr contextForCallingFrom(ExecutionContextPtr aCallerContext) const { return ExecutionContextPtr(); }
+    virtual ExecutionContextPtr contextForCallingFrom(ScriptMainContextPtr aMainContext) const { return ExecutionContextPtr(); }
 
     /// @return true if this object originates from the specified source
     /// @note this is needed to remove objects such as functions and handlers when their source changes or is deleted
@@ -379,11 +408,11 @@ namespace p44 { namespace Script {
   class ErrorValue : public ScriptValue
   {
     typedef ScriptValue inherited;
+  protected:
     ErrorPtr err;
   public:
     ErrorValue(ErrorPtr aError) : err(aError) {};
     ErrorValue(ScriptError::ErrorCodes aErrCode, const char *aFmt, ...);
-    ErrorValue(ScriptError::ErrorCodes aErrCode, const SourceRef &aSrcRef, const char *aFmt, ...);
     virtual string getAnnotation() const P44_OVERRIDE { return "error"; };
     virtual TypeInfo getTypeInfo() const P44_OVERRIDE { return error; };
     // value getters
@@ -459,9 +488,9 @@ namespace p44 { namespace Script {
     virtual string stringValue() const P44_OVERRIDE;
     virtual bool boolValue() const P44_OVERRIDE;
     // member access
-    virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aTypeRequirements = none) const P44_OVERRIDE;
+    virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aTypeRequirements = none) P44_OVERRIDE;
     virtual size_t numIndexedMembers() const P44_OVERRIDE;
-    virtual const ScriptObjPtr memberAtIndex(size_t aIndex, TypeInfo aTypeRequirements = none) const P44_OVERRIDE;
+    virtual const ScriptObjPtr memberAtIndex(size_t aIndex, TypeInfo aTypeRequirements = none) P44_OVERRIDE;
     // TODO: also implement setting members later
   };
   #endif // SCRIPTING_JSON_SUPPORT
@@ -469,8 +498,10 @@ namespace p44 { namespace Script {
 
   // MARK: - Extendable class member lookup
 
-  /// implements a lookup step that can be used
-  class ClassMemberLookup : public P44Obj
+  /// implements a lookup step that can be shared between multiple execution contexts. It does NOT
+  /// hold any _instance_ state, but can still serve to lookup instances by using the _aThisObj_ provided
+  /// by callers (which can be ignored when providing class members).
+  class ClassLevelLookup : public P44Obj
   {
   public:
 
@@ -506,32 +537,29 @@ namespace p44 { namespace Script {
   class ExecutionContext : public ScriptObj
   {
     typedef ScriptObj inherited;
+    friend class ScriptCodeContext;
+    friend class BuiltinFunctionContext;
 
     typedef std::vector<ScriptObjPtr> IndexedVarVector;
     IndexedVarVector indexedVars;
-    ScriptingDomainPtr domain; ///< the scripting domain
-    ScriptObjPtr thisObject; ///< the object being executed in this context
+    ScriptMainContextPtr mainContext; ///< the main context
+
+    ExecutionContext(ScriptMainContextPtr aMainContext);
 
   public:
-
-    ExecutionContext(ScriptObjPtr aExecObj, ScriptingDomainPtr aDomain) : thisObject(aExecObj) {};
 
     /// clear local variables (indexed arguments)
     virtual void clearVars();
 
     // access to function arguments (positional) by index plus optionally a name
     virtual size_t numIndexedMembers() const P44_OVERRIDE;
-    virtual const ScriptObjPtr memberAtIndex(size_t aIndex, TypeInfo aTypeRequirements = none) const P44_OVERRIDE;
+    virtual const ScriptObjPtr memberAtIndex(size_t aIndex, TypeInfo aTypeRequirements = none) P44_OVERRIDE;
     virtual ErrorPtr setMemberAtIndex(size_t aIndex, const ScriptObjPtr aMember, const string aName = "") P44_OVERRIDE;
 
-    /// @return the object _instance_ being executed
-    /// @note can be null if this function is a plain global function
-    ScriptObjPtr thisObj() const { return thisObject; }
-
-    /// "Compile" (for now, just scan for function definitions and syntax errors)
-    /// @param aSource the script source to compile
-    /// @return an ImplementationObj when successful, a ErrorValue otherwise
-    ScriptObjPtr compile(SourceContainerPtr aSource);
+//    /// "Compile" (for now, just scan for function definitions and syntax errors)
+//    /// @param aSource the script source to compile
+//    /// @return an ImplementationObj when successful, a Error(Pos)Value otherwise
+//    ScriptObjPtr compile(SourceContainerPtr aSource);
 
     /// release all objects stored in this container and other known containers which were defined by aSource
     virtual void releaseObjsFromSource(SourceContainerPtr aSource); // no source-derived permanent objects here
@@ -559,8 +587,15 @@ namespace p44 { namespace Script {
     /// @name execution environment info
     /// @{
 
+    /// @return the main context from which this context was called (as a subroutine)
+    virtual ScriptMainContextPtr scriptmain() const { return mainContext; }
+
+    /// @return the object _instance_ that
+    /// @note plain execution contexts do not have a thisObj() of their own, but use the linked mainContext's
+    virtual ScriptObjPtr instance() const;
+
     /// @return return the domain, which is the context for resolving global variables
-    virtual ScriptingDomainPtr globals() const { return domain; }
+    virtual ScriptingDomainPtr domain() const;
 
     /// @return geolocation for this context or NULL if none
     /// @note returns geolocation of domain by default.
@@ -577,6 +612,8 @@ namespace p44 { namespace Script {
   {
     typedef ExecutionContext inherited;
     friend class ScriptCodeThread;
+    friend class ScriptMainContext;
+    friend class CompiledFunction;
 
     typedef std::map<string, ScriptObjPtr, lessStrucmp> NamedVarMap;
     NamedVarMap namedVars; ///< the named local variables/objects of this context
@@ -585,19 +622,17 @@ namespace p44 { namespace Script {
     ThreadList threads; ///< the running "threads" in this context. First is the main thread of the evaluation.
     ThreadList queuedThreads; ///< the queued threads in this context
 
-    ExecutionContextPtr mainContext; ///< the main context
+    ScriptCodeContext(ScriptMainContextPtr aMainContext);
 
   public:
 
-    ScriptCodeContext(ScriptObjPtr aExecObj, ExecutionContextPtr aMainContext, ScriptingDomainPtr aDomain) :
-      inherited(aExecObj, aDomain), mainContext(aMainContext) {};
     virtual void releaseObjsFromSource(SourceContainerPtr aSource) P44_OVERRIDE;
 
     /// clear local variables (named members)
     virtual void clearVars() P44_OVERRIDE;
 
     // access to local variables by name
-    virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aTypeRequirements = none) const P44_OVERRIDE;
+    virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aTypeRequirements = none) P44_OVERRIDE;
     virtual ErrorPtr setMemberByName(const string aName, const ScriptObjPtr aMember, TypeInfo aStorageAttributes = none) P44_OVERRIDE;
     virtual ErrorPtr setMemberAtIndex(size_t aIndex, const ScriptObjPtr aMember, const string aName = "") P44_OVERRIDE;
 
@@ -613,9 +648,6 @@ namespace p44 { namespace Script {
     /// @param aAbortResult if set, this is what abort will report back
     virtual void abort(EvaluationFlags aAbortFlags = stoprunning+queue, ScriptObjPtr aAbortResult = ScriptObjPtr()) P44_OVERRIDE;
 
-    /// @return return main's context
-    ExecutionContextPtr main() const { return mainContext; }
-
   private:
 
     /// called by threads ending
@@ -629,17 +661,30 @@ namespace p44 { namespace Script {
   class ScriptMainContext : public ScriptCodeContext
   {
     typedef ScriptCodeContext inherited;
+    friend class ScriptingDomain;
 
     typedef std::list<ClassMemberLookupPtr> LookupList;
     LookupList lookups;
+    ScriptingDomainPtr domainObj; ///< the scripting domain (unless it's myself to avoid locking)
+    ScriptObjPtr thisObj; ///< the object _instance_ scope of this execution context (if any)
+
+    /// private constructor, only ScriptingDomain should use it
+    /// @param aDomain owning link to domain - as long as context exists, domain may not get deleted.
+    /// @param aThis can be NULL if there's no object instance scope for this script. This object is
+    ///    passed to all registered member lookups
+    ScriptMainContext(ScriptingDomainPtr aDomain, ScriptObjPtr aThis);
 
   public:
-    ScriptMainContext(ScriptObjPtr aExecObj, ScriptingDomainPtr aDomain);
 
     // access to objects in the context hierarchy of a local execution
     // (local objects, parent context objects, global objects)
-    virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aTypeRequirements = none) const P44_OVERRIDE;
+    virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aTypeRequirements = none) P44_OVERRIDE;
     virtual ErrorPtr setMemberByName(const string aName, const ScriptObjPtr aMember, TypeInfo aStorageAttributes = none) P44_OVERRIDE;
+
+    // direct access to this and domain (not via mainContext, as we can't set maincontext w/o self-locking)
+    virtual ScriptObjPtr instance() const P44_OVERRIDE { return thisObj; }
+    virtual ScriptingDomainPtr domain() const P44_OVERRIDE { return domainObj; }
+    virtual ScriptMainContextPtr scriptmain() const P44_OVERRIDE { return dynamic_pointer_cast<ScriptMainContext>(domainObj) ; }
 
     /// register an additional lookup
     /// @param aMemberLookup a lookup object
@@ -648,28 +693,6 @@ namespace p44 { namespace Script {
   };
 
 
-  /// Scripting domain, usually singleton, containing global variables and event handlers
-  /// No code directly runs in this context
-  class ScriptingDomain : public ScriptMainContext
-  {
-    typedef ScriptMainContext inherited;
-
-    GeoLocation *geoLocationP;
-
-    // TODO: global script defined function storage -> no, are just vars of the domains
-    // TODO: global event handler storage
-
-  public:
-
-    ScriptingDomain() : inherited(ScriptObjPtr(), ScriptingDomainPtr()), geoLocationP(NULL) {};
-
-    /// set geolocation to use for functions that refer to location
-    void setGeoLocation(GeoLocation* aGeoLocationP) { geoLocationP = aGeoLocationP; };
-
-    // environment
-    virtual GeoLocation* geoLocation() P44_OVERRIDE { return geoLocationP; };
-
-  };
 
 
   class ImplementationObj : public ScriptObj
@@ -680,7 +703,7 @@ namespace p44 { namespace Script {
   };
 
 
-  // MARK: - Script code scanning / processing
+  // MARK: - Common Script code scanning/executing mechanisms
 
   // Operator syntax mode
   #define SCRIPT_OPERATOR_MODE_FLEXIBLE 0
@@ -723,9 +746,15 @@ namespace p44 { namespace Script {
     opmask_precedence = 0x07
   } ScriptOperator;
 
-  /// code scanning and basic parsing
+
+  /// position within a source text contained elsewhere
+  /// provides basic code scanning that does not produce any values or errors
+  #warning refactor!!
+  // FIXME: refactor all methods into SourceRef, codecursor only to get a marker
   class CodeCursor
   {
+    friend class SourceRef;
+
     const char* ptr; ///< pointer to current position in the source text
     const char* bol; ///< pointer to beginning of current line
     const char* eot; ///< pointer to where the text ends (0 char or not)
@@ -734,6 +763,7 @@ namespace p44 { namespace Script {
     CodeCursor(const char* aText, size_t aLen);
     CodeCursor(const string &aText);
     CodeCursor(const CodeCursor &aCursor);
+    CodeCursor();
     // info
     size_t lineno() const; ///< 0-based line counter
     size_t charpos() const; ///< 0-based character offset
@@ -748,36 +778,40 @@ namespace p44 { namespace Script {
     // parsing utilities
 //    const char* checkForIdentifier(size_t& aLen); ///< check for identifier, @return pointer to identifier or NULL if none
     bool parseIdentifier(string& aIdentifier, size_t* aIdentifierLenP = NULL); ///< @return true if identifier found, stored in aIndentifier and cursor advanced
-    ScriptOperator parseOperator(); ///< @return operator or op_none, advances cursor
-    ErrorPtr parseNumericLiteral(double &aNumber); ///< @return ok or error, @aNumber gets result
-    ErrorPtr parseStringLiteral(string &aString); ///< @return ok or error, @aString gets result
-    #if SCRIPTING_JSON_SUPPORT
-    ErrorPtr parseJSONLiteral(JsonObjectPtr &aJsonObject); ///< @return ok or error, @aJsonObject gets result
-    #endif
+    ScriptOperator parseOperator(); ///< @return operator or op_none, advances cursor on success
   };
 
 
+  /// refers to a part of a source text, retains the container the source lives in
+  /// provides basic element parsing generating values and possibly errors referring to
+  /// the position they occur (and also retaining that source as long as the error lives)
   class SourceRef
   {
   public:
     SourceContainerPtr source; ///< the source containing the string we're pointing to
     CodeCursor pos; ///< the position within the source
-    bool refersTo(SourceContainerPtr aSource) const { return source==aSource; }
+
+    bool refersTo(SourceContainerPtr aSource) const { return source==aSource; } ///< check if this sourceref refers to a particular source
+
+    // parsing
+    ScriptObjPtr parseNumericLiteral(); ///< @return numeric or error, advances cursor on success
+    ScriptObjPtr parseStringLiteral(); ///< @return string or error, advances cursor on success
+    ScriptObjPtr parseCodeLiteral(); ///< @return executable or error, advances cursor on success
+    #if SCRIPTING_JSON_SUPPORT
+    ScriptObjPtr parseJSONLiteral(); ///< @return string or error, advances cursor on success
+    #endif
   };
 
-  /// extended error class to carry source reference
-  class SourceRefError : public ScriptError
+
+  class ErrorPosValue : public ErrorValue
   {
+    typedef ErrorValue inherited;
     SourceRef srcRef;
   public:
-    virtual const char *getErrorDomain() const P44_OVERRIDE { return ScriptError::domain(); };
-    SourceRefError(const SourceRef &aSourceRef, ErrorCodes aError) :
-      ScriptError(aError), srcRef(aSourceRef) {};
-    const SourceRef& sourceRef() const { return srcRef; };
+    ErrorPosValue(const SourceRef &aSrcRef, ErrorPtr aError) : inherited(aError), srcRef(aSrcRef) {};
+    ErrorPosValue(const SourceRef &aSrcRef, ScriptError::ErrorCodes aErrCode, const char *aFmt, ...);
+    void setSourceRef(const SourceRef &aSrcRef) { srcRef = aSrcRef; };
   };
-
-
-
 
 
   /// the actual script source text, shared among ScriptSource and possibly multiple SourceRefs
@@ -785,35 +819,44 @@ namespace p44 { namespace Script {
   {
     friend class SourceRef;
     friend class ScriptSource;
-    friend class CompiledCode;
+    friend class CompiledScript;
+    friend class CompiledFunction;
     friend class ExecutionContext;
 
     const char *originLabel; ///< a label used for logging and error reporting
     P44LoggingObj* loggingContextP; ///< the logging context
     string source; ///< the source code as written by the script author
-
+  public:
     SourceContainer(const char *aOriginLabel, P44LoggingObj* aLoggingContextP, const string aSource) : originLabel(aOriginLabel), source(aSource) {};
+    // get a reference to this source code
+    SourceRef getRef();
   };
 
 
-  /// class representing a script source in its entiety
+  /// class representing a script source in its entiety including all context needed to run it
   class ScriptSource
   {
-    ExecutionContextPtr compilerContext; ///< the compile context
+    ScriptingDomainPtr scriptingDomain; ///< the scripting domain
+    ScriptMainContextPtr sharedMainContext; ///< a shared context to always run this source in. If not set, each script gets a new main context
     ScriptObjPtr cachedExecutable; ///< the compiled executable for the script's body.
     const char *originLabel; ///< a label used for logging and error reporting
     P44LoggingObj* loggingContextP; ///< the logging context
-    SourceContainerPtr source; ///< the container of the source
+    SourceContainerPtr sourceContainer; ///< the container of the source
 
   public:
+    /// create empty script source
     ScriptSource(const char* aOriginLabel = NULL, P44LoggingObj* aLoggingContextP = NULL);
     /// all-in-one adhoc script source constructor
-    ScriptSource(const char* aOriginLabel, P44LoggingObj* aLoggingContextP, const string aSource, ExecutionContextPtr aCompilerContext = ExecutionContextPtr());
+    ScriptSource(const char* aOriginLabel, P44LoggingObj* aLoggingContextP, const string aSource, ScriptingDomainPtr aDomain = ScriptingDomainPtr());
     ~ScriptSource();
 
-    /// set compiler context
-    /// @param aCompilerContext the compiler context. Defaults to StandardScriptingDomain::sharedDomain()
-    void setCompilerContext(ExecutionContextPtr aCompilerContext);
+    /// set domain (where global objects from compilation will be stored)
+    /// @param aDomain the domain. Defaults to StandardScriptingDomain::sharedDomain() if not explicitly set
+    void setDomain(ScriptingDomainPtr aDomain);
+
+    /// set pre-existing execution context to use, possibly shared with other script sources
+    /// @param aSharedMainContext a context previously obtained from the domain with newContext()
+    void setSharedMainContext(ScriptMainContextPtr aSharedMainContext);
 
     /// set source code
     void setSource(const string aSource);
@@ -824,21 +867,43 @@ namespace p44 { namespace Script {
 
     /// convenience quick runner
     void run(EvaluationCB aEvaluationCB);
-
   };
 
 
-  class CompiledCode : public ImplementationObj
+  /// Scripting domain, usually singleton, containing global variables and event handlers
+  /// No code runs directly in this context
+  class ScriptingDomain : public ScriptMainContext
   {
-    typedef ImplementationObj inherited;
-    friend class ScriptCodeContext;
+    typedef ScriptMainContext inherited;
 
-    SourceRef srcRef; ///< reference to the source part from which this object originates from
+    GeoLocation *geoLocationP;
+
+    // TODO: global script defined function storage -> no, are just vars of the domains
+    // TODO: global event handler storage
+
   public:
-    virtual bool originatesFrom(SourceContainerPtr aSource) const P44_OVERRIDE { return srcRef.refersTo(aSource); };
-    virtual P44LoggingObj* loggingContext() const P44_OVERRIDE { return srcRef.source ? srcRef.source->loggingContextP : NULL; };
+
+    ScriptingDomain() : inherited(ScriptingDomainPtr(), ScriptObjPtr()), geoLocationP(NULL) {};
+
+    /// set geolocation to use for functions that refer to location
+    void setGeoLocation(GeoLocation* aGeoLocationP) { geoLocationP = aGeoLocationP; };
+
+    // environment
+    virtual GeoLocation* geoLocation() P44_OVERRIDE { return geoLocationP; };
+
+    /// get new execution context
+    /// @param aInstanceObj the object _instance_ scope for scripts running in this context.
+    ///   If set, the script main code is working as a method of aInstanceObj, i.e. has access
+    ///   to members of aInstanceObj like other script-local variables.
+    /// @note the scripts's _class_ scope is defined by the lookups that are registered.
+    ///   The class scope can also bring in aInstanceObj related member functions (methods), but also
+    ///   plain functions (static methods) and other members.
+    ScriptMainContextPtr newContext(ScriptObjPtr aInstanceObj = ScriptObjPtr());
+
   };
 
+
+  // MARK: generic source processor base class
 
   /// Base class for parsing or executing script code
   /// This contains the state machine and strictly delegates any actual
@@ -847,110 +912,239 @@ namespace p44 { namespace Script {
   {
   public:
 
-    typedef enum {
-      // Completion states
-      s_unwound, ///< stack unwound, can't continue, check for trailing garbage
-      s_complete, ///< completing evaluation
-      s_abort, ///< aborting evaluation
-      s_finalize, ///< ending, will pop last stack frame
-      // Script States
-      s_statement_states, ///< marker
-      // - basic statements
-      s_body = s_statement_states, ///< at the body level (end of expression ends body)
-      s_block, ///< within a block, exists when '}' is encountered, but skips ';'
-      s_oneStatement, ///< a single statement, exits when ';' is encountered
-      s_noStatement, ///< pop back one level
-      s_returnValue, ///< "return" statement value calculation
-      // - if/then/else
-      s_ifCondition, ///< executing the condition of an if
-      s_ifTrueStatement, ///< executing the if statement
-      s_elseStatement, ///< executing the else statement
-      // - while
-      s_whileCondition, ///< executing the condition of a while
-      s_whileStatement, ///< executing the while statement
-      // - try/catch
-      s_tryStatement, ///< executing the statement to try
-      s_catchStatement, ///< executing the handling of a thrown error
-      // - assignment to variables
-      s_assignToVar, ///< assign result of an expression to a variable
-      // Special result passing state
-      s_result, ///< result of an expression or term
-      // Expression States
-      s_expression_states, ///< marker
-      // - expression
-      s_newExpression = s_expression_states, ///< at the beginning of an expression which only ends syntactically (end of code, delimiter, etc.) -> resets precedence
-      s_expression, ///< handle (sub)expression start, precedence inherited or set by caller
-      s_groupedExpression, ///< handling a paranthesized subexpression result
-      s_exprFirstTerm, ///< first term of an expression
-      s_exprLeftSide, ///< left side of an ongoing expression
-      s_exprRightSide, ///< further terms of an expression
-      // - simple terms
-      s_simpleTerm, ///< at the beginning of a term
-      s_funcArg, ///< handling a function argument
-      s_funcExec, ///< handling function execution
-      s_subscriptArg, ///< handling a subscript parameter
-      s_subscriptExec, ///< handling access based on subscript args
-      numEvalStates
-    } ScanState; ///< the state of the scanner
+    SourceProcessor() : nextState(NULL), skipping(false) {};
+
+    /// prepare processing
+    /// @param aSrcRef the source (part) to process
+    /// @param aStartFlags at what level to start (script, body, expression)
+    void initProcessing(const SourceRef& aSrcRef, EvaluationFlags aStartFlags);
+
+    /// start processing
+    /// @param aDoneCB will be called when process synchronously or asynchronously ends
+    virtual void start(EvaluationCB aCompletedCB);
+
+    /// resume processing
+    /// @param aNewResult if not NULL, this object will be stored to result as first step of the resume
+    /// @note must be called for every step of the process that does not lead to completion
+    void resume(ScriptObjPtr aNewResult = ScriptObjPtr());
+
+    /// complete processing
+    /// @param aFinalResult the result to deliver with the completion callback
+    /// @note inherited method must be called from subclasses as this must make sure stepLoop() will end.
+    virtual void complete(ScriptObjPtr aFinalResult);
 
   protected:
 
-    /// @name  Scanning state
+    /// called by resume to perform next step(s).
+    /// @note base class just steps synchronously as long as it can by calling step().
+    ///    Detection of synchronous execution is done via the resuming/resumed flags.
+    /// @note subclases might use different strategies for stepping, or override our step.
+    ///   The only condition is that every step ends in a call to resume()
+    virtual void stepLoop();
+
+    /// internal statemachine step
+    virtual void step();
+
+
+    /// @name execution hooks. These are dummies in the base class, but implemented
+    ///   in actual code execution subclasses. These must call resume()
     /// @{
 
-    SourceRef pos; ///< the scanning position within code
+    /// must retrieve the member with name==identifier from current result (or from the script scope if result==NULL)
+    /// @note must call done() when result contains the member (or NULL if not found)
+    virtual void memberByIdentifier();
+
+    /// must retrieve the indexed member from current result (or from the script scope if result==NULL)
+    /// @note must call done() when result contains the member (or NULL if not found)
+    virtual void memberByIndex(size_t aIndex);
+
+    /// apply the specified argument to the current result
+    virtual void pushFunctionArgument(ScriptObjPtr aArgument);
+
+    /// evaluate the current result and replace it with the output from the evaluation (e.g. function call)
+    virtual void evaluate();
+
+    /// @}
+
+  private:
+
+    /// @name source processor internal state machine
+    /// @{
+
+    ///< methods of this objects which handle a state
+    typedef void (SourceProcessor::*StateHandler)(void);
+
+    // state that can be pushed
+    SourceRef src; ///< the scanning position within code
+    StateHandler nextState; ///< next state to call
+    ScriptObjPtr result; ///< the current result object
+    ScriptObjPtr poppedResult; ///< last result popped from stack
+    bool skipping; ///< skipping
+
+    // other internal state, not pushed
+    string identifier; ///< for processing identifiers
+    bool resuming; ///< detector for resume calling itself (synchronous execution)
+    bool resumed; ///< detector for resume calling itself (synchronous execution)
+    EvaluationCB completedCB; ///< called when completed
 
     /// Scanner Stack frame
     class StackFrame {
     public:
-      StackFrame(ScanState aState, bool aSkip, int aPrecedence) :
-        state(aState), skipping(aSkip), flowDecision(false), precedence(aPrecedence), op(op_none)
+      StackFrame(
+        CodeCursor& aPos,
+        bool aSkipping,
+        StateHandler aReturnToState,
+        ScriptObjPtr aResult
+      ) :
+        pos(aPos),
+        skipping(aSkipping),
+        returnToState(aReturnToState),
+        result(aResult)
       {}
-      ScanState state; ///< current state
-      int precedence; ///< encountering a binary operator with smaller precedence will end the expression
-      ScriptOperator op; ///< operator
-      size_t pos; ///< relevant position in the code, e.g. start of expression for s_expression, start of condition for s_whilecondition
-      string identifier; ///< identifier (e.g. variable name, function name etc.)
-      bool skipping; ///< if set, we are just skipping code, not really executing
-      bool flowDecision; ///< flow control decision
-//      FunctionArguments args; ///< arguments
-//      ExpressionValue val; ///< private value for operations
-//      ExpressionValue res; ///< result value passed down at popAndPassResult()
+      CodeCursor pos; ///< scanning position
+      bool skipping; ///< set if only skipping code, not evaluating
+      StateHandler returnToState; ///< next state to run after pop
+      ScriptObjPtr result; ///< the current result object
     };
+
+//    int precedence; ///< encountering a binary operator with smaller precedence will end the expression
+//    ScriptOperator op; ///< operator
+//    bool flowDecision; ///< flow control decision
+
     typedef std::list<StackFrame> StackList;
     StackList stack; ///< the stack
 
-    StackFrame &sp() { return stack.back(); } ///< current stackpointer
 
-    /// switch state in the current stack frame
-    /// @param aNewState the new state to switch the current stack frame to
-    /// @return true for convenience to be used in non-yieled returns
-    bool newstate(ScanState aNewState);
+    /// convenience end of step using current result and checking for errors
+    /// @note includes calling resume()
+    void done();
 
-    void extracted();
+    /// readability wrapper for setting the next state but NOT YET completing current state's processing
+    inline void setNextState(StateHandler aNextState) { nextState = aNextState; }
 
-    /// push new stack frame
-    /// @param aNewState the new stack frame's state
-    /// @param aStartSkipping if set, new stack frame will have skipping set, otherwise it will inherit previous frame's skipping value
-    /// @return true for convenience to be used in non-yieled returns
-    bool push(ScanState aNewState, bool aStartSkipping = false);
+    /// convenience function for transition to a new state, i.e. setting the new state and signalling done() in one step
+    /// @param aNextState set the next state
+    inline void doneAndGoto(StateHandler aNextState) { nextState = aNextState; done(); }
 
-    /// pop current stack frame
-    /// @return true for convenience to be used in non-yieled returns
-    bool pop();
+    /// push the current state
+    /// @param aReturnToState the state to return to after pop().
+    void push(StateHandler aReturnToState);
 
-    /// pop stack frames down to the last frame in aPreviousState
-    /// @param aPreviousState the state we are looking for
-    /// @return true when frame was found, false if not (which means stack remained untouched)
-    bool popToLast(ScanState aPreviousState);
+    /// return to the last pushed state
+    void pop();
 
-    /// dump the stack (when eval logging is at debug level)
-    void logStackDump();
 
+    /// state handlers
+    /// @note MUST call stepDone() itself or make sure a callback will call it later
+
+    void s_simpleTerm(); ///< at the beginning of a term
+    void s_member(); ///< immediately after identifier
+    void s_subscriptArg(); ///< immediately after subscript expression evaluation
+    void s_funcArg(); ///< immediately after function argument evaluation
+
+
+    void s_newExpression(); ///< at the beginning of an expression which only ends syntactically (end of code, delimiter, etc.) -> resets precedence
+
+    void s_funcExec(); ///< ready to execute the function
+
+
+    void s_result(); ///< result of an expression or term ready, pop the stack to see next state to run
+
+    void s_ccomplete(); ///< nothing more to do, result represents result of entire scanning/evaluation process
+
+/*
+ typedef enum {
+    // Completion states
+    st_unwound, ///< stack unwound, can't continue, check for trailing garbage
+    st_complete, ///< completing evaluation
+    st_abort, ///< aborting evaluation
+    st_finalize, ///< ending, will pop last stack frame
+    // Script States
+    st_statement_states, ///< marker
+    // - basic statements
+    st_body = st_statement_states, ///< at the body level (end of expression ends body)
+    st_block, ///< within a block, exists when '}' is encountered, but skips ';'
+    st_oneStatement, ///< a single statement, exits when ';' is encountered
+    st_noStatement, ///< pop back one level
+    st_returnValue, ///< "return" statement value calculation
+    // - if/then/else
+    st_ifCondition, ///< executing the condition of an if
+    st_ifTrueStatement, ///< executing the if statement
+    st_elseStatement, ///< executing the else statement
+    // - while
+    st_whileCondition, ///< executing the condition of a while
+    st_whileStatement, ///< executing the while statement
+    // - try/catch
+    st_tryStatement, ///< executing the statement to try
+    st_catchStatement, ///< executing the handling of a thrown error
+    // - assignment to variables
+    st_assignToVar, ///< assign result of an expression to a variable
+    // Special result passing state
+    st_result, ///< result of an expression or term
+    // Expression States
+    st_expression_states, ///< marker
+    // - expression
+    st_newExpression = st_expression_states, ///< at the beginning of an expression which only ends syntactically (end of code, delimiter, etc.) -> resets precedence
+    st_expression, ///< handle (sub)expression start, precedence inherited or set by caller
+    st_groupedExpression, ///< handling a paranthesized subexpression result
+    st_exprFirstTerm, ///< first term of an expression
+    st_exprLeftSide, ///< left side of an ongoing expression
+    st_exprRightSide, ///< further terms of an expression
+    // - simple terms
+    st_simpleTerm, ///< at the beginning of a term
+    st_funcArg, ///< handling a function argument
+    st_funcExec, ///< handling function execution
+    st_subscriptArg, ///< handling a subscript parameter
+    st_subscriptExec, ///< handling access based on subscript args
+    numEvalStates
+  } ScanState; ///< the state of the scanner
+
+ */
     /// @}
 
+  };
 
 
+  // MARK: "compiling" code
+
+  class CompiledFunction : public ImplementationObj
+  {
+    typedef ImplementationObj inherited;
+    friend class ScriptCodeContext;
+
+  protected:
+    SourceRef srcRef; ///< reference to the source part from which this object originates from
+
+  public:
+    CompiledFunction(const SourceRef& aSrcRef) : srcRef(aSrcRef) {};
+    virtual bool originatesFrom(SourceContainerPtr aSource) const P44_OVERRIDE { return srcRef.refersTo(aSource); };
+    virtual P44LoggingObj* loggingContext() const P44_OVERRIDE { return srcRef.source ? srcRef.source->loggingContextP : NULL; };
+
+    /// get subroutine context to call this object as a subroutine/function call from a given context
+    /// @param aMainContext the context from where this function is now called (the same function can be called
+    ///   from different contexts)
+    /// @return new context suitable for evaluating this implementation, NULL if none
+    virtual ExecutionContextPtr contextForCallingFrom(ScriptMainContextPtr aMainContext) const P44_OVERRIDE;
+  };
+
+
+  class CompiledScript : public CompiledFunction
+  {
+    typedef CompiledFunction inherited;
+    friend class ScriptCompiler;
+
+    ScriptMainContextPtr mainContext; ///< the main context this script should execute in
+
+    CompiledScript(const SourceRef& aSrcRef, ScriptMainContextPtr aMainContext) : inherited(aSrcRef), mainContext(aMainContext) {};
+
+  public:
+
+    /// get new main routine context for running this object as script main.
+    /// @param aMainContext the main context for a script execution is always the domain, but this is used only
+    ///    for consistency checking (the compiled code already knows its main context). It can be passed NULL when
+    ///    no check is needed.
+    /// @return new context suitable for evaluating this implementation, NULL if none
+    virtual ExecutionContextPtr contextForCallingFrom(ScriptMainContextPtr aMainContext) const P44_OVERRIDE;
 
   };
 
@@ -959,14 +1153,26 @@ namespace p44 { namespace Script {
   {
     typedef SourceProcessor inherited;
 
+    ScriptingDomainPtr domain; ///< the domain to store compiled functions and handlers
+    SourceRef bodyRef; ///< where the script body starts
+
   public:
 
+    ScriptCompiler(ScriptingDomainPtr aDomain) : domain(aDomain) {}
+
     /// Scan code, extract function definitions, global vars, event handlers into scripting domain, return actual code
-    CompiledCodePtr compile(ScriptingDomain& aDomain, SourceContainerPtr aSource);
+    /// @param aSource the source code
+    /// @param aParsingMode how to parse (as expression, scriptbody or full script with function+handler definitions)
+    /// @param aCompilerContext the context in which this script was compiled.
+    ///   (for scripts, this is the context that is stored in the executable for running it later and might maintain some state
+    ///   between invocations via registered lookups - on the other hand, functions create their own private execution context
+    ///   and don't refer to the compiler context)
+    /// @return an executable object or error (syntax, other fatal problems)
+    ScriptObjPtr compile(SourceContainerPtr aSource, EvaluationFlags aParsingMode, ScriptMainContextPtr aMainContext);
 
   protected:
 
-    CompiledCodePtr compilePart(CodeCursor& aCursor);
+    // TODO: CompiledCodePtr compilePart(const SourceRef& aSrcRef);
 
   };
 
@@ -1019,7 +1225,7 @@ namespace p44 { namespace Script {
     ///   (not how long it takes until aEvaluationCB is called, which can be much later for async execution)
     /// @param aMaxBlockTime max time this call may continue evaluating before returning
     /// @param aMaxRunTime max time this evaluation might take, even when call does not block
-    void prepare(
+    void prepareRun(
       EvaluationCB aTerminationCB,
       EvaluationFlags aEvalFlags,
       MLMicroSeconds aMaxBlockTime=DEFAULT_MAX_BLOCK_TIME,
@@ -1042,13 +1248,14 @@ namespace p44 { namespace Script {
     /// @param aResult result, if any is expected at that stage
     /// @note : this is the main statemachine (re-)entry point.
     /// - child contexts evaluation will call back here
-    /// - step() will call back here
+    /// - step() must always call back here
     /// - automatically takes care of winding back call chain if called recursively
     /// - automatically takes care of not running too long
     void resume(ScriptObjPtr aResult = ScriptObjPtr());
     static void selfKeepingResume(ScriptCodeThreadPtr aContext);
 
     /// run next statemachine step
+    /// @note: MUST call resume() when done, synchronously or later!
     void step();
 
   };
@@ -1079,9 +1286,9 @@ namespace p44 { namespace Script {
 
 
   /// member lookup for built-in functions, driven by static const struct table to describe functions and link implementations
-  class BuiltInFunctionLookup : public ClassMemberLookup
+  class BuiltInFunctionLookup : public ClassLevelLookup
   {
-    typedef ClassMemberLookup inherited;
+    typedef ClassLevelLookup inherited;
     typedef std::map<const string, const BuiltinFunctionDescriptor*, lessStrucmp> FunctionMap;
     FunctionMap functions;
 
@@ -1114,8 +1321,10 @@ namespace p44 { namespace Script {
     /// get identifier (name) of this function object
     virtual string getIdentifier() const P44_OVERRIDE { return descriptor->name; };
 
-    /// @return a context for running built-in functions (only needs the arguments)
-    virtual ExecutionContextPtr contextForCallingFrom(ExecutionContextPtr aCallerContext) const P44_OVERRIDE;
+    /// get context to call this object as a (sub)routine of a given context
+    /// @param aMainContext the main context from where this function is called.
+    /// @return a context for running built-in functions, with access to aMainContext's instance() object
+    virtual ExecutionContextPtr contextForCallingFrom(ScriptMainContextPtr aMainContext) const P44_OVERRIDE;
 
   };
 
@@ -1131,7 +1340,7 @@ namespace p44 { namespace Script {
 
   public:
 
-    BuiltinFunctionContext(ScriptObjPtr aThisObj, ScriptingDomainPtr aDomain) : inherited(aThisObj, aDomain) {};
+    BuiltinFunctionContext(ScriptMainContextPtr aMainContext) : inherited(aMainContext) {};
 
     /// evaluate built-in function
     virtual void evaluate(ScriptObjPtr aToEvaluate, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB) P44_OVERRIDE;
