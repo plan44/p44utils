@@ -232,6 +232,17 @@ int p44::strucmp(const char *s1, const char *s2, size_t len1, size_t len2)
 } // strucmp
 
 
+bool p44::uequals(const string& aString, const char *aCmp)
+{
+  return strucmp(aString.c_str(), aCmp, aString.size())==0;
+}
+
+bool p44::uequals(const string& aString, const string& aCmp)
+{
+  return strucmp(aString.c_str(), aCmp.c_str(), aString.size(), aCmp.size())==0;
+}
+
+
 string p44::lowerCase(const char *aString, size_t aMaxSize)
 {
   string s;
