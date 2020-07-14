@@ -54,7 +54,9 @@ namespace p44 { namespace Script {
 
   class ImplementationObj;
   class CompiledScript;
-  typedef boost::intrusive_ptr<CompiledScript> CompiledCodePtr;
+  typedef boost::intrusive_ptr<CompiledScript> CompiledScriptPtr;
+  class CompiledFunction;
+  typedef boost::intrusive_ptr<CompiledFunction> CompiledFunctionPtr;
 
   class ExecutionContext;
   typedef boost::intrusive_ptr<ExecutionContext> ExecutionContextPtr;
@@ -65,9 +67,6 @@ namespace p44 { namespace Script {
   class ScriptingDomain;
   typedef boost::intrusive_ptr<ScriptingDomain> ScriptingDomainPtr;
 
-  class ScriptCodeThread;
-  typedef boost::intrusive_ptr<ScriptCodeThread> ScriptCodeThreadPtr;
-
   class SourcePos;
   class SourceCursor;
   class SourceContainer;
@@ -76,10 +75,11 @@ namespace p44 { namespace Script {
 
   class SourceProcessor;
   class Compiler;
-  class Processor;
+  class ScriptCodeThread;
+  typedef boost::intrusive_ptr<ScriptCodeThread> ScriptCodeThreadPtr;
 
   class ClassLevelLookup;
-  typedef boost::intrusive_ptr<ClassLevelLookup> ClassMemberLookupPtr;
+  typedef boost::intrusive_ptr<ClassLevelLookup> ClassLevelLookupPtr;
 
 
   // MARK: - Scripting Error
@@ -99,6 +99,7 @@ namespace p44 { namespace Script {
       NotFound, ///< referenced object not found at runtime (and cannot be created)
       NotCreated, ///< object/field does not exist and cannot be created, either
       Immutable, ///< object/field exists but is immutable and cannot be assigned
+      NotCallable, ///< object cannot be called as a function
       Busy, ///< currently running
       // Fatal errors, cannot be catched
       FatalErrors,
@@ -127,6 +128,7 @@ namespace p44 { namespace Script {
       "NotFound",
       "NotCreated",
       "Immutable",
+      "NotCallable",
       "Busy",
       "Syntax",
       "Aborted",
@@ -167,7 +169,6 @@ namespace p44 { namespace Script {
   enum {
     // content type flags, usually one per object, but object/array can be combined with regular type
     typeMask = 0x00FF,
-    scalarMask = 0x003F,
     none = 0x0000, ///< no type specification
     null = 0x0001, ///< NULL/undefined
     error = 0x0002, ///< Error
@@ -175,14 +176,13 @@ namespace p44 { namespace Script {
     text = 0x0008, ///< text/string value
     json = 0x0010, ///< JSON value
     executable = 0x0020, ///< executable code
-    structuredMask = 0x00C0,
     object = 0x0040, ///< is a object with named members
     array = 0x0080, ///< is an array with indexed elements
     // type classes
     any = typeMask-null, ///< any type except null
     scalar = numeric+text+json, ///< scalar types (json can also be structured)
     structured = object+array, ///< structured types
-    value = scalar+structured, ///< value types (excludes executables)
+    value = scalar+structured, ///< all value types (excludes executables)
     // attributes
     attrMask = 0xFFFFFF00,
     // - for argument checking
@@ -565,10 +565,10 @@ namespace p44 { namespace Script {
     virtual void releaseObjsFromSource(SourceContainerPtr aSource); // no source-derived permanent objects here
 
     /// Evaluate a object
-    /// @param aToEvaluate the object to be evaluated
+    /// @param aToExecute the object to be executed in this context
     /// @param aEvalFlags evaluation control flags
     /// @param aEvaluationCB will be called to deliver the result of the evaluation
-    virtual void evaluate(ScriptObjPtr aToEvaluate, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB) = 0;
+    virtual void execute(ScriptObjPtr aToExecute, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB) = 0;
 
     /// abort evaluation (of all threads if context has more than one)
     /// @param aAbortFlags set stoprunning to abort currently running threads, queue to empty the queued threads
@@ -576,7 +576,7 @@ namespace p44 { namespace Script {
     virtual void abort(EvaluationFlags aAbortFlags = stoprunning+queue, ScriptObjPtr aAbortResult = ScriptObjPtr()) = 0;
 
     /// synchronously evaluate the object, abort if async executables are encountered
-    ScriptObjPtr evaluateSynchronously(ScriptObjPtr aToEvaluate, EvaluationFlags aEvalFlags);
+    ScriptObjPtr executeSynchronously(ScriptObjPtr aToExecute, EvaluationFlags aEvalFlags);
 
     /// check argument against signature and add to context if ok
     /// @param aArgument the object to be passed as argument. Pass NULL to check if aCallee has more non-optional arguments
@@ -636,12 +636,11 @@ namespace p44 { namespace Script {
     virtual ErrorPtr setMemberByName(const string aName, const ScriptObjPtr aMember, TypeInfo aStorageAttributes = none) P44_OVERRIDE;
     virtual ErrorPtr setMemberAtIndex(size_t aIndex, const ScriptObjPtr aMember, const string aName = "") P44_OVERRIDE;
 
-    /// Evaluate a object
-    /// @param aToEvaluate the object to be evaluated
+    /// Execute a executable object in this context
+    /// @param aToExecute the object to be evaluated
     /// @param aEvalFlags evaluation mode/flags. Script thread can evaluate...
-    /// - 
     /// @param aEvaluationCB will be called to deliver the result of the evaluation
-    virtual void evaluate(ScriptObjPtr aToEvaluate, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB) P44_OVERRIDE;
+    virtual void execute(ScriptObjPtr aToExecute, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB) P44_OVERRIDE;
 
     /// abort evaluation of all threads
     /// @param aAbortFlags set stoprunning to abort currently running threads, queue to empty the queued threads
@@ -663,7 +662,7 @@ namespace p44 { namespace Script {
     typedef ScriptCodeContext inherited;
     friend class ScriptingDomain;
 
-    typedef std::list<ClassMemberLookupPtr> LookupList;
+    typedef std::list<ClassLevelLookupPtr> LookupList;
     LookupList lookups;
     ScriptingDomainPtr domainObj; ///< the scripting domain (unless it's myself to avoid locking)
     ScriptObjPtr thisObj; ///< the object _instance_ scope of this execution context (if any)
@@ -688,7 +687,7 @@ namespace p44 { namespace Script {
 
     /// register an additional lookup
     /// @param aMemberLookup a lookup object
-    void registerMemberLookup(ClassMemberLookupPtr aMemberLookup);
+    void registerMemberLookup(ClassLevelLookupPtr aMemberLookup);
 
   };
 
@@ -771,6 +770,10 @@ namespace p44 { namespace Script {
   class SourceCursor
   {
   public:
+    SourceCursor() {};
+    SourceCursor(SourceContainerPtr aContainer);
+    SourceCursor(string aString, const char *aLabel = NULL); ///< create cursor on the passed string
+
     SourceContainerPtr source; ///< the source containing the string we're pointing to
     SourcePos pos; ///< the position within the source
 
@@ -790,6 +793,7 @@ namespace p44 { namespace Script {
     bool next(); ///< advance to next char, @return false if not possible to advance
     bool advance(size_t aNumChars); ///< advance by specified number of chars, includes counting lines
     bool nextIf(char aChar); ///< @return true and advance cursor if @param aChar matches current char, false otherwise
+    void skipWhiteSpace(); ///< skip whitespace (but NOT comments)
     void skipNonCode(); ///< skip non-code, i.e. whitespace and comments
     // parsing utilities
 //    const char* checkForIdentifier(size_t& aLen); ///< check for identifier, @return pointer to identifier or NULL if none
@@ -833,7 +837,7 @@ namespace p44 { namespace Script {
   public:
     SourceContainer(const char *aOriginLabel, P44LoggingObj* aLoggingContextP, const string aSource) : originLabel(aOriginLabel), source(aSource) {};
     // get a reference to this source code
-    SourceCursor getRef();
+    SourceCursor getCursor();
   };
 
 
@@ -916,28 +920,51 @@ namespace p44 { namespace Script {
   {
   public:
 
-    SourceProcessor() : nextState(NULL), skipping(false) {};
+    SourceProcessor();
+
+    /// set the source to process
+    /// @param aCursor the source (part) to process
+    void setCursor(const SourceCursor& aCursor);
+
+    /// set the source to process
+    /// @param aCompletedCB will be called when process synchronously or asynchronously ends
+    void setCompletedCB(EvaluationCB aCompletedCB);
 
     /// prepare processing
-    /// @param aCursor the source (part) to process
-    /// @param aStartFlags at what level to start (script, body, expression)
-    void initProcessing(const SourceCursor& aCursor, EvaluationFlags aStartFlags);
+    /// @param aEvalFlags determine at what level to start processing (source, scriptbody, expression)
+    void initProcessing(EvaluationFlags aEvalFlags);
 
     /// start processing
-    /// @param aDoneCB will be called when process synchronously or asynchronously ends
-    virtual void start(EvaluationCB aCompletedCB);
+    /// @note setCursor(), setCompletedCB() and initProcessing() must be called before!
+    virtual void start();
 
     /// resume processing
     /// @param aNewResult if not NULL, this object will be stored to result as first step of the resume
     /// @note must be called for every step of the process that does not lead to completion
     void resume(ScriptObjPtr aNewResult = ScriptObjPtr());
 
+    /// abort processing
+    /// @param aAbortResult if set, this is what aborted process will report back
+    virtual void abort(ScriptObjPtr aAbortResult = ScriptObjPtr());
+
     /// complete processing
     /// @param aFinalResult the result to deliver with the completion callback
     /// @note inherited method must be called from subclasses as this must make sure stepLoop() will end.
     virtual void complete(ScriptObjPtr aFinalResult);
 
+    // This static method can be passed to timers and makes sure that "this" is kept alive by the callback
+    // boost::bind object because it is a smart pointer argument.
+    // Using this makes sure that no running thread can get destructed before being terminated properly
+    static void selfKeepingResume(ScriptCodeThreadPtr aContext, ScriptObjPtr aAbortResult);
+
   protected:
+
+    // processing control vars
+    bool aborted; ///< if set, stepLoop must immediately end
+    bool resuming; ///< detector for resume calling itself (synchronous execution)
+    bool resumed; ///< detector for resume calling itself (synchronous execution)
+    EvaluationCB completedCB; ///< called when completed
+    EvaluationFlags evaluationFlags; ///< the evaluation flags in use
 
     /// called by resume to perform next step(s).
     /// @note base class just steps synchronously as long as it can by calling step().
@@ -947,7 +974,7 @@ namespace p44 { namespace Script {
     virtual void stepLoop();
 
     /// internal statemachine step
-    virtual void step();
+    void step();
 
 
     /// @name execution hooks. These are dummies in the base class, but implemented
@@ -962,15 +989,21 @@ namespace p44 { namespace Script {
     /// @note must call done() when result contains the member (or NULL if not found)
     virtual void memberByIndex(size_t aIndex);
 
+    /// execute the current result and replace it with the output from the evaluation (e.g. function call)
+    /// @note must call done() when result contains the member (or NULL if not found)
+    virtual void execute();
+
+    /// must set a new funcCallContext suitable to execute result as a function
+    /// @note must set result to an ErrorValue if no context can be created
+    /// @note must call done() when result contains the member (or NULL if not found)
+    virtual void newFunctionCallContext();
+
     /// apply the specified argument to the current result
+    /// @note must call done() when result contains the member (or NULL if not found)
     virtual void pushFunctionArgument(ScriptObjPtr aArgument);
 
-    /// evaluate the current result and replace it with the output from the evaluation (e.g. function call)
-    virtual void evaluate();
 
     /// @}
-
-  private:
 
     /// @name source processor internal state machine
     /// @{
@@ -980,16 +1013,18 @@ namespace p44 { namespace Script {
 
     // state that can be pushed
     SourceCursor src; ///< the scanning position within code
+    SourcePos poppedPos; ///< the position popped from the stack (can be applied to jump back for loops)
     StateHandler nextState; ///< next state to call
     ScriptObjPtr result; ///< the current result object
-    ScriptObjPtr poppedResult; ///< last result popped from stack
+    ScriptObjPtr olderResult; ///< an older result, e.g. the result popped from stack, or previous lookup in nested member lookups
+    int precedence; ///< encountering a binary operator with smaller precedence will end the expression
+    ScriptOperator pendingOperation; ///< operator
+    bool flowDecision; ///< flow control decision
+    ExecutionContextPtr funcCallContext; ///< the context of the currently preparing function call
     bool skipping; ///< skipping
 
     // other internal state, not pushed
     string identifier; ///< for processing identifiers
-    bool resuming; ///< detector for resume calling itself (synchronous execution)
-    bool resumed; ///< detector for resume calling itself (synchronous execution)
-    EvaluationCB completedCB; ///< called when completed
 
     /// Scanner Stack frame
     class StackFrame {
@@ -998,30 +1033,38 @@ namespace p44 { namespace Script {
         SourcePos& aPos,
         bool aSkipping,
         StateHandler aReturnToState,
-        ScriptObjPtr aResult
+        ScriptObjPtr aResult,
+        ExecutionContextPtr aFuncCallContext,
+        int aPrecedence,
+        ScriptOperator aPendingOperation,
+        bool aFlowDecision
       ) :
         pos(aPos),
         skipping(aSkipping),
         returnToState(aReturnToState),
-        result(aResult)
+        result(aResult),
+        funcCallContext(aFuncCallContext),
+        precedence(aPrecedence),
+        pendingOperation(aPendingOperation),
+        flowDecision(aFlowDecision)
       {}
       SourcePos pos; ///< scanning position
       bool skipping; ///< set if only skipping code, not evaluating
       StateHandler returnToState; ///< next state to run after pop
       ScriptObjPtr result; ///< the current result object
+      ExecutionContextPtr funcCallContext; ///< the context of the currently preparing function call
+      int precedence; ///< encountering a binary operator with smaller precedence will end the expression
+      ScriptOperator pendingOperation; ///< operator
+      bool flowDecision; ///< flow control decision
     };
-
-//    int precedence; ///< encountering a binary operator with smaller precedence will end the expression
-//    ScriptOperator op; ///< operator
-//    bool flowDecision; ///< flow control decision
 
     typedef std::list<StackFrame> StackList;
     StackList stack; ///< the stack
 
-
     /// convenience end of step using current result and checking for errors
     /// @note includes calling resume()
-    void done();
+    /// @note this is the place to implement different result checking strategies between compiler and runner
+    virtual void done();
 
     /// readability wrapper for setting the next state but NOT YET completing current state's processing
     inline void setNextState(StateHandler aNextState) { nextState = aNextState; }
@@ -1045,16 +1088,23 @@ namespace p44 { namespace Script {
     void s_member(); ///< immediately after identifier
     void s_subscriptArg(); ///< immediately after subscript expression evaluation
     void s_funcArg(); ///< immediately after function argument evaluation
-
-
-    void s_newExpression(); ///< at the beginning of an expression which only ends syntactically (end of code, delimiter, etc.) -> resets precedence
-
+    void s_funcContext(); ///< after getting function calling context
     void s_funcExec(); ///< ready to execute the function
 
 
-    void s_result(); ///< result of an expression or term ready, pop the stack to see next state to run
+    void s_newExpression(); ///< at the beginning of an expression which only ends syntactically (end of code, delimiter, etc.) -> resets precedence
+    void s_expression(); ///< handle (sub)expression start, precedence inherited or set by caller
+    void s_groupedExpression(); ///< handling a paranthesized subexpression result
+    void s_exprFirstTerm(); ///< first term of an expression
+    void s_exprLeftSide(); ///< left side of an ongoing expression
+    void s_exprRightSide(); ///< further terms of an expression
 
-    void s_ccomplete(); ///< nothing more to do, result represents result of entire scanning/evaluation process
+
+
+    void s_result(); ///< result of an expression or term ready, pop the stack to see next state to run
+    void s_validResult(); ///< result of an expression or term ready, pop the stack to see next state to run
+
+    void s_complete(); ///< nothing more to do, result represents result of entire scanning/evaluation process
 
 /*
  typedef enum {
@@ -1167,24 +1217,13 @@ namespace p44 { namespace Script {
     /// Scan code, extract function definitions, global vars, event handlers into scripting domain, return actual code
     /// @param aSource the source code
     /// @param aParsingMode how to parse (as expression, scriptbody or full script with function+handler definitions)
-    /// @param aCompilerContext the context in which this script was compiled.
-    ///   (for scripts, this is the context that is stored in the executable for running it later and might maintain some state
-    ///   between invocations via registered lookups - on the other hand, functions create their own private execution context
-    ///   and don't refer to the compiler context)
+    /// @param aMainContext the context in which this script should execute in. It is stored with the
     /// @return an executable object or error (syntax, other fatal problems)
     ScriptObjPtr compile(SourceContainerPtr aSource, EvaluationFlags aParsingMode, ScriptMainContextPtr aMainContext);
 
   protected:
 
     // TODO: CompiledCodePtr compilePart(const SourceRef& aCursor);
-
-  };
-
-
-  class CodeRunner : public SourceProcessor
-  {
-    typedef SourceProcessor inherited;
-  public:
 
   };
 
@@ -1199,11 +1238,11 @@ namespace p44 { namespace Script {
   /// The "stack" is NOT a function calling stack, but only the stack
   /// needed to walk the nested code/expression structure with
   /// a state machine.
-  class ScriptCodeThread : public P44Obj
+  class ScriptCodeThread : public P44Obj, public SourceProcessor
   {
+    typedef SourceProcessor inherited;
+
     ScriptCodeContextPtr owner; ///< the execution context which owns (has started) this thread
-    EvaluationCB terminationCB; ///< to be called when the thread ends
-    EvaluationFlags evaluationFlags; ///< the evaluation flags in use
     MLMicroSeconds maxBlockTime; ///< how long the thread is allowed to block in evaluate()
     MLMicroSeconds maxRunTime; ///< how long the thread is allowed to run overall
 
@@ -1211,17 +1250,11 @@ namespace p44 { namespace Script {
     ExecutionContextPtr childContext; ///< set during calls to other contexts, e.g. to propagate abort()
     MLTicket autoResumeTicket; ///< auto-resume ticket
 
-    SourceCursor pc; ///< the "program counter"
-    ScriptObjPtr result; ///< current result
-    bool aborted; ///< if set when entering continueThread, the thread will immediately end
-    bool resuming; ///< detector for resume calling itself (synchronous execution)
-    bool resumed; ///< detector for resume calling itself (synchronous execution)
-
   public:
 
     /// @param aOwner the context which owns this thread and will be notified when it ends
-    /// @param aSourceRef the start point for the script
-    ScriptCodeThread(ScriptCodeContextPtr aOwner, const SourceCursor aSourceRef);
+    /// @param aStartCursor the start point for the script
+    ScriptCodeThread(ScriptCodeContextPtr aOwner, const SourceCursor& aStartCursor);
 
     /// prepare for running
     /// @param aTerminationCB will be called to deliver when the thread ends
@@ -1236,31 +1269,48 @@ namespace p44 { namespace Script {
       MLMicroSeconds aMaxRunTime=DEFAULT_EXEC_TIME_LIMIT
     );
 
-    /// evaluate (= run the thread)
+    /// run the thread
     virtual void run();
 
-    /// abort the current thread, including child context
+    /// request aborting the current thread, including child context
     /// @param aAbortResult if set, this is what abort will report back
-    void abort(ScriptObjPtr aAbortResult = ScriptObjPtr());
+    virtual void abort(ScriptObjPtr aAbortResult = ScriptObjPtr()) P44_OVERRIDE;
+
+    /// complete the current thread
+    virtual void complete(ScriptObjPtr aFinalResult) P44_OVERRIDE;
+
+    /// convenience end of step using current result and checking for errors
+    virtual void done();
+
+    /// @name execution hooks. These must call resume()
+    /// @{
+
+    /// must retrieve the member with name==identifier from current result (or from the script scope if result==NULL)
+    /// @note must call done() when result contains the member (or NULL if not found)
+    virtual void memberByIdentifier() P44_OVERRIDE;
+
+    /// must retrieve the indexed member from current result (or from the script scope if result==NULL)
+    /// @note must call done() when result contains the member (or NULL if not found)
+    virtual void memberByIndex(size_t aIndex) P44_OVERRIDE;
+
+    /// must set a new funcCallContext suitable to execute result as a function
+    /// @note must set result to an ErrorValue if no context can be created
+    /// @note must call done() when result contains the member (or NULL if not found)
+    virtual void newFunctionCallContext() P44_OVERRIDE;
+
+    /// apply the specified argument to the current result
+    virtual void pushFunctionArgument(ScriptObjPtr aArgument) P44_OVERRIDE;
+
+    /// evaluate the current result and replace it with the output from the evaluation (e.g. function call)
+    virtual void execute() P44_OVERRIDE;
+
+    /// @}
 
   protected:
 
-    /// end the thread, delivers current result via callback
-    void endThread();
-
-    /// resume running the script code
-    /// @param aResult result, if any is expected at that stage
-    /// @note : this is the main statemachine (re-)entry point.
-    /// - child contexts evaluation will call back here
-    /// - step() must always call back here
-    /// - automatically takes care of winding back call chain if called recursively
-    /// - automatically takes care of not running too long
-    void resume(ScriptObjPtr aResult = ScriptObjPtr());
-    static void selfKeepingResume(ScriptCodeThreadPtr aContext);
-
-    /// run next statemachine step
-    /// @note: MUST call resume() when done, synchronously or later!
-    void step();
+    /// called by resume to perform next step(s).
+    /// @note implements step timing/pacing/limiting and abort checking
+    virtual void stepLoop() P44_OVERRIDE;
 
   };
 
@@ -1347,7 +1397,7 @@ namespace p44 { namespace Script {
     BuiltinFunctionContext(ScriptMainContextPtr aMainContext) : inherited(aMainContext) {};
 
     /// evaluate built-in function
-    virtual void evaluate(ScriptObjPtr aToEvaluate, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB) P44_OVERRIDE;
+    virtual void execute(ScriptObjPtr aToExecute, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB) P44_OVERRIDE;
 
     /// abort (async) built-in function
     /// @param aAbortFlags set stoprunning to abort currently running threads, queue to empty the queued threads

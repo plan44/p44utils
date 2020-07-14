@@ -98,28 +98,28 @@ string ScriptObj::typeDescription(TypeInfo aInfo)
     }
     if (!s.empty()) s += ", ";
     // scalar
-    string sc;
+    string s;
     if (aInfo & numeric) {
-      sc += "numeric";
+      s += "numeric";
     }
     if (aInfo & text) {
-      if (!sc.empty()) s += ", ";
+      if (!s.empty()) s += ", ";
       s += "text";
     }
     if (aInfo & json) {
-      if (!sc.empty()) s += ", ";
+      if (!s.empty()) s += ", ";
       s += "json";
     }
     if (aInfo & executable) {
-      if (!sc.empty()) s += ", ";
+      if (!s.empty()) s += ", ";
       s += "script";
     }
     if (aInfo & error) {
-      if (!sc.empty()) s += " or ";
+      if (!s.empty()) s += " or ";
       s += "error";
     }
     if (aInfo & null) {
-      if (!sc.empty()) s += " or ";
+      if (!s.empty()) s += " or ";
       s += "undefined";
     }
   }
@@ -286,8 +286,12 @@ ErrorPosValue::ErrorPosValue(const SourceCursor &aCursor, ScriptError::ErrorCode
 
 double StringValue::numValue() const
 {
-  // FIXME: something like: EvaluationContext::parseNumericLiteral(v, strValP->c_str(), lpos);
-  return 42; // for now
+  SourceCursor cursor(str);
+  cursor.skipWhiteSpace();
+  ScriptObjPtr n = cursor.parseNumericLiteral();
+  cursor.skipWhiteSpace();
+  if (!cursor.EOT() || n->isErr()) return 0; // otherwise we'd get error
+  return n->numValue();
 }
 
 
@@ -429,7 +433,7 @@ const ScriptObjPtr ExecutionContext::memberAtIndex(size_t aIndex, TypeInfo aType
 {
   ScriptObjPtr v;
   if (aIndex<indexedVars.size()) {
-    ScriptObjPtr v = indexedVars[aIndex];
+    v = indexedVars[aIndex];
     if ((v->getTypeInfo()&aTypeRequirements)!=aTypeRequirements) return ScriptObjPtr();
   }
   return v;
@@ -458,56 +462,53 @@ ErrorPtr ExecutionContext::checkAndSetArgument(ScriptObjPtr aArgument, size_t aI
   if (!aCallee) return ScriptError::err(ScriptError::Internal, "missing callee");
   const ArgumentDescriptor* info = aCallee->argumentInfo(aIndex);
   if (!info) {
-    return ScriptError::err(ScriptError::Syntax, "too many arguments for '%s'", aCallee->getIdentifier().c_str());
+    if (aArgument) {
+      return ScriptError::err(ScriptError::Syntax, "too many arguments for '%s'", aCallee->getIdentifier().c_str());
+    }
   }
-  TypeInfo required = info->typeInfo;
-  if (!aArgument) {
-    // check if there should be an argument at aIndex (but we have none)
-    if ((required & optional)==0) {
+  if (!aArgument && info) {
+    // check if there SHOULD be an argument at aIndex (but we have none)
+    if ((info->typeInfo & optional)==0) {
       // at aIndex is a non-optional argument expected
       return ScriptError::err(ScriptError::Syntax,
         "missing argument %zu (%s) in call to '%s'",
-        aIndex, typeDescription(required & scalarMask).c_str(), aCallee->getIdentifier().c_str()
+        aIndex+1,
+        typeDescription(info->typeInfo).c_str(),
+        aCallee->getIdentifier().c_str()
       );
     }
   }
-  // now check argument
-  TypeInfo argInfo = aArgument->getTypeInfo();
-  if ((required & structuredMask)!=0 && (argInfo & required & structuredMask)==0) {
-    // structure requirement not met
-    if (required & undefres)
-      return ScriptError::err(ScriptError::Invalid, "undefined"); // special signal to just return NULL, no error
-    else
-      return ScriptError::err(ScriptError::Syntax,
-        "extected %s for argument %zu in call to '%s'",
-        typeDescription(required & scalarMask).c_str(), aIndex, aCallee->getIdentifier().c_str()
-      );
-  }
-  if ((required & scalarMask)!=0 && (argInfo & required & scalarMask)==0) {
-    // scalar requirements not met, check if exact match needed
-    if ((required & structuredMask)!=0 || (required & exacttype)!=0) {
-      if (required & undefres)
-        return ScriptError::err(ScriptError::Invalid, "undefined"); // special signal to just return NULL, no error
-      else
-        return ScriptError::err(ScriptError::Syntax,
-          "expected %s for argument %zu in call to '%s'",
-          typeDescription(required).c_str(), aIndex, aCallee->getIdentifier().c_str()
-        );
+  if (aArgument) {
+    // not just checking for required arguments
+    TypeInfo allowed = info->typeInfo;
+    // now check argument we DO have
+    TypeInfo argInfo = aArgument->getTypeInfo();
+    if ((argInfo & allowed & typeMask) != (argInfo & typeMask)) {
+      if (
+        (allowed & exacttype) || // exact checking required...
+        (argInfo & typeMask &~scalar)!=(allowed & typeMask &~scalar) // ...or non-scalar requirements not met
+      ) {
+        if (allowed & undefres) {
+          // type mismatch is not an error, but just enforces unefined function result w/o executing
+          return ScriptError::err(ScriptError::Invalid, "undefined"); // special signal to just return NULL, no error
+        }
+        else {
+          return ScriptError::err(ScriptError::Syntax,
+            "argument %zu in call to '%s' is %s - expected %s",
+            aIndex+1,
+            aCallee->getIdentifier().c_str(),
+            typeDescription(argInfo).c_str(),
+            typeDescription(allowed).c_str()
+          );
+        }
+      }
     }
-    // argument is considerd ok, will be converted as needed
+    // argument is fine, set it
+    setMemberAtIndex(aIndex, aArgument, nonNullCStr(info->name));
   }
-  // argument is fine, set it
-  setMemberAtIndex(aIndex, aArgument, nonNullCStr(info->name));
   return ErrorPtr(); // ok
 }
 
-
-
-//ScriptObjPtr ExecutionContext::compile(SourceContainerPtr aSource)
-//{
-//  ScriptCompiler compiler(domain());
-//  return compiler.compile(aSource, source, main);
-//}
 
 
 // receives result for synchronous execution
@@ -517,20 +518,20 @@ static void syncExecDone(ScriptObjPtr* aResultStorageP, bool* aFinishedP, Script
   *aFinishedP = true;
 }
 
-ScriptObjPtr ExecutionContext::evaluateSynchronously(ScriptObjPtr aToEvaluate, EvaluationFlags aEvalFlags)
+ScriptObjPtr ExecutionContext::executeSynchronously(ScriptObjPtr aToExecute, EvaluationFlags aEvalFlags)
 {
   ScriptObjPtr syncResult;
 
   bool finished = false;
   aEvalFlags |= synchronously;
-  evaluate(aToEvaluate, aEvalFlags, boost::bind(&syncExecDone, &syncResult, &finished, _1));
+  execute(aToExecute, aEvalFlags, boost::bind(&syncExecDone, &syncResult, &finished, _1));
   if (!finished) {
     // despite having requested synchronous execution, evaluation is not finished by now
     finished = true;
     // kill started async operations, syncResult will be set by callback
     abort(stopall, new ErrorValue(ScriptError::Internal,
       "Fatal error: synchronous Evaluation of '%s' turned out to be still async",
-      aToEvaluate->getIdentifier().c_str()
+      aToExecute->getIdentifier().c_str()
     ));
   }
   return syncResult;
@@ -647,10 +648,10 @@ void ScriptCodeContext::abort(EvaluationFlags aAbortFlags, ScriptObjPtr aAbortRe
 }
 
 
-void ScriptCodeContext::evaluate(ScriptObjPtr aToEvaluate, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB)
+void ScriptCodeContext::execute(ScriptObjPtr aToExecute, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB)
 {
   // must be compiled code at this point
-  CompiledCodePtr code = dynamic_pointer_cast<CompiledScript>(aToEvaluate);
+  CompiledFunctionPtr code = dynamic_pointer_cast<CompiledScript>(aToExecute);
   if (!code) {
     if (aEvaluationCB) aEvaluationCB(new ErrorValue(ScriptError::Internal, "Object to be run must be compiled code!"));
     return;
@@ -736,7 +737,7 @@ const ScriptObjPtr ScriptMainContext::memberByName(const string aName, TypeInfo 
   // 3) members from registered lookups, which might or might not be instance related (depends on the lookup)
   LookupList::const_iterator pos = lookups.begin();
   while (pos!=lookups.end()) {
-    ClassMemberLookupPtr lookup = *pos;
+    ClassLevelLookupPtr lookup = *pos;
     if ((lookup->containsTypes() & aTypeRequirements)==aTypeRequirements) {
       if ((m = lookup->memberByNameFrom(instance(), aName, aTypeRequirements))) return m;
     }
@@ -770,7 +771,7 @@ ErrorPtr ScriptMainContext::setMemberByName(const string aName, const ScriptObjP
     if (err->isError(ScriptError::domain(), ScriptError::NotFound)) {
       LookupList::const_iterator pos = lookups.begin();
       while (pos!=lookups.end()) {
-        ClassMemberLookupPtr lookup = *pos;
+        ClassLevelLookupPtr lookup = *pos;
         if (lookup->containsTypes() & mutablemembers) {
           if (Error::isOK(err =lookup->setMemberByNameFrom(instance(), aName, aMember, aStorageAttributes))) return err; // modified or created a property in mutable lookup
           if (!err->isError(ScriptError::domain(), ScriptError::NotFound)) {
@@ -790,7 +791,7 @@ ErrorPtr ScriptMainContext::setMemberByName(const string aName, const ScriptObjP
 }
 
 
-void ScriptMainContext::registerMemberLookup(ClassMemberLookupPtr aMemberLookup)
+void ScriptMainContext::registerMemberLookup(ClassLevelLookupPtr aMemberLookup)
 {
   if (aMemberLookup) {
     // last registered lookup overrides same named objects in lookups registered before
@@ -858,9 +859,9 @@ void BuiltinFunctionContext::setAbortCallback(SimpleCB aAbortCB)
 }
 
 
-void BuiltinFunctionContext::evaluate(ScriptObjPtr aToEvaluate, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB)
+void BuiltinFunctionContext::execute(ScriptObjPtr aToExecute, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB)
 {
-  func = dynamic_pointer_cast<BuiltinFunctionObj>(aToEvaluate);
+  func = dynamic_pointer_cast<BuiltinFunctionObj>(aToExecute);
   if (!func || !func->descriptor) {
     func.reset();
     aEvaluationCB(new ErrorValue(ScriptError::Internal, "builtin function call inconsistency"));
@@ -894,7 +895,7 @@ ScriptObjPtr BuiltinFunctionContext::arg(size_t aArgIndex)
 {
   if (aArgIndex<0 || aArgIndex>numIndexedMembers()) {
     // no such argument, return a dummy null (safety in case signature/implementation dont match)
-    return new ScriptObj();
+    return new AnnotatedNullValue("missing function argument");
   }
   return memberAtIndex(aArgIndex);
 }
@@ -909,7 +910,7 @@ void BuiltinFunctionContext::finish(ScriptObjPtr aResult)
 }
 
 
-// MARK: - CodeCursor
+// MARK: - SourcePos
 
 
 SourcePos::SourcePos() :
@@ -941,9 +942,25 @@ SourcePos::SourcePos(const string &aText) :
 
 SourcePos::SourcePos(const SourcePos &aCursor) :
   ptr(aCursor.ptr),
-  bol(aCursor.ptr),
-  eot(aCursor.ptr),
+  bol(aCursor.bol),
+  eot(aCursor.eot),
   line(aCursor.line)
+{
+}
+
+
+// MARK: - SourceCursor
+
+SourceCursor::SourceCursor(string aString, const char *aLabel) :
+  source(new SourceContainer(aLabel ? aLabel : "hidden", NULL, aString)),
+  pos(source->source)
+{
+}
+
+
+SourceCursor::SourceCursor(SourceContainerPtr aContainer) :
+  source(aContainer),
+  pos(aContainer->source)
 {
 }
 
@@ -1014,6 +1031,12 @@ bool SourceCursor::nextIf(char aChar)
 }
 
 
+void SourceCursor::skipWhiteSpace()
+{
+  while (c()==' ' || c()=='\t' || c()=='\n' || c()=='\r') next();
+}
+
+
 
 void SourceCursor::skipNonCode()
 {
@@ -1021,7 +1044,7 @@ void SourceCursor::skipNonCode()
   bool recheck;
   do {
     recheck = false;
-    while (c()==' ' || c()=='\t' || c()=='\n' || c()=='\r') next();
+    skipWhiteSpace();
     // also check for comments
     if (c()=='/') {
       if (c(1)=='/') {
@@ -1295,28 +1318,54 @@ ScriptObjPtr SourceCursor::parseJSONLiteral()
 // MARK: - SourceProcessor
 
 
-void SourceProcessor::initProcessing(const SourceCursor& aCursor, EvaluationFlags aStartFlags)
+SourceProcessor::SourceProcessor() :
+  aborted(false),
+  resuming(false),
+  resumed(false),
+  evaluationFlags(none),
+  nextState(NULL),
+  skipping(false),
+  precedence(0),
+  pendingOperation(op_none),
+  flowDecision(false)
 {
-  src = aCursor;
-  // just scanning?
-  skipping = ((aStartFlags & runModeMask)==scanning);
-  // scope to start in
-//  if (aStartFlags & expression)
-//    startState = &SourceProcessor::s_newExpression;
-//  else if (aStartFlags & scriptbody)
-//    startState = &SourceProcessor::s_simpleTerm;
-//  else if (aStartFlags & source)
-//    startState = &SourceProcessor::s_definitions;
-  // FIXME: actually set correct starting points
-  setNextState(&SourceProcessor::s_simpleTerm);
-  stack.clear();
-  push(&SourceProcessor::s_ccomplete);
 }
 
 
-void SourceProcessor::start(EvaluationCB aCompletedCB)
+
+void SourceProcessor::setCursor(const SourceCursor& aCursor)
+{
+  src = aCursor;
+}
+
+
+void SourceProcessor::initProcessing(EvaluationFlags aEvalFlags)
+{
+  evaluationFlags = aEvalFlags;
+  // just scanning?
+  skipping = ((evaluationFlags & runModeMask)==scanning);
+  // scope to start in
+  if (evaluationFlags & expression)
+    setNextState(&SourceProcessor::s_newExpression);
+//  else if (evaluationFlags & scriptbody)
+//    setNextState(&SourceProcessor::s_simpleTerm);
+//  else if (evaluationFlags & source)
+//    startState = (&SourceProcessor::s_definitions);
+  // FIXME: actually set correct starting points
+  setNextState(&SourceProcessor::s_newExpression);
+  stack.clear();
+  push(&SourceProcessor::s_complete);
+}
+
+
+void SourceProcessor::setCompletedCB(EvaluationCB aCompletedCB)
 {
   completedCB = aCompletedCB;
+}
+
+
+void SourceProcessor::start()
+{
   resuming = false;
   resume();
 }
@@ -1336,6 +1385,7 @@ void SourceProcessor::resume(ScriptObjPtr aResult)
     return; // but now let chain of calls wind down to our last call (originating from step() in the loop)
   }
   // NO: this is a real re-entry, re-start the sync execution loop
+  if (aborted) return;
   resuming = true; // now actually start resuming
   stepLoop();
   // not resumed in the current chain of calls, resume will be called from
@@ -1344,10 +1394,28 @@ void SourceProcessor::resume(ScriptObjPtr aResult)
 }
 
 
+void SourceProcessor::selfKeepingResume(ScriptCodeThreadPtr aThread, ScriptObjPtr aResumeResult)
+{
+  aThread->resume(aResumeResult);
+}
+
+
+void SourceProcessor::abort(ScriptObjPtr aAbortResult)
+{
+  if (aAbortResult) {
+    result = aAbortResult;
+  }
+  aborted = true; // signal end to resume() and stepLoop()
+}
+
+
 void SourceProcessor::complete(ScriptObjPtr aFinalResult)
 {
   resumed = false; // make sure stepLoop WILL exit when returning from step()
   result = aFinalResult; // set final result
+  if (!result) {
+    result = new AnnotatedNullValue("script produced no result");
+  }
   if (completedCB) completedCB(result);
   completedCB = NULL;
 }
@@ -1360,7 +1428,7 @@ void SourceProcessor::stepLoop()
     resumed = false;
     step(); // will cause resumed to be set when resume() is called in this call's chain
     // repeat as long as we are already resumed
-  } while(resumed);
+  } while(resumed && !aborted);
 }
 
 
@@ -1368,7 +1436,7 @@ void SourceProcessor::step()
 {
   if (!nextState) {
     result = new ErrorPosValue(src, ScriptError::Internal, "Missing next state");
-    doneAndGoto(&SourceProcessor::s_ccomplete);
+    doneAndGoto(&SourceProcessor::s_complete);
     return;
   }
   // call the state handler
@@ -1385,11 +1453,11 @@ void SourceProcessor::step()
 
 void SourceProcessor::done()
 {
-  // TODO: this check is supposed to implement try/catch for real execution
   // simple result check
   if (result && result->isErr()) {
-    // modify state to end processing with this result
-    setNextState(&SourceProcessor::s_ccomplete);
+    // abort on errors
+    complete(result);
+    return;
   }
   resume();
 }
@@ -1397,18 +1465,23 @@ void SourceProcessor::done()
 
 void SourceProcessor::push(StateHandler aReturnToState)
 {
-  stack.push_back(StackFrame(src.pos, skipping, aReturnToState, result));
-  poppedResult.reset(); // none yet
+  stack.push_back(StackFrame(src.pos, skipping, aReturnToState, result, funcCallContext, precedence, pendingOperation, flowDecision));
 }
 
 
 void SourceProcessor::pop()
 {
-  // FIXME: when do we need restoring pos, as well?
-  //src.pos = stack.back().pos;
   StackFrame &s = stack.back();
+  // these are just restored as before the push
   skipping = s.skipping;
-  poppedResult = s.result;
+  precedence = s.precedence;
+  pendingOperation = s.pendingOperation;
+  flowDecision = s.flowDecision;
+  funcCallContext = s.funcCallContext;
+  // these are restored separately, returnToState must decide what to do
+  poppedPos = s.pos;
+  olderResult = s.result;
+  // continue here
   setNextState(s.returnToState);
   stack.pop_back();
 }
@@ -1419,13 +1492,14 @@ void SourceProcessor::s_simpleTerm()
   // at the beginning of a simple term, result is undefined
   if (src.c()=='"' || src.c()=='\'') {
     result = src.parseStringLiteral();
-    setNextState(&SourceProcessor::s_result);
+    doneAndGoto(&SourceProcessor::s_result);
     return;
   }
   else if (src.c()=='{') {
     // json or code block literal
     #if SCRIPTING_JSON_SUPPORT
     SourceCursor peek = src;
+    peek.next();
     peek.skipNonCode();
     if (peek.c()=='"') {
       // first thing within "{" is a quoted field name: must be JSON literal
@@ -1462,6 +1536,7 @@ void SourceProcessor::s_simpleTerm()
     else {
       // identifier at script scope level
       result.reset(); // lookup from script scope
+      olderResult.reset(); // represents the previous level in nested lookups
       src.skipNonCode();
       if (skipping) {
         // we must always assume structured values etc.
@@ -1470,8 +1545,8 @@ void SourceProcessor::s_simpleTerm()
       }
       else {
         // if it is a plain identifier, it could be one of the built-in constants that cannot be overridden
-        // - check them before doing an actual member lookup
-        if (src.c()=='(' && src.c()!='.' && src.c()!='[') {
+        if (src.c()!='(' && src.c()!='.' && src.c()!='[') {
+          // - check them before doing an actual member lookup
           if (uequals(identifier, "true") || uequals(identifier, "yes")) {
             result = new NumericValue(1);
             doneAndGoto(&SourceProcessor::s_result);
@@ -1502,7 +1577,7 @@ void SourceProcessor::s_member()
 {
   // immediately following an identifier, result represents its value
   if (src.nextIf('.')) {
-    // - member access
+    // member access
     src.skipNonCode();
     if (!src.parseIdentifier(identifier)) {
       result = new ErrorPosValue(src, ScriptError::Syntax, "missing identifier after '.'");
@@ -1514,27 +1589,25 @@ void SourceProcessor::s_member()
     return;
   }
   else if (src.nextIf('[')) {
-    // - subscript access
+    // subscript access
     src.skipNonCode();
     push(&SourceProcessor::s_subscriptArg);
     doneAndGoto(&SourceProcessor::s_newExpression);
     return;
   }
   else if (src.nextIf('(')) {
-    // - function call
+    // function call
     src.skipNonCode();
-    if (src.nextIf(')')) {
-      // function with no arguments
-      doneAndGoto(&SourceProcessor::s_funcExec);
-      return;
+    // - we need a function call context
+    if (!skipping) {
+      newFunctionCallContext();
     }
-    push(&SourceProcessor::s_funcArg);
-    doneAndGoto(&SourceProcessor::s_newExpression);
+    doneAndGoto(&SourceProcessor::s_funcContext);
     return;
   }
-  else if (!result && !skipping) {
+  else if (!olderResult && !result && !skipping) {
+    // we are on script scope (olderResult==NULL) and haven't found something (result==NULL), so check for built-in constants that are overrideable
     static const char * const weekdayNames[7] = { "sun", "mon", "tue", "wed", "thu", "fri", "sat" };
-    // we are on script scope (result==NULL), so check for built-in constants that are overrideable
     if (identifier.size()==3) {
       // Optimisation, all weekdays have 3 chars
       for (int w=0; w<7; w++) {
@@ -1551,6 +1624,20 @@ void SourceProcessor::s_member()
     result = new ErrorPosValue(src, ScriptError::NotFound , "cannot find '%s'", identifier.c_str());
   }
   doneAndGoto(&SourceProcessor::s_result);
+  return;
+}
+
+
+void SourceProcessor::s_funcContext()
+{
+  // - check for arguments
+  if (src.nextIf(')')) {
+    // function with no arguments
+    doneAndGoto(&SourceProcessor::s_funcExec);
+    return;
+  }
+  push(&SourceProcessor::s_funcArg);
+  doneAndGoto(&SourceProcessor::s_newExpression);
   return;
 }
 
@@ -1587,14 +1674,14 @@ void SourceProcessor::s_subscriptArg()
     if (result->hasType(numeric)) {
       // array access by index
       size_t index = result->numValue();
-      result = poppedResult;
+      result = olderResult;
       memberByIndex(index);
       return;
     }
     else {
       // member access by name
       identifier = result->stringValue();
-      result = poppedResult;
+      result = olderResult;
       memberByIdentifier();
       return;
     }
@@ -1606,7 +1693,9 @@ void SourceProcessor::s_funcArg()
 {
   // immediately following a subscript argument evaluation
   // - result is value of the function argument
-  // - poppedResult is the function the argument applies to
+  // - olderResult is the function the argument applies to
+  ScriptObjPtr arg = result;
+  result = olderResult; // restore the function
   src.skipNonCode();
   // determine how to proceed after pushing the argument...
   if (src.nextIf(')')) {
@@ -1625,9 +1714,12 @@ void SourceProcessor::s_funcArg()
     return;
   }
   // now apply the function argument
-  ScriptObjPtr arg = result;
-  result = poppedResult; // function is the current result
-  pushFunctionArgument(arg);
+  if (skipping) {
+    done(); // just ignore the argument and continue
+  }
+  else {
+    pushFunctionArgument(arg);
+  }
   return;
 }
 
@@ -1641,24 +1733,160 @@ void SourceProcessor::s_funcExec()
     done(); // just NOP
   }
   else {
-    evaluate(); // evaluate
+    execute(); // execute
   }
 }
 
 
 void SourceProcessor::s_result()
 {
+  if (skipping || !result || result->valid()) {
+    // no need for a validation step for loading lazy results
+    pop(); // get state to continue with
+    done();
+    return;
+  }
+  // make valid (pull value from lazy loading objects)
+  setNextState(&SourceProcessor::s_validResult);
+  result->makeValid(boost::bind(&SourceProcessor::resume, this, _1));
+}
+
+
+void SourceProcessor::s_validResult()
+{
   pop(); // get state to continue with
   done();
 }
 
 
+
 void SourceProcessor::s_newExpression()
 {
-  // FIXME: implement
+  precedence = 0;
+  doneAndGoto(&SourceProcessor::s_expression);
 }
 
-void SourceProcessor::s_ccomplete()
+
+void SourceProcessor::s_expression()
+{
+  // at start of an expression
+  SourcePos epos = src.pos; // remember start of any expression, even if it's only a precedence terminated subexpression
+  // - check for optional unary op
+  pendingOperation = src.parseOperator(); // store for later
+  if (pendingOperation!=op_none && pendingOperation!=op_subtract && pendingOperation!=op_add && pendingOperation!=op_not) {
+    result = new ErrorPosValue(src, ScriptError::NotFound , "invalid unary operator", identifier.c_str());
+    doneAndGoto(&SourceProcessor::s_result);
+    return;
+  }
+  // evaluate first (or only) term
+  setNextState(&SourceProcessor::s_exprFirstTerm);
+  // - check for paranthesis term
+  if (src.nextIf('(')) {
+    // term is expression in paranthesis
+    push(&SourceProcessor::s_groupedExpression);
+    doneAndGoto(&SourceProcessor::s_newExpression);
+    return;
+  }
+  // must be simple term
+  // - a variable/constant reference
+  // - a function call
+  // - a literal value
+  // Note: a non-simple term is the parantesized expression as handled above
+  push(&SourceProcessor::s_exprFirstTerm);
+  doneAndGoto(&SourceProcessor::s_simpleTerm);
+}
+
+
+void SourceProcessor::s_groupedExpression()
+{
+  if (src.nextIf(')')) {
+    result = new ErrorPosValue(src, ScriptError::Syntax, "missing ')'");
+  }
+  doneAndGoto(&SourceProcessor::s_result);
+}
+
+
+void SourceProcessor::s_exprFirstTerm()
+{
+  // res now has the first term of an expression, which might need applying unary operations
+  if (!skipping && result && result->defined()) {
+    switch (pendingOperation) {
+      case op_not : result = new NumericValue(!result->boolValue()); break;
+      case op_subtract : result = new NumericValue(-result->numValue()); break;
+      case op_add: // dummy, is NOP, allowed for clarification purposes
+      default: break;
+    }
+  }
+  doneAndGoto(&SourceProcessor::s_exprLeftSide);
+}
+
+
+void SourceProcessor::s_exprLeftSide()
+{
+  // check binary operators
+  src.skipNonCode();
+  SourcePos opos = src.pos; // position before possibly finding an operator
+  ScriptOperator binaryop = src.parseOperator();
+  int newPrecedence = binaryop & opmask_precedence;
+  // end parsing here if no operator found or operator with a lower or same precedence as the passed in precedence is reached
+  if (binaryop==op_none || newPrecedence<=precedence) {
+    src.pos = opos; // restore position
+    doneAndGoto(&SourceProcessor::s_result);
+    return;
+  }
+  // must parse right side of operator as subexpression
+  pendingOperation = binaryop;
+  precedence = newPrecedence; // subexpression needs to exit when finding an operator weaker than this one
+  push(&SourceProcessor::s_exprRightSide);
+  doneAndGoto(&SourceProcessor::s_expression);
+}
+
+
+void SourceProcessor::s_exprRightSide()
+{
+  // olderResult = leftside, result = rightside
+  if (!skipping) {
+    // all operations involving nulls return null
+    if (olderResult->defined() && result->defined()) {
+      // both are values -> apply the operation between leftside and rightside
+      switch (pendingOperation) {
+        case op_not: {
+          result = new ErrorPosValue(src, ScriptError::Syntax, "NOT operator not allowed here");
+          break;
+        }
+        case op_divide:     result = *olderResult / *result; break;
+        case op_modulo:     result = *olderResult % *result; break;
+        case op_multiply:   result = *olderResult * *result; break;
+        case op_add:        result = *olderResult + *result; break;
+        case op_subtract:   result = *olderResult - *result; break;
+        case op_equal:
+        // boolean result
+        case op_assignOrEq: result = new NumericValue(*olderResult == *result); break;
+        case op_notequal:   result = new NumericValue(*olderResult != *result); break;
+        case op_less:       result = new NumericValue(*olderResult <  *result); break;
+        case op_greater:    result = new NumericValue(*olderResult >  *result); break;
+        case op_leq:        result = new NumericValue(*olderResult <= *result); break;
+        case op_geq:        result = new NumericValue(*olderResult >= *result); break;
+        case op_and:        result = new NumericValue(*olderResult && *result); break;
+        case op_or:         result = new NumericValue(*olderResult || *result); break;
+        default: break;
+      }
+    }
+    else if (olderResult->isErr()) {
+      // if first is error, return that independently of what the second is
+      result = olderResult;
+    }
+  }
+  doneAndGoto(&SourceProcessor::s_exprLeftSide); // back to leftside, more chained operators might follow
+}
+
+
+//   complete(new ErrorPosValue(src, ScriptError::Internal, "XXX not yet implemented"));
+
+
+
+
+void SourceProcessor::s_complete()
 {
   complete(result);
 }
@@ -1680,13 +1908,20 @@ void SourceProcessor::memberByIndex(size_t aIndex)
 }
 
 
+void SourceProcessor::newFunctionCallContext()
+{
+  result.reset(); // base class cannot execute functions
+  done();
+}
+
+
 void SourceProcessor::pushFunctionArgument(ScriptObjPtr aArgument)
 {
   done(); // NOP on the base class level
 }
 
 
-void SourceProcessor::evaluate()
+void SourceProcessor::execute()
 {
   result.reset(); // base class cannot evaluate
   done();
@@ -1728,15 +1963,17 @@ ScriptObjPtr ScriptCompiler::compile(SourceContainerPtr aSource, EvaluationFlags
   // set up starting point
   if ((aParsingMode & source)==0) {
     // Shortcut for expression and scriptbody: no need to "compile"
-    bodyRef = aSource->getRef();
+    bodyRef = aSource->getCursor();
   }
   else {
     // could contain declarations, must scan these now
     // FIXME: the scan process must detect the first body statement and adjust bodyRef!
-    bodyRef = aSource->getRef(); // FIXME: test only
-    initProcessing(aSource->getRef(), aParsingMode);
+    bodyRef = aSource->getCursor(); // FIXME: test only
+    setCursor(aSource->getCursor());
+    initProcessing(aParsingMode);
     bool completed = false;
-    start(boost::bind(&flagSetter,&completed));
+    setCompletedCB(boost::bind(&flagSetter,&completed));
+    start();
     if (!completed) {
       // the compiler must complete synchronously!
       return new ErrorValue(ScriptError::Internal, "Fatal: compiler execution not synchronous!");
@@ -1748,14 +1985,9 @@ ScriptObjPtr ScriptCompiler::compile(SourceContainerPtr aSource, EvaluationFlags
 
 // MARK: - SourceContainer
 
-SourceCursor SourceContainer::getRef()
+SourceCursor SourceContainer::getCursor()
 {
-  // FIXME: refactor!
-  SourcePos c(source);
-  SourceCursor sr;
-  sr.source = this;
-  sr.pos = c;
-  return sr;
+  return SourceCursor(this);
 }
 
 
@@ -1845,7 +2077,7 @@ void ScriptSource::run(EvaluationCB aEvaluationCB)
   if (code && code->hasType(executable)) {
     ExecutionContextPtr ctx = code->contextForCallingFrom(scriptingDomain);
     if (ctx) {
-      ctx->evaluate(code, scriptbody, aEvaluationCB);
+      ctx->execute(code, scriptbody+regular, aEvaluationCB);
       return;
     }
     // cannot evaluate due to missing context
@@ -1869,16 +2101,13 @@ ScriptMainContextPtr ScriptingDomain::newContext(ScriptObjPtr aInstanceObj)
 
 // MARK: - ScriptCodeThread
 
-ScriptCodeThread::ScriptCodeThread(ScriptCodeContextPtr aOwner, const SourceCursor aSourceRef) :
+ScriptCodeThread::ScriptCodeThread(ScriptCodeContextPtr aOwner, const SourceCursor& aStartCursor) :
   owner(aOwner),
-  pc(aSourceRef),
   maxBlockTime(0),
   maxRunTime(Infinite),
-  runningSince(Never),
-  aborted(false),
-  resuming(false),
-  resumed(false)
+  runningSince(Never)
 {
+  setCursor(aStartCursor);
 }
 
 
@@ -1890,8 +2119,8 @@ void ScriptCodeThread::prepareRun(
   MLMicroSeconds aMaxRunTime
 )
 {
-  terminationCB = aTerminationCB;
-  evaluationFlags = aEvalFlags;
+  setCompletedCB(aTerminationCB);
+  initProcessing(aEvalFlags);
   maxBlockTime = aMaxBlockTime;
   maxRunTime = aMaxRunTime;
 }
@@ -1900,18 +2129,13 @@ void ScriptCodeThread::prepareRun(
 void ScriptCodeThread::run()
 {
   runningSince = MainLoop::now();
-  // FIXME: clear the stack
-  // FIXME: setup initial state (body/function/expression)
-  resume();
+  start();
 }
 
 
 void ScriptCodeThread::abort(ScriptObjPtr aAbortResult)
 {
-  if (aAbortResult) {
-    result = aAbortResult;
-  }
-  aborted = true; // signal end at next resume()
+  inherited::abort(aAbortResult);
   if (childContext) {
     // abort the child context and let it pass its abort result up the chain
     childContext->abort(stopall, aAbortResult); // will call resume() via its callback
@@ -1922,96 +2146,131 @@ void ScriptCodeThread::abort(ScriptObjPtr aAbortResult)
 }
 
 
-void ScriptCodeThread::endThread()
+void ScriptCodeThread::complete(ScriptObjPtr aFinalResult)
 {
-  if (terminationCB) {
-    autoResumeTicket.cancel();
-    EvaluationCB cb = terminationCB;
-    terminationCB = NULL;
-    cb(result);
-  }
+  autoResumeTicket.cancel();
+  inherited::complete(aFinalResult);
   owner->threadTerminated(this);
 }
 
 
-// This static method can be passed to timers and makes sure that "this" is kept alive by the callback
-// boost::bind object because it is a smart pointer argument
-void ScriptCodeThread::selfKeepingResume(ScriptCodeThreadPtr aThread)
+void ScriptCodeThread::stepLoop()
 {
-  aThread->resume();
-}
-
-
-void ScriptCodeThread::resume(ScriptObjPtr aResult)
-{
-  // Store latest result, if any (resuming with NULL pointer does not change the result)
-  if (aResult) {
-    result = aResult;
-  }
-  // Am I getting called from a chain of calls originating from
-  // myself via step() in the execution loop below?
-  if (resuming) {
-    // YES: avoid creating an endless call chain recursively
-    resumed = true; // flag having resumed already to allow looping below
-    return; // but now let chain of calls wind down to our last call (originating from step() in the loop)
-  }
-  // NO: this is a real re-entry
-  // - start running the loop
-  resuming = true; // now actually start resuming
   MLMicroSeconds loopingSince = MainLoop::now();
   do {
     MLMicroSeconds now = MainLoop::now();
     // check for abort
-    if (aborted) {
-      result = new ErrorPosValue(pc, ScriptError::Aborted, "Aborted script code");
-      endThread();
-      return;
-    }
     // Check maximum execution time
     if (maxRunTime!=Infinite && now-runningSince) {
       // Note: not calling abort as we are WITHIN the call chain
-      result = new ErrorPosValue(pc, ScriptError::Timeout, "Aborted because of overall execution limit");
-      endThread();
+      complete(new ErrorPosValue(src, ScriptError::Timeout, "Aborted because of overall execution limit"));
       return;
     }
     else if (maxBlockTime!=Infinite && now-loopingSince>maxBlockTime) {
       // time expired
       if (evaluationFlags & synchronously) {
         // Note: not calling abort as we are WITHIN the call chain
-        result = new ErrorPosValue(pc, ScriptError::Timeout, "Aborted because of synchronous execution limit");
-        endThread();
+        complete(new ErrorPosValue(src, ScriptError::Timeout, "Aborted because of synchronous execution limit"));
         return;
       }
-      // in an async script, just give mainloop time to do other things for a while
-      autoResumeTicket.executeOnce(boost::bind(&selfKeepingResume, this), 2*maxBlockTime);
+      // in an async script, just give mainloop time to do other things for a while (but do not change result)
+      autoResumeTicket.executeOnce(boost::bind(&selfKeepingResume, this, ScriptObjPtr()), 2*maxBlockTime);
+      return;
     }
     // run next statemachine step
     resumed = false; // start of a new
     step(); // will cause resumed to be set when resume() is called in this call's chain
     // repeat as long as we are already resumed
-  } while(resumed);
-  // not resumed in the current chain of calls, resume will be called from
-  // an independent call site later -> re-enable normal processing
-  resuming = false;
+  } while(resumed && !aborted);
 }
 
 
-void ScriptCodeThread::step()
+void ScriptCodeThread::done()
 {
   if (result && result->hasType(error)) {
     if (result->errorValue()->getErrorCode()>=ScriptError::FatalErrors) {
       // just end the thread unconditionally
-      endThread();
+      complete(result);
+      return;
     }
     else {
       // TODO: walk back the stack and look for a catch()
-      endThread(); // FIXME: for now, we just terminate as well
+      complete(result); // FIXME: for now, we just terminate as well
+      return;
     }
   }
-  // result is fine for continuing normal processing
-  // FIXME: %%% Test only, always return dummy for now
-  result = new StringValue("DUMMY evaluation result");
-  endThread();
+  resume();
+}
+
+
+void ScriptCodeThread::memberByIdentifier()
+{
+  if (result) {
+    // look up member of the result itself
+    result = result->memberByName(identifier);
+  }
+  else {
+    // context level
+    result = owner->memberByName(identifier);
+  }
+  done();
+}
+
+/// must retrieve the indexed member from current result (or from the script scope if result==NULL)
+/// @note must call done() when result contains the member (or NULL if not found)
+void ScriptCodeThread::memberByIndex(size_t aIndex)
+{
+  if (result) {
+    // look up member of the result itself
+    result = result->memberAtIndex(aIndex);
+  }
+  // no indexed members at the context level!
+  done();
+}
+
+
+void ScriptCodeThread::newFunctionCallContext()
+{
+  if (result) {
+    funcCallContext = result->contextForCallingFrom(owner->scriptmain());
+  }
+  if (!funcCallContext) {
+    string f = result ? result->getIdentifier() : "undefined";
+    result = new ErrorPosValue(src, ScriptError::NotCallable, "'%s' is not a function", f.c_str());
+  }
+  done();
+}
+
+
+/// apply the specified argument to the current result
+void ScriptCodeThread::pushFunctionArgument(ScriptObjPtr aArgument)
+{
+  if (funcCallContext) {
+    ErrorPtr err = funcCallContext->checkAndSetArgument(aArgument, funcCallContext->numIndexedMembers(), result);
+    if (Error::notOK(err)) result = new ErrorPosValue(src, err);
+  }
+  done();
+}
+
+
+/// evaluate the current result and replace it with the output from the evaluation (e.g. function call)
+void ScriptCodeThread::execute()
+{
+  if (funcCallContext && result) {
+    // check for missing arguments after those we have
+    ErrorPtr err = funcCallContext->checkAndSetArgument(ScriptObjPtr(), funcCallContext->numIndexedMembers(), result);
+    if (Error::notOK(err)) {
+      result = new ErrorPosValue(src, err);
+      done();
+    }
+    else {
+      funcCallContext->execute(result, evaluationFlags, boost::bind(&ScriptCodeThread::selfKeepingResume, this, _1));
+    }
+    // function call completion will call resume
+    return;
+  }
+  result = new ErrorPosValue(src, ScriptError::Internal, "cannot execute object");
+  done();
 }
 
 
@@ -2034,7 +2293,7 @@ namespace BuiltinFunctions {
 
 
 // ifvalid(a, b)   if a is a valid value, return it, otherwise return the default as specified by b
-static const ArgumentDescriptor ifvalid_args[] = { { any }, { any } };
+static const ArgumentDescriptor ifvalid_args[] = { { any+null }, { any+null } };
 static const size_t ifvalid_numargs = sizeof(ifvalid_args)/sizeof(ArgumentDescriptor);
 static void ifvalid_func(BuiltinFunctionContextPtr f)
 {
@@ -2042,7 +2301,7 @@ static void ifvalid_func(BuiltinFunctionContextPtr f)
 }
 
 // isvalid(a)      if a is a valid value, return true, otherwise return false
-static const ArgumentDescriptor isvalid_args[] = { { any } };
+static const ArgumentDescriptor isvalid_args[] = { { any+null } };
 static const size_t isvalid_numargs = sizeof(isvalid_args)/sizeof(ArgumentDescriptor);
 static void isvalid_func(BuiltinFunctionContextPtr f)
 {
@@ -2051,7 +2310,7 @@ static void isvalid_func(BuiltinFunctionContextPtr f)
 
 
 // if (c, a, b)    if c evaluates to true, return a, otherwise b
-static const ArgumentDescriptor if_args[] = { { value }, { any }, { any } };
+static const ArgumentDescriptor if_args[] = { { value+null }, { any+null }, { any+null } };
 static const size_t if_numargs = sizeof(if_args)/sizeof(ArgumentDescriptor);
 static void if_func(BuiltinFunctionContextPtr f)
 {
@@ -2059,7 +2318,7 @@ static void if_func(BuiltinFunctionContextPtr f)
 }
 
 // abs (a)         absolute value of a
-static const ArgumentDescriptor abs_args[] = { { value+undefres } };
+static const ArgumentDescriptor abs_args[] = { { scalar+undefres } };
 static const size_t abs_numargs = sizeof(abs_args)/sizeof(ArgumentDescriptor);
 static void abs_func(BuiltinFunctionContextPtr f)
 {
@@ -2068,7 +2327,7 @@ static void abs_func(BuiltinFunctionContextPtr f)
 
 
 // int (a)         integer value of a
-static const ArgumentDescriptor int_args[] = { { value+undefres } };
+static const ArgumentDescriptor int_args[] = { { scalar+undefres } };
 static const size_t int_numargs = sizeof(int_args)/sizeof(ArgumentDescriptor);
 static void int_func(BuiltinFunctionContextPtr f)
 {
@@ -2077,7 +2336,7 @@ static void int_func(BuiltinFunctionContextPtr f)
 
 
 // frac (a)         fractional value of a
-static const ArgumentDescriptor frac_args[] = { { value+undefres } };
+static const ArgumentDescriptor frac_args[] = { { scalar+undefres } };
 static const size_t frac_numargs = sizeof(frac_args)/sizeof(ArgumentDescriptor);
 static void frac_func(BuiltinFunctionContextPtr f)
 {
@@ -2087,7 +2346,7 @@ static void frac_func(BuiltinFunctionContextPtr f)
 
 // round (a)       round value to integer
 // round (a, p)    round value to specified precision (1=integer, 0.5=halves, 100=hundreds, etc...)
-static const ArgumentDescriptor round_args[] = { { value+undefres }, { numeric+optional } };
+static const ArgumentDescriptor round_args[] = { { scalar+undefres }, { numeric+optional } };
 static const size_t round_numargs = sizeof(round_args)/sizeof(ArgumentDescriptor);
 static void round_func(BuiltinFunctionContextPtr f)
 {
@@ -2110,7 +2369,7 @@ static void random_func(BuiltinFunctionContextPtr f)
 
 
 // min (a, b)    return the smaller value of a and b
-static const ArgumentDescriptor min_args[] = { { value+undefres }, { value+undefres } };
+static const ArgumentDescriptor min_args[] = { { scalar+undefres }, { value+undefres } };
 static const size_t min_numargs = sizeof(min_args)/sizeof(ArgumentDescriptor);
 static void min_func(BuiltinFunctionContextPtr f)
 {
@@ -2120,7 +2379,7 @@ static void min_func(BuiltinFunctionContextPtr f)
 
 
 // max (a, b)    return the bigger value of a and b
-static const ArgumentDescriptor max_args[] = { { value+undefres }, { value+undefres } };
+static const ArgumentDescriptor max_args[] = { { scalar+undefres }, { value+undefres } };
 static const size_t max_numargs = sizeof(max_args)/sizeof(ArgumentDescriptor);
 static void max_func(BuiltinFunctionContextPtr f)
 {
@@ -2130,7 +2389,7 @@ static void max_func(BuiltinFunctionContextPtr f)
 
 
 // limited (x, a, b)    return min(max(x,a),b), i.e. x limited to values between and including a and b
-static const ArgumentDescriptor limited_args[] = { { value+undefres }, { numeric }, { numeric } };
+static const ArgumentDescriptor limited_args[] = { { scalar+undefres }, { numeric }, { numeric } };
 static const size_t limited_numargs = sizeof(limited_args)/sizeof(ArgumentDescriptor);
 static void limited_func(BuiltinFunctionContextPtr f)
 {
@@ -2141,7 +2400,7 @@ static void limited_func(BuiltinFunctionContextPtr f)
 
 
 // cyclic (x, a, b)    return x with wraparound into range a..b (not including b because it means the same thing as a)
-static const ArgumentDescriptor cyclic_args[] = { { value+undefres }, { numeric }, { numeric } };
+static const ArgumentDescriptor cyclic_args[] = { { scalar+undefres }, { numeric }, { numeric } };
 static const size_t cyclic_numargs = sizeof(cyclic_args)/sizeof(ArgumentDescriptor);
 static void cyclic_func(BuiltinFunctionContextPtr f)
 {
@@ -2155,7 +2414,7 @@ static void cyclic_func(BuiltinFunctionContextPtr f)
 
 
 // string(anything)
-static const ArgumentDescriptor string_args[] = { { any } };
+static const ArgumentDescriptor string_args[] = { { any+null } };
 static const size_t string_numargs = sizeof(string_args)/sizeof(ArgumentDescriptor);
 static void string_func(BuiltinFunctionContextPtr f)
 {
@@ -2167,7 +2426,7 @@ static void string_func(BuiltinFunctionContextPtr f)
 
 
 // number(anything)
-static const ArgumentDescriptor number_args[] = { { any } };
+static const ArgumentDescriptor number_args[] = { { any+null } };
 static const size_t number_numargs = sizeof(number_args)/sizeof(ArgumentDescriptor);
 static void number_func(BuiltinFunctionContextPtr f)
 {
@@ -2176,7 +2435,7 @@ static void number_func(BuiltinFunctionContextPtr f)
 
 
 // copy(anything) // make a value copy, including json object references
-static const ArgumentDescriptor copy_args[] = { { any } };
+static const ArgumentDescriptor copy_args[] = { { any+null } };
 static const size_t copy_numargs = sizeof(copy_args)/sizeof(ArgumentDescriptor);
 static void copy_func(BuiltinFunctionContextPtr f)
 {
@@ -2196,7 +2455,7 @@ static void copy_func(BuiltinFunctionContextPtr f)
 #if SCRIPTING_JSON_SUPPORT
 
 // json(anything)
-static const ArgumentDescriptor json_args[] = { { any } };
+static const ArgumentDescriptor json_args[] = { { any+null } };
 static const size_t json_numargs = sizeof(json_args)/sizeof(ArgumentDescriptor);
 static void json_func(BuiltinFunctionContextPtr f)
 {
@@ -2206,7 +2465,7 @@ static void json_func(BuiltinFunctionContextPtr f)
 
 // TODO: jsonvalue should have writable member access
 //  // bool setfield(var, fieldname, value)
-//  static const ArgumentDescriptor setfield_args[] = { { any } };
+//  static const ArgumentDescriptor setfield_args[] = { { any+null } };
 //  static const size_t setfield_numargs = sizeof(setfield_args)/sizeof(ArgumentDescriptor);
 //  static void setfield_func(BuiltinFunctionContextPtr f)
 //  {
@@ -2221,7 +2480,7 @@ static void json_func(BuiltinFunctionContextPtr f)
 //
 //
 //  // bool setelement(var, index, value) // set
-//  static const ArgumentDescriptor setelement_args[] = { { any } };
+//  static const ArgumentDescriptor setelement_args[] = { { any+null } };
 //  static const size_t setelement_numargs = sizeof(setelement_args)/sizeof(ArgumentDescriptor);
 //  static void setelement_func(BuiltinFunctionContextPtr f)
 //  {
@@ -2260,7 +2519,7 @@ static void jsonresource_func(BuiltinFunctionContextPtr f)
 
 
 // lastarg(expr, expr, exprlast)
-static const ArgumentDescriptor lastarg_args[] = { { any+multiple, "side-effect" } };
+static const ArgumentDescriptor lastarg_args[] = { { any+null+multiple, "side-effect" } };
 static const size_t lastarg_numargs = sizeof(lastarg_args)/sizeof(ArgumentDescriptor);
 static void lastarg_func(BuiltinFunctionContextPtr f)
 {
@@ -2355,7 +2614,7 @@ static void format_func(BuiltinFunctionContextPtr f)
 
 
 // error(value)       - create a user error value with the string value of value as errormessage, in all cases, even if value is already an error
-static const ArgumentDescriptor error_args[] = { { any } };
+static const ArgumentDescriptor error_args[] = { { any+null } };
 static const size_t error_numargs = sizeof(error_args)/sizeof(ArgumentDescriptor);
 static void error_func(BuiltinFunctionContextPtr f)
 {
@@ -2423,7 +2682,7 @@ static void errormessage_func(BuiltinFunctionContextPtr f)
 
 
 // eval(string, [args...])    have string executed as script code, with access to optional args as arg0, arg1, argN...
-static const ArgumentDescriptor eval_args[] = { { text+executable }, { any+multiple } };
+static const ArgumentDescriptor eval_args[] = { { text+executable }, { any+null+multiple } };
 static const size_t eval_numargs = sizeof(eval_args)/sizeof(ArgumentDescriptor);
 static void eval_func(BuiltinFunctionContextPtr f)
 {
@@ -2447,7 +2706,7 @@ static void eval_func(BuiltinFunctionContextPtr f)
       ctx->setMemberAtIndex(i-1, f->arg(i-1), string_format("arg%lu", i-1));
     }
     // evaluate
-    ctx->evaluate(evalcode, scriptbody, boost::bind(&BuiltinFunctionContext::finish, f, _1));
+    ctx->execute(evalcode, scriptbody, boost::bind(&BuiltinFunctionContext::finish, f, _1));
   }
 }
 
@@ -2690,7 +2949,7 @@ static void epochtime_func(BuiltinFunctionContextPtr f)
   MainLoop::getLocalTime(loctim, &fracSecs, t);
 
 // common argument descriptor for all time funcs
-static const ArgumentDescriptor timegetter_args[] = { { numeric+null } };
+static const ArgumentDescriptor timegetter_args[] = { { numeric+optional } };
 static const size_t timegetter_numargs = sizeof(timegetter_args)/sizeof(ArgumentDescriptor);
 
 // timeofday([epochtime])
