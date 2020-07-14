@@ -68,8 +68,8 @@ namespace p44 { namespace Script {
   class ScriptCodeThread;
   typedef boost::intrusive_ptr<ScriptCodeThread> ScriptCodeThreadPtr;
 
-  class CodeCursor;
-  class SourceRef;
+  class SourcePos;
+  class SourceCursor;
   class SourceContainer;
   typedef boost::intrusive_ptr<SourceContainer> SourceContainerPtr;
   class ScriptSource;
@@ -747,26 +747,42 @@ namespace p44 { namespace Script {
   } ScriptOperator;
 
 
-  /// position within a source text contained elsewhere
-  /// provides basic code scanning that does not produce any values or errors
-  #warning refactor!!
-  // FIXME: refactor all methods into SourceRef, codecursor only to get a marker
-  class CodeCursor
+  /// opaque position object within a source text contained elsewhere
+  /// only SourceRef may access it
+  class SourcePos
   {
-    friend class SourceRef;
+    friend class SourceCursor;
 
     const char* ptr; ///< pointer to current position in the source text
     const char* bol; ///< pointer to beginning of current line
     const char* eot; ///< pointer to where the text ends (0 char or not)
     size_t line; ///< line number
   public:
-    CodeCursor(const char* aText, size_t aLen);
-    CodeCursor(const string &aText);
-    CodeCursor(const CodeCursor &aCursor);
-    CodeCursor();
+    SourcePos(const char* aText, size_t aLen);
+    SourcePos(const string &aText);
+    SourcePos(const SourcePos &aCursor);
+    SourcePos();
+  };
+
+
+  /// refers to a part of a source text, retains the container the source lives in
+  /// provides basic element parsing generating values and possibly errors referring to
+  /// the position they occur (and also retaining that source as long as the error lives)
+  class SourceCursor
+  {
+  public:
+    SourceContainerPtr source; ///< the source containing the string we're pointing to
+    SourcePos pos; ///< the position within the source
+
+    bool refersTo(SourceContainerPtr aSource) const { return source==aSource; } ///< check if this sourceref refers to a particular source
+
     // info
     size_t lineno() const; ///< 0-based line counter
     size_t charpos() const; ///< 0-based character offset
+
+    /// @name source text access and parsing utilities
+    /// @{
+
     // access
     char c(size_t aOffset=0) const; ///< @return character at offset from current position, 0 if none
     size_t charsleft() const; ///< @return number of chars to end of code
@@ -779,45 +795,33 @@ namespace p44 { namespace Script {
 //    const char* checkForIdentifier(size_t& aLen); ///< check for identifier, @return pointer to identifier or NULL if none
     bool parseIdentifier(string& aIdentifier, size_t* aIdentifierLenP = NULL); ///< @return true if identifier found, stored in aIndentifier and cursor advanced
     ScriptOperator parseOperator(); ///< @return operator or op_none, advances cursor on success
-  };
 
-
-  /// refers to a part of a source text, retains the container the source lives in
-  /// provides basic element parsing generating values and possibly errors referring to
-  /// the position they occur (and also retaining that source as long as the error lives)
-  class SourceRef
-  {
-  public:
-    SourceContainerPtr source; ///< the source containing the string we're pointing to
-    CodeCursor pos; ///< the position within the source
-
-    bool refersTo(SourceContainerPtr aSource) const { return source==aSource; } ///< check if this sourceref refers to a particular source
-
-    // parsing
     ScriptObjPtr parseNumericLiteral(); ///< @return numeric or error, advances cursor on success
     ScriptObjPtr parseStringLiteral(); ///< @return string or error, advances cursor on success
     ScriptObjPtr parseCodeLiteral(); ///< @return executable or error, advances cursor on success
     #if SCRIPTING_JSON_SUPPORT
     ScriptObjPtr parseJSONLiteral(); ///< @return string or error, advances cursor on success
     #endif
+
+    /// @}
   };
 
 
   class ErrorPosValue : public ErrorValue
   {
     typedef ErrorValue inherited;
-    SourceRef srcRef;
+    SourceCursor cursor;
   public:
-    ErrorPosValue(const SourceRef &aSrcRef, ErrorPtr aError) : inherited(aError), srcRef(aSrcRef) {};
-    ErrorPosValue(const SourceRef &aSrcRef, ScriptError::ErrorCodes aErrCode, const char *aFmt, ...);
-    void setSourceRef(const SourceRef &aSrcRef) { srcRef = aSrcRef; };
+    ErrorPosValue(const SourceCursor &aCursor, ErrorPtr aError) : inherited(aError), cursor(aCursor) {};
+    ErrorPosValue(const SourceCursor &aCursor, ScriptError::ErrorCodes aErrCode, const char *aFmt, ...);
+    void setSourceRef(const SourceCursor &aCursor) { cursor = aCursor; };
   };
 
 
   /// the actual script source text, shared among ScriptSource and possibly multiple SourceRefs
   class SourceContainer : public P44Obj
   {
-    friend class SourceRef;
+    friend class SourceCursor;
     friend class ScriptSource;
     friend class CompiledScript;
     friend class CompiledFunction;
@@ -829,7 +833,7 @@ namespace p44 { namespace Script {
   public:
     SourceContainer(const char *aOriginLabel, P44LoggingObj* aLoggingContextP, const string aSource) : originLabel(aOriginLabel), source(aSource) {};
     // get a reference to this source code
-    SourceRef getRef();
+    SourceCursor getRef();
   };
 
 
@@ -915,9 +919,9 @@ namespace p44 { namespace Script {
     SourceProcessor() : nextState(NULL), skipping(false) {};
 
     /// prepare processing
-    /// @param aSrcRef the source (part) to process
+    /// @param aCursor the source (part) to process
     /// @param aStartFlags at what level to start (script, body, expression)
-    void initProcessing(const SourceRef& aSrcRef, EvaluationFlags aStartFlags);
+    void initProcessing(const SourceCursor& aCursor, EvaluationFlags aStartFlags);
 
     /// start processing
     /// @param aDoneCB will be called when process synchronously or asynchronously ends
@@ -975,7 +979,7 @@ namespace p44 { namespace Script {
     typedef void (SourceProcessor::*StateHandler)(void);
 
     // state that can be pushed
-    SourceRef src; ///< the scanning position within code
+    SourceCursor src; ///< the scanning position within code
     StateHandler nextState; ///< next state to call
     ScriptObjPtr result; ///< the current result object
     ScriptObjPtr poppedResult; ///< last result popped from stack
@@ -991,7 +995,7 @@ namespace p44 { namespace Script {
     class StackFrame {
     public:
       StackFrame(
-        CodeCursor& aPos,
+        SourcePos& aPos,
         bool aSkipping,
         StateHandler aReturnToState,
         ScriptObjPtr aResult
@@ -1001,7 +1005,7 @@ namespace p44 { namespace Script {
         returnToState(aReturnToState),
         result(aResult)
       {}
-      CodeCursor pos; ///< scanning position
+      SourcePos pos; ///< scanning position
       bool skipping; ///< set if only skipping code, not evaluating
       StateHandler returnToState; ///< next state to run after pop
       ScriptObjPtr result; ///< the current result object
@@ -1113,12 +1117,12 @@ namespace p44 { namespace Script {
     friend class ScriptCodeContext;
 
   protected:
-    SourceRef srcRef; ///< reference to the source part from which this object originates from
+    SourceCursor cursor; ///< reference to the source part from which this object originates from
 
   public:
-    CompiledFunction(const SourceRef& aSrcRef) : srcRef(aSrcRef) {};
-    virtual bool originatesFrom(SourceContainerPtr aSource) const P44_OVERRIDE { return srcRef.refersTo(aSource); };
-    virtual P44LoggingObj* loggingContext() const P44_OVERRIDE { return srcRef.source ? srcRef.source->loggingContextP : NULL; };
+    CompiledFunction(const SourceCursor& aCursor) : cursor(aCursor) {};
+    virtual bool originatesFrom(SourceContainerPtr aSource) const P44_OVERRIDE { return cursor.refersTo(aSource); };
+    virtual P44LoggingObj* loggingContext() const P44_OVERRIDE { return cursor.source ? cursor.source->loggingContextP : NULL; };
 
     /// get subroutine context to call this object as a subroutine/function call from a given context
     /// @param aMainContext the context from where this function is now called (the same function can be called
@@ -1135,7 +1139,7 @@ namespace p44 { namespace Script {
 
     ScriptMainContextPtr mainContext; ///< the main context this script should execute in
 
-    CompiledScript(const SourceRef& aSrcRef, ScriptMainContextPtr aMainContext) : inherited(aSrcRef), mainContext(aMainContext) {};
+    CompiledScript(const SourceCursor& aCursor, ScriptMainContextPtr aMainContext) : inherited(aCursor), mainContext(aMainContext) {};
 
   public:
 
@@ -1154,7 +1158,7 @@ namespace p44 { namespace Script {
     typedef SourceProcessor inherited;
 
     ScriptingDomainPtr domain; ///< the domain to store compiled functions and handlers
-    SourceRef bodyRef; ///< where the script body starts
+    SourceCursor bodyRef; ///< where the script body starts
 
   public:
 
@@ -1172,7 +1176,7 @@ namespace p44 { namespace Script {
 
   protected:
 
-    // TODO: CompiledCodePtr compilePart(const SourceRef& aSrcRef);
+    // TODO: CompiledCodePtr compilePart(const SourceRef& aCursor);
 
   };
 
@@ -1207,7 +1211,7 @@ namespace p44 { namespace Script {
     ExecutionContextPtr childContext; ///< set during calls to other contexts, e.g. to propagate abort()
     MLTicket autoResumeTicket; ///< auto-resume ticket
 
-    SourceRef pc; ///< the "program counter"
+    SourceCursor pc; ///< the "program counter"
     ScriptObjPtr result; ///< current result
     bool aborted; ///< if set when entering continueThread, the thread will immediately end
     bool resuming; ///< detector for resume calling itself (synchronous execution)
@@ -1217,7 +1221,7 @@ namespace p44 { namespace Script {
 
     /// @param aOwner the context which owns this thread and will be notified when it ends
     /// @param aSourceRef the start point for the script
-    ScriptCodeThread(ScriptCodeContextPtr aOwner, const SourceRef aSourceRef);
+    ScriptCodeThread(ScriptCodeContextPtr aOwner, const SourceCursor aSourceRef);
 
     /// prepare for running
     /// @param aTerminationCB will be called to deliver when the thread ends

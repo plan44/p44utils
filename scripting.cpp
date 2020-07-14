@@ -274,7 +274,7 @@ ErrorValue::ErrorValue(ScriptError::ErrorCodes aErrCode, const char *aFmt, ...)
 }
 
 
-ErrorPosValue::ErrorPosValue(const SourceRef &aSrcRef, ScriptError::ErrorCodes aErrCode, const char *aFmt, ...) :
+ErrorPosValue::ErrorPosValue(const SourceCursor &aCursor, ScriptError::ErrorCodes aErrCode, const char *aFmt, ...) :
   inherited(new ScriptError(aErrCode))
 {
   va_list args;
@@ -662,7 +662,7 @@ void ScriptCodeContext::evaluate(ScriptObjPtr aToEvaluate, EvaluationFlags aEval
   // prepare a thread for executing now or later
   // Note: thread gets an owning Ptr back to this, so this context cannot be destructed before all
   //   threads have ended.
-  ScriptCodeThreadPtr newThread = ScriptCodeThreadPtr(new ScriptCodeThread(this, code->srcRef));
+  ScriptCodeThreadPtr newThread = ScriptCodeThreadPtr(new ScriptCodeThread(this, code->cursor));
   newThread->prepareRun(aEvaluationCB, aEvalFlags /* FIXME: also pass timing params */);
   // now check how and when to run it
   if (!threads.empty()) {
@@ -912,7 +912,7 @@ void BuiltinFunctionContext::finish(ScriptObjPtr aResult)
 // MARK: - CodeCursor
 
 
-CodeCursor::CodeCursor() :
+SourcePos::SourcePos() :
   ptr(NULL),
   bol(NULL),
   eot(NULL),
@@ -921,7 +921,7 @@ CodeCursor::CodeCursor() :
 }
 
 
-CodeCursor::CodeCursor(const char* aText, size_t aLen) :
+SourcePos::SourcePos(const char* aText, size_t aLen) :
   ptr(aText),
   bol(aText),
   eot(aText+aLen),
@@ -930,7 +930,7 @@ CodeCursor::CodeCursor(const char* aText, size_t aLen) :
 }
 
 
-CodeCursor::CodeCursor(const string &aText) :
+SourcePos::SourcePos(const string &aText) :
   ptr(aText.c_str()),
   bol(aText.c_str()),
   eot(ptr+aText.size()),
@@ -939,7 +939,7 @@ CodeCursor::CodeCursor(const string &aText) :
 }
 
 
-CodeCursor::CodeCursor(const CodeCursor &aCursor) :
+SourcePos::SourcePos(const SourcePos &aCursor) :
   ptr(aCursor.ptr),
   bol(aCursor.ptr),
   eot(aCursor.ptr),
@@ -948,53 +948,53 @@ CodeCursor::CodeCursor(const CodeCursor &aCursor) :
 }
 
 
-size_t CodeCursor::lineno() const
+size_t SourceCursor::lineno() const
 {
-  return line;
+  return pos.line;
 }
 
 
-size_t CodeCursor::charpos() const
+size_t SourceCursor::charpos() const
 {
-  if (!ptr || !bol) return 0;
-  return ptr-bol;
+  if (!pos.ptr || !pos.bol) return 0;
+  return pos.ptr-pos.bol;
 }
 
 
-char CodeCursor::c(size_t aOffset) const
+char SourceCursor::c(size_t aOffset) const
 {
-  if (!ptr || ptr+aOffset>=eot) return 0;
-  return *(ptr+aOffset);
+  if (!pos.ptr || pos.ptr+aOffset>=pos.eot) return 0;
+  return *(pos.ptr+aOffset);
 }
 
 
-size_t CodeCursor::charsleft() const
+size_t SourceCursor::charsleft() const
 {
-  return ptr ? eot-ptr : 0;
+  return pos.ptr ? pos.eot-pos.ptr : 0;
 }
 
 
-bool CodeCursor::EOT()
+bool SourceCursor::EOT()
 {
-  return !ptr || ptr>=eot || *ptr==0;
+  return !pos.ptr || pos.ptr>=pos.eot || *pos.ptr==0;
 }
 
 
-bool CodeCursor::next()
+bool SourceCursor::next()
 {
   if (EOT()) return false;
-  if (*ptr=='\n') {
-    line++; // count line
-    bol = ++ptr;
+  if (*pos.ptr=='\n') {
+    pos.line++; // count line
+    pos.bol = ++pos.ptr;
   }
   else {
-    ptr++;
+    pos.ptr++;
   }
   return true; // could advance the pointer, does not mean there is anything here, though.
 }
 
 
-bool CodeCursor::advance(size_t aNumChars)
+bool SourceCursor::advance(size_t aNumChars)
 {
   while(aNumChars>0) {
     if (!next()) return false;
@@ -1004,7 +1004,7 @@ bool CodeCursor::advance(size_t aNumChars)
 }
 
 
-bool CodeCursor::nextIf(char aChar)
+bool SourceCursor::nextIf(char aChar)
 {
   if (c()==aChar) {
     next();
@@ -1015,9 +1015,9 @@ bool CodeCursor::nextIf(char aChar)
 
 
 
-void CodeCursor::skipNonCode()
+void SourceCursor::skipNonCode()
 {
-  if (!ptr) return;
+  if (!pos.ptr) return;
   bool recheck;
   do {
     recheck = false;
@@ -1058,7 +1058,7 @@ void CodeCursor::skipNonCode()
 //  }
 
 
-bool CodeCursor::parseIdentifier(string& aIdentifier, size_t* aIdentifierLenP)
+bool SourceCursor::parseIdentifier(string& aIdentifier, size_t* aIdentifierLenP)
 {
   if (EOT()) return false;
   size_t o = 0; // offset
@@ -1066,14 +1066,14 @@ bool CodeCursor::parseIdentifier(string& aIdentifier, size_t* aIdentifierLenP)
   // is identifier
   o++;
   while (c(o) && (isalnum(c(o)) || c(o)=='_')) o++;
-  aIdentifier.assign(ptr, o);
+  aIdentifier.assign(pos.ptr, o);
   if (aIdentifierLenP) *aIdentifierLenP = o; // return length, keep cursor at beginning
-  else ptr += o; // advance
+  else pos.ptr += o; // advance
   return true;
 }
 
 
-ScriptOperator CodeCursor::parseOperator()
+ScriptOperator SourceCursor::parseOperator()
 {
   skipNonCode();
   // check for operator
@@ -1136,7 +1136,7 @@ ScriptOperator CodeCursor::parseOperator()
 }
 
 
-ScriptObjPtr SourceRef::parseNumericLiteral()
+ScriptObjPtr SourceCursor::parseNumericLiteral()
 {
   double num;
   int o;
@@ -1149,8 +1149,8 @@ ScriptObjPtr SourceRef::parseNumericLiteral()
     // check for time/date literals
     // - time literals (returned in seconds) are in the form h:m or h:m:s, where all parts are allowed to be fractional
     // - month/day literals (returned in yeardays) are in the form dd.monthname or dd.mm. (mid the closing dot)
-    if (pos.c(o)) {
-      if (pos.c(o)==':') {
+    if (c(o)) {
+      if (c(o)==':') {
         // we have 'v:', could be time
         double t; int i;
         if (sscanf(pos.ptr+o+1, "%lf%n", &t, &i)!=1) {
@@ -1160,7 +1160,7 @@ ScriptObjPtr SourceRef::parseNumericLiteral()
           o += i+1; // past : and consumation of sscanf
           // we have v:t, take these as hours and minutes
           num = (num*60+t)*60; // in seconds
-          if (pos.c(o)==':') {
+          if (c(o)==':') {
             // apparently we also have seconds
             if (sscanf(pos.ptr+o+1, "%lf%n", &t, &i)!=1) {
               return new ErrorPosValue(*this, ScriptError::Syntax, "Time specification has invalid seconds - use hh:mm:ss");
@@ -1172,7 +1172,7 @@ ScriptObjPtr SourceRef::parseNumericLiteral()
       }
       else {
         int m = -1; int d = -1;
-        if (pos.c(o-1)=='.' && isalpha(pos.c(o))) {
+        if (c(o-1)=='.' && isalpha(c(o))) {
           // could be dd.monthname
           static const char * const monthNames[12] = { "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec" };
           for (m=0; m<12; m++) {
@@ -1189,7 +1189,7 @@ ScriptObjPtr SourceRef::parseNumericLiteral()
             return new ErrorPosValue(*this, ScriptError::Syntax, "Invalid date specification - use dd.monthname");
           }
         }
-        else if (pos.c(o)=='.') {
+        else if (c(o)=='.') {
           // must be dd.mm. (with mm. alone, sscanf would have eaten it)
           o = 0; // start over
           int l;
@@ -1209,28 +1209,28 @@ ScriptObjPtr SourceRef::parseNumericLiteral()
       }
     }
   }
-  pos.advance(o);
+  advance(o);
   return new NumericValue(num);
 }
 
 
-ScriptObjPtr SourceRef::parseStringLiteral()
+ScriptObjPtr SourceCursor::parseStringLiteral()
 {
   // string literal (c-like with double quotes or php-like with single quotes and no escaping inside)
-  char delimiter = pos.c();
+  char delimiter = c();
   if (delimiter!='"' && delimiter!='\'') {
     return new ErrorPosValue(*this, ScriptError::Syntax, "invalid string literal");
   }
   string str;
-  pos.next();
+  next();
   char sc;
   while(true) {
-    sc = pos.c();
+    sc = c();
     if (sc==delimiter) {
-      if (delimiter=='\'' && pos.c(1)==delimiter) {
+      if (delimiter=='\'' && c(1)==delimiter) {
         // single quoted strings allow including delimiter by doubling it
         str += delimiter;
-        pos.advance(2);
+        advance(2);
         continue;
       }
       break; // end of string
@@ -1239,8 +1239,8 @@ ScriptObjPtr SourceRef::parseStringLiteral()
       return new ErrorPosValue(*this, ScriptError::Syntax, "unterminated string, missing %c delimiter", delimiter);
     }
     if (delimiter!='\'' && sc=='\\') {
-      pos.next();
-      sc = pos.c();
+      next();
+      sc = c();
       if (sc==0) {
         return new ErrorPosValue(*this, ScriptError::Syntax, "incomplete \\-escape");
       }
@@ -1249,21 +1249,21 @@ ScriptObjPtr SourceRef::parseStringLiteral()
       else if (sc=='t') sc='\t';
       else if (sc=='x') {
         unsigned int h = 0;
-        pos.next();
-        if (sscanf(pos.ptr, "%02x", &h)==1) pos.next();
+        next();
+        if (sscanf(pos.ptr, "%02x", &h)==1) next();
         sc = (char)h;
       }
       // everything else
     }
     str += sc;
-    pos.next();
+    next();
   }
-  pos.next(); // skip closing delimiter
+  next(); // skip closing delimiter
   return new StringValue(str);
 }
 
 
-ScriptObjPtr SourceRef::parseCodeLiteral()
+ScriptObjPtr SourceCursor::parseCodeLiteral()
 {
   // TODO: implement
   return new ErrorPosValue(*this, ScriptError::Internal, "Code literals are not yet supported");
@@ -1272,20 +1272,20 @@ ScriptObjPtr SourceRef::parseCodeLiteral()
 
 #if SCRIPTING_JSON_SUPPORT
 
-ScriptObjPtr SourceRef::parseJSONLiteral()
+ScriptObjPtr SourceCursor::parseJSONLiteral()
 {
-  if (pos.c()!='{' && pos.c()!='[') {
+  if (c()!='{' && c()!='[') {
     return new ErrorPosValue(*this, ScriptError::Syntax, "invalid JSON literal");
   }
   // JSON object or array literal
   ssize_t n;
   ErrorPtr err;
   JsonObjectPtr json;
-  json = JsonObject::objFromText(pos.ptr, pos.charsleft(), &err, false, &n);
+  json = JsonObject::objFromText(pos.ptr, charsleft(), &err, false, &n);
   if (Error::notOK(err)) {
     return new ErrorPosValue(*this, ScriptError::Syntax, "invalid JSON literal: %s", err->text());
   }
-  pos.advance(n);
+  advance(n);
   return new JsonValue(json);
 }
 
@@ -1295,9 +1295,9 @@ ScriptObjPtr SourceRef::parseJSONLiteral()
 // MARK: - SourceProcessor
 
 
-void SourceProcessor::initProcessing(const SourceRef& aSrcRef, EvaluationFlags aStartFlags)
+void SourceProcessor::initProcessing(const SourceCursor& aCursor, EvaluationFlags aStartFlags)
 {
-  src = aSrcRef;
+  src = aCursor;
   // just scanning?
   skipping = ((aStartFlags & runModeMask)==scanning);
   // scope to start in
@@ -1375,6 +1375,9 @@ void SourceProcessor::step()
   StateHandler sh = nextState;
   nextState = NULL; // avoid calling twice
   (this->*sh)(); // call the handler, which will call done() here or later
+  // Info abour method pointers and their weird syntax:
+  // - https://stackoverflow.com/a/1486279
+  // - Also see: https://stackoverflow.com/a/6754821
 }
 
 
@@ -1411,54 +1414,18 @@ void SourceProcessor::pop()
 }
 
 
-
-
-/* method pointers
-
- // from: https://stackoverflow.com/a/1486279
- // Also see: https://stackoverflow.com/a/6754821
-
- // 1 define a function pointer and initialize to NULL
-
- int (TMyClass::*pt2ConstMember)(float, char, char) const = NULL;
-
- // C++
-
- class TMyClass
- {
- public:
-    int DoIt(float a, char b, char c){ cout << "TMyClass::DoIt"<< endl; return a+b+c;};
-    int DoMore(float a, char b, char c) const
-          { cout << "TMyClass::DoMore" << endl; return a-b+c; };
-
- };
- pt2ConstMember = &TMyClass::DoIt; // note: <pt2Member> may also legally point to &DoMore
-
- // Calling Function using Function Pointer
-
- (*this.*pt2ConstMember)(12, 'a', 'b');
-
- // Or...
-
- (this->*pt2ConstMember)(12, 'a', 'b');
-
-
-*/
-
-
-
 void SourceProcessor::s_simpleTerm()
 {
   // at the beginning of a simple term, result is undefined
-  if (src.pos.c()=='"' || src.pos.c()=='\'') {
+  if (src.c()=='"' || src.c()=='\'') {
     result = src.parseStringLiteral();
     setNextState(&SourceProcessor::s_result);
     return;
   }
-  else if (src.pos.c()=='{') {
+  else if (src.c()=='{') {
     // json or code block literal
     #if SCRIPTING_JSON_SUPPORT
-    CodeCursor peek = src.pos;
+    SourceCursor peek = src;
     peek.skipNonCode();
     if (peek.c()=='"') {
       // first thing within "{" is a quoted field name: must be JSON literal
@@ -1473,7 +1440,7 @@ void SourceProcessor::s_simpleTerm()
     return;
   }
   #if SCRIPTING_JSON_SUPPORT
-  else if (src.pos.c()=='[') {
+  else if (src.c()=='[') {
     // must be JSON literal array
     result = src.parseJSONLiteral();
     doneAndGoto(&SourceProcessor::s_result);
@@ -1482,9 +1449,9 @@ void SourceProcessor::s_simpleTerm()
   #endif
   else {
     // identifier (variable, function) or numeric literal
-    if (!src.pos.parseIdentifier(identifier)) {
+    if (!src.parseIdentifier(identifier)) {
       // we can get here depending on how statement delimiters are used, so should not always try to parse a numeric...
-      if (!src.pos.EOT() && src.pos.c()!='}' && src.pos.c()!=';') {
+      if (!src.EOT() && src.c()!='}' && src.c()!=';') {
         // checking for statement separating chars is safe, there's no way one of these could appear at the beginning of a term
         result = src.parseNumericLiteral();
       }
@@ -1495,7 +1462,7 @@ void SourceProcessor::s_simpleTerm()
     else {
       // identifier at script scope level
       result.reset(); // lookup from script scope
-      src.pos.skipNonCode();
+      src.skipNonCode();
       if (skipping) {
         // we must always assume structured values etc.
         doneAndGoto(&SourceProcessor::s_member);
@@ -1504,7 +1471,7 @@ void SourceProcessor::s_simpleTerm()
       else {
         // if it is a plain identifier, it could be one of the built-in constants that cannot be overridden
         // - check them before doing an actual member lookup
-        if (src.pos.c()=='(' && src.pos.c()!='.' && src.pos.c()!='[') {
+        if (src.c()=='(' && src.c()!='.' && src.c()!='[') {
           if (uequals(identifier, "true") || uequals(identifier, "yes")) {
             result = new NumericValue(1);
             doneAndGoto(&SourceProcessor::s_result);
@@ -1534,10 +1501,10 @@ void SourceProcessor::s_simpleTerm()
 void SourceProcessor::s_member()
 {
   // immediately following an identifier, result represents its value
-  if (src.pos.nextIf('.')) {
+  if (src.nextIf('.')) {
     // - member access
-    src.pos.skipNonCode();
-    if (!src.pos.parseIdentifier(identifier)) {
+    src.skipNonCode();
+    if (!src.parseIdentifier(identifier)) {
       result = new ErrorPosValue(src, ScriptError::Syntax, "missing identifier after '.'");
       doneAndGoto(&SourceProcessor::s_result);
       return;
@@ -1546,17 +1513,17 @@ void SourceProcessor::s_member()
     memberByIdentifier(); // will lookup from result
     return;
   }
-  else if (src.pos.nextIf('[')) {
+  else if (src.nextIf('[')) {
     // - subscript access
-    src.pos.skipNonCode();
+    src.skipNonCode();
     push(&SourceProcessor::s_subscriptArg);
     doneAndGoto(&SourceProcessor::s_newExpression);
     return;
   }
-  else if (src.pos.nextIf('(')) {
+  else if (src.nextIf('(')) {
     // - function call
-    src.pos.skipNonCode();
-    if (src.pos.nextIf(')')) {
+    src.skipNonCode();
+    if (src.nextIf(')')) {
       // function with no arguments
       doneAndGoto(&SourceProcessor::s_funcExec);
       return;
@@ -1593,15 +1560,15 @@ void SourceProcessor::s_subscriptArg()
   // immediately following a subscript argument evaluation
   // - result is the subscript,
   // - poppedResult is the object the subscript applies to
-  src.pos.skipNonCode();
+  src.skipNonCode();
   // determine how to proceed after accessing via subscript first...
-  if (src.pos.nextIf(']')) {
+  if (src.nextIf(']')) {
     // end of subscript processing, what we'll be looking up below is final member
     setNextState(&SourceProcessor::s_member);
   }
-  else if (src.pos.nextIf(',')) {
+  else if (src.nextIf(',')) {
     // more subscripts to apply to the member we'll be looking up below
-    src.pos.skipNonCode();
+    src.skipNonCode();
     push(&SourceProcessor::s_subscriptArg);
     setNextState(&SourceProcessor::s_newExpression);
   }
@@ -1640,15 +1607,15 @@ void SourceProcessor::s_funcArg()
   // immediately following a subscript argument evaluation
   // - result is value of the function argument
   // - poppedResult is the function the argument applies to
-  src.pos.skipNonCode();
+  src.skipNonCode();
   // determine how to proceed after pushing the argument...
-  if (src.pos.nextIf(')')) {
+  if (src.nextIf(')')) {
     // end of argument processing, execute the function after pushing the final argument below
     setNextState(&SourceProcessor::s_funcExec);
   }
-  else if (src.pos.nextIf(',')) {
+  else if (src.nextIf(',')) {
     // more arguments follow, continue evaluating them after pushing the current argument below
-    src.pos.skipNonCode();
+    src.skipNonCode();
     push(&SourceProcessor::s_funcArg);
     setNextState(&SourceProcessor::s_newExpression);
   }
@@ -1781,11 +1748,11 @@ ScriptObjPtr ScriptCompiler::compile(SourceContainerPtr aSource, EvaluationFlags
 
 // MARK: - SourceContainer
 
-SourceRef SourceContainer::getRef()
+SourceCursor SourceContainer::getRef()
 {
   // FIXME: refactor!
-  CodeCursor c(source);
-  SourceRef sr;
+  SourcePos c(source);
+  SourceCursor sr;
   sr.source = this;
   sr.pos = c;
   return sr;
@@ -1825,7 +1792,7 @@ void ScriptSource::setSharedMainContext(ScriptMainContextPtr aSharedMainContext)
 {
   // cached executable gets invalid when setting new context
   if (cachedExecutable) {
-    cachedExecutable.reset(); // release cached executable (will release sourceRef holding our source)
+    cachedExecutable.reset(); // release cached executable (will release SourceCursor holding our source)
   }
   sharedMainContext = aSharedMainContext; // use this particular context for executing scripts
 }
@@ -1835,7 +1802,7 @@ void ScriptSource::setSharedMainContext(ScriptMainContextPtr aSharedMainContext)
 void ScriptSource::setSource(const string aSource)
 {
   if (cachedExecutable) {
-    cachedExecutable.reset(); // release cached executable (will release sourceRef holding our source)
+    cachedExecutable.reset(); // release cached executable (will release SourceCursor holding our source)
   }
   if (sourceContainer && scriptingDomain) {
     scriptingDomain->releaseObjsFromSource(sourceContainer); // release all global objects from this source
@@ -1902,7 +1869,7 @@ ScriptMainContextPtr ScriptingDomain::newContext(ScriptObjPtr aInstanceObj)
 
 // MARK: - ScriptCodeThread
 
-ScriptCodeThread::ScriptCodeThread(ScriptCodeContextPtr aOwner, const SourceRef aSourceRef) :
+ScriptCodeThread::ScriptCodeThread(ScriptCodeContextPtr aOwner, const SourceCursor aSourceRef) :
   owner(aOwner),
   pc(aSourceRef),
   maxBlockTime(0),

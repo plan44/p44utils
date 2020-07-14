@@ -60,7 +60,7 @@ TEST_CASE("CodeCursor", "[scripting],[FOCUS]" )
 {
   SECTION("Cursor") {
     // basic
-    CodeCursor cursor("test");
+    SourcePos cursor("test");
     REQUIRE(cursor.charsleft() == 4);
     REQUIRE(cursor.lineno() == 0); // first line
     REQUIRE(cursor.charpos() == 0); // first char
@@ -75,7 +75,7 @@ TEST_CASE("CodeCursor", "[scripting],[FOCUS]" )
     REQUIRE(cursor.charpos() == 3);
     REQUIRE(cursor.advance(2) == false); // cannot advance 2 chars, only 1
     // end of buffer
-    CodeCursor cursor2("part of buffer passed", 7); // only "part of" should be visible
+    SourcePos cursor2("part of buffer passed", 7); // only "part of" should be visible
     REQUIRE(cursor2.charsleft() == 7);
     cursor2.advance(5);
     REQUIRE(cursor2.c() == 'o');
@@ -88,7 +88,7 @@ TEST_CASE("CodeCursor", "[scripting],[FOCUS]" )
 
   SECTION("Identifiers") {
     // multi line + identifiers
-    CodeCursor cursor3("multiple words /*   on\nmore */ than // one\nline: one.a2-a3_a4");
+    SourcePos cursor3("multiple words /*   on\nmore */ than // one\nline: one.a2-a3_a4");
     string i;
     // "multiple"
     REQUIRE(cursor3.parseIdentifier(i) == true);
