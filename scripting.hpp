@@ -74,6 +74,7 @@ namespace p44 { namespace Script {
   class ScriptSource;
 
   class SourceProcessor;
+  typedef boost::intrusive_ptr<SourceProcessor> SourceProcessorPtr;
   class Compiler;
   class ScriptCodeThread;
   typedef boost::intrusive_ptr<ScriptCodeThread> ScriptCodeThreadPtr;
@@ -146,11 +147,11 @@ namespace p44 { namespace Script {
   enum {
     // run mode
     runModeMask = 0x000F,
-    scanning = 0, ///< scanning only (compiling)
+    regular = 0x0000, ///< regular script or expression code
     initial = 0x0001, ///< handler, initial trigger expression run (no external event, implicit event is startup or code change)
     triggered = 0x0002, ///< handler, externally triggered (re-)evaluation
     timed = 0x0003, ///< handler, timed evaluation by timed retrigger
-    regular = 0x0004, ///< regular script or expression code
+    scanning = 0x0004, ///< scanning only (compiling)
     // modifiers
     modifierMask = 0xFFF0,
     expression = 0x0010, ///< evaluate as an expression (no flow control, variable assignments, blocks etc.)
@@ -193,7 +194,7 @@ namespace p44 { namespace Script {
     async = 0x0800, ///< if set, the object cannot evaluate synchronously
     // - storage attributes and directives for named members
     mutablemembers = 0x1000, ///< members are mutable
-    create = 0x2000, ///< set to create member if not yet existing
+    create = 0x2000, ///< set to create member if not yet existing (special use also for explicitly created errors)
     global = 0x4000, ///< set to store in global context
     constant = 0x8000, ///< set to select only constant  (in the sense of: not settable by scripts) members
     objscope = 0x10000, ///< set to select only object scope members
@@ -228,6 +229,9 @@ namespace p44 { namespace Script {
     /// @return a type description for logs and error messages
     static string typeDescription(TypeInfo aInfo);
 
+    /// @return text description for the passed aObj, NULL allowed
+    static string describe(ScriptObjPtr aObj);
+
     /// get name
     virtual string getIdentifier() const { return "unnamed"; };
 
@@ -241,13 +245,16 @@ namespace p44 { namespace Script {
     bool undefined() const { return (getTypeInfo() & null)!=0; }
 
     /// check for null/undefined
-    bool defined() const { return !undefined(); }
+    bool defined() const { return !undefined() & !isErr(); }
 
     /// check for error
     bool isErr() const { return (getTypeInfo() & error)!=0; }
 
     /// logging context to use
     virtual P44LoggingObj* loggingContext() const { return NULL; };
+
+    /// @return associated position, can be NULL
+    virtual SourceCursor* cursor() { return NULL; }
 
     /// @}
 
@@ -386,18 +393,10 @@ namespace p44 { namespace Script {
 
   // MARK: - Value classes
 
-  /// a value for use in expressions
-  class ScriptValue : public ScriptObj
+  /// an explicitly annotated null value (in contrast to ScriptObj base class which is a non-annotated null)
+  class AnnotatedNullValue : public ScriptObj
   {
     typedef ScriptObj inherited;
-  public:
-    virtual TypeInfo getTypeInfo() const P44_OVERRIDE { return scalar; };
-  };
-
-  /// an explicitly annotated null value (in contrast to ScriptObj base class which is a non-annotated null)
-  class AnnotatedNullValue : public ScriptValue
-  {
-    typedef ScriptValue inherited;
     string annotation;
   public:
     AnnotatedNullValue(string aAnnotation) : annotation(aAnnotation) {};
@@ -405,9 +404,10 @@ namespace p44 { namespace Script {
   };
 
 
-  class ErrorValue : public ScriptValue
+  /// An error value
+  class ErrorValue : public ScriptObj
   {
-    typedef ScriptValue inherited;
+    typedef ScriptObj inherited;
   protected:
     ErrorPtr err;
   public:
@@ -426,10 +426,19 @@ namespace p44 { namespace Script {
     virtual bool operator==(const ScriptObj& aRightSide) const P44_OVERRIDE;
   };
 
-
-  class NumericValue : public ScriptValue
+  class NoThrowErrorValue : public ErrorValue
   {
-    typedef ScriptValue inherited;
+    typedef ErrorValue inherited;
+  public:
+    NoThrowErrorValue(ErrorPtr aError) : inherited(aError) {};
+    virtual TypeInfo getTypeInfo() const P44_OVERRIDE { return error|create; };
+  };
+
+
+
+  class NumericValue : public ScriptObj
+  {
+    typedef ScriptObj inherited;
     double num;
   public:
     NumericValue(double aNumber) : num(aNumber) {};
@@ -452,9 +461,9 @@ namespace p44 { namespace Script {
   };
 
 
-  class StringValue : public ScriptValue
+  class StringValue : public ScriptObj
   {
-    typedef ScriptValue inherited;
+    typedef ScriptObj inherited;
     string str;
   public:
     StringValue(string aString) : str(aString) {};
@@ -474,9 +483,9 @@ namespace p44 { namespace Script {
 
 
   #if SCRIPTING_JSON_SUPPORT
-  class JsonValue : public ScriptValue
+  class JsonValue : public ScriptObj
   {
-    typedef ScriptValue inherited;
+    typedef ScriptObj inherited;
     JsonObjectPtr jsonval;
   public:
     JsonValue(JsonObjectPtr aJson) : jsonval(aJson) {};
@@ -531,6 +540,9 @@ namespace p44 { namespace Script {
 
   // MARK: - Execution contexts
 
+  #define DEFAULT_SYNC_MAX_RUN_TIME (10*Second)
+  #define DEFAULT_MAX_BLOCK_TIME (50*MilliSecond)
+
   /// Abstract base class for executables.
   /// Can hold indexed (positional) arguments as these are needed for all types
   /// of implementations (e.g. built-ins as well as script defined functions)
@@ -545,6 +557,10 @@ namespace p44 { namespace Script {
     ScriptMainContextPtr mainContext; ///< the main context
 
     ExecutionContext(ScriptMainContextPtr aMainContext);
+
+  protected:
+
+    bool undefinedResult; ///< special shortcut to make a execution return a "undefined" result w/o actually executing
 
   public:
 
@@ -568,7 +584,7 @@ namespace p44 { namespace Script {
     /// @param aToExecute the object to be executed in this context
     /// @param aEvalFlags evaluation control flags
     /// @param aEvaluationCB will be called to deliver the result of the evaluation
-    virtual void execute(ScriptObjPtr aToExecute, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB) = 0;
+    virtual void execute(ScriptObjPtr aToExecute, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB, MLMicroSeconds aMaxRunTime = Infinite) = 0;
 
     /// abort evaluation (of all threads if context has more than one)
     /// @param aAbortFlags set stoprunning to abort currently running threads, queue to empty the queued threads
@@ -576,7 +592,7 @@ namespace p44 { namespace Script {
     virtual void abort(EvaluationFlags aAbortFlags = stoprunning+queue, ScriptObjPtr aAbortResult = ScriptObjPtr()) = 0;
 
     /// synchronously evaluate the object, abort if async executables are encountered
-    ScriptObjPtr executeSynchronously(ScriptObjPtr aToExecute, EvaluationFlags aEvalFlags);
+    ScriptObjPtr executeSynchronously(ScriptObjPtr aToExecute, EvaluationFlags aEvalFlags, MLMicroSeconds aMaxRunTime = Infinite);
 
     /// check argument against signature and add to context if ok
     /// @param aArgument the object to be passed as argument. Pass NULL to check if aCallee has more non-optional arguments
@@ -640,7 +656,7 @@ namespace p44 { namespace Script {
     /// @param aToExecute the object to be evaluated
     /// @param aEvalFlags evaluation mode/flags. Script thread can evaluate...
     /// @param aEvaluationCB will be called to deliver the result of the evaluation
-    virtual void execute(ScriptObjPtr aToExecute, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB) P44_OVERRIDE;
+    virtual void execute(ScriptObjPtr aToExecute, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB, MLMicroSeconds aMaxRunTime = Infinite) P44_OVERRIDE;
 
     /// abort evaluation of all threads
     /// @param aAbortFlags set stoprunning to abort currently running threads, queue to empty the queued threads
@@ -708,14 +724,14 @@ namespace p44 { namespace Script {
   #define SCRIPT_OPERATOR_MODE_FLEXIBLE 0
   #define SCRIPT_OPERATOR_MODE_C 1
   #define SCRIPT_OPERATOR_MODE_PASCAL 2
-  // EXPRESSION_OPERATOR_MODE_FLEXIBLE:
+  // SCRIPT_OPERATOR_MODE_FLEXIBLE:
   //   := is unambiguous assignment
   //   == is unambiguous comparison
   //   = works as assignment when used after a variable specification in scripts, and as comparison in expressions
-  // EXPRESSION_OPERATOR_MODE_C:
+  // SCRIPT_OPERATOR_MODE_C:
   //   = and := are assignment
   //   == is comparison
-  // EXPRESSION_OPERATOR_MODE_PASCAL:
+  // SCRIPT_OPERATOR_MODE_PASCAL:
   //   := is assignment
   //   = and == is comparison
   // Note: the unabiguous "==", "<>" and "!=" are both supported in all modes
@@ -757,7 +773,6 @@ namespace p44 { namespace Script {
     const char* eot; ///< pointer to where the text ends (0 char or not)
     size_t line; ///< line number
   public:
-    SourcePos(const char* aText, size_t aLen);
     SourcePos(const string &aText);
     SourcePos(const SourcePos &aCursor);
     SourcePos();
@@ -772,6 +787,7 @@ namespace p44 { namespace Script {
   public:
     SourceCursor() {};
     SourceCursor(SourceContainerPtr aContainer);
+    SourceCursor(SourceContainerPtr aContainer, SourcePos aStart, SourcePos aEnd);
     SourceCursor(string aString, const char *aLabel = NULL); ///< create cursor on the passed string
 
     SourceContainerPtr source; ///< the source containing the string we're pointing to
@@ -787,16 +803,16 @@ namespace p44 { namespace Script {
     /// @{
 
     // access
+    bool valid() const; ///< @return true when the cursor points to something
     char c(size_t aOffset=0) const; ///< @return character at offset from current position, 0 if none
     size_t charsleft() const; ///< @return number of chars to end of code
-    bool EOT(); ///< true if we are at end of text
+    bool EOT() const; ///< true if we are at end of text
     bool next(); ///< advance to next char, @return false if not possible to advance
     bool advance(size_t aNumChars); ///< advance by specified number of chars, includes counting lines
     bool nextIf(char aChar); ///< @return true and advance cursor if @param aChar matches current char, false otherwise
     void skipWhiteSpace(); ///< skip whitespace (but NOT comments)
     void skipNonCode(); ///< skip non-code, i.e. whitespace and comments
     // parsing utilities
-//    const char* checkForIdentifier(size_t& aLen); ///< check for identifier, @return pointer to identifier or NULL if none
     bool parseIdentifier(string& aIdentifier, size_t* aIdentifierLenP = NULL); ///< @return true if identifier found, stored in aIndentifier and cursor advanced
     ScriptOperator parseOperator(); ///< @return operator or op_none, advances cursor on success
 
@@ -814,11 +830,12 @@ namespace p44 { namespace Script {
   class ErrorPosValue : public ErrorValue
   {
     typedef ErrorValue inherited;
-    SourceCursor cursor;
+    SourceCursor sourceCursor;
   public:
-    ErrorPosValue(const SourceCursor &aCursor, ErrorPtr aError) : inherited(aError), cursor(aCursor) {};
+    ErrorPosValue(const SourceCursor &aCursor, ErrorPtr aError) : inherited(aError), sourceCursor(aCursor) {};
     ErrorPosValue(const SourceCursor &aCursor, ScriptError::ErrorCodes aErrCode, const char *aFmt, ...);
-    void setSourceRef(const SourceCursor &aCursor) { cursor = aCursor; };
+    void setErrorCursor(const SourceCursor &aCursor) { sourceCursor = aCursor; };
+    virtual SourceCursor* cursor() { return &sourceCursor; } // has a position
   };
 
 
@@ -847,6 +864,7 @@ namespace p44 { namespace Script {
     ScriptingDomainPtr scriptingDomain; ///< the scripting domain
     ScriptMainContextPtr sharedMainContext; ///< a shared context to always run this source in. If not set, each script gets a new main context
     ScriptObjPtr cachedExecutable; ///< the compiled executable for the script's body.
+    EvaluationFlags compileAs; ///< how to compile (as expression, scriptbody, source)
     const char *originLabel; ///< a label used for logging and error reporting
     P44LoggingObj* loggingContextP; ///< the logging context
     SourceContainerPtr sourceContainer; ///< the container of the source
@@ -856,6 +874,8 @@ namespace p44 { namespace Script {
     ScriptSource(const char* aOriginLabel = NULL, P44LoggingObj* aLoggingContextP = NULL);
     /// all-in-one adhoc script source constructor
     ScriptSource(const char* aOriginLabel, P44LoggingObj* aLoggingContextP, const string aSource, ScriptingDomainPtr aDomain = ScriptingDomainPtr());
+    /// minimal source for create&run (mainly: testing)
+    ScriptSource(const string aSource);
     ~ScriptSource();
 
     /// set domain (where global objects from compilation will be stored)
@@ -866,15 +886,25 @@ namespace p44 { namespace Script {
     /// @param aSharedMainContext a context previously obtained from the domain with newContext()
     void setSharedMainContext(ScriptMainContextPtr aSharedMainContext);
 
-    /// set source code
-    void setSource(const string aSource);
+    /// set source code and compile mode
+    /// @param aSource the source code
+    /// @param aCompileAs how to compile (as expression, scriptbody, source)
+    void setSource(const string aSource, EvaluationFlags aCompileAs = source);
 
     /// get executable ((re-)compile if needed)
     /// @return executable from this source
     ScriptObjPtr getExecutable();
 
     /// convenience quick runner
-    void run(EvaluationCB aEvaluationCB);
+    /// @param aEvalFlags if synchronously is set here, the result will be delivered directly (AND with the callback if one is set)
+    /// @param aEvaluationCB will be called with the result
+    /// @param aMaxRunTime the maximum run time
+    ScriptObjPtr run(EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB = NULL, MLMicroSeconds aMaxRunTime = Infinite);
+
+    /// for single-line tests
+    ScriptObjPtr test(EvaluationFlags aEvalFlags, const string aSource)
+      { setSource(aSource, aEvalFlags); return run(aEvalFlags|regular|synchronously, NULL, Infinite); }
+
   };
 
 
@@ -885,19 +915,27 @@ namespace p44 { namespace Script {
     typedef ScriptMainContext inherited;
 
     GeoLocation *geoLocationP;
+    MLMicroSeconds maxBlockTime;
 
     // TODO: global script defined function storage -> no, are just vars of the domains
     // TODO: global event handler storage
 
   public:
 
-    ScriptingDomain() : inherited(ScriptingDomainPtr(), ScriptObjPtr()), geoLocationP(NULL) {};
+    ScriptingDomain() : inherited(ScriptingDomainPtr(), ScriptObjPtr()), geoLocationP(NULL), maxBlockTime(DEFAULT_MAX_BLOCK_TIME) {};
 
     /// set geolocation to use for functions that refer to location
     void setGeoLocation(GeoLocation* aGeoLocationP) { geoLocationP = aGeoLocationP; };
 
+    /// set max block time (how long async scripts run in sync mode maximally until
+    /// releasing execution and schedule continuation later)
+    /// @param aMaxBlockTime max block time - if reached, execution will pause for 2 * aMaxBlockTime
+    void setMaxBlockTime(MLMicroSeconds aMaxBlockTime) { maxBlockTime = aMaxBlockTime; };
+
+
     // environment
     virtual GeoLocation* geoLocation() P44_OVERRIDE { return geoLocationP; };
+    MLMicroSeconds getMaxBlockTime() { return maxBlockTime; };
 
     /// get new execution context
     /// @param aInstanceObj the object _instance_ scope for scripts running in this context.
@@ -1087,6 +1125,7 @@ namespace p44 { namespace Script {
     void s_simpleTerm(); ///< at the beginning of a term
     void s_member(); ///< immediately after identifier
     void s_subscriptArg(); ///< immediately after subscript expression evaluation
+    void s_nextSubscript(); ///< multi-dimensional subscripts, 2nd and further arguments
     void s_funcArg(); ///< immediately after function argument evaluation
     void s_funcContext(); ///< after getting function calling context
     void s_funcExec(); ///< ready to execute the function
@@ -1230,9 +1269,6 @@ namespace p44 { namespace Script {
 
   // MARK: - ScriptCodeThread
 
-  #define DEFAULT_EXEC_TIME_LIMIT (Infinite)
-  #define DEFAULT_MAX_BLOCK_TIME (50*MilliSecond)
-
   /// represents a code execution "thread" and its "stack"
   /// Note that the scope such a "thread" is only within one context.
   /// The "stack" is NOT a function calling stack, but only the stack
@@ -1266,7 +1302,7 @@ namespace p44 { namespace Script {
       EvaluationCB aTerminationCB,
       EvaluationFlags aEvalFlags,
       MLMicroSeconds aMaxBlockTime=DEFAULT_MAX_BLOCK_TIME,
-      MLMicroSeconds aMaxRunTime=DEFAULT_EXEC_TIME_LIMIT
+      MLMicroSeconds aMaxRunTime=Infinite
     );
 
     /// run the thread
@@ -1280,7 +1316,7 @@ namespace p44 { namespace Script {
     virtual void complete(ScriptObjPtr aFinalResult) P44_OVERRIDE;
 
     /// convenience end of step using current result and checking for errors
-    virtual void done();
+    virtual void done() P44_OVERRIDE;
 
     /// @name execution hooks. These must call resume()
     /// @{
@@ -1397,7 +1433,7 @@ namespace p44 { namespace Script {
     BuiltinFunctionContext(ScriptMainContextPtr aMainContext) : inherited(aMainContext) {};
 
     /// evaluate built-in function
-    virtual void execute(ScriptObjPtr aToExecute, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB) P44_OVERRIDE;
+    virtual void execute(ScriptObjPtr aToExecute, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB, MLMicroSeconds aMaxRunTime = Infinite) P44_OVERRIDE;
 
     /// abort (async) built-in function
     /// @param aAbortFlags set stoprunning to abort currently running threads, queue to empty the queued threads

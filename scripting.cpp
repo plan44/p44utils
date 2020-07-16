@@ -92,19 +92,18 @@ string ScriptObj::typeDescription(TypeInfo aInfo)
     if (aInfo & array) {
       s = "array";
     }
-    if (aInfo & array) {
+    if (aInfo & object) {
       if (!s.empty()) s += ", ";
       s += "object";
     }
-    if (!s.empty()) s += ", ";
     // scalar
-    string s;
     if (aInfo & numeric) {
+      if (!s.empty()) s += ", ";
       s += "numeric";
     }
     if (aInfo & text) {
       if (!s.empty()) s += ", ";
-      s += "text";
+      s += "string";
     }
     if (aInfo & json) {
       if (!s.empty()) s += ", ";
@@ -124,6 +123,18 @@ string ScriptObj::typeDescription(TypeInfo aInfo)
     }
   }
   return s;
+}
+
+
+string ScriptObj::describe(ScriptObjPtr aObj)
+{
+  if (!aObj) return "<none>";
+  return string_format(
+    "'%s' [%s; %s]",
+    aObj->stringValue().c_str(),
+    aObj->getIdentifier().c_str(),
+    typeDescription(aObj->getTypeInfo()).c_str()
+  );
 }
 
 
@@ -275,7 +286,8 @@ ErrorValue::ErrorValue(ScriptError::ErrorCodes aErrCode, const char *aFmt, ...)
 
 
 ErrorPosValue::ErrorPosValue(const SourceCursor &aCursor, ScriptError::ErrorCodes aErrCode, const char *aFmt, ...) :
-  inherited(new ScriptError(aErrCode))
+  inherited(new ScriptError(aErrCode)),
+  sourceCursor(aCursor)
 {
   va_list args;
   va_start(args, aFmt);
@@ -289,8 +301,9 @@ double StringValue::numValue() const
   SourceCursor cursor(str);
   cursor.skipWhiteSpace();
   ScriptObjPtr n = cursor.parseNumericLiteral();
-  cursor.skipWhiteSpace();
-  if (!cursor.EOT() || n->isErr()) return 0; // otherwise we'd get error
+  // note: like parseInt/Float in JS we allow trailing garbage
+  //   but UNLIKE JS we don't return NaN here, just 0 if there's no conversion to number
+  if (n->isErr()) return 0; // otherwise we'd get error
   return n->numValue();
 }
 
@@ -323,8 +336,9 @@ JsonObjectPtr StringValue::jsonValue() const
 
 string JsonValue::stringValue() const
 {
-  if (!json) return ScriptObj::stringValue(); // undefined
-  return jsonval->json_str();
+  if (!jsonval) return ScriptObj::stringValue(); // undefined
+  if (jsonval->isType(json_type_string)) return jsonval->stringValue(); // string leaf fields as strings w/o quotes!
+  return jsonval->json_str(); // other types in their native json representation
 }
 
 
@@ -386,7 +400,8 @@ const ScriptObjPtr JsonValue::memberAtIndex(size_t aIndex, TypeInfo aTypeRequire
 // MARK: - ExecutionContext
 
 ExecutionContext::ExecutionContext(ScriptMainContextPtr aMainContext) :
-  mainContext(aMainContext)
+  mainContext(aMainContext),
+  undefinedResult(false)
 {
 }
 
@@ -489,8 +504,8 @@ ErrorPtr ExecutionContext::checkAndSetArgument(ScriptObjPtr aArgument, size_t aI
         (argInfo & typeMask &~scalar)!=(allowed & typeMask &~scalar) // ...or non-scalar requirements not met
       ) {
         if (allowed & undefres) {
-          // type mismatch is not an error, but just enforces unefined function result w/o executing
-          return ScriptError::err(ScriptError::Invalid, "undefined"); // special signal to just return NULL, no error
+          // type mismatch is not an error, but just enforces undefined function result w/o executing
+          undefinedResult = true;
         }
         else {
           return ScriptError::err(ScriptError::Syntax,
@@ -518,13 +533,13 @@ static void syncExecDone(ScriptObjPtr* aResultStorageP, bool* aFinishedP, Script
   *aFinishedP = true;
 }
 
-ScriptObjPtr ExecutionContext::executeSynchronously(ScriptObjPtr aToExecute, EvaluationFlags aEvalFlags)
+ScriptObjPtr ExecutionContext::executeSynchronously(ScriptObjPtr aToExecute, EvaluationFlags aEvalFlags, MLMicroSeconds aMaxRunTime)
 {
   ScriptObjPtr syncResult;
 
   bool finished = false;
   aEvalFlags |= synchronously;
-  execute(aToExecute, aEvalFlags, boost::bind(&syncExecDone, &syncResult, &finished, _1));
+  execute(aToExecute, aEvalFlags, boost::bind(&syncExecDone, &syncResult, &finished, _1), aMaxRunTime);
   if (!finished) {
     // despite having requested synchronous execution, evaluation is not finished by now
     finished = true;
@@ -543,15 +558,13 @@ ScriptObjPtr ExecutionContext::executeSynchronously(ScriptObjPtr aToExecute, Eva
 
 // MARK: - ScriptCodeContext
 
+
 ScriptCodeContext::ScriptCodeContext(ScriptMainContextPtr aMainContext) :
   inherited(aMainContext)
 {
 }
 
 
-#define DEFAULT_EXEC_TIME_LIMIT (Infinite)
-#define DEFAULT_SYNC_EXEC_LIMIT (10*Second)
-#define DEFAULT_SYNC_RUN_TIME (50*MilliSecond)
 
 
 void ScriptCodeContext::releaseObjsFromSource(SourceContainerPtr aSource)
@@ -648,8 +661,14 @@ void ScriptCodeContext::abort(EvaluationFlags aAbortFlags, ScriptObjPtr aAbortRe
 }
 
 
-void ScriptCodeContext::execute(ScriptObjPtr aToExecute, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB)
+void ScriptCodeContext::execute(ScriptObjPtr aToExecute, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB, MLMicroSeconds aMaxRunTime)
 {
+  if (undefinedResult) {
+    // just return undefined w/o even trying to execute
+    undefinedResult = false;
+    if (aEvaluationCB) aEvaluationCB(new AnnotatedNullValue("undefined argument caused undefined function result"));
+    return;
+  }
   // must be compiled code at this point
   CompiledFunctionPtr code = dynamic_pointer_cast<CompiledScript>(aToExecute);
   if (!code) {
@@ -664,7 +683,8 @@ void ScriptCodeContext::execute(ScriptObjPtr aToExecute, EvaluationFlags aEvalFl
   // Note: thread gets an owning Ptr back to this, so this context cannot be destructed before all
   //   threads have ended.
   ScriptCodeThreadPtr newThread = ScriptCodeThreadPtr(new ScriptCodeThread(this, code->cursor));
-  newThread->prepareRun(aEvaluationCB, aEvalFlags /* FIXME: also pass timing params */);
+  MLMicroSeconds maxBlockTime = aEvalFlags&synchronously ? aMaxRunTime : domain()->getMaxBlockTime();
+  newThread->prepareRun(aEvaluationCB, aEvalFlags, maxBlockTime, aMaxRunTime);
   // now check how and when to run it
   if (!threads.empty()) {
     // some threads already running
@@ -696,8 +716,9 @@ void ScriptCodeContext::threadTerminated(ScriptCodeThreadPtr aThread)
   ThreadList::iterator pos=threads.begin();
   while (pos!=threads.end()) {
     if (pos->get()==aThread.get()) {
-      threads.erase(pos);
+      pos = threads.erase(pos);
       // thread object should get disposed now, along with its SourceRef
+      continue;
     }
     ++pos;
   }
@@ -762,7 +783,7 @@ ErrorPtr ScriptMainContext::setMemberByName(const string aName, const ScriptObjP
     // 1) local variables have precedence
     if (Error::isOK(err = inherited::setMemberByName(aName, aMember, aStorageAttributes))) return err; // modified or created an existing local variable
     // 2) properties in the instance itself (if no local member exists)
-    if (err->isError(ScriptError::domain(), ScriptError::NotFound)) {
+    if (instance() && err->isError(ScriptError::domain(), ScriptError::NotFound)) {
       err = instance()->setMemberByName(aName, aMember, aStorageAttributes);
       if (Error::isOK(err)) return err; // modified or created a property in thisObj
     }
@@ -859,8 +880,14 @@ void BuiltinFunctionContext::setAbortCallback(SimpleCB aAbortCB)
 }
 
 
-void BuiltinFunctionContext::execute(ScriptObjPtr aToExecute, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB)
+void BuiltinFunctionContext::execute(ScriptObjPtr aToExecute, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB, MLMicroSeconds aMaxRunTime)
 {
+  if (undefinedResult) {
+    // just return undefined w/o even trying to execute
+    undefinedResult = false;
+    if (aEvaluationCB) aEvaluationCB(new AnnotatedNullValue("undefined argument caused undefined function result"));
+    return;
+  }
   func = dynamic_pointer_cast<BuiltinFunctionObj>(aToExecute);
   if (!func || !func->descriptor) {
     func.reset();
@@ -893,9 +920,9 @@ void BuiltinFunctionContext::abort(EvaluationFlags aAbortFlags, ScriptObjPtr aAb
 
 ScriptObjPtr BuiltinFunctionContext::arg(size_t aArgIndex)
 {
-  if (aArgIndex<0 || aArgIndex>numIndexedMembers()) {
-    // no such argument, return a dummy null (safety in case signature/implementation dont match)
-    return new AnnotatedNullValue("missing function argument");
+  if (aArgIndex<0 || aArgIndex>=numIndexedMembers()) {
+    // no such argument, return a null as the argument might be optional
+    return new AnnotatedNullValue("optional function argument");
   }
   return memberAtIndex(aArgIndex);
 }
@@ -922,15 +949,6 @@ SourcePos::SourcePos() :
 }
 
 
-SourcePos::SourcePos(const char* aText, size_t aLen) :
-  ptr(aText),
-  bol(aText),
-  eot(aText+aLen),
-  line(0)
-{
-}
-
-
 SourcePos::SourcePos(const string &aText) :
   ptr(aText.c_str()),
   bol(aText.c_str()),
@@ -951,6 +969,7 @@ SourcePos::SourcePos(const SourcePos &aCursor) :
 
 // MARK: - SourceCursor
 
+
 SourceCursor::SourceCursor(string aString, const char *aLabel) :
   source(new SourceContainer(aLabel ? aLabel : "hidden", NULL, aString)),
   pos(source->source)
@@ -963,6 +982,16 @@ SourceCursor::SourceCursor(SourceContainerPtr aContainer) :
   pos(aContainer->source)
 {
 }
+
+
+SourceCursor::SourceCursor(SourceContainerPtr aContainer, SourcePos aStart, SourcePos aEnd) :
+  source(aContainer),
+  pos(aStart)
+{
+  assert(pos.ptr>=source->source.c_str() && pos.eot-pos.ptr<source->source.size());
+  if(aEnd.ptr>=pos.ptr && aEnd.ptr<=pos.eot) pos.eot = aEnd.ptr;
+}
+
 
 
 size_t SourceCursor::lineno() const
@@ -978,6 +1007,18 @@ size_t SourceCursor::charpos() const
 }
 
 
+bool SourceCursor::EOT() const
+{
+  return !pos.ptr || pos.ptr>=pos.eot || *pos.ptr==0;
+}
+
+
+bool SourceCursor::valid() const
+{
+  return pos.ptr!=NULL;
+}
+
+
 char SourceCursor::c(size_t aOffset) const
 {
   if (!pos.ptr || pos.ptr+aOffset>=pos.eot) return 0;
@@ -988,12 +1029,6 @@ char SourceCursor::c(size_t aOffset) const
 size_t SourceCursor::charsleft() const
 {
   return pos.ptr ? pos.eot-pos.ptr : 0;
-}
-
-
-bool SourceCursor::EOT()
-{
-  return !pos.ptr || pos.ptr>=pos.eot || *pos.ptr==0;
 }
 
 
@@ -1067,20 +1102,6 @@ void SourceCursor::skipNonCode()
 }
 
 
-//  const char* CodeCursor::checkForIdentifier(size_t& aLen)
-//  {
-//    if (!ptr) return NULL;
-//    aLen = 0;
-//    size_t o = 0; // offset
-//    if (!isalpha(c(o))) return NULL; // is not an identifier
-//    // is identifier
-//    o++;
-//    while (c(o) && (isalnum(c(o)) || c(o)=='_')) o++;
-//    aLen = o;
-//    return ptr;
-//  }
-
-
 bool SourceCursor::parseIdentifier(string& aIdentifier, size_t* aIdentifierLenP)
 {
   if (EOT()) return false;
@@ -1112,9 +1133,9 @@ ScriptOperator SourceCursor::parseOperator()
       if (c(o)=='=') {
         o++; op = op_equal; break;
       }
-      #if EXPRESSION_OPERATOR_MODE==EXPRESSION_OPERATOR_MODE_C
+      #if SCRIPT_OPERATOR_MODE==SCRIPT_OPERATOR_MODE_C
       op = op_assign; break;
-      #elif EXPRESSION_OPERATOR_MODE==EXPRESSION_OPERATOR_MODE_PASCAL
+      #elif SCRIPT_OPERATOR_MODE==SCRIPT_OPERATOR_MODE_PASCAL
       op = op_equal; break;
       #else
       op = op_assignOrEq; break;
@@ -1317,6 +1338,13 @@ ScriptObjPtr SourceCursor::parseJSONLiteral()
 
 // MARK: - SourceProcessor
 
+#define FOCUSLOGSTATE FOCUSLOG( \
+  "%s %s: stack=%zu, prec=%d, flowdec=%d --> result = %s", \
+  skipping ? " SKIPPING" : "EXECUTING", \
+  __func__, \
+  stack.size(), precedence, flowDecision, \
+  ScriptObj::describe(result).c_str() \
+)
 
 SourceProcessor::SourceProcessor() :
   aborted(false),
@@ -1366,6 +1394,7 @@ void SourceProcessor::setCompletedCB(EvaluationCB aCompletedCB)
 
 void SourceProcessor::start()
 {
+  FOCUSLOGSTATE
   resuming = false;
   resume();
 }
@@ -1377,6 +1406,7 @@ void SourceProcessor::resume(ScriptObjPtr aResult)
   if (aResult) {
     result = aResult;
   }
+  FOCUSLOGSTATE
   // Am I getting called from a chain of calls originating from
   // myself via step() in the execution loop below?
   if (resuming) {
@@ -1402,6 +1432,7 @@ void SourceProcessor::selfKeepingResume(ScriptCodeThreadPtr aThread, ScriptObjPt
 
 void SourceProcessor::abort(ScriptObjPtr aAbortResult)
 {
+  FOCUSLOGSTATE
   if (aAbortResult) {
     result = aAbortResult;
   }
@@ -1411,9 +1442,14 @@ void SourceProcessor::abort(ScriptObjPtr aAbortResult)
 
 void SourceProcessor::complete(ScriptObjPtr aFinalResult)
 {
+  FOCUSLOGSTATE
   resumed = false; // make sure stepLoop WILL exit when returning from step()
   result = aFinalResult; // set final result
-  if (!result) {
+  src.skipNonCode();
+  if (!src.EOT()) {
+    result = new ErrorPosValue(src, ScriptError::Syntax, "trailing garbage");
+  }
+  else if (!result) {
     result = new AnnotatedNullValue("script produced no result");
   }
   if (completedCB) completedCB(result);
@@ -1465,6 +1501,7 @@ void SourceProcessor::done()
 
 void SourceProcessor::push(StateHandler aReturnToState)
 {
+  FOCUSLOG("   ++push");
   stack.push_back(StackFrame(src.pos, skipping, aReturnToState, result, funcCallContext, precedence, pendingOperation, flowDecision));
 }
 
@@ -1481,6 +1518,7 @@ void SourceProcessor::pop()
   // these are restored separately, returnToState must decide what to do
   poppedPos = s.pos;
   olderResult = s.result;
+  FOCUSLOG(" --popped: olderResult = %s", ScriptObj::describe(olderResult).c_str());
   // continue here
   setNextState(s.returnToState);
   stack.pop_back();
@@ -1489,6 +1527,7 @@ void SourceProcessor::pop()
 
 void SourceProcessor::s_simpleTerm()
 {
+  FOCUSLOGSTATE;
   // at the beginning of a simple term, result is undefined
   if (src.c()=='"' || src.c()=='\'') {
     result = src.parseStringLiteral();
@@ -1501,7 +1540,7 @@ void SourceProcessor::s_simpleTerm()
     SourceCursor peek = src;
     peek.next();
     peek.skipNonCode();
-    if (peek.c()=='"') {
+    if (peek.c()=='"' || peek.c()=='\'') {
       // first thing within "{" is a quoted field name: must be JSON literal
       result = src.parseJSONLiteral();
       doneAndGoto(&SourceProcessor::s_result);
@@ -1575,6 +1614,7 @@ void SourceProcessor::s_simpleTerm()
 
 void SourceProcessor::s_member()
 {
+  FOCUSLOGSTATE;
   // immediately following an identifier, result represents its value
   if (src.nextIf('.')) {
     // member access
@@ -1611,7 +1651,7 @@ void SourceProcessor::s_member()
     if (identifier.size()==3) {
       // Optimisation, all weekdays have 3 chars
       for (int w=0; w<7; w++) {
-        if (uequals(identifier, weekdayNames[w])==0) {
+        if (uequals(identifier, weekdayNames[w])) {
           result = new NumericValue(w);
           break;
         }
@@ -1630,6 +1670,7 @@ void SourceProcessor::s_member()
 
 void SourceProcessor::s_funcContext()
 {
+  FOCUSLOGSTATE;
   // - check for arguments
   if (src.nextIf(')')) {
     // function with no arguments
@@ -1644,9 +1685,10 @@ void SourceProcessor::s_funcContext()
 
 void SourceProcessor::s_subscriptArg()
 {
+  FOCUSLOGSTATE;
   // immediately following a subscript argument evaluation
   // - result is the subscript,
-  // - poppedResult is the object the subscript applies to
+  // - olderResult is the object the subscript applies to
   src.skipNonCode();
   // determine how to proceed after accessing via subscript first...
   if (src.nextIf(']')) {
@@ -1656,8 +1698,7 @@ void SourceProcessor::s_subscriptArg()
   else if (src.nextIf(',')) {
     // more subscripts to apply to the member we'll be looking up below
     src.skipNonCode();
-    push(&SourceProcessor::s_subscriptArg);
-    setNextState(&SourceProcessor::s_newExpression);
+    setNextState(&SourceProcessor::s_nextSubscript);
   }
   else {
     result = new ErrorPosValue(src, ScriptError::NotFound , "missing , or ] after subscript", identifier.c_str());
@@ -1688,9 +1729,20 @@ void SourceProcessor::s_subscriptArg()
   }
 }
 
+void SourceProcessor::s_nextSubscript()
+{
+  // immediately following a subscript argument evaluation
+  // - result is the object the next subscript should apply to
+  push(&SourceProcessor::s_subscriptArg);
+  doneAndGoto(&SourceProcessor::s_newExpression);
+}
+
+
+
 
 void SourceProcessor::s_funcArg()
 {
+  FOCUSLOGSTATE;
   // immediately following a subscript argument evaluation
   // - result is value of the function argument
   // - olderResult is the function the argument applies to
@@ -1726,6 +1778,7 @@ void SourceProcessor::s_funcArg()
 
 void SourceProcessor::s_funcExec()
 {
+  FOCUSLOGSTATE;
   // after closing parantheis of a function call
   // - result is the function to call
   setNextState(&SourceProcessor::s_result); // result of the function call
@@ -1740,6 +1793,7 @@ void SourceProcessor::s_funcExec()
 
 void SourceProcessor::s_result()
 {
+  FOCUSLOGSTATE;
   if (skipping || !result || result->valid()) {
     // no need for a validation step for loading lazy results
     pop(); // get state to continue with
@@ -1754,6 +1808,7 @@ void SourceProcessor::s_result()
 
 void SourceProcessor::s_validResult()
 {
+  FOCUSLOGSTATE;
   pop(); // get state to continue with
   done();
 }
@@ -1762,6 +1817,7 @@ void SourceProcessor::s_validResult()
 
 void SourceProcessor::s_newExpression()
 {
+  FOCUSLOGSTATE;
   precedence = 0;
   doneAndGoto(&SourceProcessor::s_expression);
 }
@@ -1769,7 +1825,8 @@ void SourceProcessor::s_newExpression()
 
 void SourceProcessor::s_expression()
 {
-  // at start of an expression
+  FOCUSLOGSTATE;
+  // at start of an (sub)expression
   SourcePos epos = src.pos; // remember start of any expression, even if it's only a precedence terminated subexpression
   // - check for optional unary op
   pendingOperation = src.parseOperator(); // store for later
@@ -1779,7 +1836,6 @@ void SourceProcessor::s_expression()
     return;
   }
   // evaluate first (or only) term
-  setNextState(&SourceProcessor::s_exprFirstTerm);
   // - check for paranthesis term
   if (src.nextIf('(')) {
     // term is expression in paranthesis
@@ -1799,15 +1855,17 @@ void SourceProcessor::s_expression()
 
 void SourceProcessor::s_groupedExpression()
 {
-  if (src.nextIf(')')) {
+  FOCUSLOGSTATE;
+  if (!src.nextIf(')')) {
     result = new ErrorPosValue(src, ScriptError::Syntax, "missing ')'");
   }
-  doneAndGoto(&SourceProcessor::s_result);
+  doneAndGoto(&SourceProcessor::s_exprFirstTerm);
 }
 
 
 void SourceProcessor::s_exprFirstTerm()
 {
+  FOCUSLOGSTATE;
   // res now has the first term of an expression, which might need applying unary operations
   if (!skipping && result && result->defined()) {
     switch (pendingOperation) {
@@ -1823,6 +1881,7 @@ void SourceProcessor::s_exprFirstTerm()
 
 void SourceProcessor::s_exprLeftSide()
 {
+  FOCUSLOGSTATE;
   // check binary operators
   src.skipNonCode();
   SourcePos opos = src.pos; // position before possibly finding an operator
@@ -1836,14 +1895,15 @@ void SourceProcessor::s_exprLeftSide()
   }
   // must parse right side of operator as subexpression
   pendingOperation = binaryop;
+  push(&SourceProcessor::s_exprRightSide); // push the old precedence
   precedence = newPrecedence; // subexpression needs to exit when finding an operator weaker than this one
-  push(&SourceProcessor::s_exprRightSide);
   doneAndGoto(&SourceProcessor::s_expression);
 }
 
 
 void SourceProcessor::s_exprRightSide()
 {
+  FOCUSLOGSTATE;
   // olderResult = leftside, result = rightside
   if (!skipping) {
     // all operations involving nulls return null
@@ -1876,6 +1936,10 @@ void SourceProcessor::s_exprRightSide()
       // if first is error, return that independently of what the second is
       result = olderResult;
     }
+    else if (!result->isErr()) {
+      // one or both operands undefined, and none of them an error
+      result = new AnnotatedNullValue("operation between undefined values");
+    }
   }
   doneAndGoto(&SourceProcessor::s_exprLeftSide); // back to leftside, more chained operators might follow
 }
@@ -1888,6 +1952,7 @@ void SourceProcessor::s_exprRightSide()
 
 void SourceProcessor::s_complete()
 {
+  FOCUSLOGSTATE;
   complete(result);
 }
 
@@ -1970,6 +2035,7 @@ ScriptObjPtr ScriptCompiler::compile(SourceContainerPtr aSource, EvaluationFlags
     // FIXME: the scan process must detect the first body statement and adjust bodyRef!
     bodyRef = aSource->getCursor(); // FIXME: test only
     setCursor(aSource->getCursor());
+    aParsingMode = (aParsingMode & ~runModeMask)|scanning; // compiling only!
     initProcessing(aParsingMode);
     bool completed = false;
     setCompletedCB(boost::bind(&flagSetter,&completed));
@@ -2008,6 +2074,15 @@ ScriptSource::ScriptSource(const char* aOriginLabel, P44LoggingObj* aLoggingCont
   setSource(aSource);
 }
 
+ScriptSource::ScriptSource(const string aSource) :
+  originLabel("adhoc"),
+  loggingContextP(NULL)
+{
+  // using standard domain
+  setSource(aSource);
+}
+
+
 ScriptSource::~ScriptSource()
 {
   setSource(""); // force removal of global objects depending on this
@@ -2031,8 +2106,9 @@ void ScriptSource::setSharedMainContext(ScriptMainContextPtr aSharedMainContext)
 
 
 
-void ScriptSource::setSource(const string aSource)
+void ScriptSource::setSource(const string aSource, EvaluationFlags aCompileAs)
 {
+  compileAs = aCompileAs & (source|expression|scriptbody);
   if (cachedExecutable) {
     cachedExecutable.reset(); // release cached executable (will release SourceCursor holding our source)
   }
@@ -2057,12 +2133,12 @@ ScriptObjPtr ScriptSource::getExecutable()
       }
       // need to compile
       ScriptCompiler compiler(scriptingDomain);
-      ScriptMainContextPtr mctx = sharedMainContext;
+      ScriptMainContextPtr mctx = sharedMainContext; // use shared context if one is set
       if (!mctx) {
         // default to independent execution in a non-object context (no instance pointer)
         mctx = scriptingDomain->newContext();
       }
-      cachedExecutable = compiler.compile(sourceContainer, source, mctx);
+      cachedExecutable = compiler.compile(sourceContainer, compileAs, mctx);
     }
     return cachedExecutable;
   }
@@ -2070,23 +2146,32 @@ ScriptObjPtr ScriptSource::getExecutable()
 }
 
 
-void ScriptSource::run(EvaluationCB aEvaluationCB)
+ScriptObjPtr ScriptSource::run(EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB, MLMicroSeconds aMaxRunTime)
 {
   ScriptObjPtr code = getExecutable();
+  ScriptObjPtr result;
   // get the context to run it
   if (code && code->hasType(executable)) {
     ExecutionContextPtr ctx = code->contextForCallingFrom(scriptingDomain);
     if (ctx) {
-      ctx->execute(code, scriptbody+regular, aEvaluationCB);
-      return;
+      if (aEvalFlags & synchronously) {
+        result = ctx->executeSynchronously(code, aEvalFlags, aMaxRunTime);
+      }
+      else {
+        ctx->execute(code, aEvalFlags, aEvaluationCB, aMaxRunTime);
+        return result; // null, callback will deliver result
+      }
     }
-    // cannot evaluate due to missing context
-    code = new ErrorValue(ScriptError::Internal, "No context to execute code");
+    else {
+      // cannot evaluate due to missing context
+      result = new ErrorValue(ScriptError::Internal, "No context to execute code");
+    }
   }
   if (!code) {
-    code = new AnnotatedNullValue("no source code");
+    result = new AnnotatedNullValue("no source code");
   }
-  if (aEvaluationCB) aEvaluationCB(code);
+  if (aEvaluationCB) aEvaluationCB(result);
+  return result;
 }
 
 
@@ -2188,15 +2273,19 @@ void ScriptCodeThread::stepLoop()
 void ScriptCodeThread::done()
 {
   if (result && result->hasType(error)) {
-    if (result->errorValue()->getErrorCode()>=ScriptError::FatalErrors) {
-      // just end the thread unconditionally
-      complete(result);
-      return;
-    }
-    else {
-      // TODO: walk back the stack and look for a catch()
-      complete(result); // FIXME: for now, we just terminate as well
-      return;
+    // check special case, "create" marks an error just explicitly created that should not automatically throw
+    if (!result->hasType(create)) {
+      ErrorPtr err = result->errorValue();
+      if (err->isDomain(ScriptError::domain()) && err->getErrorCode()>=ScriptError::FatalErrors) {
+        // just end the thread unconditionally
+        complete(result);
+        return;
+      }
+      else {
+        // TODO: walk back the stack and look for a catch()
+        complete(result); // FIXME: for now, we just terminate as well
+        return;
+      }
     }
   }
   resume();
@@ -2396,6 +2485,7 @@ static void limited_func(BuiltinFunctionContextPtr f)
   ScriptObj &a = f->argval(0);
   if (a<f->argval(1)) f->finish(f->arg(1));
   else if (a>f->argval(2)) f->finish(f->arg(2));
+  else f->finish(f->arg(0));
 }
 
 
@@ -2618,7 +2708,7 @@ static const ArgumentDescriptor error_args[] = { { any+null } };
 static const size_t error_numargs = sizeof(error_args)/sizeof(ArgumentDescriptor);
 static void error_func(BuiltinFunctionContextPtr f)
 {
-  f->finish(new ErrorValue(ScriptError::User, "%s", f->arg(0)->stringValue().c_str()));
+  f->finish(new NoThrowErrorValue(Error::err<ScriptError>(ScriptError::User, "%s", f->arg(0)->stringValue().c_str())));
 }
 
 
@@ -2692,7 +2782,12 @@ static void eval_func(BuiltinFunctionContextPtr f)
   }
   else {
     // need to compile string first
-    ScriptSource src("eval function", f->instance()->loggingContext(), f->arg(0)->stringValue(), f->domain());
+    ScriptSource src(
+      "eval function",
+      f->instance() ? f->instance()->loggingContext() : NULL,
+      f->arg(0)->stringValue(),
+      f->domain()
+    );
     evalcode = src.getExecutable();
   }
   if (!evalcode->hasType(executable)) {
@@ -2928,7 +3023,7 @@ static void dusk_func(BuiltinFunctionContextPtr f)
 // epochtime()
 static void epochtime_func(BuiltinFunctionContextPtr f)
 {
-  f->finish(new NumericValue(MainLoop::unixtime()/Day)); // epoch time in days with fractional time
+  f->finish(new NumericValue((double)MainLoop::unixtime()/Day)); // epoch time in days with fractional time
 }
 
 
@@ -3102,16 +3197,16 @@ static const BuiltinFunctionDescriptor standardFunctions[] = {
 
 // MARK: - Standard Scripting Domain
 
-static ScriptingDomain* standardScriptingDomainP = NULL;
+static ScriptingDomainPtr standardScriptingDomain;
 
 ScriptingDomain& StandardScriptingDomain::sharedDomain()
 {
-  if (!standardScriptingDomainP) {
-    standardScriptingDomainP = new StandardScriptingDomain();
+  if (!standardScriptingDomain) {
+    standardScriptingDomain = new StandardScriptingDomain();
     // the standard scripting domains has the standard functions
-    standardScriptingDomainP->registerMemberLookup(new BuiltInFunctionLookup(BuiltinFunctions::standardFunctions));
+    standardScriptingDomain->registerMemberLookup(new BuiltInFunctionLookup(BuiltinFunctions::standardFunctions));
   }
-  return *standardScriptingDomainP;
+  return *standardScriptingDomain.get();
 };
 
 
@@ -3149,6 +3244,7 @@ public:
     // parse the command line, exits when syntax errors occur
     setCommandDescriptors(usageText, options);
     parseCommandLine(argc, argv);
+    processStandardLogOptions(false);
     // app now ready to run (or cleanup when already terminated)
     return run();
   }
@@ -3168,13 +3264,25 @@ public:
       terminateApp(EXIT_SUCCESS);
       return;
     }
-    source.setSource(buffer);
-    source.run(boost::bind(&SimpleREPLApp::PL, this, _1));
+    source.setSource(buffer, scriptbody);
+    source.run(scriptbody+regular, boost::bind(&SimpleREPLApp::PL, this, _1));
   }
 
   void PL(ScriptObjPtr aResult)
   {
-    printf("   result: %s [%s]\n\n", aResult->stringValue().c_str(), aResult->getAnnotation().c_str());
+    if (aResult) {
+      SourceCursor *cursorP = aResult->cursor();
+      if (cursorP) {
+        string errInd;
+        errInd.append(cursorP->charpos(), '-');
+        errInd += '^';
+        printf("       at: %s\n", errInd.c_str());
+      }
+      printf("   result: %s [%s]\n\n", aResult->stringValue().c_str(), aResult->getAnnotation().c_str());
+    }
+    else {
+      printf("   result: <none>\n\n");
+    }
     MainLoop::currentMainLoop().executeNow(boost::bind(&SimpleREPLApp::RE, this));
   }
 };

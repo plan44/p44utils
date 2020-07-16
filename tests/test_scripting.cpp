@@ -31,36 +31,58 @@
 using namespace p44;
 using namespace p44::Script;
 
+
+class TestLookup : public ClassLevelLookup
+{
+public:
+  virtual TypeInfo containsTypes() const P44_OVERRIDE { return value; }
+
+  virtual ScriptObjPtr memberByNameFrom(ScriptObjPtr aThisObj, const string aName, TypeInfo aTypeRequirements) const P44_OVERRIDE
+  {
+    ScriptObjPtr result;
+    if (strucmp(aName.c_str(),"ua")==0) result = new NumericValue(42);
+    else if (strucmp(aName.c_str(),"almostua")==0) result = new NumericValue(42.7);
+    else if (strucmp(aName.c_str(),"uatext")==0) result = new StringValue("fortyTwo");
+    return result;
+  };
+};
+
+
+class ScriptingCodeFixture
+{
+  ScriptMainContextPtr mainContext;
+  TestLookup testLookup;
+public:
+  ScriptSource s;
+
+  ScriptingCodeFixture()
+  {
+    SETERRLEVEL(0, false); // everything to stdout, once
+    LOG(LOG_ERR, "\n+++++++ constructing ScriptingCodeFixture");
+    testLookup.isMemberVariable();
+    StandardScriptingDomain::sharedDomain().setLogLevelOffset(LOGLEVELOFFSET);
+    mainContext = StandardScriptingDomain::sharedDomain().newContext();
+    s.setSharedMainContext(mainContext);
+    mainContext->registerMemberLookup(&testLookup);
+    mainContext->domain()->setMemberByName("jstest", new JsonValue(JsonObject::objFromText(JSON_TEST_OBJ)), global|create);
+  };
+  virtual ~ScriptingCodeFixture()
+  {
+    LOG(LOG_ERR, "------- destructing ScriptingCodeFixture\n");
+  }
+
+};
+
+
+
+
 // MARK: CodeCursor tests
 
-/*
-double numParse(const string input) {
-  CodeCursor c(input);
-  double num;
-  c.parseNumericLiteral(num);
-  return num;
-}
-
-string strParse(const string input) {
-  CodeCursor c(input);
-  string str;
-  c.parseStringLiteral(str);
-  return str;
-}
-
-string jsonParse(const string input) {
-  CodeCursor c(input);
-  JsonObjectPtr o;
-  c.parseJSONLiteral(o);
-  return o->json_str();
-}
-*/
-
-TEST_CASE("CodeCursor", "[scripting],[FOCUS]" )
+TEST_CASE("CodeCursor", "[scripting]" )
 {
   SECTION("Cursor") {
     // basic
-    SourcePos cursor("test");
+    SourceCursor cursor("test");
     REQUIRE(cursor.charsleft() == 4);
     REQUIRE(cursor.lineno() == 0); // first line
     REQUIRE(cursor.charpos() == 0); // first char
@@ -74,21 +96,26 @@ TEST_CASE("CodeCursor", "[scripting],[FOCUS]" )
     REQUIRE(cursor.c() == 't');
     REQUIRE(cursor.charpos() == 3);
     REQUIRE(cursor.advance(2) == false); // cannot advance 2 chars, only 1
-    // end of buffer
-    SourcePos cursor2("part of buffer passed", 7); // only "part of" should be visible
-    REQUIRE(cursor2.charsleft() == 7);
-    cursor2.advance(5);
-    REQUIRE(cursor2.c() == 'o');
-    REQUIRE(cursor2.next() == true);
-    REQUIRE(cursor2.c() == 'f');
-    REQUIRE(cursor2.next() == true); // reaching end now
-    REQUIRE(cursor2.c() == 0);
-    REQUIRE(cursor2.next() == false); // cannot move further
+    // part of a string only
+    SourceCursor cursor2("the part of buffer passed");
+    SourceCursor cursor2start(cursor2);
+    cursor2start.advance(4);
+    SourceCursor cursor2end(cursor2start);
+    cursor2end.advance(7); // only "part of" should be visible
+    SourceCursor cursor2part(cursor2.source, cursor2start.pos, cursor2end.pos);
+    // only "part of" should be visible
+    REQUIRE(cursor2part.charsleft() == 7);
+    REQUIRE(cursor2part.advance(5) == true);
+    REQUIRE(cursor2part.c() == 'o');
+    REQUIRE(cursor2part.next() == true);
+    REQUIRE(cursor2part.nextIf('f') == true); // reaching end now
+    REQUIRE(cursor2part.c() == 0);
+    REQUIRE(cursor2part.next() == false); // cannot move further
   }
 
   SECTION("Identifiers") {
     // multi line + identifiers
-    SourcePos cursor3("multiple words /*   on\nmore */ than // one\nline: one.a2-a3_a4");
+    SourceCursor cursor3("multiple words /*   on\nmore */ than // one\nline: one.a2-a3_a4");
     string i;
     // "multiple"
     REQUIRE(cursor3.parseIdentifier(i) == true);
@@ -145,413 +172,294 @@ TEST_CASE("CodeCursor", "[scripting],[FOCUS]" )
     REQUIRE(cursor3.EOT() == true);
   }
 
-  /*
   SECTION("Literals") {
-    REQUIRE(numParse("42") == 42);
-    REQUIRE(numParse("0x42") == 0x42);
-    REQUIRE(numParse("42.42") == 42.42);
+    REQUIRE(SourceCursor("42").parseNumericLiteral()->numValue() == 42);
+    REQUIRE(SourceCursor("0x42").parseNumericLiteral()->numValue() == 0x42);
+    REQUIRE(SourceCursor("42.42").parseNumericLiteral()->numValue() == 42.42);
 
-    REQUIRE(strParse("\"Hello\"") == "Hello");
-    REQUIRE(strParse("\"He\\x65llo\"") == "Heello");
-    REQUIRE(strParse("\"\\tHello\\nWorld, \\\"double quoted\\\"\"") == "\tHello\nWorld, \"double quoted\""); // C string style
-    REQUIRE(strParse("'Hello\\nWorld, \"double quoted\" text'") == "Hello\\nWorld, \"double quoted\" text"); // PHP single quoted style
-    REQUIRE(strParse("'Hello\\nWorld, ''single quoted'' text'") == "Hello\\nWorld, 'single quoted' text"); // include single quotes in single quoted text by doubling them
-    REQUIRE(strParse("\"\"") == ""); // empty string
+    REQUIRE(SourceCursor("\"Hello\"").parseStringLiteral()->stringValue() == "Hello");
+    REQUIRE(SourceCursor("\"He\\x65llo\"").parseStringLiteral()->stringValue() == "Heello");
+    REQUIRE(SourceCursor("\"\\tHello\\nWorld, \\\"double quoted\\\"\"").parseStringLiteral()->stringValue() == "\tHello\nWorld, \"double quoted\""); // C string style
+    REQUIRE(SourceCursor("'Hello\\nWorld, \"double quoted\" text'").parseStringLiteral()->stringValue() == "Hello\\nWorld, \"double quoted\" text"); // PHP single quoted style
+    REQUIRE(SourceCursor("'Hello\\nWorld, ''single quoted'' text'").parseStringLiteral()->stringValue() == "Hello\\nWorld, 'single quoted' text"); // include single quotes in single quoted text by doubling them
+    REQUIRE(SourceCursor("\"\"").parseStringLiteral()->stringValue() == ""); // empty string
 
-    REQUIRE(numParse("12:35") == 45300);
-    REQUIRE(numParse("14:57:42") == 53862);
-    REQUIRE(numParse("14:57:42.328") == 53862.328);
-    REQUIRE(numParse("1.Jan") == 0);
-    REQUIRE(numParse("1.1.") == 0);
-    REQUIRE(numParse("19.Feb") == 49);
-    REQUIRE(numParse("19.FEB") == 49);
-    REQUIRE(numParse("19.2.") == 49);
+    REQUIRE(SourceCursor("12:35").parseNumericLiteral()->numValue() == 45300);
+    REQUIRE(SourceCursor("14:57:42").parseNumericLiteral()->numValue() == 53862);
+    REQUIRE(SourceCursor("14:57:42.328").parseNumericLiteral()->numValue() == 53862.328);
+    REQUIRE(SourceCursor("1.Jan").parseNumericLiteral()->numValue() == 0);
+    REQUIRE(SourceCursor("1.1.").parseNumericLiteral()->numValue() == 0);
+    REQUIRE(SourceCursor("19.Feb").parseNumericLiteral()->numValue() == 49);
+    REQUIRE(SourceCursor("19.FEB").parseNumericLiteral()->numValue() == 49);
+    REQUIRE(SourceCursor("19.2.").parseNumericLiteral()->numValue() == 49);
 
-    REQUIRE(jsonParse("{ 'type':'object', 'test':42 }") == "{\"type\":\"object\",\"test\":42}");
-    REQUIRE(jsonParse("[ 'first', 2, 3, 'fourth', 6.6 ]") == "[\"first\",2,3,\"fourth\",6.6]");
-  }
-  */
-
-}
-
-
-
-
-
-#if 0
-
-class ScriptingExpressionFixture : public EvaluationContext
-{
-  typedef EvaluationContext inherited;
-public:
-  ScriptingExpressionFixture() :
-    inherited(NULL)
-  {
-    setLogLevelOffset(LOGLEVELOFFSET);
-    syncExecLimit = Infinite;
-  };
-
-  bool valueLookup(const string &aName, ExpressionValue &aResult) P44_OVERRIDE
-  {
-    if (strucmp(aName.c_str(),"ua")==0) aResult.setNumber(42);
-    else if (strucmp(aName.c_str(),"almostua")==0) aResult.setNumber(42.7);
-    else if (strucmp(aName.c_str(),"uatext")==0) aResult.setString("fortyTwo");
-    else return inherited::valueLookup(aName, aResult);
-    return true;
-  }
-
-  ExpressionValue runExpression(const string &aExpression)
-  {
-    setCode(aExpression);
-    // set global jstest to JSON_TEST_OBJ
-    ExpressionValue v;
-    v.setJson(JsonObject::objFromText(JSON_TEST_OBJ));
-    ScriptGlobals::sharedScriptGlobals().globalVariables["jstest"] = v;
-    // evaluate
-    return evaluateSynchronously(evalmode_initial);
-  }
-};
-
-
-class ScriptingCodeFixture : public ScriptExecutionContext
-{
-  typedef ScriptExecutionContext inherited;
-public:
-  ScriptingCodeFixture() :
-    inherited(NULL)
-  {
-    setLogLevelOffset(LOGLEVELOFFSET);
-    syncExecLimit = Infinite;
-  };
-
-  bool valueLookup(const string &aName, ExpressionValue &aResult) P44_OVERRIDE
-  {
-    if (strucmp(aName.c_str(),"ua")==0) aResult.setNumber(42);
-    else if (strucmp(aName.c_str(),"almostua")==0) aResult.setNumber(42.7);
-    else if (strucmp(aName.c_str(),"uatext")==0) aResult.setString("fortyTwo");
-    else return inherited::valueLookup(aName, aResult);
-    return true;
-  }
-
-  ExpressionValue runScript(const string &aScript)
-  {
-    setCode(aScript);
-    // set global jstest to JSON_TEST_OBJ
-    ExpressionValue v;
-    v.setJson(JsonObject::objFromText(JSON_TEST_OBJ));
-    ScriptGlobals::sharedScriptGlobals().globalVariables["jstest"] = v;
-    return evaluateSynchronously(evalmode_script);
-  }
-};
-
-
-TEST_CASE_METHOD(ScriptingExpressionFixture, "Focus1", "[FOCUS]" )
-{
-  setLogLevelOffset(2);
-  //REQUIRE(runExpression("42").numValue() == 42);
-}
-
-
-TEST_CASE_METHOD(ScriptingCodeFixture, "Focus2", "[FOCUS]" )
-{
-  setLogLevelOffset(2);
-  //REQUIRE(runScript("fortytwo = 42; return fortytwo").numValue() == 42);
-  //REQUIRE(runScript("var js = " JSON_TEST_OBJ "; return js").stringValue() == JSON_TEST_OBJ);
-  //REQUIRE(runScript("var js = " JSON_TEST_OBJ "; return js.obj").stringValue() == "{\"objA\":\"A\",\"objB\":42,\"objC\":{\"objD\":\"D\",\"objE\":45}}");
-  //REQUIRE(runScript("var js = " JSON_TEST_OBJ "; setfield(js.obj, 'objF', 46); return js.obj.objF").numValue() == 46);
-}
-
-
-
-TEST_CASE("ExpressionValue", "[expressions]" )
-{
-
-  SECTION("Default Value") {
-    REQUIRE(ExpressionValue().isNull()); // default expression is NULL
-    REQUIRE(ExpressionValue().isString() == false);
-    REQUIRE(ExpressionValue().isValue() == false); // FIXME: for now, is notOK because NULL is an error
-    REQUIRE(ExpressionValue().isOK() == true);
-    REQUIRE(ExpressionValue().syntaxOk() == true);
-    REQUIRE(ExpressionValue().boolValue() == false);
-    REQUIRE(ExpressionValue().boolValue() == false);
-  }
-
-  SECTION("Numbers") {
-    REQUIRE(ExpressionValue(42).numValue() == 42);
-    REQUIRE(ExpressionValue(42.78).numValue() == 42.78);
-    REQUIRE(ExpressionValue(42.78).intValue() == 42);
-    REQUIRE(ExpressionValue(42.78).intValue() == 42);
-    REQUIRE(ExpressionValue(42.78).boolValue() == true);
-    REQUIRE(ExpressionValue(-42.78).boolValue() == true);
-    REQUIRE(ExpressionValue(0).boolValue() == false);
-    ExpressionValue e; e.setBool(true);
-    REQUIRE(e.numValue() == 1);
-    ExpressionValue e2; e2.setBool(false);
-    REQUIRE(e2.numValue() == 0);
-  }
-
-  SECTION("Strings") {
-    REQUIRE(ExpressionValue(42).stringValue() == "42");
-    REQUIRE(ExpressionValue("UA").stringValue() == "UA");
-  }
-
-  SECTION("Operators") {
-    REQUIRE((ExpressionValue("UA") == ExpressionValue("UA")).boolValue() == true);
-    REQUIRE((ExpressionValue("UA") < ExpressionValue("ua")).boolValue() == true);
-    REQUIRE((ExpressionValue("UA")+ExpressionValue("ua")).stringValue() == "UAua");
-    REQUIRE((ExpressionValue(42.7)+ExpressionValue(42)).numValue() == 42.7+42.0);
-    REQUIRE((ExpressionValue(42.7)-ExpressionValue(24)).numValue() == 42.7-24.0);
-    REQUIRE((ExpressionValue(42.7)*ExpressionValue(42)).numValue() == 42.7*42.0);
-    REQUIRE((ExpressionValue(42.7)/ExpressionValue(24)).numValue() == 42.7/24.0);
+    REQUIRE(SourceCursor("{ 'type':'object', 'test':42 }").parseJSONLiteral()->stringValue() == "{\"type\":\"object\",\"test\":42}");
+    REQUIRE(SourceCursor("[ 'first', 2, 3, 'fourth', 6.6 ]").parseJSONLiteral()->stringValue() == "[\"first\",2,3,\"fourth\",6.6]");
   }
 
 }
 
+// MARK: - debug test case
 
-
-TEST_CASE_METHOD(ScriptingExpressionFixture, "Expressions", "[expressions]" )
+TEST_CASE_METHOD(ScriptingCodeFixture, "Focus", "[scripting],[DEBUG]" )
 {
+  REQUIRE(s.test(expression, "jstest['array',0]")->stringValue() == "first");
+}
 
+// MARK: - Literals
+
+TEST_CASE_METHOD(ScriptingCodeFixture, "Literals", "[scripting],[FOCUS]" )
+{
   SECTION("Literals") {
-    REQUIRE(runExpression("42").numValue() == 42);
-    REQUIRE(runExpression("0x42").numValue() == 0x42);
-    REQUIRE(runExpression("42.42").numValue() == 42.42);
+    REQUIRE(s.test(expression, "42")->numValue() == 42);
+    REQUIRE(s.test(expression, "0x42")->numValue() == 0x42);
+    REQUIRE(s.test(expression, "42.42")->numValue() == 42.42);
 
-    REQUIRE(runExpression("\"Hello\"").stringValue() == "Hello");
-    REQUIRE(runExpression("\"He\\x65llo\"").stringValue() == "Heello");
-    REQUIRE(runExpression("\"\\tHello\\nWorld, \\\"double quoted\\\"\"").stringValue() == "\tHello\nWorld, \"double quoted\""); // C string style
-    REQUIRE(runExpression("'Hello\\nWorld, \"double quoted\" text'").stringValue() == "Hello\\nWorld, \"double quoted\" text"); // PHP single quoted style
-    REQUIRE(runExpression("'Hello\\nWorld, ''single quoted'' text'").stringValue() == "Hello\\nWorld, 'single quoted' text"); // include single quotes in single quoted text by doubling them
-    REQUIRE(runExpression("\"\"").stringValue() == ""); // empty string
+    REQUIRE(s.test(expression, "\"Hello\"")->stringValue() == "Hello");
+    REQUIRE(s.test(expression, "\"He\\x65llo\"")->stringValue() == "Heello");
+    REQUIRE(s.test(expression, "\"\\tHello\\nWorld, \\\"double quoted\\\"\"")->stringValue() == "\tHello\nWorld, \"double quoted\""); // C string style
+    REQUIRE(s.test(expression, "'Hello\\nWorld, \"double quoted\" text'")->stringValue() == "Hello\\nWorld, \"double quoted\" text"); // PHP single quoted style
+    REQUIRE(s.test(expression, "'Hello\\nWorld, ''single quoted'' text'")->stringValue() == "Hello\\nWorld, 'single quoted' text"); // include single quotes in single quoted text by doubling them
+    REQUIRE(s.test(expression, "\"\"")->stringValue() == ""); // empty string
 
-    REQUIRE(runExpression("true").intValue() == 1);
-    REQUIRE(runExpression("TRUE").intValue() == 1);
-    REQUIRE(runExpression("yes").intValue() == 1);
-    REQUIRE(runExpression("YES").intValue() == 1);
-    REQUIRE(runExpression("false").intValue() == 0);
-    REQUIRE(runExpression("FALSE").intValue() == 0);
-    REQUIRE(runExpression("no").intValue() == 0);
-    REQUIRE(runExpression("NO").intValue() == 0);
-    REQUIRE(runExpression("undefined").isNull() == true);
-    REQUIRE(runExpression("UNDEFINED").isNull() == true);
-    REQUIRE(runExpression("null").isNull() == true);
-    REQUIRE(runExpression("NULL").isNull() == true);
+    REQUIRE(s.test(expression, "true")->intValue() == 1);
+    REQUIRE(s.test(expression, "TRUE")->intValue() == 1);
+    REQUIRE(s.test(expression, "yes")->intValue() == 1);
+    REQUIRE(s.test(expression, "YES")->intValue() == 1);
+    REQUIRE(s.test(expression, "false")->intValue() == 0);
+    REQUIRE(s.test(expression, "FALSE")->intValue() == 0);
+    REQUIRE(s.test(expression, "no")->intValue() == 0);
+    REQUIRE(s.test(expression, "NO")->intValue() == 0);
+    REQUIRE(s.test(expression, "undefined")->hasType(null) == true);
+    REQUIRE(s.test(expression, "UNDEFINED")->hasType(null) == true);
+    REQUIRE(s.test(expression, "null")->hasType(null) == true);
+    REQUIRE(s.test(expression, "NULL")->hasType(null) == true);
 
-    REQUIRE(runExpression("12:35").intValue() == 45300);
-    REQUIRE(runExpression("14:57:42").intValue() == 53862);
-    REQUIRE(runExpression("14:57:42.328").numValue() == 53862.328);
-    REQUIRE(runExpression("1.Jan").intValue() == 0);
-    REQUIRE(runExpression("1.1.").intValue() == 0);
-    REQUIRE(runExpression("19.Feb").intValue() == 49);
-    REQUIRE(runExpression("19.FEB").intValue() == 49);
-    REQUIRE(runExpression("19.2.").intValue() == 49);
-    REQUIRE(runExpression("Mon").intValue() == 1);
-    REQUIRE(runExpression("Sun").intValue() == 0);
-    REQUIRE(runExpression("SUN").intValue() == 0);
-    REQUIRE(runExpression("thu").intValue() == 4);
+    REQUIRE(s.test(expression, "12:35")->intValue() == 45300);
+    REQUIRE(s.test(expression, "14:57:42")->intValue() == 53862);
+    REQUIRE(s.test(expression, "14:57:42.328")->numValue() == 53862.328);
+    REQUIRE(s.test(expression, "1.Jan")->intValue() == 0);
+    REQUIRE(s.test(expression, "1.1.")->intValue() == 0);
+    REQUIRE(s.test(expression, "19.Feb")->intValue() == 49);
+    REQUIRE(s.test(expression, "19.FEB")->intValue() == 49);
+    REQUIRE(s.test(expression, "19.2.")->intValue() == 49);
+    REQUIRE(s.test(expression, "Mon")->intValue() == 1);
+    REQUIRE(s.test(expression, "Sun")->intValue() == 0);
+    REQUIRE(s.test(expression, "SUN")->intValue() == 0);
+    REQUIRE(s.test(expression, "thu")->intValue() == 4);
 
-    REQUIRE(runExpression("{ 'type':'object', 'test':42 }").stringValue() == "{\"type\":\"object\",\"test\":42}");
-    REQUIRE(runExpression("[ 'first', 2, 3, 'fourth', 6.6 ]").stringValue() == "[\"first\",2,3,\"fourth\",6.6]");
-
+    REQUIRE(s.test(expression, "{ 'type':'object', 'test':42 }")->stringValue() == "{\"type\":\"object\",\"test\":42}");
+    REQUIRE(s.test(expression, "[ 'first', 2, 3, 'fourth', 6.6 ]")->stringValue() == "[\"first\",2,3,\"fourth\",6.6]");
   }
+
 
   SECTION("Whitespace and comments") {
-    REQUIRE(runExpression("42 // 43").numValue() == 42);
-    REQUIRE(runExpression("/* 43 */ 42").numValue() == 42);
-    REQUIRE(runExpression("/* 43 // 42").isNull() == true);
+    REQUIRE(s.test(expression, "42 // 43")->numValue() == 42);
+    REQUIRE(s.test(expression, "/* 43 */ 42")->numValue() == 42);
+    REQUIRE(s.test(expression, "/* 43 // 42")->undefined() == true);
+  }
+}
+
+
+// MARK: - Lookups
+
+TEST_CASE_METHOD(ScriptingCodeFixture, "lookups", "[scripting],[FOCUS]") {
+
+  SECTION("Scalars") {
+    REQUIRE(s.test(expression, "UA")->numValue() == 42);
+    REQUIRE(s.test(expression, "dummy")->defined() == false); // unknown var is not a value
+    REQUIRE(s.test(expression, "dummy")->isErr() == true); // ..and not value-ok
+    REQUIRE(s.test(expression, "almostUA")->numValue() == 42.7);
+    REQUIRE(s.test(expression, "UAtext")->stringValue() == "fortyTwo");
+    REQUIRE(s.test(expression, "UAtext")->stringValue() == "fortyTwo");
+    REQUIRE(s.test(expression, "UAtext")->stringValue() == "fortyTwo");
   }
 
-
-  SECTION("Value Lookup") {
-    REQUIRE(runExpression("UA").numValue() == 42);
-    REQUIRE(runExpression("dummy").isValue() == false); // unknown var is not a value
-    REQUIRE(runExpression("dummy").isOK() == false); // ..and not value-ok
-    REQUIRE(runExpression("almostUA").numValue() == 42.7);
-    REQUIRE(runExpression("UAtext").stringValue() == "fortyTwo");
-    REQUIRE(runExpression("UAtext").stringValue() == "fortyTwo");
-    REQUIRE(runExpression("UAtext").stringValue() == "fortyTwo");
+  SECTION("Json") {
     // JSON tests, see JSON_TEST_OBJ
-    REQUIRE(runExpression("jstest").stringValue() == JSON_TEST_OBJ);
-    REQUIRE(runExpression("jstest.string").stringValue() == "abc");
-    REQUIRE(runExpression("jstest.number").numValue() == 42);
-    REQUIRE(runExpression("jstest.bool").boolValue() == true);
-    REQUIRE(runExpression("jstest.array[2]").numValue() == 3);
-    REQUIRE(runExpression("jstest.array[0]").stringValue() == "first");
-    REQUIRE(runExpression("jstest['array'][0]").stringValue() == "first");
-    REQUIRE(runExpression("jstest['array',0]").stringValue() == "first");
-    REQUIRE(runExpression("jstest.obj.objA").stringValue() == "A");
-    REQUIRE(runExpression("jstest.obj.objB").numValue() == 42);
-    REQUIRE(runExpression("jstest.obj['objB']").numValue() == 42);
-    REQUIRE(runExpression("jstest['obj'].objB").numValue() == 42);
-    REQUIRE(runExpression("jstest['obj','objB']").numValue() == 42);
-    REQUIRE(runExpression("jstest['obj']['objB']").numValue() == 42);
-    REQUIRE(runExpression("jstest['obj'].objC.objD").stringValue() == "D");
-    REQUIRE(runExpression("jstest['obj'].objC.objE").numValue() == 45);
+    REQUIRE(s.test(expression, "jstest")->stringValue() == JSON_TEST_OBJ);
+    REQUIRE(s.test(expression, "jstest.string")->stringValue() == "abc");
+    REQUIRE(s.test(expression, "jstest.number")->numValue() == 42);
+    REQUIRE(s.test(expression, "jstest.bool")->boolValue() == true);
+    REQUIRE(s.test(expression, "jstest.array[2]")->numValue() == 3);
+    REQUIRE(s.test(expression, "jstest.array[0]")->stringValue() == "first");
+    REQUIRE(s.test(expression, "jstest['array'][0]")->stringValue() == "first");
+    REQUIRE(s.test(expression, "jstest['array',0]")->stringValue() == "first");
+    REQUIRE(s.test(expression, "jstest.obj.objA")->stringValue() == "A");
+    REQUIRE(s.test(expression, "jstest.obj.objB")->numValue() == 42);
+    REQUIRE(s.test(expression, "jstest.obj['objB']")->numValue() == 42);
+    REQUIRE(s.test(expression, "jstest['obj'].objB")->numValue() == 42);
+    REQUIRE(s.test(expression, "jstest['obj','objB']")->numValue() == 42);
+    REQUIRE(s.test(expression, "jstest['obj']['objB']")->numValue() == 42);
+    REQUIRE(s.test(expression, "jstest['obj'].objC.objD")->stringValue() == "D");
+    REQUIRE(s.test(expression, "jstest['obj'].objC.objE")->numValue() == 45);
   }
+
+}
+
+
+// MARK: - Expressions
+
+TEST_CASE_METHOD(ScriptingCodeFixture, "expressions", "[scripting],[FOCUS]") {
 
   SECTION("Operations") {
-    REQUIRE(runExpression("-42.42").numValue() == -42.42); // unary minus
-    REQUIRE(runExpression("!true").numValue() == 0); // unary not
-    REQUIRE(runExpression("\"UA\"").stringValue() == "UA");
-    REQUIRE(runExpression("42.7+42").numValue() == 42.7+42.0);
-    REQUIRE(runExpression("42.7-24").numValue() == 42.7-24.0);
-    REQUIRE(runExpression("42.7*42").numValue() == 42.7*42.0);
-    REQUIRE(runExpression("42.7/24").numValue() == 42.7/24.0);
-    REQUIRE(runExpression("5%2").numValue() == 1);
-    REQUIRE(runExpression("5%2.5").numValue() == 0);
-    REQUIRE(runExpression("5%1.5").numValue() == 0.5);
-    REQUIRE(runExpression("5.5%2").numValue() == 1.5);
-    REQUIRE(runExpression("78%9").numValue() == 6.0);
-    REQUIRE(runExpression("77.77%9").numValue() == Approx(5.77));
-    REQUIRE(runExpression("78/0").isOK() == false); // division by zero
-    REQUIRE(runExpression("\"ABC\" + \"abc\"").stringValue() == "ABCabc");
-    REQUIRE(runExpression("\"empty\"+\"\"").stringValue() == "empty");
-    REQUIRE(runExpression("\"\"+\"empty\"").stringValue() == "empty");
-    REQUIRE(runExpression("1==true").boolValue() == true);
-    REQUIRE(runExpression("1==yes").boolValue() == true);
-    REQUIRE(runExpression("0==false").boolValue() == true);
-    REQUIRE(runExpression("0==no").boolValue() == true);
-    REQUIRE(runExpression("undefined").boolValue() == false);
-    REQUIRE(runExpression("undefined!=undefined").boolValue() == false);
-    REQUIRE(runExpression("undefined==undefined").boolValue() == false);
-    REQUIRE(runExpression("undefined==42").boolValue() == false);
-    REQUIRE(runExpression("42==undefined").boolValue() == false);
-    REQUIRE(runExpression("undefined!=42").boolValue() == false);
-    REQUIRE(runExpression("42!=undefined").boolValue() == false);
-    REQUIRE(runExpression("42>undefined").isNull() == true);
-    REQUIRE(runExpression("42<undefined").isNull() == true);
-    REQUIRE(runExpression("undefined<42").isNull() == true);
-    REQUIRE(runExpression("undefined>42").isNull() == true);
-    REQUIRE(runExpression("!undefined").isNull() == true);
-    REQUIRE(runExpression("-undefined").isNull() == true);
-    REQUIRE(runExpression("42<>78").boolValue() == true);
-    REQUIRE(runExpression("42=42").isValue() == (EXPRESSION_OPERATOR_MODE!=EXPRESSION_OPERATOR_MODE_C));
-    REQUIRE(runExpression("42=42").boolValue() == (EXPRESSION_OPERATOR_MODE!=EXPRESSION_OPERATOR_MODE_C));
+    REQUIRE(s.test(expression, "-42.42")->numValue() == -42.42); // unary minus
+    REQUIRE(s.test(expression, "!true")->numValue() == 0); // unary not
+    REQUIRE(s.test(expression, "\"UA\"")->stringValue() == "UA");
+    REQUIRE(s.test(expression, "42.7+42")->numValue() == 42.7+42.0);
+    REQUIRE(s.test(expression, "42.7-24")->numValue() == 42.7-24.0);
+    REQUIRE(s.test(expression, "42.7*42")->numValue() == 42.7*42.0);
+    REQUIRE(s.test(expression, "42.7/24")->numValue() == 42.7/24.0);
+    REQUIRE(s.test(expression, "5%2")->numValue() == 1);
+    REQUIRE(s.test(expression, "5%2.5")->numValue() == 0);
+    REQUIRE(s.test(expression, "5%1.5")->numValue() == 0.5);
+    REQUIRE(s.test(expression, "5.5%2")->numValue() == 1.5);
+    REQUIRE(s.test(expression, "78%9")->numValue() == 6.0);
+    REQUIRE(s.test(expression, "77.77%9")->numValue() == Approx(5.77));
+    REQUIRE(s.test(expression, "78/0")->isErr() == true); // division by zero
+    REQUIRE(s.test(expression, "\"ABC\" + \"abc\"")->stringValue() == "ABCabc");
+    REQUIRE(s.test(expression, "\"empty\"+\"\"")->stringValue() == "empty");
+    REQUIRE(s.test(expression, "\"\"+\"empty\"")->stringValue() == "empty");
+    REQUIRE(s.test(expression, "1==true")->boolValue() == true);
+    REQUIRE(s.test(expression, "1==yes")->boolValue() == true);
+    REQUIRE(s.test(expression, "0==false")->boolValue() == true);
+    REQUIRE(s.test(expression, "0==no")->boolValue() == true);
+    REQUIRE(s.test(expression, "undefined")->boolValue() == false);
+    REQUIRE(s.test(expression, "undefined!=undefined")->boolValue() == false);
+    REQUIRE(s.test(expression, "undefined==undefined")->boolValue() == false);
+    REQUIRE(s.test(expression, "undefined==42")->boolValue() == false);
+    REQUIRE(s.test(expression, "42==undefined")->boolValue() == false);
+    REQUIRE(s.test(expression, "undefined!=42")->boolValue() == false);
+    REQUIRE(s.test(expression, "42!=undefined")->boolValue() == false);
+    REQUIRE(s.test(expression, "42>undefined")->undefined() == true);
+    REQUIRE(s.test(expression, "42<undefined")->undefined() == true);
+    REQUIRE(s.test(expression, "undefined<42")->undefined() == true);
+    REQUIRE(s.test(expression, "undefined>42")->undefined() == true);
+    REQUIRE(s.test(expression, "!undefined")->undefined() == true);
+    REQUIRE(s.test(expression, "-undefined")->undefined() == true);
+    REQUIRE(s.test(expression, "42<>78")->boolValue() == true);
+    REQUIRE(s.test(expression, "42=42")->defined() == (SCRIPT_OPERATOR_MODE!=SCRIPT_OPERATOR_MODE_C));
+    REQUIRE(s.test(expression, "42=42")->boolValue() == (SCRIPT_OPERATOR_MODE!=SCRIPT_OPERATOR_MODE_C));
     // Comparisons
-    REQUIRE(runExpression("7<8").boolValue() == true);
-    REQUIRE(runExpression("7<7").boolValue() == false);
-    REQUIRE(runExpression("8<7").boolValue() == false);
-    REQUIRE(runExpression("7<=8").boolValue() == true);
-    REQUIRE(runExpression("7<=7").boolValue() == true);
-    REQUIRE(runExpression("8<=7").boolValue() == false);
-    REQUIRE(runExpression("8>7").boolValue() == true);
-    REQUIRE(runExpression("7>7").boolValue() == false);
-    REQUIRE(runExpression("7>8").boolValue() == false);
-    REQUIRE(runExpression("8>=7").boolValue() == true);
-    REQUIRE(runExpression("7>=7").boolValue() == true);
-    REQUIRE(runExpression("7>=8").boolValue() == false);
-    REQUIRE(runExpression("7==7").boolValue() == true);
-    REQUIRE(runExpression("7!=7").boolValue() == false);
-    REQUIRE(runExpression("7==8").boolValue() == false);
-    REQUIRE(runExpression("7!=8").boolValue() == true);
+    REQUIRE(s.test(expression, "7<8")->boolValue() == true);
+    REQUIRE(s.test(expression, "7<7")->boolValue() == false);
+    REQUIRE(s.test(expression, "8<7")->boolValue() == false);
+    REQUIRE(s.test(expression, "7<=8")->boolValue() == true);
+    REQUIRE(s.test(expression, "7<=7")->boolValue() == true);
+    REQUIRE(s.test(expression, "8<=7")->boolValue() == false);
+    REQUIRE(s.test(expression, "8>7")->boolValue() == true);
+    REQUIRE(s.test(expression, "7>7")->boolValue() == false);
+    REQUIRE(s.test(expression, "7>8")->boolValue() == false);
+    REQUIRE(s.test(expression, "8>=7")->boolValue() == true);
+    REQUIRE(s.test(expression, "7>=7")->boolValue() == true);
+    REQUIRE(s.test(expression, "7>=8")->boolValue() == false);
+    REQUIRE(s.test(expression, "7==7")->boolValue() == true);
+    REQUIRE(s.test(expression, "7!=7")->boolValue() == false);
+    REQUIRE(s.test(expression, "7==8")->boolValue() == false);
+    REQUIRE(s.test(expression, "7!=8")->boolValue() == true);
     // String comparisons
-    REQUIRE(runExpression("\"ABC\" < \"abc\"").boolValue() == true);
-    REQUIRE(runExpression("78==\"78\"").boolValue() == true);
-    REQUIRE(runExpression("78==\"78.00\"").boolValue() == true); // numeric comparison, right side is forced to number
-    REQUIRE(runExpression("\"78\"==\"78.00\"").boolValue() == false); // string comparison, right side is compared as-is
-    REQUIRE(runExpression("78.00==\"78\"").boolValue() == true); // numeric comparison, right side is forced to number
+    REQUIRE(s.test(expression, "\"ABC\" < \"abc\"")->boolValue() == true);
+    REQUIRE(s.test(expression, "78==\"78\"")->boolValue() == true);
+    REQUIRE(s.test(expression, "78==\"78.00\"")->boolValue() == true); // numeric comparison, right side is forced to number
+    REQUIRE(s.test(expression, "\"78\"==\"78.00\"")->boolValue() == false); // string comparison, right side is compared as-is
+    REQUIRE(s.test(expression, "78.00==\"78\"")->boolValue() == true); // numeric comparison, right side is forced to number
   }
 
   SECTION("Operator precedence") {
-    REQUIRE(runExpression("12*3+7").numValue() == 12*3+7);
-    REQUIRE(runExpression("12*(3+7)").numValue() == 12*(3+7));
-    REQUIRE(runExpression("12/3-7").numValue() == 12/3-7);
-    REQUIRE(runExpression("12/(3-7)").numValue() == 12/(3-7));
+    REQUIRE(s.test(expression, "12*3+7")->numValue() == 12*3+7);
+    REQUIRE(s.test(expression, "12*(3+7)")->numValue() == 12*(3+7));
+    REQUIRE(s.test(expression, "12/3-7")->numValue() == 12/3-7);
+    REQUIRE(s.test(expression, "12/(3-7)")->numValue() == 12/(3-7));
   }
 
   SECTION("functions") {
     // testing
-    REQUIRE(runExpression("ifvalid(undefined,42)").numValue() == 42);
-    REQUIRE(runExpression("ifvalid(33,42)").numValue() == 33);
-    REQUIRE(runExpression("isvalid(undefined)").boolValue() == false);
-    REQUIRE(runExpression("isvalid(undefined)").isNull() == false);
-    REQUIRE(runExpression("isvalid(1234)").boolValue() == true);
-    REQUIRE(runExpression("isvalid(0)").boolValue() == true);
-    REQUIRE(runExpression("if(true, 'TRUE', 'FALSE')").stringValue() == "TRUE");
-    REQUIRE(runExpression("if(false, 'TRUE', 'FALSE')").stringValue() == "FALSE");
+    REQUIRE(s.test(expression, "ifvalid(undefined,42)")->numValue() == 42);
+    REQUIRE(s.test(expression, "ifvalid(33,42)")->numValue() == 33);
+    REQUIRE(s.test(expression, "isvalid(undefined)")->boolValue() == false);
+    REQUIRE(s.test(expression, "isvalid(undefined)")->undefined() == false);
+    REQUIRE(s.test(expression, "isvalid(1234)")->boolValue() == true);
+    REQUIRE(s.test(expression, "isvalid(0)")->boolValue() == true);
+    REQUIRE(s.test(expression, "if(true, 'TRUE', 'FALSE')")->stringValue() == "TRUE");
+    REQUIRE(s.test(expression, "if(false, 'TRUE', 'FALSE')")->stringValue() == "FALSE");
     // numbers
-    REQUIRE(runExpression("number(undefined)").numValue() == 0);
-    REQUIRE(runExpression("number(undefined)").isNull() == false);
-    REQUIRE(runExpression("number(0)").boolValue() == false);
-    REQUIRE(runExpression("abs(33)").numValue() == 33);
-    REQUIRE(runExpression("abs(undefined)").isNull() == true);
-    REQUIRE(runExpression("abs(-33)").numValue() == 33);
-    REQUIRE(runExpression("abs(0)").numValue() == 0);
-    REQUIRE(runExpression("int(33)").numValue() == 33);
-    REQUIRE(runExpression("int(33.3)").numValue() == 33);
-    REQUIRE(runExpression("int(33.6)").numValue() == 33);
-    REQUIRE(runExpression("int(-33.3)").numValue() == -33);
-    REQUIRE(runExpression("int(-33.6)").numValue() == -33);
-    REQUIRE(runExpression("round(33)").numValue() == 33);
-    REQUIRE(runExpression("round(33.3)").numValue() == 33);
-    REQUIRE(runExpression("round(33.6)").numValue() == 34);
-    REQUIRE(runExpression("round(-33.6)").numValue() == -34);
-    REQUIRE(runExpression("round(33.3, 0.5)").numValue() == 33.5);
-    REQUIRE(runExpression("round(33.6, 0.5)").numValue() == 33.5);
-    REQUIRE(runExpression("frac(33)").numValue() == 0);
-    REQUIRE(runExpression("frac(-33)").numValue() == 0);
-    REQUIRE(runExpression("frac(33.6)").numValue() == Approx(0.6));
-    REQUIRE(runExpression("frac(-33.6)").numValue() == Approx(-0.6));
-    REQUIRE(runExpression("random(0,10)").numValue() < 10);
-    REQUIRE(runExpression("random(0,10) != random(0,10)").boolValue() == true);
-    REQUIRE(runExpression("number('33')").numValue() == 33);
-    REQUIRE(runExpression("number('0x33')").numValue() == 0x33);
-    REQUIRE(runExpression("number('33 gugus')").numValue() == 33); // best effort, ignore trailing garbage
-    REQUIRE(runExpression("number('gugus 33')").numValue() == 0); // best effort, nothing readable
-    REQUIRE(runExpression("min(42,78)").numValue() == 42);
-    REQUIRE(runExpression("min(78,42)").numValue() == 42);
-    REQUIRE(runExpression("max(42,78)").numValue() == 78);
-    REQUIRE(runExpression("max(78,42)").numValue() == 78);
-    REQUIRE(runExpression("limited(15,10,20)").numValue() == 15);
-    REQUIRE(runExpression("limited(2,10,20)").numValue() == 10);
-    REQUIRE(runExpression("limited(42,10,20)").numValue() == 20);
-    REQUIRE(runExpression("cyclic(15,10,20)").numValue() == 15);
-    REQUIRE(runExpression("cyclic(2,10,20)").numValue() == 12);
-    REQUIRE(runExpression("cyclic(-18,10,20)").numValue() == 12);
-    REQUIRE(runExpression("cyclic(22,10,20)").numValue() == 12);
-    REQUIRE(runExpression("cyclic(42,10,20)").numValue() == 12);
-    REQUIRE(runExpression("cyclic(-10.8,1,2)").numValue() == Approx(1.2));
-    REQUIRE(runExpression("cyclic(-1.8,1,2)").numValue() == Approx(1.2));
-    REQUIRE(runExpression("cyclic(2.2,1,2)").numValue() == Approx(1.2));
-    REQUIRE(runExpression("cyclic(4.2,1,2)").numValue() == Approx(1.2));
-    REQUIRE(runExpression("epochtime()").numValue() == (double)(time(NULL))/24/60/60);
+    REQUIRE(s.test(expression, "number(undefined)")->numValue() == 0);
+    REQUIRE(s.test(expression, "number(undefined)")->undefined() == false);
+    REQUIRE(s.test(expression, "number(0)")->boolValue() == false);
+    REQUIRE(s.test(expression, "abs(33)")->numValue() == 33);
+    REQUIRE(s.test(expression, "abs(undefined)")->undefined() == true);
+    REQUIRE(s.test(expression, "abs(-33)")->numValue() == 33);
+    REQUIRE(s.test(expression, "abs(0)")->numValue() == 0);
+    REQUIRE(s.test(expression, "int(33)")->numValue() == 33);
+    REQUIRE(s.test(expression, "int(33.3)")->numValue() == 33);
+    REQUIRE(s.test(expression, "int(33.6)")->numValue() == 33);
+    REQUIRE(s.test(expression, "int(-33.3)")->numValue() == -33);
+    REQUIRE(s.test(expression, "int(-33.6)")->numValue() == -33);
+    REQUIRE(s.test(expression, "round(33)")->numValue() == 33);
+    REQUIRE(s.test(expression, "round(33.3)")->numValue() == 33);
+    REQUIRE(s.test(expression, "round(33.6)")->numValue() == 34);
+    REQUIRE(s.test(expression, "round(-33.6)")->numValue() == -34);
+    REQUIRE(s.test(expression, "round(33.3, 0.5)")->numValue() == 33.5);
+    REQUIRE(s.test(expression, "round(33.6, 0.5)")->numValue() == 33.5);
+    REQUIRE(s.test(expression, "frac(33)")->numValue() == 0);
+    REQUIRE(s.test(expression, "frac(-33)")->numValue() == 0);
+    REQUIRE(s.test(expression, "frac(33.6)")->numValue() == Approx(0.6));
+    REQUIRE(s.test(expression, "frac(-33.6)")->numValue() == Approx(-0.6));
+    REQUIRE(s.test(expression, "random(0,10)")->numValue() < 10);
+    REQUIRE(s.test(expression, "random(0,10) != random(0,10)")->boolValue() == true);
+    REQUIRE(s.test(expression, "number('33')")->numValue() == 33);
+    REQUIRE(s.test(expression, "number('0x33')")->numValue() == 0x33);
+    REQUIRE(s.test(expression, "number('33 gugus')")->numValue() == 33); // best effort, ignore trailing garbage
+    REQUIRE(s.test(expression, "number('gugus 33')")->numValue() == 0); // best effort, nothing readable
+    REQUIRE(s.test(expression, "min(42,78)")->numValue() == 42);
+    REQUIRE(s.test(expression, "min(78,42)")->numValue() == 42);
+    REQUIRE(s.test(expression, "max(42,78)")->numValue() == 78);
+    REQUIRE(s.test(expression, "max(78,42)")->numValue() == 78);
+    REQUIRE(s.test(expression, "limited(15,10,20)")->numValue() == 15);
+    REQUIRE(s.test(expression, "limited(2,10,20)")->numValue() == 10);
+    REQUIRE(s.test(expression, "limited(42,10,20)")->numValue() == 20);
+    REQUIRE(s.test(expression, "cyclic(15,10,20)")->numValue() == 15);
+    REQUIRE(s.test(expression, "cyclic(2,10,20)")->numValue() == 12);
+    REQUIRE(s.test(expression, "cyclic(-18,10,20)")->numValue() == 12);
+    REQUIRE(s.test(expression, "cyclic(22,10,20)")->numValue() == 12);
+    REQUIRE(s.test(expression, "cyclic(42,10,20)")->numValue() == 12);
+    REQUIRE(s.test(expression, "cyclic(-10.8,1,2)")->numValue() == Approx(1.2));
+    REQUIRE(s.test(expression, "cyclic(-1.8,1,2)")->numValue() == Approx(1.2));
+    REQUIRE(s.test(expression, "cyclic(2.2,1,2)")->numValue() == Approx(1.2));
+    REQUIRE(s.test(expression, "cyclic(4.2,1,2)")->numValue() == Approx(1.2));
+    REQUIRE(s.test(expression, "epochtime()")->numValue() == Approx((double)MainLoop::unixtime()/Day));
     // strings
-    REQUIRE(runExpression("string(33)").stringValue() == "33");
-    REQUIRE(runExpression("string(undefined)").stringValue() == "undefined");
-    REQUIRE(runExpression("strlen('gugus')").numValue() == 5);
-    REQUIRE(runExpression("substr('gugus',3)").stringValue() == "us");
-    REQUIRE(runExpression("substr('gugus',3,1)").stringValue() == "u");
-    REQUIRE(runExpression("substr('gugus',7,1)").stringValue() == "");
-    REQUIRE(runExpression("find('gugus dada', 'ad')").numValue() == 7);
-    REQUIRE(runExpression("find('gugus dada', 'blubb')").isNull() == true);
-    REQUIRE(runExpression("find('gugus dada', 'gu', 1)").numValue() == 2);
-    REQUIRE(runExpression("format('%04d', 33.7)").stringValue() == "0033");
-    REQUIRE(runExpression("format('%4d', 33.7)").stringValue() == "  33");
-    REQUIRE(runExpression("format('%.1f', 33.7)").stringValue() == "33.7");
-    REQUIRE(runExpression("format('%08X', 0x24F5E21)").stringValue() == "024F5E21");
+    REQUIRE(s.test(expression, "string(33)")->stringValue() == "33");
+    REQUIRE(s.test(expression, "string(undefined)")->stringValue() == "undefined");
+    REQUIRE(s.test(expression, "strlen('gugus')")->numValue() == 5);
+    REQUIRE(s.test(expression, "substr('gugus',3)")->stringValue() == "us");
+    REQUIRE(s.test(expression, "substr('gugus',3,1)")->stringValue() == "u");
+    REQUIRE(s.test(expression, "substr('gugus',7,1)")->stringValue() == "");
+    REQUIRE(s.test(expression, "find('gugus dada', 'ad')")->numValue() == 7);
+    REQUIRE(s.test(expression, "find('gugus dada', 'blubb')")->undefined() == true);
+    REQUIRE(s.test(expression, "find('gugus dada', 'gu', 1)")->numValue() == 2);
+    REQUIRE(s.test(expression, "format('%04d', 33.7)")->stringValue() == "0033");
+    REQUIRE(s.test(expression, "format('%4d', 33.7)")->stringValue() == "  33");
+    REQUIRE(s.test(expression, "format('%.1f', 33.7)")->stringValue() == "33.7");
+    REQUIRE(s.test(expression, "format('%08X', 0x24F5E21)")->stringValue() == "024F5E21");
     // divs
-    REQUIRE(runExpression("eval('333*777')").numValue() == 333*777);
+    REQUIRE(s.test(expression, "eval('333*777')")->numValue() == 333*777);
     // error handling
-    REQUIRE(runExpression("error('testerror')").stringValue() == string_format("testerror (ExpressionError:%d)", ExpressionError::User));
-    REQUIRE(runExpression("errordomain(error('testerror'))").stringValue() == "ExpressionError");
-    REQUIRE(runExpression("errorcode(error('testerror'))").numValue() == ExpressionError::User);
-    REQUIRE(runExpression("errormessage(error('testerror')))").stringValue() == "testerror");
-    // separate terrms ARE a syntax error in a expression! (not in a script, see below)
-    REQUIRE(runExpression("42 43 44").stringValue().find(string_format("(ExpressionError:%d)", ExpressionError::Syntax)) != string::npos);
+    REQUIRE(s.test(expression, "error('testerror')")->stringValue() == string_format("testerror (ScriptError::User[%d])", ScriptError::User));
+    REQUIRE(s.test(expression, "errordomain(error('testerror'))")->stringValue() == "ScriptError");
+    REQUIRE(s.test(expression, "errorcode(error('testerror'))")->numValue() == ScriptError::User);
+    REQUIRE(s.test(expression, "errormessage(error('testerror'))")->stringValue() == "testerror");
+    // separate terms ARE a syntax error in a expression! (not in a script, see below)
+    REQUIRE(s.test(expression, "42 43 44")->stringValue().find(string_format("(ScriptError::Syntax[%d])", ScriptError::Syntax)) != string::npos);
     // special cases
-    REQUIRE(runExpression("hour()").numValue() > 0);
+    REQUIRE(s.test(expression, "hour()")->numValue() > 0);
     // should be case insensitive
-    REQUIRE(runExpression("HOUR()").numValue() > 0);
-    REQUIRE(runExpression("IF(TRUE, 'TRUE', 'FALSE')").stringValue() == "TRUE");
+    REQUIRE(s.test(expression, "HOUR()")->numValue() > 0);
+    REQUIRE(s.test(expression, "IF(TRUE, 'TRUE', 'FALSE')")->stringValue() == "TRUE");
   }
-
-
-  SECTION("AdHoc expression evaluation") {
-    REQUIRE(p44::evaluateExpression("42", boost::bind(&ScriptingExpressionFixture::valueLookup, this, _1, _2), NULL).numValue() == 42 );
-  }
-
 }
 
+#if 0
 
 TEST_CASE_METHOD(ScriptingCodeFixture, "Scripts", "[expressions]" )
 {
