@@ -195,7 +195,7 @@ namespace p44 {
   /// @param aExpression the expression text
   /// @param aValueLookupCB this will be called to get variables resolved into values
   /// @param aFunctionLookpCB this will be called to execute functions that are not built-in
-  /// @param aLogLevel the log level to show evaluation messages on, defaults to LOG_DEBUG
+  /// @param aLogOffset the log level to show evaluation messages on, defaults to LOG_DEBUG
   /// @return the result of the expression
   ExpressionValue evaluateExpression(const string& aExpression, ValueLookupCB aValueLookupCB, FunctionLookupCB aFunctionLookpCB, int aLogOffset = 0);
 

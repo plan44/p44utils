@@ -109,7 +109,7 @@ namespace p44 {
     #if ENABLE_JSON_APPLICATION
 
     /// parse JSON literal or get json file from resource
-    /// @param aResource resource file name (see resourcePath()) containg JSON which is parsed and returned;
+    /// @param aResourceName resource file name (see resourcePath()) containg JSON which is parsed and returned;
     ///   if the string does not begin with "./", aPrefix is prepended.
     /// @param aErrorP if set, parsing error is stored here
     /// @param aPrefix prefix possibly used on resource path (see above)
