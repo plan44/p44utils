@@ -277,6 +277,10 @@ namespace p44 { namespace Script {
     /// @name value getters
     /// @{
 
+    /// @return a value that can be assigned to a variable without depending on the original value
+    ///    This is relevant for values like JSON. Simple values are immutable anyway
+    virtual ScriptObjPtr assignableValue() { return ScriptObjPtr(this); }
+
     virtual double numValue() const { return 0; }; ///< @return a conversion to numeric (using literal syntax), if value is string
     virtual bool boolValue() const { return numValue()!=0; }; ///< @return a conversion to boolean (true = not numerically 0, not JSON-falsish)
     virtual string stringValue() const { return "undefined"; }; ///< @return a conversion to string of the value
@@ -489,6 +493,7 @@ namespace p44 { namespace Script {
     typedef ScriptObj inherited;
     JsonObjectPtr jsonval;
   public:
+    virtual ScriptObjPtr assignableValue() P44_OVERRIDE;
     JsonValue(JsonObjectPtr aJson) : jsonval(aJson) {};
     virtual string getAnnotation() const P44_OVERRIDE { return "json"; };
     virtual TypeInfo getTypeInfo() const P44_OVERRIDE;
@@ -501,7 +506,8 @@ namespace p44 { namespace Script {
     virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aTypeRequirements = none) P44_OVERRIDE;
     virtual size_t numIndexedMembers() const P44_OVERRIDE;
     virtual const ScriptObjPtr memberAtIndex(size_t aIndex, TypeInfo aTypeRequirements = none) P44_OVERRIDE;
-    // TODO: also implement setting members later
+    virtual ErrorPtr setMemberByName(const string aName, const ScriptObjPtr aMember, TypeInfo aStorageAttributes = none) P44_OVERRIDE;
+    virtual ErrorPtr setMemberAtIndex(size_t aIndex, const ScriptObjPtr aMember, const string aName = "") P44_OVERRIDE;
   };
   #endif // SCRIPTING_JSON_SUPPORT
 

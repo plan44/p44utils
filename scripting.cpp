@@ -334,6 +334,13 @@ JsonObjectPtr StringValue::jsonValue() const
 }
 
 
+ScriptObjPtr JsonValue::assignableValue()
+{
+  // must copy the contained json object!
+  return new JsonValue(JsonObjectPtr(new JsonObject(*jsonval)));
+}
+
+
 string JsonValue::stringValue() const
 {
   if (!jsonval) return ScriptObj::stringValue(); // undefined
@@ -1842,6 +1849,7 @@ void SourceProcessor::assignMember(TypeInfo aStorageAttributes)
   //     storage specifier is never overridden in subexpressions and does not need to get stacked
   setState(&SourceProcessor::s_result);
   if (!skipping) {
+    result = result->assignableValue(); // copy values with mutable fields
     setMemberBySpecifier(aStorageAttributes);
     return;
   }
@@ -2969,6 +2977,8 @@ static void number_func(BuiltinFunctionContextPtr f)
 }
 
 
+/*
+// TODO: cleanup
 // copy(anything) // make a value copy, including json object references
 static const ArgumentDescriptor copy_args[] = { { any+null } };
 static const size_t copy_numargs = sizeof(copy_args)/sizeof(ArgumentDescriptor);
@@ -2985,7 +2995,7 @@ static void copy_func(BuiltinFunctionContextPtr f)
     f->finish(f->arg(0)); // just copy the ExpressionValue
   }
 }
-
+*/
 
 #if SCRIPTING_JSON_SUPPORT
 
@@ -3595,7 +3605,8 @@ static const BuiltinFunctionDescriptor standardFunctions[] = {
   { "cyclic", numeric+null, cyclic_numargs, cyclic_args, &cyclic_func },
   { "string", text, string_numargs, string_args, &string_func },
   { "number", numeric, number_numargs, number_args, &number_func },
-  { "copy", any, copy_numargs, copy_args, &copy_func },
+// TODO: cleanup
+//  { "copy", any, copy_numargs, copy_args, &copy_func },
   { "json", json, json_numargs, json_args, &json_func },
   //  { "setfield", any, setfield_numargs, setfield_args, &setfield_func },
   //  { "setelement", any, setelement_numargs, setelement_args, &setelement_func },
