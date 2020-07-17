@@ -616,8 +616,10 @@ ErrorPtr ScriptCodeContext::setMemberByName(const string aName, const ScriptObjP
   if ((aStorageAttributes & (classscope+objscope))==0) {
     NamedVarMap::iterator pos = namedVars.find(aName);
     if (pos!=namedVars.end()) {
-      // exists in local vars
-      pos->second = aMember;
+      // exists in local vars, assign if not onlycreate, otherwise silently ignore value
+      if ((aStorageAttributes & onlycreate)==0) {
+        pos->second = aMember;
+      }
     }
     else if (aStorageAttributes & create) {
       // create it
@@ -1351,7 +1353,7 @@ SourceProcessor::SourceProcessor() :
   resuming(false),
   resumed(false),
   evaluationFlags(none),
-  nextState(NULL),
+  currentState(NULL),
   skipping(false),
   precedence(0),
   pendingOperation(op_none),
@@ -1374,13 +1376,13 @@ void SourceProcessor::initProcessing(EvaluationFlags aEvalFlags)
   skipping = ((evaluationFlags & runModeMask)==scanning);
   // scope to start in
   if (evaluationFlags & expression)
-    setNextState(&SourceProcessor::s_newExpression);
-//  else if (evaluationFlags & scriptbody)
-//    setNextState(&SourceProcessor::s_simpleTerm);
-//  else if (evaluationFlags & source)
-//    startState = (&SourceProcessor::s_definitions);
-  // FIXME: actually set correct starting points
-  setNextState(&SourceProcessor::s_newExpression);
+    setState(&SourceProcessor::s_expression);
+  else if (evaluationFlags & scriptbody)
+    setState(&SourceProcessor::s_body);
+  else if (evaluationFlags & source)
+    setState(&SourceProcessor::s_declarations);
+//  // FIXME: actually set correct starting points
+//  setNextState(&SourceProcessor::s_newExpression);
   stack.clear();
   push(&SourceProcessor::s_complete);
 }
@@ -1445,13 +1447,17 @@ void SourceProcessor::complete(ScriptObjPtr aFinalResult)
   FOCUSLOGSTATE
   resumed = false; // make sure stepLoop WILL exit when returning from step()
   result = aFinalResult; // set final result
-  src.skipNonCode();
-  if (!src.EOT()) {
-    result = new ErrorPosValue(src, ScriptError::Syntax, "trailing garbage");
+  if (result && !result->isErr() && (evaluationFlags & expression)) {
+    // expressions not returning an error should run to end
+    src.skipNonCode();
+    if (!src.EOT()) {
+      result = new ErrorPosValue(src, ScriptError::Syntax, "trailing garbage");
+    }
   }
-  else if (!result) {
+  if (!result) {
     result = new AnnotatedNullValue("script produced no result");
   }
+  stack.clear(); // release all objects kept by the stack
   if (completedCB) completedCB(result);
   completedCB = NULL;
 }
@@ -1470,14 +1476,14 @@ void SourceProcessor::stepLoop()
 
 void SourceProcessor::step()
 {
-  if (!nextState) {
+  if (!currentState) {
     result = new ErrorPosValue(src, ScriptError::Internal, "Missing next state");
     doneAndGoto(&SourceProcessor::s_complete);
     return;
   }
   // call the state handler
-  StateHandler sh = nextState;
-  nextState = NULL; // avoid calling twice
+  StateHandler sh = currentState;
+  currentState = NULL; // avoid calling twice
   (this->*sh)(); // call the handler, which will call done() here or later
   // Info abour method pointers and their weird syntax:
   // - https://stackoverflow.com/a/1486279
@@ -1485,7 +1491,7 @@ void SourceProcessor::step()
 }
 
 
-// MARK: source processor internal state machine
+// MARK: - source processor internal state machine
 
 void SourceProcessor::done()
 {
@@ -1508,6 +1514,10 @@ void SourceProcessor::push(StateHandler aReturnToState)
 
 void SourceProcessor::pop()
 {
+  if (stack.size()==0) {
+    complete(new ErrorValue(ScriptError::Internal, "stack empty - cannot pop"));
+    return;
+  }
   StackFrame &s = stack.back();
   // these are just restored as before the push
   skipping = s.skipping;
@@ -1520,10 +1530,50 @@ void SourceProcessor::pop()
   olderResult = s.result;
   FOCUSLOG(" --popped: olderResult = %s", ScriptObj::describe(olderResult).c_str());
   // continue here
-  setNextState(s.returnToState);
+  setState(s.returnToState);
   stack.pop_back();
 }
 
+
+bool SourceProcessor::unWindStackTo(StateHandler aPreviousState)
+{
+  StackList::iterator spos = stack.end();
+  while (spos!=stack.begin()) {
+    --spos;
+    if (spos->returnToState==aPreviousState) {
+      // found discard everything on top
+      stack.erase(++spos, stack.end());
+      // now pop the seached state
+      pop();
+      return true;
+    }
+  }
+  return false;
+}
+
+
+bool SourceProcessor::skipUntilReaching(StateHandler aPreviousState)
+{
+  StackList::iterator spos = stack.end();
+  while (spos!=stack.begin()) {
+    --spos;
+    if (spos->returnToState==aPreviousState) {
+      // found requested state, make it and all entries on top skipping
+      while (spos!=stack.end()) {
+        spos->skipping = true;
+        ++spos;
+      }
+      // and also enter skip mode for current state
+      skipping = true;
+      return true;
+    }
+  }
+  return false;
+}
+
+
+
+// MARK: Simple Terms
 
 void SourceProcessor::s_simpleTerm()
 {
@@ -1579,6 +1629,8 @@ void SourceProcessor::s_simpleTerm()
       src.skipNonCode();
       if (skipping) {
         // we must always assume structured values etc.
+        // Note: when skipping, we do NOT need to do complicated check for assignment.
+        //   Syntactically, an assignment looks the same as a regular expression
         doneAndGoto(&SourceProcessor::s_member);
         return;
       }
@@ -1602,15 +1654,15 @@ void SourceProcessor::s_simpleTerm()
             return;
           }
         }
-        // need to look up the identifier
-        setNextState(&SourceProcessor::s_member);
-        memberByIdentifier();
+        // need to look up the identifier, or assign it
+        assignOrAccess();
         return;
       }
     }
   }
 }
 
+// MARK: member access
 
 void SourceProcessor::s_member()
 {
@@ -1620,23 +1672,23 @@ void SourceProcessor::s_member()
     // member access
     src.skipNonCode();
     if (!src.parseIdentifier(identifier)) {
-      result = new ErrorPosValue(src, ScriptError::Syntax, "missing identifier after '.'");
-      doneAndGoto(&SourceProcessor::s_result);
+      complete(new ErrorPosValue(src, ScriptError::Syntax, "missing identifier after '.'"));
       return;
     }
-    setNextState(&SourceProcessor::s_member);
-    memberByIdentifier(); // will lookup from result
+    // assign to this identifier or access its value
+    assignOrAccess();
     return;
   }
   else if (src.nextIf('[')) {
     // subscript access
     src.skipNonCode();
     push(&SourceProcessor::s_subscriptArg);
-    doneAndGoto(&SourceProcessor::s_newExpression);
+    doneAndGoto(&SourceProcessor::s_expression);
     return;
   }
   else if (src.nextIf('(')) {
     // function call
+    if (precedence==0) precedence = 1; // no longer a candidate for assignment
     src.skipNonCode();
     // - we need a function call context
     if (!skipping) {
@@ -1668,21 +1720,6 @@ void SourceProcessor::s_member()
 }
 
 
-void SourceProcessor::s_funcContext()
-{
-  FOCUSLOGSTATE;
-  // - check for arguments
-  if (src.nextIf(')')) {
-    // function with no arguments
-    doneAndGoto(&SourceProcessor::s_funcExec);
-    return;
-  }
-  push(&SourceProcessor::s_funcArg);
-  doneAndGoto(&SourceProcessor::s_newExpression);
-  return;
-}
-
-
 void SourceProcessor::s_subscriptArg()
 {
   FOCUSLOGSTATE;
@@ -1693,25 +1730,40 @@ void SourceProcessor::s_subscriptArg()
   // determine how to proceed after accessing via subscript first...
   if (src.nextIf(']')) {
     // end of subscript processing, what we'll be looking up below is final member
-    setNextState(&SourceProcessor::s_member);
+    setState(&SourceProcessor::s_member);
   }
   else if (src.nextIf(',')) {
     // more subscripts to apply to the member we'll be looking up below
     src.skipNonCode();
-    setNextState(&SourceProcessor::s_nextSubscript);
+    setState(&SourceProcessor::s_nextSubscript);
   }
   else {
     result = new ErrorPosValue(src, ScriptError::NotFound , "missing , or ] after subscript", identifier.c_str());
     doneAndGoto(&SourceProcessor::s_result);
     return;
   }
-  // actually get the object as indicated by the subscript
   if (skipping) {
     // no actual member access
+    // Note: when skipping, we do NOT need to do complicated check for assignment.
+    //   Syntactically, an assignment looks the same as a regular expression
     done();
     return;
   }
   else {
+    // now either get or assign the member indicated by the subscript
+    if (precedence==0) {
+      // COULD be an assignment
+      SourcePos pos = src.pos;
+      ScriptOperator aop = src.parseOperator();
+      if (aop==op_assign || aop==op_assignOrEq) {
+        // this IS an assignment. result is the subscript (member name or index) to assign
+        storageSpecifier = result;
+        push(&SourceProcessor::s_assignMember);
+        doneAndGoto(&SourceProcessor::s_expression); // s_expression does NOT allow any further nested assignments!
+        return;
+      }
+    }
+    // not an assignment, we want the value of the member
     if (result->hasType(numeric)) {
       // array access by index
       size_t index = result->numValue();
@@ -1734,10 +1786,84 @@ void SourceProcessor::s_nextSubscript()
   // immediately following a subscript argument evaluation
   // - result is the object the next subscript should apply to
   push(&SourceProcessor::s_subscriptArg);
-  doneAndGoto(&SourceProcessor::s_newExpression);
+  doneAndGoto(&SourceProcessor::s_expression);
 }
 
 
+void SourceProcessor::assignOrAccess()
+{
+  // Note: when skipping, we do NOT need to do complicated check for assignment.
+  //   Syntactically, an assignment looks the same as a regular expression
+  if (precedence==0 && !skipping) {
+    // COULD be an assignment
+    SourcePos pos = src.pos;
+    ScriptOperator aop = src.parseOperator();
+    if (aop==op_assign || aop==op_assignOrEq) {
+      // this IS an assignment. The identifier is the member name to assign
+      storageSpecifier = new StringValue(identifier);
+      push(&SourceProcessor::s_assignMember);
+      doneAndGoto(&SourceProcessor::s_expression);
+      return;
+    }
+    src.pos = pos;
+  }
+  setState(&SourceProcessor::s_member);
+  if (!skipping) {
+    memberByIdentifier(); // will lookup from result
+  }
+}
+
+
+void SourceProcessor::s_defineGlobalMember()
+{
+  FOCUSLOGSTATE;
+  assignMember(global|create|onlycreate);
+}
+
+void SourceProcessor::s_defineMember()
+{
+  FOCUSLOGSTATE;
+  assignMember(create);
+}
+
+void SourceProcessor::s_assignMember()
+{
+  FOCUSLOGSTATE;
+  assignMember(none);
+}
+
+void SourceProcessor::assignMember(TypeInfo aStorageAttributes)
+{
+  // end of the rvalue of an assignment
+  // - result is the value to assign
+  // - olderResult is where to assign (NULL -> script level context, object->member of this object)
+  // - storageSpecifier is the member name (string) or index (numweric) to use
+  //   Note: as nested assignments, or assignments in non-body-level expressions are NOT supported,
+  //     storage specifier is never overridden in subexpressions and does not need to get stacked
+  setState(&SourceProcessor::s_result);
+  if (!skipping) {
+    setMemberBySpecifier(aStorageAttributes);
+    return;
+  }
+  done();
+}
+
+
+// MARK: function calls
+
+void SourceProcessor::s_funcContext()
+{
+  FOCUSLOGSTATE;
+  // - check for arguments
+  if (src.nextIf(')')) {
+    // function with no arguments
+    doneAndGoto(&SourceProcessor::s_funcExec);
+    return;
+  }
+  push(&SourceProcessor::s_funcArg);
+  doneAndGoto(&SourceProcessor::s_expression);
+  return;
+}
 
 
 void SourceProcessor::s_funcArg()
@@ -1752,13 +1878,13 @@ void SourceProcessor::s_funcArg()
   // determine how to proceed after pushing the argument...
   if (src.nextIf(')')) {
     // end of argument processing, execute the function after pushing the final argument below
-    setNextState(&SourceProcessor::s_funcExec);
+    setState(&SourceProcessor::s_funcExec);
   }
   else if (src.nextIf(',')) {
     // more arguments follow, continue evaluating them after pushing the current argument below
     src.skipNonCode();
     push(&SourceProcessor::s_funcArg);
-    setNextState(&SourceProcessor::s_newExpression);
+    setState(&SourceProcessor::s_expression);
   }
   else {
     result = new ErrorPosValue(src, ScriptError::NotFound , "missing , or ) after function argument", identifier.c_str());
@@ -1781,7 +1907,7 @@ void SourceProcessor::s_funcExec()
   FOCUSLOGSTATE;
   // after closing parantheis of a function call
   // - result is the function to call
-  setNextState(&SourceProcessor::s_result); // result of the function call
+  setState(&SourceProcessor::s_result); // result of the function call
   if (skipping) {
     done(); // just NOP
   }
@@ -1791,41 +1917,32 @@ void SourceProcessor::s_funcExec()
 }
 
 
-void SourceProcessor::s_result()
+// MARK: Expressions
+
+void SourceProcessor::s_assignmentExpression()
 {
   FOCUSLOGSTATE;
-  if (skipping || !result || result->valid()) {
-    // no need for a validation step for loading lazy results
-    pop(); // get state to continue with
-    done();
-    return;
-  }
-  // make valid (pull value from lazy loading objects)
-  setNextState(&SourceProcessor::s_validResult);
-  result->makeValid(boost::bind(&SourceProcessor::resume, this, _1));
+  precedence = 0; // first lvalue can be assigned
+  processExpression();
 }
-
-
-void SourceProcessor::s_validResult()
-{
-  FOCUSLOGSTATE;
-  pop(); // get state to continue with
-  done();
-}
-
-
-
-void SourceProcessor::s_newExpression()
-{
-  FOCUSLOGSTATE;
-  precedence = 0;
-  doneAndGoto(&SourceProcessor::s_expression);
-}
-
 
 void SourceProcessor::s_expression()
 {
   FOCUSLOGSTATE;
+  precedence = 1; // lvalue is not assignable
+  processExpression();
+}
+
+
+void SourceProcessor::s_subExpression()
+{
+  FOCUSLOGSTATE;
+  // no change in precedence
+  processExpression();
+}
+
+void SourceProcessor::processExpression()
+{
   // at start of an (sub)expression
   SourcePos epos = src.pos; // remember start of any expression, even if it's only a precedence terminated subexpression
   // - check for optional unary op
@@ -1835,19 +1952,24 @@ void SourceProcessor::s_expression()
     doneAndGoto(&SourceProcessor::s_result);
     return;
   }
+  if (pendingOperation!=op_none && precedence==0) {
+    precedence = 1; // no longer a candidate for assignment
+  }
   // evaluate first (or only) term
   // - check for paranthesis term
   if (src.nextIf('(')) {
     // term is expression in paranthesis
     push(&SourceProcessor::s_groupedExpression);
-    doneAndGoto(&SourceProcessor::s_newExpression);
+    doneAndGoto(&SourceProcessor::s_expression);
     return;
   }
   // must be simple term
   // - a variable/constant reference
   // - a function call
   // - a literal value
-  // Note: a non-simple term is the parantesized expression as handled above
+  // OR:
+  // - an lvalue (one that can be assigned to)
+  // Note: a non-simple term is the paranthesized expression as handled above
   push(&SourceProcessor::s_exprFirstTerm);
   doneAndGoto(&SourceProcessor::s_simpleTerm);
 }
@@ -1897,7 +2019,7 @@ void SourceProcessor::s_exprLeftSide()
   pendingOperation = binaryop;
   push(&SourceProcessor::s_exprRightSide); // push the old precedence
   precedence = newPrecedence; // subexpression needs to exit when finding an operator weaker than this one
-  doneAndGoto(&SourceProcessor::s_expression);
+  doneAndGoto(&SourceProcessor::s_subExpression);
 }
 
 
@@ -1910,6 +2032,11 @@ void SourceProcessor::s_exprRightSide()
     if (olderResult->defined() && result->defined()) {
       // both are values -> apply the operation between leftside and rightside
       switch (pendingOperation) {
+        case op_assign: {
+          // unambiguous assignment operator is not allowed here (ambiguous = will be treated as comparison)
+          if (!skipping) result = new ErrorPosValue(src, ScriptError::Syntax, "nested assigment not allowed");
+          break;
+        }
         case op_not: {
           result = new ErrorPosValue(src, ScriptError::Syntax, "NOT operator not allowed here");
           break;
@@ -1945,9 +2072,282 @@ void SourceProcessor::s_exprRightSide()
 }
 
 
-//   complete(new ErrorPosValue(src, ScriptError::Internal, "XXX not yet implemented"));
+void SourceProcessor::s_declarations()
+{
+  FOCUSLOGSTATE
+  // FIXME: implement
+  complete(new ErrorPosValue(src, ScriptError::Internal, "%s not yet implemented", __func__));
+}
 
 
+// MARK: Statements
+
+void SourceProcessor::s_noStatement()
+{
+  FOCUSLOGSTATE
+  src.nextIf(';');
+  pop();
+}
+
+
+void SourceProcessor::s_oneStatement()
+{
+  FOCUSLOGSTATE
+  setState(&SourceProcessor::s_noStatement);
+  processStatement();
+}
+
+
+void SourceProcessor::s_block()
+{
+  FOCUSLOGSTATE
+  processStatement();
+}
+
+
+void SourceProcessor::s_body()
+{
+  FOCUSLOGSTATE
+  processStatement();
+}
+
+
+void SourceProcessor::processStatement()
+{
+  src.skipNonCode();
+  if (src.EOT()) {
+    // end of code
+    if (currentState!=&SourceProcessor::s_body) {
+      result = new ErrorPosValue(src, ScriptError::Syntax, "unexpected end of code");
+    }
+    // complete
+    complete(result);
+    return;
+  }
+  if (src.nextIf('{')) {
+    // new block starts
+    push(currentState); // return to current state when block finishes
+    doneAndGoto(&SourceProcessor::s_block); // continue as block
+    return;
+  }
+  if (currentState==&SourceProcessor::s_block && src.nextIf('}')) {
+    // block ends
+    pop();
+    done();
+    return;
+  }
+  if (src.nextIf(';')) {
+    if (currentState==&SourceProcessor::s_oneStatement) {
+      // the separator alone comprises the statement we were waiting for in s_oneStatement(), so we're done
+      done();
+      return;
+    }
+    src.skipNonCode();
+  }
+  // at the beginning of a statement which is not beginning of a new block
+  // - could be language keyword, variable assignment
+  SourcePos statementStart = src.pos; // remember
+  if (src.parseIdentifier(identifier)) {
+    src.skipNonCode();
+    if (uequals(identifier, "if")) {
+      // "if" statement
+      if (!src.nextIf('(')) {
+        complete(new ErrorPosValue(src, ScriptError::Syntax, "missing '(' after 'if'"));
+        return;
+      }
+      push(currentState); // return to current state when if statement finishes
+      push(&SourceProcessor::s_ifCondition);
+      doneAndGoto(&SourceProcessor::s_subExpression);
+      return;
+    }
+    if (uequals(identifier, "else")) {
+      // just check to give sensible error message
+      complete(new ErrorPosValue(src, ScriptError::Syntax, "'else' without preceeding 'if'"));
+      return;
+    }
+    if (uequals(identifier, "while")) {
+      // "while" statement
+      if (!src.nextIf('(')) {
+        complete(new ErrorPosValue(src, ScriptError::Syntax, "missing '(' after 'while'"));
+        return;
+      }
+      push(currentState); // return to current state when if statement finishes
+      push(&SourceProcessor::s_whileCondition);
+      doneAndGoto(&SourceProcessor::s_subExpression);
+      return;
+    }
+    if (uequals(identifier, "break")) {
+      if (!skipping) {
+        if (!skipUntilReaching(&SourceProcessor::s_whileStatement)) {
+          complete(new ErrorPosValue(src, ScriptError::Syntax, "'break' must be within 'while' statement"));
+          return;
+        }
+        done();
+        return;
+      }
+    }
+    if (uequals(identifier, "continue")) {
+      if (!skipping) {
+        if (!unWindStackTo(&SourceProcessor::s_whileStatement)) {
+          complete(new ErrorPosValue(src, ScriptError::Syntax, "'continue' must be within 'while' statement"));
+          return;
+        }
+        done();
+        return;
+      }
+    }
+    if (uequals(identifier, "return")) {
+      if (!src.EOT() && src.c()!=';') {
+        // return with return value
+        push(skipping ? &SourceProcessor::s_result : &SourceProcessor::s_complete); // if not skipping, complete when expression evaluated
+        doneAndGoto(&SourceProcessor::s_expression);
+        return;
+      }
+      else {
+        // return without return value
+        if (!skipping) {
+          result = new AnnotatedNullValue("return nothing");
+          complete(result);
+          return;
+        }
+        done(); // skipping -> just ignore
+        return;
+      }
+    }
+    if (uequals(identifier, "try")) {
+      push(currentState); // return to current state when if statement finishes
+      push(&SourceProcessor::s_tryStatement);
+      flowDecision = false; // nothing caught so far
+      doneAndGoto(&SourceProcessor::s_oneStatement);
+      return;
+    }
+    if (uequals(identifier, "catch")) {
+      // just check to give sensible error message
+      complete(new ErrorPosValue(src, ScriptError::Syntax, "'catch' without preceeding 'try'"));
+      return;
+    }
+    // Check variable definition keywords
+    StateHandler varHandler = NULL;
+    if (uequals(identifier, "var")) {
+      varHandler = &SourceProcessor::s_defineMember;
+    }
+    else if (uequals(identifier, "glob") || uequals(identifier, "global")) {
+      varHandler = &SourceProcessor::s_defineGlobalMember;
+    }
+    else if (uequals(identifier, "let")) {
+      varHandler = &SourceProcessor::s_assignMember;
+    }
+    if (varHandler) {
+      // one of the definition keywords -> an identifier must follow
+      if (!src.parseIdentifier(identifier)) {
+        complete(new ErrorPosValue(src, ScriptError::Syntax, "missing variable name after '%s'", identifier.c_str()));
+        return;
+      }
+      // with initializer ?
+      src.skipNonCode();
+      ScriptOperator op = src.parseOperator();
+      if (op==op_assign || op==op_assignOrEq) {
+        // initialize with a value
+        push(varHandler);
+        doneAndGoto(&SourceProcessor::s_expression);
+        return;
+      }
+      else if (op==op_none) {
+        // just initialize with null
+        result = new AnnotatedNullValue("uninitialized variable");
+        doneAndGoto(varHandler);
+        return;
+      }
+      else {
+        complete(new ErrorPosValue(src, ScriptError::Syntax, "assignment or end of statement expected"));
+        return;
+      }
+    }
+    else {
+      // is an expression or possibly an assignment, also handled in expression
+      push(currentState); // return to current state when if statement finishes
+      doneAndGoto(&SourceProcessor::s_assignmentExpression);
+      return;
+    }
+  }
+}
+
+
+void SourceProcessor::s_ifCondition()
+{
+  FOCUSLOGSTATE
+  // FIXME: implement
+  complete(new ErrorPosValue(src, ScriptError::Internal, "%s not yet implemented", __func__));
+}
+
+void SourceProcessor::s_ifTrueStatement()
+{
+  FOCUSLOGSTATE
+  // FIXME: implement
+  complete(new ErrorPosValue(src, ScriptError::Internal, "%s not yet implemented", __func__));
+}
+
+void SourceProcessor::s_elseStatement()
+{
+  FOCUSLOGSTATE
+  // FIXME: implement
+  complete(new ErrorPosValue(src, ScriptError::Internal, "%s not yet implemented", __func__));
+}
+
+
+void SourceProcessor::s_whileCondition()
+{
+  FOCUSLOGSTATE
+  // FIXME: implement
+  complete(new ErrorPosValue(src, ScriptError::Internal, "%s not yet implemented", __func__));
+}
+
+void SourceProcessor::s_whileStatement()
+{
+  FOCUSLOGSTATE
+  // FIXME: implement
+  complete(new ErrorPosValue(src, ScriptError::Internal, "%s not yet implemented", __func__));
+}
+
+
+void SourceProcessor::s_tryStatement()
+{
+  FOCUSLOGSTATE
+  // FIXME: implement
+  complete(new ErrorPosValue(src, ScriptError::Internal, "%s not yet implemented", __func__));
+}
+
+void SourceProcessor::s_catchStatement()
+{
+  FOCUSLOGSTATE
+  // FIXME: implement
+  complete(new ErrorPosValue(src, ScriptError::Internal, "%s not yet implemented", __func__));
+}
+
+
+// MARK: Generic states
+
+void SourceProcessor::s_result()
+{
+  FOCUSLOGSTATE;
+  if (skipping || !result || result->valid()) {
+    // no need for a validation step for loading lazy results
+    pop(); // get state to continue with
+    done();
+    return;
+  }
+  // make valid (pull value from lazy loading objects)
+  setState(&SourceProcessor::s_validResult);
+  result->makeValid(boost::bind(&SourceProcessor::resume, this, _1));
+}
+
+
+void SourceProcessor::s_validResult()
+{
+  FOCUSLOGSTATE;
+  pop(); // get state to continue with
+  done();
+}
 
 
 void SourceProcessor::s_complete()
@@ -1965,6 +2365,13 @@ void SourceProcessor::memberByIdentifier()
   result.reset(); // base class cannot access members
   done();
 }
+
+
+void SourceProcessor::setMemberBySpecifier(TypeInfo aStorageAttributes)
+{
+  result = new ErrorPosValue(src, ScriptError::Immutable, "cannot write values here");
+}
+
 
 void SourceProcessor::memberByIndex(size_t aIndex)
 {
@@ -2288,6 +2695,11 @@ void ScriptCodeThread::done()
       }
     }
   }
+  if (skipping) {
+    // release any result objects, we don't need them
+    result.reset();
+    olderResult.reset();
+  }
   resume();
 }
 
@@ -2304,6 +2716,39 @@ void ScriptCodeThread::memberByIdentifier()
   }
   done();
 }
+
+
+void ScriptCodeThread::setMemberBySpecifier(TypeInfo aStorageAttributes)
+{
+  ErrorPtr err;
+  if (storageSpecifier->hasType(numeric)) {
+    size_t index = result->numValue();
+    // store to array access by index
+    if (olderResult) {
+      err = olderResult->setMemberAtIndex(index, result);
+    }
+    else {
+      // note: this case should not occur, context has no direct indexed member access
+      err = owner->setMemberAtIndex(index, result);
+    }
+  }
+  else {
+    // store by name
+    string name = result->stringValue();
+    if (olderResult) {
+      err = olderResult->setMemberByName(name, result, aStorageAttributes);
+    }
+    else {
+      err = owner->setMemberByName(name, result, aStorageAttributes);
+    }
+    if (!Error::isOK(err)) {
+      result = new ErrorPosValue(src, err);
+    }
+    done();
+  }
+}
+
+
 
 /// must retrieve the indexed member from current result (or from the script scope if result==NULL)
 /// @note must call done() when result contains the member (or NULL if not found)

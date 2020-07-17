@@ -193,12 +193,13 @@ namespace p44 { namespace Script {
     undefres = 0x0400, ///< if set, and an argument does not match type, the function result is automatically made null/undefined without executing the implementation
     async = 0x0800, ///< if set, the object cannot evaluate synchronously
     // - storage attributes and directives for named members
-    mutablemembers = 0x1000, ///< members are mutable
-    create = 0x2000, ///< set to create member if not yet existing (special use also for explicitly created errors)
+    create = 0x1000, ///< set to create member if not yet existing (special use also for explicitly created errors)
+    onlycreate = 0x2000, ///< set to only create if new, but not overwrite 
     global = 0x4000, ///< set to store in global context
     constant = 0x8000, ///< set to select only constant  (in the sense of: not settable by scripts) members
     objscope = 0x10000, ///< set to select only object scope members
     classscope = 0x20000, ///< set to select only class scope members
+    mutablemembers = 0x40000, ///< members are mutable
   };
   typedef uint32_t TypeInfo;
 
@@ -741,22 +742,23 @@ namespace p44 { namespace Script {
 
   // operators with precedence
   typedef enum {
-    op_none       = (0 << 3) + 6,
-    op_not        = (1 << 3) + 6,
-    op_multiply   = (2 << 3) + 5,
-    op_divide     = (3 << 3) + 5,
-    op_modulo     = (4 << 3) + 5,
-    op_add        = (5 << 3) + 4,
-    op_subtract   = (6 << 3) + 4,
-    op_equal      = (7 << 3) + 3,
-    op_assignOrEq = (8 << 3) + 3,
-    op_notequal   = (9 << 3) + 3,
-    op_less       = (10 << 3) + 3,
-    op_greater    = (11 << 3) + 3,
-    op_leq        = (12 << 3) + 3,
-    op_geq        = (13 << 3) + 3,
-    op_and        = (14 << 3) + 2,
-    op_or         = (15 << 3) + 1,
+    op_none       = (0 << 3) + 7,
+    op_not        = (1 << 3) + 7,
+    op_multiply   = (2 << 3) + 6,
+    op_divide     = (3 << 3) + 6,
+    op_modulo     = (4 << 3) + 6,
+    op_add        = (5 << 3) + 5,
+    op_subtract   = (6 << 3) + 5,
+    op_equal      = (7 << 3) + 4,
+    op_assignOrEq = (8 << 3) + 4,
+    op_notequal   = (9 << 3) + 4,
+    op_less       = (10 << 3) + 4,
+    op_greater    = (11 << 3) + 4,
+    op_leq        = (12 << 3) + 4,
+    op_geq        = (13 << 3) + 4,
+    op_and        = (14 << 3) + 3,
+    op_or         = (15 << 3) + 2,
+    // precedence 1 is reserved to mark non-assignable lvalue
     op_assign     = (16 << 3) + 0,
     opmask_precedence = 0x07
   } ScriptOperator;
@@ -1019,9 +1021,13 @@ namespace p44 { namespace Script {
     ///   in actual code execution subclasses. These must call resume()
     /// @{
 
-    /// must retrieve the member with name==identifier from current result (or from the script scope if result==NULL)
+    /// must retrieve the member as specified with storageSpecifier from current result (or from the script scope if result==NULL)
     /// @note must call done() when result contains the member (or NULL if not found)
     virtual void memberByIdentifier();
+
+    /// must assign a member as specified with storageSpecifier with current result to olderResult (or to the script scope if olderResult==NULL)
+    /// @note must call done() when storage is complete. Result might contain a storage error.
+    virtual void setMemberBySpecifier(TypeInfo aStorageAttributes);
 
     /// must retrieve the indexed member from current result (or from the script scope if result==NULL)
     /// @note must call done() when result contains the member (or NULL if not found)
@@ -1052,7 +1058,7 @@ namespace p44 { namespace Script {
     // state that can be pushed
     SourceCursor src; ///< the scanning position within code
     SourcePos poppedPos; ///< the position popped from the stack (can be applied to jump back for loops)
-    StateHandler nextState; ///< next state to call
+    StateHandler currentState; ///< next state to call
     ScriptObjPtr result; ///< the current result object
     ScriptObjPtr olderResult; ///< an older result, e.g. the result popped from stack, or previous lookup in nested member lookups
     int precedence; ///< encountering a binary operator with smaller precedence will end the expression
@@ -1063,6 +1069,7 @@ namespace p44 { namespace Script {
 
     // other internal state, not pushed
     string identifier; ///< for processing identifiers
+    ScriptObjPtr storageSpecifier; ///< for assignments (assignments cannot be nested!)
 
     /// Scanner Stack frame
     class StackFrame {
@@ -1105,11 +1112,11 @@ namespace p44 { namespace Script {
     virtual void done();
 
     /// readability wrapper for setting the next state but NOT YET completing current state's processing
-    inline void setNextState(StateHandler aNextState) { nextState = aNextState; }
+    inline void setState(StateHandler aNextState) { currentState = aNextState; }
 
     /// convenience function for transition to a new state, i.e. setting the new state and signalling done() in one step
     /// @param aNextState set the next state
-    inline void doneAndGoto(StateHandler aNextState) { nextState = aNextState; done(); }
+    inline void doneAndGoto(StateHandler aNextState) { currentState = aNextState; done(); }
 
     /// push the current state
     /// @param aReturnToState the state to return to after pop().
@@ -1118,81 +1125,71 @@ namespace p44 { namespace Script {
     /// return to the last pushed state
     void pop();
 
+    /// unwind stack until a entry with the specified state is found
+    /// @param aPreviousState state to look for
+    /// @return true if actually unwound (entry with specified state popped),
+    ///   false if no such state found (and stack unchanged)
+    bool unWindStackTo(StateHandler aPreviousState);
+
+    /// looek for the specified state on the stack, and if one is found, enter skipping mode
+    /// and modify all stack entries up to and including the found entry to skipping=true
+    /// causing the execution to run in skipping mode until the stack pops beyound the found entry.
+    bool skipUntilReaching(StateHandler aPreviousState);
 
     /// state handlers
-    /// @note MUST call stepDone() itself or make sure a callback will call it later
+    /// @note these all MUST eventually cause calling resume(). This can happen from
+    ///   the implementation via done(), doneAndGoto() or complete()
+    ///   or via a callback which eventually calls resume().
 
+    // Simple Term
     void s_simpleTerm(); ///< at the beginning of a term
     void s_member(); ///< immediately after identifier
     void s_subscriptArg(); ///< immediately after subscript expression evaluation
     void s_nextSubscript(); ///< multi-dimensional subscripts, 2nd and further arguments
+    void s_defineGlobalMember(); ///< assign or create global variable
+    void s_defineMember(); ///< assign or create a member of a structured variable or other object
+    void assignOrAccess(); ///< access or assign identifier
+    void s_assignMember(); ///< assign existing variable or member of a variable or other object
+    void assignMember(TypeInfo aStorageAttributes); ///< common processing for assignment
     void s_funcArg(); ///< immediately after function argument evaluation
     void s_funcContext(); ///< after getting function calling context
     void s_funcExec(); ///< ready to execute the function
 
-
-    void s_newExpression(); ///< at the beginning of an expression which only ends syntactically (end of code, delimiter, etc.) -> resets precedence
-    void s_expression(); ///< handle (sub)expression start, precedence inherited or set by caller
+    // Expression
+    void s_assignmentExpression(); ///< at the beginning of an expression which might also be an assignment
+    void s_expression(); ///< at the beginning of an expression which only ends syntactically (end of code, delimiter, etc.) -> resets precedence
+    void s_subExpression(); ///< handle (sub)expression start, precedence inherited or set by caller
+    void processExpression(); ///< common processing for expression states
     void s_groupedExpression(); ///< handling a paranthesized subexpression result
     void s_exprFirstTerm(); ///< first term of an expression
     void s_exprLeftSide(); ///< left side of an ongoing expression
     void s_exprRightSide(); ///< further terms of an expression
 
+    // Declarations
+    void s_declarations(); ///< declarations (functions and handlers)
 
+    // Script Body
+    void s_block(); ///< within a block, exits when '}' is encountered, but skips ';'
+    void s_noStatement(); ///< no more statements can follow, but an extra separator MAY follow
+    void s_oneStatement(); ///< a single statement, exits when ';' is encountered
+    void s_body(); ///< at the body level of a function or script (end of expression ends body)
+    void processStatement(); ///< common processing for statement states
+    // - if/then/else
+    void s_ifCondition(); ///< executing the condition of an if
+    void s_ifTrueStatement(); ///< executing the if statement
+    void s_elseStatement(); ///< executing the else statement
+    // - while
+    void s_whileCondition(); ///< executing the condition of a while
+    void s_whileStatement(); ///< executing the while statement
+    // - try/catch
+    void s_tryStatement(); ///< executing the statement to try
+    void s_catchStatement(); ///< executing the handling of a thrown error
 
-    void s_result(); ///< result of an expression or term ready, pop the stack to see next state to run
-    void s_validResult(); ///< result of an expression or term ready, pop the stack to see next state to run
-
+    // Generic
+    void s_result(); ///< result of an expression or term available as ScriptObj. May need makeValid() if not already valid() here.
+    void s_validResult(); ///< final result of an expression or term ready, pop the stack to see next state to run
     void s_complete(); ///< nothing more to do, result represents result of entire scanning/evaluation process
 
-/*
- typedef enum {
-    // Completion states
-    st_unwound, ///< stack unwound, can't continue, check for trailing garbage
-    st_complete, ///< completing evaluation
-    st_abort, ///< aborting evaluation
-    st_finalize, ///< ending, will pop last stack frame
-    // Script States
-    st_statement_states, ///< marker
-    // - basic statements
-    st_body = st_statement_states, ///< at the body level (end of expression ends body)
-    st_block, ///< within a block, exists when '}' is encountered, but skips ';'
-    st_oneStatement, ///< a single statement, exits when ';' is encountered
-    st_noStatement, ///< pop back one level
-    st_returnValue, ///< "return" statement value calculation
-    // - if/then/else
-    st_ifCondition, ///< executing the condition of an if
-    st_ifTrueStatement, ///< executing the if statement
-    st_elseStatement, ///< executing the else statement
-    // - while
-    st_whileCondition, ///< executing the condition of a while
-    st_whileStatement, ///< executing the while statement
-    // - try/catch
-    st_tryStatement, ///< executing the statement to try
-    st_catchStatement, ///< executing the handling of a thrown error
-    // - assignment to variables
-    st_assignToVar, ///< assign result of an expression to a variable
-    // Special result passing state
-    st_result, ///< result of an expression or term
-    // Expression States
-    st_expression_states, ///< marker
-    // - expression
-    st_newExpression = st_expression_states, ///< at the beginning of an expression which only ends syntactically (end of code, delimiter, etc.) -> resets precedence
-    st_expression, ///< handle (sub)expression start, precedence inherited or set by caller
-    st_groupedExpression, ///< handling a paranthesized subexpression result
-    st_exprFirstTerm, ///< first term of an expression
-    st_exprLeftSide, ///< left side of an ongoing expression
-    st_exprRightSide, ///< further terms of an expression
-    // - simple terms
-    st_simpleTerm, ///< at the beginning of a term
-    st_funcArg, ///< handling a function argument
-    st_funcExec, ///< handling function execution
-    st_subscriptArg, ///< handling a subscript parameter
-    st_subscriptExec, ///< handling access based on subscript args
-    numEvalStates
-  } ScanState; ///< the state of the scanner
-
- */
     /// @}
 
   };
@@ -1324,6 +1321,10 @@ namespace p44 { namespace Script {
     /// must retrieve the member with name==identifier from current result (or from the script scope if result==NULL)
     /// @note must call done() when result contains the member (or NULL if not found)
     virtual void memberByIdentifier() P44_OVERRIDE;
+
+    /// must assign a member as specified with storageSpecifier with current result to olderResult (or to the script scope if olderResult==NULL)
+    /// @note must call done() when storage is complete. Result might contain a storage error.
+    virtual void setMemberBySpecifier(TypeInfo aStorageAttributes) P44_OVERRIDE;
 
     /// must retrieve the indexed member from current result (or from the script scope if result==NULL)
     /// @note must call done() when result contains the member (or NULL if not found)

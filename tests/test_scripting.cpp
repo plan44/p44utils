@@ -459,91 +459,103 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "expressions", "[scripting],[FOCUS]") {
   }
 }
 
-#if 0
-
-TEST_CASE_METHOD(ScriptingCodeFixture, "Scripts", "[expressions]" )
+TEST_CASE_METHOD(ScriptingCodeFixture, "statements", "[scripting],[FOCUS]" )
 {
 
   SECTION("return values") {
-    REQUIRE(runScript("78.42").numValue() == 78.42); // last expression returns
-    REQUIRE(runScript("78.42; return").isNull() == true); // explicit no-result
-    REQUIRE(runScript("78.42; return null").isNull() == true); // explicit no-result
-    REQUIRE(runScript("return 78.42").numValue() == 78.42); // same effect
-    REQUIRE(runScript("return 78.42; 999").numValue() == 78.42); // same effect, return exits early
-    REQUIRE(runScript("return 78.42; return 999").numValue() == 78.42); // first return counts
-    REQUIRE(runScript("return; 999").isNull() == true); // explicit no-result
+    REQUIRE(s.test(scriptbody, "78.42")->numValue() == 78.42); // last expression returns
+    REQUIRE(s.test(scriptbody, "78.42; return")->undefined() == true); // explicit no-result
+    REQUIRE(s.test(scriptbody, "78.42; return null")->undefined() == true); // explicit no-result
+    REQUIRE(s.test(scriptbody, "return 78.42")->numValue() == 78.42); // same effect
+    REQUIRE(s.test(scriptbody, "return 78.42; 999")->numValue() == 78.42); // same effect, return exits early
+    REQUIRE(s.test(scriptbody, "return 78.42; return 999")->numValue() == 78.42); // first return counts
+    REQUIRE(s.test(scriptbody, "return; 999")->undefined() == true); // explicit no-result
   }
 
   SECTION("variables") {
-    REQUIRE(runScript("x = 78.42").isValue() == false); // cannot just assign
-    REQUIRE(runScript("let x = 78.42").isValue() == false); // must be defined first
-    REQUIRE(runScript("let x").isValue() == false); // let is not a declaration
-    REQUIRE(runScript("var x = 78.42").isValue() == true); // should be ok
-    REQUIRE(runScript("var x; x = 78.42").numValue() == 78.42); // last expression returns, even if in assignment
-    REQUIRE(runScript("var x; let x = 1234").isValue() == true);
-    REQUIRE(runScript("var x; let x = 1234").numValue() == 1234);
-    REQUIRE(runScript("var x = 4321; X = 1234; return X").numValue() == 1234); // case insensitivity
-    REQUIRE(runScript("var x = 4321; x = x + 1234; return x").numValue() == 1234+4321); // case insensitivity
-    REQUIRE(runScript("var x = 1; var x = 2; return x").numValue() == 2); // locals initialized whenerver encountered (now! was different before)
-    REQUIRE(runScript("glob g = 1; glob g = 2; return g").numValue() == 1); // however globals are initialized once and then never again
-    REQUIRE(runScript("glob g = 3; g = 4; return g").numValue() == 4); // normal assignment is possible, however
+    REQUIRE(s.test(scriptbody, "x = 78.42")->isErr() == true); // cannot just assign
+    REQUIRE(s.test(scriptbody, "let x = 78.42")->isErr() == true); // must be defined first
+    REQUIRE(s.test(scriptbody, "let x")->isErr() == true); // let is not a declaration
+    REQUIRE(s.test(scriptbody, "var x = 78.42")->numValue() == 78.42); // assignment returns value
+    REQUIRE(s.test(scriptbody, "var x; x = 78.42")->numValue() == 78.42); // last expression returns, even if in assignment
+    REQUIRE(s.test(scriptbody, "var x; let x = 1234")->numValue() == 1234);
+    REQUIRE(s.test(scriptbody, "var x = 4321; X = 1234; return X")->numValue() == 1234); // case insensitivity
+    REQUIRE(s.test(scriptbody, "var x = 4321; x = x + 1234; return x")->numValue() == 1234+4321); // case insensitivity
+    REQUIRE(s.test(scriptbody, "var x = 1; var x = 2; return x")->numValue() == 2); // locals initialized whenerver encountered (now! was different before)
+    REQUIRE(s.test(scriptbody, "glob g = 1; glob g = 2; return g")->numValue() == 1); // however globals are initialized once and then never again
+    REQUIRE(s.test(scriptbody, "glob g = 3; g = 4; return g")->numValue() == 4); // normal assignment is possible, however
+    #if SCRIPT_OPERATOR_MODE==SCRIPT_OPERATOR_MODE_FLEXIBLE
+    REQUIRE(s.test(scriptbody, "var i = 8; h = 3 + (i = 8)")->numValue() == 4); // inner "=" is treated as comparison
+    #elif SCRIPT_OPERATOR_MODE==SCRIPT_OPERATOR_MODE_C
+    REQUIRE(s.test(scriptbody, "var i = 8; h = 3 + (i = 8)")->isErr() == true); // no nested assignment allowed
+    #elif SCRIPT_OPERATOR_MODE==SCRIPT_OPERATOR_MODE_PASCAL
+    REQUIRE(s.test(scriptbody, "var i :=8; h := 3 + (i := 8)")->isErr() == true); // no nested assignment allowed
+    #endif
   }
+
+  // "{\"array\":[\"first\",2,3,\"fourth\",6.6],\"obj\":{\"objA\":\"A\",\"objB\":42,\"objC\":{\"objD\":\"D\",\"objE\":45}},\"string\":\"abc\",\"number\":42,\"bool\":true}"
 
   SECTION("json manipulation") {
-    REQUIRE(runScript("var js = " JSON_TEST_OBJ "; setfield(js.obj, 'objF', 46); log(5,js); return js.obj.objF").numValue() == 46);
-    REQUIRE(runScript("var js = " JSON_TEST_OBJ "; setfield(js.obj, 'objA', 'AA'); log(5,js); return js.obj.objA").stringValue() == "AA");
-    REQUIRE(runScript("var js = " JSON_TEST_OBJ "; setelement(js.array, 'AA'); log(5,js); return js.array[5]").stringValue() == "AA");
-    REQUIRE(runScript("var js = " JSON_TEST_OBJ "; setelement(js.array, 0, 'modified'); log(5,js); return js.array[0]").stringValue() == "modified");
+    REQUIRE(s.test(scriptbody, "var js = " JSON_TEST_OBJ "; js.obj.objF = 46; log(5,js); return js.obj.objF")->numValue() == 46);
+    REQUIRE(s.test(scriptbody, "var js = " JSON_TEST_OBJ "; js.obj['objA'] = 'AA'; log(5,js); return js.obj.objA")->stringValue() == "AA");
+    REQUIRE(s.test(scriptbody, "var js = " JSON_TEST_OBJ "; js.array[5] = 'AA'; log(5,js); return js.array[5]")->stringValue() == "AA");
+    REQUIRE(s.test(scriptbody, "var js = " JSON_TEST_OBJ "; js.array[0] = 'modified'; log(5,js); return js.array[0]")->stringValue() == "modified");
   }
 
+//  SECTION("legacy style json manipulation") {
+//    REQUIRE(s.test(scriptbody, "var js = " JSON_TEST_OBJ "; setfield(js.obj, 'objF', 46); log(5,js); return js.obj.objF")->numValue() == 46);
+//    REQUIRE(s.test(scriptbody, "var js = " JSON_TEST_OBJ "; setfield(js.obj, 'objA', 'AA'); log(5,js); return js.obj.objA")->stringValue() == "AA");
+//    REQUIRE(s.test(scriptbody, "var js = " JSON_TEST_OBJ "; setelement(js.array, 'AA'); log(5,js); return js.array[5]")->stringValue() == "AA");
+//    REQUIRE(s.test(scriptbody, "var js = " JSON_TEST_OBJ "; setelement(js.array, 0, 'modified'); log(5,js); return js.array[0]")->stringValue() == "modified");
+//  }
+
+
   SECTION("control flow") {
-    REQUIRE(runScript("var cond = 1; var res = 'none'; var cond = 1; if (cond==1) res='one' else res='NOT one'; return res").stringValue() == "one");
-    REQUIRE(runScript("var cond = 2; var res = 'none'; var cond = 2; if (cond==1) res='one' else res='NOT one'; return res").stringValue() == "NOT one");
+    REQUIRE(s.test(scriptbody, "var cond = 1; var res = 'none'; var cond = 1; if (cond==1) res='one' else res='NOT one'; return res")->stringValue() == "one");
+    REQUIRE(s.test(scriptbody, "var cond = 2; var res = 'none'; var cond = 2; if (cond==1) res='one' else res='NOT one'; return res")->stringValue() == "NOT one");
     // without statement separators (JavaScript style)
-    REQUIRE(runScript("var cond = 1; var res = 'none'; var cond = 1; if (cond==1) res='one' else if (cond==2) res='two' else res='not 1 or 2'; return res").stringValue() == "one");
-    REQUIRE(runScript("var cond = 2; var res = 'none'; var cond = 2; if (cond==1) res='one' else if (cond==2) res='two' else res='not 1 or 2'; return res").stringValue() == "two");
-    REQUIRE(runScript("var cond = 5; var res = 'none'; var cond = 5; if (cond==1) res='one' else if (cond==2) res='two' else res='not 1 or 2'; return res").stringValue() == "not 1 or 2");
+    REQUIRE(s.test(scriptbody, "var cond = 1; var res = 'none'; var cond = 1; if (cond==1) res='one' else if (cond==2) res='two' else res='not 1 or 2'; return res")->stringValue() == "one");
+    REQUIRE(s.test(scriptbody, "var cond = 2; var res = 'none'; var cond = 2; if (cond==1) res='one' else if (cond==2) res='two' else res='not 1 or 2'; return res")->stringValue() == "two");
+    REQUIRE(s.test(scriptbody, "var cond = 5; var res = 'none'; var cond = 5; if (cond==1) res='one' else if (cond==2) res='two' else res='not 1 or 2'; return res")->stringValue() == "not 1 or 2");
     // with statement separators
-    REQUIRE(runScript("var cond = 1; var res = 'none'; var cond = 1; if (cond==1) res='one'; else if (cond==2) res='two'; else res='not 1 or 2'; return res").stringValue() == "one");
-    REQUIRE(runScript("var cond = 2; var res = 'none'; var cond = 2; if (cond==1) res='one'; else if (cond==2) res='two'; else res='not 1 or 2'; return res").stringValue() == "two");
-    REQUIRE(runScript("var cond = 5; var res = 'none'; var cond = 5; if (cond==1) res='one'; else if (cond==2) res='two'; else res='not 1 or 2'; return res").stringValue() == "not 1 or 2");
+    REQUIRE(s.test(scriptbody, "var cond = 1; var res = 'none'; var cond = 1; if (cond==1) res='one'; else if (cond==2) res='two'; else res='not 1 or 2'; return res")->stringValue() == "one");
+    REQUIRE(s.test(scriptbody, "var cond = 2; var res = 'none'; var cond = 2; if (cond==1) res='one'; else if (cond==2) res='two'; else res='not 1 or 2'; return res")->stringValue() == "two");
+    REQUIRE(s.test(scriptbody, "var cond = 5; var res = 'none'; var cond = 5; if (cond==1) res='one'; else if (cond==2) res='two'; else res='not 1 or 2'; return res")->stringValue() == "not 1 or 2");
     // with skipped return statements
-    REQUIRE(runScript("var cond = 1; if (cond==1) return 'one'; else if (cond==2) return 'two'; else return 'not 1 or 2';").stringValue() == "one");
-    REQUIRE(runScript("var cond = 2; if (cond==1) return 'one'; else if (cond==2) return 'two'; else return 'not 1 or 2';").stringValue() == "two");
-    REQUIRE(runScript("var cond = 5; if (cond==1) return 'one'; else if (cond==2) return 'two'; else return 'not 1 or 2';").stringValue() == "not 1 or 2");
+    REQUIRE(s.test(scriptbody, "var cond = 1; if (cond==1) return 'one'; else if (cond==2) return 'two'; else return 'not 1 or 2';")->stringValue() == "one");
+    REQUIRE(s.test(scriptbody, "var cond = 2; if (cond==1) return 'one'; else if (cond==2) return 'two'; else return 'not 1 or 2';")->stringValue() == "two");
+    REQUIRE(s.test(scriptbody, "var cond = 5; if (cond==1) return 'one'; else if (cond==2) return 'two'; else return 'not 1 or 2';")->stringValue() == "not 1 or 2");
     // special cases
-    REQUIRE(runScript("var cond = 2; var res = 'none'; if (cond==1) res='one'; else if (cond==2) res='two'; else res='not 1 or 2' return res").stringValue() == "two");
+    REQUIRE(s.test(scriptbody, "var cond = 2; var res = 'none'; if (cond==1) res='one'; else if (cond==2) res='two'; else res='not 1 or 2' return res")->stringValue() == "two");
     // blocks
-    REQUIRE(runScript("var cond = 1; var res = 'none'; var res2 = 'none'; if (cond==1) res='one'; res2='two'; return string(res) + ',' + res2").stringValue() == "one,two");
-    REQUIRE(runScript("var cond = 2; var res = 'none'; var res2 = 'none'; if (cond==1) res='one'; res2='two'; return string(res) + ',' + res2").stringValue() == "none,two");
-    REQUIRE(runScript("var cond = 1; var res = 'none'; var res2 = 'none'; if (cond==1) { res='one'; res2='two' }; return string(res) + ',' + res2").stringValue() == "one,two");
-    REQUIRE(runScript("var cond = 2; var res = 'none'; var res2 = 'none'; if (cond==1) { res='one'; res2='two' }; return string(res) + ',' + res2").stringValue() == "none,none");
+    REQUIRE(s.test(scriptbody, "var cond = 1; var res = 'none'; var res2 = 'none'; if (cond==1) res='one'; res2='two'; return string(res) + ',' + res2")->stringValue() == "one,two");
+    REQUIRE(s.test(scriptbody, "var cond = 2; var res = 'none'; var res2 = 'none'; if (cond==1) res='one'; res2='two'; return string(res) + ',' + res2")->stringValue() == "none,two");
+    REQUIRE(s.test(scriptbody, "var cond = 1; var res = 'none'; var res2 = 'none'; if (cond==1) { res='one'; res2='two' }; return string(res) + ',' + res2")->stringValue() == "one,two");
+    REQUIRE(s.test(scriptbody, "var cond = 2; var res = 'none'; var res2 = 'none'; if (cond==1) { res='one'; res2='two' }; return string(res) + ',' + res2")->stringValue() == "none,none");
     // blocks with delimiter variations
-    REQUIRE(runScript("var cond = 2; var res = 'none'; var res2 = 'none'; if (cond==1) { res='one'; res2='two'; }; return string(res) + ',' + res2").stringValue() == "none,none");
-    REQUIRE(runScript("var cond = 2; var res = 'none'; var res2 = 'none'; if (cond==1) { res='one'; res2='two'; } return string(res) + ',' + res2").stringValue() == "none,none");
+    REQUIRE(s.test(scriptbody, "var cond = 2; var res = 'none'; var res2 = 'none'; if (cond==1) { res='one'; res2='two'; }; return string(res) + ',' + res2")->stringValue() == "none,none");
+    REQUIRE(s.test(scriptbody, "var cond = 2; var res = 'none'; var res2 = 'none'; if (cond==1) { res='one'; res2='two'; } return string(res) + ',' + res2")->stringValue() == "none,none");
     // while, continue, break
-    REQUIRE(runScript("var count = 0; while (count<5) count = count+1; return count").numValue() == 5);
-    REQUIRE(runScript("var res = ''; var count = 0; while (count<5) { count = count+1; res = res+string(count); } return res").stringValue() == "12345");
-    REQUIRE(runScript("var res = ''; var count = 0; while (count<5) { count = count+1; if (count==3) continue; res = res+string(count); } return res").stringValue() == "1245");
-    REQUIRE(runScript("var res = ''; var count = 0; while (count<5) { count = count+1; if (count==3) break; res = res+string(count); } return res").stringValue() == "12");
+    REQUIRE(s.test(scriptbody, "var count = 0; while (count<5) count = count+1; return count")->numValue() == 5);
+    REQUIRE(s.test(scriptbody, "var res = ''; var count = 0; while (count<5) { count = count+1; res = res+string(count); } return res")->stringValue() == "12345");
+    REQUIRE(s.test(scriptbody, "var res = ''; var count = 0; while (count<5) { count = count+1; if (count==3) continue; res = res+string(count); } return res")->stringValue() == "1245");
+    REQUIRE(s.test(scriptbody, "var res = ''; var count = 0; while (count<5) { count = count+1; if (count==3) break; res = res+string(count); } return res")->stringValue() == "12");
     // skipping execution of chained expressions
-    REQUIRE(runScript("if (false) return string(\"A\" + \"X\" + \"B\")").isNull() == true);
-    REQUIRE(runScript("if (false) return string(\"A\" + string(\"\") + \"B\")").isNull() == true);
+    REQUIRE(s.test(scriptbody, "if (false) return string(\"A\" + \"X\" + \"B\")")->undefined() == true);
+    REQUIRE(s.test(scriptbody, "if (false) return string(\"A\" + string(\"\") + \"B\")")->undefined() == true);
     // throw/try/catch
-    REQUIRE(runScript("throw('test error')").isOK() == false);
-    REQUIRE(Error::isError(runScript("throw('test error')").error(), ExpressionError::domain(), ExpressionError::User) == true);
-    REQUIRE(strcmp(runScript("throw('test error')").error()->getErrorMessage(), "test error") == 0);
-    REQUIRE(Error::isError(runScript("try var zerodiv = 7/0; catch return error()").error(), ExpressionError::domain(), ExpressionError::DivisionByZero) == true);
-    REQUIRE(runScript("try var zerodiv = 7/0; catch return 'not allowed'").stringValue() == "not allowed");
-    REQUIRE(runScript("try var zerodiv = 7/1; catch return error(); return zerodiv").numValue() == 7);
-    REQUIRE(runScript("try { var zerodiv = 42; zerodiv = 7/0 } catch { log('CAUGHT!') }; return zerodiv").numValue() == 42);
+    REQUIRE(s.test(scriptbody, "throw('test error')")->isErr() == true);
+    REQUIRE(Error::isError(s.test(scriptbody, "throw('test error')")->errorValue(), ScriptError::domain(), ScriptError::User) == true);
+    REQUIRE(strcmp(s.test(scriptbody, "throw('test error')")->errorValue()->getErrorMessage(), "test error") == 0);
+    REQUIRE(Error::isError(s.test(scriptbody, "try var zerodiv = 7/0; catch return error()")->errorValue(), ScriptError::domain(), ScriptError::DivisionByZero) == true);
+    REQUIRE(s.test(scriptbody, "try var zerodiv = 7/0; catch return 'not allowed'")->stringValue() == "not allowed");
+    REQUIRE(s.test(scriptbody, "try var zerodiv = 7/1; catch return error(); return zerodiv")->numValue() == 7);
+    REQUIRE(s.test(scriptbody, "try { var zerodiv = 42; zerodiv = 7/0 } catch { log('CAUGHT!') }; return zerodiv")->numValue() == 42);
     // Syntax errors
-    REQUIRE(runScript("78/9#").stringValue() == string_format("invalid number, time or date (ExpressionError:%d)", ExpressionError::Syntax));
-    REQUIRE(runScript("78/#9").stringValue() == string_format("invalid number, time or date (ExpressionError:%d)", ExpressionError::Syntax));
+    REQUIRE(Error::isError(s.test(scriptbody, "78/9#")->errorValue(), ScriptError::domain(), ScriptError::Syntax) == true);
+    REQUIRE(Error::isError(s.test(scriptbody, "78/#9")->errorValue(), ScriptError::domain(), ScriptError::Syntax) == true);
     // Not Syntax error in a script, the three numbers are separate statements, the last one is returned
-    REQUIRE(runScript("42 43 44").intValue() == 44);
+    REQUIRE(s.test(scriptbody, "42 43 44")->intValue() == 44);
   }
 
 }
-
-#endif // 0
