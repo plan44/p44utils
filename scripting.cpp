@@ -24,7 +24,7 @@
 #define ALWAYS_DEBUG 0
 // - set FOCUSLOGLEVEL to non-zero log level (usually, 5,6, or 7==LOG_DEBUG) to get focus (extensive logging) for this file
 //   Note: must be before including "logger.hpp" (or anything that includes "logger.hpp")
-#define FOCUSLOGLEVEL 0
+#define FOCUSLOGLEVEL 7
 
 #include "scripting.hpp"
 
@@ -273,7 +273,7 @@ ScriptObjPtr NumericValue::operator%(const ScriptObj& aRightSide) const
 
 
 
-// MARK: - Value classes
+// MARK: - Special Value classes
 
 ErrorValue::ErrorValue(ScriptError::ErrorCodes aErrCode, const char *aFmt, ...)
 {
@@ -296,6 +296,51 @@ ErrorPosValue::ErrorPosValue(const SourceCursor &aCursor, ScriptError::ErrorCode
 }
 
 
+void AwaitableValue::registerCB(EvaluationCB aEvaluationCB)
+{
+  evalCBList.push_back(aEvaluationCB);
+}
+
+
+void AwaitableValue::continueWaiters(ScriptObjPtr aNotification)
+{
+  notification = aNotification;
+  EvalCBList::iterator pos = evalCBList.begin();
+  while (pos!=evalCBList.end()) {
+    EvaluationCB cb = evalCBList.front();
+    evalCBList.pop_front();
+    cb(notification);
+    ++pos;
+  }
+}
+
+
+ThreadValue::ThreadValue(ScriptCodeThreadPtr aThread) : thread(aThread)
+{
+  thread->registerCompletionNotification(this);
+}
+
+double ThreadValue::numValue() const
+{
+  return thread && thread->isRunning() ? 1 : 0;
+}
+
+
+void ThreadValue::notify(ScriptObjPtr aNotification)
+{
+  continueWaiters(aNotification);
+  thread.reset(); // release the thread
+}
+
+void ThreadValue::abort()
+{
+  if (thread) thread->abort();
+}
+
+
+
+// MARK: Conversions
+
 double StringValue::numValue() const
 {
   SourceCursor cursor(str);
@@ -309,6 +354,8 @@ double StringValue::numValue() const
 
 
 #if SCRIPTING_JSON_SUPPORT
+
+// MARK: JsonValue + conversions
 
 JsonObjectPtr ErrorValue::jsonValue() const
 {
@@ -325,12 +372,9 @@ JsonObjectPtr ErrorValue::jsonValue() const
 
 JsonObjectPtr StringValue::jsonValue() const
 {
+  // old version did parse strings for json, but that's ambiguous, so
+  // we just return a json string now
   return JsonObject::newString(str);
-  // TODO: old version did parse strings for json, but that would require Error return, not the right place any more here!
-  // Sample code:
-  //  ErrorPtr jerr;
-  //  JsonObjectPtr j = JsonObject::objFromText(p, strValP->size(), &jerr, false);
-  //  if (Error::isOK(jerr)) return j;
 }
 
 
@@ -399,6 +443,32 @@ const ScriptObjPtr JsonValue::memberAtIndex(size_t aIndex, TypeInfo aTypeRequire
     m = ScriptObjPtr(new JsonValue(jsonval->arrayGet((int)aIndex)));
   }
   return m;
+}
+
+
+ErrorPtr JsonValue::setMemberByName(const string aName, const ScriptObjPtr aMember, TypeInfo aStorageAttributes)
+{
+  if (!jsonval) {
+    jsonval = JsonObject::newObj();
+  }
+  else if (!jsonval->isType(json_type_object)) {
+    return ScriptError::err(ScriptError::Invalid, "json is not an object, cannot assign field");
+  }
+  jsonval->add(aName.c_str(), aMember->jsonValue());
+  return ErrorPtr();
+}
+
+
+ErrorPtr JsonValue::setMemberAtIndex(size_t aIndex, const ScriptObjPtr aMember, const string aName)
+{
+  if (!jsonval) {
+    jsonval = JsonObject::newArray();
+  }
+  else if (!jsonval->isType(json_type_array)) {
+    return ScriptError::err(ScriptError::Invalid, "json is not an array, cannot set element");
+  }
+  jsonval->arrayPut((int)aIndex, aMember->jsonValue());
+  return ErrorPtr();
 }
 
 #endif // SCRIPTING_JSON_SUPPORT
@@ -684,14 +754,23 @@ void ScriptCodeContext::execute(ScriptObjPtr aToExecute, EvaluationFlags aEvalFl
     if (aEvaluationCB) aEvaluationCB(new ErrorValue(ScriptError::Internal, "Object to be run must be compiled code!"));
     return;
   }
-  // can be evaluated
   if ((aEvalFlags & keepvars)==0) {
     clearVars();
   }
+  // code can evaluated
+  ScriptCodeThreadPtr thread = newThreadFrom(code->cursor, aEvalFlags, aEvaluationCB, aMaxRunTime);
+  if (thread) {
+    thread->run();
+  }
+}
+
+
+ScriptCodeThreadPtr ScriptCodeContext::newThreadFrom(SourceCursor &aFromCursor, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB, MLMicroSeconds aMaxRunTime)
+{
   // prepare a thread for executing now or later
   // Note: thread gets an owning Ptr back to this, so this context cannot be destructed before all
   //   threads have ended.
-  ScriptCodeThreadPtr newThread = ScriptCodeThreadPtr(new ScriptCodeThread(this, code->cursor));
+  ScriptCodeThreadPtr newThread = ScriptCodeThreadPtr(new ScriptCodeThread(this, aFromCursor));
   MLMicroSeconds maxBlockTime = aEvalFlags&synchronously ? aMaxRunTime : domain()->getMaxBlockTime();
   newThread->prepareRun(aEvaluationCB, aEvalFlags, maxBlockTime, aMaxRunTime);
   // now check how and when to run it
@@ -705,17 +784,17 @@ void ScriptCodeContext::execute(ScriptObjPtr aToExecute, EvaluationFlags aEvalFl
     else if (aEvalFlags & queue) {
       // queue for later
       queuedThreads.push_back(newThread);
-      return;
+      return ScriptCodeThreadPtr();
     }
     else if ((aEvalFlags & concurrently)==0) {
       // none of the multithread modes and already running: just report busy
       newThread->abort(new ErrorValue(ScriptError::Busy, "Already busy executing script"));
-      return;
+      return ScriptCodeThreadPtr();
     }
   }
   // can start new thread now
   threads.push_back(newThread);
-  newThread->run();
+  return newThread;
 }
 
 
@@ -732,7 +811,7 @@ void ScriptCodeContext::threadTerminated(ScriptCodeThreadPtr aThread)
     ++pos;
   }
   // check for queued executions to start now
-  if (!queuedThreads.empty()) {
+  if (threads.empty() && !queuedThreads.empty()) {
     // get next thread from the queue
     ScriptCodeThreadPtr nextThread = queuedThreads.front();
     queuedThreads.pop_front();
@@ -814,7 +893,7 @@ ErrorPtr ScriptMainContext::setMemberByName(const string aName, const ScriptObjP
     }
     // 4) modify (but never create w/o global storage attribute) global variables (if no local, thisObj or lookup chain variable of this name exists)
     if (domain() && err->isError(ScriptError::domain(), ScriptError::NotFound)) {
-      err = domain()->ScriptObj::setMemberByName(aName, aMember, aStorageAttributes & ~create);
+      err = domain()->setMemberByName(aName, aMember, aStorageAttributes & ~create);
     }
   }
   return err;
@@ -1348,11 +1427,12 @@ ScriptObjPtr SourceCursor::parseJSONLiteral()
 // MARK: - SourceProcessor
 
 #define FOCUSLOGSTATE FOCUSLOG( \
-  "%s %s: stack=%zu, prec=%d, flowdec=%d --> result = %s", \
+  "%s %s: stack=%zu, prec=%d, flowdec=%d --> result = %s (olderResult = %s)", \
   skipping ? " SKIPPING" : "EXECUTING", \
   __func__, \
   stack.size(), precedence, flowDecision, \
-  ScriptObj::describe(result).c_str() \
+  ScriptObj::describe(result).c_str(), \
+  ScriptObj::describe(olderResult).c_str() \
 )
 
 SourceProcessor::SourceProcessor() :
@@ -1379,19 +1459,6 @@ void SourceProcessor::setCursor(const SourceCursor& aCursor)
 void SourceProcessor::initProcessing(EvaluationFlags aEvalFlags)
 {
   evaluationFlags = aEvalFlags;
-  // just scanning?
-  skipping = ((evaluationFlags & runModeMask)==scanning);
-  // scope to start in
-  if (evaluationFlags & expression)
-    setState(&SourceProcessor::s_expression);
-  else if (evaluationFlags & scriptbody)
-    setState(&SourceProcessor::s_body);
-  else if (evaluationFlags & source)
-    setState(&SourceProcessor::s_declarations);
-//  // FIXME: actually set correct starting points
-//  setNextState(&SourceProcessor::s_newExpression);
-  stack.clear();
-  push(&SourceProcessor::s_complete);
 }
 
 
@@ -1404,8 +1471,29 @@ void SourceProcessor::setCompletedCB(EvaluationCB aCompletedCB)
 void SourceProcessor::start()
 {
   FOCUSLOGSTATE
+  stack.clear();
+  // just scanning?
+  skipping = ((evaluationFlags & runModeMask)==scanning);
+  // scope to start in
+  if (evaluationFlags & expression)
+    setState(&SourceProcessor::s_expression);
+  else if (evaluationFlags & scriptbody)
+    setState(&SourceProcessor::s_body);
+  else if (evaluationFlags & source)
+    setState(&SourceProcessor::s_declarations);
+  else if (evaluationFlags & block)
+    setState(&SourceProcessor::s_block);
+  push(&SourceProcessor::s_complete);
+  result.reset();
+  olderResult.reset();
   resuming = false;
   resume();
+}
+
+
+bool SourceProcessor::isRunning()
+{
+  return currentState!=NULL;
 }
 
 
@@ -1423,8 +1511,9 @@ void SourceProcessor::resume(ScriptObjPtr aResult)
     resumed = true; // flag having resumed already to allow looping below
     return; // but now let chain of calls wind down to our last call (originating from step() in the loop)
   }
-  // NO: this is a real re-entry, re-start the sync execution loop
+  // NO: this is a real re-entry
   if (aborted) return;
+  // re-start the sync execution loop
   resuming = true; // now actually start resuming
   stepLoop();
   // not resumed in the current chain of calls, resume will be called from
@@ -1462,9 +1551,10 @@ void SourceProcessor::complete(ScriptObjPtr aFinalResult)
     }
   }
   if (!result) {
-    result = new AnnotatedNullValue("script produced no result");
+    result = new AnnotatedNullValue("execution produced no result");
   }
   stack.clear(); // release all objects kept by the stack
+  currentState = NULL; // dead
   if (completedCB) completedCB(result);
   completedCB = NULL;
 }
@@ -1484,13 +1574,11 @@ void SourceProcessor::stepLoop()
 void SourceProcessor::step()
 {
   if (!currentState) {
-    result = new ErrorPosValue(src, ScriptError::Internal, "Missing next state");
-    doneAndGoto(&SourceProcessor::s_complete);
+    complete(result);
     return;
   }
   // call the state handler
   StateHandler sh = currentState;
-  currentState = NULL; // avoid calling twice
   (this->*sh)(); // call the handler, which will call done() here or later
   // Info abour method pointers and their weird syntax:
   // - https://stackoverflow.com/a/1486279
@@ -1512,10 +1600,10 @@ void SourceProcessor::done()
 }
 
 
-void SourceProcessor::push(StateHandler aReturnToState)
+void SourceProcessor::push(StateHandler aReturnToState, bool aPushPoppedPos)
 {
   FOCUSLOG("   ++push");
-  stack.push_back(StackFrame(src.pos, skipping, aReturnToState, result, funcCallContext, precedence, pendingOperation, flowDecision));
+  stack.push_back(StackFrame(aPushPoppedPos ? poppedPos : src.pos, skipping, aReturnToState, result, funcCallContext, precedence, pendingOperation, flowDecision));
 }
 
 
@@ -1559,13 +1647,17 @@ bool SourceProcessor::unWindStackTo(StateHandler aPreviousState)
 }
 
 
-bool SourceProcessor::skipUntilReaching(StateHandler aPreviousState)
+bool SourceProcessor::skipUntilReaching(StateHandler aPreviousState, ScriptObjPtr aThrowValue)
 {
   StackList::iterator spos = stack.end();
   while (spos!=stack.begin()) {
     --spos;
     if (spos->returnToState==aPreviousState) {
       // found requested state, make it and all entries on top skipping
+      if (aThrowValue) {
+        spos->result = aThrowValue;
+        spos->flowDecision = true; // marker for throw
+      }
       while (spos!=stack.end()) {
         spos->skipping = true;
         ++spos;
@@ -1576,6 +1668,14 @@ bool SourceProcessor::skipUntilReaching(StateHandler aPreviousState)
     }
   }
   return false;
+}
+
+
+void SourceProcessor::throwOrComplete(ScriptObjPtr aError)
+{
+  if (!skipUntilReaching(&SourceProcessor::s_tryStatement, aError)) {
+    complete(aError);
+  }
 }
 
 
@@ -1661,8 +1761,13 @@ void SourceProcessor::s_simpleTerm()
             return;
           }
         }
+        else {
+          // no need to check for assign when we already know a ./[/( follows
+          assignOrAccess(false);
+          return;
+        }
         // need to look up the identifier, or assign it
-        assignOrAccess();
+        assignOrAccess(true);
         return;
       }
     }
@@ -1674,20 +1779,21 @@ void SourceProcessor::s_simpleTerm()
 void SourceProcessor::s_member()
 {
   FOCUSLOGSTATE;
-  // immediately following an identifier, result represents its value
+  // immediately after retrieving a member's value, i.e. immediately after an identifier or closing subscript bracket
+  // - result is the member's value
   if (src.nextIf('.')) {
-    // member access
+    // direct sub-member access
     src.skipNonCode();
     if (!src.parseIdentifier(identifier)) {
       complete(new ErrorPosValue(src, ScriptError::Syntax, "missing identifier after '.'"));
       return;
     }
-    // assign to this identifier or access its value
-    assignOrAccess();
+    // assign to this identifier or access its value (from parent object in result)
+    assignOrAccess(true);
     return;
   }
   else if (src.nextIf('[')) {
-    // subscript access
+    // subscript access to sub-members
     src.skipNonCode();
     push(&SourceProcessor::s_subscriptArg);
     doneAndGoto(&SourceProcessor::s_expression);
@@ -1736,7 +1842,7 @@ void SourceProcessor::s_subscriptArg()
   src.skipNonCode();
   // determine how to proceed after accessing via subscript first...
   if (src.nextIf(']')) {
-    // end of subscript processing, what we'll be looking up below is final member
+    // end of subscript processing, what we'll be looking up below is final member (of this subscript bracket, more [] or . may follow!)
     setState(&SourceProcessor::s_member);
   }
   else if (src.nextIf(',')) {
@@ -1765,7 +1871,9 @@ void SourceProcessor::s_subscriptArg()
       if (aop==op_assign || aop==op_assignOrEq) {
         // this IS an assignment. result is the subscript (member name or index) to assign
         storageSpecifier = result;
-        push(&SourceProcessor::s_assignMember);
+        result = olderResult; // object to access member from
+        // allow creating sub-members implicitly, but not creating vars
+        push(result ? &SourceProcessor::s_assignMember : &SourceProcessor::s_defineMember); // when expression value is ready
         doneAndGoto(&SourceProcessor::s_expression); // s_expression does NOT allow any further nested assignments!
         return;
       }
@@ -1797,8 +1905,11 @@ void SourceProcessor::s_nextSubscript()
 }
 
 
-void SourceProcessor::assignOrAccess()
+void SourceProcessor::assignOrAccess(bool aAllowAssign)
 {
+  // left hand term leaf member accces
+  // - identifier represents the leaf member to access
+  // - result represents the parent member or NULL if accessing context scope variables
   // Note: when skipping, we do NOT need to do complicated check for assignment.
   //   Syntactically, an assignment looks the same as a regular expression
   if (precedence==0 && !skipping) {
@@ -1808,7 +1919,8 @@ void SourceProcessor::assignOrAccess()
     if (aop==op_assign || aop==op_assignOrEq) {
       // this IS an assignment. The identifier is the member name to assign
       storageSpecifier = new StringValue(identifier);
-      push(&SourceProcessor::s_assignMember);
+      // allow creating sub-members implicitly, but not creating vars
+      push(olderResult ? &SourceProcessor::s_defineMember : &SourceProcessor::s_assignMember); // when expression value is ready
       doneAndGoto(&SourceProcessor::s_expression);
       return;
     }
@@ -1844,12 +1956,12 @@ void SourceProcessor::assignMember(TypeInfo aStorageAttributes)
   // end of the rvalue of an assignment
   // - result is the value to assign
   // - olderResult is where to assign (NULL -> script level context, object->member of this object)
-  // - storageSpecifier is the member name (string) or index (numweric) to use
+  // - storageSpecifier is the member name (string) or index (numweric) to assign
   //   Note: as nested assignments, or assignments in non-body-level expressions are NOT supported,
   //     storage specifier is never overridden in subexpressions and does not need to get stacked
   setState(&SourceProcessor::s_result);
   if (!skipping) {
-    result = result->assignableValue(); // copy values with mutable fields
+    result = result->assignableValue(); // get a copy in case the value is mutable (i.e. copy-on-write, assignment is "writing")
     setMemberBySpecifier(aStorageAttributes);
     return;
   }
@@ -2013,8 +2125,8 @@ void SourceProcessor::s_exprLeftSide()
 {
   FOCUSLOGSTATE;
   // check binary operators
+  SourcePos opos = src.pos; // position before possibly finding an operator and before skipping anything
   src.skipNonCode();
-  SourcePos opos = src.pos; // position before possibly finding an operator
   ScriptOperator binaryop = src.parseOperator();
   int newPrecedence = binaryop & opmask_precedence;
   // end parsing here if no operator found or operator with a lower or same precedence as the passed in precedence is reached
@@ -2153,6 +2265,7 @@ void SourceProcessor::processStatement()
     src.skipNonCode();
   }
   // at the beginning of a statement which is not beginning of a new block
+  result.reset(); // no result to begin with at the beginning of a statement
   // - could be language keyword, variable assignment
   SourcePos statementStart = src.pos; // remember
   if (src.parseIdentifier(identifier)) {
@@ -2165,7 +2278,7 @@ void SourceProcessor::processStatement()
       }
       push(currentState); // return to current state when if statement finishes
       push(&SourceProcessor::s_ifCondition);
-      doneAndGoto(&SourceProcessor::s_subExpression);
+      doneAndGoto(&SourceProcessor::s_expression);
       return;
     }
     if (uequals(identifier, "else")) {
@@ -2179,9 +2292,9 @@ void SourceProcessor::processStatement()
         complete(new ErrorPosValue(src, ScriptError::Syntax, "missing '(' after 'while'"));
         return;
       }
-      push(currentState); // return to current state when if statement finishes
+      push(currentState); // return to current state when while finishes
       push(&SourceProcessor::s_whileCondition);
-      doneAndGoto(&SourceProcessor::s_subExpression);
+      doneAndGoto(&SourceProcessor::s_expression);
       return;
     }
     if (uequals(identifier, "break")) {
@@ -2223,7 +2336,7 @@ void SourceProcessor::processStatement()
       }
     }
     if (uequals(identifier, "try")) {
-      push(currentState); // return to current state when if statement finishes
+      push(currentState); // return to current state when statement finishes
       push(&SourceProcessor::s_tryStatement);
       flowDecision = false; // nothing caught so far
       doneAndGoto(&SourceProcessor::s_oneStatement);
@@ -2234,13 +2347,36 @@ void SourceProcessor::processStatement()
       complete(new ErrorPosValue(src, ScriptError::Syntax, "'catch' without preceeding 'try'"));
       return;
     }
+    if (uequals(identifier, "concurrent")) {
+      // Syntax: concurrent myThread {}
+      //     or: concurrent {}
+      src.skipNonCode();
+      identifier.clear();
+      if (src.parseIdentifier(identifier)) {
+        // we want the thread be a variable in order to wait for it and stop it
+        src.skipNonCode();
+      }
+      if (!src.nextIf('{')) {
+        complete(new ErrorPosValue(src, ScriptError::Syntax, "missing '{' to start concurrent block"));
+        return;
+      }
+      // "fork" the thread
+      startBlockThreadAndStoreInIdentifier();
+      // for myself: just skip the next block
+      push(currentState); // return to current state when statement finishes
+      skipping = true;
+      doneAndGoto(&SourceProcessor::s_block);
+      return;
+    }
     // Check variable definition keywords
     StateHandler varHandler = NULL;
+    bool allowInitializer = true;
     if (uequals(identifier, "var")) {
       varHandler = &SourceProcessor::s_defineMember;
     }
     else if (uequals(identifier, "glob") || uequals(identifier, "global")) {
       varHandler = &SourceProcessor::s_defineGlobalMember;
+      allowInitializer = false;
     }
     else if (uequals(identifier, "let")) {
       varHandler = &SourceProcessor::s_assignMember;
@@ -2251,10 +2387,16 @@ void SourceProcessor::processStatement()
         complete(new ErrorPosValue(src, ScriptError::Syntax, "missing variable name after '%s'", identifier.c_str()));
         return;
       }
-      // with initializer ?
+      push(currentState); // return to current state when var definion statement finishes
       src.skipNonCode();
       ScriptOperator op = src.parseOperator();
+      storageSpecifier = new StringValue(identifier);
+      // with initializer ?
       if (op==op_assign || op==op_assignOrEq) {
+        if (!allowInitializer) {
+          complete(new ErrorPosValue(src, ScriptError::Syntax, "global variables cannot have an initializer"));
+          return;
+        }
         // initialize with a value
         push(varHandler);
         doneAndGoto(&SourceProcessor::s_expression);
@@ -2272,66 +2414,137 @@ void SourceProcessor::processStatement()
       }
     }
     else {
-      // is an expression or possibly an assignment, also handled in expression
-      push(currentState); // return to current state when if statement finishes
-      doneAndGoto(&SourceProcessor::s_assignmentExpression);
-      return;
+      // identifier we've parsed above is not a keyword, rewind cursor
+      src.pos = statementStart;
     }
   }
+  // is an expression or possibly an assignment, also handled in expression
+  push(currentState); // return to current state when if statement finishes
+  doneAndGoto(&SourceProcessor::s_assignmentExpression);
+  return;
 }
 
 
 void SourceProcessor::s_ifCondition()
 {
   FOCUSLOGSTATE
-  // FIXME: implement
-  complete(new ErrorPosValue(src, ScriptError::Internal, "%s not yet implemented", __func__));
+  // if condition is evaluated
+  if (!src.nextIf(')')) {
+    complete(new ErrorPosValue(src, ScriptError::Syntax, "missing ')' after 'if' condition"));
+    return;
+  }
+  flowDecision = !result->boolValue(); // this is pushed as decision for else
+  push(&SourceProcessor::s_ifTrueStatement);
+  if (!skipping) {
+    skipping = !flowDecision;
+  }
+  doneAndGoto(&SourceProcessor::s_oneStatement);
 }
 
 void SourceProcessor::s_ifTrueStatement()
 {
   FOCUSLOGSTATE
-  // FIXME: implement
-  complete(new ErrorPosValue(src, ScriptError::Internal, "%s not yet implemented", __func__));
-}
-
-void SourceProcessor::s_elseStatement()
-{
-  FOCUSLOGSTATE
-  // FIXME: implement
-  complete(new ErrorPosValue(src, ScriptError::Internal, "%s not yet implemented", __func__));
+  // if statement (or block of statements) is executed
+  // - check for "else" following
+  SourcePos ipos = src.pos;
+  if (src.parseIdentifier(identifier) && uequals(identifier, "else")) {
+    // else
+    src.skipNonCode();
+    ipos = src.pos;
+    if (src.parseIdentifier(identifier) && uequals(identifier, "if")) {
+      // else if
+      src.skipNonCode();
+      if (!src.nextIf('(')) {
+        complete(new ErrorPosValue(src, ScriptError::Syntax, "missing '(' after 'else if'"));
+        return;
+      }
+      // chained if: when preceeding "if" did execute (or would have if not already skipping),
+      // rest of if/elseif...else chain will be skipped
+      if (flowDecision) skipping = true;
+      push(&SourceProcessor::s_ifCondition);
+      doneAndGoto(&SourceProcessor::s_subExpression);
+      return;
+    }
+    else {
+      // last else in chain
+      src.pos = ipos; // restore to right behind "else"
+      doneAndGoto(&SourceProcessor::s_oneStatement); // run one statement, then pop
+      return;
+    }
+  }
+  else {
+    // if without else
+    src.pos = ipos; // restore to right behind "if" statement's end
+    pop(); // end if/then/else
+    return;
+  }
 }
 
 
 void SourceProcessor::s_whileCondition()
 {
   FOCUSLOGSTATE
-  // FIXME: implement
-  complete(new ErrorPosValue(src, ScriptError::Internal, "%s not yet implemented", __func__));
+  // while condition is evaluated
+  // - poppedPos points to beginning of while condition
+  if (!src.nextIf(')')) {
+    complete(new ErrorPosValue(src, ScriptError::Syntax, "missing ')' after 'while' condition"));
+    return;
+  }
+  if (!skipping) flowDecision = result->boolValue(); // do not change flow decision when skipping (=break)
+  push(&SourceProcessor::s_whileStatement, true); // push poopedPos = loopback position
+  if (!skipping) skipping = !flowDecision;
+  doneAndGoto(&SourceProcessor::s_oneStatement);
 }
 
 void SourceProcessor::s_whileStatement()
 {
   FOCUSLOGSTATE
-  // FIXME: implement
-  complete(new ErrorPosValue(src, ScriptError::Internal, "%s not yet implemented", __func__));
+  // while statement (or block of statements) is executed
+  if (flowDecision==false) {
+    pop(); // end while
+    return;
+  }
+  // not skipping, means we need to loop back to the condition
+  src.pos = poppedPos;
+  push(&SourceProcessor::s_whileCondition);
+  doneAndGoto(&SourceProcessor::s_expression);
 }
 
 
 void SourceProcessor::s_tryStatement()
 {
   FOCUSLOGSTATE
-  // FIXME: implement
-  complete(new ErrorPosValue(src, ScriptError::Internal, "%s not yet implemented", __func__));
+  // try statement is executed
+  // - flowDecision is set when error has occurred
+  // - olderResult contains the error
+  // - check for "catch" following
+  if (src.parseIdentifier(identifier) && uequals(identifier, "catch")) {
+    // flowdecision is set here only if there was an error -> skip catch only if it is not set!
+    skipping = !flowDecision;
+    // catch can set the error into a local var
+    src.skipNonCode();
+    // check for error capturing variable
+    if (src.nextIf('(')) {
+      if (!src.parseIdentifier(identifier) || !src.nextIf(')')) {
+        complete(new ErrorPosValue(src, ScriptError::Syntax, "expecting '(errorvariable)'"));
+        return;
+      }
+      if (!skipping) {
+        result = olderResult; // the error
+        olderResult.reset(); // store in context
+        storageSpecifier = new StringValue(identifier);
+        setMemberBySpecifier(create);
+      }
+    }
+    // run what follows as one statement
+    doneAndGoto(&SourceProcessor::s_oneStatement);
+    return;
+  }
+  else {
+    complete(new ErrorPosValue(src, ScriptError::Syntax, "missing 'catch' after 'try'"));
+    return;
+  }
 }
-
-void SourceProcessor::s_catchStatement()
-{
-  FOCUSLOGSTATE
-  // FIXME: implement
-  complete(new ErrorPosValue(src, ScriptError::Internal, "%s not yet implemented", __func__));
-}
-
 
 // MARK: Generic states
 
@@ -2394,6 +2607,11 @@ void SourceProcessor::newFunctionCallContext()
   done();
 }
 
+
+void SourceProcessor::startBlockThreadAndStoreInIdentifier()
+{
+  /* NOP */
+}
 
 void SourceProcessor::pushFunctionArgument(ScriptObjPtr aArgument)
 {
@@ -2510,6 +2728,16 @@ void ScriptSource::setDomain(ScriptingDomainPtr aDomain)
 };
 
 
+ScriptingDomainPtr ScriptSource::domain()
+{
+  if (!scriptingDomain) {
+    // none assigned so far, assign default
+    scriptingDomain = ScriptingDomainPtr(&StandardScriptingDomain::sharedDomain());
+  }
+  return scriptingDomain;
+}
+
+
 void ScriptSource::setSharedMainContext(ScriptMainContextPtr aSharedMainContext)
 {
   // cached executable gets invalid when setting new context
@@ -2542,16 +2770,12 @@ ScriptObjPtr ScriptSource::getExecutable()
 {
   if (sourceContainer) {
     if (!cachedExecutable) {
-      if (!scriptingDomain) {
-        // none assigned so far, assign default
-        scriptingDomain = ScriptingDomainPtr(&StandardScriptingDomain::sharedDomain());
-      }
       // need to compile
-      ScriptCompiler compiler(scriptingDomain);
+      ScriptCompiler compiler(domain());
       ScriptMainContextPtr mctx = sharedMainContext; // use shared context if one is set
       if (!mctx) {
         // default to independent execution in a non-object context (no instance pointer)
-        mctx = scriptingDomain->newContext();
+        mctx = domain()->newContext();
       }
       cachedExecutable = compiler.compile(sourceContainer, compileAs, mctx);
     }
@@ -2567,7 +2791,7 @@ ScriptObjPtr ScriptSource::run(EvaluationFlags aEvalFlags, EvaluationCB aEvaluat
   ScriptObjPtr result;
   // get the context to run it
   if (code && code->hasType(executable)) {
-    ExecutionContextPtr ctx = code->contextForCallingFrom(scriptingDomain);
+    ExecutionContextPtr ctx = code->contextForCallingFrom(domain());
     if (ctx) {
       if (aEvalFlags & synchronously) {
         result = ctx->executeSynchronously(code, aEvalFlags, aMaxRunTime);
@@ -2641,7 +2865,7 @@ void ScriptCodeThread::abort(ScriptObjPtr aAbortResult)
     childContext->abort(stopall, aAbortResult); // will call resume() via its callback
   }
   else {
-    resume(); // resume, but aborted state will immediately terminate thread
+    complete(aAbortResult); // complete now, will eventually invoke completion callback
   }
 }
 
@@ -2650,7 +2874,17 @@ void ScriptCodeThread::complete(ScriptObjPtr aFinalResult)
 {
   autoResumeTicket.cancel();
   inherited::complete(aFinalResult);
+  for (WaitingList::iterator pos = waitingList.begin(); pos!=waitingList.end(); ++pos) {
+    (*pos)->notify(aFinalResult);
+  }
+  waitingList.clear();
   owner->threadTerminated(this);
+}
+
+
+void ScriptCodeThread::registerCompletionNotification(ScriptObjPtr aObj)
+{
+  waitingList.push_back(aObj);
 }
 
 
@@ -2691,16 +2925,20 @@ void ScriptCodeThread::done()
     // check special case, "create" marks an error just explicitly created that should not automatically throw
     if (!result->hasType(create)) {
       ErrorPtr err = result->errorValue();
+      if (!result->cursor()) {
+        // if there is no position in the error already, put current pos
+        result = new ErrorPosValue(src, err);
+      }
       if (err->isDomain(ScriptError::domain()) && err->getErrorCode()>=ScriptError::FatalErrors) {
         // just end the thread unconditionally
         complete(result);
         return;
       }
       else {
-        // TODO: walk back the stack and look for a catch()
-        complete(result); // FIXME: for now, we just terminate as well
-        return;
+        // not fatal, throw it
+        throwOrComplete(result);
       }
+      return;
     }
   }
   if (skipping) {
@@ -2728,9 +2966,12 @@ void ScriptCodeThread::memberByIdentifier()
 
 void ScriptCodeThread::setMemberBySpecifier(TypeInfo aStorageAttributes)
 {
+  // - storageSpecifier = name/index of leaf member to assign
+  // - result = value to assign
+  // - olderResult = parent object or NULL for script scope level
   ErrorPtr err;
   if (storageSpecifier->hasType(numeric)) {
-    size_t index = result->numValue();
+    size_t index = storageSpecifier->numValue();
     // store to array access by index
     if (olderResult) {
       err = olderResult->setMemberAtIndex(index, result);
@@ -2742,18 +2983,18 @@ void ScriptCodeThread::setMemberBySpecifier(TypeInfo aStorageAttributes)
   }
   else {
     // store by name
-    string name = result->stringValue();
+    string name = storageSpecifier->stringValue();
     if (olderResult) {
       err = olderResult->setMemberByName(name, result, aStorageAttributes);
     }
     else {
       err = owner->setMemberByName(name, result, aStorageAttributes);
     }
-    if (!Error::isOK(err)) {
-      result = new ErrorPosValue(src, err);
-    }
-    done();
   }
+  if (!Error::isOK(err)) {
+    result = new ErrorPosValue(src, err);
+  }
+  done();
 }
 
 
@@ -2781,6 +3022,23 @@ void ScriptCodeThread::newFunctionCallContext()
     result = new ErrorPosValue(src, ScriptError::NotCallable, "'%s' is not a function", f.c_str());
   }
   done();
+}
+
+
+void ScriptCodeThread::startBlockThreadAndStoreInIdentifier()
+{
+  if (!skipping) {
+    ScriptCodeThreadPtr thread = owner->newThreadFrom(src, concurrently|block, NULL);
+    if (thread) {
+      if (!identifier.empty()) {
+        storageSpecifier = new StringValue(identifier);
+        result = new ThreadValue(thread);
+        olderResult.reset();
+        setMemberBySpecifier(create);
+      }
+      thread->run();
+    }
+  }
 }
 
 
@@ -2976,77 +3234,24 @@ static void number_func(BuiltinFunctionContextPtr f)
   f->finish(new NumericValue(f->arg(0)->numValue())); // force convert to numeric
 }
 
-
-/*
-// TODO: cleanup
-// copy(anything) // make a value copy, including json object references
-static const ArgumentDescriptor copy_args[] = { { any+null } };
-static const size_t copy_numargs = sizeof(copy_args)/sizeof(ArgumentDescriptor);
-static void copy_func(BuiltinFunctionContextPtr f)
-{
-  #if SCRIPTING_JSON_SUPPORT
-  if (f->arg(0)->hasType(json)) {
-    // need to make a value copy of the JsonObject itself
-    f->finish(new JsonValue(JsonObjectPtr(new JsonObject(*(f->arg(0)->jsonValue())))));
-  }
-  else
-  #endif
-  {
-    f->finish(f->arg(0)); // just copy the ExpressionValue
-  }
-}
-*/
-
 #if SCRIPTING_JSON_SUPPORT
 
-// json(anything)
-static const ArgumentDescriptor json_args[] = { { any+null } };
+// json(string)     parse json from string
+static const ArgumentDescriptor json_args[] = { { text }, { numeric+optional } };
 static const size_t json_numargs = sizeof(json_args)/sizeof(ArgumentDescriptor);
 static void json_func(BuiltinFunctionContextPtr f)
 {
-  f->finish(new JsonValue(f->arg(0)->jsonValue()));
+  string jstr = f->arg(0)->stringValue();
+  ErrorPtr err;
+  JsonObjectPtr j = JsonObject::objFromText(jstr.c_str(), jstr.size(), &err, f->arg(1)->boolValue());
+  if (Error::isOK(err))
+    f->finish(new JsonValue(j));
+  else
+    f->finish(new ErrorValue(err));
 }
 
 
-// TODO: jsonvalue should have writable member access
-//  // bool setfield(var, fieldname, value)
-//  static const ArgumentDescriptor setfield_args[] = { { any+null } };
-//  static const size_t setfield_numargs = sizeof(setfield_args)/sizeof(ArgumentDescriptor);
-//  static void setfield_func(BuiltinFunctionContextPtr f)
-//  {
-//    if (!f->arg(0)->hasType(json)) f->finish(new NullValue()); // not JSON, cannot set value
-//    else {
-//
-//      f->finish(new JsonValue(f->arg(0)->jsonValue()));
-//      if (f->arg(1)->notValue()) return errorInArg(f->arg(1), aResult); // return error/null from argument
-//      aResult.jsonValue()->add(f->arg(1)->stringValue().c_str(), f->arg(2)->jsonValue());
-//    }
-//  }
-//
-//
-//  // bool setelement(var, index, value) // set
-//  static const ArgumentDescriptor setelement_args[] = { { any+null } };
-//  static const size_t setelement_numargs = sizeof(setelement_args)/sizeof(ArgumentDescriptor);
-//  static void setelement_func(BuiltinFunctionContextPtr f)
-//  {
-//    // bool setelement(var, value) // append
-//    if (!f->arg(0)->isJson()) f->finish(new NullValue()); // not JSON, cannot set value
-//    else {
-//      f->finish(new JsonValue(f->arg(0)->jsonValue()));
-//      if (f->arg(1)->notValue()) return errorInArg(f->arg(1), aResult); // return error/null from argument
-//      if (f->numArgs()==2) {
-//        // append
-//        aResult.jsonValue()->arrayAppend(f->arg(1)->jsonValue());
-//      }
-//      else {
-//        aResult.jsonValue()->arrayPut(f->arg(1)->intValue(), f->arg(2)->jsonValue());
-//      }
-//    }
-//  }
-
-
 #if ENABLE_JSON_APPLICATION
-
 
 static const ArgumentDescriptor jsonresource_args[] = { { text+undefres } };
 static const size_t jsonresource_numargs = sizeof(jsonresource_args)/sizeof(ArgumentDescriptor);
@@ -3145,17 +3350,19 @@ static void format_func(BuiltinFunctionContextPtr f)
 }
 
 
-// TODO: refresh implementation of throw() later
-//
-//  // throw(value)       - throw a expression user error with the string value of value as errormessage
-//  static const ArgumentDescriptor throw_args[] = { { any } };
-//  static const size_t throw_numargs = sizeof(throw_args)/sizeof(ArgumentDescriptor);
-//  static void throw_func(BuiltinFunctionContextPtr f)
-//  {
-//    // throw(errvalue)    - (re-)throw with the error of the value passed
-//    if (f->arg(0)->isError()) return throwError(f->arg(0)->error()); // just pass as is
-//    else return throwError(ExpressionError::User, "%s", f->arg(0)->stringValue().c_str());
-//  }
+// throw(value)       - throw a expression user error with the string value of value as errormessage
+static const ArgumentDescriptor throw_args[] = { { any } };
+static const size_t throw_numargs = sizeof(throw_args)/sizeof(ArgumentDescriptor);
+static void throw_func(BuiltinFunctionContextPtr f)
+{
+  // throw(errvalue)    - (re-)throw with the error of the value passed
+  ScriptObjPtr throwVal;
+  if (f->arg(0)->isErr())
+    throwVal = f->arg(0);
+  else
+    throwVal = new ErrorValue(ScriptError::User, "%s", f->arg(0)->stringValue().c_str());
+  f->finish(throwVal);
+}
 
 
 // error(value)       - create a user error value with the string value of value as errormessage, in all cases, even if value is already an error
@@ -3165,32 +3372,6 @@ static void error_func(BuiltinFunctionContextPtr f)
 {
   f->finish(new NoThrowErrorValue(Error::err<ScriptError>(ScriptError::User, "%s", f->arg(0)->stringValue().c_str())));
 }
-
-
-// TODO: refresh implementation of error() within throw() later
-//  // error()            - within a catch context only: the error thrown
-//  static const ArgumentDescriptor error_args[] = { { any } };
-//  static const size_t error_numargs = sizeof(error_args)/sizeof(ArgumentDescriptor);
-//  static void error_func(BuiltinFunctionContextPtr f)
-//  {
-//    StackList::iterator spos = stack.end();
-//    while (spos!=stack.begin()) {
-//      spos--;
-//      if (spos->state==s_catchStatement) {
-//        // here the error is stored
-//        f->finish(spos->res);
-//        return true;
-//      }
-//    }
-//    // try to use error() not within catch
-//    return abortWithSyntaxError("error() can only be called from within catch statements");
-//  }
-//  else if (!synchronous && oneTimeResultHandler && aFunc=="earlyresult" && f->numArgs()==1) {
-//    // send the one time result now, but keep script running
-//    if (f->arg(0)->notValue()) return errorInArg(f->arg(0), aResult); // return error/null from argument
-//    OLOG(LOG_INFO, "earlyresult sends '%s' to caller, script continues running", aResult.stringValue().c_str());
-//    runCallBack(f->arg(0));
-//  }
 
 
 // errordomain(errvalue)
@@ -3261,9 +3442,39 @@ static void eval_func(BuiltinFunctionContextPtr f)
 }
 
 
+// await(thread)    wait for the thread to complete, return the thread's exit value
+static const ArgumentDescriptor await_args[] = { { threadref } };
+static const size_t await_numargs = sizeof(await_args)/sizeof(ArgumentDescriptor);
+static void await_func(BuiltinFunctionContextPtr f)
+{
+  ThreadValue *t = dynamic_cast<ThreadValue *>(f->arg(0).get());
+  if (t && t->numValue()) {
+    // running
+    t->registerCB(boost::bind(&BuiltinFunctionContext::finish, f, _1));
+    return;
+  }
+  f->finish(t->receivedNotification());
+}
+
+
+// abort(thread)    abort the thread
+static const ArgumentDescriptor abort_args[] = { { threadref } };
+static const size_t abort_numargs = sizeof(abort_args)/sizeof(ArgumentDescriptor);
+static void abort_func(BuiltinFunctionContextPtr f)
+{
+  ThreadValue *t = dynamic_cast<ThreadValue *>(f->arg(0).get());
+  if (t && t->numValue()) {
+    // running
+    t->abort();
+  }
+  f->finish();
+}
+
+
+
 // log (logmessage)
 // log (loglevel, logmessage)
-static const ArgumentDescriptor log_args[] = { { text+numeric }, { text+optional } };
+static const ArgumentDescriptor log_args[] = { { any }, { any+optional } };
 static const size_t log_numargs = sizeof(log_args)/sizeof(ArgumentDescriptor);
 static void log_func(BuiltinFunctionContextPtr f)
 {
@@ -3575,6 +3786,10 @@ static void yearday_func(BuiltinFunctionContextPtr f)
 
 
 // delay(seconds)
+static void delay_abort(TicketObjPtr aTicket)
+{
+  aTicket->ticket.cancel();
+}
 static const ArgumentDescriptor delay_args[] = { { numeric } };
 static const size_t delay_numargs = sizeof(delay_args)/sizeof(ArgumentDescriptor);
 static void delay_func(BuiltinFunctionContextPtr f)
@@ -3582,10 +3797,8 @@ static void delay_func(BuiltinFunctionContextPtr f)
   MLMicroSeconds delay = f->arg(0)->numValue()*Second;
   TicketObjPtr delayTicket = TicketObjPtr(new TicketObj);
   delayTicket->ticket.executeOnce(boost::bind(&BuiltinFunctionContext::finish, f, new AnnotatedNullValue("delayed")), delay);
-  f->setAbortCallback(boost::bind(&MLTicket::cancel, &(delayTicket->ticket)));
+  f->setAbortCallback(boost::bind(&delay_abort, delayTicket));
 }
-
-
 
 
 // The standard function descriptor table
@@ -3605,24 +3818,21 @@ static const BuiltinFunctionDescriptor standardFunctions[] = {
   { "cyclic", numeric+null, cyclic_numargs, cyclic_args, &cyclic_func },
   { "string", text, string_numargs, string_args, &string_func },
   { "number", numeric, number_numargs, number_args, &number_func },
-// TODO: cleanup
-//  { "copy", any, copy_numargs, copy_args, &copy_func },
   { "json", json, json_numargs, json_args, &json_func },
-  //  { "setfield", any, setfield_numargs, setfield_args, &setfield_func },
-  //  { "setelement", any, setelement_numargs, setelement_args, &setelement_func },
   { "jsonresource", json+error, jsonresource_numargs, jsonresource_args, &jsonresource_func },
   { "lastarg", any, lastarg_numargs, lastarg_args, &lastarg_func },
   { "strlen", numeric+null, strlen_numargs, strlen_args, &strlen_func },
   { "substr", text+null, substr_numargs, substr_args, &substr_func },
   { "find", numeric+null, find_numargs, find_args, &find_func },
   { "format", text, format_numargs, format_args, &format_func },
-  //  { "throw", any, throw_numargs, throw_args, &throw_func },
+  { "throw", any, throw_numargs, throw_args, &throw_func },
   { "error", error, error_numargs, error_args, &error_func },
-  //  { "error", any, error_numargs, error_args, &error_func },
   { "errordomain", text+null, errordomain_numargs, errordomain_args, &errordomain_func },
   { "errorcode", numeric+null, errorcode_numargs, errorcode_args, &errorcode_func },
   { "errormessage", text+null, errormessage_numargs, errormessage_args, &errormessage_func },
   { "eval", any, eval_numargs, eval_args, &eval_func },
+  { "await", any, await_numargs, await_args, &await_func },
+  { "abort", null, abort_numargs, abort_args, &abort_func },
   { "log", null, log_numargs, log_args, &log_func },
   { "loglevel", numeric, loglevel_numargs, loglevel_args, &loglevel_func },
   { "logleveloffset", numeric, logleveloffset_numargs, logleveloffset_args, &logleveloffset_func },
@@ -3676,6 +3886,7 @@ class SimpleREPLApp : public CmdLineApp
   typedef CmdLineApp inherited;
 
   ScriptSource source;
+  ScriptMainContextPtr replContext;
   char *buffer;
   size_t bufsize = 4096;
   size_t characters;
@@ -3707,6 +3918,8 @@ public:
 
   virtual void initialize()
   {
+    replContext = source.domain()->newContext();
+    source.setSharedMainContext(replContext);
     printf("p44Script REPL - type 'quit' to leave\n\n");
     RE();
   }
@@ -3721,7 +3934,7 @@ public:
       return;
     }
     source.setSource(buffer, scriptbody);
-    source.run(scriptbody+regular, boost::bind(&SimpleREPLApp::PL, this, _1));
+    source.run(scriptbody+regular+keepvars, boost::bind(&SimpleREPLApp::PL, this, _1));
   }
 
   void PL(ScriptObjPtr aResult)
@@ -3748,7 +3961,7 @@ int main(int argc, char **argv)
 {
   // prevent debug output before application.main scans command line
   SETLOGLEVEL(LOG_NOTICE);
-  SETERRLEVEL(LOG_NOTICE, false); // messages, if any, go to stderr
+  SETERRLEVEL(0, false);
   // create app with current mainloop
   static SimpleREPLApp application;
   // pass control

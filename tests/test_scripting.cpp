@@ -57,8 +57,9 @@ public:
 
   ScriptingCodeFixture()
   {
-    SETERRLEVEL(0, false); // everything to stdout, once
-    LOG(LOG_ERR, "\n+++++++ constructing ScriptingCodeFixture");
+    SETDAEMONMODE(false);
+    SETLOGLEVEL(LOG_NOTICE);
+    LOG(LOG_INFO, "\n+++++++ constructing ScriptingCodeFixture");
     testLookup.isMemberVariable();
     StandardScriptingDomain::sharedDomain().setLogLevelOffset(LOGLEVELOFFSET);
     mainContext = StandardScriptingDomain::sharedDomain().newContext();
@@ -68,7 +69,7 @@ public:
   };
   virtual ~ScriptingCodeFixture()
   {
-    LOG(LOG_ERR, "------- destructing ScriptingCodeFixture\n");
+    LOG(LOG_INFO, "------- destructing ScriptingCodeFixture\n");
   }
 
 };
@@ -203,7 +204,9 @@ TEST_CASE("CodeCursor", "[scripting]" )
 
 TEST_CASE_METHOD(ScriptingCodeFixture, "Focus", "[scripting],[DEBUG]" )
 {
-  REQUIRE(s.test(expression, "jstest['array',0]")->stringValue() == "first");
+  SETLOGLEVEL(LOG_DEBUG);
+  puts(JSON_TEST_OBJ);
+  REQUIRE(s.test(scriptbody, "var js = json('" JSON_TEST_OBJ "'); js.obj.objF = 46; log(5,js); return js.obj.objF")->numValue() == 46);
 }
 
 // MARK: - Literals
@@ -482,33 +485,26 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "statements", "[scripting],[FOCUS]" )
     REQUIRE(s.test(scriptbody, "var x = 4321; X = 1234; return X")->numValue() == 1234); // case insensitivity
     REQUIRE(s.test(scriptbody, "var x = 4321; x = x + 1234; return x")->numValue() == 1234+4321); // case insensitivity
     REQUIRE(s.test(scriptbody, "var x = 1; var x = 2; return x")->numValue() == 2); // locals initialized whenerver encountered (now! was different before)
-    REQUIRE(s.test(scriptbody, "glob g = 1; glob g = 2; return g")->numValue() == 1); // however globals are initialized once and then never again
-    REQUIRE(s.test(scriptbody, "glob g = 3; g = 4; return g")->numValue() == 4); // normal assignment is possible, however
+    REQUIRE(s.test(scriptbody, "glob g = 1; return g")->isErr() == true); // globals cannot be initialized (ANY MORE, they could, ONCE, in old ScriptContext)
+    REQUIRE(s.test(scriptbody, "glob g; g = 4; return g")->numValue() == 4); // normal assignment is possible, however
     #if SCRIPT_OPERATOR_MODE==SCRIPT_OPERATOR_MODE_FLEXIBLE
-    REQUIRE(s.test(scriptbody, "var i = 8; h = 3 + (i = 8)")->numValue() == 4); // inner "=" is treated as comparison
+    REQUIRE(s.test(scriptbody, "var h; var i = 8; h = 3 + (i = 8)")->numValue() == 4); // inner "=" is treated as comparison
     #elif SCRIPT_OPERATOR_MODE==SCRIPT_OPERATOR_MODE_C
-    REQUIRE(s.test(scriptbody, "var i = 8; h = 3 + (i = 8)")->isErr() == true); // no nested assignment allowed
+    REQUIRE(s.test(scriptbody, "var h; var i = 8; h = 3 + (i = 8)")->isErr() == true); // no nested assignment allowed
     #elif SCRIPT_OPERATOR_MODE==SCRIPT_OPERATOR_MODE_PASCAL
-    REQUIRE(s.test(scriptbody, "var i :=8; h := 3 + (i := 8)")->isErr() == true); // no nested assignment allowed
+    REQUIRE(s.test(scriptbody, "var h; var i := 8; h := 3 + (i := 8)")->isErr() == true); // no nested assignment allowed
     #endif
   }
 
   // "{\"array\":[\"first\",2,3,\"fourth\",6.6],\"obj\":{\"objA\":\"A\",\"objB\":42,\"objC\":{\"objD\":\"D\",\"objE\":45}},\"string\":\"abc\",\"number\":42,\"bool\":true}"
-
   SECTION("json manipulation") {
     REQUIRE(s.test(scriptbody, "var js = " JSON_TEST_OBJ "; js.obj.objF = 46; log(5,js); return js.obj.objF")->numValue() == 46);
     REQUIRE(s.test(scriptbody, "var js = " JSON_TEST_OBJ "; js.obj['objA'] = 'AA'; log(5,js); return js.obj.objA")->stringValue() == "AA");
     REQUIRE(s.test(scriptbody, "var js = " JSON_TEST_OBJ "; js.array[5] = 'AA'; log(5,js); return js.array[5]")->stringValue() == "AA");
     REQUIRE(s.test(scriptbody, "var js = " JSON_TEST_OBJ "; js.array[0] = 'modified'; log(5,js); return js.array[0]")->stringValue() == "modified");
+    // test if json assignment really copies var, such that modifications to the members of the copied object does NOT affect the original val
+    REQUIRE(s.test(scriptbody, "var js = " JSON_TEST_OBJ "; var js2 = js; js2.array[0] = 'first MODIFIED'; log(5,js); return js.array[0]")->stringValue() == "first");
   }
-
-//  SECTION("legacy style json manipulation") {
-//    REQUIRE(s.test(scriptbody, "var js = " JSON_TEST_OBJ "; setfield(js.obj, 'objF', 46); log(5,js); return js.obj.objF")->numValue() == 46);
-//    REQUIRE(s.test(scriptbody, "var js = " JSON_TEST_OBJ "; setfield(js.obj, 'objA', 'AA'); log(5,js); return js.obj.objA")->stringValue() == "AA");
-//    REQUIRE(s.test(scriptbody, "var js = " JSON_TEST_OBJ "; setelement(js.array, 'AA'); log(5,js); return js.array[5]")->stringValue() == "AA");
-//    REQUIRE(s.test(scriptbody, "var js = " JSON_TEST_OBJ "; setelement(js.array, 0, 'modified'); log(5,js); return js.array[0]")->stringValue() == "modified");
-//  }
-
 
   SECTION("control flow") {
     REQUIRE(s.test(scriptbody, "var cond = 1; var res = 'none'; var cond = 1; if (cond==1) res='one' else res='NOT one'; return res")->stringValue() == "one");

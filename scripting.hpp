@@ -157,6 +157,7 @@ namespace p44 { namespace Script {
     expression = 0x0010, ///< evaluate as an expression (no flow control, variable assignments, blocks etc.)
     scriptbody = 0x0020, ///< evaluate as script body (no function or handler definitions)
     source = 0x0040, ///< evaluate as script (include parsing functions and handlers)
+    block = 0x0080, ///< evaluate as a block (complete when reaching end of block)
     synchronously = 0x0100, ///< evaluate synchronously, error out on async code
     stoprunning = 0x0200, ///< abort running evaluation in the same context before starting a new one
     queue = 0x0400, ///< queue for evaluation if other evaluations are still running/pending
@@ -169,37 +170,38 @@ namespace p44 { namespace Script {
   /// Type info
   enum {
     // content type flags, usually one per object, but object/array can be combined with regular type
-    typeMask = 0x00FF,
-    none = 0x0000, ///< no type specification
-    null = 0x0001, ///< NULL/undefined
-    error = 0x0002, ///< Error
-    numeric = 0x0004, ///< numeric value
-    text = 0x0008, ///< text/string value
-    json = 0x0010, ///< JSON value
-    executable = 0x0020, ///< executable code
-    object = 0x0040, ///< is a object with named members
-    array = 0x0080, ///< is an array with indexed elements
+    typeMask = 0x0FFF,
+    none = 0x000, ///< no type specification
+    null = 0x001, ///< NULL/undefined
+    error = 0x002, ///< Error
+    numeric = 0x004, ///< numeric value
+    text = 0x008, ///< text/string value
+    json = 0x010, ///< JSON value
+    executable = 0x020, ///< executable code
+    object = 0x040, ///< is a object with named members
+    array = 0x080, ///< is an array with indexed elements
+    threadref = 0x100, ///< represents a running thread
     // type classes
     any = typeMask-null, ///< any type except null
     scalar = numeric+text+json, ///< scalar types (json can also be structured)
     structured = object+array, ///< structured types
     value = scalar+structured, ///< all value types (excludes executables)
     // attributes
-    attrMask = 0xFFFFFF00,
+    attrMask = 0xFFFFF000,
     // - for argument checking
     optional = null, ///< if set, the argument is optional (means: is is allowed to be null even when null is not explicitly allowed)
-    multiple = 0x0100, ///< this argument type can occur mutiple times (... signature)
-    exacttype = 0x0200, ///< if set, type of argument must match, no autoconversion
-    undefres = 0x0400, ///< if set, and an argument does not match type, the function result is automatically made null/undefined without executing the implementation
-    async = 0x0800, ///< if set, the object cannot evaluate synchronously
+    multiple = 0x01000, ///< this argument type can occur mutiple times (... signature)
+    exacttype = 0x02000, ///< if set, type of argument must match, no autoconversion
+    undefres = 0x04000, ///< if set, and an argument does not match type, the function result is automatically made null/undefined without executing the implementation
+    async = 0x08000, ///< if set, the object cannot evaluate synchronously
     // - storage attributes and directives for named members
-    create = 0x1000, ///< set to create member if not yet existing (special use also for explicitly created errors)
-    onlycreate = 0x2000, ///< set to only create if new, but not overwrite 
-    global = 0x4000, ///< set to store in global context
-    constant = 0x8000, ///< set to select only constant  (in the sense of: not settable by scripts) members
-    objscope = 0x10000, ///< set to select only object scope members
-    classscope = 0x20000, ///< set to select only class scope members
-    mutablemembers = 0x40000, ///< members are mutable
+    create = 0x10000, ///< set to create member if not yet existing (special use also for explicitly created errors)
+    onlycreate = 0x20000, ///< set to only create if new, but not overwrite
+    global = 0x40000, ///< set to store in global context
+    constant = 0x80000, ///< set to select only constant  (in the sense of: not settable by scripts) members
+    objscope = 0x100000, ///< set to select only object scope members
+    classscope = 0x200000, ///< set to select only class scope members
+    mutablemembers = 0x400000, ///< members are mutable
   };
   typedef uint32_t TypeInfo;
 
@@ -385,18 +387,22 @@ namespace p44 { namespace Script {
     /// @}
 
 
-
     /// @name triggering support
     /// @{
 
     // TODO: add triggering support methods
+    // Note: thread termination notification is a special case of trigger,
+    //   maybe triggers should become AwaitableValues...
+
+    // FIXME: q&d for now, integrate with triggers later
+    virtual void notify(ScriptObjPtr aNotification) { /* NOP in base class */ }
 
     /// @}
 
   };
 
 
-  // MARK: - Value classes
+  // MARK: - Special Value classes
 
   /// an explicitly annotated null value (in contrast to ScriptObj base class which is a non-annotated null)
   class AnnotatedNullValue : public ScriptObj
@@ -440,6 +446,41 @@ namespace p44 { namespace Script {
   };
 
 
+  class AwaitableValue : public ScriptObj
+  {
+    typedef ScriptObj inherited;
+    typedef std::list<EvaluationCB> EvalCBList;
+    EvalCBList evalCBList;
+    ScriptObjPtr notification;
+  public:
+    void registerCB(EvaluationCB aEvaluationCB);
+    ScriptObjPtr receivedNotification() { return notification; }
+  protected:
+    void continueWaiters(ScriptObjPtr aNotification);
+  };
+
+
+  class ThreadValue : public AwaitableValue
+  {
+    typedef AwaitableValue inherited;
+    ScriptCodeThreadPtr thread;
+    EvaluationCB eventHandler;
+  public:
+    ThreadValue(ScriptCodeThreadPtr aThread);
+    virtual string getAnnotation() const P44_OVERRIDE { return "thread"; };
+    virtual TypeInfo getTypeInfo() const P44_OVERRIDE { return threadref; };
+    virtual double numValue() const P44_OVERRIDE;
+    virtual string stringValue() const P44_OVERRIDE { return getAnnotation(); };
+
+    // FIXME: q&d for now, integrate with triggers later
+    virtual void notify(ScriptObjPtr aNotification) P44_OVERRIDE;
+
+    void abort(); ///< abort the thread
+  };
+
+
+
+  // MARK: - Regular value classes
 
   class NumericValue : public ScriptObj
   {
@@ -587,10 +628,10 @@ namespace p44 { namespace Script {
     /// release all objects stored in this container and other known containers which were defined by aSource
     virtual void releaseObjsFromSource(SourceContainerPtr aSource); // no source-derived permanent objects here
 
-    /// Evaluate a object
+    /// Execute a object
     /// @param aToExecute the object to be executed in this context
     /// @param aEvalFlags evaluation control flags
-    /// @param aEvaluationCB will be called to deliver the result of the evaluation
+    /// @param aEvaluationCB will be called to deliver the result of the execution
     virtual void execute(ScriptObjPtr aToExecute, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB, MLMicroSeconds aMaxRunTime = Infinite) = 0;
 
     /// abort evaluation (of all threads if context has more than one)
@@ -663,7 +704,15 @@ namespace p44 { namespace Script {
     /// @param aToExecute the object to be evaluated
     /// @param aEvalFlags evaluation mode/flags. Script thread can evaluate...
     /// @param aEvaluationCB will be called to deliver the result of the evaluation
+    /// @param aMaxRunTime maximum time the execution may run before it is aborted by timeout
     virtual void execute(ScriptObjPtr aToExecute, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB, MLMicroSeconds aMaxRunTime = Infinite) P44_OVERRIDE;
+
+    /// Start a new thread (usually, a block, concurrently) from a given cursor
+    /// @param aFromCursor where to start executing
+    /// @param aEvalFlags how to initiate the thread and what syntax level to evaluate
+    /// @param aEvaluationCB callback when thread has evaluated (ends)
+    /// @param aMaxRunTime maximum time the thread may run before it is aborted by timeout
+    ScriptCodeThreadPtr newThreadFrom(SourceCursor &aFromCursor, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB, MLMicroSeconds aMaxRunTime = Infinite);
 
     /// abort evaluation of all threads
     /// @param aAbortFlags set stoprunning to abort currently running threads, queue to empty the queued threads
@@ -890,6 +939,11 @@ namespace p44 { namespace Script {
     /// @param aDomain the domain. Defaults to StandardScriptingDomain::sharedDomain() if not explicitly set
     void setDomain(ScriptingDomainPtr aDomain);
 
+    /// get the domain assiciated with this source.
+    /// If none was set specifically, the StandardScriptingDomain is returned.
+    /// @return scripting domain
+    ScriptingDomainPtr domain();
+
     /// set pre-existing execution context to use, possibly shared with other script sources
     /// @param aSharedMainContext a context previously obtained from the domain with newContext()
     void setSharedMainContext(ScriptMainContextPtr aSharedMainContext);
@@ -984,6 +1038,9 @@ namespace p44 { namespace Script {
     /// @note setCursor(), setCompletedCB() and initProcessing() must be called before!
     virtual void start();
 
+    /// @return true if running
+    bool isRunning();
+
     /// resume processing
     /// @param aNewResult if not NULL, this object will be stored to result as first step of the resume
     /// @note must be called for every step of the process that does not lead to completion
@@ -1042,6 +1099,10 @@ namespace p44 { namespace Script {
     /// execute the current result and replace it with the output from the evaluation (e.g. function call)
     /// @note must call done() when result contains the member (or NULL if not found)
     virtual void execute();
+
+    /// fork executing a block at the current position, if identifier is not empty, store a new ThreadValue.
+    /// @note MUST NOT call done() directly. This call will return when the new thread yields execution the first time.
+    virtual void startBlockThreadAndStoreInIdentifier();
 
     /// must set a new funcCallContext suitable to execute result as a function
     /// @note must set result to an ErrorValue if no context can be created
@@ -1126,7 +1187,8 @@ namespace p44 { namespace Script {
 
     /// push the current state
     /// @param aReturnToState the state to return to after pop().
-    void push(StateHandler aReturnToState);
+    /// @param aPushPoppedPos poppedPos will be pushed instead of src.pos
+    void push(StateHandler aReturnToState, bool aPushPoppedPos = false);
 
     /// return to the last pushed state
     void pop();
@@ -1137,10 +1199,16 @@ namespace p44 { namespace Script {
     ///   false if no such state found (and stack unchanged)
     bool unWindStackTo(StateHandler aPreviousState);
 
-    /// looek for the specified state on the stack, and if one is found, enter skipping mode
+    /// look for the specified state on the stack, and if one is found, enter skipping mode
     /// and modify all stack entries up to and including the found entry to skipping=true
     /// causing the execution to run in skipping mode until the stack pops beyound the found entry.
-    bool skipUntilReaching(StateHandler aPreviousState);
+    /// @param aPreviousState the state to search
+    /// @param aThrowValue if set, the result in the found entry is replaced by this, and flowdecision is set to true
+    bool skipUntilReaching(StateHandler aPreviousState, ScriptObjPtr aThrowValue = ScriptObjPtr());
+
+    /// throw the value to be caught by the next try/catch. If no try/catch, the current thread will end with aThrowValue
+    /// @param aError the value to throw, must be an error
+    void throwOrComplete(ScriptObjPtr aError);
 
     /// state handlers
     /// @note these all MUST eventually cause calling resume(). This can happen from
@@ -1154,7 +1222,7 @@ namespace p44 { namespace Script {
     void s_nextSubscript(); ///< multi-dimensional subscripts, 2nd and further arguments
     void s_defineGlobalMember(); ///< assign or create global variable
     void s_defineMember(); ///< assign or create a member of a structured variable or other object
-    void assignOrAccess(); ///< access or assign identifier
+    void assignOrAccess(bool aAllowAssign); ///< access or assign identifier
     void s_assignMember(); ///< assign existing variable or member of a variable or other object
     void assignMember(TypeInfo aStorageAttributes); ///< common processing for assignment
     void s_funcArg(); ///< immediately after function argument evaluation
@@ -1183,13 +1251,11 @@ namespace p44 { namespace Script {
     // - if/then/else
     void s_ifCondition(); ///< executing the condition of an if
     void s_ifTrueStatement(); ///< executing the if statement
-    void s_elseStatement(); ///< executing the else statement
     // - while
     void s_whileCondition(); ///< executing the condition of a while
     void s_whileStatement(); ///< executing the while statement
     // - try/catch
     void s_tryStatement(); ///< executing the statement to try
-    void s_catchStatement(); ///< executing the handling of a thrown error
 
     // Generic
     void s_result(); ///< result of an expression or term available as ScriptObj. May need makeValid() if not already valid() here.
@@ -1289,6 +1355,9 @@ namespace p44 { namespace Script {
     ExecutionContextPtr childContext; ///< set during calls to other contexts, e.g. to propagate abort()
     MLTicket autoResumeTicket; ///< auto-resume ticket
 
+    typedef std::list<ScriptObjPtr> WaitingList;
+    WaitingList waitingList;
+
   public:
 
     /// @param aOwner the context which owns this thread and will be notified when it ends
@@ -1318,6 +1387,9 @@ namespace p44 { namespace Script {
     /// complete the current thread
     virtual void complete(ScriptObjPtr aFinalResult) P44_OVERRIDE;
 
+    /// register a object to get notify()-ed when the thread completes
+    void registerCompletionNotification(ScriptObjPtr aObj);
+
     /// convenience end of step using current result and checking for errors
     virtual void done() P44_OVERRIDE;
 
@@ -1335,6 +1407,10 @@ namespace p44 { namespace Script {
     /// must retrieve the indexed member from current result (or from the script scope if result==NULL)
     /// @note must call done() when result contains the member (or NULL if not found)
     virtual void memberByIndex(size_t aIndex) P44_OVERRIDE;
+
+    /// fork executing a block at the current position, if identifier is not empty, store a new ThreadValue.
+    /// @note MUST NOT call done() directly. This call will return when the new thread yields execution the first time.
+    virtual void startBlockThreadAndStoreInIdentifier() P44_OVERRIDE;
 
     /// must set a new funcCallContext suitable to execute result as a function
     /// @note must set result to an ErrorValue if no context can be created
