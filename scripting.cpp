@@ -275,7 +275,8 @@ ScriptObjPtr NumericValue::operator%(const ScriptObj& aRightSide) const
 
 // MARK: - Special Value classes
 
-ErrorValue::ErrorValue(ScriptError::ErrorCodes aErrCode, const char *aFmt, ...)
+ErrorValue::ErrorValue(ScriptError::ErrorCodes aErrCode, const char *aFmt, ...) :
+  thrown(false)
 {
   err = new ScriptError(aErrCode);
   va_list args;
@@ -1442,13 +1443,13 @@ ScriptObjPtr SourceCursor::parseJSONLiteral()
 // MARK: - SourceProcessor
 
 #define FOCUSLOGSTATE FOCUSLOG( \
-  "%s %22s : %25s : result = %s (olderResult = %s), precedence=%d, flowdecision=%d", \
+  "%s %22s : %25s : result = %s (olderResult = %s), precedence=%d", \
   skipping ? " SKIPPING" : "EXECUTING", \
   __func__, \
   src.code(25).c_str(), \
   ScriptObj::describe(result).c_str(), \
   ScriptObj::describe(olderResult).c_str(), \
-  precedence, flowDecision \
+  precedence \
 )
 
 SourceProcessor::SourceProcessor() :
@@ -1459,8 +1460,7 @@ SourceProcessor::SourceProcessor() :
   currentState(NULL),
   skipping(false),
   precedence(0),
-  pendingOperation(op_none),
-  flowDecision(false)
+  pendingOperation(op_none)
 {
 }
 
@@ -1616,8 +1616,8 @@ void SourceProcessor::done()
 
 void SourceProcessor::push(StateHandler aReturnToState, bool aPushPoppedPos)
 {
-  FOCUSLOG("                        push[%2lu] :                                result = %s", stack.size()+1, ScriptObj::describe(result).c_str());
-  stack.push_back(StackFrame(aPushPoppedPos ? poppedPos : src.pos, skipping, aReturnToState, result, funcCallContext, precedence, pendingOperation, flowDecision));
+  FOCUSLOG("                        push[%2lu] :                             result = %s", stack.size()+1, ScriptObj::describe(result).c_str());
+  stack.push_back(StackFrame(aPushPoppedPos ? poppedPos : src.pos, skipping, aReturnToState, result, funcCallContext, precedence, pendingOperation));
 }
 
 
@@ -1632,12 +1632,11 @@ void SourceProcessor::pop()
   skipping = s.skipping;
   precedence = s.precedence;
   pendingOperation = s.pendingOperation;
-  flowDecision = s.flowDecision;
   funcCallContext = s.funcCallContext;
   // these are restored separately, returnToState must decide what to do
   poppedPos = s.pos;
   olderResult = s.result;
-  FOCUSLOG("                         pop[%2lu] :                           olderResult = %s (result = %s)", stack.size(), ScriptObj::describe(olderResult).c_str(), ScriptObj::describe(result).c_str());
+  FOCUSLOG("                         pop[%2lu] :                        olderResult = %s (result = %s)", stack.size(), ScriptObj::describe(olderResult).c_str(), ScriptObj::describe(result).c_str());
   // continue here
   setState(s.returnToState);
   stack.pop_back();
@@ -1670,7 +1669,6 @@ bool SourceProcessor::skipUntilReaching(StateHandler aPreviousState, ScriptObjPt
       // found requested state, make it and all entries on top skipping
       if (aThrowValue) {
         spos->result = aThrowValue;
-        spos->flowDecision = true; // marker for throw
       }
       while (spos!=stack.end()) {
         spos->skipping = true;
@@ -1689,7 +1687,10 @@ void SourceProcessor::throwOrComplete(ScriptObjPtr aError)
 {
   if (!skipUntilReaching(&SourceProcessor::s_tryStatement, aError)) {
     complete(aError);
+    return;
   }
+  // catch found, continue executing there
+  resume();
 }
 
 
@@ -2281,7 +2282,7 @@ void SourceProcessor::processStatement()
     src.skipNonCode();
   }
   // at the beginning of a statement which is not beginning of a new block
-  result.reset(); // no result to begin with at the beginning of a statement
+  result.reset(); // no result to begin with at the beginning of a statement. Important for if/else, try/catch!
   // - could be language keyword, variable assignment
   SourcePos statementStart = src.pos; // remember
   if (src.parseIdentifier(identifier)) {
@@ -2364,7 +2365,6 @@ void SourceProcessor::processStatement()
     if (uequals(identifier, "try")) {
       push(currentState); // return to current state when statement finishes
       push(&SourceProcessor::s_tryStatement);
-      flowDecision = false; // nothing caught so far
       doneAndGoto(&SourceProcessor::s_oneStatement);
       return;
     }
@@ -2386,12 +2386,15 @@ void SourceProcessor::processStatement()
         complete(new ErrorPosValue(src, ScriptError::Syntax, "missing '{' to start concurrent block"));
         return;
       }
-      // "fork" the thread
-      startBlockThreadAndStoreInIdentifier();
-      // for myself: just skip the next block
       push(currentState); // return to current state when statement finishes
-      skipping = true;
-      doneAndGoto(&SourceProcessor::s_block);
+      setState(&SourceProcessor::s_block);
+      // "fork" the thread
+      if (!skipping) {
+        skipping = true; // for myself: just skip the next block
+        startBlockThreadAndStoreInIdentifier(); // includes done()
+        return;
+      }
+      done(); // skipping, no actual fork
       return;
     }
     // Check variable definition keywords
@@ -2455,28 +2458,39 @@ void SourceProcessor::s_ifCondition()
 {
   FOCUSLOGSTATE
   // if condition is evaluated
+  // - if not skipping, result is the result of the evaluation, or NULL if all of the following if/else if/else statement chain must be skipped
+  // - if already skipping here, result can be anything and must be reset to propagate cutting the else chain
   if (!src.nextIf(')')) {
     complete(new ErrorPosValue(src, ScriptError::Syntax, "missing ')' after 'if' condition"));
     return;
   }
-  flowDecision = !skipping && result->boolValue(); // this is pushed so else can refer to it
-  push(&SourceProcessor::s_ifTrueStatement);
   if (!skipping) {
-    skipping = !flowDecision;
+    // a real if decision
+    skipping = !result->boolValue();
+    if (!skipping) result.reset(); // any executed if branch must cause skipping all following else branches
   }
+  else {
+    // nothing to decide any more
+    result.reset();
+  }
+  // Note: pushed skipping AND result is needed by s_ifTrueStatement to determine further flow
+  push(&SourceProcessor::s_ifTrueStatement);
   doneAndGoto(&SourceProcessor::s_oneStatement);
 }
 
 void SourceProcessor::s_ifTrueStatement()
 {
   FOCUSLOGSTATE
-  // if statement (or block of statements) is executed
-  // - check for "else" following
+  // if statement (or block of statements) is executed or skipped
+  // - if olderResult is set to something, else chain must be executed, which means
+  //   else-ifs must be checked or last else must be executed. Otherwise, skip everything from here on.
+  // Note: "skipping" at this point is not relevant for deciding further flow
+  // check for "else" following
   SourcePos ipos = src.pos;
   src.skipNonCode();
   if (src.parseIdentifier(identifier) && uequals(identifier, "else")) {
     // else
-    if (flowDecision) skipping = true; // when if was true, else must be skipping
+    skipping = olderResult==NULL;
     src.skipNonCode();
     ipos = src.pos;
     if (src.parseIdentifier(identifier) && uequals(identifier, "if")) {
@@ -2488,6 +2502,8 @@ void SourceProcessor::s_ifTrueStatement()
       }
       // chained if: when preceeding "if" did execute (or would have if not already skipping),
       // rest of if/elseif...else chain will be skipped
+      // Note: pushed skipping AND result is needed by s_ifCondition to determine further flow
+      result = olderResult; // carry on the "entire if/elseif/else statement executing" marker
       push(&SourceProcessor::s_ifCondition);
       doneAndGoto(&SourceProcessor::s_subExpression);
       return;
@@ -2546,14 +2562,17 @@ void SourceProcessor::s_tryStatement()
 {
   FOCUSLOGSTATE
   // try statement is executed
-  // - flowDecision is set when error has occurred
   // - olderResult contains the error
   // - check for "catch" following
+  src.skipNonCode();
   if (src.parseIdentifier(identifier) && uequals(identifier, "catch")) {
-    // flowdecision is set here only if there was an error -> skip catch only if it is not set!
-    skipping = !flowDecision;
+    // if olderResult is an error, we must catch it. Otherwise skip the catch statement.
+    // Note: olderResult can be the try statement's regular result at this point
+    skipping = !olderResult || !olderResult->isErr();
     // catch can set the error into a local var
     src.skipNonCode();
+    // run (or skip) what follows as one statement
+    setState(&SourceProcessor::s_oneStatement);
     // check for error capturing variable
     if (src.nextIf('(')) {
       if (!src.parseIdentifier(identifier) || !src.nextIf(')')) {
@@ -2564,11 +2583,11 @@ void SourceProcessor::s_tryStatement()
         result = olderResult; // the error
         olderResult.reset(); // store in context
         storageSpecifier = new StringValue(identifier);
-        setMemberBySpecifier(create);
+        setMemberBySpecifier(create); // allow to create it
+        return;
       }
     }
-    // run what follows as one statement
-    doneAndGoto(&SourceProcessor::s_oneStatement);
+    done();
     return;
   }
   else {
@@ -2622,6 +2641,7 @@ void SourceProcessor::memberByIdentifier()
 void SourceProcessor::setMemberBySpecifier(TypeInfo aStorageAttributes)
 {
   result = new ErrorPosValue(src, ScriptError::Immutable, "cannot write values here");
+  done();
 }
 
 
@@ -2642,6 +2662,7 @@ void SourceProcessor::newFunctionCallContext()
 void SourceProcessor::startBlockThreadAndStoreInIdentifier()
 {
   /* NOP */
+  done();
 }
 
 void SourceProcessor::pushFunctionArgument(ScriptObjPtr aArgument)
@@ -2952,30 +2973,30 @@ void ScriptCodeThread::stepLoop()
 
 void ScriptCodeThread::done()
 {
-  if (result && result->hasType(error)) {
-    // check special case, "create" marks an error just explicitly created that should not automatically throw
-    if (!result->hasType(create)) {
-      ErrorPtr err = result->errorValue();
-      if (!result->cursor()) {
-        // if there is no position in the error already, put current pos
-        result = new ErrorPosValue(src, err);
-      }
+  ErrorValuePtr e = dynamic_pointer_cast<ErrorValue>(result);
+  if (e) {
+    if (!e->cursor()) {
+      // if there is no position in the error already, re-wrap it
+      e = new ErrorPosValue(src, e);
+    }
+    if (!e->wasThrown()) {
+      // need to throw
+      e->setThrown(true);
+      result = e;
+      ErrorPtr err = e->errorValue();
       if (err->isDomain(ScriptError::domain()) && err->getErrorCode()>=ScriptError::FatalErrors) {
         // just end the thread unconditionally
-        complete(result);
+        complete(e);
         return;
       }
-      else {
+      else if (!skipping) {
         // not fatal, throw it
-        throwOrComplete(result);
+        throwOrComplete(e);
+        return;
       }
-      return;
     }
-  }
-  if (skipping) {
-    // release any result objects, we don't need them
-    result.reset();
-    olderResult.reset();
+    // already thrown, just propagate as result
+    result = e;
   }
   resume();
 }
@@ -3058,18 +3079,21 @@ void ScriptCodeThread::newFunctionCallContext()
 
 void ScriptCodeThread::startBlockThreadAndStoreInIdentifier()
 {
-  if (!skipping) {
-    ScriptCodeThreadPtr thread = owner->newThreadFrom(src, concurrently|block, NULL);
-    if (thread) {
-      if (!identifier.empty()) {
-        storageSpecifier = new StringValue(identifier);
-        result = new ThreadValue(thread);
-        olderResult.reset();
-        setMemberBySpecifier(create);
-      }
+  ScriptCodeThreadPtr thread = owner->newThreadFrom(src, concurrently|block, NULL);
+  if (thread) {
+    if (!identifier.empty()) {
+      storageSpecifier = new StringValue(identifier);
+      result = new ThreadValue(thread);
+      olderResult.reset();
       thread->run();
+      setMemberBySpecifier(create); // includes done()
+    }
+    else {
+      thread->run();
+      done();
     }
   }
+  done();
 }
 
 
@@ -3401,7 +3425,9 @@ static const ArgumentDescriptor error_args[] = { { any+null } };
 static const size_t error_numargs = sizeof(error_args)/sizeof(ArgumentDescriptor);
 static void error_func(BuiltinFunctionContextPtr f)
 {
-  f->finish(new NoThrowErrorValue(Error::err<ScriptError>(ScriptError::User, "%s", f->arg(0)->stringValue().c_str())));
+  ErrorValuePtr e = new ErrorValue(Error::err<ScriptError>(ScriptError::User, "%s", f->arg(0)->stringValue().c_str()));
+  e->setThrown(true); // mark it caught already, so it can be passed as a regular value without throwing
+  f->finish(e);
 }
 
 

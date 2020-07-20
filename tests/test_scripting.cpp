@@ -206,7 +206,7 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "Focus", "[scripting],[DEBUG]" )
 {
   SETLOGLEVEL(LOG_DEBUG);
   //puts(JSON_TEST_OBJ);
-  REQUIRE(s.test(scriptbody, "var count = 0; while (count<5) count = count+1; return count")->numValue() == 5);
+  REQUIRE(Error::isError(s.test(scriptbody, "try var zerodiv = 7/0; catch (err) return err")->errorValue(), ScriptError::domain(), ScriptError::DivisionByZero) == true);
 }
 
 // MARK: - Literals
@@ -521,6 +521,10 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "statements", "[scripting],[FOCUS]" )
     REQUIRE(s.test(scriptbody, "var cond = 1; if (cond==1) return 'one'; else if (cond==2) return 'two'; else return 'not 1 or 2';")->stringValue() == "one");
     REQUIRE(s.test(scriptbody, "var cond = 2; if (cond==1) return 'one'; else if (cond==2) return 'two'; else return 'not 1 or 2';")->stringValue() == "two");
     REQUIRE(s.test(scriptbody, "var cond = 5; if (cond==1) return 'one'; else if (cond==2) return 'two'; else return 'not 1 or 2';")->stringValue() == "not 1 or 2");
+    // nested, inner if/elseif/else must be entirely skipped
+    REQUIRE(s.test(scriptbody, "var cond = 1; if (false) { if (cond==1) return 'one'; else if (cond==2) return 'two'; else return 'not 1 or 2'; } return 'skipped'")->stringValue() == "skipped");
+    REQUIRE(s.test(scriptbody, "var cond = 2; if (false) { if (cond==1) return 'one'; else if (cond==2) return 'two'; else return 'not 1 or 2'; } return 'skipped'")->stringValue() == "skipped");
+    REQUIRE(s.test(scriptbody, "var cond = 5; if (false) { if (cond==1) return 'one'; else if (cond==2) return 'two'; else return 'not 1 or 2'; } return 'skipped'")->stringValue() == "skipped");
     // special cases
     REQUIRE(s.test(scriptbody, "var cond = 2; var res = 'none'; if (cond==1) res='one'; else if (cond==2) res='two'; else res='not 1 or 2' return res")->stringValue() == "two");
     // blocks
@@ -543,9 +547,9 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "statements", "[scripting],[FOCUS]" )
     REQUIRE(s.test(scriptbody, "throw('test error')")->isErr() == true);
     REQUIRE(Error::isError(s.test(scriptbody, "throw('test error')")->errorValue(), ScriptError::domain(), ScriptError::User) == true);
     REQUIRE(strcmp(s.test(scriptbody, "throw('test error')")->errorValue()->getErrorMessage(), "test error") == 0);
-    REQUIRE(Error::isError(s.test(scriptbody, "try var zerodiv = 7/0; catch return error()")->errorValue(), ScriptError::domain(), ScriptError::DivisionByZero) == true);
-    REQUIRE(s.test(scriptbody, "try var zerodiv = 7/0; catch return 'not allowed'")->stringValue() == "not allowed");
-    REQUIRE(s.test(scriptbody, "try var zerodiv = 7/1; catch return error(); return zerodiv")->numValue() == 7);
+    REQUIRE(Error::isError(s.test(scriptbody, "try var zerodiv = 7/0; catch (error) return error; return 'ok'")->errorValue(), ScriptError::domain(), ScriptError::DivisionByZero) == true);
+    REQUIRE(s.test(scriptbody, "try var zerodiv = 7/0; catch return 'not allowed'; return 'ok'")->stringValue() == "not allowed");
+    REQUIRE(s.test(scriptbody, "try var zerodiv = 7/1; catch return 'error'; return zerodiv")->numValue() == 7);
     REQUIRE(s.test(scriptbody, "try { var zerodiv = 42; zerodiv = 7/0 } catch { log('CAUGHT!') }; return zerodiv")->numValue() == 42);
     // Syntax errors
     REQUIRE(Error::isError(s.test(scriptbody, "78/9#")->errorValue(), ScriptError::domain(), ScriptError::Syntax) == true);

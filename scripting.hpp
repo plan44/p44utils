@@ -49,6 +49,7 @@ namespace p44 { namespace Script {
   class ExpressionValue;
   typedef boost::intrusive_ptr<ExpressionValue> ExpressionValuePtr;
   class ErrorValue;
+  typedef boost::intrusive_ptr<ErrorValue> ErrorValuePtr;
   class NumericValue;
   class StringValue;
 
@@ -421,9 +422,11 @@ namespace p44 { namespace Script {
     typedef ScriptObj inherited;
   protected:
     ErrorPtr err;
+    bool thrown;
   public:
-    ErrorValue(ErrorPtr aError) : err(aError) {};
+    ErrorValue(ErrorPtr aError) : err(aError), thrown(false) {};
     ErrorValue(ScriptError::ErrorCodes aErrCode, const char *aFmt, ...);
+    ErrorValue(ErrorValuePtr aErrVal) : err(aErrVal->err), thrown(aErrVal->thrown) {};
     virtual string getAnnotation() const P44_OVERRIDE { return "error"; };
     virtual TypeInfo getTypeInfo() const P44_OVERRIDE { return error; };
     // value getters
@@ -433,16 +436,10 @@ namespace p44 { namespace Script {
     #if SCRIPTING_JSON_SUPPORT
     virtual JsonObjectPtr jsonValue() const P44_OVERRIDE;
     #endif
+    bool wasThrown() { return thrown; }
+    void setThrown(bool aThrown) { thrown = aThrown; }
     // operators
     virtual bool operator==(const ScriptObj& aRightSide) const P44_OVERRIDE;
-  };
-
-  class NoThrowErrorValue : public ErrorValue
-  {
-    typedef ErrorValue inherited;
-  public:
-    NoThrowErrorValue(ErrorPtr aError) : inherited(aError) {};
-    virtual TypeInfo getTypeInfo() const P44_OVERRIDE { return error|create; };
   };
 
 
@@ -893,6 +890,7 @@ namespace p44 { namespace Script {
   public:
     ErrorPosValue(const SourceCursor &aCursor, ErrorPtr aError) : inherited(aError), sourceCursor(aCursor) {};
     ErrorPosValue(const SourceCursor &aCursor, ScriptError::ErrorCodes aErrCode, const char *aFmt, ...);
+    ErrorPosValue(const SourceCursor &aCursor, ErrorValuePtr aErrValue) : inherited(aErrValue), sourceCursor(aCursor) {};
     void setErrorCursor(const SourceCursor &aCursor) { sourceCursor = aCursor; };
     virtual SourceCursor* cursor() { return &sourceCursor; } // has a position
   };
@@ -1132,7 +1130,6 @@ namespace p44 { namespace Script {
     ScriptObjPtr olderResult; ///< an older result, e.g. the result popped from stack, or previous lookup in nested member lookups
     int precedence; ///< encountering a binary operator with smaller precedence will end the expression
     ScriptOperator pendingOperation; ///< operator
-    bool flowDecision; ///< flow control decision
     ExecutionContextPtr funcCallContext; ///< the context of the currently preparing function call
     bool skipping; ///< skipping
 
@@ -1150,8 +1147,7 @@ namespace p44 { namespace Script {
         ScriptObjPtr aResult,
         ExecutionContextPtr aFuncCallContext,
         int aPrecedence,
-        ScriptOperator aPendingOperation,
-        bool aFlowDecision
+        ScriptOperator aPendingOperation
       ) :
         pos(aPos),
         skipping(aSkipping),
@@ -1159,8 +1155,7 @@ namespace p44 { namespace Script {
         result(aResult),
         funcCallContext(aFuncCallContext),
         precedence(aPrecedence),
-        pendingOperation(aPendingOperation),
-        flowDecision(aFlowDecision)
+        pendingOperation(aPendingOperation)
       {}
       SourcePos pos; ///< scanning position
       bool skipping; ///< set if only skipping code, not evaluating
@@ -1169,7 +1164,6 @@ namespace p44 { namespace Script {
       ExecutionContextPtr funcCallContext; ///< the context of the currently preparing function call
       int precedence; ///< encountering a binary operator with smaller precedence will end the expression
       ScriptOperator pendingOperation; ///< operator
-      bool flowDecision; ///< flow control decision
     };
 
     typedef std::list<StackFrame> StackList;
@@ -1205,7 +1199,7 @@ namespace p44 { namespace Script {
     /// and modify all stack entries up to and including the found entry to skipping=true
     /// causing the execution to run in skipping mode until the stack pops beyound the found entry.
     /// @param aPreviousState the state to search
-    /// @param aThrowValue if set, the result in the found entry is replaced by this, and flowdecision is set to true
+    /// @param aThrowValue if set, the result in the found entry is replaced by this
     bool skipUntilReaching(StateHandler aPreviousState, ScriptObjPtr aThrowValue = ScriptObjPtr());
 
     /// throw the value to be caught by the next try/catch. If no try/catch, the current thread will end with aThrowValue
