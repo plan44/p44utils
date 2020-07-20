@@ -779,8 +779,10 @@ size_t CmdLineApp::numArguments()
 
 void CmdLineApp::processStandardLogOptions(bool aForDaemon, int aDefaultErrLevel)
 {
-  if (aForDaemon) {
-    int loglevel = LOG_NOTICE;
+  // determines the mode
+  SETDAEMONMODE(aForDaemon);
+  if (DAEMONMODE) {
+    int loglevel = LOG_NOTICE; // moderate logging by default
     getIntOption("loglevel", loglevel);
     SETLOGLEVEL(loglevel);
     int errLevel = aDefaultErrLevel;
@@ -790,10 +792,9 @@ void CmdLineApp::processStandardLogOptions(bool aForDaemon, int aDefaultErrLevel
     SETERRLEVEL(errLevel, !dontLogErrors); // errors and more serious go to stderr, all log goes to stdout
   }
   else {
-    int loglevel = LOG_CRIT;
+    int loglevel = LOG_CRIT; // almost no logging by default
     getIntOption("loglevel", loglevel);
     SETLOGLEVEL(loglevel);
-    SETERRLEVEL(loglevel, false); // all log goes to stderr and stderr only
   }
   SETDELTATIME(getOption("deltatstamps"));
 }

@@ -56,11 +56,14 @@
 #define SETDELTATIME(dt) globalLogger.setDeltaTime(dt)
 #define LOGLEVEL (globalLogger.getLogLevel())
 #define SETLOGHANDLER(lh,ctx) globalLogger.setLogHandler(lh,ctx)
+#define DAEMONMODE globalLogger.getDaemonMode()
+#define SETDAEMONMODE(d) globalLogger.setDaemonMode(d)
 
-// logging from within a P44LoggingObj (messages prefixed with object's logContextPrefix())
+
+// logging from within a P44LoggingObj (messages prefixed with object's logContextPrefix(), object's logoffset applied)
 #define OLOGENABLED(lvl) logEnabled(lvl)
 #define OLOG(lvl,...) { if (logEnabled(lvl)) log(lvl,##__VA_ARGS__); }
-// logging via a specified P44LoggingObj (messages prefixed with object's logContextPrefix())
+// logging via a specified P44LoggingObj (messages prefixed with object's logContextPrefix(), object's logoffset applied)
 #define SOLOGENABLED(obj,lvl) (obj).logEnabled(lvl)
 #define SOLOG(obj,lvl,...) { if ((obj).logEnabled(lvl)) (obj).log(lvl,##__VA_ARGS__); }
 
@@ -126,6 +129,7 @@ namespace p44 {
     int stderrLevel; ///< lowest level that also goes to stderr
     bool deltaTime; ///< if set, log timestamps will show delta time relative to previous log line
     bool errToStdout; ///< if set, even log lines that go to stderr are still shown on stdout as well
+    bool daemonMode; ///< if set, normal log goes to stdout and log<=stderrLevel goes to stderr. If cleared, all log goes to stderr according to logLevel
     LoggerCB loggerCB; ///< custom logger output function to use (instead of stderr/stdout)
     void *loggerContextPtr; ///< custom logger output context
     FILE *logFILE; ///< file to log to (instead of stderr/stdout)
@@ -191,6 +195,12 @@ namespace p44 {
     /// set delta time display
     /// @param aDeltaTime if set, time passed since last log line will be displayed
     void setDeltaTime(bool aDeltaTime) { deltaTime = aDeltaTime; };
+
+    // @return true if in daemonmode (log goes to stdout, only higher importance errors to stderr)
+    bool getDaemonMode() { return daemonMode; }
+
+    // @param true to enable daemon mode (on by default)
+    void setDaemonMode(bool aDaemonMode) { daemonMode = aDaemonMode; }
 
   private:
 

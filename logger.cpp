@@ -40,6 +40,7 @@ Logger::Logger() :
   stderrLevel = LOG_ERR;
   deltaTime = false;
   errToStdout = true;
+  daemonMode = true;
 }
 
 
@@ -67,7 +68,7 @@ bool Logger::logEnabled(int aErrLevel, int aLevelOffset)
     if (aErrLevel<LOG_NOTICE) aErrLevel = LOG_NOTICE;
     else if (aErrLevel>LOG_DEBUG) aErrLevel = LOG_DEBUG;
   }
-  return stdoutLogEnabled(aErrLevel) || aErrLevel<=stderrLevel;
+  return stdoutLogEnabled(aErrLevel) || (daemonMode && aErrLevel<=stderrLevel);
 }
 
 
@@ -177,14 +178,17 @@ void Logger::logOutput_always(int aLevel, const char *aLinePrefix, const char *a
   }
   else {
     // normal logging to stdout/err
-    if (aLevel<=stderrLevel) {
+    // - in daemon mode, only level<=stderrLevel goes to stderr
+    // - in cmdline tool mode all log goes to stderr
+    if (aLevel<=stderrLevel || !daemonMode) {
       // must go to stderr anyway
       fputs(aLinePrefix, stderr);
       fputs(aLogMessage, stderr);
       fputs("\n", stderr);
       fflush(stderr);
     }
-    if (aLevel>stderrLevel || errToStdout) {
+    // - in daemon mode only, normal log goes to stdout (and errors are duplicated to stdout as well)
+    if (daemonMode && (aLevel>stderrLevel || errToStdout)) {
       // must go to stdout as well
       fputs(aLinePrefix, stdout);
       fputs(aLogMessage, stdout);
