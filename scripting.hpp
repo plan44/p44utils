@@ -869,6 +869,8 @@ namespace p44 { namespace Script {
     bool nextIf(char aChar); ///< @return true and advance cursor if @param aChar matches current char, false otherwise
     void skipWhiteSpace(); ///< skip whitespace (but NOT comments)
     void skipNonCode(); ///< skip non-code, i.e. whitespace and comments
+    string code(size_t aMaxLen); ///< @return code from current position, @param aMaxLen how much to show max
+
     // parsing utilities
     bool parseIdentifier(string& aIdentifier, size_t* aIdentifierLenP = NULL); ///< @return true if identifier found, stored in aIndentifier and cursor advanced
     ScriptOperator parseOperator(); ///< @return operator or op_none, advances cursor on success

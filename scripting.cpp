@@ -1190,6 +1190,21 @@ void SourceCursor::skipNonCode()
 }
 
 
+
+string SourceCursor::code(size_t aMaxLen)
+{
+  string code;
+  if (aMaxLen>=charsleft()) {
+    code.assign(pos.ptr, charsleft());
+  }
+  else {
+    code.assign(pos.ptr, aMaxLen-3);
+    code += "...";
+  }
+  return code;
+}
+
+
 bool SourceCursor::parseIdentifier(string& aIdentifier, size_t* aIdentifierLenP)
 {
   if (EOT()) return false;
@@ -1427,12 +1442,13 @@ ScriptObjPtr SourceCursor::parseJSONLiteral()
 // MARK: - SourceProcessor
 
 #define FOCUSLOGSTATE FOCUSLOG( \
-  "%s %s: stack=%zu, prec=%d, flowdec=%d --> result = %s (olderResult = %s)", \
+  "%s %22s : %25s : result = %s (olderResult = %s), precedence=%d, flowdecision=%d", \
   skipping ? " SKIPPING" : "EXECUTING", \
   __func__, \
-  stack.size(), precedence, flowDecision, \
+  src.code(25).c_str(), \
   ScriptObj::describe(result).c_str(), \
-  ScriptObj::describe(olderResult).c_str() \
+  ScriptObj::describe(olderResult).c_str(), \
+  precedence, flowDecision \
 )
 
 SourceProcessor::SourceProcessor() :
@@ -1447,8 +1463,6 @@ SourceProcessor::SourceProcessor() :
   flowDecision(false)
 {
 }
-
-
 
 void SourceProcessor::setCursor(const SourceCursor& aCursor)
 {
@@ -1503,7 +1517,7 @@ void SourceProcessor::resume(ScriptObjPtr aResult)
   if (aResult) {
     result = aResult;
   }
-  FOCUSLOGSTATE
+  //FOCUSLOGSTATE
   // Am I getting called from a chain of calls originating from
   // myself via step() in the execution loop below?
   if (resuming) {
@@ -1602,7 +1616,7 @@ void SourceProcessor::done()
 
 void SourceProcessor::push(StateHandler aReturnToState, bool aPushPoppedPos)
 {
-  FOCUSLOG("   ++push");
+  FOCUSLOG("                        push[%2lu] :                                result = %s", stack.size()+1, ScriptObj::describe(result).c_str());
   stack.push_back(StackFrame(aPushPoppedPos ? poppedPos : src.pos, skipping, aReturnToState, result, funcCallContext, precedence, pendingOperation, flowDecision));
 }
 
@@ -1623,7 +1637,7 @@ void SourceProcessor::pop()
   // these are restored separately, returnToState must decide what to do
   poppedPos = s.pos;
   olderResult = s.result;
-  FOCUSLOG(" --popped: olderResult = %s", ScriptObj::describe(olderResult).c_str());
+  FOCUSLOG("                         pop[%2lu] :                           olderResult = %s (result = %s)", stack.size(), ScriptObj::describe(olderResult).c_str(), ScriptObj::describe(result).c_str());
   // continue here
   setState(s.returnToState);
   stack.pop_back();
@@ -2207,6 +2221,7 @@ void SourceProcessor::s_noStatement()
   FOCUSLOGSTATE
   src.nextIf(';');
   pop();
+  done();
 }
 
 
@@ -2234,6 +2249,7 @@ void SourceProcessor::s_body()
 
 void SourceProcessor::processStatement()
 {
+  FOCUSLOG("\n========== At statement boundary : %s", src.code(130).c_str());
   src.skipNonCode();
   if (src.EOT()) {
     // end of code
@@ -2320,7 +2336,17 @@ void SourceProcessor::processStatement()
     if (uequals(identifier, "return")) {
       if (!src.EOT() && src.c()!=';') {
         // return with return value
-        push(skipping ? &SourceProcessor::s_result : &SourceProcessor::s_complete); // if not skipping, complete when expression evaluated
+        if (skipping) {
+          // we must parse over the return expression properly AND then continue parsing
+          push(currentState); // return to current state when return expression is parsed
+          push(&SourceProcessor::s_result);
+        }
+        else {
+          // once return expression completes, entire script completes and stack is discarded.
+          // (thus, no need to push the current state, we'll not return anyway!)
+          push(&SourceProcessor::s_complete);
+        }
+        // anyway, we need to process the return expression, skipping or not.
         doneAndGoto(&SourceProcessor::s_expression);
         return;
       }
@@ -2433,7 +2459,7 @@ void SourceProcessor::s_ifCondition()
     complete(new ErrorPosValue(src, ScriptError::Syntax, "missing ')' after 'if' condition"));
     return;
   }
-  flowDecision = !result->boolValue(); // this is pushed as decision for else
+  flowDecision = !skipping && result->boolValue(); // this is pushed so else can refer to it
   push(&SourceProcessor::s_ifTrueStatement);
   if (!skipping) {
     skipping = !flowDecision;
@@ -2447,8 +2473,10 @@ void SourceProcessor::s_ifTrueStatement()
   // if statement (or block of statements) is executed
   // - check for "else" following
   SourcePos ipos = src.pos;
+  src.skipNonCode();
   if (src.parseIdentifier(identifier) && uequals(identifier, "else")) {
     // else
+    if (flowDecision) skipping = true; // when if was true, else must be skipping
     src.skipNonCode();
     ipos = src.pos;
     if (src.parseIdentifier(identifier) && uequals(identifier, "if")) {
@@ -2460,7 +2488,6 @@ void SourceProcessor::s_ifTrueStatement()
       }
       // chained if: when preceeding "if" did execute (or would have if not already skipping),
       // rest of if/elseif...else chain will be skipped
-      if (flowDecision) skipping = true;
       push(&SourceProcessor::s_ifCondition);
       doneAndGoto(&SourceProcessor::s_subExpression);
       return;
@@ -2476,6 +2503,7 @@ void SourceProcessor::s_ifTrueStatement()
     // if without else
     src.pos = ipos; // restore to right behind "if" statement's end
     pop(); // end if/then/else
+    done();
     return;
   }
 }
@@ -2485,14 +2513,14 @@ void SourceProcessor::s_whileCondition()
 {
   FOCUSLOGSTATE
   // while condition is evaluated
+  // - result contains result of the evaluation
   // - poppedPos points to beginning of while condition
   if (!src.nextIf(')')) {
     complete(new ErrorPosValue(src, ScriptError::Syntax, "missing ')' after 'while' condition"));
     return;
   }
-  if (!skipping) flowDecision = result->boolValue(); // do not change flow decision when skipping (=break)
-  push(&SourceProcessor::s_whileStatement, true); // push poopedPos = loopback position
-  if (!skipping) skipping = !flowDecision;
+  if (!skipping) skipping = !result->boolValue(); // set now, because following push must include "skipping" according to the decision!
+  push(&SourceProcessor::s_whileStatement, true); // push poopedPos (again) = loopback position we'll need at s_whileStatement
   doneAndGoto(&SourceProcessor::s_oneStatement);
 }
 
@@ -2500,8 +2528,11 @@ void SourceProcessor::s_whileStatement()
 {
   FOCUSLOGSTATE
   // while statement (or block of statements) is executed
-  if (flowDecision==false) {
+  // - poppedPos points to beginning of while condition
+  if (skipping) {
+    // skipping because condition was false or "break" set skipping in the stack with skipUntilReaching()
     pop(); // end while
+    done();
     return;
   }
   // not skipping, means we need to loop back to the condition

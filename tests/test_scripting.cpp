@@ -205,8 +205,8 @@ TEST_CASE("CodeCursor", "[scripting]" )
 TEST_CASE_METHOD(ScriptingCodeFixture, "Focus", "[scripting],[DEBUG]" )
 {
   SETLOGLEVEL(LOG_DEBUG);
-  puts(JSON_TEST_OBJ);
-  REQUIRE(s.test(scriptbody, "var js = json('" JSON_TEST_OBJ "'); js.obj.objF = 46; log(5,js); return js.obj.objF")->numValue() == 46);
+  //puts(JSON_TEST_OBJ);
+  REQUIRE(s.test(scriptbody, "var count = 0; while (count<5) count = count+1; return count")->numValue() == 5);
 }
 
 // MARK: - Literals
