@@ -558,4 +558,10 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "statements", "[scripting],[FOCUS]" )
     REQUIRE(s.test(scriptbody, "42 43 44")->intValue() == 44);
   }
 
+// does not work synchronously...
+//  SECTION("concurrency") {
+//    REQUIRE(s.test(scriptbody, "var res=''; concurrent test { delay(2); res = res + '2sec' } delay(1); res = res+'1sec'; await(test); res")->stringValue() == "1sec2sec");
+//  }
+
+
 }

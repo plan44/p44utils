@@ -157,14 +157,16 @@ namespace p44 { namespace Script {
     modifierMask = 0xFFF0,
     expression = 0x0010, ///< evaluate as an expression (no flow control, variable assignments, blocks etc.)
     scriptbody = 0x0020, ///< evaluate as script body (no function or handler definitions)
-    source = 0x0040, ///< evaluate as script (include parsing functions and handlers)
+    sourcecode = 0x0040, ///< evaluate as script (include parsing functions and handlers)
     block = 0x0080, ///< evaluate as a block (complete when reaching end of block)
     synchronously = 0x0100, ///< evaluate synchronously, error out on async code
-    stoprunning = 0x0200, ///< abort running evaluation in the same context before starting a new one
-    queue = 0x0400, ///< queue for evaluation if other evaluations are still running/pending
+    stoprunning = 0x0200, ///< abort running execution in the same context before starting a new one
+    queue = 0x0400, ///< queue for execution if other executions are still running/pending
     stopall = stoprunning+queue, ///< stop everything
-    concurrently = 0x0800, ///< reset the context (clear local vars) before starting
+    concurrently = 0x0800, ///< run concurrently with already executing code
     keepvars = 0x1000, ///< keep the local variables already set in the context
+    embeddedGlobs = 0x2000, ///< embed source code into global function+handler definitions, and keep them even when source code goes away
+    mainthread = 0x4000, ///< if a thread with this set terminates, this also terminates all of its siblings
   };
   typedef uint16_t EvaluationFlags;
 
@@ -202,6 +204,7 @@ namespace p44 { namespace Script {
     constant = 0x80000, ///< set to select only constant  (in the sense of: not settable by scripts) members
     objscope = 0x100000, ///< set to select only object scope members
     classscope = 0x200000, ///< set to select only class scope members
+    allscopes = classscope+objscope+global,
     mutablemembers = 0x400000, ///< members are mutable
   };
   typedef uint32_t TypeInfo;
@@ -209,7 +212,7 @@ namespace p44 { namespace Script {
   /// Argument descriptor
   typedef struct {
     TypeInfo typeInfo; ///< info about allowed types, checking, open argument lists, etc.
-    const char* name; ///< the name of the argument, can be NULL if unnamed positional argument
+    string name; ///< the name of the argument
   } ArgumentDescriptor;
 
   // MARK: - ScriptObj base class
@@ -237,13 +240,30 @@ namespace p44 { namespace Script {
     static string describe(ScriptObjPtr aObj);
 
     /// get name
-    virtual string getIdentifier() const { return "unnamed"; };
+    virtual string getIdentifier() const { return ""; };
 
     /// get annotation text - defaults to type description
     virtual string getAnnotation() const { return typeDescription(getTypeInfo()); };
 
     /// check type compatibility
+    /// @param aTypeInfo what type(s) we are looking for
+    /// @return true if this object has any of the types specified in aTypeInfo
     bool hasType(TypeInfo aTypeInfo) const { return (getTypeInfo() & aTypeInfo)!=0; }
+
+    /// check type compatibility
+    /// @param aRequirements what type flags MUST be set
+    /// @param aMask what type flags are checked (defaults to typeMask)
+    /// @return true if this object has all of the type flags requested within the mask
+    bool meetsRequirement(TypeInfo aRequirements, TypeInfo aMask = typeMask) const
+      { return typeRequirementMet(getTypeInfo(), aRequirements, aMask); }
+
+    /// check type compatibility
+    /// @param aRequirements what type flags MUST be set
+    /// @param aMask what type flags are checked (defaults to typeMask)
+    /// @return true if this object has all of the type flags requested within the mask
+    static bool typeRequirementMet(TypeInfo aInfo, TypeInfo aRequirements, TypeInfo aMask = typeMask)
+      { return (aInfo&aRequirements&aMask)==(aRequirements&aMask); }
+
 
     /// check for null/undefined
     bool undefined() const { return (getTypeInfo() & null)!=0; }
@@ -286,7 +306,7 @@ namespace p44 { namespace Script {
 
     virtual double numValue() const { return 0; }; ///< @return a conversion to numeric (using literal syntax), if value is string
     virtual bool boolValue() const { return numValue()!=0; }; ///< @return a conversion to boolean (true = not numerically 0, not JSON-falsish)
-    virtual string stringValue() const { return "undefined"; }; ///< @return a conversion to string of the value
+    virtual string stringValue() const { return getAnnotation(); }; ///< @return a conversion to string of the value
     virtual ErrorPtr errorValue() const { return Error::ok(); } ///< @return error value (always an object, OK if not in error)
     #if SCRIPTING_JSON_SUPPORT
     virtual JsonObjectPtr jsonValue() const { return JsonObject::newNull(); } ///< @return a JSON value
@@ -342,9 +362,10 @@ namespace p44 { namespace Script {
 
     /// get information (typeInfo and possibly a name) for a positional argument
     /// @param aIndex the argument index (0..N)
-    /// @return the argument descriptor or NULL if there is no argument at this position
+    /// @param aArgDesc where to store the descriptor
+    /// @return true if aArgDesc was set, false if no argument exists at this index
     /// @note functions might have an open argument list, so do not try to exhaust this
-    virtual const ArgumentDescriptor* argumentInfo(size_t aIndex) const { return NULL; };
+    virtual bool argumentInfo(size_t aIndex, ArgumentDescriptor& aArgDesc) const { return false; };
 
     /// get context to call this object as a (sub)routine of a given context
     /// @param aMainContext the context from where to call from (evaluate in) this implementation
@@ -450,6 +471,7 @@ namespace p44 { namespace Script {
     EvalCBList evalCBList;
     ScriptObjPtr notification;
   public:
+    virtual string getAnnotation() const P44_OVERRIDE { return "awaitable"; };
     void registerCB(EvaluationCB aEvaluationCB);
     ScriptObjPtr receivedNotification() { return notification; }
   protected:
@@ -560,8 +582,8 @@ namespace p44 { namespace Script {
   public:
 
     /// return mask of all types that may be (but not necessarily are) in this lookup
-    /// @note this is for optimizing lookups for certain types
-    virtual TypeInfo containsTypes() const { return none; }
+    /// @note this is for optimizing lookups for certain types. Base class potentially has all kind of objects
+    virtual TypeInfo containsTypes() const { return any+null+constant+allscopes; }
 
     /// get object subfield/member by name
     /// @param aThisObj the object _instance_ of which we want to access a member (can be NULL in case of singletons)
@@ -719,7 +741,7 @@ namespace p44 { namespace Script {
   private:
 
     /// called by threads ending
-    void threadTerminated(ScriptCodeThreadPtr aThread);
+    void threadTerminated(ScriptCodeThreadPtr aThread, EvaluationFlags aThreadEvalFlags);
 
   };
 
@@ -752,7 +774,7 @@ namespace p44 { namespace Script {
     // direct access to this and domain (not via mainContext, as we can't set maincontext w/o self-locking)
     virtual ScriptObjPtr instance() const P44_OVERRIDE { return thisObj; }
     virtual ScriptingDomainPtr domain() const P44_OVERRIDE { return domainObj; }
-    virtual ScriptMainContextPtr scriptmain() const P44_OVERRIDE { return dynamic_pointer_cast<ScriptMainContext>(domainObj) ; }
+    virtual ScriptMainContextPtr scriptmain() const P44_OVERRIDE { return ScriptMainContextPtr(const_cast<ScriptMainContext*>(this)); }
 
     /// register an additional lookup
     /// @param aMemberLookup a lookup object
@@ -821,7 +843,9 @@ namespace p44 { namespace Script {
   class SourcePos
   {
     friend class SourceCursor;
+    friend class SourceContainer;
 
+    const char* bot; ///< beginning of text (beginning of first line)
     const char* ptr; ///< pointer to current position in the source text
     const char* bol; ///< pointer to beginning of current line
     const char* eot; ///< pointer to where the text ends (0 char or not)
@@ -852,6 +876,7 @@ namespace p44 { namespace Script {
     // info
     size_t lineno() const; ///< 0-based line counter
     size_t charpos() const; ///< 0-based character offset
+    size_t textpos() const; ///< offset of current text from beginning of text
 
     /// @name source text access and parsing utilities
     /// @{
@@ -860,13 +885,16 @@ namespace p44 { namespace Script {
     bool valid() const; ///< @return true when the cursor points to something
     char c(size_t aOffset=0) const; ///< @return character at offset from current position, 0 if none
     size_t charsleft() const; ///< @return number of chars to end of code
+    const char* text() const { return nonNullCStr(pos.bot); } ///< @return c string starting at current pos
+    const char* linetext() const { return nonNullCStr(pos.bol); } ///< @return c string starting at beginning of current line
+    const char *postext() const { return nonNullCStr(pos.ptr); } ///< @return c string starting at current pos
     bool EOT() const; ///< true if we are at end of text
     bool next(); ///< advance to next char, @return false if not possible to advance
     bool advance(size_t aNumChars); ///< advance by specified number of chars, includes counting lines
     bool nextIf(char aChar); ///< @return true and advance cursor if @param aChar matches current char, false otherwise
     void skipWhiteSpace(); ///< skip whitespace (but NOT comments)
     void skipNonCode(); ///< skip non-code, i.e. whitespace and comments
-    string code(size_t aMaxLen); ///< @return code from current position, @param aMaxLen how much to show max
+    string displaycode(size_t aMaxLen); ///< @return code on single line for displaying from current position, @param aMaxLen how much to show max before abbreviating with "..."
 
     // parsing utilities
     bool parseIdentifier(string& aIdentifier, size_t* aIdentifierLenP = NULL); ///< @return true if identifier found, stored in aIndentifier and cursor advanced
@@ -909,9 +937,15 @@ namespace p44 { namespace Script {
     P44LoggingObj* loggingContextP; ///< the logging context
     string source; ///< the source code as written by the script author
   public:
-    SourceContainer(const char *aOriginLabel, P44LoggingObj* aLoggingContextP, const string aSource) : originLabel(aOriginLabel), source(aSource) {};
-    // get a reference to this source code
+    /// create source container
+    SourceContainer(const char *aOriginLabel, P44LoggingObj* aLoggingContextP, const string aSource);
+
+    /// create source container copying a source part from another container
+    SourceContainer(const SourceCursor &aCodeFrom, const SourcePos &aStartPos, const SourcePos &aEndPos);
+
+    // @return a cursor for this source code, starting at the beginning
     SourceCursor getCursor();
+
   };
 
 
@@ -921,7 +955,7 @@ namespace p44 { namespace Script {
     ScriptingDomainPtr scriptingDomain; ///< the scripting domain
     ScriptMainContextPtr sharedMainContext; ///< a shared context to always run this source in. If not set, each script gets a new main context
     ScriptObjPtr cachedExecutable; ///< the compiled executable for the script's body.
-    EvaluationFlags compileAs; ///< how to compile (as expression, scriptbody, source)
+    EvaluationFlags compileFlags; ///< how to compile (as expression, scriptbody, source)
     const char *originLabel; ///< a label used for logging and error reporting
     P44LoggingObj* loggingContextP; ///< the logging context
     SourceContainerPtr sourceContainer; ///< the container of the source
@@ -950,8 +984,13 @@ namespace p44 { namespace Script {
 
     /// set source code and compile mode
     /// @param aSource the source code
-    /// @param aCompileAs how to compile (as expression, scriptbody, source)
-    void setSource(const string aSource, EvaluationFlags aCompileAs = source);
+    /// @param aCompileFlags how to compile (as expression, scriptbody, source, possibly with embeddedGlobs)
+    void setSource(const string aSource, EvaluationFlags aCompileFlags = sourcecode);
+
+    /// check if a cursor refers to this source
+    /// @param aCursor the cursor to check
+    /// @return true if the cursor is in this source
+    bool refersTo(const SourceCursor& aCursor);
 
     /// get executable ((re-)compile if needed)
     /// @return executable from this source
@@ -1085,34 +1124,41 @@ namespace p44 { namespace Script {
     /// @{
 
     /// must retrieve the member as specified with storageSpecifier from current result (or from the script scope if result==NULL)
-    /// @note must call done() when result contains the member (or NULL if not found)
+    /// @note must cause calling resume() when result contains the member (or NULL if not found)
     virtual void memberByIdentifier();
 
     /// must assign a member as specified with storageSpecifier with current result to olderResult (or to the script scope if olderResult==NULL)
-    /// @note must call done() when storage is complete. Result might contain a storage error.
+    /// @note must cause calling resume() when storage is complete. Result might contain a storage error.
     virtual void setMemberBySpecifier(TypeInfo aStorageAttributes);
 
     /// must retrieve the indexed member from current result (or from the script scope if result==NULL)
-    /// @note must call done() when result contains the member (or NULL if not found)
+    /// @note must cause calling resume() when result contains the member (or NULL if not found)
     virtual void memberByIndex(size_t aIndex);
 
     /// execute the current result and replace it with the output from the evaluation (e.g. function call)
-    /// @note must call done() when result contains the member (or NULL if not found)
-    virtual void execute();
+    /// @note must cause calling resume() when result contains the member (or NULL if not found)
+    virtual void executeResult();
 
     /// fork executing a block at the current position, if identifier is not empty, store a new ThreadValue.
-    /// @note MUST NOT call done() directly. This call will return when the new thread yields execution the first time.
+    /// @note MUST NOT call resume() directly. This call will return when the new thread yields execution the first time.
     virtual void startBlockThreadAndStoreInIdentifier();
 
     /// must set a new funcCallContext suitable to execute result as a function
     /// @note must set result to an ErrorValue if no context can be created
-    /// @note must call done() when result contains the member (or NULL if not found)
+    /// @note must cause calling resume() when result contains the member (or NULL if not found)
     virtual void newFunctionCallContext();
 
     /// apply the specified argument to the current result
-    /// @note must call done() when result contains the member (or NULL if not found)
+    /// @note must cause calling resume() when result contains the member (or NULL if not found)
     virtual void pushFunctionArgument(ScriptObjPtr aArgument);
 
+    /// must define (store) result as a compiled function in the scripting domain
+    /// @note must cause calling resume() when function is successfully stored
+    virtual void defineFunction();
+
+    /// indicates start of script body (at current src.pos)
+    /// @note must cause calling resume()
+    virtual void startOfBodyCode();
 
     /// @}
 
@@ -1172,14 +1218,15 @@ namespace p44 { namespace Script {
     /// convenience end of step using current result and checking for errors
     /// @note includes calling resume()
     /// @note this is the place to implement different result checking strategies between compiler and runner
-    virtual void done();
+    virtual void checkAndResume();
 
     /// readability wrapper for setting the next state but NOT YET completing current state's processing
     inline void setState(StateHandler aNextState) { currentState = aNextState; }
 
-    /// convenience function for transition to a new state, i.e. setting the new state and signalling done() in one step
+    /// convenience functions for transition to a new state, i.e. setting the new state and checkAndResume() or resume() in one step
     /// @param aNextState set the next state
-    inline void doneAndGoto(StateHandler aNextState) { currentState = aNextState; done(); }
+    inline void checkAndResumeAt(StateHandler aNextState) { currentState = aNextState; checkAndResume(); }
+    inline void resumeAt(StateHandler aNextState) { currentState = aNextState; resume(); }
 
     /// push the current state
     /// @param aReturnToState the state to return to after pop().
@@ -1208,7 +1255,7 @@ namespace p44 { namespace Script {
 
     /// state handlers
     /// @note these all MUST eventually cause calling resume(). This can happen from
-    ///   the implementation via done(), doneAndGoto() or complete()
+    ///   the implementation via checkAndResume(), doneAndGoto() or complete()
     ///   or via a callback which eventually calls resume().
 
     // Simple Term
@@ -1235,9 +1282,6 @@ namespace p44 { namespace Script {
     void s_exprLeftSide(); ///< left side of an ongoing expression
     void s_exprRightSide(); ///< further terms of an expression
 
-    // Declarations
-    void s_declarations(); ///< declarations (functions and handlers)
-
     // Script Body
     void s_block(); ///< within a block, exits when '}' is encountered, but skips ';'
     void s_noStatement(); ///< no more statements can follow, but an extra separator MAY follow
@@ -1252,6 +1296,10 @@ namespace p44 { namespace Script {
     void s_whileStatement(); ///< executing the while statement
     // - try/catch
     void s_tryStatement(); ///< executing the statement to try
+
+    // Declarations
+    void s_declarations(); ///< declarations (functions and handlers)
+    void s_defineFunction(); ///< store the defined function
 
     // Generic
     void s_result(); ///< result of an expression or term available as ScriptObj. May need makeValid() if not already valid() here.
@@ -1269,12 +1317,20 @@ namespace p44 { namespace Script {
   {
     typedef ImplementationObj inherited;
     friend class ScriptCodeContext;
+    friend class SourceProcessor;
+
+    string name;
+    std::vector<ArgumentDescriptor> arguments;
 
   protected:
     SourceCursor cursor; ///< reference to the source part from which this object originates from
 
+    /// define argument
+    void pushArgumentDefinition(TypeInfo aTypeInfo, const string aArgumentName);
+
   public:
-    CompiledFunction(const SourceCursor& aCursor) : cursor(aCursor) {};
+    CompiledFunction(const string aName) : name(aName) {};
+    void setCursor(const SourceCursor& aCursor) { cursor = aCursor; };
     virtual bool originatesFrom(SourceContainerPtr aSource) const P44_OVERRIDE { return cursor.refersTo(aSource); };
     virtual P44LoggingObj* loggingContext() const P44_OVERRIDE { return cursor.source ? cursor.source->loggingContextP : NULL; };
 
@@ -1283,6 +1339,13 @@ namespace p44 { namespace Script {
     ///   from different contexts)
     /// @return new context suitable for evaluating this implementation, NULL if none
     virtual ExecutionContextPtr contextForCallingFrom(ScriptMainContextPtr aMainContext) const P44_OVERRIDE;
+
+    /// Get description of arguments required to call this internal function
+    virtual bool argumentInfo(size_t aIndex, ArgumentDescriptor& aArgDesc) const P44_OVERRIDE;
+
+    /// get identifier (name) of this function object
+    virtual string getIdentifier() const P44_OVERRIDE { return name; };
+
   };
 
 
@@ -1293,7 +1356,7 @@ namespace p44 { namespace Script {
 
     ScriptMainContextPtr mainContext; ///< the main context this script should execute in
 
-    CompiledScript(const SourceCursor& aCursor, ScriptMainContextPtr aMainContext) : inherited(aCursor), mainContext(aMainContext) {};
+    CompiledScript(const SourceCursor& aCursor, ScriptMainContextPtr aMainContext) : inherited("main"), mainContext(aMainContext) { setCursor(aCursor); };
 
   public:
 
@@ -1325,9 +1388,14 @@ namespace p44 { namespace Script {
     /// @return an executable object or error (syntax, other fatal problems)
     ScriptObjPtr compile(SourceContainerPtr aSource, EvaluationFlags aParsingMode, ScriptMainContextPtr aMainContext);
 
-  protected:
+    /// must define (store) result as a compiled function in the scripting domain
+    /// @note must cause calling resume() when function is successfully stored
+    virtual void defineFunction() P44_OVERRIDE;
 
-    // TODO: CompiledCodePtr compilePart(const SourceRef& aCursor);
+    /// indicates end of declarations
+    /// @note must cause calling resume()
+    virtual void startOfBodyCode() P44_OVERRIDE;
+
 
   };
 
@@ -1360,6 +1428,8 @@ namespace p44 { namespace Script {
     /// @param aStartCursor the start point for the script
     ScriptCodeThread(ScriptCodeContextPtr aOwner, const SourceCursor& aStartCursor);
 
+    virtual ~ScriptCodeThread();
+
     /// prepare for running
     /// @param aTerminationCB will be called to deliver when the thread ends
     /// @param aEvalFlags evaluation control flags
@@ -1387,37 +1457,37 @@ namespace p44 { namespace Script {
     void registerCompletionNotification(ScriptObjPtr aObj);
 
     /// convenience end of step using current result and checking for errors
-    virtual void done() P44_OVERRIDE;
+    virtual void checkAndResume() P44_OVERRIDE;
 
     /// @name execution hooks. These must call resume()
     /// @{
 
     /// must retrieve the member with name==identifier from current result (or from the script scope if result==NULL)
-    /// @note must call done() when result contains the member (or NULL if not found)
+    /// @note must cause calling resume() when result contains the member (or NULL if not found)
     virtual void memberByIdentifier() P44_OVERRIDE;
 
     /// must assign a member as specified with storageSpecifier with current result to olderResult (or to the script scope if olderResult==NULL)
-    /// @note must call done() when storage is complete. Result might contain a storage error.
+    /// @note must cause calling resume() when storage is complete. Result might contain a storage error.
     virtual void setMemberBySpecifier(TypeInfo aStorageAttributes) P44_OVERRIDE;
 
     /// must retrieve the indexed member from current result (or from the script scope if result==NULL)
-    /// @note must call done() when result contains the member (or NULL if not found)
+    /// @note must cause calling resume() when result contains the member (or NULL if not found)
     virtual void memberByIndex(size_t aIndex) P44_OVERRIDE;
 
     /// fork executing a block at the current position, if identifier is not empty, store a new ThreadValue.
-    /// @note MUST NOT call done() directly. This call will return when the new thread yields execution the first time.
+    /// @note MUST NOT call resume() directly. This call will return when the new thread yields execution the first time.
     virtual void startBlockThreadAndStoreInIdentifier() P44_OVERRIDE;
 
     /// must set a new funcCallContext suitable to execute result as a function
     /// @note must set result to an ErrorValue if no context can be created
-    /// @note must call done() when result contains the member (or NULL if not found)
+    /// @note must cause calling resume() when result contains the member (or NULL if not found)
     virtual void newFunctionCallContext() P44_OVERRIDE;
 
     /// apply the specified argument to the current result
     virtual void pushFunctionArgument(ScriptObjPtr aArgument) P44_OVERRIDE;
 
     /// evaluate the current result and replace it with the output from the evaluation (e.g. function call)
-    virtual void execute() P44_OVERRIDE;
+    virtual void executeResult() P44_OVERRIDE;
 
     /// @}
 
@@ -1426,6 +1496,11 @@ namespace p44 { namespace Script {
     /// called by resume to perform next step(s).
     /// @note implements step timing/pacing/limiting and abort checking
     virtual void stepLoop() P44_OVERRIDE;
+
+  private:
+
+    void executedResult(ScriptObjPtr aResult);
+
 
   };
 
@@ -1439,6 +1514,11 @@ namespace p44 { namespace Script {
   class BuiltinFunctionContext;
   typedef boost::intrusive_ptr<BuiltinFunctionContext> BuiltinFunctionContextPtr;
 
+  /// Builtin function Argument descriptor
+  typedef struct {
+    TypeInfo typeInfo; ///< info about allowed types, checking, open argument lists, etc.
+    const char* name; ///< the name of the argument, can be NULL if unnamed positional argument
+  } BuiltInArgDesc;
 
   /// Signature for built-in function/method implementation
   /// @param aContext execution context, containing parameters and expecting result
@@ -1449,7 +1529,7 @@ namespace p44 { namespace Script {
     const char* name; ///< name of the function
     TypeInfo returnTypeInfo; ///< possible return types
     size_t numArgs; ///< number of arguemnts
-    const ArgumentDescriptor* arguments; ///< arguments
+    const BuiltInArgDesc* arguments; ///< arguments
     BuiltinFunctionImplementation implementation; ///< function pointer to implementation (as a plain function)
   } BuiltinFunctionDescriptor;
 
@@ -1466,7 +1546,7 @@ namespace p44 { namespace Script {
     /// @param aFunctionDescriptors pointer to an array of function descriptors, terminated with an entry with .name==NULL
     BuiltInFunctionLookup(const BuiltinFunctionDescriptor* aFunctionDescriptors);
 
-    virtual TypeInfo containsTypes() const P44_OVERRIDE { return executable; } // executables only
+    virtual TypeInfo containsTypes() const P44_OVERRIDE { return executable+constant+allscopes; } // executables only, constant, from all scopes
     virtual ScriptObjPtr memberByNameFrom(ScriptObjPtr aThisObj, const string aName, TypeInfo aTypeRequirements = none) const P44_OVERRIDE;
 
   };
@@ -1485,7 +1565,7 @@ namespace p44 { namespace Script {
     BuiltinFunctionObj(const BuiltinFunctionDescriptor *aDescriptor, ScriptObjPtr aThisObj) : descriptor(aDescriptor), thisObj(aThisObj) {};
 
     /// Get description of arguments required to call this internal function
-    virtual const ArgumentDescriptor* argumentInfo(size_t aIndex) const P44_OVERRIDE;
+    virtual bool argumentInfo(size_t aIndex, ArgumentDescriptor& aArgDesc) const P44_OVERRIDE;
 
     /// get identifier (name) of this function object
     virtual string getIdentifier() const P44_OVERRIDE { return descriptor->name; };
