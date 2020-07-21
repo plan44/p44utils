@@ -150,7 +150,8 @@ namespace p44 {
   /// return string as single line (LF, CR, TAB converted to spaces)
   /// @param aString a string
   /// @param aCompactWSRuns if true, runs of consecutive spaces/LFs/CRs/TABs will be compacted to a single space
-  string singleLine(const char *aString, bool aCompactWSRuns = true);
+  /// @param aEllipsisAtMax if >0, output string will not be longer than specified value, if input string is longer, it will made end with ellipsis ("...")
+  string singleLine(const char *aString, bool aCompactWSRuns = true, size_t aEllipsisAtMax = 0);
 
   /// return next line from buffer
   /// @param aCursor at entry, must point to the beginning of a line. At exit, will point
