@@ -206,7 +206,8 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "Focus", "[scripting],[DEBUG]" )
 {
   SETLOGLEVEL(LOG_DEBUG);
   //puts(JSON_TEST_OBJ);
-  REQUIRE(Error::isError(s.test(scriptbody, "try var zerodiv = 7/0; catch (err) return err")->errorValue(), ScriptError::domain(), ScriptError::DivisionByZero) == true);
+  REQUIRE(s.test(sourcecode|embeddedGlobs, "function m(...) { return 1+ifvalid(arg1,0)+ifvalid(arg2,0)+ifvalid(arg3,0); } return m")->stringValue() == "function");
+  REQUIRE(s.test(scriptbody, "m")->stringValue() == "function");
 }
 
 // MARK: - Literals
@@ -493,6 +494,8 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "statements", "[scripting],[FOCUS]" )
     REQUIRE(s.test(scriptbody, "var h; var i = 8; h = 3 + (i = 8)")->isErr() == true); // no nested assignment allowed
     #elif SCRIPT_OPERATOR_MODE==SCRIPT_OPERATOR_MODE_PASCAL
     REQUIRE(s.test(scriptbody, "var h; var i := 8; h := 3 + (i := 8)")->isErr() == true); // no nested assignment allowed
+    REQUIRE(s.test(scriptbody, "glob j; j = 44; return j")->numValue() == 44);
+    REQUIRE(s.test(scriptbody, "glob j; return j")->numValue() == 44); // should still be there
     #endif
   }
 
@@ -551,12 +554,24 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "statements", "[scripting],[FOCUS]" )
     REQUIRE(s.test(scriptbody, "try var zerodiv = 7/0; catch return 'not allowed'; return 'ok'")->stringValue() == "not allowed");
     REQUIRE(s.test(scriptbody, "try var zerodiv = 7/1; catch return 'error'; return zerodiv")->numValue() == 7);
     REQUIRE(s.test(scriptbody, "try { var zerodiv = 42; zerodiv = 7/0 } catch { log('CAUGHT!') }; return zerodiv")->numValue() == 42);
+    REQUIRE(s.test(scriptbody, "try { var zerodiv = 42; zerodiv = 7/0; zerodiv = 66 } catch { log('CAUGHT!') }; return zerodiv")->numValue() == 42);
+    REQUIRE(s.test(scriptbody, "try { var zerodiv = 42; zerodiv = 7/1; zerodiv = 66 } catch { log('CAUGHT!') }; return zerodiv")->numValue() == 66);
     // Syntax errors
     REQUIRE(Error::isError(s.test(scriptbody, "78/9#")->errorValue(), ScriptError::domain(), ScriptError::Syntax) == true);
     REQUIRE(Error::isError(s.test(scriptbody, "78/#9")->errorValue(), ScriptError::domain(), ScriptError::Syntax) == true);
     // Not Syntax error in a script, the three numbers are separate statements, the last one is returned
     REQUIRE(s.test(scriptbody, "42 43 44")->intValue() == 44);
   }
+
+  SECTION("custom functions") {
+    REQUIRE(s.test(sourcecode|embeddedGlobs, "function m(...) { return 1+ifvalid(arg1,0)+ifvalid(arg2,0)+ifvalid(arg3,0); } return m")->stringValue() == "function");
+    REQUIRE(s.test(scriptbody, "m")->stringValue() == "function");
+    REQUIRE(s.test(scriptbody, "m()")->numValue() == 1);
+    REQUIRE(s.test(scriptbody, "m(1,2,3)")->numValue() == 7);
+    REQUIRE(s.test(scriptbody, "m(22,33)")->numValue() == 56);
+  }
+
+
 
 // does not work synchronously...
 //  SECTION("concurrency") {

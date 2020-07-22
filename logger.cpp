@@ -283,7 +283,9 @@ int P44LoggingObj::getLogLevelOffset()
 
 void P44LoggingObj::setLogLevelOffset(int aLogLevelOffset)
 {
-  log(globalLogger.getLogLevel(), "### changed log level offset to %d", aLogLevelOffset);
-  logLevelOffset = aLogLevelOffset;
+  if (aLogLevelOffset!=logLevelOffset) {
+    log(globalLogger.getLogLevel(), "### changed log level offset from %d to %d", logLevelOffset, aLogLevelOffset);
+    logLevelOffset = aLogLevelOffset;
+  }
 }
 

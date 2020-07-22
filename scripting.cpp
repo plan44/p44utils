@@ -56,6 +56,12 @@ ErrorPtr ScriptError::err(ErrorCodes aErrCode, const char *aFmt, ...)
 
 // MARK: - ScriptObj
 
+#define FOCUSLOGLOOKUP(p) \
+  { string s = string_format("%s::%s(%s)", p, __func__, aName.c_str()); FOCUSLOG("%60s : requirements=0x%08x", s.c_str(), aTypeRequirements ); }
+#define FOCUSLOGSTORE(p) \
+  { string s = string_format("%s::%s(%s)", p, __func__, aName.c_str()); FOCUSLOG("%60s : requirements=0x%08x", s.c_str(), aStorageAttributes ); }
+
+
 ErrorPtr ScriptObj::setMemberByName(const string aName, const ScriptObjPtr aMember, TypeInfo aStorageAttributes)
 {
   if (aStorageAttributes & create) {
@@ -426,6 +432,7 @@ TypeInfo JsonValue::getTypeInfo() const
 
 const ScriptObjPtr JsonValue::memberByName(const string aName, TypeInfo aTypeRequirements)
 {
+  FOCUSLOGLOOKUP("JsonValue");
   ScriptObjPtr m;
   if (jsonval && typeRequirementMet(json, aTypeRequirements, typeMask)) {
     JsonObjectPtr j = jsonval->get(aName.c_str());
@@ -456,6 +463,7 @@ const ScriptObjPtr JsonValue::memberAtIndex(size_t aIndex, TypeInfo aTypeRequire
 
 ErrorPtr JsonValue::setMemberByName(const string aName, const ScriptObjPtr aMember, TypeInfo aStorageAttributes)
 {
+  FOCUSLOGSTORE("JsonValue");
   if (!jsonval) {
     jsonval = JsonObject::newObj();
   }
@@ -677,6 +685,7 @@ void ScriptCodeContext::clearVars()
 
 const ScriptObjPtr ScriptCodeContext::memberByName(const string aName, TypeInfo aTypeRequirements)
 {
+  FOCUSLOGLOOKUP("ScriptCodeContext");
   ScriptObjPtr m;
   // 1) local variables/objects
   if ((aTypeRequirements & (classscope+objscope))==0) {
@@ -698,6 +707,7 @@ const ScriptObjPtr ScriptCodeContext::memberByName(const string aName, TypeInfo 
 
 ErrorPtr ScriptCodeContext::setMemberByName(const string aName, const ScriptObjPtr aMember, TypeInfo aStorageAttributes)
 {
+  FOCUSLOGSTORE("ScriptCodeContext");
   ErrorPtr err;
   // 1) ONLY local variables/objects
   if ((aStorageAttributes & (classscope+objscope))==0) {
@@ -852,6 +862,7 @@ ScriptMainContext::ScriptMainContext(ScriptingDomainPtr aDomain, ScriptObjPtr aT
 
 const ScriptObjPtr ScriptMainContext::memberByName(const string aName, TypeInfo aTypeRequirements)
 {
+  FOCUSLOGLOOKUP("ScriptMainContext");
   ScriptObjPtr m;
   // member lookup during execution of a function or script body
   if ((aTypeRequirements & constant)==0) {
@@ -878,12 +889,15 @@ const ScriptObjPtr ScriptMainContext::memberByName(const string aName, TypeInfo 
 
 ErrorPtr ScriptMainContext::setMemberByName(const string aName, const ScriptObjPtr aMember, TypeInfo aStorageAttributes)
 {
+  FOCUSLOGSTORE("ScriptMainContext");
   ErrorPtr err;
-  if (domain() && (aStorageAttributes & global)) {
+  if (aStorageAttributes & global) {
     // 5) explicitly requested global storage
-    return domain()->setMemberByName(aName, aMember, aStorageAttributes);
+    if (domain()) return domain()->setMemberByName(aName, aMember, aStorageAttributes);
+    // having no domain means that I am the domain
+//    return setMemberByName(aName, aMember, aStorageAttributes);
   }
-  else {
+/*  else */ {
     // Not explicit global storage, use normal chain
     // 1) local variables have precedence
     if (Error::isOK(err = inherited::setMemberByName(aName, aMember, aStorageAttributes))) return err; // modified or created an existing local variable
@@ -948,6 +962,7 @@ ScriptObjPtr BuiltInFunctionLookup::memberByNameFrom(ScriptObjPtr aThisObj, cons
 {
   ScriptObjPtr func;
 
+  FOCUSLOGLOOKUP("BuiltInFunctionLookup");
   // actual type requirement must match, scope requirements are irrelevant here
   if (ScriptObj::typeRequirementMet(executable, aTypeRequirements, typeMask)) {
     FunctionMap::const_iterator pos = functions.find(aName);
@@ -2059,10 +2074,12 @@ void SourceProcessor::assignMember(TypeInfo aStorageAttributes)
   //   Note: as nested assignments, or assignments in non-body-level expressions are NOT supported,
   //     storage specifier is never overridden in subexpressions and does not need to get stacked
   setState(&SourceProcessor::s_result);
-  if (!skipping) {
-    result = result->assignableValue(); // get a copy in case the value is mutable (i.e. copy-on-write, assignment is "writing")
-    setMemberBySpecifier(aStorageAttributes);
-    return;
+  if (!result->isErr()) {
+    if (!skipping) {
+      result = result->assignableValue(); // get a copy in case the value is mutable (i.e. copy-on-write, assignment is "writing")
+      setMemberBySpecifier(aStorageAttributes);
+      return;
+    }
   }
   checkAndResume();
 }
