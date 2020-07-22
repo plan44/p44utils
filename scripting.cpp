@@ -1664,6 +1664,30 @@ void SourceProcessor::pop()
 }
 
 
+void SourceProcessor::popWithResult(bool aThrowErrors)
+{
+  FOCUSLOGSTATE;
+  if (skipping || !result || result->valid()) {
+    // no need for a validation step for loading lazy results
+    popWithValidResult(aThrowErrors);
+    return;
+  }
+  // make valid (pull value from lazy loading objects)
+  setState(aThrowErrors ? &SourceProcessor::s_validResultCheck : &SourceProcessor::s_validResult);
+  result->makeValid(boost::bind(&SourceProcessor::resume, this, _1));
+}
+
+
+void SourceProcessor::popWithValidResult(bool aThrowErrors)
+{
+  pop(); // get state to continue with
+  if (aThrowErrors)
+    checkAndResume();
+  else
+    resume();
+}
+
+
 bool SourceProcessor::unWindStackTo(StateHandler aPreviousState)
 {
   StackList::iterator spos = stack.end();
@@ -1704,13 +1728,40 @@ bool SourceProcessor::skipUntilReaching(StateHandler aPreviousState, ScriptObjPt
 }
 
 
-void SourceProcessor::throwOrComplete(ScriptObjPtr aError)
+void SourceProcessor::exitWithSyntaxError(const char *aFmt, ...)
 {
-  if (!skipUntilReaching(&SourceProcessor::s_tryStatement, aError)) {
+  ErrorPtr err = new ScriptError(ScriptError::Syntax);
+  va_list args;
+  va_start(args, aFmt);
+  err->setFormattedMessage(aFmt, args);
+  va_end(args);
+  throwOrComplete(new ErrorPosValue(src, err));
+}
+
+
+
+void SourceProcessor::throwOrComplete(ErrorValuePtr aError)
+{
+  // if there is no position in the error already, add it
+  if (!aError->cursor()) {
+    aError = new ErrorPosValue(src, aError);
+  }
+  // thrown herewith
+  result = aError;
+  aError->setThrown(true);
+  ErrorPtr err = aError->errorValue();
+  if (err->isDomain(ScriptError::domain()) && err->getErrorCode()>=ScriptError::FatalErrors) {
+    // just end the thread unconditionally
     complete(aError);
     return;
   }
-  // catch found, continue executing there
+  else if (!skipping) {
+    if (!skipUntilReaching(&SourceProcessor::s_tryStatement, aError)) {
+      complete(aError);
+      return;
+    }
+  }
+  // catch found (or skipping), continue executing there
   resume();
 }
 
@@ -1724,7 +1775,7 @@ void SourceProcessor::s_simpleTerm()
   // at the beginning of a simple term, result is undefined
   if (src.c()=='"' || src.c()=='\'') {
     result = src.parseStringLiteral();
-    checkAndResumeAt(&SourceProcessor::s_result);
+    popWithValidResult();
     return;
   }
   else if (src.c()=='{') {
@@ -1736,20 +1787,20 @@ void SourceProcessor::s_simpleTerm()
     if (peek.c()=='"' || peek.c()=='\'') {
       // first thing within "{" is a quoted field name: must be JSON literal
       result = src.parseJSONLiteral();
-      checkAndResumeAt(&SourceProcessor::s_result);
+      popWithValidResult();
       return;
     }
     #endif
     // must be a code block
     result = src.parseCodeLiteral();
-    checkAndResumeAt(&SourceProcessor::s_result);
+    popWithValidResult();
     return;
   }
   #if SCRIPTING_JSON_SUPPORT
   else if (src.c()=='[') {
     // must be JSON literal array
     result = src.parseJSONLiteral();
-    checkAndResumeAt(&SourceProcessor::s_result);
+    popWithValidResult();
     return;
   }
   #endif
@@ -1761,8 +1812,8 @@ void SourceProcessor::s_simpleTerm()
         // checking for statement separating chars is safe, there's no way one of these could appear at the beginning of a term
         result = src.parseNumericLiteral();
       }
-      // anyway, process current result (either it's a new number or the result already set earlier
-      checkAndResumeAt(&SourceProcessor::s_result);
+      // anyway, process current result (either it's a new number or the result already set and validated earlier
+      popWithValidResult();
       return;
     }
     else {
@@ -1774,7 +1825,7 @@ void SourceProcessor::s_simpleTerm()
         // we must always assume structured values etc.
         // Note: when skipping, we do NOT need to do complicated check for assignment.
         //   Syntactically, an assignment looks the same as a regular expression
-        checkAndResumeAt(&SourceProcessor::s_member);
+        resumeAt(&SourceProcessor::s_member);
         return;
       }
       else {
@@ -1783,17 +1834,17 @@ void SourceProcessor::s_simpleTerm()
           // - check them before doing an actual member lookup
           if (uequals(identifier, "true") || uequals(identifier, "yes")) {
             result = new NumericValue(1);
-            checkAndResumeAt(&SourceProcessor::s_result);
+            resumeAt(&SourceProcessor::s_result);
             return;
           }
           else if (uequals(identifier, "false") || uequals(identifier, "no")) {
             result = new NumericValue(0);
-            checkAndResumeAt(&SourceProcessor::s_result);
+            resumeAt(&SourceProcessor::s_result);
             return;
           }
           else if (uequals(identifier, "null") || uequals(identifier, "undefined")) {
             result = new AnnotatedNullValue(identifier); // use literal as annotation
-            checkAndResumeAt(&SourceProcessor::s_result);
+            resumeAt(&SourceProcessor::s_result);
             return;
           }
         }
@@ -1821,7 +1872,7 @@ void SourceProcessor::s_member()
     // direct sub-member access
     src.skipNonCode();
     if (!src.parseIdentifier(identifier)) {
-      complete(new ErrorPosValue(src, ScriptError::Syntax, "missing identifier after '.'"));
+      exitWithSyntaxError("missing identifier after '.'");
       return;
     }
     // assign to this identifier or access its value (from parent object in result)
@@ -1832,7 +1883,7 @@ void SourceProcessor::s_member()
     // subscript access to sub-members
     src.skipNonCode();
     push(&SourceProcessor::s_subscriptArg);
-    checkAndResumeAt(&SourceProcessor::s_expression);
+    resumeAt(&SourceProcessor::s_expression);
     return;
   }
   else if (src.nextIf('(')) {
@@ -1840,10 +1891,12 @@ void SourceProcessor::s_member()
     if (precedence==0) precedence = 1; // no longer a candidate for assignment
     src.skipNonCode();
     // - we need a function call context
+    setState(&SourceProcessor::s_funcContext);
     if (!skipping) {
       newFunctionCallContext();
+      return;
     }
-    checkAndResumeAt(&SourceProcessor::s_funcContext);
+    resume();
     return;
   }
   else if (!olderResult && !result && !skipping) {
@@ -1865,8 +1918,7 @@ void SourceProcessor::s_member()
     result = new ErrorPosValue(src, ScriptError::NotFound , "cannot find '%s'", identifier.c_str());
   }
   // do not error-check at this level
-
-  checkAndResumeAt(&SourceProcessor::s_result);
+  resumeAt(&SourceProcessor::s_result);
   return;
 }
 
@@ -1889,8 +1941,7 @@ void SourceProcessor::s_subscriptArg()
     setState(&SourceProcessor::s_nextSubscript);
   }
   else {
-    result = new ErrorPosValue(src, ScriptError::NotFound , "missing , or ] after subscript", identifier.c_str());
-    checkAndResumeAt(&SourceProcessor::s_result);
+    exitWithSyntaxError("missing , or ] after subscript", identifier.c_str());
     return;
   }
   if (skipping) {
@@ -1912,7 +1963,7 @@ void SourceProcessor::s_subscriptArg()
         result = olderResult; // object to access member from
         // allow creating sub-members implicitly, but not creating vars
         push(result ? &SourceProcessor::s_assignMember : &SourceProcessor::s_defineMember); // when expression value is ready
-        checkAndResumeAt(&SourceProcessor::s_expression); // s_expression does NOT allow any further nested assignments!
+        resumeAt(&SourceProcessor::s_expression); // s_expression does NOT allow any further nested assignments!
         return;
       }
       src.pos = opos; // back to before operator
@@ -1960,7 +2011,7 @@ void SourceProcessor::assignOrAccess(bool aAllowAssign)
       storageSpecifier = new StringValue(identifier);
       // allow creating sub-members implicitly, but not creating vars
       push(olderResult ? &SourceProcessor::s_defineMember : &SourceProcessor::s_assignMember); // when expression value is ready
-      checkAndResumeAt(&SourceProcessor::s_expression);
+      resumeAt(&SourceProcessor::s_expression);
       return;
     }
     src.pos = opos;
@@ -2016,11 +2067,11 @@ void SourceProcessor::s_funcContext()
   // - check for arguments
   if (src.nextIf(')')) {
     // function with no arguments
-    checkAndResumeAt(&SourceProcessor::s_funcExec);
+    resumeAt(&SourceProcessor::s_funcExec);
     return;
   }
   push(&SourceProcessor::s_funcArg);
-  checkAndResumeAt(&SourceProcessor::s_expression);
+  resumeAt(&SourceProcessor::s_expression);
   return;
 }
 
@@ -2046,8 +2097,7 @@ void SourceProcessor::s_funcArg()
     setState(&SourceProcessor::s_expression);
   }
   else {
-    result = new ErrorPosValue(src, ScriptError::NotFound , "missing , or ) after function argument", identifier.c_str());
-    checkAndResumeAt(&SourceProcessor::s_result);
+    exitWithSyntaxError("missing , or ) after function argument", identifier.c_str());
     return;
   }
   // now apply the function argument
@@ -2107,8 +2157,7 @@ void SourceProcessor::processExpression()
   // - check for optional unary op
   pendingOperation = src.parseOperator(); // store for later
   if (pendingOperation!=op_none && pendingOperation!=op_subtract && pendingOperation!=op_add && pendingOperation!=op_not) {
-    result = new ErrorPosValue(src, ScriptError::NotFound , "invalid unary operator", identifier.c_str());
-    checkAndResumeAt(&SourceProcessor::s_result);
+    exitWithSyntaxError("invalid unary operator", identifier.c_str());
     return;
   }
   if (pendingOperation!=op_none && precedence==0) {
@@ -2119,7 +2168,7 @@ void SourceProcessor::processExpression()
   if (src.nextIf('(')) {
     // term is expression in paranthesis
     push(&SourceProcessor::s_groupedExpression);
-    checkAndResumeAt(&SourceProcessor::s_expression);
+    resumeAt(&SourceProcessor::s_expression);
     return;
   }
   // must be simple term
@@ -2130,7 +2179,7 @@ void SourceProcessor::processExpression()
   // - an lvalue (one that can be assigned to)
   // Note: a non-simple term is the paranthesized expression as handled above
   push(&SourceProcessor::s_exprFirstTerm);
-  checkAndResumeAt(&SourceProcessor::s_simpleTerm);
+  resumeAt(&SourceProcessor::s_simpleTerm);
 }
 
 
@@ -2138,9 +2187,10 @@ void SourceProcessor::s_groupedExpression()
 {
   FOCUSLOGSTATE;
   if (!src.nextIf(')')) {
-    result = new ErrorPosValue(src, ScriptError::Syntax, "missing ')'");
+    exitWithSyntaxError("missing ')'");
+    return;
   }
-  checkAndResumeAt(&SourceProcessor::s_exprFirstTerm);
+  resumeAt(&SourceProcessor::s_exprFirstTerm);
 }
 
 
@@ -2156,7 +2206,7 @@ void SourceProcessor::s_exprFirstTerm()
       default: break;
     }
   }
-  checkAndResumeAt(&SourceProcessor::s_exprLeftSide);
+  resumeAt(&SourceProcessor::s_exprLeftSide);
 }
 
 
@@ -2171,14 +2221,14 @@ void SourceProcessor::s_exprLeftSide()
   // end parsing here if no operator found or operator with a lower or same precedence as the passed in precedence is reached
   if (binaryop==op_none || newPrecedence<=precedence) {
     src.pos = opos; // restore position
-    checkAndResumeAt(&SourceProcessor::s_result);
+    popWithResult();
     return;
   }
   // must parse right side of operator as subexpression
   pendingOperation = binaryop;
   push(&SourceProcessor::s_exprRightSide); // push the old precedence
   precedence = newPrecedence; // subexpression needs to exit when finding an operator weaker than this one
-  checkAndResumeAt(&SourceProcessor::s_subExpression);
+  resumeAt(&SourceProcessor::s_subExpression);
 }
 
 
@@ -2193,12 +2243,12 @@ void SourceProcessor::s_exprRightSide()
       switch (pendingOperation) {
         case op_assign: {
           // unambiguous assignment operator is not allowed here (ambiguous = will be treated as comparison)
-          if (!skipping) result = new ErrorPosValue(src, ScriptError::Syntax, "nested assigment not allowed");
+          if (!skipping) { exitWithSyntaxError("nested assigment not allowed"); return; }
           break;
         }
         case op_not: {
-          result = new ErrorPosValue(src, ScriptError::Syntax, "NOT operator not allowed here");
-          break;
+          exitWithSyntaxError("NOT operator not allowed here");
+          return;
         }
         case op_divide:     result = *olderResult / *result; break;
         case op_modulo:     result = *olderResult % *result; break;
@@ -2246,7 +2296,7 @@ void SourceProcessor::s_declarations()
       // function fname([param[,param...]]) { code }
       src.skipNonCode();
       if (!src.parseIdentifier(identifier)) {
-        complete(new ErrorPosValue(src, ScriptError::Syntax, "function name expected"));
+        exitWithSyntaxError("function name expected");
         return;
       }
       CompiledFunctionPtr function = CompiledFunctionPtr(new CompiledFunction(identifier));
@@ -2265,14 +2315,14 @@ void SourceProcessor::s_declarations()
             }
             string argName;
             if (!src.parseIdentifier(argName)) {
-              complete(new ErrorPosValue(src, ScriptError::Syntax, "function argument name expected"));
+              exitWithSyntaxError("function argument name expected");
               return;
             }
             function->pushArgumentDefinition(any+null, argName);
             src.skipNonCode();
           } while(src.nextIf(','));
           if (!src.nextIf(')')) {
-            complete(new ErrorPosValue(src, ScriptError::Syntax, "missing closing ')' for argument list"));
+            exitWithSyntaxError("missing closing ')' for argument list");
             return;
           }
           src.skipNonCode();
@@ -2281,13 +2331,13 @@ void SourceProcessor::s_declarations()
       result = function;
       // now capture the code
       if (src.c()!='{') {
-        complete(new ErrorPosValue(src, ScriptError::Syntax, "expected function body"));
+        exitWithSyntaxError("expected function body");
         return;
       }
       push(&SourceProcessor::s_defineFunction); // with position on the opening '{' of the function body
       skipping = true;
       src.next(); // skip the '{'
-      checkAndResumeAt(&SourceProcessor::s_block);
+      resumeAt(&SourceProcessor::s_block);
       return;
     } // function
     if (uequals(identifier, "on")) {
@@ -2358,7 +2408,8 @@ void SourceProcessor::processStatement()
   if (src.EOT()) {
     // end of code
     if (currentState!=&SourceProcessor::s_body) {
-      result = new ErrorPosValue(src, ScriptError::Syntax, "unexpected end of code");
+      exitWithSyntaxError("unexpected end of code");
+      return;
     }
     // complete
     complete(result);
@@ -2367,7 +2418,7 @@ void SourceProcessor::processStatement()
   if (src.nextIf('{')) {
     // new block starts
     push(currentState); // return to current state when block finishes
-    checkAndResumeAt(&SourceProcessor::s_block); // continue as block
+    resumeAt(&SourceProcessor::s_block); // continue as block
     return;
   }
   if (currentState==&SourceProcessor::s_block && src.nextIf('}')) {
@@ -2394,34 +2445,34 @@ void SourceProcessor::processStatement()
     if (uequals(identifier, "if")) {
       // "if" statement
       if (!src.nextIf('(')) {
-        complete(new ErrorPosValue(src, ScriptError::Syntax, "missing '(' after 'if'"));
+        exitWithSyntaxError("missing '(' after 'if'");
         return;
       }
       push(currentState); // return to current state when if statement finishes
       push(&SourceProcessor::s_ifCondition);
-      checkAndResumeAt(&SourceProcessor::s_expression);
+      resumeAt(&SourceProcessor::s_expression);
       return;
     }
     if (uequals(identifier, "else")) {
       // just check to give sensible error message
-      complete(new ErrorPosValue(src, ScriptError::Syntax, "'else' without preceeding 'if'"));
+      exitWithSyntaxError("'else' without preceeding 'if'");
       return;
     }
     if (uequals(identifier, "while")) {
       // "while" statement
       if (!src.nextIf('(')) {
-        complete(new ErrorPosValue(src, ScriptError::Syntax, "missing '(' after 'while'"));
+        exitWithSyntaxError("missing '(' after 'while'");
         return;
       }
       push(currentState); // return to current state when while finishes
       push(&SourceProcessor::s_whileCondition);
-      checkAndResumeAt(&SourceProcessor::s_expression);
+      resumeAt(&SourceProcessor::s_expression);
       return;
     }
     if (uequals(identifier, "break")) {
       if (!skipping) {
         if (!skipUntilReaching(&SourceProcessor::s_whileStatement)) {
-          complete(new ErrorPosValue(src, ScriptError::Syntax, "'break' must be within 'while' statement"));
+          exitWithSyntaxError("'break' must be within 'while' statement");
           return;
         }
         checkAndResume();
@@ -2431,7 +2482,7 @@ void SourceProcessor::processStatement()
     if (uequals(identifier, "continue")) {
       if (!skipping) {
         if (!unWindStackTo(&SourceProcessor::s_whileStatement)) {
-          complete(new ErrorPosValue(src, ScriptError::Syntax, "'continue' must be within 'while' statement"));
+          exitWithSyntaxError("'continue' must be within 'while' statement");
           return;
         }
         checkAndResume();
@@ -2469,12 +2520,12 @@ void SourceProcessor::processStatement()
     if (uequals(identifier, "try")) {
       push(currentState); // return to current state when statement finishes
       push(&SourceProcessor::s_tryStatement);
-      checkAndResumeAt(&SourceProcessor::s_oneStatement);
+      resumeAt(&SourceProcessor::s_oneStatement);
       return;
     }
     if (uequals(identifier, "catch")) {
       // just check to give sensible error message
-      complete(new ErrorPosValue(src, ScriptError::Syntax, "'catch' without preceeding 'try'"));
+      exitWithSyntaxError("'catch' without preceeding 'try'");
       return;
     }
     if (uequals(identifier, "concurrent")) {
@@ -2487,7 +2538,7 @@ void SourceProcessor::processStatement()
         src.skipNonCode();
       }
       if (!src.nextIf('{')) {
-        complete(new ErrorPosValue(src, ScriptError::Syntax, "missing '{' to start concurrent block"));
+        exitWithSyntaxError("missing '{' to start concurrent block");
         return;
       }
       push(currentState); // return to current state when statement finishes
@@ -2517,7 +2568,7 @@ void SourceProcessor::processStatement()
     if (varHandler) {
       // one of the definition keywords -> an identifier must follow
       if (!src.parseIdentifier(identifier)) {
-        complete(new ErrorPosValue(src, ScriptError::Syntax, "missing variable name after '%s'", identifier.c_str()));
+        exitWithSyntaxError("missing variable name after '%s'", identifier.c_str());
         return;
       }
       push(currentState); // return to current state when var definion statement finishes
@@ -2527,22 +2578,22 @@ void SourceProcessor::processStatement()
       // with initializer ?
       if (op==op_assign || op==op_assignOrEq) {
         if (!allowInitializer) {
-          complete(new ErrorPosValue(src, ScriptError::Syntax, "global variables cannot have an initializer"));
+          exitWithSyntaxError("global variables cannot have an initializer");
           return;
         }
         // initialize with a value
         push(varHandler);
-        checkAndResumeAt(&SourceProcessor::s_expression);
+        resumeAt(&SourceProcessor::s_expression);
         return;
       }
       else if (op==op_none) {
         // just initialize with null
         result = new AnnotatedNullValue("uninitialized variable");
-        checkAndResumeAt(varHandler);
+        resumeAt(varHandler);
         return;
       }
       else {
-        complete(new ErrorPosValue(src, ScriptError::Syntax, "assignment or end of statement expected"));
+        exitWithSyntaxError("assignment or end of statement expected");
         return;
       }
     }
@@ -2553,7 +2604,7 @@ void SourceProcessor::processStatement()
   }
   // is an expression or possibly an assignment, also handled in expression
   push(currentState); // return to current state when if statement finishes
-  checkAndResumeAt(&SourceProcessor::s_assignmentExpression);
+  resumeAt(&SourceProcessor::s_assignmentExpression);
   return;
 }
 
@@ -2565,7 +2616,7 @@ void SourceProcessor::s_ifCondition()
   // - if not skipping, result is the result of the evaluation, or NULL if all of the following if/else if/else statement chain must be skipped
   // - if already skipping here, result can be anything and must be reset to propagate cutting the else chain
   if (!src.nextIf(')')) {
-    complete(new ErrorPosValue(src, ScriptError::Syntax, "missing ')' after 'if' condition"));
+    exitWithSyntaxError("missing ')' after 'if' condition");
     return;
   }
   if (!skipping) {
@@ -2579,7 +2630,7 @@ void SourceProcessor::s_ifCondition()
   }
   // Note: pushed skipping AND result is needed by s_ifTrueStatement to determine further flow
   push(&SourceProcessor::s_ifTrueStatement);
-  checkAndResumeAt(&SourceProcessor::s_oneStatement);
+  resumeAt(&SourceProcessor::s_oneStatement);
 }
 
 void SourceProcessor::s_ifTrueStatement()
@@ -2601,7 +2652,7 @@ void SourceProcessor::s_ifTrueStatement()
       // else if
       src.skipNonCode();
       if (!src.nextIf('(')) {
-        complete(new ErrorPosValue(src, ScriptError::Syntax, "missing '(' after 'else if'"));
+        exitWithSyntaxError("missing '(' after 'else if'");
         return;
       }
       // chained if: when preceeding "if" did execute (or would have if not already skipping),
@@ -2609,13 +2660,13 @@ void SourceProcessor::s_ifTrueStatement()
       // Note: pushed skipping AND result is needed by s_ifCondition to determine further flow
       result = olderResult; // carry on the "entire if/elseif/else statement executing" marker
       push(&SourceProcessor::s_ifCondition);
-      checkAndResumeAt(&SourceProcessor::s_subExpression);
+      resumeAt(&SourceProcessor::s_expression);
       return;
     }
     else {
       // last else in chain
       src.pos = ipos; // restore to right behind "else"
-      checkAndResumeAt(&SourceProcessor::s_oneStatement); // run one statement, then pop
+      resumeAt(&SourceProcessor::s_oneStatement); // run one statement, then pop
       return;
     }
   }
@@ -2623,7 +2674,7 @@ void SourceProcessor::s_ifTrueStatement()
     // if without else
     src.pos = ipos; // restore to right behind "if" statement's end
     pop(); // end if/then/else
-    checkAndResume();
+    resume();
     return;
   }
 }
@@ -2636,7 +2687,7 @@ void SourceProcessor::s_whileCondition()
   // - result contains result of the evaluation
   // - poppedPos points to beginning of while condition
   if (!src.nextIf(')')) {
-    complete(new ErrorPosValue(src, ScriptError::Syntax, "missing ')' after 'while' condition"));
+    exitWithSyntaxError("missing ')' after 'while' condition");
     return;
   }
   if (!skipping) skipping = !result->boolValue(); // set now, because following push must include "skipping" according to the decision!
@@ -2658,7 +2709,7 @@ void SourceProcessor::s_whileStatement()
   // not skipping, means we need to loop back to the condition
   src.pos = poppedPos;
   push(&SourceProcessor::s_whileCondition);
-  checkAndResumeAt(&SourceProcessor::s_expression);
+  resumeAt(&SourceProcessor::s_expression);
 }
 
 
@@ -2680,7 +2731,7 @@ void SourceProcessor::s_tryStatement()
     // check for error capturing variable
     if (src.nextIf('(')) {
       if (!src.parseIdentifier(identifier) || !src.nextIf(')')) {
-        complete(new ErrorPosValue(src, ScriptError::Syntax, "expecting '(errorvariable)'"));
+        exitWithSyntaxError("expecting '(errorvariable)'");
         return;
       }
       if (!skipping) {
@@ -2695,7 +2746,7 @@ void SourceProcessor::s_tryStatement()
     return;
   }
   else {
-    complete(new ErrorPosValue(src, ScriptError::Syntax, "missing 'catch' after 'try'"));
+    exitWithSyntaxError("missing 'catch' after 'try'");
     return;
   }
 }
@@ -2705,25 +2756,20 @@ void SourceProcessor::s_tryStatement()
 void SourceProcessor::s_result()
 {
   FOCUSLOGSTATE;
-  if (skipping || !result || result->valid()) {
-    // no need for a validation step for loading lazy results
-    pop(); // get state to continue with
-    checkAndResume();
-    return;
-  }
-  // make valid (pull value from lazy loading objects)
-  setState(&SourceProcessor::s_validResult);
-  result->makeValid(boost::bind(&SourceProcessor::resume, this, _1));
+  popWithResult(true);
 }
-
 
 void SourceProcessor::s_validResult()
 {
   FOCUSLOGSTATE;
-  pop(); // get state to continue with
-  checkAndResume();
+  popWithValidResult(false);
 }
 
+void SourceProcessor::s_validResultCheck()
+{
+  FOCUSLOGSTATE;
+  popWithValidResult(true);
+}
 
 void SourceProcessor::s_complete()
 {
@@ -2836,6 +2882,7 @@ ExecutionContextPtr CompiledScript::contextForCallingFrom(ScriptMainContextPtr a
   // - but maincontext passed should be the domain of our saved mainContext, so check that if aMainContext is passed
   if (aMainContext) {
     if (mainContext->domain().get()!=aMainContext.get()) {
+      LOG(LOG_ERR, "internal error: script domain mismatch");
       return NULL; // mismatch, cannot use that context!
     }
   }
@@ -2943,23 +2990,6 @@ ScriptSource::ScriptSource(const char* aOriginLabel, P44LoggingObj* aLoggingCont
 {
 }
 
-ScriptSource::ScriptSource(const char* aOriginLabel, P44LoggingObj* aLoggingContextP, const string aSource, ScriptingDomainPtr aDomain) :
-  originLabel(aOriginLabel),
-  loggingContextP(aLoggingContextP)
-{
-  setDomain(aDomain);
-  setSource(aSource);
-}
-
-ScriptSource::ScriptSource(const string aSource) :
-  originLabel("adhoc"),
-  loggingContextP(NULL)
-{
-  // using standard domain
-  setSource(aSource);
-}
-
-
 ScriptSource::~ScriptSource()
 {
   setSource(""); // force removal of global objects depending on this
@@ -3041,27 +3071,29 @@ ScriptObjPtr ScriptSource::run(EvaluationFlags aEvalFlags, EvaluationCB aEvaluat
   ScriptObjPtr code = getExecutable();
   ScriptObjPtr result;
   // get the context to run it
-  if (code && code->hasType(executable)) {
-    ExecutionContextPtr ctx = code->contextForCallingFrom(domain());
-    if (ctx) {
-      if (aEvalFlags & synchronously) {
-        result = ctx->executeSynchronously(code, aEvalFlags, aMaxRunTime);
+  if (code) {
+    if (code->hasType(executable)) {
+      ExecutionContextPtr ctx = code->contextForCallingFrom(domain());
+      if (ctx) {
+        if (aEvalFlags & synchronously) {
+          result = ctx->executeSynchronously(code, aEvalFlags, aMaxRunTime);
+        }
+        else {
+          ctx->execute(code, aEvalFlags, aEvaluationCB, aMaxRunTime);
+          return result; // null, callback will deliver result
+        }
       }
       else {
-        ctx->execute(code, aEvalFlags, aEvaluationCB, aMaxRunTime);
-        return result; // null, callback will deliver result
+        // cannot evaluate due to missing context
+        result = new ErrorValue(ScriptError::Internal, "No context to execute code");
       }
     }
     else {
-      // cannot evaluate due to missing context
-      result = new ErrorValue(ScriptError::Internal, "No context to execute code");
+      result = code;
     }
   }
   if (!code) {
     result = new AnnotatedNullValue("no source code");
-  }
-  else {
-    result = code;
   }
   if (aEvaluationCB) aEvaluationCB(result);
   return result;
@@ -3183,31 +3215,20 @@ void ScriptCodeThread::checkAndResume()
 {
   ErrorValuePtr e = dynamic_pointer_cast<ErrorValue>(result);
   if (e) {
-    if (!e->cursor()) {
-      // if there is no position in the error already, re-wrap it
-      e = new ErrorPosValue(src, e);
-    }
     if (!e->wasThrown()) {
-      // need to throw
-      e->setThrown(true);
-      result = e;
-      ErrorPtr err = e->errorValue();
-      if (err->isDomain(ScriptError::domain()) && err->getErrorCode()>=ScriptError::FatalErrors) {
-        // just end the thread unconditionally
-        complete(e);
-        return;
-      }
-      else if (!skipping) {
-        // not fatal, throw it
-        throwOrComplete(e);
-        return;
-      }
+      // need to throw, adding pos if not yet included
+      throwOrComplete(e);
+      return;
     }
-    // already thrown, just propagate as result
+    // already thrown (and equipped with pos), just propagate as result
     result = e;
   }
   resume();
 }
+
+
+
+
 
 
 void ScriptCodeThread::memberByIdentifier()
@@ -3696,25 +3717,26 @@ static void eval_func(BuiltinFunctionContextPtr f)
     // need to compile string first
     ScriptSource src(
       "eval function",
-      f->instance() ? f->instance()->loggingContext() : NULL,
-      f->arg(0)->stringValue(),
-      f->domain()
+      f->instance() ? f->instance()->loggingContext() : NULL
     );
+    src.setDomain(f->domain());
+    src.setSource(f->arg(0)->stringValue(), scriptbody);
     evalcode = src.getExecutable();
   }
-  if (!evalcode->hasType(executable)) {
-    f->finish(evalcode); // return object itself, is an error
-  }
-  else {
+  if (evalcode->hasType(executable)) {
     // get the context to run it
-    ExecutionContextPtr ctx = evalcode->contextForCallingFrom(f->scriptmain());
-    // pass args, if any
-    for (size_t i = 1; i<f->numArgs(); i++) {
-      ctx->setMemberAtIndex(i-1, f->arg(i-1), string_format("arg%lu", i-1));
+    ExecutionContextPtr ctx = evalcode->contextForCallingFrom(f->scriptmain()->domain());
+    if (ctx) {
+      // pass args, if any
+      for (size_t i = 1; i<f->numArgs(); i++) {
+        ctx->setMemberAtIndex(i-1, f->arg(i-1), string_format("arg%lu", i-1));
+      }
+      // evaluate
+      ctx->execute(evalcode, scriptbody, boost::bind(&BuiltinFunctionContext::finish, f, _1));
+      return;
     }
-    // evaluate
-    ctx->execute(evalcode, scriptbody, boost::bind(&BuiltinFunctionContext::finish, f, _1));
   }
+  f->finish(evalcode); // return object itself, is an error or cannot be executed
 }
 
 

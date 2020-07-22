@@ -963,10 +963,7 @@ namespace p44 { namespace Script {
   public:
     /// create empty script source
     ScriptSource(const char* aOriginLabel = NULL, P44LoggingObj* aLoggingContextP = NULL);
-    /// all-in-one adhoc script source constructor
-    ScriptSource(const char* aOriginLabel, P44LoggingObj* aLoggingContextP, const string aSource, ScriptingDomainPtr aDomain = ScriptingDomainPtr());
-    /// minimal source for create&run (mainly: testing)
-    ScriptSource(const string aSource);
+
     ~ScriptSource();
 
     /// set domain (where global objects from compilation will be stored)
@@ -1236,6 +1233,18 @@ namespace p44 { namespace Script {
     /// return to the last pushed state
     void pop();
 
+    /// validate the result if needed, check for errors and then pop the stack to continue
+    /// @param aThrowErrors if set, result is checked for being an error and thrown if so
+    void popWithResult(bool aThrowErrors = true);
+
+    /// assuming result already validated, optionally check for errors and then pop the stack to continue
+    /// @param aThrowErrors if set, result is checked for being an error and thrown if so
+    void popWithValidResult(bool aThrowErrors = true);
+
+    /// throw an error and resume()
+    /// @param aErrValue the error to throw. If it's not an error, nothing will be thrown
+    void throwError(ErrorValuePtr aErrValue);
+
     /// unwind stack until a entry with the specified state is found
     /// @param aPreviousState state to look for
     /// @return true if actually unwound (entry with specified state popped),
@@ -1251,7 +1260,10 @@ namespace p44 { namespace Script {
 
     /// throw the value to be caught by the next try/catch. If no try/catch, the current thread will end with aThrowValue
     /// @param aError the value to throw, must be an error
-    void throwOrComplete(ScriptObjPtr aError);
+    void throwOrComplete(ErrorValuePtr aError);
+
+    /// convenience shortcut for creating and throwing a syntax error at current position
+    void exitWithSyntaxError(const char *aFmt, ...) __printflike(2,3);
 
     /// state handlers
     /// @note these all MUST eventually cause calling resume(). This can happen from
@@ -1303,7 +1315,8 @@ namespace p44 { namespace Script {
 
     // Generic
     void s_result(); ///< result of an expression or term available as ScriptObj. May need makeValid() if not already valid() here.
-    void s_validResult(); ///< final result of an expression or term ready, pop the stack to see next state to run
+    void s_validResult(); ///< final result of an expression or term ready, check for error and pop the stack to see next state to run
+    void s_validResultCheck(); ///< final result of an expression or term ready, pop the stack but do not check errors, but pass them on
     void s_complete(); ///< nothing more to do, result represents result of entire scanning/evaluation process
 
     /// @}
@@ -1480,7 +1493,7 @@ namespace p44 { namespace Script {
 
     /// must set a new funcCallContext suitable to execute result as a function
     /// @note must set result to an ErrorValue if no context can be created
-    /// @note must cause calling resume() when result contains the member (or NULL if not found)
+    /// @note must cause calling resume() when funcCallContext is set
     virtual void newFunctionCallContext() P44_OVERRIDE;
 
     /// apply the specified argument to the current result
