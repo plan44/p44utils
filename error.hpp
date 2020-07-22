@@ -205,7 +205,7 @@ namespace p44 {
   {
   public:
     static const char *domain();
-    virtual const char *getErrorDomain() const;
+    virtual const char *getErrorDomain() const P44_OVERRIDE;
 
     /// create system error from current errno and set message to strerror() text
     SysError(const char *aContextMessage = NULL);
@@ -229,7 +229,7 @@ namespace p44 {
   {
   public:
     static const char *domain() { return "WebError"; }
-    virtual const char *getErrorDomain() const { return WebError::domain(); };
+    virtual const char *getErrorDomain() const P44_OVERRIDE { return WebError::domain(); };
     WebError(uint16_t aHTTPError) : Error(ErrorCode(aHTTPError)) {};
     WebError(uint16_t aHTTPError, std::string aErrorMessage) : Error(ErrorCode(aHTTPError), aErrorMessage) {};
 

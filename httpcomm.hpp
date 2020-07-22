@@ -59,7 +59,7 @@ namespace p44 {
     typedef uint16_t ErrorCodes;
 
     static const char *domain() { return "HttpComm"; }
-    virtual const char *getErrorDomain() const { return HttpCommError::domain(); };
+    virtual const char *getErrorDomain() const P44_OVERRIDE { return HttpCommError::domain(); };
     HttpCommError(ErrorCodes aError) : Error(ErrorCode(aError)) {};
     #if ENABLE_NAMED_ERRORS
   protected:
