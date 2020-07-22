@@ -2919,7 +2919,12 @@ ScriptObjPtr ScriptCompiler::compile(SourceContainerPtr aSource, EvaluationFlags
       return result;
     }
   }
-  return new CompiledScript(bodyRef, aMainContext);
+  if (aParsingMode & anonymousfunction) {
+    return new CompiledFunction("anonymous", bodyRef);
+  }
+  else {
+    return new CompiledScript(bodyRef, aMainContext);
+  }
 }
 
 
@@ -3720,19 +3725,19 @@ static void eval_func(BuiltinFunctionContextPtr f)
       f->instance() ? f->instance()->loggingContext() : NULL
     );
     src.setDomain(f->domain());
-    src.setSource(f->arg(0)->stringValue(), scriptbody);
+    src.setSource(f->arg(0)->stringValue(), scriptbody|anonymousfunction);
     evalcode = src.getExecutable();
   }
   if (evalcode->hasType(executable)) {
-    // get the context to run it
-    ExecutionContextPtr ctx = evalcode->contextForCallingFrom(f->scriptmain()->domain());
+    // get the context to run it as an anonymous function from the current main context
+    ExecutionContextPtr ctx = evalcode->contextForCallingFrom(f->scriptmain());
     if (ctx) {
       // pass args, if any
       for (size_t i = 1; i<f->numArgs(); i++) {
         ctx->setMemberAtIndex(i-1, f->arg(i-1), string_format("arg%lu", i-1));
       }
-      // evaluate
-      ctx->execute(evalcode, scriptbody, boost::bind(&BuiltinFunctionContext::finish, f, _1));
+      // evaluate, end all threads when main thread ends
+      ctx->execute(evalcode, scriptbody|mainthread, boost::bind(&BuiltinFunctionContext::finish, f, _1));
       return;
     }
   }

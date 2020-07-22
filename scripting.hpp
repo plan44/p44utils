@@ -167,6 +167,7 @@ namespace p44 { namespace Script {
     keepvars = 0x1000, ///< keep the local variables already set in the context
     embeddedGlobs = 0x2000, ///< embed source code into global function+handler definitions, and keep them even when source code goes away
     mainthread = 0x4000, ///< if a thread with this set terminates, this also terminates all of its siblings
+    anonymousfunction = 0x8000, ///< compile and run as anonymous function body
   };
   typedef uint16_t EvaluationFlags;
 
@@ -945,7 +946,6 @@ namespace p44 { namespace Script {
 
     // @return a cursor for this source code, starting at the beginning
     SourceCursor getCursor();
-
   };
 
 
@@ -1343,6 +1343,7 @@ namespace p44 { namespace Script {
 
   public:
     CompiledFunction(const string aName) : name(aName) {};
+    CompiledFunction(const string aName, const SourceCursor& aCursor) : name(aName), cursor(aCursor) {};
     void setCursor(const SourceCursor& aCursor) { cursor = aCursor; };
     virtual bool originatesFrom(SourceContainerPtr aSource) const P44_OVERRIDE { return cursor.refersTo(aSource); };
     virtual P44LoggingObj* loggingContext() const P44_OVERRIDE { return cursor.source ? cursor.source->loggingContextP : NULL; };
