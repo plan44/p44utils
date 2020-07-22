@@ -84,8 +84,15 @@ string ScriptObj::typeDescription(TypeInfo aInfo)
 {
   string s;
   if ((aInfo & any)==any) {
-    s = "any type";
-    if (aInfo & null) s += " including undefined";
+    s = "any value";
+    if ((aInfo & (null|error))!=(null|error)) {
+      s += " but not";
+      if ((aInfo & null)==0) {
+        s += " undefined";
+        if ((aInfo & error)==0) s += " or";
+      }
+      if ((aInfo & error)==0) s += " error";
+    }
   }
   else {
     // structure
@@ -1681,10 +1688,16 @@ void SourceProcessor::popWithResult(bool aThrowErrors)
 void SourceProcessor::popWithValidResult(bool aThrowErrors)
 {
   pop(); // get state to continue with
+  if (result && result->isErr() && !result->cursor()) {
+    // Errors should get position as near to the creation as possible (and not
+    // later when thrown and pos is no longer valid!)
+    result = new ErrorPosValue(src, result->errorValue());
+  }
   if (aThrowErrors)
     checkAndResume();
-  else
+  else {
     resume();
+  }
 }
 
 
@@ -1742,10 +1755,6 @@ void SourceProcessor::exitWithSyntaxError(const char *aFmt, ...)
 
 void SourceProcessor::throwOrComplete(ErrorValuePtr aError)
 {
-  // if there is no position in the error already, add it
-  if (!aError->cursor()) {
-    aError = new ErrorPosValue(src, aError);
-  }
   // thrown herewith
   result = aError;
   aError->setThrown(true);
@@ -1834,17 +1843,17 @@ void SourceProcessor::s_simpleTerm()
           // - check them before doing an actual member lookup
           if (uequals(identifier, "true") || uequals(identifier, "yes")) {
             result = new NumericValue(1);
-            resumeAt(&SourceProcessor::s_result);
+            popWithResult(false);
             return;
           }
           else if (uequals(identifier, "false") || uequals(identifier, "no")) {
             result = new NumericValue(0);
-            resumeAt(&SourceProcessor::s_result);
+            popWithResult(false);
             return;
           }
           else if (uequals(identifier, "null") || uequals(identifier, "undefined")) {
             result = new AnnotatedNullValue(identifier); // use literal as annotation
-            resumeAt(&SourceProcessor::s_result);
+            popWithResult(false);
             return;
           }
         }
@@ -1918,7 +1927,7 @@ void SourceProcessor::s_member()
     result = new ErrorPosValue(src, ScriptError::NotFound , "cannot find '%s'", identifier.c_str());
   }
   // do not error-check at this level
-  resumeAt(&SourceProcessor::s_result);
+  popWithResult(false);
   return;
 }
 
@@ -1941,7 +1950,7 @@ void SourceProcessor::s_subscriptArg()
     setState(&SourceProcessor::s_nextSubscript);
   }
   else {
-    exitWithSyntaxError("missing , or ] after subscript", identifier.c_str());
+    exitWithSyntaxError("missing , or ] after subscript");
     return;
   }
   if (skipping) {
@@ -2097,7 +2106,7 @@ void SourceProcessor::s_funcArg()
     setState(&SourceProcessor::s_expression);
   }
   else {
-    exitWithSyntaxError("missing , or ) after function argument", identifier.c_str());
+    exitWithSyntaxError("missing , or ) after function argument");
     return;
   }
   // now apply the function argument
@@ -2116,7 +2125,7 @@ void SourceProcessor::s_funcExec()
   FOCUSLOGSTATE;
   // after closing parantheis of a function call
   // - result is the function to call
-  setState(&SourceProcessor::s_result); // result of the function call
+  setState(&SourceProcessor::s_nothrowResult); // result of the function call
   if (skipping) {
     checkAndResume(); // just NOP
   }
@@ -2157,7 +2166,7 @@ void SourceProcessor::processExpression()
   // - check for optional unary op
   pendingOperation = src.parseOperator(); // store for later
   if (pendingOperation!=op_none && pendingOperation!=op_subtract && pendingOperation!=op_add && pendingOperation!=op_not) {
-    exitWithSyntaxError("invalid unary operator", identifier.c_str());
+    exitWithSyntaxError("invalid unary operator");
     return;
   }
   if (pendingOperation!=op_none && precedence==0) {
@@ -2221,7 +2230,7 @@ void SourceProcessor::s_exprLeftSide()
   // end parsing here if no operator found or operator with a lower or same precedence as the passed in precedence is reached
   if (binaryop==op_none || newPrecedence<=precedence) {
     src.pos = opos; // restore position
-    popWithResult();
+    popWithResult(false); // receiver of expression will still get an error, no automatic throwing here!
     return;
   }
   // must parse right side of operator as subexpression
@@ -2277,7 +2286,7 @@ void SourceProcessor::s_exprRightSide()
       result = new AnnotatedNullValue("operation between undefined values");
     }
   }
-  checkAndResumeAt(&SourceProcessor::s_exprLeftSide); // back to leftside, more chained operators might follow
+  resumeAt(&SourceProcessor::s_exprLeftSide); // back to leftside, more chained operators might follow
 }
 
 // MARK: Declarations
@@ -2310,7 +2319,7 @@ void SourceProcessor::s_declarations()
             if (src.c()=='.' && src.c(1)=='.' && src.c(2)=='.') {
               // open argument list
               src.advance(3);
-              function->pushArgumentDefinition(any+null+multiple, "arg");
+              function->pushArgumentDefinition(any+null+error+multiple, "arg");
               break;
             }
             string argName;
@@ -2318,7 +2327,7 @@ void SourceProcessor::s_declarations()
               exitWithSyntaxError("function argument name expected");
               return;
             }
-            function->pushArgumentDefinition(any+null, argName);
+            function->pushArgumentDefinition(any+null+error, argName);
             src.skipNonCode();
           } while(src.nextIf(','));
           if (!src.nextIf(')')) {
@@ -2757,6 +2766,12 @@ void SourceProcessor::s_result()
 {
   FOCUSLOGSTATE;
   popWithResult(true);
+}
+
+void SourceProcessor::s_nothrowResult()
+{
+  FOCUSLOGSTATE;
+  popWithResult(false);
 }
 
 void SourceProcessor::s_validResult()
@@ -3354,7 +3369,8 @@ void ScriptCodeThread::executeResult()
     else {
       childContext = funcCallContext; // as long as this executes, the function context becomes the child context of this thread
       // execute function as main thread, which means all subthreads it might spawn will be killed when function itself completes
-      funcCallContext->execute(result, evaluationFlags|mainthread, boost::bind(&ScriptCodeThread::executedResult, this, _1));
+      // Note: must have keepvars because these are the arguments!
+      funcCallContext->execute(result, evaluationFlags|mainthread|keepvars, boost::bind(&ScriptCodeThread::executedResult, this, _1));
     }
     // function call completion will call resume
     return;
@@ -3393,7 +3409,7 @@ namespace BuiltinFunctions {
 
 
 // ifvalid(a, b)   if a is a valid value, return it, otherwise return the default as specified by b
-static const BuiltInArgDesc ifvalid_args[] = { { any+null }, { any+null } };
+static const BuiltInArgDesc ifvalid_args[] = { { any+error+null }, { any+error+null } };
 static const size_t ifvalid_numargs = sizeof(ifvalid_args)/sizeof(BuiltInArgDesc);
 static void ifvalid_func(BuiltinFunctionContextPtr f)
 {
@@ -3401,7 +3417,7 @@ static void ifvalid_func(BuiltinFunctionContextPtr f)
 }
 
 // isvalid(a)      if a is a valid value, return true, otherwise return false
-static const BuiltInArgDesc isvalid_args[] = { { any+null } };
+static const BuiltInArgDesc isvalid_args[] = { { any+error+null } };
 static const size_t isvalid_numargs = sizeof(isvalid_args)/sizeof(BuiltInArgDesc);
 static void isvalid_func(BuiltinFunctionContextPtr f)
 {
@@ -3515,7 +3531,7 @@ static void cyclic_func(BuiltinFunctionContextPtr f)
 
 
 // string(anything)
-static const BuiltInArgDesc string_args[] = { { any+null } };
+static const BuiltInArgDesc string_args[] = { { any+error+null } };
 static const size_t string_numargs = sizeof(string_args)/sizeof(BuiltInArgDesc);
 static void string_func(BuiltinFunctionContextPtr f)
 {
@@ -3527,7 +3543,7 @@ static void string_func(BuiltinFunctionContextPtr f)
 
 
 // number(anything)
-static const BuiltInArgDesc number_args[] = { { any+null } };
+static const BuiltInArgDesc number_args[] = { { any+error+null } };
 static const size_t number_numargs = sizeof(number_args)/sizeof(BuiltInArgDesc);
 static void number_func(BuiltinFunctionContextPtr f)
 {
@@ -3651,7 +3667,7 @@ static void format_func(BuiltinFunctionContextPtr f)
 
 
 // throw(value)       - throw a expression user error with the string value of value as errormessage
-static const BuiltInArgDesc throw_args[] = { { any } };
+static const BuiltInArgDesc throw_args[] = { { any+error } };
 static const size_t throw_numargs = sizeof(throw_args)/sizeof(BuiltInArgDesc);
 static void throw_func(BuiltinFunctionContextPtr f)
 {
@@ -3666,7 +3682,7 @@ static void throw_func(BuiltinFunctionContextPtr f)
 
 
 // error(value)       - create a user error value with the string value of value as errormessage, in all cases, even if value is already an error
-static const BuiltInArgDesc error_args[] = { { any+null } };
+static const BuiltInArgDesc error_args[] = { { any+error+null } };
 static const size_t error_numargs = sizeof(error_args)/sizeof(BuiltInArgDesc);
 static void error_func(BuiltinFunctionContextPtr f)
 {
@@ -3710,7 +3726,7 @@ static void errormessage_func(BuiltinFunctionContextPtr f)
 
 
 // eval(string, [args...])    have string executed as script code, with access to optional args as arg0, arg1, argN...
-static const BuiltInArgDesc eval_args[] = { { text+executable }, { any+null+multiple } };
+static const BuiltInArgDesc eval_args[] = { { text+executable }, { any+null+error+multiple } };
 static const size_t eval_numargs = sizeof(eval_args)/sizeof(BuiltInArgDesc);
 static void eval_func(BuiltinFunctionContextPtr f)
 {
@@ -3734,10 +3750,11 @@ static void eval_func(BuiltinFunctionContextPtr f)
     if (ctx) {
       // pass args, if any
       for (size_t i = 1; i<f->numArgs(); i++) {
-        ctx->setMemberAtIndex(i-1, f->arg(i-1), string_format("arg%lu", i-1));
+        ctx->setMemberAtIndex(i-1, f->arg(i), string_format("arg%lu", i));
       }
       // evaluate, end all threads when main thread ends
-      ctx->execute(evalcode, scriptbody|mainthread, boost::bind(&BuiltinFunctionContext::finish, f, _1));
+      // Note: must have keepvars because these are the arguments!
+      ctx->execute(evalcode, scriptbody|mainthread|keepvars, boost::bind(&BuiltinFunctionContext::finish, f, _1));
       return;
     }
   }
@@ -3777,7 +3794,7 @@ static void abort_func(BuiltinFunctionContextPtr f)
 
 // log (logmessage)
 // log (loglevel, logmessage)
-static const BuiltInArgDesc log_args[] = { { any }, { any+optional } };
+static const BuiltInArgDesc log_args[] = { { value }, { value+optional } };
 static const size_t log_numargs = sizeof(log_args)/sizeof(BuiltInArgDesc);
 static void log_func(BuiltinFunctionContextPtr f)
 {
@@ -4107,7 +4124,7 @@ static void delay_func(BuiltinFunctionContextPtr f)
 // The standard function descriptor table
 static const BuiltinFunctionDescriptor standardFunctions[] = {
   { "ifvalid", any, ifvalid_numargs, ifvalid_args, &ifvalid_func },
-  { "isvalid", any, isvalid_numargs, isvalid_args, &isvalid_func },
+  { "isvalid", numeric, isvalid_numargs, isvalid_args, &isvalid_func },
   { "if", any, if_numargs, if_args, &if_func },
   { "abs", numeric+null, abs_numargs, abs_args, &abs_func },
   { "int", numeric+null, int_numargs, int_args, &int_func },
@@ -4244,11 +4261,14 @@ public:
     if (aResult) {
       SourceCursor *cursorP = aResult->cursor();
       if (cursorP) {
+        const char* p = cursorP->linetext();
+        string line;
+        nextLine(p, line);
         if (!source.refersTo(*cursorP)) {
-          const char* p = cursorP->linetext();
-          string line;
-          nextLine(p, line);
           printf("     code: %s\n", line.c_str());
+        }
+        if (cursorP->lineno()>0) {
+          printf(" line %3lu: %s\n", cursorP->lineno()+1, line.c_str());
         }
         string errInd;
         errInd.append(cursorP->charpos(), '-');

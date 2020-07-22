@@ -186,7 +186,7 @@ namespace p44 { namespace Script {
     array = 0x080, ///< is an array with indexed elements
     threadref = 0x100, ///< represents a running thread
     // type classes
-    any = typeMask-null, ///< any type except null
+    any = typeMask-null-error, ///< any type except null and error
     scalar = numeric+text+json, ///< scalar types (json can also be structured)
     structured = object+array, ///< structured types
     value = scalar+structured, ///< all value types (excludes executables)
@@ -435,6 +435,7 @@ namespace p44 { namespace Script {
   public:
     AnnotatedNullValue(string aAnnotation) : annotation(aAnnotation) {};
     virtual string getAnnotation() const P44_OVERRIDE { return annotation; };
+    virtual string stringValue() const P44_OVERRIDE { return "undefined"; };
   };
 
 
@@ -921,7 +922,7 @@ namespace p44 { namespace Script {
     ErrorPosValue(const SourceCursor &aCursor, ScriptError::ErrorCodes aErrCode, const char *aFmt, ...);
     ErrorPosValue(const SourceCursor &aCursor, ErrorValuePtr aErrValue) : inherited(aErrValue), sourceCursor(aCursor) {};
     void setErrorCursor(const SourceCursor &aCursor) { sourceCursor = aCursor; };
-    virtual SourceCursor* cursor() { return &sourceCursor; } // has a position
+    virtual SourceCursor* cursor() P44_OVERRIDE { return &sourceCursor; } // has a position
   };
 
 
@@ -1315,6 +1316,7 @@ namespace p44 { namespace Script {
 
     // Generic
     void s_result(); ///< result of an expression or term available as ScriptObj. May need makeValid() if not already valid() here.
+    void s_nothrowResult(); ///< result of an expression, made valid if needed, but not throwing errors here
     void s_validResult(); ///< final result of an expression or term ready, check for error and pop the stack to see next state to run
     void s_validResultCheck(); ///< final result of an expression or term ready, pop the stack but do not check errors, but pass them on
     void s_complete(); ///< nothing more to do, result represents result of entire scanning/evaluation process
@@ -1342,6 +1344,8 @@ namespace p44 { namespace Script {
     void pushArgumentDefinition(TypeInfo aTypeInfo, const string aArgumentName);
 
   public:
+    virtual string getAnnotation() const P44_OVERRIDE { return "function"; };
+
     CompiledFunction(const string aName) : name(aName) {};
     CompiledFunction(const string aName, const SourceCursor& aCursor) : name(aName), cursor(aCursor) {};
     void setCursor(const SourceCursor& aCursor) { cursor = aCursor; };
@@ -1576,6 +1580,9 @@ namespace p44 { namespace Script {
     ScriptObjPtr thisObj; ///< the object this function is a method of (if it's not a plain function)
 
   public:
+
+    virtual string getAnnotation() const P44_OVERRIDE { return "built-in function"; };
+
     BuiltinFunctionObj(const BuiltinFunctionDescriptor *aDescriptor, ScriptObjPtr aThisObj) : descriptor(aDescriptor), thisObj(aThisObj) {};
 
     /// Get description of arguments required to call this internal function
