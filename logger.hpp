@@ -64,8 +64,10 @@
 #define OLOGENABLED(lvl) logEnabled(lvl)
 #define OLOG(lvl,...) { if (logEnabled(lvl)) log(lvl,##__VA_ARGS__); }
 // logging via a specified P44LoggingObj (messages prefixed with object's logContextPrefix(), object's logoffset applied)
-#define SOLOGENABLED(obj,lvl) (obj).logEnabled(lvl)
+#define SOLOGENABLED(obj,lvl) ((obj).logEnabled(lvl))
 #define SOLOG(obj,lvl,...) { if ((obj).logEnabled(lvl)) (obj).log(lvl,##__VA_ARGS__); }
+#define SPLOGENABLED(obj,lvl) ((obj) ? (obj)->logEnabled(lvl) : LOGENABLED(lvl))
+#define SPLOG(obj,lvl,...) { if (SPLOGENABLED(obj,lvl)) { if (obj) (obj)->log(lvl,##__VA_ARGS__); else globalLogger.log(lvl,##__VA_ARGS__); }}
 
 // debug build extra logging (not included in release code unless ALWAYS_DEBUG is set)
 #if defined(DEBUG) || ALWAYS_DEBUG
