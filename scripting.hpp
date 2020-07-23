@@ -214,6 +214,17 @@ namespace p44 { namespace Script {
   };
   typedef uint32_t TypeInfo;
 
+
+  /// trigger modes
+  typedef enum {
+    inactive, ///< trigger is inactive
+    onGettingTrue, ///< trigger is fired when evaluation result is getting true
+    onChangingBool, ///< trigger is fired when evaluation result changes boolean value, including getting invalid
+    onChange, ///< trigger is fired when evaluation result changes (operator== with last result does not return true)
+    onEvaluation ///< trigger is fired whenever it gets evaluated
+  } TriggerMode;
+
+
   /// Argument descriptor
   typedef struct {
     TypeInfo typeInfo; ///< info about allowed types, checking, open argument lists, etc.
@@ -784,8 +795,6 @@ namespace p44 { namespace Script {
   };
 
 
-
-
   class ImplementationObj : public ScriptObj
   {
     typedef ScriptObj inherited;
@@ -998,6 +1007,12 @@ namespace p44 { namespace Script {
     /// @param aEvaluationCB will be called with the result
     /// @param aMaxRunTime the maximum run time
     ScriptObjPtr run(EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB = NULL, MLMicroSeconds aMaxRunTime = Infinite);
+
+    /// convenience method to perform the initialisation run for a trigger to get active
+    /// @param aTriggerCB the callback to be fired when the trigger fires.
+    /// @param aTriggerMode the triggering mode
+    /// @param aEvalFlags how to execute the trigger (defaults to synchronously evaluating expression)
+    ScriptObjPtr initializeTrigger(EvaluationCB aTriggerCB, TriggerMode aTriggerMode = onChangingBool, EvaluationFlags aEvalFlags = expression|synchronously);
 
     /// for single-line tests
     ScriptObjPtr test(EvaluationFlags aEvalFlags, const string aSource)
@@ -1402,7 +1417,7 @@ namespace p44 { namespace Script {
     CompiledScript(const string aName, ScriptMainContextPtr aMainContext) : inherited(aName), mainContext(aMainContext) {};
     CompiledScript(const string aName, ScriptMainContextPtr aMainContext, const SourceCursor& aCursor) : inherited(aName, aCursor), mainContext(aMainContext) {};
 
-    /// get new main routine context for running this object as a main script (or trigger expression)
+    /// get new main routine context for running this object as a main script or expression
     /// @param aMainContext the context from where a script is "called" is always the domain.
     ///   This parameter is used for consistency checking (the compiled code already knows its main context,
     ///   which must have the same domain as the aMainContext provided here).
@@ -1419,15 +1434,35 @@ namespace p44 { namespace Script {
     typedef CompiledScript inherited;
 
     EvaluationCB triggerCB;
+    TriggerMode triggerMode;
+    ScriptObjPtr mCurrentResult;
+    Tristate mCurrentState;
 
   public:
-    CompiledTrigger(const string aName, ScriptMainContextPtr aMainContext) : inherited(aName, aMainContext) {};
+    CompiledTrigger(const string aName, ScriptMainContextPtr aMainContext) :
+      inherited(aName, aMainContext), triggerMode(inactive), mCurrentState(p44::undefined) {};
 
     virtual string getAnnotation() const P44_OVERRIDE { return "trigger"; };
 
     /// set the callback to fire on every trigger event
     /// @note callback will get the trigger expression result
-    void setTriggerCB(EvaluationCB aTriggerCB) { triggerCB = aTriggerCB; }
+    void setTriggerCB(EvaluationCB aTriggerCB, TriggerMode aTriggerMode) { triggerCB = aTriggerCB; triggerMode = aTriggerMode; }
+
+    /// the current result of the trigger (the result of the last evaluation that happened)
+    ScriptObjPtr currentResult() { return mCurrentResult ? mCurrentResult : new AnnotatedNullValue("trigger never evaluated"); }
+
+    /// the current boolean evaluation of the trigger
+    Tristate currentState() { return mCurrentState; }
+
+    /// initialize (activate) the trigger
+    /// @param aEvalMode mode (script, expression) to use for initialisation
+    /// @return result of the initialisation (can be null when not requested synchronous execution)
+    ScriptObjPtr initializeTrigger(EvaluationFlags aEvalMode = expression|synchronously);
+
+  private:
+
+    /// called whenever trigger was evaluated, fires callback depending on aEvalFlags and triggerMode
+    void triggerDidEvaluate(EvaluationFlags aEvalMode, ScriptObjPtr aResult);
 
   };
 
@@ -1444,7 +1479,7 @@ namespace p44 { namespace Script {
 
     virtual string getAnnotation() const P44_OVERRIDE { return "handler"; };
 
-    void setTrigger(ScriptObjPtr aTrigger);
+    void setTrigger(ScriptObjPtr aTrigger, TriggerMode aMode);
     virtual bool originatesFrom(SourceContainerPtr aSource) const P44_OVERRIDE
       { return inherited::originatesFrom(aSource) || (trigger && trigger->originatesFrom(aSource)); };
 

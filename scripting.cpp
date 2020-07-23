@@ -2480,7 +2480,8 @@ void SourceProcessor::s_defineHandler()
   // - olderResult is the trigger
   setState(&SourceProcessor::s_declarations); // back to declarations
   CompiledHandlerPtr handler = new CompiledHandler("handler", getCompilerMainContext());
-  handler->setTrigger(olderResult);
+  // FIXME: later allow other trigger modes than onGettingTrue with alternative "onchange(...) {}" syntax maybe
+  handler->setTrigger(olderResult, onGettingTrue);
   result = captureCode(handler);
   storeHandler();
 }
@@ -3004,8 +3005,6 @@ bool CompiledCode::argumentInfo(size_t aIndex, ArgumentDescriptor& aArgDesc) con
 }
 
 
-
-
 ExecutionContextPtr CompiledScript::contextForCallingFrom(ScriptMainContextPtr aMainContext) const
 {
   // compiled script bodies get their execution context assigned at compile time, just return it
@@ -3020,12 +3019,62 @@ ExecutionContextPtr CompiledScript::contextForCallingFrom(ScriptMainContextPtr a
 }
 
 
-void CompiledHandler::setTrigger(ScriptObjPtr aTrigger)
+// MARK: - Trigger
+
+ScriptObjPtr CompiledTrigger::initializeTrigger(EvaluationFlags aEvalMode)
+{
+  // initialize it
+  ExecutionContextPtr ctx = contextForCallingFrom(NULL);
+  if (!ctx) return  new ErrorValue(ScriptError::Internal, "not a trigger context");
+  aEvalMode = (aEvalMode&~runModeMask)|initial;
+  if (aEvalMode & synchronously) {
+    ScriptObjPtr res = ctx->executeSynchronously(this, aEvalMode, 2*Second);
+    triggerDidEvaluate(aEvalMode, res);
+    return res;
+  }
+  else {
+    ctx->execute(ScriptObjPtr(this), aEvalMode, boost::bind(&CompiledTrigger::triggerDidEvaluate, this, aEvalMode, _1), 30*Second);
+    return new AnnotatedNullValue("asynchonously initializing trigger");
+  }
+}
+
+
+void CompiledTrigger::triggerDidEvaluate(EvaluationFlags aEvalMode, ScriptObjPtr aResult)
+{
+  bool doTrigger = false;
+  Tristate newState = aResult->defined() ? (aResult->boolValue() ? p44::yes : p44::no) : p44::undefined;
+  if (triggerMode==onEvaluation) {
+    doTrigger = true;
+  }
+  else if (triggerMode==onChange) {
+    doTrigger = (*aResult) != *currentResult();
+  }
+  else {
+    // bool modes
+    doTrigger = mCurrentState!=newState;
+    if (triggerMode==onGettingTrue) {
+      doTrigger = doTrigger & (newState==yes); // only if becoming true
+    }
+  }
+  // update state
+  mCurrentResult = aResult;
+  mCurrentState = newState;
+  // callback
+  if (doTrigger && triggerCB) {
+    triggerCB(mCurrentResult);
+  }
+}
+
+
+// MARK: - CompiledHandler
+
+void CompiledHandler::setTrigger(ScriptObjPtr aTrigger, TriggerMode aMode)
 {
   trigger = dynamic_pointer_cast<CompiledTrigger>(aTrigger);
   // link trigger with my handler action
   if (trigger) {
-    trigger->setTriggerCB(boost::bind(&CompiledHandler::triggered, this, _1));
+    trigger->setTriggerCB(boost::bind(&CompiledHandler::triggered, this, _1), aMode);
+    trigger->initializeTrigger();
   }
 }
 
@@ -3223,8 +3272,11 @@ ScriptObjPtr ScriptSource::getExecutable()
       if (compileFlags & anonymousfunction) {
         code = new CompiledCode("anonymous");
       }
+      else if (compileFlags & (triggered|timed|initial)) {
+        code = new CompiledTrigger("trigger", mctx);
+      }
       else {
-        code = new CompiledScript("main", mctx);
+        code = new CompiledScript("script", mctx);
       }
       cachedExecutable = compiler.compile(sourceContainer, code, compileFlags, mctx);
     }
@@ -3266,6 +3318,15 @@ ScriptObjPtr ScriptSource::run(EvaluationFlags aEvalFlags, EvaluationCB aEvaluat
   }
   if (aEvaluationCB) aEvaluationCB(result);
   return result;
+}
+
+
+ScriptObjPtr ScriptSource::initializeTrigger(EvaluationCB aTriggerCB, TriggerMode aTriggerMode, EvaluationFlags aEvalFlags)
+{
+  CompiledTriggerPtr trigger = dynamic_pointer_cast<CompiledTrigger>(getExecutable());
+  if (!trigger) return  new ErrorValue(ScriptError::Internal, "is not a trigger");
+  trigger->setTriggerCB(aTriggerCB, aTriggerMode);
+  return trigger->initializeTrigger(aEvalFlags);
 }
 
 
