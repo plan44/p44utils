@@ -54,10 +54,14 @@ namespace p44 { namespace Script {
   class StringValue;
 
   class ImplementationObj;
+  class CompiledCode;
+  typedef boost::intrusive_ptr<CompiledCode> CompiledCodePtr;
   class CompiledScript;
   typedef boost::intrusive_ptr<CompiledScript> CompiledScriptPtr;
-  class CompiledFunction;
-  typedef boost::intrusive_ptr<CompiledFunction> CompiledFunctionPtr;
+  class CompiledTrigger;
+  typedef boost::intrusive_ptr<CompiledTrigger> CompiledTriggerPtr;
+  class CompiledHandler;
+  typedef boost::intrusive_ptr<CompiledHandler> CompiledHandlerPtr;
 
   class ExecutionContext;
   typedef boost::intrusive_ptr<ExecutionContext> ExecutionContextPtr;
@@ -163,7 +167,7 @@ namespace p44 { namespace Script {
     stoprunning = 0x0200, ///< abort running execution in the same context before starting a new one
     queue = 0x0400, ///< queue for execution if other executions are still running/pending
     stopall = stoprunning+queue, ///< stop everything
-    concurrently = 0x0800, ///< run concurrently with already executing code
+    concurrently = 0x0800, ///< run concurrently with already executing code (together with queued: can be started when all other running threads were started concurrently, queued otherwise)
     keepvars = 0x1000, ///< keep the local variables already set in the context
     embeddedGlobs = 0x2000, ///< embed source code into global function+handler definitions, and keep them even when source code goes away
     mainthread = 0x4000, ///< if a thread with this set terminates, this also terminates all of its siblings
@@ -641,11 +645,6 @@ namespace p44 { namespace Script {
     virtual const ScriptObjPtr memberAtIndex(size_t aIndex, TypeInfo aTypeRequirements = none) P44_OVERRIDE;
     virtual ErrorPtr setMemberAtIndex(size_t aIndex, const ScriptObjPtr aMember, const string aName = "") P44_OVERRIDE;
 
-//    /// "Compile" (for now, just scan for function definitions and syntax errors)
-//    /// @param aSource the script source to compile
-//    /// @return an ImplementationObj when successful, a Error(Pos)Value otherwise
-//    ScriptObjPtr compile(SourceContainerPtr aSource);
-
     /// release all objects stored in this container and other known containers which were defined by aSource
     virtual void releaseObjsFromSource(SourceContainerPtr aSource); // no source-derived permanent objects here
 
@@ -698,7 +697,7 @@ namespace p44 { namespace Script {
     typedef ExecutionContext inherited;
     friend class ScriptCodeThread;
     friend class ScriptMainContext;
-    friend class CompiledFunction;
+    friend class CompiledCode;
 
     typedef std::map<string, ScriptObjPtr, lessStrucmp> NamedVarMap;
     NamedVarMap namedVars; ///< the named local variables/objects of this context
@@ -932,7 +931,7 @@ namespace p44 { namespace Script {
     friend class SourceCursor;
     friend class ScriptSource;
     friend class CompiledScript;
-    friend class CompiledFunction;
+    friend class CompiledCode;
     friend class ExecutionContext;
 
     const char *originLabel; ///< a label used for logging and error reporting
@@ -1016,12 +1015,14 @@ namespace p44 { namespace Script {
     GeoLocation *geoLocationP;
     MLMicroSeconds maxBlockTime;
 
-    // TODO: global script defined function storage -> no, are just vars of the domains
-    // TODO: global event handler storage
+    typedef std::list<CompiledHandlerPtr> HandlerList;
+    HandlerList handlers;
 
   public:
 
     ScriptingDomain() : inherited(ScriptingDomainPtr(), ScriptObjPtr()), geoLocationP(NULL), maxBlockTime(DEFAULT_MAX_BLOCK_TIME) {};
+
+    virtual void releaseObjsFromSource(SourceContainerPtr aSource) P44_OVERRIDE;
 
     /// set geolocation to use for functions that refer to location
     void setGeoLocation(GeoLocation* aGeoLocationP) { geoLocationP = aGeoLocationP; };
@@ -1044,6 +1045,11 @@ namespace p44 { namespace Script {
     ///   The class scope can also bring in aInstanceObj related member functions (methods), but also
     ///   plain functions (static methods) and other members.
     ScriptMainContextPtr newContext(ScriptObjPtr aInstanceObj = ScriptObjPtr());
+
+    /// register a domain-global handler
+    /// @param aHandler the handler to register
+    /// @return Ok or error
+    ScriptObjPtr registerHandler(ScriptObjPtr aHandler);
 
   };
 
@@ -1150,13 +1156,26 @@ namespace p44 { namespace Script {
     /// @note must cause calling resume() when result contains the member (or NULL if not found)
     virtual void pushFunctionArgument(ScriptObjPtr aArgument);
 
-    /// must define (store) result as a compiled function in the scripting domain
-    /// @note must cause calling resume() when function is successfully stored
-    virtual void defineFunction();
+    /// capture code between poppedPos and current position into specified object
+    /// @note embeddedGlobs determines if code is embedded into the code container (and lives on with it) or
+    ///   just references source code (so it will get deleted when source code goes away)
+    ScriptObjPtr captureCode(ScriptObjPtr aCodeContainer);
+
+    /// must store result as a compiled function in the scripting domain
+    /// @note must cause calling resume()
+    virtual void storeFunction();
+
+    /// must store result as a event handler (trigger+action script) in the scripting domain
+    /// @note must cause calling resume()
+    virtual void storeHandler();
 
     /// indicates start of script body (at current src.pos)
     /// @note must cause calling resume()
     virtual void startOfBodyCode();
+
+    /// @return the main context passed to the compiler. This is used to associate scripts defined as part of a
+    /// source (e.g. "on"-handlers) with a execution context to call them later
+    virtual ScriptMainContextPtr getCompilerMainContext() { return ScriptMainContextPtr(); } // none in base class
 
     /// @}
 
@@ -1313,6 +1332,8 @@ namespace p44 { namespace Script {
     // Declarations
     void s_declarations(); ///< declarations (functions and handlers)
     void s_defineFunction(); ///< store the defined function
+    void s_defineTrigger(); ///< store the trigger expression of a on(...) {...} statement
+    void s_defineHandler(); ///< store the handler script of a of a on(...) {...} statement
 
     // Generic
     void s_result(); ///< result of an expression or term available as ScriptObj. May need makeValid() if not already valid() here.
@@ -1326,18 +1347,19 @@ namespace p44 { namespace Script {
   };
 
 
-  // MARK: "compiling" code
+  // MARK: "compiled" code
 
-  class CompiledFunction : public ImplementationObj
+  /// compiled code, by default as a subroutine/function called from a context
+  class CompiledCode : public ImplementationObj
   {
     typedef ImplementationObj inherited;
     friend class ScriptCodeContext;
     friend class SourceProcessor;
 
-    string name;
     std::vector<ArgumentDescriptor> arguments;
 
   protected:
+    string name;
     SourceCursor cursor; ///< reference to the source part from which this object originates from
 
     /// define argument
@@ -1346,8 +1368,8 @@ namespace p44 { namespace Script {
   public:
     virtual string getAnnotation() const P44_OVERRIDE { return "function"; };
 
-    CompiledFunction(const string aName) : name(aName) {};
-    CompiledFunction(const string aName, const SourceCursor& aCursor) : name(aName), cursor(aCursor) {};
+    CompiledCode(const string aName) : name(aName) {};
+    CompiledCode(const string aName, const SourceCursor& aCursor) : name(aName), cursor(aCursor) {};
     void setCursor(const SourceCursor& aCursor) { cursor = aCursor; };
     virtual bool originatesFrom(SourceContainerPtr aSource) const P44_OVERRIDE { return cursor.refersTo(aSource); };
     virtual P44LoggingObj* loggingContext() const P44_OVERRIDE { return cursor.source ? cursor.source->loggingContextP : NULL; };
@@ -1367,26 +1389,73 @@ namespace p44 { namespace Script {
   };
 
 
-  class CompiledScript : public CompiledFunction
+  /// compiled main script
+  class CompiledScript : public CompiledCode
   {
-    typedef CompiledFunction inherited;
+    typedef CompiledCode inherited;
     friend class ScriptCompiler;
 
+  protected:
     ScriptMainContextPtr mainContext; ///< the main context this script should execute in
 
-    CompiledScript(const SourceCursor& aCursor, ScriptMainContextPtr aMainContext) : inherited("main"), mainContext(aMainContext) { setCursor(aCursor); };
-
   public:
+    CompiledScript(const string aName, ScriptMainContextPtr aMainContext) : inherited(aName), mainContext(aMainContext) {};
+    CompiledScript(const string aName, ScriptMainContextPtr aMainContext, const SourceCursor& aCursor) : inherited(aName, aCursor), mainContext(aMainContext) {};
 
-    /// get new main routine context for running this object as script main.
-    /// @param aMainContext the main context for a script execution is always the domain, but this is used only
-    ///    for consistency checking (the compiled code already knows its main context). It can be passed NULL when
-    ///    no check is needed.
+    /// get new main routine context for running this object as a main script (or trigger expression)
+    /// @param aMainContext the context from where a script is "called" is always the domain.
+    ///   This parameter is used for consistency checking (the compiled code already knows its main context,
+    ///   which must have the same domain as the aMainContext provided here).
+    ///   It can be passed NULL when no check is needed.
     /// @return new context suitable for evaluating this implementation, NULL if none
     virtual ExecutionContextPtr contextForCallingFrom(ScriptMainContextPtr aMainContext) const P44_OVERRIDE;
 
   };
 
+
+  /// a compiled trigger expression
+  class CompiledTrigger : public CompiledScript
+  {
+    typedef CompiledScript inherited;
+
+    EvaluationCB triggerCB;
+
+  public:
+    CompiledTrigger(const string aName, ScriptMainContextPtr aMainContext) : inherited(aName, aMainContext) {};
+
+    virtual string getAnnotation() const P44_OVERRIDE { return "trigger"; };
+
+    /// set the callback to fire on every trigger event
+    /// @note callback will get the trigger expression result
+    void setTriggerCB(EvaluationCB aTriggerCB) { triggerCB = aTriggerCB; }
+
+  };
+
+
+
+  /// compiled handler (script with an embedded trigger)
+  class CompiledHandler : public CompiledScript
+  {
+    typedef CompiledScript inherited;
+
+    CompiledTriggerPtr trigger; ///< the trigger
+  public:
+    CompiledHandler(const string aName, ScriptMainContextPtr aMainContext) : inherited(aName, aMainContext) {};
+
+    virtual string getAnnotation() const P44_OVERRIDE { return "handler"; };
+
+    void setTrigger(ScriptObjPtr aTrigger);
+    virtual bool originatesFrom(SourceContainerPtr aSource) const P44_OVERRIDE
+      { return inherited::originatesFrom(aSource) || (trigger && trigger->originatesFrom(aSource)); };
+
+  private:
+    void triggered(ScriptObjPtr aTriggerResult);
+    void actionExecuted(ScriptObjPtr aActionResult);
+
+  };
+
+
+  // MARK: - ScriptCompiler
 
   class ScriptCompiler : public SourceProcessor
   {
@@ -1394,6 +1463,7 @@ namespace p44 { namespace Script {
 
     ScriptingDomainPtr domain; ///< the domain to store compiled functions and handlers
     SourceCursor bodyRef; ///< where the script body starts
+    ScriptMainContextPtr compileForContext; ///< the main context this script is compiled for and should execute in later
 
   public:
 
@@ -1401,19 +1471,27 @@ namespace p44 { namespace Script {
 
     /// Scan code, extract function definitions, global vars, event handlers into scripting domain, return actual code
     /// @param aSource the source code
+    /// @param aIntoContainer the CompiledCode container where to store the main code of the script compiled
     /// @param aParsingMode how to parse (as expression, scriptbody or full script with function+handler definitions)
     /// @param aMainContext the context in which this script should execute in. It is stored with the
     /// @return an executable object or error (syntax, other fatal problems)
-    ScriptObjPtr compile(SourceContainerPtr aSource, EvaluationFlags aParsingMode, ScriptMainContextPtr aMainContext);
+    ScriptObjPtr compile(SourceContainerPtr aSource, CompiledCodePtr aIntoContainer, EvaluationFlags aParsingMode, ScriptMainContextPtr aMainContext);
 
-    /// must define (store) result as a compiled function in the scripting domain
-    /// @note must cause calling resume() when function is successfully stored
-    virtual void defineFunction() P44_OVERRIDE;
+    /// must store result as a compiled function in the scripting domain
+    /// @note must cause calling resume()
+    virtual void storeFunction() P44_OVERRIDE;
+
+    /// must store result as a event handler (trigger+action script) in the scripting domain
+    /// @note must cause calling resume()
+    virtual void storeHandler() P44_OVERRIDE;
 
     /// indicates end of declarations
     /// @note must cause calling resume()
     virtual void startOfBodyCode() P44_OVERRIDE;
 
+    /// @return the main context passed to the compiler. This is used to associate scripts defined as part of a
+    /// source (e.g. "on"-handlers) with a execution context to call them later
+    virtual ScriptMainContextPtr getCompilerMainContext() P44_OVERRIDE { return compileForContext; }
 
   };
 
@@ -1428,6 +1506,7 @@ namespace p44 { namespace Script {
   class ScriptCodeThread : public P44Obj, public SourceProcessor
   {
     typedef SourceProcessor inherited;
+    friend class ScriptCodeContext;
 
     ScriptCodeContextPtr owner; ///< the execution context which owns (has started) this thread
     MLMicroSeconds maxBlockTime; ///< how long the thread is allowed to block in evaluate()

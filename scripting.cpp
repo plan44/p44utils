@@ -663,6 +663,7 @@ ScriptCodeContext::ScriptCodeContext(ScriptMainContextPtr aMainContext) :
 
 void ScriptCodeContext::releaseObjsFromSource(SourceContainerPtr aSource)
 {
+  // global members
   NamedVarMap::iterator pos = namedVars.begin();
   while (pos!=namedVars.end()) {
     if (pos->second->originatesFrom(aSource)) {
@@ -769,7 +770,7 @@ void ScriptCodeContext::execute(ScriptObjPtr aToExecute, EvaluationFlags aEvalFl
     return;
   }
   // must be compiled code at this point
-  CompiledFunctionPtr code = dynamic_pointer_cast<CompiledFunction>(aToExecute);
+  CompiledCodePtr code = dynamic_pointer_cast<CompiledCode>(aToExecute);
   if (!code) {
     if (aEvaluationCB) aEvaluationCB(new ErrorValue(ScriptError::Internal, "Object to be run must be compiled code!"));
     return;
@@ -805,6 +806,23 @@ ScriptCodeThreadPtr ScriptCodeContext::newThreadFrom(SourceCursor &aFromCursor, 
       // ...then start new
     }
     else if (aEvalFlags & queue) {
+      if (aEvalFlags & concurrently) {
+        // special mode: is allowed to to run directly with threads that were started concurrently
+        // but will get queued if non-concurrently started threads are running
+        bool allConcurrent = true;
+        for (ThreadList::iterator pos=threads.begin(); pos!=threads.end(); ++pos) {
+          if (((*pos)->evaluationFlags & concurrently)==0) {
+            allConcurrent = false;
+            break;
+          }
+        }
+        if (allConcurrent) {
+          // can start the new thread concurrently to those already running
+          newThread->evaluationFlags &= ~concurrently; // remove the special mode marker, is not really started concurrently in the sense above
+          threads.push_back(newThread);
+          return newThread;
+        }
+      }
       // queue for later
       queuedThreads.push_back(newThread);
       return ScriptCodeThreadPtr();
@@ -1456,6 +1474,7 @@ ScriptObjPtr SourceCursor::parseCodeLiteral()
 }
 
 
+
 #if SCRIPTING_JSON_SUPPORT
 
 ScriptObjPtr SourceCursor::parseJSONLiteral()
@@ -1789,6 +1808,26 @@ void SourceProcessor::throwOrComplete(ErrorValuePtr aError)
   resume();
 }
 
+
+ScriptObjPtr SourceProcessor::captureCode(ScriptObjPtr aCodeContainer)
+{
+  CompiledCodePtr code = dynamic_pointer_cast<CompiledCode>(aCodeContainer);
+  if (!code) {
+    return new ErrorPosValue(src, ScriptError::Internal, "no compiled code");
+  }
+  else {
+    if (evaluationFlags & embeddedGlobs) {
+      // copy from the original source
+      SourceContainerPtr s = SourceContainerPtr(new SourceContainer(src, poppedPos, src.pos));
+      code->setCursor(s->getCursor());
+    }
+    else {
+      // refer to the source code part that defines the function
+      code->setCursor(SourceCursor(src.source, poppedPos, src.pos));
+    }
+  }
+  return code;
+}
 
 
 // MARK: Simple Terms
@@ -2325,7 +2364,7 @@ void SourceProcessor::s_declarations()
         exitWithSyntaxError("function name expected");
         return;
       }
-      CompiledFunctionPtr function = CompiledFunctionPtr(new CompiledFunction(identifier));
+      CompiledCodePtr function = CompiledCodePtr(new CompiledCode(identifier));
       // optional argument list
       src.skipNonCode();
       if (src.nextIf('(')) {
@@ -2368,7 +2407,15 @@ void SourceProcessor::s_declarations()
     } // function
     if (uequals(identifier, "on")) {
       // FIXME: implement
-      complete(new ErrorPosValue(src, ScriptError::Internal, "on(x) { y } handlers not yet implemented"));
+      // on (trigger) { code }
+      src.skipNonCode();
+      if (!src.nextIf('(')) {
+        exitWithSyntaxError("'(' expected");
+        return;
+      }
+      push(&SourceProcessor::s_defineTrigger);
+      skipping = true;
+      resumeAt(&SourceProcessor::s_expression);
       return;
     } // handler
   } // identifier
@@ -2386,11 +2433,52 @@ void SourceProcessor::s_defineFunction()
   // - poppedPos points to the opening '{' of the body
   // - src.pos is after the closing '}' of the body
   // - olderResult is the CompiledFunction
-  setState(&SourceProcessor::s_declarations);
-  result = olderResult;
-  defineFunction();
+  setState(&SourceProcessor::s_declarations); // back to declarations
+  result = captureCode(olderResult);
+  storeFunction();
 }
 
+
+void SourceProcessor::s_defineTrigger()
+{
+  FOCUSLOGSTATE
+  // after scanning the trigger condition expression of a on() statement
+  // - poppedPos points to the beginning of the expression
+  // - src.pos should be on the ')' of the trigger expression
+  if (src.c()!=')') {
+    exitWithSyntaxError("')' as end of trigger expression expected");
+    return;
+  }
+  CompiledScriptPtr trigger = new CompiledTrigger("trigger", getCompilerMainContext());
+  result = captureCode(trigger);
+  src.next(); // skip ')'
+  src.skipNonCode();
+  // check for beginning of handler body
+  if (src.c()!='{') {
+    exitWithSyntaxError("expected handler body");
+    return;
+  }
+  push(&SourceProcessor::s_defineHandler); // with position on the opening '{' of the handler body
+  skipping = true;
+  src.next(); // skip the '{'
+  resumeAt(&SourceProcessor::s_block);
+  return;
+}
+
+
+void SourceProcessor::s_defineHandler()
+{
+  FOCUSLOGSTATE
+  // after scanning a block containing a handler body
+  // - poppedPos points to the opening '{' of the body
+  // - src.pos is after the closing '}' of the body
+  // - olderResult is the trigger
+  setState(&SourceProcessor::s_declarations); // back to declarations
+  CompiledHandlerPtr handler = new CompiledHandler("handler", getCompilerMainContext());
+  handler->setTrigger(olderResult);
+  result = captureCode(handler);
+  storeHandler();
+}
 
 
 
@@ -2852,7 +2940,12 @@ void SourceProcessor::pushFunctionArgument(ScriptObjPtr aArgument)
   checkAndResume(); // NOP on the base class level
 }
 
-void SourceProcessor::defineFunction()
+void SourceProcessor::storeFunction()
+{
+  checkAndResume(); // NOP on the base class level
+}
+
+void SourceProcessor::storeHandler()
 {
   checkAndResume(); // NOP on the base class level
 }
@@ -2874,13 +2967,13 @@ void SourceProcessor::executeResult()
 
 // MARK: - CompiledScript, CompiledFunction, CompiledHandler
 
-ExecutionContextPtr CompiledFunction::contextForCallingFrom(ScriptMainContextPtr aMainContext) const
+ExecutionContextPtr CompiledCode::contextForCallingFrom(ScriptMainContextPtr aMainContext) const
 {
   // functions get executed in a private context linked to the caller's (main) context
   return new ScriptCodeContext(aMainContext);
 }
 
-void CompiledFunction::pushArgumentDefinition(TypeInfo aTypeInfo, const string aArgumentName)
+void CompiledCode::pushArgumentDefinition(TypeInfo aTypeInfo, const string aArgumentName)
 {
   ArgumentDescriptor arg;
   arg.typeInfo = aTypeInfo;
@@ -2889,7 +2982,7 @@ void CompiledFunction::pushArgumentDefinition(TypeInfo aTypeInfo, const string a
 }
 
 
-bool CompiledFunction::argumentInfo(size_t aIndex, ArgumentDescriptor& aArgDesc) const
+bool CompiledCode::argumentInfo(size_t aIndex, ArgumentDescriptor& aArgDesc) const
 {
   size_t idx = aIndex;
   if (idx>=arguments.size()) {
@@ -2922,13 +3015,46 @@ ExecutionContextPtr CompiledScript::contextForCallingFrom(ScriptMainContextPtr a
 }
 
 
+void CompiledHandler::setTrigger(ScriptObjPtr aTrigger)
+{
+  trigger = dynamic_pointer_cast<CompiledTrigger>(aTrigger);
+  // link trigger with my handler action
+  if (trigger) {
+    trigger->setTriggerCB(boost::bind(&CompiledHandler::triggered, this, _1));
+  }
+}
+
+
+void CompiledHandler::triggered(ScriptObjPtr aTriggerResult)
+{
+  // execute the handler script now
+  SPLOG(mainContext->domain(), LOG_NOTICE, "%s triggered: '%s' with result = %s", name.c_str(), cursor.displaycode(50).c_str(), ScriptObj::describe(aTriggerResult).c_str());
+  if (mainContext) {
+    ExecutionContextPtr ctx = contextForCallingFrom(mainContext->domain());
+    if (ctx) {
+      // FIXME: not so clean, as it sets a "result" variable also visible from trigger
+      ctx->setMemberByName("result", aTriggerResult, create);
+      // execute in order with other non-concurrently started threads (queue|concurrently), but allow a subthreads to continue running (!mainthread)
+      ctx->execute(this, scriptbody|keepvars|queue|concurrently, boost::bind(&CompiledHandler::actionExecuted, this, _1));
+      return;
+    }
+  }
+  SPLOG(mainContext->domain(), LOG_ERR, "%s action cannot execute - no context", name.c_str());
+}
+
+
+void CompiledHandler::actionExecuted(ScriptObjPtr aActionResult)
+{
+  SPLOG(mainContext->domain(), LOG_NOTICE, "%s executed: result =  %s", name.c_str(), ScriptObj::describe(aActionResult).c_str());
+}
+
 
 // MARK: - ScriptCompiler
 
 
 static void flagSetter(bool* aFlag) { *aFlag = true; }
 
-ScriptObjPtr ScriptCompiler::compile(SourceContainerPtr aSource, EvaluationFlags aParsingMode, ScriptMainContextPtr aMainContext)
+ScriptObjPtr ScriptCompiler::compile(SourceContainerPtr aSource, CompiledCodePtr aIntoContainer, EvaluationFlags aParsingMode, ScriptMainContextPtr aMainContext)
 {
   // set up starting point
   if ((aParsingMode & sourcecode)==0) {
@@ -2942,7 +3068,9 @@ ScriptObjPtr ScriptCompiler::compile(SourceContainerPtr aSource, EvaluationFlags
     initProcessing(aParsingMode);
     bool completed = false;
     setCompletedCB(boost::bind(&flagSetter,&completed));
+    compileForContext = aMainContext; // set for compiling other scriptlets (triggers, handlers) into the same context
     start();
+    compileForContext.reset(); // release
     if (!completed) {
       // the compiler must complete synchronously!
       return new ErrorValue(ScriptError::Internal, "Fatal: compiler execution not synchronous!");
@@ -2951,12 +3079,8 @@ ScriptObjPtr ScriptCompiler::compile(SourceContainerPtr aSource, EvaluationFlags
       return result;
     }
   }
-  if (aParsingMode & anonymousfunction) {
-    return new CompiledFunction("anonymous", bodyRef);
-  }
-  else {
-    return new CompiledScript(bodyRef, aMainContext);
-  }
+  aIntoContainer->setCursor(bodyRef);
+  return aIntoContainer;
 }
 
 
@@ -2967,28 +3091,24 @@ void ScriptCompiler::startOfBodyCode()
 }
 
 
-void ScriptCompiler::defineFunction()
+void ScriptCompiler::storeFunction()
 {
-  CompiledFunctionPtr function = dynamic_pointer_cast<CompiledFunction>(result);
-  if (!function) {
-    result = new ErrorPosValue(src, ScriptError::Internal, "no compiled code");
-  }
-  else {
-    if (evaluationFlags & embeddedGlobs) {
-      // copy from the original source
-      SourceContainerPtr s = SourceContainerPtr(new SourceContainer(src, poppedPos, src.pos));
-      function->setCursor(s->getCursor());
-    }
-    else {
-      // refer to the source code part that defines the function
-      function->setCursor(SourceCursor(src.source, poppedPos, src.pos));
-    }
+  if (!result->isErr()) {
     // functions are always global
-    ErrorPtr err = domain->setMemberByName(function->getIdentifier(), function, global|create);
+    ErrorPtr err = domain->setMemberByName(result->getIdentifier(), result, global|create);
     if (Error::notOK(err)) {
-      complete(new ErrorPosValue(src, err));
-      return;
+      result = new ErrorPosValue(src, err);
     }
+  }
+  checkAndResume();
+}
+
+
+void ScriptCompiler::storeHandler()
+{
+  if (!result->isErr()) {
+    // handlers are always global
+    result = domain->registerHandler(result);
   }
   checkAndResume();
 }
@@ -3094,7 +3214,14 @@ ScriptObjPtr ScriptSource::getExecutable()
         // default to independent execution in a non-object context (no instance pointer)
         mctx = domain()->newContext();
       }
-      cachedExecutable = compiler.compile(sourceContainer, compileFlags, mctx);
+      CompiledCodePtr code;
+      if (compileFlags & anonymousfunction) {
+        code = new CompiledCode("anonymous");
+      }
+      else {
+        code = new CompiledScript("main", mctx);
+      }
+      cachedExecutable = compiler.compile(sourceContainer, code, compileFlags, mctx);
     }
     return cachedExecutable;
   }
@@ -3144,6 +3271,32 @@ ScriptMainContextPtr ScriptingDomain::newContext(ScriptObjPtr aInstanceObj)
   return new ScriptMainContext(this, aInstanceObj);
 }
 
+
+void ScriptingDomain::releaseObjsFromSource(SourceContainerPtr aSource)
+{
+  // handlers
+  HandlerList::iterator pos = handlers.begin();
+  while (pos!=handlers.end()) {
+    if ((*pos)->originatesFrom(aSource)) {
+      pos = handlers.erase(pos); // source is gone -> remove
+    }
+    else {
+      ++pos;
+    }
+  }
+  inherited::releaseObjsFromSource(aSource);
+}
+
+
+ScriptObjPtr ScriptingDomain::registerHandler(ScriptObjPtr aHandler)
+{
+  CompiledHandlerPtr handler = dynamic_pointer_cast<CompiledHandler>(aHandler);
+  if (!handler) {
+    return new ErrorValue(ScriptError::Internal, "is not a handler");
+  }
+  handlers.push_back(handler);
+  return handler;
+}
 
 
 // MARK: - ScriptCodeThread
