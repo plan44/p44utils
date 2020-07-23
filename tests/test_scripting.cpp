@@ -329,12 +329,14 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "expressions", "[scripting],[FOCUS]") {
     REQUIRE(s.test(expression, "0==false")->boolValue() == true);
     REQUIRE(s.test(expression, "0==no")->boolValue() == true);
     REQUIRE(s.test(expression, "undefined")->boolValue() == false);
-    REQUIRE(s.test(expression, "undefined!=undefined")->boolValue() == false);
-    REQUIRE(s.test(expression, "undefined==undefined")->boolValue() == false);
-    REQUIRE(s.test(expression, "undefined==42")->boolValue() == false);
-    REQUIRE(s.test(expression, "42==undefined")->boolValue() == false);
-    REQUIRE(s.test(expression, "undefined!=42")->boolValue() == false);
-    REQUIRE(s.test(expression, "42!=undefined")->boolValue() == false);
+    REQUIRE(s.test(expression, "undefined!=undefined")->boolValue() == false); // == is now evaluated between nulls
+    REQUIRE(s.test(expression, "undefined!=undefined")->defined() == true); // ..so result is defined
+    REQUIRE(s.test(expression, "undefined==undefined")->boolValue() == true); // == is now evaluated between nulls
+    REQUIRE(s.test(expression, "undefined==undefined")->defined() == true); // ..so result is defined
+    REQUIRE(s.test(expression, "undefined==42")->boolValue() == false); // == is now evaluated between nulls
+    REQUIRE(s.test(expression, "42==undefined")->boolValue() == false); // == is now evaluated between nulls
+    REQUIRE(s.test(expression, "42!=undefined")->boolValue() == true); // != is now evaluated between nulls
+    REQUIRE(s.test(expression, "undefined!=42")->boolValue() == true); // != is now evaluated between nulls
     REQUIRE(s.test(expression, "42>undefined")->undefined() == true);
     REQUIRE(s.test(expression, "42<undefined")->undefined() == true);
     REQUIRE(s.test(expression, "undefined<42")->undefined() == true);

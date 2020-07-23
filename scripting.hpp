@@ -273,7 +273,7 @@ namespace p44 { namespace Script {
     /// check for null/undefined
     bool undefined() const { return (getTypeInfo() & null)!=0; }
 
-    /// check for null/undefined
+    /// check for defined value (but not error)
     bool defined() const { return !undefined() & !isErr(); }
 
     /// check for error

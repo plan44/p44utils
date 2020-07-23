@@ -176,7 +176,9 @@ bool ScriptObj::operator||(const ScriptObj& aRightSide) const
 
 bool ScriptObj::operator==(const ScriptObj& aRightSide) const
 {
-  return (this==&aRightSide) ; // undefined comparisons are always false, unless we have object _instance_ identity
+  return
+    (this==&aRightSide) || // object _instance_ identity...
+    (undefined() && aRightSide.undefined()); // ..or both sides are really null/undefined
 }
 
 bool NumericValue::operator==(const ScriptObj& aRightSide) const
@@ -2302,8 +2304,14 @@ void SourceProcessor::s_exprRightSide()
   FOCUSLOGSTATE;
   // olderResult = leftside, result = rightside
   if (!skipping) {
-    // all operations involving nulls return null
-    if (olderResult->defined() && result->defined()) {
+    // all operations involving nulls return null except equality which compares being null with not being null
+    if (pendingOperation==op_equal || pendingOperation==op_assignOrEq) {
+      result = new NumericValue(*olderResult == *result);
+    }
+    else if (pendingOperation==op_notequal) {
+      result = new NumericValue(*olderResult != *result);
+    }
+    else if (olderResult->defined() && result->defined()) {
       // both are values -> apply the operation between leftside and rightside
       switch (pendingOperation) {
         case op_assign: {
@@ -2320,10 +2328,7 @@ void SourceProcessor::s_exprRightSide()
         case op_multiply:   result = *olderResult * *result; break;
         case op_add:        result = *olderResult + *result; break;
         case op_subtract:   result = *olderResult - *result; break;
-        case op_equal:
         // boolean result
-        case op_assignOrEq: result = new NumericValue(*olderResult == *result); break;
-        case op_notequal:   result = new NumericValue(*olderResult != *result); break;
         case op_less:       result = new NumericValue(*olderResult <  *result); break;
         case op_greater:    result = new NumericValue(*olderResult >  *result); break;
         case op_leq:        result = new NumericValue(*olderResult <= *result); break;
