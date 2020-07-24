@@ -32,11 +32,6 @@
 
 #include "math.h"
 
-#if ENABLE_JSON_APPLICATION && EXPRESSION_JSON_SUPPORT
-  #include "application.hpp"
-#endif
-
-
 using namespace p44;
 
 
@@ -758,8 +753,6 @@ bool EvaluationContext::startEvaluation()
 }
 
 
-// This static method can be passed to timers and makes sure that "this" is kept alive by the callback
-// boost::bind object because it is a smart pointer argument
 bool EvaluationContext::selfKeepingContinueEvaluation(EvaluationContextPtr aContext)
 {
   return aContext->continueEvaluation();
@@ -939,7 +932,7 @@ bool EvaluationContext::resumeEvaluation()
     case s_abort:
       OLOG(LOG_INFO, "Evaluation: execution aborted (from within script)");
       return newstate(s_finalize);
-    case s_finalize: {
+    case s_finalize:
       finalResult = sp().res;
       if (OLOGENABLED(LOG_INFO)) {
         if (!finalResult.syntaxOk()) {
@@ -954,13 +947,10 @@ bool EvaluationContext::resumeEvaluation()
         OLOG(LOG_INFO, "- finalResult = %s - err = %s", finalResult.stringValue().c_str(), Error::text(finalResult.err));
       }
       stack.clear();
-      EvaluationContextPtr keepAlive = this;
       execTicket.cancel(); // really stop here
-      runningSince = Never;
       runCallBack(finalResult); // call back if configured
-      keepAlive.reset();
+      runningSince = Never;
       return true;
-    }
     // expression evaluation states
     case s_newExpression:
     case s_expression:
@@ -1720,17 +1710,6 @@ bool EvaluationContext::evaluateFunction(const string &aFunc, const FunctionArgu
       }
     }
   }
-  #if ENABLE_JSON_APPLICATION
-  else if (aFunc=="jsonresource" && aArgs.size()==1) {
-    if (aArgs[0].notValue()) return errorInArg(aArgs[0], aResult); // return error/null from argument
-    ErrorPtr err;
-    JsonObjectPtr j = Application::jsonResource(aArgs[0].stringValue(), &err);
-    if (Error::isOK(err))
-      aResult.setJson(j);
-    else
-      aResult.setError(err);
-  }
-  #endif // ENABLE_JSON_APPLICATION
   #endif // EXPRESSION_JSON_SUPPORT
   else if (aFunc=="lastarg") {
     // lastarg(expr, expr, exprlast)
@@ -2037,7 +2016,7 @@ bool EvaluationContext::evaluateAsyncFunction(const string &aFunc, const Functio
   if (aFunc=="delay" && aArgs.size()==1) {
     if (aArgs[0].notValue()) return true; // no value specified, consider executed
     MLMicroSeconds delay = aArgs[0].numValue()*Second;
-    execTicket.executeOnce(boost::bind(&EvaluationContext::selfKeepingContinueEvaluation, this), delay);
+    execTicket.executeOnce(boost::bind(&EvaluationContext::continueEvaluation, this), delay);
     aNotYielded = false; // yielded execution
   }
   else {

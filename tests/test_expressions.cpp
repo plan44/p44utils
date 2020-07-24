@@ -37,6 +37,7 @@ public:
   ExpressionFixture() :
     inherited(NULL)
   {
+    isMemberVariable();
     setLogLevelOffset(LOGLEVELOFFSET);
     syncExecLimit = Infinite;
   };
@@ -63,13 +64,14 @@ public:
 };
 
 
-class ScriptingCodeFixture : public ScriptExecutionContext
+class ScriptFixture : public ScriptExecutionContext
 {
   typedef ScriptExecutionContext inherited;
 public:
-  ScriptingCodeFixture() :
+  ScriptFixture() :
     inherited(NULL)
   {
+    isMemberVariable();
     setLogLevelOffset(LOGLEVELOFFSET);
     syncExecLimit = Infinite;
   };
@@ -102,7 +104,7 @@ TEST_CASE_METHOD(ExpressionFixture, "Focus1", "[FOCUS]" )
 }
 
 
-TEST_CASE_METHOD(ScriptingCodeFixture, "Focus2", "[FOCUS]" )
+TEST_CASE_METHOD(ScriptFixture, "Focus2", "[FOCUS]" )
 {
   setLogLevelOffset(2);
   //REQUIRE(runScript("fortytwo = 42; return fortytwo").numValue() == 42);
@@ -382,16 +384,13 @@ TEST_CASE_METHOD(ExpressionFixture, "Expressions", "[expressions]" )
     // divs
     REQUIRE(runExpression("eval('333*777')").numValue() == 333*777);
     // error handling
-    REQUIRE(runExpression("error('testerror')").stringValue() == string_format("testerror (ExpressionError:%d)", ExpressionError::User));
+    REQUIRE(runExpression("error('testerror')").stringValue() == string_format("testerror (ExpressionError::User[%d])", ExpressionError::User));
     REQUIRE(runExpression("errordomain(error('testerror'))").stringValue() == "ExpressionError");
     REQUIRE(runExpression("errorcode(error('testerror'))").numValue() == ExpressionError::User);
     REQUIRE(runExpression("errormessage(error('testerror')))").stringValue() == "testerror");
     // separate terrms ARE a syntax error in a expression! (not in a script, see below)
-    REQUIRE(runExpression("42 43 44").stringValue().find(string_format("(ExpressionError:%d)", ExpressionError::Syntax)) != string::npos);
-    // special cases
-    REQUIRE(runExpression("hour()").numValue() > 0);
+    REQUIRE(runExpression("42 43 44").stringValue().find(string_format("(ExpressionError::Syntax[%d])", ExpressionError::Syntax)) != string::npos);
     // should be case insensitive
-    REQUIRE(runExpression("HOUR()").numValue() > 0);
     REQUIRE(runExpression("IF(TRUE, 'TRUE', 'FALSE')").stringValue() == "TRUE");
   }
 
@@ -403,7 +402,7 @@ TEST_CASE_METHOD(ExpressionFixture, "Expressions", "[expressions]" )
 }
 
 
-TEST_CASE_METHOD(ScriptingCodeFixture, "Scripts", "[expressions]" )
+TEST_CASE_METHOD(ScriptFixture, "Scripts", "[expressions]" )
 {
 
   SECTION("return values") {
@@ -480,8 +479,8 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "Scripts", "[expressions]" )
     REQUIRE(runScript("try var zerodiv = 7/1; catch return error(); return zerodiv").numValue() == 7);
     REQUIRE(runScript("try { var zerodiv = 42; zerodiv = 7/0 } catch { log('CAUGHT!') }; return zerodiv").numValue() == 42);
     // Syntax errors
-    REQUIRE(runScript("78/9#").stringValue() == string_format("invalid number, time or date (ExpressionError:%d)", ExpressionError::Syntax));
-    REQUIRE(runScript("78/#9").stringValue() == string_format("invalid number, time or date (ExpressionError:%d)", ExpressionError::Syntax));
+    REQUIRE(runScript("78/9#").stringValue() == string_format("invalid number, time or date (ExpressionError::Syntax[%d])", ExpressionError::Syntax));
+    REQUIRE(runScript("78/#9").stringValue() == string_format("invalid number, time or date (ExpressionError::Syntax[%d])", ExpressionError::Syntax));
     // Not Syntax error in a script, the three numbers are separate statements, the last one is returned
     REQUIRE(runScript("42 43 44").intValue() == 44);
   }
