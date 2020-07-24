@@ -699,14 +699,10 @@ namespace p44 { namespace Script {
     ScriptObjPtr executeSynchronously(ScriptObjPtr aToExecute, EvaluationFlags aEvalFlags, MLMicroSeconds aMaxRunTime = Infinite);
 
     /// check argument against signature and add to context if ok
-    /// @param aArgPos the position where the argument begins (for freezing and error messages)
     /// @param aArgument the object to be passed as argument. Pass NULL to check if aCallee has more non-optional arguments
     /// @param aIndex argument index
     /// @param aCallee the object to be called with this argument (provides the signature)
-    ErrorPtr checkAndSetArgument(const SourcePos &aArgPos, ScriptObjPtr aArgument, size_t aIndex, ScriptObjPtr aCallee);
-
-    /// like setMemberAtIndex but additionally gets argument cursor position
-    virtual ErrorPtr setArgumentAtIndex(const SourcePos &aArgPos, size_t aIndex, const ScriptObjPtr aMember, const string aName);
+    ErrorPtr checkAndSetArgument(ScriptObjPtr aArgument, size_t aIndex, ScriptObjPtr aCallee);
 
     /// @name execution environment info
     /// @{
@@ -891,13 +887,9 @@ namespace p44 { namespace Script {
     const char* eot; ///< pointer to where the text ends (0 char or not)
     size_t line; ///< line number
   public:
-    typedef const char* Unique;
     SourcePos(const string &aText);
     SourcePos(const SourcePos &aCursor);
     SourcePos();
-    size_t lineno() const; ///< 0-based line counter
-    size_t charpos() const; ///< 0-based character offset
-    Unique uniquepos() const { return ptr; }; ///< unique value for this source position (just the memory pointer...)
   };
 
 
@@ -907,6 +899,7 @@ namespace p44 { namespace Script {
   class SourceCursor
   {
   public:
+    typedef const char* UniquePos;
     SourceCursor() {};
     SourceCursor(SourceContainerPtr aContainer);
     SourceCursor(SourceContainerPtr aContainer, SourcePos aStart, SourcePos aEnd);
@@ -918,9 +911,10 @@ namespace p44 { namespace Script {
     bool refersTo(SourceContainerPtr aSource) const { return source==aSource; } ///< check if this sourceref refers to a particular source
 
     // info
-    inline size_t lineno()  const { return pos.lineno(); }; ///< 0-based line counter
-    inline size_t charpos() const { return pos.charpos(); }; ///< 0-based character offset
+    size_t lineno() const; ///< 0-based line counter
+    size_t charpos() const; ///< 0-based character offset
     size_t textpos() const; ///< offset of current text from beginning of text
+    UniquePos posId() const { return pos.ptr; } ///< unique position within a source, only for comparison (call site for frozen arguments...)
 
     /// @name source text access and parsing utilities
     /// @{
@@ -1203,7 +1197,7 @@ namespace p44 { namespace Script {
 
     /// apply the specified argument to the current function context
     /// @note must cause calling resume() when result contains the member (or NULL if not found)
-    virtual void pushFunctionArgument(const SourcePos &aArgPos, ScriptObjPtr aArgument);
+    virtual void pushFunctionArgument(ScriptObjPtr aArgument);
 
     /// capture code between poppedPos and current position into specified object
     /// @note embeddedGlobs determines if code is embedded into the code container (and lives on with it) or
@@ -1490,7 +1484,7 @@ namespace p44 { namespace Script {
     Tristate mCurrentState;
     MLMicroSeconds nextEvaluation;
 
-    typedef std::map<SourcePos::Unique, FrozenResult> FrozenResultsMap;
+    typedef std::map<SourceCursor::UniquePos, FrozenResult> FrozenResultsMap;
     FrozenResultsMap frozenResults; ///< map of expression starting indices and associated frozen results
     MLTicket reEvaluationTicket; ///< ticket for re-evaluation timer
 
@@ -1521,21 +1515,21 @@ namespace p44 { namespace Script {
     /// get frozen result if any exists
     /// @param aResult On call: the current result of a (sub)expression
     ///   On return: replaced by a frozen result, if one exists
-    /// @param aRefPos the reference position that identifies the frozen result
-    FrozenResult* getFrozen(ScriptObjPtr &aResult, const SourcePos &aRefPos);
+    /// @param aFreezeId the reference position that identifies the frozen result
+    FrozenResult* getFrozen(ScriptObjPtr &aResult, SourceCursor::UniquePos aFreezeId);
 
     /// update existing or create new frozen result
     /// @param aExistingFreeze the pointer obtained from getFrozen(), can be NULL
     /// @param aNewResult the new value to be frozen
-    /// @param aRefPos te reference position that identifies the frozen result
+    /// @param aFreezeId te reference position that identifies the frozen result
     /// @param aFreezeUntil The new freeze date. Specify Infinite to freeze indefinitely, Never to release any previous freeze.
     /// @param aUpdate if set, freeze will be updated/extended unconditionally, even when previous freeze is still running
-    FrozenResult* newFreeze(FrozenResult* aExistingFreeze, ScriptObjPtr aNewResult, const SourcePos &aRefPos, MLMicroSeconds aFreezeUntil, bool aUpdate = false);
+    FrozenResult* newFreeze(FrozenResult* aExistingFreeze, ScriptObjPtr aNewResult, SourceCursor::UniquePos aFreezeId, MLMicroSeconds aFreezeUntil, bool aUpdate = false);
 
     /// unfreeze frozen value at aAtPos
-    /// @param aAtPos the starting character index of the subexpression to unfreeze
+    /// @param aFreezeId the starting character index of the subexpression to unfreeze
     /// @return true if there was a frozen result at aAtPos
-    bool unfreeze(const SourcePos &aAtPos);
+    bool unfreeze(SourceCursor::UniquePos aFreezeId);
 
     /// Set time when next evaluation must happen, latest
     /// @param aLatestEval new time when evaluation must happen latest, Never if no next evaluation is needed
@@ -1711,7 +1705,7 @@ namespace p44 { namespace Script {
 
     /// apply the specified argument to the current function context
     /// @note must cause calling resume() when result contains the member (or NULL if not found)
-    virtual void pushFunctionArgument(const SourcePos &aArgPos, ScriptObjPtr aArgument) P44_OVERRIDE;
+    virtual void pushFunctionArgument(ScriptObjPtr aArgument) P44_OVERRIDE;
 
     /// evaluate the current result and replace it with the output from the evaluation (e.g. function call)
     virtual void executeResult() P44_OVERRIDE;
@@ -1820,7 +1814,7 @@ namespace p44 { namespace Script {
     SimpleCB abortCB; ///< called when aborting. async built-in might set this to cause external operations to stop at abort
     CompiledTrigger* mTrigger; ///< set when the function executes as part of a trigger expression
     ScriptCodeThreadPtr mThread; ///< thread this call originates from
-    std::vector<SourcePos> argumentPositions; ///< the argument positions
+    SourceCursor::UniquePos callSite; ///< from where in the source code the function was called
 
   public:
 
@@ -1833,9 +1827,6 @@ namespace p44 { namespace Script {
     /// @param aAbortFlags set stoprunning to abort currently running threads, queue to empty the queued threads
     /// @param aAbortResult if set, this is what abort will report back
     virtual void abort(EvaluationFlags aAbortFlags = stoprunning+queue, ScriptObjPtr aAbortResult = ScriptObjPtr()) P44_OVERRIDE;
-
-    /// like setMemberAtIndex but additionally gets argument cursor position
-    virtual ErrorPtr setArgumentAtIndex(const SourcePos &aArgPos, size_t aIndex, const ScriptObjPtr aMember, const string aName) P44_OVERRIDE;
 
     /// @name builtin function implementation interface
     /// @{
@@ -1851,8 +1842,8 @@ namespace p44 { namespace Script {
     ///   To avoid crashes in case a builtin function is evaluated w/o proper signature checking
     ScriptObjPtr arg(size_t aArgIndex);
 
-    /// unique value for re-identifying this argument's definition in source code
-    SourcePos argPos(size_t aArgIndex) const;
+    /// @return unique (opaque) id for re-identifying this argument's definition for this call in the source code
+    SourceCursor::UniquePos argId(size_t aArgIndex) const;
 
     /// @return argument as reference for applying C++ operators to them (and not to the smart pointers)
     inline ScriptObj& argval(size_t aArgIndex) { return *(arg(aArgIndex)); }

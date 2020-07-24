@@ -585,13 +585,7 @@ ErrorPtr ExecutionContext::setMemberAtIndex(size_t aIndex, const ScriptObjPtr aM
 }
 
 
-ErrorPtr ExecutionContext::setArgumentAtIndex(const SourcePos &aArgPos, size_t aIndex, const ScriptObjPtr aMember, const string aName)
-{
-  return setMemberAtIndex(aIndex, aMember, aName);
-}
-
-
-ErrorPtr ExecutionContext::checkAndSetArgument(const SourcePos &aArgPos, ScriptObjPtr aArgument, size_t aIndex, ScriptObjPtr aCallee)
+ErrorPtr ExecutionContext::checkAndSetArgument(ScriptObjPtr aArgument, size_t aIndex, ScriptObjPtr aCallee)
 {
   if (!aCallee) return ScriptError::err(ScriptError::Internal, "missing callee");
   ArgumentDescriptor info;
@@ -639,7 +633,7 @@ ErrorPtr ExecutionContext::checkAndSetArgument(const SourcePos &aArgPos, ScriptO
       }
     }
     // argument is fine, set it
-    return setArgumentAtIndex(aArgPos, aIndex, aArgument, info.name);
+    return setMemberAtIndex(aIndex, aArgument, info.name);
   }
   return ErrorPtr(); // ok
 }
@@ -1042,7 +1036,8 @@ bool BuiltinFunctionObj::argumentInfo(size_t aIndex, ArgumentDescriptor& aArgDes
 
 BuiltinFunctionContext::BuiltinFunctionContext(ScriptMainContextPtr aMainContext, ScriptCodeThreadPtr aThread) :
   inherited(aMainContext),
-  mThread(aThread)
+  mThread(aThread),
+  callSite(aThread->src.posId()) // from where in the source the context was created, which is just after the opening arg '(?
 {
 }
 
@@ -1076,32 +1071,15 @@ void BuiltinFunctionContext::execute(ScriptObjPtr aToExecute, EvaluationFlags aE
   }
 }
 
-ErrorPtr BuiltinFunctionContext::setArgumentAtIndex(const SourcePos &aArgPos, size_t aIndex, const ScriptObjPtr aMember, const string aName)
+SourceCursor::UniquePos BuiltinFunctionContext::argId(size_t aArgIndex) const
 {
-  if (trigger()) {
-    // need argument positions only when triggering
-    if (aIndex==argumentPositions.size()) {
-      // specially optimized case: appending
-      argumentPositions.push_back(aArgPos);
-    }
-    else {
-      if (aIndex>argumentPositions.size()) {
-        // resize, will result in sparse array
-        argumentPositions.resize(aIndex+1);
-      }
-      argumentPositions[aIndex] = aArgPos;
-    }
+  if (aArgIndex<numArgs()) {
+    // Note: as arguments in source occupy AT LEAST one separator, the following simplificaton
+    // of just adding the argument index to the call site position is sufficient to provide a unique
+    // ID for the argument at that call site
+    return callSite+aArgIndex;
   }
-  return inherited::setArgumentAtIndex(aArgPos, aIndex, aMember, aName);
-}
-
-
-SourcePos BuiltinFunctionContext::argPos(size_t aArgIndex) const
-{
-  if (aArgIndex<argumentPositions.size()) {
-    return argumentPositions[aArgIndex];
-  }
-  return SourcePos();
+  return NULL;
 }
 
 
@@ -1171,19 +1149,6 @@ SourcePos::SourcePos(const SourcePos &aCursor) :
 }
 
 
-size_t SourcePos::lineno() const
-{
-  return line;
-}
-
-
-size_t SourcePos::charpos() const
-{
-  if (!ptr || !bol) return 0;
-  return ptr-bol;
-}
-
-
 // MARK: - SourceCursor
 
 
@@ -1210,13 +1175,24 @@ SourceCursor::SourceCursor(SourceContainerPtr aContainer, SourcePos aStart, Sour
 }
 
 
+size_t SourceCursor::lineno() const
+{
+  return pos.line;
+}
+
+
+size_t SourceCursor::charpos() const
+{
+  if (!pos.ptr || !pos.bol) return 0;
+  return pos.ptr-pos.bol;
+}
+
 
 size_t SourceCursor::textpos() const
 {
   if (!pos.ptr || !pos.bot) return 0;
   return pos.ptr-pos.bot;
 }
-
 
 
 bool SourceCursor::EOT() const
@@ -1284,7 +1260,6 @@ void SourceCursor::skipWhiteSpace()
 }
 
 
-
 void SourceCursor::skipNonCode()
 {
   if (!pos.ptr) return;
@@ -1312,7 +1287,6 @@ void SourceCursor::skipNonCode()
     }
   } while(recheck);
 }
-
 
 
 string SourceCursor::displaycode(size_t aMaxLen)
@@ -2230,7 +2204,7 @@ void SourceProcessor::s_funcArg()
     checkAndResume(); // just ignore the argument and continue
   }
   else {
-    pushFunctionArgument(poppedPos, arg);
+    pushFunctionArgument(arg);
   }
   return;
 }
@@ -2999,7 +2973,7 @@ void SourceProcessor::startBlockThreadAndStoreInIdentifier()
   checkAndResume();
 }
 
-void SourceProcessor::pushFunctionArgument(const SourcePos &aArgPos, ScriptObjPtr aArgument)
+void SourceProcessor::pushFunctionArgument(ScriptObjPtr aArgument)
 {
   checkAndResume(); // NOP on the base class level
 }
@@ -3195,17 +3169,17 @@ bool CompiledTrigger::updateNextEval(const struct tm& aLatestEvalTm)
 }
 
 
-CompiledTrigger::FrozenResult* CompiledTrigger::getFrozen(ScriptObjPtr &aResult, const SourcePos &aRefPos)
+CompiledTrigger::FrozenResult* CompiledTrigger::getFrozen(ScriptObjPtr &aResult, SourceCursor::UniquePos aFreezeId)
 {
-  FrozenResultsMap::iterator frozenVal = frozenResults.find(aRefPos.uniquepos());
+  FrozenResultsMap::iterator frozenVal = frozenResults.find(aFreezeId);
   FrozenResult* frozenResultP = NULL;
   if (frozenVal!=frozenResults.end()) {
     frozenResultP = &(frozenVal->second);
     // there is a frozen result for this position in the expression
-    OLOG(LOG_DEBUG, "- frozen result (%s) for actual result (%s) at %zu:%zu exists - will expire %s",
+    OLOG(LOG_DEBUG, "- frozen result (%s) for actual result (%s) for freezeId 0x%p exists - will expire %s",
       frozenResultP->frozenResult->stringValue().c_str(),
       aResult->stringValue().c_str(),
-      aRefPos.lineno()+1, aRefPos.charpos()+1,
+      aFreezeId,
       frozenResultP->frozen() ? MainLoop::string_mltime(frozenResultP->frozenUntil).c_str() : "NOW"
     );
     aResult = frozenVal->second.frozenResult;
@@ -3221,20 +3195,20 @@ bool CompiledTrigger::FrozenResult::frozen()
 }
 
 
-CompiledTrigger::FrozenResult* CompiledTrigger::newFreeze(FrozenResult* aExistingFreeze, ScriptObjPtr aNewResult, const SourcePos &aRefPos, MLMicroSeconds aFreezeUntil, bool aUpdate)
+CompiledTrigger::FrozenResult* CompiledTrigger::newFreeze(FrozenResult* aExistingFreeze, ScriptObjPtr aNewResult, SourceCursor::UniquePos aFreezeId, MLMicroSeconds aFreezeUntil, bool aUpdate)
 {
   if (!aExistingFreeze) {
     // nothing frozen yet, freeze it now
     FrozenResult newFreeze;
     newFreeze.frozenResult = aNewResult;
     newFreeze.frozenUntil = aFreezeUntil;
-    frozenResults[aRefPos.uniquepos()] = newFreeze;
-    OLOG(LOG_DEBUG, "- new result (%s) frozen for pos %zu:%zu until %s",
+    frozenResults[aFreezeId] = newFreeze;
+    OLOG(LOG_DEBUG, "- new result (%s) frozen for freezeId 0x%p until %s",
       aNewResult->stringValue().c_str(),
-      aRefPos.lineno()+1, aRefPos.charpos()+1,
+      aFreezeId,
       MainLoop::string_mltime(newFreeze.frozenUntil).c_str()
     );
-    return &frozenResults[aRefPos.uniquepos()];
+    return &frozenResults[aFreezeId];
   }
   else if (!aExistingFreeze->frozen() || aUpdate || aFreezeUntil==Never) {
     OLOG(LOG_DEBUG, "- existing freeze updated to value %s and to expire %s",
@@ -3251,9 +3225,9 @@ CompiledTrigger::FrozenResult* CompiledTrigger::newFreeze(FrozenResult* aExistin
 }
 
 
-bool CompiledTrigger::unfreeze(const SourcePos &aAtPos)
+bool CompiledTrigger::unfreeze(SourceCursor::UniquePos aFreezeId)
 {
-  FrozenResultsMap::iterator frozenVal = frozenResults.find(aAtPos.uniquepos());
+  FrozenResultsMap::iterator frozenVal = frozenResults.find(aFreezeId);
   if (frozenVal!=frozenResults.end()) {
     frozenResults.erase(frozenVal);
     return true;
@@ -3792,12 +3766,13 @@ void ScriptCodeThread::startBlockThreadAndStoreInIdentifier()
 }
 
 
-void ScriptCodeThread::pushFunctionArgument(const SourcePos &aArgPos, ScriptObjPtr aArgument)
+/// apply the specified argument to the current result
+void ScriptCodeThread::pushFunctionArgument(ScriptObjPtr aArgument)
 {
   // apply the specified argument to the current function call context
 
   if (funcCallContext) {
-    ErrorPtr err = funcCallContext->checkAndSetArgument(aArgPos, aArgument, funcCallContext->numIndexedMembers(), result);
+    ErrorPtr err = funcCallContext->checkAndSetArgument(aArgument, funcCallContext->numIndexedMembers(), result);
     if (Error::notOK(err)) result = new ErrorPosValue(src, err);
   }
   checkAndResume();
@@ -3809,7 +3784,7 @@ void ScriptCodeThread::executeResult()
 {
   if (funcCallContext && result) {
     // check for missing arguments after those we have
-    ErrorPtr err = funcCallContext->checkAndSetArgument(src.pos, ScriptObjPtr(), funcCallContext->numIndexedMembers(), result);
+    ErrorPtr err = funcCallContext->checkAndSetArgument(ScriptObjPtr(), funcCallContext->numIndexedMembers(), result);
     if (Error::notOK(err)) {
       result = new ErrorPosValue(src, err);
       checkAndResume();
@@ -4298,7 +4273,7 @@ static void is_weekday_func(BuiltinFunctionContextPtr f)
   struct tm loctim; MainLoop::getLocalTime(loctim);
   // check if any of the weekdays match
   int weekday = loctim.tm_wday; // 0..6, 0=sunday
-  SourcePos refPos = f->argPos(0); // Note: we use pos of first argument for freezing the function's result (no need to freeze every single weekday)
+  SourceCursor::UniquePos freezeId = f->argId(0); // Note: we use pos of first argument for freezing the function's result (no need to freeze every single weekday)
   bool isday = false;
   for (int i = 0; i<f->numArgs(); i++) {
     int w = (int)f->arg(i)->doubleValue();
@@ -4317,8 +4292,8 @@ static void is_weekday_func(BuiltinFunctionContextPtr f)
   loctim.tm_sec = 0;
   ScriptObjPtr res = newRes;
   if (CompiledTrigger* trigger = f->trigger()) {
-    CompiledTrigger::FrozenResult* frozenP = trigger->getFrozen(res, refPos);
-    trigger->newFreeze(frozenP, newRes, refPos, MainLoop::localTimeToMainLoopTime(loctim));
+    CompiledTrigger::FrozenResult* frozenP = trigger->getFrozen(res, freezeId);
+    trigger->newFreeze(frozenP, newRes, freezeId, MainLoop::localTimeToMainLoopTime(loctim));
   }
   f->finish(res); // freeze time over, use actual, newly calculated result
 }
@@ -4331,7 +4306,7 @@ static void timeCheckFunc(bool aIsTime, BuiltinFunctionContextPtr f)
 {
   struct tm loctim; MainLoop::getLocalTime(loctim);
   int newSecs;
-  SourcePos refPos = f->argPos(0);
+  SourceCursor::UniquePos freezeId = f->argId(0);
   if (f->numArgs()==2) {
     // TODO: get rid of legacy syntax later
     // legacy time spec in hours and minutes
@@ -4345,7 +4320,7 @@ static void timeCheckFunc(bool aIsTime, BuiltinFunctionContextPtr f)
   int daySecs = ((loctim.tm_hour*60)+loctim.tm_min)*60+loctim.tm_sec;
   CompiledTrigger* trigger = f->trigger();
   CompiledTrigger::FrozenResult* frozenP = NULL;
-  if (trigger) frozenP = trigger->getFrozen(secs, refPos);
+  if (trigger) frozenP = trigger->getFrozen(secs, freezeId);
   bool met = daySecs>=secs->intValue();
   // next check at specified time, today if not yet met, tomorrow if already met for today
   loctim.tm_hour = 0; loctim.tm_min = 0; loctim.tm_sec = secs->intValue();
@@ -4354,7 +4329,7 @@ static void timeCheckFunc(bool aIsTime, BuiltinFunctionContextPtr f)
   // limit to a few secs around target if it's "is_time"
   if (aIsTime && met && daySecs<secs->intValue()+IS_TIME_TOLERANCE_SECONDS) {
     // freeze again for a bit
-    if (trigger) trigger->newFreeze(frozenP, secs, refPos, MainLoop::localTimeToMainLoopTime(loctim)+IS_TIME_TOLERANCE_SECONDS*Second);
+    if (trigger) trigger->newFreeze(frozenP, secs, freezeId, MainLoop::localTimeToMainLoopTime(loctim)+IS_TIME_TOLERANCE_SECONDS*Second);
   }
   else {
     loctim.tm_hour = 0; loctim.tm_min = 0; loctim.tm_sec = newSecs;
@@ -4362,7 +4337,7 @@ static void timeCheckFunc(bool aIsTime, BuiltinFunctionContextPtr f)
       loctim.tm_mday++; // already met today, check again tomorrow
       if (aIsTime) res = false;
     }
-    if (trigger) trigger->newFreeze(frozenP, new NumericValue(newSecs), refPos, MainLoop::localTimeToMainLoopTime(loctim));
+    if (trigger) trigger->newFreeze(frozenP, new NumericValue(newSecs), freezeId, MainLoop::localTimeToMainLoopTime(loctim));
   }
   f->finish(new NumericValue(res));
 }
@@ -4414,20 +4389,20 @@ static void testlater_func(BuiltinFunctionContextPtr f)
   }
   ScriptObjPtr secs = new NumericValue(s);
   ScriptObjPtr currentSecs = secs;
-  SourcePos refPos = f->argPos(0);
-  CompiledTrigger::FrozenResult* frozenP = trigger->getFrozen(currentSecs, refPos);
+  SourceCursor::UniquePos  freezeId = f->argId(0);
+  CompiledTrigger::FrozenResult* frozenP = trigger->getFrozen(currentSecs, freezeId);
   bool evalNow = frozenP && !frozenP->frozen();
   if ((f->evalFlags()&runModeMask)!=timed) {
     if ((f->evalFlags()&runModeMask)!=initial || retrigger) {
       // evaluating non-timed, non-initial (or retriggering) means "not yet ready" and must start or extend freeze period
-      trigger->newFreeze(frozenP, secs, refPos, MainLoop::now()+s*Second, true);
+      trigger->newFreeze(frozenP, secs, freezeId, MainLoop::now()+s*Second, true);
     }
     evalNow = false; // never evaluate on non-timed run
   }
   else {
     // evaluating timed after frozen period means "now is later" and if retrigger is set, must start a new freeze
     if (frozenP && retrigger) {
-      trigger->newFreeze(frozenP, secs, refPos, MainLoop::now()+secs->doubleValue()*Second);
+      trigger->newFreeze(frozenP, secs, freezeId, MainLoop::now()+secs->doubleValue()*Second);
     }
   }
   if (evalNow) {
@@ -4467,8 +4442,8 @@ static void every_func(BuiltinFunctionContextPtr f)
   }
   ScriptObjPtr secs = new NumericValue(s);
   ScriptObjPtr currentSecs = secs;
-  SourcePos refPos = f->argPos(0);
-  CompiledTrigger::FrozenResult* frozenP = trigger->getFrozen(currentSecs, refPos);
+  SourceCursor::UniquePos freezeId = f->argId(0);
+  CompiledTrigger::FrozenResult* frozenP = trigger->getFrozen(currentSecs, freezeId);
   bool triggered = frozenP && !frozenP->frozen();
   if (triggered || (f->evalFlags()&runModeMask)==initial) {
     // setup new interval
@@ -4476,7 +4451,7 @@ static void every_func(BuiltinFunctionContextPtr f)
     if (syncoffset<0) {
       // no sync
       // - interval starts from now
-      trigger->newFreeze(frozenP, secs, refPos, MainLoop::now()+s*Second, true);
+      trigger->newFreeze(frozenP, secs, freezeId, MainLoop::now()+s*Second, true);
       triggered = true; // fire even in initial evaluation
     }
     else {
@@ -4485,7 +4460,7 @@ static void every_func(BuiltinFunctionContextPtr f)
       struct tm loctim; MainLoop::getLocalTime(loctim, &fracSecs);
       double secondOfDay = ((loctim.tm_hour*60)+loctim.tm_min)*60+loctim.tm_sec+fracSecs; // second of day right now
       double untilNext = syncoffset+(floor((secondOfDay-syncoffset)/interval)+1)*interval - secondOfDay; // time to next repetition
-      trigger->newFreeze(frozenP, secs, refPos, MainLoop::now()+untilNext*Second, true);
+      trigger->newFreeze(frozenP, secs, freezeId, MainLoop::now()+untilNext*Second, true);
     }
   }
   f->finish(new NumericValue(triggered));
