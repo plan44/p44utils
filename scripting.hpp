@@ -320,16 +320,16 @@ namespace p44 { namespace Script {
     ///    This is relevant for values like JSON. Simple values are immutable anyway
     virtual ScriptObjPtr assignableValue() { return ScriptObjPtr(this); }
 
-    virtual double numValue() const { return 0; }; ///< @return a conversion to numeric (using literal syntax), if value is string
-    virtual bool boolValue() const { return numValue()!=0; }; ///< @return a conversion to boolean (true = not numerically 0, not JSON-falsish)
+    virtual double doubleValue() const { return 0; }; ///< @return a conversion to numeric (using literal syntax), if value is string
+    virtual bool boolValue() const { return doubleValue()!=0; }; ///< @return a conversion to boolean (true = not numerically 0, not JSON-falsish)
     virtual string stringValue() const { return getAnnotation(); }; ///< @return a conversion to string of the value
     virtual ErrorPtr errorValue() const { return Error::ok(); } ///< @return error value (always an object, OK if not in error)
     #if SCRIPTING_JSON_SUPPORT
     virtual JsonObjectPtr jsonValue() const { return JsonObject::newNull(); } ///< @return a JSON value
     #endif
     // generic converters
-    int intValue() const { return (int)numValue(); } ///< @return numeric value as int
-    int64_t int64Value() const { return (int64_t)numValue(); } ///< @return numeric value as int64
+    int intValue() const { return (int)doubleValue(); } ///< @return numeric value as int
+    int64_t int64Value() const { return (int64_t)doubleValue(); } ///< @return numeric value as int64
 
     /// @}
 
@@ -468,7 +468,7 @@ namespace p44 { namespace Script {
     virtual string getAnnotation() const P44_OVERRIDE { return "error"; };
     virtual TypeInfo getTypeInfo() const P44_OVERRIDE { return error; };
     // value getters
-    virtual double numValue() const P44_OVERRIDE { return err ? 0 : err->getErrorCode(); };
+    virtual double doubleValue() const P44_OVERRIDE { return err ? 0 : err->getErrorCode(); };
     virtual string stringValue() const P44_OVERRIDE { return Error::text(err); };
     virtual ErrorPtr errorValue() const P44_OVERRIDE { return err ? err : Error::ok(); };
     #if SCRIPTING_JSON_SUPPORT
@@ -505,11 +505,11 @@ namespace p44 { namespace Script {
     ThreadValue(ScriptCodeThreadPtr aThread);
     virtual string getAnnotation() const P44_OVERRIDE { return "thread"; };
     virtual TypeInfo getTypeInfo() const P44_OVERRIDE { return threadref; };
-    virtual double numValue() const P44_OVERRIDE;
+    virtual double doubleValue() const P44_OVERRIDE;
     virtual string stringValue() const P44_OVERRIDE { return getAnnotation(); };
 
     // FIXME: q&d for now, integrate with triggers later
-    virtual void notify(ScriptObjPtr aNotification) P44_OVERRIDE;
+    virtual void notifyThreadValue(ScriptObjPtr aNotification) P44_OVERRIDE;
 
     void abort(); ///< abort the thread
   };
@@ -524,10 +524,12 @@ namespace p44 { namespace Script {
     double num;
   public:
     NumericValue(double aNumber) : num(aNumber) {};
+    NumericValue(bool aBool) : num(aBool ? 1 : 0) {};
+    NumericValue(int aInt) : num(aInt) {};
     virtual string getAnnotation() const P44_OVERRIDE { return "numeric"; };
     virtual TypeInfo getTypeInfo() const P44_OVERRIDE { return numeric; };
     // value getters
-    virtual double numValue() const P44_OVERRIDE { return num; }; // native
+    virtual double doubleValue() const P44_OVERRIDE { return num; }; // native
     virtual string stringValue() const P44_OVERRIDE { return string_format("%lg", num); };
     #if SCRIPTING_JSON_SUPPORT
     virtual JsonObjectPtr jsonValue() const P44_OVERRIDE { return JsonObject::newDouble(num); };
@@ -553,7 +555,7 @@ namespace p44 { namespace Script {
     virtual TypeInfo getTypeInfo() const P44_OVERRIDE { return text; };
     // value getters
     virtual string stringValue() const P44_OVERRIDE { return str; }; // native
-    virtual double numValue() const P44_OVERRIDE;
+    virtual double doubleValue() const P44_OVERRIDE;
     #if SCRIPTING_JSON_SUPPORT
     virtual JsonObjectPtr jsonValue() const P44_OVERRIDE;
     #endif
@@ -576,7 +578,7 @@ namespace p44 { namespace Script {
     virtual TypeInfo getTypeInfo() const P44_OVERRIDE;
     // value getters
     virtual JsonObjectPtr jsonValue() const P44_OVERRIDE { return jsonval; } // native
-    virtual double numValue() const P44_OVERRIDE;
+    virtual double doubleValue() const P44_OVERRIDE;
     virtual string stringValue() const P44_OVERRIDE;
     virtual bool boolValue() const P44_OVERRIDE;
     // member access

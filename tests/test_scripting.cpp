@@ -174,9 +174,9 @@ TEST_CASE("CodeCursor", "[scripting]" )
   }
 
   SECTION("Literals") {
-    REQUIRE(SourceCursor("42").parseNumericLiteral()->numValue() == 42);
-    REQUIRE(SourceCursor("0x42").parseNumericLiteral()->numValue() == 0x42);
-    REQUIRE(SourceCursor("42.42").parseNumericLiteral()->numValue() == 42.42);
+    REQUIRE(SourceCursor("42").parseNumericLiteral()->doubleValue() == 42);
+    REQUIRE(SourceCursor("0x42").parseNumericLiteral()->doubleValue() == 0x42);
+    REQUIRE(SourceCursor("42.42").parseNumericLiteral()->doubleValue() == 42.42);
 
     REQUIRE(SourceCursor("\"Hello\"").parseStringLiteral()->stringValue() == "Hello");
     REQUIRE(SourceCursor("\"He\\x65llo\"").parseStringLiteral()->stringValue() == "Heello");
@@ -185,14 +185,14 @@ TEST_CASE("CodeCursor", "[scripting]" )
     REQUIRE(SourceCursor("'Hello\\nWorld, ''single quoted'' text'").parseStringLiteral()->stringValue() == "Hello\\nWorld, 'single quoted' text"); // include single quotes in single quoted text by doubling them
     REQUIRE(SourceCursor("\"\"").parseStringLiteral()->stringValue() == ""); // empty string
 
-    REQUIRE(SourceCursor("12:35").parseNumericLiteral()->numValue() == 45300);
-    REQUIRE(SourceCursor("14:57:42").parseNumericLiteral()->numValue() == 53862);
-    REQUIRE(SourceCursor("14:57:42.328").parseNumericLiteral()->numValue() == 53862.328);
-    REQUIRE(SourceCursor("1.Jan").parseNumericLiteral()->numValue() == 0);
-    REQUIRE(SourceCursor("1.1.").parseNumericLiteral()->numValue() == 0);
-    REQUIRE(SourceCursor("19.Feb").parseNumericLiteral()->numValue() == 49);
-    REQUIRE(SourceCursor("19.FEB").parseNumericLiteral()->numValue() == 49);
-    REQUIRE(SourceCursor("19.2.").parseNumericLiteral()->numValue() == 49);
+    REQUIRE(SourceCursor("12:35").parseNumericLiteral()->doubleValue() == 45300);
+    REQUIRE(SourceCursor("14:57:42").parseNumericLiteral()->doubleValue() == 53862);
+    REQUIRE(SourceCursor("14:57:42.328").parseNumericLiteral()->doubleValue() == 53862.328);
+    REQUIRE(SourceCursor("1.Jan").parseNumericLiteral()->doubleValue() == 0);
+    REQUIRE(SourceCursor("1.1.").parseNumericLiteral()->doubleValue() == 0);
+    REQUIRE(SourceCursor("19.Feb").parseNumericLiteral()->doubleValue() == 49);
+    REQUIRE(SourceCursor("19.FEB").parseNumericLiteral()->doubleValue() == 49);
+    REQUIRE(SourceCursor("19.2.").parseNumericLiteral()->doubleValue() == 49);
 
     REQUIRE(SourceCursor("{ 'type':'object', 'test':42 }").parseJSONLiteral()->stringValue() == "{\"type\":\"object\",\"test\":42}");
     REQUIRE(SourceCursor("[ 'first', 2, 3, 'fourth', 6.6 ]").parseJSONLiteral()->stringValue() == "[\"first\",2,3,\"fourth\",6.6]");
@@ -215,9 +215,9 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "Focus", "[scripting],[DEBUG]" )
 TEST_CASE_METHOD(ScriptingCodeFixture, "Literals", "[scripting],[FOCUS]" )
 {
   SECTION("Literals") {
-    REQUIRE(s.test(expression, "42")->numValue() == 42);
-    REQUIRE(s.test(expression, "0x42")->numValue() == 0x42);
-    REQUIRE(s.test(expression, "42.42")->numValue() == 42.42);
+    REQUIRE(s.test(expression, "42")->doubleValue() == 42);
+    REQUIRE(s.test(expression, "0x42")->doubleValue() == 0x42);
+    REQUIRE(s.test(expression, "42.42")->doubleValue() == 42.42);
 
     REQUIRE(s.test(expression, "\"Hello\"")->stringValue() == "Hello");
     REQUIRE(s.test(expression, "\"He\\x65llo\"")->stringValue() == "Heello");
@@ -241,7 +241,7 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "Literals", "[scripting],[FOCUS]" )
 
     REQUIRE(s.test(expression, "12:35")->intValue() == 45300);
     REQUIRE(s.test(expression, "14:57:42")->intValue() == 53862);
-    REQUIRE(s.test(expression, "14:57:42.328")->numValue() == 53862.328);
+    REQUIRE(s.test(expression, "14:57:42.328")->doubleValue() == 53862.328);
     REQUIRE(s.test(expression, "1.Jan")->intValue() == 0);
     REQUIRE(s.test(expression, "1.1.")->intValue() == 0);
     REQUIRE(s.test(expression, "19.Feb")->intValue() == 49);
@@ -258,8 +258,8 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "Literals", "[scripting],[FOCUS]" )
 
 
   SECTION("Whitespace and comments") {
-    REQUIRE(s.test(expression, "42 // 43")->numValue() == 42);
-    REQUIRE(s.test(expression, "/* 43 */ 42")->numValue() == 42);
+    REQUIRE(s.test(expression, "42 // 43")->doubleValue() == 42);
+    REQUIRE(s.test(expression, "/* 43 */ 42")->doubleValue() == 42);
     REQUIRE(s.test(expression, "/* 43 // 42")->undefined() == true);
   }
 }
@@ -270,10 +270,10 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "Literals", "[scripting],[FOCUS]" )
 TEST_CASE_METHOD(ScriptingCodeFixture, "lookups", "[scripting],[FOCUS]") {
 
   SECTION("Scalars") {
-    REQUIRE(s.test(expression, "UA")->numValue() == 42);
+    REQUIRE(s.test(expression, "UA")->doubleValue() == 42);
     REQUIRE(s.test(expression, "dummy")->defined() == false); // unknown var is not a value
     REQUIRE(s.test(expression, "dummy")->isErr() == true); // ..and not value-ok
-    REQUIRE(s.test(expression, "almostUA")->numValue() == 42.7);
+    REQUIRE(s.test(expression, "almostUA")->doubleValue() == 42.7);
     REQUIRE(s.test(expression, "UAtext")->stringValue() == "fortyTwo");
     REQUIRE(s.test(expression, "UAtext")->stringValue() == "fortyTwo");
     REQUIRE(s.test(expression, "UAtext")->stringValue() == "fortyTwo");
@@ -283,20 +283,20 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "lookups", "[scripting],[FOCUS]") {
     // JSON tests, see JSON_TEST_OBJ
     REQUIRE(s.test(expression, "jstest")->stringValue() == JSON_TEST_OBJ);
     REQUIRE(s.test(expression, "jstest.string")->stringValue() == "abc");
-    REQUIRE(s.test(expression, "jstest.number")->numValue() == 42);
+    REQUIRE(s.test(expression, "jstest.number")->doubleValue() == 42);
     REQUIRE(s.test(expression, "jstest.bool")->boolValue() == true);
-    REQUIRE(s.test(expression, "jstest.array[2]")->numValue() == 3);
+    REQUIRE(s.test(expression, "jstest.array[2]")->doubleValue() == 3);
     REQUIRE(s.test(expression, "jstest.array[0]")->stringValue() == "first");
     REQUIRE(s.test(expression, "jstest['array'][0]")->stringValue() == "first");
     REQUIRE(s.test(expression, "jstest['array',0]")->stringValue() == "first");
     REQUIRE(s.test(expression, "jstest.obj.objA")->stringValue() == "A");
-    REQUIRE(s.test(expression, "jstest.obj.objB")->numValue() == 42);
-    REQUIRE(s.test(expression, "jstest.obj['objB']")->numValue() == 42);
-    REQUIRE(s.test(expression, "jstest['obj'].objB")->numValue() == 42);
-    REQUIRE(s.test(expression, "jstest['obj','objB']")->numValue() == 42);
-    REQUIRE(s.test(expression, "jstest['obj']['objB']")->numValue() == 42);
+    REQUIRE(s.test(expression, "jstest.obj.objB")->doubleValue() == 42);
+    REQUIRE(s.test(expression, "jstest.obj['objB']")->doubleValue() == 42);
+    REQUIRE(s.test(expression, "jstest['obj'].objB")->doubleValue() == 42);
+    REQUIRE(s.test(expression, "jstest['obj','objB']")->doubleValue() == 42);
+    REQUIRE(s.test(expression, "jstest['obj']['objB']")->doubleValue() == 42);
     REQUIRE(s.test(expression, "jstest['obj'].objC.objD")->stringValue() == "D");
-    REQUIRE(s.test(expression, "jstest['obj'].objC.objE")->numValue() == 45);
+    REQUIRE(s.test(expression, "jstest['obj'].objC.objE")->doubleValue() == 45);
   }
 
 }
@@ -307,19 +307,19 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "lookups", "[scripting],[FOCUS]") {
 TEST_CASE_METHOD(ScriptingCodeFixture, "expressions", "[scripting],[FOCUS]") {
 
   SECTION("Operations") {
-    REQUIRE(s.test(expression, "-42.42")->numValue() == -42.42); // unary minus
-    REQUIRE(s.test(expression, "!true")->numValue() == 0); // unary not
+    REQUIRE(s.test(expression, "-42.42")->doubleValue() == -42.42); // unary minus
+    REQUIRE(s.test(expression, "!true")->doubleValue() == 0); // unary not
     REQUIRE(s.test(expression, "\"UA\"")->stringValue() == "UA");
-    REQUIRE(s.test(expression, "42.7+42")->numValue() == 42.7+42.0);
-    REQUIRE(s.test(expression, "42.7-24")->numValue() == 42.7-24.0);
-    REQUIRE(s.test(expression, "42.7*42")->numValue() == 42.7*42.0);
-    REQUIRE(s.test(expression, "42.7/24")->numValue() == 42.7/24.0);
-    REQUIRE(s.test(expression, "5%2")->numValue() == 1);
-    REQUIRE(s.test(expression, "5%2.5")->numValue() == 0);
-    REQUIRE(s.test(expression, "5%1.5")->numValue() == 0.5);
-    REQUIRE(s.test(expression, "5.5%2")->numValue() == 1.5);
-    REQUIRE(s.test(expression, "78%9")->numValue() == 6.0);
-    REQUIRE(s.test(expression, "77.77%9")->numValue() == Approx(5.77));
+    REQUIRE(s.test(expression, "42.7+42")->doubleValue() == 42.7+42.0);
+    REQUIRE(s.test(expression, "42.7-24")->doubleValue() == 42.7-24.0);
+    REQUIRE(s.test(expression, "42.7*42")->doubleValue() == 42.7*42.0);
+    REQUIRE(s.test(expression, "42.7/24")->doubleValue() == 42.7/24.0);
+    REQUIRE(s.test(expression, "5%2")->doubleValue() == 1);
+    REQUIRE(s.test(expression, "5%2.5")->doubleValue() == 0);
+    REQUIRE(s.test(expression, "5%1.5")->doubleValue() == 0.5);
+    REQUIRE(s.test(expression, "5.5%2")->doubleValue() == 1.5);
+    REQUIRE(s.test(expression, "78%9")->doubleValue() == 6.0);
+    REQUIRE(s.test(expression, "77.77%9")->doubleValue() == Approx(5.77));
     REQUIRE(s.test(expression, "78/0")->isErr() == true); // division by zero
     REQUIRE(s.test(expression, "\"ABC\" + \"abc\"")->stringValue() == "ABCabc");
     REQUIRE(s.test(expression, "\"empty\"+\"\"")->stringValue() == "empty");
@@ -372,16 +372,16 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "expressions", "[scripting],[FOCUS]") {
   }
 
   SECTION("Operator precedence") {
-    REQUIRE(s.test(expression, "12*3+7")->numValue() == 12*3+7);
-    REQUIRE(s.test(expression, "12*(3+7)")->numValue() == 12*(3+7));
-    REQUIRE(s.test(expression, "12/3-7")->numValue() == 12/3-7);
-    REQUIRE(s.test(expression, "12/(3-7)")->numValue() == 12/(3-7));
+    REQUIRE(s.test(expression, "12*3+7")->doubleValue() == 12*3+7);
+    REQUIRE(s.test(expression, "12*(3+7)")->doubleValue() == 12*(3+7));
+    REQUIRE(s.test(expression, "12/3-7")->doubleValue() == 12/3-7);
+    REQUIRE(s.test(expression, "12/(3-7)")->doubleValue() == 12/(3-7));
   }
 
   SECTION("functions") {
     // testing
-    REQUIRE(s.test(expression, "ifvalid(undefined,42)")->numValue() == 42);
-    REQUIRE(s.test(expression, "ifvalid(33,42)")->numValue() == 33);
+    REQUIRE(s.test(expression, "ifvalid(undefined,42)")->doubleValue() == 42);
+    REQUIRE(s.test(expression, "ifvalid(33,42)")->doubleValue() == 33);
     REQUIRE(s.test(expression, "isvalid(undefined)")->boolValue() == false);
     REQUIRE(s.test(expression, "isvalid(undefined)")->undefined() == false);
     REQUIRE(s.test(expression, "isvalid(1234)")->boolValue() == true);
@@ -389,78 +389,78 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "expressions", "[scripting],[FOCUS]") {
     REQUIRE(s.test(expression, "if(true, 'TRUE', 'FALSE')")->stringValue() == "TRUE");
     REQUIRE(s.test(expression, "if(false, 'TRUE', 'FALSE')")->stringValue() == "FALSE");
     // numbers
-    REQUIRE(s.test(expression, "number(undefined)")->numValue() == 0);
+    REQUIRE(s.test(expression, "number(undefined)")->doubleValue() == 0);
     REQUIRE(s.test(expression, "number(undefined)")->undefined() == false);
     REQUIRE(s.test(expression, "number(0)")->boolValue() == false);
-    REQUIRE(s.test(expression, "abs(33)")->numValue() == 33);
+    REQUIRE(s.test(expression, "abs(33)")->doubleValue() == 33);
     REQUIRE(s.test(expression, "abs(undefined)")->undefined() == true);
-    REQUIRE(s.test(expression, "abs(-33)")->numValue() == 33);
-    REQUIRE(s.test(expression, "abs(0)")->numValue() == 0);
-    REQUIRE(s.test(expression, "int(33)")->numValue() == 33);
-    REQUIRE(s.test(expression, "int(33.3)")->numValue() == 33);
-    REQUIRE(s.test(expression, "int(33.6)")->numValue() == 33);
-    REQUIRE(s.test(expression, "int(-33.3)")->numValue() == -33);
-    REQUIRE(s.test(expression, "int(-33.6)")->numValue() == -33);
-    REQUIRE(s.test(expression, "round(33)")->numValue() == 33);
-    REQUIRE(s.test(expression, "round(33.3)")->numValue() == 33);
-    REQUIRE(s.test(expression, "round(33.6)")->numValue() == 34);
-    REQUIRE(s.test(expression, "round(-33.6)")->numValue() == -34);
-    REQUIRE(s.test(expression, "round(33.3, 0.5)")->numValue() == 33.5);
-    REQUIRE(s.test(expression, "round(33.6, 0.5)")->numValue() == 33.5);
-    REQUIRE(s.test(expression, "frac(33)")->numValue() == 0);
-    REQUIRE(s.test(expression, "frac(-33)")->numValue() == 0);
-    REQUIRE(s.test(expression, "frac(33.6)")->numValue() == Approx(0.6));
-    REQUIRE(s.test(expression, "frac(-33.6)")->numValue() == Approx(-0.6));
-    REQUIRE(s.test(expression, "random(0,10)")->numValue() < 10);
+    REQUIRE(s.test(expression, "abs(-33)")->doubleValue() == 33);
+    REQUIRE(s.test(expression, "abs(0)")->doubleValue() == 0);
+    REQUIRE(s.test(expression, "int(33)")->doubleValue() == 33);
+    REQUIRE(s.test(expression, "int(33.3)")->doubleValue() == 33);
+    REQUIRE(s.test(expression, "int(33.6)")->doubleValue() == 33);
+    REQUIRE(s.test(expression, "int(-33.3)")->doubleValue() == -33);
+    REQUIRE(s.test(expression, "int(-33.6)")->doubleValue() == -33);
+    REQUIRE(s.test(expression, "round(33)")->doubleValue() == 33);
+    REQUIRE(s.test(expression, "round(33.3)")->doubleValue() == 33);
+    REQUIRE(s.test(expression, "round(33.6)")->doubleValue() == 34);
+    REQUIRE(s.test(expression, "round(-33.6)")->doubleValue() == -34);
+    REQUIRE(s.test(expression, "round(33.3, 0.5)")->doubleValue() == 33.5);
+    REQUIRE(s.test(expression, "round(33.6, 0.5)")->doubleValue() == 33.5);
+    REQUIRE(s.test(expression, "frac(33)")->doubleValue() == 0);
+    REQUIRE(s.test(expression, "frac(-33)")->doubleValue() == 0);
+    REQUIRE(s.test(expression, "frac(33.6)")->doubleValue() == Approx(0.6));
+    REQUIRE(s.test(expression, "frac(-33.6)")->doubleValue() == Approx(-0.6));
+    REQUIRE(s.test(expression, "random(0,10)")->doubleValue() < 10);
     REQUIRE(s.test(expression, "random(0,10) != random(0,10)")->boolValue() == true);
-    REQUIRE(s.test(expression, "number('33')")->numValue() == 33);
-    REQUIRE(s.test(expression, "number('0x33')")->numValue() == 0x33);
-    REQUIRE(s.test(expression, "number('33 gugus')")->numValue() == 33); // best effort, ignore trailing garbage
-    REQUIRE(s.test(expression, "number('gugus 33')")->numValue() == 0); // best effort, nothing readable
-    REQUIRE(s.test(expression, "min(42,78)")->numValue() == 42);
-    REQUIRE(s.test(expression, "min(78,42)")->numValue() == 42);
-    REQUIRE(s.test(expression, "max(42,78)")->numValue() == 78);
-    REQUIRE(s.test(expression, "max(78,42)")->numValue() == 78);
-    REQUIRE(s.test(expression, "limited(15,10,20)")->numValue() == 15);
-    REQUIRE(s.test(expression, "limited(2,10,20)")->numValue() == 10);
-    REQUIRE(s.test(expression, "limited(42,10,20)")->numValue() == 20);
-    REQUIRE(s.test(expression, "cyclic(15,10,20)")->numValue() == 15);
-    REQUIRE(s.test(expression, "cyclic(2,10,20)")->numValue() == 12);
-    REQUIRE(s.test(expression, "cyclic(-18,10,20)")->numValue() == 12);
-    REQUIRE(s.test(expression, "cyclic(22,10,20)")->numValue() == 12);
-    REQUIRE(s.test(expression, "cyclic(42,10,20)")->numValue() == 12);
-    REQUIRE(s.test(expression, "cyclic(-10.8,1,2)")->numValue() == Approx(1.2));
-    REQUIRE(s.test(expression, "cyclic(-1.8,1,2)")->numValue() == Approx(1.2));
-    REQUIRE(s.test(expression, "cyclic(2.2,1,2)")->numValue() == Approx(1.2));
-    REQUIRE(s.test(expression, "cyclic(4.2,1,2)")->numValue() == Approx(1.2));
-    REQUIRE(s.test(expression, "epochtime()")->numValue() == Approx((double)MainLoop::unixtime()/Day));
+    REQUIRE(s.test(expression, "number('33')")->doubleValue() == 33);
+    REQUIRE(s.test(expression, "number('0x33')")->doubleValue() == 0x33);
+    REQUIRE(s.test(expression, "number('33 gugus')")->doubleValue() == 33); // best effort, ignore trailing garbage
+    REQUIRE(s.test(expression, "number('gugus 33')")->doubleValue() == 0); // best effort, nothing readable
+    REQUIRE(s.test(expression, "min(42,78)")->doubleValue() == 42);
+    REQUIRE(s.test(expression, "min(78,42)")->doubleValue() == 42);
+    REQUIRE(s.test(expression, "max(42,78)")->doubleValue() == 78);
+    REQUIRE(s.test(expression, "max(78,42)")->doubleValue() == 78);
+    REQUIRE(s.test(expression, "limited(15,10,20)")->doubleValue() == 15);
+    REQUIRE(s.test(expression, "limited(2,10,20)")->doubleValue() == 10);
+    REQUIRE(s.test(expression, "limited(42,10,20)")->doubleValue() == 20);
+    REQUIRE(s.test(expression, "cyclic(15,10,20)")->doubleValue() == 15);
+    REQUIRE(s.test(expression, "cyclic(2,10,20)")->doubleValue() == 12);
+    REQUIRE(s.test(expression, "cyclic(-18,10,20)")->doubleValue() == 12);
+    REQUIRE(s.test(expression, "cyclic(22,10,20)")->doubleValue() == 12);
+    REQUIRE(s.test(expression, "cyclic(42,10,20)")->doubleValue() == 12);
+    REQUIRE(s.test(expression, "cyclic(-10.8,1,2)")->doubleValue() == Approx(1.2));
+    REQUIRE(s.test(expression, "cyclic(-1.8,1,2)")->doubleValue() == Approx(1.2));
+    REQUIRE(s.test(expression, "cyclic(2.2,1,2)")->doubleValue() == Approx(1.2));
+    REQUIRE(s.test(expression, "cyclic(4.2,1,2)")->doubleValue() == Approx(1.2));
+    REQUIRE(s.test(expression, "epochtime()")->doubleValue() == Approx((double)MainLoop::unixtime()/Day));
     // strings
     REQUIRE(s.test(expression, "string(33)")->stringValue() == "33");
     REQUIRE(s.test(expression, "string(undefined)")->stringValue() == "undefined");
-    REQUIRE(s.test(expression, "strlen('gugus')")->numValue() == 5);
+    REQUIRE(s.test(expression, "strlen('gugus')")->doubleValue() == 5);
     REQUIRE(s.test(expression, "substr('gugus',3)")->stringValue() == "us");
     REQUIRE(s.test(expression, "substr('gugus',3,1)")->stringValue() == "u");
     REQUIRE(s.test(expression, "substr('gugus',7,1)")->stringValue() == "");
-    REQUIRE(s.test(expression, "find('gugus dada', 'ad')")->numValue() == 7);
+    REQUIRE(s.test(expression, "find('gugus dada', 'ad')")->doubleValue() == 7);
     REQUIRE(s.test(expression, "find('gugus dada', 'blubb')")->undefined() == true);
-    REQUIRE(s.test(expression, "find('gugus dada', 'gu', 1)")->numValue() == 2);
+    REQUIRE(s.test(expression, "find('gugus dada', 'gu', 1)")->doubleValue() == 2);
     REQUIRE(s.test(expression, "format('%04d', 33.7)")->stringValue() == "0033");
     REQUIRE(s.test(expression, "format('%4d', 33.7)")->stringValue() == "  33");
     REQUIRE(s.test(expression, "format('%.1f', 33.7)")->stringValue() == "33.7");
     REQUIRE(s.test(expression, "format('%08X', 0x24F5E21)")->stringValue() == "024F5E21");
     // divs
-    REQUIRE(s.test(expression, "eval('333*777')")->numValue() == 333*777);
+    REQUIRE(s.test(expression, "eval('333*777')")->doubleValue() == 333*777);
     // error handling
     REQUIRE(s.test(expression, "error('testerror')")->stringValue() == string_format("testerror (ScriptError::User[%d])", ScriptError::User));
     REQUIRE(s.test(expression, "errordomain(error('testerror'))")->stringValue() == "ScriptError");
-    REQUIRE(s.test(expression, "errorcode(error('testerror'))")->numValue() == ScriptError::User);
+    REQUIRE(s.test(expression, "errorcode(error('testerror'))")->doubleValue() == ScriptError::User);
     REQUIRE(s.test(expression, "errormessage(error('testerror'))")->stringValue() == "testerror");
     // separate terms ARE a syntax error in a expression! (not in a script, see below)
     REQUIRE(s.test(expression, "42 43 44")->stringValue().find(string_format("(ScriptError::Syntax[%d])", ScriptError::Syntax)) != string::npos);
     // special cases
-    REQUIRE(s.test(expression, "hour()")->numValue() > 0);
+    REQUIRE(s.test(expression, "hour()")->doubleValue() > 0);
     // should be case insensitive
-    REQUIRE(s.test(expression, "HOUR()")->numValue() > 0);
+    REQUIRE(s.test(expression, "HOUR()")->doubleValue() > 0);
     REQUIRE(s.test(expression, "IF(TRUE, 'TRUE', 'FALSE')")->stringValue() == "TRUE");
   }
 }
@@ -469,12 +469,12 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "statements", "[scripting],[FOCUS]" )
 {
 
   SECTION("return values") {
-    REQUIRE(s.test(scriptbody, "78.42")->numValue() == 78.42); // last expression returns
+    REQUIRE(s.test(scriptbody, "78.42")->doubleValue() == 78.42); // last expression returns
     REQUIRE(s.test(scriptbody, "78.42; return")->undefined() == true); // explicit no-result
     REQUIRE(s.test(scriptbody, "78.42; return null")->undefined() == true); // explicit no-result
-    REQUIRE(s.test(scriptbody, "return 78.42")->numValue() == 78.42); // same effect
-    REQUIRE(s.test(scriptbody, "return 78.42; 999")->numValue() == 78.42); // same effect, return exits early
-    REQUIRE(s.test(scriptbody, "return 78.42; return 999")->numValue() == 78.42); // first return counts
+    REQUIRE(s.test(scriptbody, "return 78.42")->doubleValue() == 78.42); // same effect
+    REQUIRE(s.test(scriptbody, "return 78.42; 999")->doubleValue() == 78.42); // same effect, return exits early
+    REQUIRE(s.test(scriptbody, "return 78.42; return 999")->doubleValue() == 78.42); // first return counts
     REQUIRE(s.test(scriptbody, "return; 999")->undefined() == true); // explicit no-result
   }
 
@@ -482,16 +482,16 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "statements", "[scripting],[FOCUS]" )
     REQUIRE(s.test(scriptbody, "x = 78.42")->isErr() == true); // cannot just assign
     REQUIRE(s.test(scriptbody, "let x = 78.42")->isErr() == true); // must be defined first
     REQUIRE(s.test(scriptbody, "let x")->isErr() == true); // let is not a declaration
-    REQUIRE(s.test(scriptbody, "var x = 78.42")->numValue() == 78.42); // assignment returns value
-    REQUIRE(s.test(scriptbody, "var x; x = 78.42")->numValue() == 78.42); // last expression returns, even if in assignment
-    REQUIRE(s.test(scriptbody, "var x; let x = 1234")->numValue() == 1234);
-    REQUIRE(s.test(scriptbody, "var x = 4321; X = 1234; return X")->numValue() == 1234); // case insensitivity
-    REQUIRE(s.test(scriptbody, "var x = 4321; x = x + 1234; return x")->numValue() == 1234+4321); // case insensitivity
-    REQUIRE(s.test(scriptbody, "var x = 1; var x = 2; return x")->numValue() == 2); // locals initialized whenerver encountered (now! was different before)
+    REQUIRE(s.test(scriptbody, "var x = 78.42")->doubleValue() == 78.42); // assignment returns value
+    REQUIRE(s.test(scriptbody, "var x; x = 78.42")->doubleValue() == 78.42); // last expression returns, even if in assignment
+    REQUIRE(s.test(scriptbody, "var x; let x = 1234")->doubleValue() == 1234);
+    REQUIRE(s.test(scriptbody, "var x = 4321; X = 1234; return X")->doubleValue() == 1234); // case insensitivity
+    REQUIRE(s.test(scriptbody, "var x = 4321; x = x + 1234; return x")->doubleValue() == 1234+4321); // case insensitivity
+    REQUIRE(s.test(scriptbody, "var x = 1; var x = 2; return x")->doubleValue() == 2); // locals initialized whenerver encountered (now! was different before)
     REQUIRE(s.test(scriptbody, "glob g = 1; return g")->isErr() == true); // globals cannot be initialized (ANY MORE, they could, ONCE, in old ScriptContext)
-    REQUIRE(s.test(scriptbody, "glob g; g = 4; return g")->numValue() == 4); // normal assignment is possible, however
+    REQUIRE(s.test(scriptbody, "glob g; g = 4; return g")->doubleValue() == 4); // normal assignment is possible, however
     #if SCRIPT_OPERATOR_MODE==SCRIPT_OPERATOR_MODE_FLEXIBLE
-    REQUIRE(s.test(scriptbody, "var h; var i = 8; h = 3 + (i = 8)")->numValue() == 4); // inner "=" is treated as comparison
+    REQUIRE(s.test(scriptbody, "var h; var i = 8; h = 3 + (i = 8)")->doubleValue() == 4); // inner "=" is treated as comparison
     #elif SCRIPT_OPERATOR_MODE==SCRIPT_OPERATOR_MODE_C
     REQUIRE(s.test(scriptbody, "var h; var i = 8; h = 3 + (i = 8)")->isErr() == true); // no nested assignment allowed
     #elif SCRIPT_OPERATOR_MODE==SCRIPT_OPERATOR_MODE_PASCAL
@@ -503,7 +503,7 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "statements", "[scripting],[FOCUS]" )
 
   // "{\"array\":[\"first\",2,3,\"fourth\",6.6],\"obj\":{\"objA\":\"A\",\"objB\":42,\"objC\":{\"objD\":\"D\",\"objE\":45}},\"string\":\"abc\",\"number\":42,\"bool\":true}"
   SECTION("json manipulation") {
-    REQUIRE(s.test(scriptbody, "var js = " JSON_TEST_OBJ "; js.obj.objF = 46; log(5,js); return js.obj.objF")->numValue() == 46);
+    REQUIRE(s.test(scriptbody, "var js = " JSON_TEST_OBJ "; js.obj.objF = 46; log(5,js); return js.obj.objF")->doubleValue() == 46);
     REQUIRE(s.test(scriptbody, "var js = " JSON_TEST_OBJ "; js.obj['objA'] = 'AA'; log(5,js); return js.obj.objA")->stringValue() == "AA");
     REQUIRE(s.test(scriptbody, "var js = " JSON_TEST_OBJ "; js.array[5] = 'AA'; log(5,js); return js.array[5]")->stringValue() == "AA");
     REQUIRE(s.test(scriptbody, "var js = " JSON_TEST_OBJ "; js.array[0] = 'modified'; log(5,js); return js.array[0]")->stringValue() == "modified");
@@ -541,7 +541,7 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "statements", "[scripting],[FOCUS]" )
     REQUIRE(s.test(scriptbody, "var cond = 2; var res = 'none'; var res2 = 'none'; if (cond==1) { res='one'; res2='two'; }; return string(res) + ',' + res2")->stringValue() == "none,none");
     REQUIRE(s.test(scriptbody, "var cond = 2; var res = 'none'; var res2 = 'none'; if (cond==1) { res='one'; res2='two'; } return string(res) + ',' + res2")->stringValue() == "none,none");
     // while, continue, break
-    REQUIRE(s.test(scriptbody, "var count = 0; while (count<5) count = count+1; return count")->numValue() == 5);
+    REQUIRE(s.test(scriptbody, "var count = 0; while (count<5) count = count+1; return count")->doubleValue() == 5);
     REQUIRE(s.test(scriptbody, "var res = ''; var count = 0; while (count<5) { count = count+1; res = res+string(count); } return res")->stringValue() == "12345");
     REQUIRE(s.test(scriptbody, "var res = ''; var count = 0; while (count<5) { count = count+1; if (count==3) continue; res = res+string(count); } return res")->stringValue() == "1245");
     REQUIRE(s.test(scriptbody, "var res = ''; var count = 0; while (count<5) { count = count+1; if (count==3) break; res = res+string(count); } return res")->stringValue() == "12");
@@ -554,10 +554,10 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "statements", "[scripting],[FOCUS]" )
     REQUIRE(strcmp(s.test(scriptbody, "throw('test error')")->errorValue()->getErrorMessage(), "test error") == 0);
     REQUIRE(Error::isError(s.test(scriptbody, "try var zerodiv = 7/0; catch (error) return error; return 'ok'")->errorValue(), ScriptError::domain(), ScriptError::DivisionByZero) == true);
     REQUIRE(s.test(scriptbody, "try var zerodiv = 7/0; catch return 'not allowed'; return 'ok'")->stringValue() == "not allowed");
-    REQUIRE(s.test(scriptbody, "try var zerodiv = 7/1; catch return 'error'; return zerodiv")->numValue() == 7);
-    REQUIRE(s.test(scriptbody, "try { var zerodiv = 42; zerodiv = 7/0 } catch { log('CAUGHT!') }; return zerodiv")->numValue() == 42);
-    REQUIRE(s.test(scriptbody, "try { var zerodiv = 42; zerodiv = 7/0; zerodiv = 66 } catch { log('CAUGHT!') }; return zerodiv")->numValue() == 42);
-    REQUIRE(s.test(scriptbody, "try { var zerodiv = 42; zerodiv = 7/1; zerodiv = 66 } catch { log('CAUGHT!') }; return zerodiv")->numValue() == 66);
+    REQUIRE(s.test(scriptbody, "try var zerodiv = 7/1; catch return 'error'; return zerodiv")->doubleValue() == 7);
+    REQUIRE(s.test(scriptbody, "try { var zerodiv = 42; zerodiv = 7/0 } catch { log('CAUGHT!') }; return zerodiv")->doubleValue() == 42);
+    REQUIRE(s.test(scriptbody, "try { var zerodiv = 42; zerodiv = 7/0; zerodiv = 66 } catch { log('CAUGHT!') }; return zerodiv")->doubleValue() == 42);
+    REQUIRE(s.test(scriptbody, "try { var zerodiv = 42; zerodiv = 7/1; zerodiv = 66 } catch { log('CAUGHT!') }; return zerodiv")->doubleValue() == 66);
     // Syntax errors
     REQUIRE(Error::isError(s.test(scriptbody, "78/9#")->errorValue(), ScriptError::domain(), ScriptError::Syntax) == true);
     REQUIRE(Error::isError(s.test(scriptbody, "78/#9")->errorValue(), ScriptError::domain(), ScriptError::Syntax) == true);
@@ -568,9 +568,9 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "statements", "[scripting],[FOCUS]" )
   SECTION("custom functions") {
     REQUIRE(s.test(sourcecode|embeddedGlobs, "function m(...) { return 1+ifvalid(arg1,0)+ifvalid(arg2,0)+ifvalid(arg3,0); } return m")->stringValue() == "function");
     REQUIRE(s.test(scriptbody, "m")->stringValue() == "function");
-    REQUIRE(s.test(scriptbody, "m()")->numValue() == 1);
-    REQUIRE(s.test(scriptbody, "m(1,2,3)")->numValue() == 7);
-    REQUIRE(s.test(scriptbody, "m(22,33)")->numValue() == 56);
+    REQUIRE(s.test(scriptbody, "m()")->doubleValue() == 1);
+    REQUIRE(s.test(scriptbody, "m(1,2,3)")->doubleValue() == 7);
+    REQUIRE(s.test(scriptbody, "m(22,33)")->doubleValue() == 56);
   }
 
 

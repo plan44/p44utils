@@ -183,7 +183,7 @@ bool ScriptObj::operator==(const ScriptObj& aRightSide) const
 
 bool NumericValue::operator==(const ScriptObj& aRightSide) const
 {
-  return num==aRightSide.numValue();
+  return num==aRightSide.doubleValue();
 }
 
 bool StringValue::operator==(const ScriptObj& aRightSide) const
@@ -207,7 +207,7 @@ bool ScriptObj::operator<(const ScriptObj& aRightSide) const
 
 bool NumericValue::operator<(const ScriptObj& aRightSide) const
 {
-  return num<aRightSide.numValue();
+  return num<aRightSide.doubleValue();
 }
 
 bool StringValue::operator<(const ScriptObj& aRightSide) const
@@ -244,7 +244,7 @@ bool ScriptObj::operator<=(const ScriptObj& aRightSide) const
 
 ScriptObjPtr NumericValue::operator+(const ScriptObj& aRightSide) const
 {
-  return new NumericValue(num + aRightSide.numValue());
+  return new NumericValue(num + aRightSide.doubleValue());
 }
 
 
@@ -256,33 +256,33 @@ ScriptObjPtr StringValue::operator+(const ScriptObj& aRightSide) const
 
 ScriptObjPtr NumericValue::operator-(const ScriptObj& aRightSide) const
 {
-  return new NumericValue(num - aRightSide.numValue());
+  return new NumericValue(num - aRightSide.doubleValue());
 }
 
 ScriptObjPtr NumericValue::operator*(const ScriptObj& aRightSide) const
 {
-  return new NumericValue(num * aRightSide.numValue());
+  return new NumericValue(num * aRightSide.doubleValue());
 }
 
 ScriptObjPtr NumericValue::operator/(const ScriptObj& aRightSide) const
 {
-  if (aRightSide.numValue()==0) {
+  if (aRightSide.doubleValue()==0) {
     return new ErrorValue(ScriptError::DivisionByZero, "division by zero");
   }
   else {
-    return new NumericValue(num / aRightSide.numValue());
+    return new NumericValue(num / aRightSide.doubleValue());
   }
 }
 
 ScriptObjPtr NumericValue::operator%(const ScriptObj& aRightSide) const
 {
-  if (aRightSide.numValue()==0) {
+  if (aRightSide.doubleValue()==0) {
     return new ErrorValue(ScriptError::DivisionByZero, "modulo by zero");
   }
   else {
     // modulo allowing float dividend and divisor, really meaning "remainder"
-    double a = numValue();
-    double b = aRightSide.numValue();
+    double a = doubleValue();
+    double b = aRightSide.doubleValue();
     int64_t q = a/b;
     return new NumericValue(a-b*q);
   }
@@ -336,13 +336,13 @@ ThreadValue::ThreadValue(ScriptCodeThreadPtr aThread) : thread(aThread)
   thread->registerCompletionNotification(this);
 }
 
-double ThreadValue::numValue() const
+double ThreadValue::doubleValue() const
 {
   return thread && thread->isRunning() ? 1 : 0;
 }
 
 
-void ThreadValue::notify(ScriptObjPtr aNotification)
+void ThreadValue::notifyThreadValue(ScriptObjPtr aNotification)
 {
   continueWaiters(aNotification);
   thread.reset(); // release the thread
@@ -357,7 +357,7 @@ void ThreadValue::abort()
 
 // MARK: Conversions
 
-double StringValue::numValue() const
+double StringValue::doubleValue() const
 {
   SourceCursor cursor(str);
   cursor.skipWhiteSpace();
@@ -365,7 +365,7 @@ double StringValue::numValue() const
   // note: like parseInt/Float in JS we allow trailing garbage
   //   but UNLIKE JS we don't return NaN here, just 0 if there's no conversion to number
   if (n->isErr()) return 0; // otherwise we'd get error
-  return n->numValue();
+  return n->doubleValue();
 }
 
 
@@ -409,9 +409,9 @@ string JsonValue::stringValue() const
 }
 
 
-double JsonValue::numValue() const
+double JsonValue::doubleValue() const
 {
-  if (!jsonval) return ScriptObj::numValue(); // undefined
+  if (!jsonval) return ScriptObj::doubleValue(); // undefined
   return jsonval->doubleValue();
 }
 
@@ -1898,12 +1898,12 @@ void SourceProcessor::s_simpleTerm()
         if (src.c()!='(' && src.c()!='.' && src.c()!='[') {
           // - check them before doing an actual member lookup
           if (uequals(identifier, "true") || uequals(identifier, "yes")) {
-            result = new NumericValue(1);
+            result = new NumericValue(true);
             popWithResult(false);
             return;
           }
           else if (uequals(identifier, "false") || uequals(identifier, "no")) {
-            result = new NumericValue(0);
+            result = new NumericValue(false);
             popWithResult(false);
             return;
           }
@@ -2036,7 +2036,7 @@ void SourceProcessor::s_subscriptArg()
     // not an assignment, we want the value of the member
     if (result->hasType(numeric)) {
       // array access by index
-      size_t index = result->numValue();
+      size_t index = result->doubleValue();
       result = olderResult;
       memberByIndex(index);
       return;
@@ -2268,7 +2268,7 @@ void SourceProcessor::s_exprFirstTerm()
   if (!skipping && result && result->defined()) {
     switch (pendingOperation) {
       case op_not : result = new NumericValue(!result->boolValue()); break;
-      case op_subtract : result = new NumericValue(-result->numValue()); break;
+      case op_subtract : result = new NumericValue(-result->doubleValue()); break;
       case op_add: // dummy, is NOP, allowed for clarification purposes
       default: break;
     }
@@ -3508,7 +3508,7 @@ void ScriptCodeThread::setMemberBySpecifier(TypeInfo aStorageAttributes)
   // - olderResult = parent object or NULL for script scope level
   ErrorPtr err;
   if (storageSpecifier->hasType(numeric)) {
-    size_t index = storageSpecifier->numValue();
+    size_t index = storageSpecifier->doubleValue();
     // store to array access by index
     if (olderResult) {
       err = olderResult->setMemberAtIndex(index, result);
@@ -3657,7 +3657,7 @@ static const BuiltInArgDesc isvalid_args[] = { { any+error+null } };
 static const size_t isvalid_numargs = sizeof(isvalid_args)/sizeof(BuiltInArgDesc);
 static void isvalid_func(BuiltinFunctionContextPtr f)
 {
-  f->finish(new NumericValue(f->arg(0)->hasType(value) ? 1 : 0));
+  f->finish(new NumericValue(f->arg(0)->hasType(value)));
 }
 
 
@@ -3674,7 +3674,7 @@ static const BuiltInArgDesc abs_args[] = { { scalar+undefres } };
 static const size_t abs_numargs = sizeof(abs_args)/sizeof(BuiltInArgDesc);
 static void abs_func(BuiltinFunctionContextPtr f)
 {
-  f->finish(new NumericValue(fabs(f->arg(0)->numValue())));
+  f->finish(new NumericValue(fabs(f->arg(0)->doubleValue())));
 }
 
 
@@ -3692,7 +3692,7 @@ static const BuiltInArgDesc frac_args[] = { { scalar+undefres } };
 static const size_t frac_numargs = sizeof(frac_args)/sizeof(BuiltInArgDesc);
 static void frac_func(BuiltinFunctionContextPtr f)
 {
-  f->finish(new NumericValue(f->arg(0)->numValue()-f->arg(0)->int64Value())); // result retains sign
+  f->finish(new NumericValue(f->arg(0)->doubleValue()-f->arg(0)->int64Value())); // result retains sign
 }
 
 
@@ -3704,9 +3704,9 @@ static void round_func(BuiltinFunctionContextPtr f)
 {
   double precision = 1;
   if (f->arg(1)->defined()) {
-    precision = f->arg(1)->numValue();
+    precision = f->arg(1)->doubleValue();
   }
-  f->finish(new NumericValue(round(f->arg(0)->numValue()/precision)*precision));
+  f->finish(new NumericValue(round(f->arg(0)->doubleValue()/precision)*precision));
 }
 
 
@@ -3716,7 +3716,7 @@ static const size_t random_numargs = sizeof(random_args)/sizeof(BuiltInArgDesc);
 static void random_func(BuiltinFunctionContextPtr f)
 {
   // rand(): returns a pseudo-random integer value between ​0​ and RAND_MAX (0 and RAND_MAX included).
-  f->finish(new NumericValue(f->arg(0)->numValue() + (double)rand()*(f->arg(1)->numValue()-f->arg(0)->numValue())/((double)RAND_MAX)));
+  f->finish(new NumericValue(f->arg(0)->doubleValue() + (double)rand()*(f->arg(1)->doubleValue()-f->arg(0)->doubleValue())/((double)RAND_MAX)));
 }
 
 
@@ -3757,9 +3757,9 @@ static const BuiltInArgDesc cyclic_args[] = { { scalar+undefres }, { numeric }, 
 static const size_t cyclic_numargs = sizeof(cyclic_args)/sizeof(BuiltInArgDesc);
 static void cyclic_func(BuiltinFunctionContextPtr f)
 {
-  double o = f->arg(1)->numValue();
-  double x0 = f->arg(0)->numValue()-o; // make null based
-  double r = f->arg(2)->numValue()-o; // wrap range
+  double o = f->arg(1)->doubleValue();
+  double x0 = f->arg(0)->doubleValue()-o; // make null based
+  double r = f->arg(2)->doubleValue()-o; // wrap range
   if (x0>=r) x0 -= int(x0/r)*r;
   else if (x0<0) x0 += (int(-x0/r)+1)*r;
   f->finish(new NumericValue(x0+o));
@@ -3783,7 +3783,7 @@ static const BuiltInArgDesc number_args[] = { { any+error+null } };
 static const size_t number_numargs = sizeof(number_args)/sizeof(BuiltInArgDesc);
 static void number_func(BuiltinFunctionContextPtr f)
 {
-  f->finish(new NumericValue(f->arg(0)->numValue())); // force convert to numeric
+  f->finish(new NumericValue(f->arg(0)->doubleValue())); // force convert to numeric
 }
 
 #if SCRIPTING_JSON_SUPPORT
@@ -3836,7 +3836,7 @@ static const BuiltInArgDesc strlen_args[] = { { text+undefres } };
 static const size_t strlen_numargs = sizeof(strlen_args)/sizeof(BuiltInArgDesc);
 static void strlen_func(BuiltinFunctionContextPtr f)
 {
-  f->finish(new NumericValue(f->arg(0)->stringValue().size())); // length of string
+  f->finish(new NumericValue((double)f->arg(0)->stringValue().size())); // length of string
 }
 
 
@@ -3872,7 +3872,7 @@ static void find_func(BuiltinFunctionContextPtr f)
   }
   size_t p = haystack.find(needle, start);
   if (p!=string::npos)
-    f->finish(new NumericValue(p));
+    f->finish(new NumericValue((double)p));
   else
     f->finish(new AnnotatedNullValue("not found")); // not found
 }
@@ -3897,7 +3897,7 @@ static void format_func(BuiltinFunctionContextPtr f)
     if (fmt.find_first_of("duxX", fmt.size()-1)!=string::npos)
       f->finish(new StringValue(string_format(fmt.c_str(), f->arg(1)->intValue()))); // int format
     else
-      f->finish(new StringValue(string_format(fmt.c_str(), f->arg(1)->numValue()))); // double format
+      f->finish(new StringValue(string_format(fmt.c_str(), f->arg(1)->doubleValue()))); // double format
   }
 }
 
@@ -3946,7 +3946,7 @@ static void errorcode_func(BuiltinFunctionContextPtr f)
 {
   ErrorPtr err = f->arg(0)->errorValue();
   if (Error::isOK(err)) f->finish(new AnnotatedNullValue("no error")); // no error, no code
-  f->finish(new NumericValue(err->getErrorCode()));
+  f->finish(new NumericValue((double)err->getErrorCode()));
 }
 
 
@@ -4004,7 +4004,7 @@ static const size_t await_numargs = sizeof(await_args)/sizeof(BuiltInArgDesc);
 static void await_func(BuiltinFunctionContextPtr f)
 {
   ThreadValue *t = dynamic_cast<ThreadValue *>(f->arg(0).get());
-  if (t && t->numValue()) {
+  if (t && t->doubleValue()) {
     // running
     t->registerCB(boost::bind(&BuiltinFunctionContext::finish, f, _1));
     return;
@@ -4019,7 +4019,7 @@ static const size_t abort_numargs = sizeof(abort_args)/sizeof(BuiltInArgDesc);
 static void abort_func(BuiltinFunctionContextPtr f)
 {
   ThreadValue *t = dynamic_cast<ThreadValue *>(f->arg(0).get());
-  if (t && t->numValue()) {
+  if (t && t->doubleValue()) {
     // running
     t->abort();
   }
@@ -4248,15 +4248,13 @@ static void epochtime_func(BuiltinFunctionContextPtr f)
   f->finish(new NumericValue((double)MainLoop::unixtime()/Day)); // epoch time in days with fractional time
 }
 
-
-
 // TODO: convert into single function returning a structured time object
 
 // helper macro for getting time
 #define prepTime \
   MLMicroSeconds t; \
   if (f->arg(0)->defined()) { \
-    t = f->arg(0)->numValue()*Second; \
+    t = f->arg(0)->doubleValue()*Second; \
   } \
   else { \
     t = MainLoop::unixtime(); \
@@ -4350,7 +4348,7 @@ static const BuiltInArgDesc delay_args[] = { { numeric } };
 static const size_t delay_numargs = sizeof(delay_args)/sizeof(BuiltInArgDesc);
 static void delay_func(BuiltinFunctionContextPtr f)
 {
-  MLMicroSeconds delay = f->arg(0)->numValue()*Second;
+  MLMicroSeconds delay = f->arg(0)->doubleValue()*Second;
   TicketObjPtr delayTicket = TicketObjPtr(new TicketObj);
   delayTicket->ticket.executeOnce(boost::bind(&BuiltinFunctionContext::finish, f, new AnnotatedNullValue("delayed")), delay);
   f->setAbortCallback(boost::bind(&delay_abort, delayTicket));
