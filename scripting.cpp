@@ -142,7 +142,7 @@ string ScriptObj::typeDescription(TypeInfo aInfo)
     }
     if (aInfo & executable) {
       if (!s.empty()) s += ", ";
-      s += "script";
+      s += "executable";
     }
     if (aInfo & error) {
       if (!s.empty()) s += " or ";
@@ -687,7 +687,12 @@ void ScriptCodeContext::releaseObjsFromSource(SourceContainerPtr aSource)
   NamedVarMap::iterator pos = namedVars.begin();
   while (pos!=namedVars.end()) {
     if (pos->second->originatesFrom(aSource)) {
+      #if P44_CPP11_FEATURE
       pos = namedVars.erase(pos); // source is gone -> remove
+      #else
+      NamedVarMap::iterator dpos = pos++; // pre-C++ 11
+      namedVars.erase(dpos); // source is gone -> remove
+      #endif
     }
     else {
       ++pos;
@@ -763,7 +768,7 @@ ErrorPtr ScriptCodeContext::setMemberAtIndex(size_t aIndex, const ScriptObjPtr a
 }
 
 
-void ScriptCodeContext::abort(EvaluationFlags aAbortFlags, ScriptObjPtr aAbortResult)
+void ScriptCodeContext::abort(EvaluationFlags aAbortFlags, ScriptObjPtr aAbortResult, ScriptCodeThreadPtr aExceptThread)
 {
   if (aAbortFlags & queue) {
     // empty queue first to make sure no queued threads get started when last running thread is killed below
@@ -773,9 +778,11 @@ void ScriptCodeContext::abort(EvaluationFlags aAbortFlags, ScriptObjPtr aAbortRe
     }
   }
   if (aAbortFlags & stoprunning) {
-    while (!threads.empty()) {
-      threads.back()->abort(aAbortResult);
-      threads.pop_back();
+    ThreadList tba = threads; // copy list as original get modified while aborting
+    for (ThreadList::iterator pos = tba.begin(); pos!=tba.end(); ++pos) {
+      if (!aExceptThread || aExceptThread!=(*pos)) {
+        (*pos)->abort(); // should cause threadTerminated to get called which will remove actually terminated thread from the list
+      }
     }
   }
 }
@@ -805,7 +812,9 @@ void ScriptCodeContext::execute(ScriptObjPtr aToExecute, EvaluationFlags aEvalFl
   ScriptCodeThreadPtr thread = newThreadFrom(code, code->cursor, aEvalFlags, aEvaluationCB, aMaxRunTime);
   if (thread) {
     thread->run();
+    return;
   }
+  if (aEvaluationCB) aEvaluationCB(new ErrorValue(ScriptError::Internal, "no thread"));
 }
 
 
@@ -865,7 +874,12 @@ void ScriptCodeContext::threadTerminated(ScriptCodeThreadPtr aThread, Evaluation
   ThreadList::iterator pos=threads.begin();
   while (pos!=threads.end()) {
     if (pos->get()==aThread.get()) {
+      #if P44_CPP11_FEATURE
       pos = threads.erase(pos);
+      #else
+      ThreadList::iterator dpos = pos++;
+      threads.erase(dpos);
+      #endif
       // thread object should get disposed now, along with its SourceRef
       break;
     }
@@ -1093,7 +1107,7 @@ ScriptObjPtr BuiltinFunctionContext::arg(size_t aArgIndex)
 }
 
 
-void BuiltinFunctionContext::abort(EvaluationFlags aAbortFlags, ScriptObjPtr aAbortResult)
+void BuiltinFunctionContext::abort(EvaluationFlags aAbortFlags, ScriptObjPtr aAbortResult, ScriptCodeThreadPtr aExceptThread)
 {
   if (func) {
     if (abortCB) abortCB(); // stop external things the function call has started
@@ -1607,7 +1621,6 @@ void SourceProcessor::resume(ScriptObjPtr aResult)
   if (aResult) {
     result = aResult;
   }
-  //FOCUSLOGSTATE
   // Am I getting called from a chain of calls originating from
   // myself via step() in the execution loop below?
   if (resuming) {
@@ -1616,7 +1629,10 @@ void SourceProcessor::resume(ScriptObjPtr aResult)
     return; // but now let chain of calls wind down to our last call (originating from step() in the loop)
   }
   // NO: this is a real re-entry
-  if (aborted) return;
+  if (aborted) {
+    complete(result);
+    return;
+  }
   // re-start the sync execution loop
   resuming = true; // now actually start resuming
   stepLoop();
@@ -1645,7 +1661,6 @@ void SourceProcessor::abort(ScriptObjPtr aAbortResult)
 void SourceProcessor::complete(ScriptObjPtr aFinalResult)
 {
   FOCUSLOGSTATE
-//  if (currentState) {
   resumed = false; // make sure stepLoop WILL exit when returning from step()
   result = aFinalResult; // set final result
   if (result && !result->isErr() && (evaluationFlags & expression)) {
@@ -1665,7 +1680,6 @@ void SourceProcessor::complete(ScriptObjPtr aFinalResult)
     completedCB = NULL;
     cb(result);
   }
-//  }
 }
 
 
@@ -3119,8 +3133,12 @@ void CompiledTrigger::triggerDidEvaluate(EvaluationFlags aEvalMode, ScriptObjPtr
     if (fpos->second.frozenUntil==Never) {
       // already detected expired -> erase
       // Note: delete only DETECTED ones, just expired ones in terms of now() MUST wait until checked in next evaluation!
+      #if P44_CPP11_FEATURE
+      fpos = frozenResults.erase(fpos);
+      #else
       FrozenResultsMap::iterator dpos = fpos++;
       frozenResults.erase(dpos);
+      #endif
       continue;
     }
     updateNextEval(fpos->second.frozenUntil);
@@ -3245,7 +3263,7 @@ void CompiledHandler::setTrigger(ScriptObjPtr aTrigger, TriggerMode aMode)
   // link trigger with my handler action
   if (trigger) {
     trigger->setTriggerCB(boost::bind(&CompiledHandler::triggered, this, _1), aMode);
-    trigger->initializeTrigger();
+    trigger->initializeTrigger(expression|synchronously|concurrently); // need to be concurrent because handler might run in context shared by
   }
 }
 
@@ -3253,7 +3271,7 @@ void CompiledHandler::setTrigger(ScriptObjPtr aTrigger, TriggerMode aMode)
 void CompiledHandler::triggered(ScriptObjPtr aTriggerResult)
 {
   // execute the handler script now
-  SPLOG(mainContext->domain(), LOG_NOTICE, "%s triggered: '%s' with result = %s", name.c_str(), cursor.displaycode(50).c_str(), ScriptObj::describe(aTriggerResult).c_str());
+  SPLOG(mainContext->domain(), LOG_INFO, "%s triggered: '%s' with result = %s", name.c_str(), cursor.displaycode(50).c_str(), ScriptObj::describe(aTriggerResult).c_str());
   if (mainContext) {
     ExecutionContextPtr ctx = contextForCallingFrom(mainContext->domain(), NULL);
     if (ctx) {
@@ -3270,7 +3288,7 @@ void CompiledHandler::triggered(ScriptObjPtr aTriggerResult)
 
 void CompiledHandler::actionExecuted(ScriptObjPtr aActionResult)
 {
-  SPLOG(mainContext->domain(), LOG_NOTICE, "%s executed: result =  %s", name.c_str(), ScriptObj::describe(aActionResult).c_str());
+  SPLOG(mainContext->domain(), LOG_INFO, "%s executed: result =  %s", name.c_str(), ScriptObj::describe(aActionResult).c_str());
 }
 
 
@@ -3615,7 +3633,7 @@ void ScriptCodeThread::stepLoop()
     MLMicroSeconds now = MainLoop::now();
     // check for abort
     // Check maximum execution time
-    if (maxRunTime!=Infinite && now-runningSince) {
+    if (maxRunTime!=Infinite && now-runningSince>maxRunTime) {
       // Note: not calling abort as we are WITHIN the call chain
       complete(new ErrorPosValue(src, ScriptError::Timeout, "Aborted because of overall execution limit"));
       return;
@@ -4186,7 +4204,7 @@ static void eval_func(BuiltinFunctionContextPtr f)
 
 
 // await(thread)    wait for the thread to complete, return the thread's exit value
-static const BuiltInArgDesc await_args[] = { { threadref } };
+static const BuiltInArgDesc await_args[] = { { threadref+exacttype } };
 static const size_t await_numargs = sizeof(await_args)/sizeof(BuiltInArgDesc);
 static void await_func(BuiltinFunctionContextPtr f)
 {
@@ -4197,18 +4215,27 @@ static void await_func(BuiltinFunctionContextPtr f)
     return;
   }
   f->finish(t->receivedNotification());
+  return;
 }
 
 
-// abort(thread)    abort the thread
-static const BuiltInArgDesc abort_args[] = { { threadref } };
+// abort(thread)    abort specified thread
+// abort()          abort all subthreads
+static const BuiltInArgDesc abort_args[] = { { threadref+exacttype+optional } };
 static const size_t abort_numargs = sizeof(abort_args)/sizeof(BuiltInArgDesc);
 static void abort_func(BuiltinFunctionContextPtr f)
 {
-  ThreadValue *t = dynamic_cast<ThreadValue *>(f->arg(0).get());
-  if (t && t->doubleValue()) {
-    // running
-    t->abort();
+  if (f->numArgs()==1) {
+    // single thread represented by arg0
+    ThreadValue *t = dynamic_cast<ThreadValue *>(f->arg(0).get());
+    if (t && t->doubleValue()) {
+      // running
+      t->abort();
+    }
+  }
+  else {
+    // all subthreads
+    f->thread()->abortOthers(stopall);
   }
   f->finish();
 }
@@ -4221,7 +4248,7 @@ static const BuiltInArgDesc log_args[] = { { value }, { value+optional } };
 static const size_t log_numargs = sizeof(log_args)/sizeof(BuiltInArgDesc);
 static void log_func(BuiltinFunctionContextPtr f)
 {
-  int loglevel = LOG_INFO;
+  int loglevel = LOG_NOTICE;
   size_t ai = 0;
   if (f->numArgs()>1) {
     loglevel = f->arg(ai)->intValue();
@@ -4462,6 +4489,8 @@ static void every_func(BuiltinFunctionContextPtr f)
       double untilNext = syncoffset+(floor((secondOfDay-syncoffset)/interval)+1)*interval - secondOfDay; // time to next repetition
       trigger->newFreeze(frozenP, secs, freezeId, MainLoop::now()+untilNext*Second, true);
     }
+    // also cause a immediate re-evaluation as every() is an instant that immediately goes away
+    trigger->updateNextEval(MainLoop::now());
   }
   f->finish(new NumericValue(triggered));
 }
