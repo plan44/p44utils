@@ -53,6 +53,24 @@ ErrorPtr ScriptError::err(ErrorCodes aErrCode, const char *aFmt, ...)
   return ErrorPtr(errP);
 }
 
+// MARK: - Event Source and Sink
+
+void EventSink::notify(ScriptObjPtr aEvent) { /* FIXME: implement */ };
+
+size_t EventSink::numSources() { return 0; /* FIXME: implement */ };
+
+void EventSource::registerEventSink(EventSink *aEventSink)
+{
+  // FIXME: implement
+  LOG(LOG_CRIT, "%s not implemented", __func__);
+}
+
+void EventSource::unregisterEventSink(EventSink *aEventSink)
+{
+  // FIXME: implement
+  LOG(LOG_CRIT, "%s not implemented", __func__);
+}
+
 
 // MARK: - ScriptObj
 
@@ -567,7 +585,13 @@ ErrorPtr ExecutionContext::setMemberAtIndex(size_t aIndex, const ScriptObjPtr aM
 }
 
 
-ErrorPtr ExecutionContext::checkAndSetArgument(ScriptObjPtr aArgument, size_t aIndex, ScriptObjPtr aCallee)
+ErrorPtr ExecutionContext::setArgumentAtIndex(const SourcePos &aArgPos, size_t aIndex, const ScriptObjPtr aMember, const string aName)
+{
+  return setMemberAtIndex(aIndex, aMember, aName);
+}
+
+
+ErrorPtr ExecutionContext::checkAndSetArgument(const SourcePos &aArgPos, ScriptObjPtr aArgument, size_t aIndex, ScriptObjPtr aCallee)
 {
   if (!aCallee) return ScriptError::err(ScriptError::Internal, "missing callee");
   ArgumentDescriptor info;
@@ -615,7 +639,7 @@ ErrorPtr ExecutionContext::checkAndSetArgument(ScriptObjPtr aArgument, size_t aI
       }
     }
     // argument is fine, set it
-    return setMemberAtIndex(aIndex, aArgument, info.name);
+    return setArgumentAtIndex(aArgPos, aIndex, aArgument, info.name);
   }
   return ErrorPtr(); // ok
 }
@@ -784,19 +808,19 @@ void ScriptCodeContext::execute(ScriptObjPtr aToExecute, EvaluationFlags aEvalFl
   // - we do not run source code, only script bodies
   if (aEvalFlags & sourcecode) aEvalFlags = (aEvalFlags & ~sourcecode) | scriptbody;
   // - now run
-  ScriptCodeThreadPtr thread = newThreadFrom(code->cursor, aEvalFlags, aEvaluationCB, aMaxRunTime);
+  ScriptCodeThreadPtr thread = newThreadFrom(code, code->cursor, aEvalFlags, aEvaluationCB, aMaxRunTime);
   if (thread) {
     thread->run();
   }
 }
 
 
-ScriptCodeThreadPtr ScriptCodeContext::newThreadFrom(SourceCursor &aFromCursor, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB, MLMicroSeconds aMaxRunTime)
+ScriptCodeThreadPtr ScriptCodeContext::newThreadFrom(CompiledCodePtr aCodeObj, SourceCursor &aFromCursor, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB, MLMicroSeconds aMaxRunTime)
 {
   // prepare a thread for executing now or later
   // Note: thread gets an owning Ptr back to this, so this context cannot be destructed before all
   //   threads have ended.
-  ScriptCodeThreadPtr newThread = ScriptCodeThreadPtr(new ScriptCodeThread(this, aFromCursor));
+  ScriptCodeThreadPtr newThread = ScriptCodeThreadPtr(new ScriptCodeThread(this, aCodeObj, aFromCursor));
   MLMicroSeconds maxBlockTime = aEvalFlags&synchronously ? aMaxRunTime : domain()->getMaxBlockTime();
   newThread->prepareRun(aEvaluationCB, aEvalFlags, maxBlockTime, aMaxRunTime);
   // now check how and when to run it
@@ -994,10 +1018,10 @@ ScriptObjPtr BuiltInFunctionLookup::memberByNameFrom(ScriptObjPtr aThisObj, cons
 }
 
 
-ExecutionContextPtr BuiltinFunctionObj::contextForCallingFrom(ScriptMainContextPtr aMainContext) const
+ExecutionContextPtr BuiltinFunctionObj::contextForCallingFrom(ScriptMainContextPtr aMainContext, ScriptCodeThreadPtr aThread) const
 {
   // built-in functions get their this from the lookup they come from
-  return new BuiltinFunctionContext(aMainContext);
+  return new BuiltinFunctionContext(aMainContext, aThread);
 }
 
 
@@ -1015,6 +1039,12 @@ bool BuiltinFunctionObj::argumentInfo(size_t aIndex, ArgumentDescriptor& aArgDes
   return true;
 }
 
+
+BuiltinFunctionContext::BuiltinFunctionContext(ScriptMainContextPtr aMainContext, ScriptCodeThreadPtr aThread) :
+  inherited(aMainContext),
+  mThread(aThread)
+{
+}
 
 
 void BuiltinFunctionContext::setAbortCallback(SimpleCB aAbortCB)
@@ -1046,6 +1076,33 @@ void BuiltinFunctionContext::execute(ScriptObjPtr aToExecute, EvaluationFlags aE
   }
 }
 
+ErrorPtr BuiltinFunctionContext::setArgumentAtIndex(const SourcePos &aArgPos, size_t aIndex, const ScriptObjPtr aMember, const string aName)
+{
+  if (trigger()) {
+    // need argument positions only when triggering
+    if (aIndex==argumentPositions.size()) {
+      // specially optimized case: appending
+      argumentPositions.push_back(aArgPos);
+    }
+    else {
+      if (aIndex>argumentPositions.size()) {
+        // resize, will result in sparse array
+        argumentPositions.resize(aIndex+1);
+      }
+      argumentPositions[aIndex] = aArgPos;
+    }
+  }
+  return inherited::setArgumentAtIndex(aArgPos, aIndex, aMember, aName);
+}
+
+
+SourcePos BuiltinFunctionContext::argPos(size_t aArgIndex) const
+{
+  if (aArgIndex<argumentPositions.size()) {
+    return argumentPositions[aArgIndex];
+  }
+  return SourcePos();
+}
 
 
 ScriptObjPtr BuiltinFunctionContext::arg(size_t aArgIndex)
@@ -1114,6 +1171,19 @@ SourcePos::SourcePos(const SourcePos &aCursor) :
 }
 
 
+size_t SourcePos::lineno() const
+{
+  return line;
+}
+
+
+size_t SourcePos::charpos() const
+{
+  if (!ptr || !bol) return 0;
+  return ptr-bol;
+}
+
+
 // MARK: - SourceCursor
 
 
@@ -1139,19 +1209,6 @@ SourceCursor::SourceCursor(SourceContainerPtr aContainer, SourcePos aStart, Sour
   if(aEnd.ptr>=pos.ptr && aEnd.ptr<=pos.eot) pos.eot = aEnd.ptr;
 }
 
-
-
-size_t SourceCursor::lineno() const
-{
-  return pos.line;
-}
-
-
-size_t SourceCursor::charpos() const
-{
-  if (!pos.ptr || !pos.bol) return 0;
-  return pos.ptr-pos.bol;
-}
 
 
 size_t SourceCursor::textpos() const
@@ -2149,6 +2206,7 @@ void SourceProcessor::s_funcArg()
   // immediately following a function argument evaluation
   // - result is value of the function argument
   // - olderResult is the function the argument applies to
+  // - poppedpos is the beginning of the argument
   ScriptObjPtr arg = result;
   result = olderResult; // restore the function
   src.skipNonCode();
@@ -2172,7 +2230,7 @@ void SourceProcessor::s_funcArg()
     checkAndResume(); // just ignore the argument and continue
   }
   else {
-    pushFunctionArgument(arg);
+    pushFunctionArgument(poppedPos, arg);
   }
   return;
 }
@@ -2941,7 +2999,7 @@ void SourceProcessor::startBlockThreadAndStoreInIdentifier()
   checkAndResume();
 }
 
-void SourceProcessor::pushFunctionArgument(ScriptObjPtr aArgument)
+void SourceProcessor::pushFunctionArgument(const SourcePos &aArgPos, ScriptObjPtr aArgument)
 {
   checkAndResume(); // NOP on the base class level
 }
@@ -2973,7 +3031,7 @@ void SourceProcessor::executeResult()
 
 // MARK: - CompiledScript, CompiledFunction, CompiledHandler
 
-ExecutionContextPtr CompiledCode::contextForCallingFrom(ScriptMainContextPtr aMainContext) const
+ExecutionContextPtr CompiledCode::contextForCallingFrom(ScriptMainContextPtr aMainContext, ScriptCodeThreadPtr aThread) const
 {
   // functions get executed in a private context linked to the caller's (main) context
   return new ScriptCodeContext(aMainContext);
@@ -3005,7 +3063,7 @@ bool CompiledCode::argumentInfo(size_t aIndex, ArgumentDescriptor& aArgDesc) con
 }
 
 
-ExecutionContextPtr CompiledScript::contextForCallingFrom(ScriptMainContextPtr aMainContext) const
+ExecutionContextPtr CompiledScript::contextForCallingFrom(ScriptMainContextPtr aMainContext, ScriptCodeThreadPtr aThread) const
 {
   // compiled script bodies get their execution context assigned at compile time, just return it
   // - but maincontext passed should be the domain of our saved mainContext, so check that if aMainContext is passed
@@ -3021,21 +3079,43 @@ ExecutionContextPtr CompiledScript::contextForCallingFrom(ScriptMainContextPtr a
 
 // MARK: - Trigger
 
+
+CompiledTrigger::CompiledTrigger(const string aName, ScriptMainContextPtr aMainContext) :
+  inherited(aName, aMainContext),
+  triggerMode(inactive),
+  mCurrentState(p44::undefined),
+  nextEvaluation(Never)
+{
+}
+
+
 ScriptObjPtr CompiledTrigger::initializeTrigger(EvaluationFlags aEvalMode)
 {
   // initialize it
-  ExecutionContextPtr ctx = contextForCallingFrom(NULL);
-  if (!ctx) return  new ErrorValue(ScriptError::Internal, "not a trigger context");
-  aEvalMode = (aEvalMode&~runModeMask)|initial;
+  reEvaluationTicket.cancel();
+  nextEvaluation = Never; // reset
+  frozenResults.clear(); // (re)initializing trigger unfreezes all values
+  ExecutionContextPtr ctx = contextForCallingFrom(NULL, NULL);
+  if (!ctx) return  new ErrorValue(ScriptError::Internal, "no context for trigger");
+  aEvalMode = (aEvalMode&~runModeMask)|initial; // set initial run mode
   if (aEvalMode & synchronously) {
     ScriptObjPtr res = ctx->executeSynchronously(this, aEvalMode, 2*Second);
     triggerDidEvaluate(aEvalMode, res);
     return res;
   }
   else {
-    ctx->execute(ScriptObjPtr(this), aEvalMode, boost::bind(&CompiledTrigger::triggerDidEvaluate, this, aEvalMode, _1), 30*Second);
+    triggerEvaluation(aEvalMode);
     return new AnnotatedNullValue("asynchonously initializing trigger");
   }
+}
+
+
+void CompiledTrigger::triggerEvaluation(EvaluationFlags aEvalMode)
+{
+  reEvaluationTicket.cancel();
+  nextEvaluation = Never; // reset
+  ExecutionContextPtr ctx = contextForCallingFrom(NULL, NULL);
+  ctx->execute(ScriptObjPtr(this), aEvalMode, boost::bind(&CompiledTrigger::triggerDidEvaluate, this, aEvalMode, _1), 30*Second);
 }
 
 
@@ -3059,11 +3139,128 @@ void CompiledTrigger::triggerDidEvaluate(EvaluationFlags aEvalMode, ScriptObjPtr
   // update state
   mCurrentResult = aResult;
   mCurrentState = newState;
-  // callback
+  // take unfreeze time of frozen results into account for next evaluation
+  FrozenResultsMap::iterator fpos = frozenResults.begin();
+  while (fpos!=frozenResults.end()) {
+    if (fpos->second.frozenUntil==Never) {
+      // already detected expired -> erase
+      // Note: delete only DETECTED ones, just expired ones in terms of now() MUST wait until checked in next evaluation!
+      FrozenResultsMap::iterator dpos = fpos++;
+      frozenResults.erase(dpos);
+      continue;
+    }
+    updateNextEval(fpos->second.frozenUntil);
+    fpos++;
+  }
+  // check if trigger is likely to work
+  if ((aEvalMode & initial) && nextEvaluation==Never && numSources()==0) {
+    OLOG(LOG_WARNING, "probably trigger will not work as intended (no timers nor events): %s", cursor.displaycode(70).c_str());
+    // send a null as initial result
+    aResult = new AnnotatedNullValue("probably will never trigger");
+    // but have it executed normally once just a bit later
+    updateNextEval(MainLoop::now()+1*Second);
+  }
+  // schedule next timed evaluation if one is needed
+  if (nextEvaluation!=Never) {
+    OLOG(LOG_INFO, "Trigger demands re-evaluation at %s: '%s'", MainLoop::string_mltime(nextEvaluation).c_str(), cursor.displaycode(70).c_str());
+    reEvaluationTicket.executeOnceAt(
+      boost::bind(&CompiledTrigger::triggerEvaluation, this, (aEvalMode&~runModeMask)|timed),
+      nextEvaluation
+    );
+  }
+  nextEvaluation = Never; // reset
+  // callback (always, even when initializing)
   if (doTrigger && triggerCB) {
-    triggerCB(mCurrentResult);
+    triggerCB(aResult);
   }
 }
+
+
+bool CompiledTrigger::updateNextEval(const MLMicroSeconds aLatestEval)
+{
+  if (aLatestEval==Never || aLatestEval==Infinite) return false; // no next evaluation needed, no need to update
+  if (nextEvaluation==Never || aLatestEval<nextEvaluation) {
+    // new time is more recent than previous, update
+    nextEvaluation = aLatestEval;
+    return true;
+  }
+  return false;
+}
+
+
+bool CompiledTrigger::updateNextEval(const struct tm& aLatestEvalTm)
+{
+  MLMicroSeconds latestEval = MainLoop::localTimeToMainLoopTime(aLatestEvalTm);
+  return updateNextEval(latestEval);
+}
+
+
+CompiledTrigger::FrozenResult* CompiledTrigger::getFrozen(ScriptObjPtr &aResult, const SourcePos &aRefPos)
+{
+  FrozenResultsMap::iterator frozenVal = frozenResults.find(aRefPos.uniquepos());
+  FrozenResult* frozenResultP = NULL;
+  if (frozenVal!=frozenResults.end()) {
+    frozenResultP = &(frozenVal->second);
+    // there is a frozen result for this position in the expression
+    OLOG(LOG_DEBUG, "- frozen result (%s) for actual result (%s) at %zu:%zu exists - will expire %s",
+      frozenResultP->frozenResult->stringValue().c_str(),
+      aResult->stringValue().c_str(),
+      aRefPos.lineno()+1, aRefPos.charpos()+1,
+      frozenResultP->frozen() ? MainLoop::string_mltime(frozenResultP->frozenUntil).c_str() : "NOW"
+    );
+    aResult = frozenVal->second.frozenResult;
+    if (!frozenResultP->frozen()) frozenVal->second.frozenUntil = Never; // mark expired
+  }
+  return frozenResultP;
+}
+
+
+bool CompiledTrigger::FrozenResult::frozen()
+{
+  return frozenUntil==Infinite || (frozenUntil!=Never && frozenUntil>MainLoop::now());
+}
+
+
+CompiledTrigger::FrozenResult* CompiledTrigger::newFreeze(FrozenResult* aExistingFreeze, ScriptObjPtr aNewResult, const SourcePos &aRefPos, MLMicroSeconds aFreezeUntil, bool aUpdate)
+{
+  if (!aExistingFreeze) {
+    // nothing frozen yet, freeze it now
+    FrozenResult newFreeze;
+    newFreeze.frozenResult = aNewResult;
+    newFreeze.frozenUntil = aFreezeUntil;
+    frozenResults[aRefPos.uniquepos()] = newFreeze;
+    OLOG(LOG_DEBUG, "- new result (%s) frozen for pos %zu:%zu until %s",
+      aNewResult->stringValue().c_str(),
+      aRefPos.lineno()+1, aRefPos.charpos()+1,
+      MainLoop::string_mltime(newFreeze.frozenUntil).c_str()
+    );
+    return &frozenResults[aRefPos.uniquepos()];
+  }
+  else if (!aExistingFreeze->frozen() || aUpdate || aFreezeUntil==Never) {
+    OLOG(LOG_DEBUG, "- existing freeze updated to value %s and to expire %s",
+      aNewResult->stringValue().c_str(),
+      aFreezeUntil==Never ? "IMMEDIATELY" : MainLoop::string_mltime(aFreezeUntil).c_str()
+    );
+    aExistingFreeze->frozenResult = aNewResult;
+    aExistingFreeze->frozenUntil = aFreezeUntil;
+  }
+  else {
+    OLOG(LOG_DEBUG, "- no freeze created/updated");
+  }
+  return aExistingFreeze;
+}
+
+
+bool CompiledTrigger::unfreeze(const SourcePos &aAtPos)
+{
+  FrozenResultsMap::iterator frozenVal = frozenResults.find(aAtPos.uniquepos());
+  if (frozenVal!=frozenResults.end()) {
+    frozenResults.erase(frozenVal);
+    return true;
+  }
+  return false;
+}
+
 
 
 // MARK: - CompiledHandler
@@ -3084,7 +3281,7 @@ void CompiledHandler::triggered(ScriptObjPtr aTriggerResult)
   // execute the handler script now
   SPLOG(mainContext->domain(), LOG_NOTICE, "%s triggered: '%s' with result = %s", name.c_str(), cursor.displaycode(50).c_str(), ScriptObj::describe(aTriggerResult).c_str());
   if (mainContext) {
-    ExecutionContextPtr ctx = contextForCallingFrom(mainContext->domain());
+    ExecutionContextPtr ctx = contextForCallingFrom(mainContext->domain(), NULL);
     if (ctx) {
       // FIXME: not so clean, as it sets a "result" variable also visible from trigger
       ctx->setMemberByName("result", aTriggerResult, create);
@@ -3294,7 +3491,7 @@ ScriptObjPtr ScriptSource::run(EvaluationFlags aEvalFlags, EvaluationCB aEvaluat
   // get the context to run it
   if (code) {
     if (code->hasType(executable)) {
-      ExecutionContextPtr ctx = code->contextForCallingFrom(domain());
+      ExecutionContextPtr ctx = code->contextForCallingFrom(domain(), NULL);
       if (ctx) {
         if (aEvalFlags & synchronously) {
           result = ctx->executeSynchronously(code, aEvalFlags, aMaxRunTime);
@@ -3367,8 +3564,9 @@ ScriptObjPtr ScriptingDomain::registerHandler(ScriptObjPtr aHandler)
 
 // MARK: - ScriptCodeThread
 
-ScriptCodeThread::ScriptCodeThread(ScriptCodeContextPtr aOwner, const SourceCursor& aStartCursor) :
+ScriptCodeThread::ScriptCodeThread(ScriptCodeContextPtr aOwner, CompiledCodePtr aCode, const SourceCursor& aStartCursor) :
   owner(aOwner),
+  codeObj(aCode),
   maxBlockTime(0),
   maxRunTime(Infinite),
   runningSince(Never)
@@ -3423,7 +3621,7 @@ void ScriptCodeThread::complete(ScriptObjPtr aFinalResult)
   autoResumeTicket.cancel();
   inherited::complete(aFinalResult);
   for (WaitingList::iterator pos = waitingList.begin(); pos!=waitingList.end(); ++pos) {
-    (*pos)->notify(aFinalResult);
+    (*pos)->notifyThreadValue(aFinalResult);
   }
   waitingList.clear();
   owner->threadTerminated(this, evaluationFlags);
@@ -3483,10 +3681,6 @@ void ScriptCodeThread::checkAndResume()
 }
 
 
-
-
-
-
 void ScriptCodeThread::memberByIdentifier()
 {
   if (result) {
@@ -3498,6 +3692,23 @@ void ScriptCodeThread::memberByIdentifier()
     result = owner->memberByName(identifier);
   }
   checkAndResume();
+}
+
+
+void ScriptCodeThread::memberCheckAndResume()
+{
+  // check for event source in case this is a trigger initial run
+  if (evaluationFlags & initial) {
+    // initial run of trigger -> register trigger itself as event source
+    EventSource* eventSource = result->eventSource();
+    if (eventSource) {
+      // register the code object (the trigger) as event sink
+      EventSink* eventSink = dynamic_cast<EventSink*>(codeObj.get());
+      if (eventSink) {
+        eventSource->registerEventSink(eventSink);
+      }
+    }
+  }
 }
 
 
@@ -3552,7 +3763,7 @@ void ScriptCodeThread::memberByIndex(size_t aIndex)
 void ScriptCodeThread::newFunctionCallContext()
 {
   if (result) {
-    funcCallContext = result->contextForCallingFrom(owner->scriptmain());
+    funcCallContext = result->contextForCallingFrom(owner->scriptmain(), this);
   }
   if (!funcCallContext) {
     result = new ErrorPosValue(src, ScriptError::NotCallable, "not a function");
@@ -3563,7 +3774,7 @@ void ScriptCodeThread::newFunctionCallContext()
 
 void ScriptCodeThread::startBlockThreadAndStoreInIdentifier()
 {
-  ScriptCodeThreadPtr thread = owner->newThreadFrom(src, concurrently|block, NULL);
+  ScriptCodeThreadPtr thread = owner->newThreadFrom(codeObj, src, concurrently|block, NULL);
   if (thread) {
     if (!identifier.empty()) {
       storageSpecifier = new StringValue(identifier);
@@ -3581,23 +3792,24 @@ void ScriptCodeThread::startBlockThreadAndStoreInIdentifier()
 }
 
 
-/// apply the specified argument to the current result
-void ScriptCodeThread::pushFunctionArgument(ScriptObjPtr aArgument)
+void ScriptCodeThread::pushFunctionArgument(const SourcePos &aArgPos, ScriptObjPtr aArgument)
 {
+  // apply the specified argument to the current function call context
+
   if (funcCallContext) {
-    ErrorPtr err = funcCallContext->checkAndSetArgument(aArgument, funcCallContext->numIndexedMembers(), result);
+    ErrorPtr err = funcCallContext->checkAndSetArgument(aArgPos, aArgument, funcCallContext->numIndexedMembers(), result);
     if (Error::notOK(err)) result = new ErrorPosValue(src, err);
   }
   checkAndResume();
 }
 
 
-/// evaluate the current result and replace it with the output from the evaluation (e.g. function call)
+// evaluate the current result and replace it with the output from the evaluation (e.g. function call)
 void ScriptCodeThread::executeResult()
 {
   if (funcCallContext && result) {
     // check for missing arguments after those we have
-    ErrorPtr err = funcCallContext->checkAndSetArgument(ScriptObjPtr(), funcCallContext->numIndexedMembers(), result);
+    ErrorPtr err = funcCallContext->checkAndSetArgument(src.pos, ScriptObjPtr(), funcCallContext->numIndexedMembers(), result);
     if (Error::notOK(err)) {
       result = new ErrorPosValue(src, err);
       checkAndResume();
@@ -3982,7 +4194,7 @@ static void eval_func(BuiltinFunctionContextPtr f)
   }
   if (evalcode->hasType(executable)) {
     // get the context to run it as an anonymous function from the current main context
-    ExecutionContextPtr ctx = evalcode->contextForCallingFrom(f->scriptmain());
+    ExecutionContextPtr ctx = evalcode->contextForCallingFrom(f->scriptmain(), f->thread());
     if (ctx) {
       // pass args, if any
       for (size_t i = 1; i<f->numArgs(); i++) {
@@ -4078,86 +4290,86 @@ static void logleveloffset_func(BuiltinFunctionContextPtr f)
 }
 
 
-// TODO: implement when event handler mechanisms are in place
 // is_weekday(w,w,w,...)
 static const BuiltInArgDesc is_weekday_args[] = { { numeric+multiple } };
 static const size_t is_weekday_numargs = sizeof(is_weekday_args)/sizeof(BuiltInArgDesc);
 static void is_weekday_func(BuiltinFunctionContextPtr f)
 {
-  f->finish(new ErrorValue(ScriptError::Internal, "To be implemented"));
-//  struct tm loctim; MainLoop::getLocalTime(loctim);
-//  // check if any of the weekdays match
-//  int weekday = loctim.tm_wday; // 0..6, 0=sunday
-//  ExpressionValue newRes(0);
-//  size_t refpos = aArgs.getPos(0); // Note: we use pos of first argument for freezing the function's result (no need to freeze every single weekday)
-//  for (int i = 0; i<f->numArgs(); i++) {
-//    if (f->arg(i).notValue()) return errorInArg(f->arg(i), aResult); // return error/null from argument
-//    int w = (int)f->arg(i).numValue();
-//    if (w==7) w=0; // treat both 0 and 7 as sunday
-//    if (w==weekday) {
-//      // today is one of the days listed
-//      newRes.setNumber(1);
-//      break;
-//    }
-//  }
-//  // freeze until next check: next day 0:00:00
-//  loctim.tm_mday++;
-//  loctim.tm_hour = 0;
-//  loctim.tm_min = 0;
-//  loctim.tm_sec = 0;
-//  ExpressionValue res = newRes;
-//  FrozenResult* frozenP = getFrozen(res,refpos);
-//  newFreeze(frozenP, newRes, refpos, MainLoop::localTimeToMainLoopTime(loctim));
-//  f->finish(res); // freeze time over, use actual, newly calculated result
+  struct tm loctim; MainLoop::getLocalTime(loctim);
+  // check if any of the weekdays match
+  int weekday = loctim.tm_wday; // 0..6, 0=sunday
+  SourcePos refPos = f->argPos(0); // Note: we use pos of first argument for freezing the function's result (no need to freeze every single weekday)
+  bool isday = false;
+  for (int i = 0; i<f->numArgs(); i++) {
+    int w = (int)f->arg(i)->doubleValue();
+    if (w==7) w=0; // treat both 0 and 7 as sunday
+    if (w==weekday) {
+      // today is one of the days listed
+      isday = true;
+      break;
+    }
+  }
+  ScriptObjPtr newRes = new NumericValue(isday);
+  // freeze until next check: next day 0:00:00
+  loctim.tm_mday++;
+  loctim.tm_hour = 0;
+  loctim.tm_min = 0;
+  loctim.tm_sec = 0;
+  ScriptObjPtr res = newRes;
+  if (CompiledTrigger* trigger = f->trigger()) {
+    CompiledTrigger::FrozenResult* frozenP = trigger->getFrozen(res, refPos);
+    trigger->newFreeze(frozenP, newRes, refPos, MainLoop::localTimeToMainLoopTime(loctim));
+  }
+  f->finish(res); // freeze time over, use actual, newly calculated result
 }
 
 
-// TODO: implement when event handler mechanisms are in place
-
 #define IS_TIME_TOLERANCE_SECONDS 5 ///< matching window for is_time() function
+
 // common implementation for after_time() and is_time()
 static void timeCheckFunc(bool aIsTime, BuiltinFunctionContextPtr f)
 {
-  f->finish(new ErrorValue(ScriptError::Internal, "To be implemented"));
-//  struct tm loctim; MainLoop::getLocalTime(loctim);
-//  ExpressionValue newSecs;
-//  if (aArgs[0].notValue()) return errorInArg(aArgs[0], aResult); // return error/null from argument
-//  size_t refpos = aArgs.getPos(0); // Note: we use pos of first argument for freezing the function's result (no need to freeze every single weekday)
-//  if (aArgs.size()==2) {
-//    // legacy spec
-//    if (aArgs[1].notValue()) return errorInArg(aArgs[1], aResult); // return error/null from argument
-//    newSecs.setNumber(((int32_t)aArgs[0].numValue() * 60 + (int32_t)aArgs[1].numValue()) * 60);
-//  }
-//  else {
-//    // specification in seconds, usually using time literal
-//    newSecs.setNumber((int32_t)(aArgs[0].numValue()));
-//  }
-//  ExpressionValue secs = newSecs;
-//  FrozenResult* frozenP = getFrozen(secs, refpos);
-//  int32_t daySecs = ((loctim.tm_hour*60)+loctim.tm_min)*60+loctim.tm_sec;
-//  bool met = daySecs>=secs.numValue();
-//  // next check at specified time, today if not yet met, tomorrow if already met for today
-//  loctim.tm_hour = 0; loctim.tm_min = 0; loctim.tm_sec = (int)secs.numValue();
-//  OLOG(LOG_INFO, "is/after_time() reference time for current check is: %s", MainLoop::string_mltime(MainLoop::localTimeToMainLoopTime(loctim)).c_str());
-//  bool res = met;
-//  // limit to a few secs around target if it's is_time
-//  if (aIsTime && met && daySecs<secs.numValue()+IS_TIME_TOLERANCE_SECONDS) {
-//    // freeze again for a bit
-//    newFreeze(frozenP, secs, refpos, MainLoop::localTimeToMainLoopTime(loctim)+IS_TIME_TOLERANCE_SECONDS*Second);
-//  }
-//  else {
-//    loctim.tm_hour = 0; loctim.tm_min = 0; loctim.tm_sec = (int)newSecs.numValue();
-//    if (met) {
-//      loctim.tm_mday++; // already met today, check again tomorrow
-//      if (aIsTime) res = false;
-//    }
-//    newFreeze(frozenP, newSecs, refpos, MainLoop::localTimeToMainLoopTime(loctim));
-//  }
-//  aResult = res;
+  struct tm loctim; MainLoop::getLocalTime(loctim);
+  int newSecs;
+  SourcePos refPos = f->argPos(0);
+  if (f->numArgs()==2) {
+    // TODO: get rid of legacy syntax later
+    // legacy time spec in hours and minutes
+    newSecs = (f->arg(0)->intValue() * 60 + f->arg(1)->intValue()) * 60;
+  }
+  else {
+    // specification in seconds, usually using time literal
+    newSecs = f->arg(0)->intValue();
+  }
+  ScriptObjPtr secs = new NumericValue(newSecs);
+  int daySecs = ((loctim.tm_hour*60)+loctim.tm_min)*60+loctim.tm_sec;
+  CompiledTrigger* trigger = f->trigger();
+  CompiledTrigger::FrozenResult* frozenP = NULL;
+  if (trigger) frozenP = trigger->getFrozen(secs, refPos);
+  bool met = daySecs>=secs->intValue();
+  // next check at specified time, today if not yet met, tomorrow if already met for today
+  loctim.tm_hour = 0; loctim.tm_min = 0; loctim.tm_sec = secs->intValue();
+  LOG(LOG_INFO, "is/after_time() reference time for current check is: %s", MainLoop::string_mltime(MainLoop::localTimeToMainLoopTime(loctim)).c_str());
+  bool res = met;
+  // limit to a few secs around target if it's "is_time"
+  if (aIsTime && met && daySecs<secs->intValue()+IS_TIME_TOLERANCE_SECONDS) {
+    // freeze again for a bit
+    if (trigger) trigger->newFreeze(frozenP, secs, refPos, MainLoop::localTimeToMainLoopTime(loctim)+IS_TIME_TOLERANCE_SECONDS*Second);
+  }
+  else {
+    loctim.tm_hour = 0; loctim.tm_min = 0; loctim.tm_sec = newSecs;
+    if (met) {
+      loctim.tm_mday++; // already met today, check again tomorrow
+      if (aIsTime) res = false;
+    }
+    if (trigger) trigger->newFreeze(frozenP, new NumericValue(newSecs), refPos, MainLoop::localTimeToMainLoopTime(loctim));
+  }
+  f->finish(new NumericValue(res));
 }
 
+
 // after_time(time)
-static const BuiltInArgDesc after_time_args[] = { { numeric } };
+static const BuiltInArgDesc after_time_args[] = { { numeric }, { numeric+optional } };
 static const size_t after_time_numargs = sizeof(after_time_args)/sizeof(BuiltInArgDesc);
 static void after_time_func(BuiltinFunctionContextPtr f)
 {
@@ -4165,34 +4377,139 @@ static void after_time_func(BuiltinFunctionContextPtr f)
 }
 
 // is_time(time)
-static const BuiltInArgDesc is_time_args[] = { { numeric } };
+static const BuiltInArgDesc is_time_args[] = { { numeric }, { numeric+optional } };
 static const size_t is_time_numargs = sizeof(is_time_args)/sizeof(BuiltInArgDesc);
 static void is_time_func(BuiltinFunctionContextPtr f)
 {
   timeCheckFunc(true, f);
 }
 
+#define MIN_RETRIGGER_SECONDS 10 ///< how soon testlater() is allowed to re-trigger
 
 
-// TODO: implement when event handler mechanisms are in place
+// initial()  returns true if this is a "initial" run of a trigger, meaning after startup or expression changes
+static void initial_func(BuiltinFunctionContextPtr f)
+{
+  f->finish(new NumericValue((f->evalFlags()&runModeMask)==initial));
+}
+
+// testlater(seconds, timedtest [, retrigger])
+// return "invalid" now, re-evaluate after given seconds and return value of test then.
+// If retrigger is true then, the timer will be re-scheduled
+static const BuiltInArgDesc testlater_args[] = { { numeric }, { numeric }, { numeric+optional } };
+static const size_t testlater_numargs = sizeof(testlater_args)/sizeof(BuiltInArgDesc);
+static void testlater_func(BuiltinFunctionContextPtr f)
+{
+  CompiledTrigger* trigger = f->trigger();
+  if (!trigger) {
+    f->finish(new ErrorValue(ScriptError::Invalid, "testlater() can only be used in triggers"));
+    return;
+  }
+  bool retrigger = f->arg(2)->boolValue();
+  double s = f->arg(0)->doubleValue();
+  if (retrigger && s<MIN_RETRIGGER_SECONDS) {
+    // prevent too frequent re-triggering that could eat up too much cpu
+    LOG(LOG_WARNING, "testlater() requests too fast retriggering (%.1f seconds), allowed minimum is %.1f seconds", s, (double)MIN_RETRIGGER_SECONDS);
+    s = MIN_RETRIGGER_SECONDS;
+  }
+  ScriptObjPtr secs = new NumericValue(s);
+  ScriptObjPtr currentSecs = secs;
+  SourcePos refPos = f->argPos(0);
+  CompiledTrigger::FrozenResult* frozenP = trigger->getFrozen(currentSecs, refPos);
+  bool evalNow = frozenP && !frozenP->frozen();
+  if ((f->evalFlags()&runModeMask)!=timed) {
+    if ((f->evalFlags()&runModeMask)!=initial || retrigger) {
+      // evaluating non-timed, non-initial (or retriggering) means "not yet ready" and must start or extend freeze period
+      trigger->newFreeze(frozenP, secs, refPos, MainLoop::now()+s*Second, true);
+    }
+    evalNow = false; // never evaluate on non-timed run
+  }
+  else {
+    // evaluating timed after frozen period means "now is later" and if retrigger is set, must start a new freeze
+    if (frozenP && retrigger) {
+      trigger->newFreeze(frozenP, secs, refPos, MainLoop::now()+secs->doubleValue()*Second);
+    }
+  }
+  if (evalNow) {
+    // evaluation runs because freeze is over, return test result
+    f->finish(f->arg(1));
+  }
+  else {
+    // still frozen, return undefined
+    f->finish(new AnnotatedNullValue("testlater() not yet ready"));
+  }
+}
+
+#define MIN_EVERY_SECONDS 0.5 ///< how fast every() can go
+
+// every(interval [, syncoffset])
+// returns true once every interval
+// Note: first true is returned at first evaluation or, if syncoffset is set,
+//   at next integer number of intervals calculated from beginning of the day + syncoffset
+static const BuiltInArgDesc every_args[] = { { numeric }, { numeric+optional } };
+static const size_t every_numargs = sizeof(every_args)/sizeof(BuiltInArgDesc);
+static void every_func(BuiltinFunctionContextPtr f)
+{
+  CompiledTrigger* trigger = f->trigger();
+  if (!trigger) {
+    f->finish(new ErrorValue(ScriptError::Invalid, "every() can only be used in triggers"));
+    return;
+  }
+  double syncoffset = -1;
+  if (f->numArgs()>=2) {
+    syncoffset = f->arg(1)->doubleValue();
+  }
+  double s = f->arg(0)->doubleValue();
+  if (s<MIN_EVERY_SECONDS) {
+    // prevent too frequent re-triggering that could eat up too much cpu
+    LOG(LOG_WARNING, "every() requests too fast retriggering (%.1f seconds), allowed minimum is %.1f seconds", s, (double)MIN_EVERY_SECONDS);
+    s = MIN_EVERY_SECONDS;
+  }
+  ScriptObjPtr secs = new NumericValue(s);
+  ScriptObjPtr currentSecs = secs;
+  SourcePos refPos = f->argPos(0);
+  CompiledTrigger::FrozenResult* frozenP = trigger->getFrozen(currentSecs, refPos);
+  bool triggered = frozenP && !frozenP->frozen();
+  if (triggered || (f->evalFlags()&runModeMask)==initial) {
+    // setup new interval
+    double interval = s;
+    if (syncoffset<0) {
+      // no sync
+      // - interval starts from now
+      trigger->newFreeze(frozenP, secs, refPos, MainLoop::now()+s*Second, true);
+      triggered = true; // fire even in initial evaluation
+    }
+    else {
+      // synchronize with real time
+      double fracSecs;
+      struct tm loctim; MainLoop::getLocalTime(loctim, &fracSecs);
+      double secondOfDay = ((loctim.tm_hour*60)+loctim.tm_min)*60+loctim.tm_sec+fracSecs; // second of day right now
+      double untilNext = syncoffset+(floor((secondOfDay-syncoffset)/interval)+1)*interval - secondOfDay; // time to next repetition
+      trigger->newFreeze(frozenP, secs, refPos, MainLoop::now()+untilNext*Second, true);
+    }
+  }
+  f->finish(new NumericValue(triggered));
+}
+
+
 static const BuiltInArgDesc between_dates_args[] = { { numeric }, { numeric } };
 static const size_t between_dates_numargs = sizeof(between_dates_args)/sizeof(BuiltInArgDesc);
 static void between_dates_func(BuiltinFunctionContextPtr f)
 {
-  f->finish(new ErrorValue(ScriptError::Internal, "To be implemented"));
-//  struct tm loctim; MainLoop::getLocalTime(loctim);
-//  int smaller = (int)(f->arg(0)->numValue());
-//  int larger = (int)(f->arg(1)->numValue());
-//  int currentYday = loctim.tm_yday;
-//  loctim.tm_hour = 0; loctim.tm_min = 0; loctim.tm_sec = 0;
-//  loctim.tm_mon = 0;
-//  bool lastBeforeFirst = smaller>larger;
-//  if (lastBeforeFirst) swap(larger, smaller);
-//  if (currentYday<smaller) loctim.tm_mday = 1+smaller;
-//  else if (currentYday<=larger) loctim.tm_mday = 1+larger;
-//  else { loctim.tm_mday = smaller; loctim.tm_year += 1; } // check one day too early, to make sure no day is skipped in a leap year to non leap year transition
-//  updateNextEval(loctim);
-//  f->finish(new BoolValue((currentYday>=smaller && currentYday<=larger)!=lastBeforeFirst));
+  struct tm loctim; MainLoop::getLocalTime(loctim);
+  int smaller = (int)(f->arg(0)->doubleValue());
+  int larger = (int)(f->arg(1)->doubleValue());
+  int currentYday = loctim.tm_yday;
+  loctim.tm_hour = 0; loctim.tm_min = 0; loctim.tm_sec = 0;
+  loctim.tm_mon = 0;
+  bool lastBeforeFirst = smaller>larger;
+  if (lastBeforeFirst) swap(larger, smaller);
+  if (currentYday<smaller) loctim.tm_mday = 1+smaller;
+  else if (currentYday<=larger) loctim.tm_mday = 1+larger;
+  else { loctim.tm_mday = smaller; loctim.tm_year += 1; } // check one day too early, to make sure no day is skipped in a leap year to non leap year transition
+  CompiledTrigger* trigger = f->trigger();
+  if (trigger) trigger->updateNextEval(loctim);
+  f->finish(new NumericValue((currentYday>=smaller && currentYday<=larger)!=lastBeforeFirst));
 }
 
 
@@ -4392,6 +4709,9 @@ static const BuiltinFunctionDescriptor standardFunctions[] = {
   { "is_weekday", any, is_weekday_numargs, is_weekday_args, &is_weekday_func },
   { "after_time", numeric, after_time_numargs, after_time_args, &after_time_func },
   { "is_time", numeric, is_time_numargs, is_time_args, &is_time_func },
+  { "initial", numeric, 0, NULL, &initial_func },
+  { "testlater", numeric, testlater_numargs, testlater_args, &testlater_func },
+  { "every", numeric, every_numargs, every_args, &every_func },
   { "between_dates", numeric, between_dates_numargs, between_dates_args, &between_dates_func },
   { "sunrise", numeric+null, 0, NULL, &sunrise_func },
   { "dawn", numeric+null, 0, NULL, &dawn_func },

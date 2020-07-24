@@ -237,6 +237,28 @@ namespace p44 { namespace Script {
   /// @param aEvaluationResult the result of an evaluation
   typedef boost::function<void (ScriptObjPtr aEvaluationResult)> EvaluationCB;
 
+  /// Event Sink
+  class EventSink
+  {
+    // TODO: implement
+  public:
+    virtual void notify(ScriptObjPtr aEvent);
+
+    /// @return number of event sources this sink currently has
+    size_t numSources();
+  };
+
+  /// Event Source
+  class EventSource
+  {
+  public:
+    // TODO: implement
+    void registerEventSink(EventSink *aEventSink);
+    void unregisterEventSink(EventSink *aEventSink);
+  };
+
+
+
   /// Base Object in scripting
   class ScriptObj : public P44LoggingObj
   {
@@ -387,10 +409,12 @@ namespace p44 { namespace Script {
     /// @param aMainContext the context from where to call from (evaluate in) this implementation
     ///   For executing script body code, aMainContext is always the domain (but can be passed NULL as script bodies
     ///   should know their domain already (if passed, it will be checked for consistency)
+    /// @param aThread the thread this call will originate from, e.g. when requesting context for a function call.
+    ///   NULL means that code is not started from a running thread, such as scripts, handlers, triggers.
     /// @note the context might be pre-existing (in case of scriptbody code which gets associated with the context it
     ///    is hosted in) or created new (in case of functions which run in a temporary private context)
     /// @return new context suitable for evaluating this implementation, NULL if none
-    virtual ExecutionContextPtr contextForCallingFrom(ScriptMainContextPtr aMainContext) const { return ExecutionContextPtr(); }
+    virtual ExecutionContextPtr contextForCallingFrom(ScriptMainContextPtr aMainContext, ScriptCodeThreadPtr aThread) const { return ExecutionContextPtr(); }
 
     /// @return true if this object originates from the specified source
     /// @note this is needed to remove objects such as functions and handlers when their source changes or is deleted
@@ -428,12 +452,11 @@ namespace p44 { namespace Script {
     /// @name triggering support
     /// @{
 
-    // TODO: add triggering support methods
-    // Note: thread termination notification is a special case of trigger,
-    //   maybe triggers should become AwaitableValues...
+    /// @return a souce of events for this object
+    EventSource *eventSource() { return NULL; /* none in base class */ }
 
-    // FIXME: q&d for now, integrate with triggers later
-    virtual void notify(ScriptObjPtr aNotification) { /* NOP in base class */ }
+    // FIXME: convert thread value to EventSource/EventSink model
+    virtual void notifyThreadValue(ScriptObjPtr aEvent) { /* NOP in base class */ }
 
     /// @}
 
@@ -676,10 +699,14 @@ namespace p44 { namespace Script {
     ScriptObjPtr executeSynchronously(ScriptObjPtr aToExecute, EvaluationFlags aEvalFlags, MLMicroSeconds aMaxRunTime = Infinite);
 
     /// check argument against signature and add to context if ok
+    /// @param aArgPos the position where the argument begins (for freezing and error messages)
     /// @param aArgument the object to be passed as argument. Pass NULL to check if aCallee has more non-optional arguments
     /// @param aIndex argument index
     /// @param aCallee the object to be called with this argument (provides the signature)
-    ErrorPtr checkAndSetArgument(ScriptObjPtr aArgument, size_t aIndex, ScriptObjPtr aCallee);
+    ErrorPtr checkAndSetArgument(const SourcePos &aArgPos, ScriptObjPtr aArgument, size_t aIndex, ScriptObjPtr aCallee);
+
+    /// like setMemberAtIndex but additionally gets argument cursor position
+    virtual ErrorPtr setArgumentAtIndex(const SourcePos &aArgPos, size_t aIndex, const ScriptObjPtr aMember, const string aName);
 
     /// @name execution environment info
     /// @{
@@ -741,11 +768,12 @@ namespace p44 { namespace Script {
     virtual void execute(ScriptObjPtr aToExecute, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB, MLMicroSeconds aMaxRunTime = Infinite) P44_OVERRIDE;
 
     /// Start a new thread (usually, a block, concurrently) from a given cursor
+    /// @param aCodeObj the code object this thread runs (maybe only a part of)
     /// @param aFromCursor where to start executing
     /// @param aEvalFlags how to initiate the thread and what syntax level to evaluate
     /// @param aEvaluationCB callback when thread has evaluated (ends)
     /// @param aMaxRunTime maximum time the thread may run before it is aborted by timeout
-    ScriptCodeThreadPtr newThreadFrom(SourceCursor &aFromCursor, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB, MLMicroSeconds aMaxRunTime = Infinite);
+    ScriptCodeThreadPtr newThreadFrom(CompiledCodePtr aCodeObj, SourceCursor &aFromCursor, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB, MLMicroSeconds aMaxRunTime = Infinite);
 
     /// abort evaluation of all threads
     /// @param aAbortFlags set stoprunning to abort currently running threads, queue to empty the queued threads
@@ -863,9 +891,13 @@ namespace p44 { namespace Script {
     const char* eot; ///< pointer to where the text ends (0 char or not)
     size_t line; ///< line number
   public:
+    typedef const char* Unique;
     SourcePos(const string &aText);
     SourcePos(const SourcePos &aCursor);
     SourcePos();
+    size_t lineno() const; ///< 0-based line counter
+    size_t charpos() const; ///< 0-based character offset
+    Unique uniquepos() const { return ptr; }; ///< unique value for this source position (just the memory pointer...)
   };
 
 
@@ -886,8 +918,8 @@ namespace p44 { namespace Script {
     bool refersTo(SourceContainerPtr aSource) const { return source==aSource; } ///< check if this sourceref refers to a particular source
 
     // info
-    size_t lineno() const; ///< 0-based line counter
-    size_t charpos() const; ///< 0-based character offset
+    inline size_t lineno()  const { return pos.lineno(); }; ///< 0-based line counter
+    inline size_t charpos() const { return pos.charpos(); }; ///< 0-based character offset
     size_t textpos() const; ///< offset of current text from beginning of text
 
     /// @name source text access and parsing utilities
@@ -1169,9 +1201,9 @@ namespace p44 { namespace Script {
     /// @note must cause calling resume() when result contains the member (or NULL if not found)
     virtual void newFunctionCallContext();
 
-    /// apply the specified argument to the current result
+    /// apply the specified argument to the current function context
     /// @note must cause calling resume() when result contains the member (or NULL if not found)
-    virtual void pushFunctionArgument(ScriptObjPtr aArgument);
+    virtual void pushFunctionArgument(const SourcePos &aArgPos, ScriptObjPtr aArgument);
 
     /// capture code between poppedPos and current position into specified object
     /// @note embeddedGlobs determines if code is embedded into the code container (and lives on with it) or
@@ -1394,8 +1426,10 @@ namespace p44 { namespace Script {
     /// get subroutine context to call this object as a subroutine/function call from a given context
     /// @param aMainContext the context from where this function is now called (the same function can be called
     ///   from different contexts)
+    /// @param aThread the thread this call will originate from, e.g. when requesting context for a function call.
+    ///   NULL means that code is not started from a running thread, such as scripts, handlers, triggers.
     /// @return new context suitable for evaluating this implementation, NULL if none
-    virtual ExecutionContextPtr contextForCallingFrom(ScriptMainContextPtr aMainContext) const P44_OVERRIDE;
+    virtual ExecutionContextPtr contextForCallingFrom(ScriptMainContextPtr aMainContext, ScriptCodeThreadPtr aThread) const P44_OVERRIDE;
 
     /// Get description of arguments required to call this internal function
     virtual bool argumentInfo(size_t aIndex, ArgumentDescriptor& aArgDesc) const P44_OVERRIDE;
@@ -1424,25 +1458,45 @@ namespace p44 { namespace Script {
     ///   This parameter is used for consistency checking (the compiled code already knows its main context,
     ///   which must have the same domain as the aMainContext provided here).
     ///   It can be passed NULL when no check is needed.
+    /// @param aThread the thread this call will originate from, e.g. when requesting context for a function call.
+    ///   NULL means that code is not started from a running thread, such as scripts, handlers, triggers.
     /// @return new context suitable for evaluating this implementation, NULL if none
-    virtual ExecutionContextPtr contextForCallingFrom(ScriptMainContextPtr aMainContext) const P44_OVERRIDE;
+    virtual ExecutionContextPtr contextForCallingFrom(ScriptMainContextPtr aMainContext, ScriptCodeThreadPtr aThread) const P44_OVERRIDE;
 
   };
 
 
   /// a compiled trigger expression
-  class CompiledTrigger : public CompiledScript
+  /// is also an event sink
+  class CompiledTrigger : public CompiledScript, public EventSink
   {
     typedef CompiledScript inherited;
 
+  public:
+
+    class FrozenResult
+    {
+    public:
+      ScriptObjPtr frozenResult; ///< the frozen result
+      MLMicroSeconds frozenUntil; ///< until when the value remains frozen, Infinite if forever (until explicitly unfrozen)
+      /// @return true if still frozen (not expired yet)
+      bool frozen();
+    };
+
+  private:
     EvaluationCB triggerCB;
     TriggerMode triggerMode;
     ScriptObjPtr mCurrentResult;
     Tristate mCurrentState;
+    MLMicroSeconds nextEvaluation;
+
+    typedef std::map<SourcePos::Unique, FrozenResult> FrozenResultsMap;
+    FrozenResultsMap frozenResults; ///< map of expression starting indices and associated frozen results
+    MLTicket reEvaluationTicket; ///< ticket for re-evaluation timer
 
   public:
-    CompiledTrigger(const string aName, ScriptMainContextPtr aMainContext) :
-      inherited(aName, aMainContext), triggerMode(inactive), mCurrentState(p44::undefined) {};
+
+    CompiledTrigger(const string aName, ScriptMainContextPtr aMainContext);
 
     virtual string getAnnotation() const P44_OVERRIDE { return "trigger"; };
 
@@ -1461,7 +1515,42 @@ namespace p44 { namespace Script {
     /// @return result of the initialisation (can be null when not requested synchronous execution)
     ScriptObjPtr initializeTrigger(EvaluationFlags aEvalMode = expression|synchronously);
 
+    /// @name API for timed evaluation and freezing values in functions that can be used in timed evaluations
+    /// @{
+
+    /// get frozen result if any exists
+    /// @param aResult On call: the current result of a (sub)expression
+    ///   On return: replaced by a frozen result, if one exists
+    /// @param aRefPos the reference position that identifies the frozen result
+    FrozenResult* getFrozen(ScriptObjPtr &aResult, const SourcePos &aRefPos);
+
+    /// update existing or create new frozen result
+    /// @param aExistingFreeze the pointer obtained from getFrozen(), can be NULL
+    /// @param aNewResult the new value to be frozen
+    /// @param aRefPos te reference position that identifies the frozen result
+    /// @param aFreezeUntil The new freeze date. Specify Infinite to freeze indefinitely, Never to release any previous freeze.
+    /// @param aUpdate if set, freeze will be updated/extended unconditionally, even when previous freeze is still running
+    FrozenResult* newFreeze(FrozenResult* aExistingFreeze, ScriptObjPtr aNewResult, const SourcePos &aRefPos, MLMicroSeconds aFreezeUntil, bool aUpdate = false);
+
+    /// unfreeze frozen value at aAtPos
+    /// @param aAtPos the starting character index of the subexpression to unfreeze
+    /// @return true if there was a frozen result at aAtPos
+    bool unfreeze(const SourcePos &aAtPos);
+
+    /// Set time when next evaluation must happen, latest
+    /// @param aLatestEval new time when evaluation must happen latest, Never if no next evaluation is needed
+    /// @return true if aNextEval was updated
+    bool updateNextEval(const MLMicroSeconds aLatestEval);
+    /// @param aLatestEvalTm new local broken down time when evaluation must happen latest
+    /// @return true if aNextEval was updated
+    bool updateNextEval(const struct tm& aLatestEvalTm);
+
+    /// @}
+
   private:
+
+    /// trigger an evaluation
+    void triggerEvaluation(EvaluationFlags aEvalMode);
 
     /// called whenever trigger was evaluated, fires callback depending on aEvalFlags and triggerMode
     void triggerDidEvaluate(EvaluationFlags aEvalMode, ScriptObjPtr aResult);
@@ -1544,8 +1633,10 @@ namespace p44 { namespace Script {
   {
     typedef SourceProcessor inherited;
     friend class ScriptCodeContext;
+    friend class BuiltinFunctionContext;
 
     ScriptCodeContextPtr owner; ///< the execution context which owns (has started) this thread
+    CompiledCodePtr codeObj; ///< the code object this thread is running
     MLMicroSeconds maxBlockTime; ///< how long the thread is allowed to block in evaluate()
     MLMicroSeconds maxRunTime; ///< how long the thread is allowed to run overall
 
@@ -1559,8 +1650,9 @@ namespace p44 { namespace Script {
   public:
 
     /// @param aOwner the context which owns this thread and will be notified when it ends
+    /// @param aCode the code object that is running in this context
     /// @param aStartCursor the start point for the script
-    ScriptCodeThread(ScriptCodeContextPtr aOwner, const SourceCursor& aStartCursor);
+    ScriptCodeThread(ScriptCodeContextPtr aOwner, CompiledCodePtr aCode, const SourceCursor& aStartCursor);
 
     virtual ~ScriptCodeThread();
 
@@ -1617,8 +1709,9 @@ namespace p44 { namespace Script {
     /// @note must cause calling resume() when funcCallContext is set
     virtual void newFunctionCallContext() P44_OVERRIDE;
 
-    /// apply the specified argument to the current result
-    virtual void pushFunctionArgument(ScriptObjPtr aArgument) P44_OVERRIDE;
+    /// apply the specified argument to the current function context
+    /// @note must cause calling resume() when result contains the member (or NULL if not found)
+    virtual void pushFunctionArgument(const SourcePos &aArgPos, ScriptObjPtr aArgument) P44_OVERRIDE;
 
     /// evaluate the current result and replace it with the output from the evaluation (e.g. function call)
     virtual void executeResult() P44_OVERRIDE;
@@ -1633,8 +1726,8 @@ namespace p44 { namespace Script {
 
   private:
 
+    void memberCheckAndResume();
     void executedResult(ScriptObjPtr aResult);
-
 
   };
 
@@ -1709,8 +1802,10 @@ namespace p44 { namespace Script {
 
     /// get context to call this object as a (sub)routine of a given context
     /// @param aMainContext the main context from where this function is called.
+    /// @param aThread the thread this call will originate from, e.g. when requesting context for a function call.
+    ///   NULL would mean code is not started from a running thread, but that is unlikely for a builtin function
     /// @return a context for running built-in functions, with access to aMainContext's instance() object
-    virtual ExecutionContextPtr contextForCallingFrom(ScriptMainContextPtr aMainContext) const P44_OVERRIDE;
+    virtual ExecutionContextPtr contextForCallingFrom(ScriptMainContextPtr aMainContext, ScriptCodeThreadPtr aThread) const P44_OVERRIDE;
 
   };
 
@@ -1723,10 +1818,13 @@ namespace p44 { namespace Script {
     BuiltinFunctionObjPtr func; ///< the currently executing function
     EvaluationCB evaluationCB; ///< to be called when built-in function has finished
     SimpleCB abortCB; ///< called when aborting. async built-in might set this to cause external operations to stop at abort
+    CompiledTrigger* mTrigger; ///< set when the function executes as part of a trigger expression
+    ScriptCodeThreadPtr mThread; ///< thread this call originates from
+    std::vector<SourcePos> argumentPositions; ///< the argument positions
 
   public:
 
-    BuiltinFunctionContext(ScriptMainContextPtr aMainContext) : inherited(aMainContext) {};
+    BuiltinFunctionContext(ScriptMainContextPtr aMainContext, ScriptCodeThreadPtr aThread);
 
     /// evaluate built-in function
     virtual void execute(ScriptObjPtr aToExecute, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB, MLMicroSeconds aMaxRunTime = Infinite) P44_OVERRIDE;
@@ -1735,6 +1833,9 @@ namespace p44 { namespace Script {
     /// @param aAbortFlags set stoprunning to abort currently running threads, queue to empty the queued threads
     /// @param aAbortResult if set, this is what abort will report back
     virtual void abort(EvaluationFlags aAbortFlags = stoprunning+queue, ScriptObjPtr aAbortResult = ScriptObjPtr()) P44_OVERRIDE;
+
+    /// like setMemberAtIndex but additionally gets argument cursor position
+    virtual ErrorPtr setArgumentAtIndex(const SourcePos &aArgPos, size_t aIndex, const ScriptObjPtr aMember, const string aName) P44_OVERRIDE;
 
     /// @name builtin function implementation interface
     /// @{
@@ -1750,6 +1851,9 @@ namespace p44 { namespace Script {
     ///   To avoid crashes in case a builtin function is evaluated w/o proper signature checking
     ScriptObjPtr arg(size_t aArgIndex);
 
+    /// unique value for re-identifying this argument's definition in source code
+    SourcePos argPos(size_t aArgIndex) const;
+
     /// @return argument as reference for applying C++ operators to them (and not to the smart pointers)
     inline ScriptObj& argval(size_t aArgIndex) { return *(arg(aArgIndex)); }
 
@@ -1758,10 +1862,20 @@ namespace p44 { namespace Script {
     /// @note async built-ins must set this callback implementing immediate termination of any ongoing action
     void setAbortCallback(SimpleCB aAbortCB);
 
-    /// return result and execution thread back to script
+    /// pass result and execution thread back to script
     /// @param aResult the function result, if any.
     /// @note this must be called when a builtin function implementation completes
     void finish(const ScriptObjPtr aResult = ScriptObjPtr());
+
+    /// @return the thread this function was called in
+    ScriptCodeThreadPtr thread() { return mThread; }
+
+    /// @return the evaluation flags of the current evaluation
+    EvaluationFlags evalFlags() { return mThread ? mThread->evaluationFlags : regular; }
+
+
+    /// @return the trigger object if this function is executing as part of a trigger expression
+    CompiledTrigger* trigger() { return mThread ? dynamic_cast<CompiledTrigger *>(mThread->codeObj.get()) : NULL; }
 
     /// @}
   };
