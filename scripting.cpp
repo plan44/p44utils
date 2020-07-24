@@ -490,7 +490,12 @@ ErrorPtr JsonValue::setMemberByName(const string aName, const ScriptObjPtr aMemb
   else if (!jsonval->isType(json_type_object)) {
     return ScriptError::err(ScriptError::Invalid, "json is not an object, cannot assign field");
   }
-  jsonval->add(aName.c_str(), aMember->jsonValue());
+  if (aMember) {
+    jsonval->add(aName.c_str(), aMember->jsonValue());
+  }
+  else {
+    jsonval->del(aName.c_str());
+  }
   return ErrorPtr();
 }
 
@@ -759,13 +764,20 @@ ErrorPtr ScriptCodeContext::setMemberByName(const string aName, const ScriptObjP
   if ((aStorageAttributes & (classscope+objscope))==0) {
     NamedVarMap::iterator pos = namedVars.find(aName);
     if (pos!=namedVars.end()) {
-      // exists in local vars, assign if not onlycreate, otherwise silently ignore value
-      if ((aStorageAttributes & onlycreate)==0) {
-        pos->second = aMember;
+      // exists in local vars
+      if (aMember) {
+        // assign if not onlycreate, otherwise silently ignore value
+        if ((aStorageAttributes & onlycreate)==0) {
+          pos->second = aMember;
+        }
+      }
+      else {
+        // delete
+        namedVars.erase(pos);
       }
     }
-    else if (aStorageAttributes & create) {
-      // create it
+    else if (aMember && (aStorageAttributes & create)) {
+      // create it, but only if we have a member (not a delete attempt)
       namedVars[aName] = aMember;
     }
     else {
@@ -966,10 +978,10 @@ ErrorPtr ScriptMainContext::setMemberByName(const string aName, const ScriptObjP
   if (aStorageAttributes & global) {
     // 5) explicitly requested global storage
     if (domain()) return domain()->setMemberByName(aName, aMember, aStorageAttributes);
-    // having no domain means that I am the domain
-//    return setMemberByName(aName, aMember, aStorageAttributes);
+    // having no domain means that I _am_ the domain
+    return inherited::setMemberByName(aName, aMember, aStorageAttributes);
   }
-/*  else */ {
+  else {
     // Not explicit global storage, use normal chain
     // 1) local variables have precedence
     if (Error::isOK(err = inherited::setMemberByName(aName, aMember, aStorageAttributes))) return err; // modified or created an existing local variable
@@ -2174,15 +2186,15 @@ void SourceProcessor::s_assignMember()
 void SourceProcessor::assignMember(TypeInfo aStorageAttributes)
 {
   // end of the rvalue of an assignment
-  // - result is the value to assign
+  // - result is the value to assign or NULL to delete
   // - olderResult is where to assign (NULL -> script level context, object->member of this object)
   // - storageSpecifier is the member name (string) or index (numweric) to assign
   //   Note: as nested assignments, or assignments in non-body-level expressions are NOT supported,
   //     storage specifier is never overridden in subexpressions and does not need to get stacked
   setState(&SourceProcessor::s_result);
-  if (!result->isErr()) {
+  if (!result || !result->isErr()) {
     if (!skipping) {
-      result = result->assignableValue(); // get a copy in case the value is mutable (i.e. copy-on-write, assignment is "writing")
+      if (result) result = result->assignableValue(); // get a copy in case the value is mutable (i.e. copy-on-write, assignment is "writing")
       setMemberBySpecifier(aStorageAttributes);
       return;
     }
@@ -2741,6 +2753,7 @@ void SourceProcessor::processStatement()
     // Check variable definition keywords
     StateHandler varHandler = NULL;
     bool allowInitializer = true;
+    bool unset = false;
     if (uequals(identifier, "var")) {
       varHandler = &SourceProcessor::s_defineMember;
     }
@@ -2750,6 +2763,11 @@ void SourceProcessor::processStatement()
     }
     else if (uequals(identifier, "let")) {
       varHandler = &SourceProcessor::s_assignMember;
+    }
+    else if (uequals(identifier, "unset")) {
+      varHandler = &SourceProcessor::s_assignMember;
+      allowInitializer = false;
+      unset = true;
     }
     if (varHandler) {
       // one of the definition keywords -> an identifier must follow
@@ -2764,7 +2782,7 @@ void SourceProcessor::processStatement()
       // with initializer ?
       if (op==op_assign || op==op_assignOrEq) {
         if (!allowInitializer) {
-          exitWithSyntaxError("global variables cannot have an initializer");
+          exitWithSyntaxError("no initializer allowed");
           return;
         }
         // initialize with a value
@@ -2773,8 +2791,14 @@ void SourceProcessor::processStatement()
         return;
       }
       else if (op==op_none) {
-        // just initialize with null
-        result = new AnnotatedNullValue("uninitialized variable");
+        if (unset) {
+          // NO result object at all means deleting
+          result.reset();
+        }
+        else {
+          // just initialize with null
+          result = new AnnotatedNullValue("uninitialized variable");
+        }
         resumeAt(varHandler);
         return;
       }
@@ -3755,7 +3779,7 @@ void ScriptCodeThread::memberCheckAndResume()
 void ScriptCodeThread::setMemberBySpecifier(TypeInfo aStorageAttributes)
 {
   // - storageSpecifier = name/index of leaf member to assign
-  // - result = value to assign
+  // - result = value to assign or NULL to delete
   // - olderResult = parent object or NULL for script scope level
   ErrorPtr err;
   if (storageSpecifier->hasType(numeric)) {

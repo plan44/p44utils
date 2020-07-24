@@ -81,6 +81,9 @@ public:
 
 TEST_CASE("CodeCursor", "[scripting]" )
 {
+  SETDAEMONMODE(false);
+  SETLOGLEVEL(LOG_NOTICE);
+
   SECTION("Cursor") {
     // basic
     SourceCursor cursor("test");
@@ -202,13 +205,13 @@ TEST_CASE("CodeCursor", "[scripting]" )
 
 // MARK: - debug test case
 
-TEST_CASE_METHOD(ScriptingCodeFixture, "Focus", "[scripting],[DEBUG]" )
-{
-  SETLOGLEVEL(LOG_DEBUG);
-  //puts(JSON_TEST_OBJ);
-  REQUIRE(s.test(sourcecode|floatingGlobs, "function m(...) { return 1+ifvalid(arg1,0)+ifvalid(arg2,0)+ifvalid(arg3,0); } return m")->stringValue() == "function");
-  REQUIRE(s.test(scriptbody, "m")->stringValue() == "function");
-}
+//TEST_CASE_METHOD(ScriptingCodeFixture, "Focus", "[scripting],[DEBUG]" )
+//{
+//  SETLOGLEVEL(LOG_DEBUG);
+//  //puts(JSON_TEST_OBJ);
+//  REQUIRE(s.test(sourcecode|floatingGlobs, "function m(...) { return 1+ifvalid(arg1,0)+ifvalid(arg2,0)+ifvalid(arg3,0); } return m")->stringValue() == "function");
+//  REQUIRE(s.test(scriptbody, "m")->stringValue() == "function");
+//}
 
 // MARK: - Literals
 
@@ -457,10 +460,7 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "expressions", "[scripting],[FOCUS]") {
     REQUIRE(s.test(expression, "errormessage(error('testerror'))")->stringValue() == "testerror");
     // separate terms ARE a syntax error in a expression! (not in a script, see below)
     REQUIRE(s.test(expression, "42 43 44")->stringValue().find(string_format("(ScriptError::Syntax[%d])", ScriptError::Syntax)) != string::npos);
-    // special cases
-    REQUIRE(s.test(expression, "hour()")->doubleValue() > 0);
     // should be case insensitive
-    REQUIRE(s.test(expression, "HOUR()")->doubleValue() > 0);
     REQUIRE(s.test(expression, "IF(TRUE, 'TRUE', 'FALSE')")->stringValue() == "TRUE");
   }
 }
@@ -499,16 +499,28 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "statements", "[scripting],[FOCUS]" )
     REQUIRE(s.test(scriptbody, "glob j; j = 44; return j")->numValue() == 44);
     REQUIRE(s.test(scriptbody, "glob j; return j")->numValue() == 44); // should still be there
     #endif
+    // scope and unset
+    REQUIRE(s.test(scriptbody|keepvars, "glob k; k=42; return k")->doubleValue() == 42);
+    REQUIRE(s.test(scriptbody|keepvars, "k")->doubleValue() == 42); // must stay
+    REQUIRE(s.test(scriptbody|keepvars, "var k = 43")->doubleValue() == 43); // hide global k with a local k
+    REQUIRE(s.test(scriptbody|keepvars, "k")->doubleValue() == 43); // must stay
+    REQUIRE(s.test(scriptbody|keepvars, "unset k = 47")->isErr() == true); // unset cannot have an initializer
+    REQUIRE(s.test(scriptbody|keepvars, "k")->doubleValue() == 43); // global still shadowed
+    REQUIRE(s.test(scriptbody|keepvars, "unset k")->isErr() == false); // should work
+    REQUIRE(s.test(scriptbody|keepvars, "k")->doubleValue() == 42); // again global
+    REQUIRE(s.test(scriptbody|keepvars, "unset k")->isErr() == false); // should work, deleting global
+    REQUIRE(s.test(scriptbody|keepvars, "k")->isErr() == true); // deleted
+    REQUIRE(s.test(scriptbody|keepvars, "unset k")->isErr() == true); // already deleted
   }
 
   // "{\"array\":[\"first\",2,3,\"fourth\",6.6],\"obj\":{\"objA\":\"A\",\"objB\":42,\"objC\":{\"objD\":\"D\",\"objE\":45}},\"string\":\"abc\",\"number\":42,\"bool\":true}"
   SECTION("json manipulation") {
-    REQUIRE(s.test(scriptbody, "var js = " JSON_TEST_OBJ "; js.obj.objF = 46; log(5,js); return js.obj.objF")->doubleValue() == 46);
-    REQUIRE(s.test(scriptbody, "var js = " JSON_TEST_OBJ "; js.obj['objA'] = 'AA'; log(5,js); return js.obj.objA")->stringValue() == "AA");
-    REQUIRE(s.test(scriptbody, "var js = " JSON_TEST_OBJ "; js.array[5] = 'AA'; log(5,js); return js.array[5]")->stringValue() == "AA");
-    REQUIRE(s.test(scriptbody, "var js = " JSON_TEST_OBJ "; js.array[0] = 'modified'; log(5,js); return js.array[0]")->stringValue() == "modified");
+    REQUIRE(s.test(scriptbody, "var js = " JSON_TEST_OBJ "; js.obj.objF = 46; log(6,js); return js.obj.objF")->doubleValue() == 46);
+    REQUIRE(s.test(scriptbody, "var js = " JSON_TEST_OBJ "; js.obj['objA'] = 'AA'; log(6,js); return js.obj.objA")->stringValue() == "AA");
+    REQUIRE(s.test(scriptbody, "var js = " JSON_TEST_OBJ "; js.array[5] = 'AA'; log(6,js); return js.array[5]")->stringValue() == "AA");
+    REQUIRE(s.test(scriptbody, "var js = " JSON_TEST_OBJ "; js.array[0] = 'modified'; log(6,js); return js.array[0]")->stringValue() == "modified");
     // test if json assignment really copies var, such that modifications to the members of the copied object does NOT affect the original val
-    REQUIRE(s.test(scriptbody, "var js = " JSON_TEST_OBJ "; var js2 = js; js2.array[0] = 'first MODIFIED'; log(5,js); return js.array[0]")->stringValue() == "first");
+    REQUIRE(s.test(scriptbody, "var js = " JSON_TEST_OBJ "; var js2 = js; js2.array[0] = 'first MODIFIED'; log(6,js); return js.array[0]")->stringValue() == "first");
   }
 
   SECTION("control flow") {
@@ -555,9 +567,9 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "statements", "[scripting],[FOCUS]" )
     REQUIRE(Error::isError(s.test(scriptbody, "try var zerodiv = 7/0; catch (error) return error; return 'ok'")->errorValue(), ScriptError::domain(), ScriptError::DivisionByZero) == true);
     REQUIRE(s.test(scriptbody, "try var zerodiv = 7/0; catch return 'not allowed'; return 'ok'")->stringValue() == "not allowed");
     REQUIRE(s.test(scriptbody, "try var zerodiv = 7/1; catch return 'error'; return zerodiv")->doubleValue() == 7);
-    REQUIRE(s.test(scriptbody, "try { var zerodiv = 42; zerodiv = 7/0 } catch { log('CAUGHT!') }; return zerodiv")->doubleValue() == 42);
-    REQUIRE(s.test(scriptbody, "try { var zerodiv = 42; zerodiv = 7/0; zerodiv = 66 } catch { log('CAUGHT!') }; return zerodiv")->doubleValue() == 42);
-    REQUIRE(s.test(scriptbody, "try { var zerodiv = 42; zerodiv = 7/1; zerodiv = 66 } catch { log('CAUGHT!') }; return zerodiv")->doubleValue() == 66);
+    REQUIRE(s.test(scriptbody, "try { var zerodiv = 42; zerodiv = 7/0 } catch { log(6,'CAUGHT!') }; return zerodiv")->doubleValue() == 42);
+    REQUIRE(s.test(scriptbody, "try { var zerodiv = 42; zerodiv = 7/0; zerodiv = 66 } catch { log(6,'CAUGHT!') }; return zerodiv")->doubleValue() == 42);
+    REQUIRE(s.test(scriptbody, "try { var zerodiv = 42; zerodiv = 7/1; zerodiv = 66 } catch { log(6,'CAUGHT!') }; return zerodiv")->doubleValue() == 66);
     // Syntax errors
     REQUIRE(Error::isError(s.test(scriptbody, "78/9#")->errorValue(), ScriptError::domain(), ScriptError::Syntax) == true);
     REQUIRE(Error::isError(s.test(scriptbody, "78/#9")->errorValue(), ScriptError::domain(), ScriptError::Syntax) == true);
@@ -566,11 +578,46 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "statements", "[scripting],[FOCUS]" )
   }
 
   SECTION("custom functions") {
+    // Simple function w/o args
+    REQUIRE(s.test(sourcecode|floatingGlobs, "function f42() { return 42; }")->isErr() == false);
+    REQUIRE(s.test(scriptbody, "f42()")->doubleValue() == 42);
+    REQUIRE(s.test(scriptbody, "f42(7)")->isErr() == true); // no args expected
+    // Simple function with one arg
+    REQUIRE(s.test(sourcecode|floatingGlobs, "function f42p(a) { return 42+a; }")->isErr() == false);
+    REQUIRE(s.test(scriptbody, "f42p()")->isErr() == true); // needs a arg
+    REQUIRE(s.test(scriptbody, "f42p(null)")->isErr() == false); // arg may be explicit null
+    REQUIRE(s.test(scriptbody, "f42p(null)")->undefined() == true); // null in calculation results in null
+    REQUIRE(s.test(scriptbody, "f42p(8)")->doubleValue() == 50);
+    REQUIRE(s.test(scriptbody, "f42p(41,4)")->isErr() == true); // too many args
+    // Simple function with more than one
+    REQUIRE(s.test(sourcecode|floatingGlobs, "function f42pp(a,b) { return 42+a+b; }")->isErr() == false);
+    REQUIRE(s.test(scriptbody, "f42pp()")->isErr() == true); // needs a arg
+    REQUIRE(s.test(scriptbody, "f42pp(1)")->isErr() == true); // needs two args
+    REQUIRE(s.test(scriptbody, "f42pp(1,2)")->doubleValue() == 45);
+    // variadic function
     REQUIRE(s.test(sourcecode|floatingGlobs, "function m(...) { return 1+ifvalid(arg1,0)+ifvalid(arg2,0)+ifvalid(arg3,0); } return m")->stringValue() == "function");
     REQUIRE(s.test(scriptbody, "m")->stringValue() == "function");
     REQUIRE(s.test(scriptbody, "m()")->doubleValue() == 1);
     REQUIRE(s.test(scriptbody, "m(1,2,3)")->doubleValue() == 7);
     REQUIRE(s.test(scriptbody, "m(22,33)")->doubleValue() == 56);
+    // function with one required and some more optional params
+    REQUIRE(s.test(sourcecode|floatingGlobs, "function m2(a,...) { return a+ifvalid(arg2,0)+ifvalid(arg3,0)+ifvalid(arg4,0); } return m2")->stringValue() == "function");
+    REQUIRE(s.test(scriptbody, "m2")->stringValue() == "function");
+    REQUIRE(s.test(scriptbody, "m2()")->isErr() == true);
+    REQUIRE(s.test(scriptbody, "m2(42)")->doubleValue() == 42);
+    REQUIRE(s.test(scriptbody, "m2(42,3)")->doubleValue() == 45);
+    REQUIRE(s.test(scriptbody, "m2(42,1,2)")->doubleValue() == 45);
+    REQUIRE(s.test(scriptbody, "m2(42,1,1,1)")->doubleValue() == 45);
+    REQUIRE(s.test(scriptbody, "m2(42,1,1,1,error('dummy'),'test',77.77)")->doubleValue() == 45);
+    // unsetting functions
+    REQUIRE(s.test(scriptbody, "unset m")->isErr() == false);
+    REQUIRE(s.test(scriptbody, "m")->isErr() == true); // should be gone
+    REQUIRE(s.test(scriptbody, "undeclare()")->isErr() == true); // works only in floatingGlobs mode
+    REQUIRE(s.test(scriptbody|floatingGlobs, "undeclare()")->isErr() == false);
+    REQUIRE(s.test(scriptbody, "m2")->isErr() == true); // should be gone
+    REQUIRE(s.test(scriptbody, "f42")->isErr() == true); // should be gone
+    REQUIRE(s.test(scriptbody, "f42p")->isErr() == true); // should be gone
+    REQUIRE(s.test(scriptbody, "f42pp")->isErr() == true); // should be gone
   }
 
 
