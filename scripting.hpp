@@ -169,7 +169,7 @@ namespace p44 { namespace Script {
     stopall = stoprunning+queue, ///< stop everything
     concurrently = 0x0800, ///< run concurrently with already executing code (together with queued: can be started when all other running threads were started concurrently, queued otherwise)
     keepvars = 0x1000, ///< keep the local variables already set in the context
-    embeddedGlobs = 0x2000, ///< embed source code into global function+handler definitions, and keep them even when source code goes away
+    floatingGlobs = 0x2000, ///< global function+handler definitions are kept floating (not deleted when originating source code is changed/deleted)
     mainthread = 0x4000, ///< if a thread with this set terminates, this also terminates all of its siblings
     anonymousfunction = 0x8000, ///< compile and run as anonymous function body
   };
@@ -419,6 +419,11 @@ namespace p44 { namespace Script {
     /// @return true if this object originates from the specified source
     /// @note this is needed to remove objects such as functions and handlers when their source changes or is deleted
     virtual bool originatesFrom(SourceContainerPtr aSource) const { return false; }
+
+    /// @return true if this object's definition/declaration is floating, i.e. when it carries its own source code
+    ///    that is no longer connected with the originating source code (and thus can't get removed/replaced by
+    ///    changing source code)
+    virtual bool floating() const { return false; }
 
     /// @}
 
@@ -744,6 +749,10 @@ namespace p44 { namespace Script {
 
     ScriptCodeContext(ScriptMainContextPtr aMainContext);
 
+  protected:
+    /// clear floating globals (only called as inherited from domain)
+    void clearFloatingGlobs();
+
   public:
 
     virtual void releaseObjsFromSource(SourceContainerPtr aSource) P44_OVERRIDE;
@@ -975,6 +984,7 @@ namespace p44 { namespace Script {
     const char *originLabel; ///< a label used for logging and error reporting
     P44LoggingObj* loggingContextP; ///< the logging context
     string source; ///< the source code as written by the script author
+    bool mFloating; ///< if set, the source is not linked but is a private copy
   public:
     /// create source container
     SourceContainer(const char *aOriginLabel, P44LoggingObj* aLoggingContextP, const string aSource);
@@ -982,8 +992,11 @@ namespace p44 { namespace Script {
     /// create source container copying a source part from another container
     SourceContainer(const SourceCursor &aCodeFrom, const SourcePos &aStartPos, const SourcePos &aEndPos);
 
-    // @return a cursor for this source code, starting at the beginning
+    /// @return a cursor for this source code, starting at the beginning
     SourceCursor getCursor();
+
+    /// @return true if this source is floating, i.e. not part of a still existing script
+    bool floating() { return mFloating; }
   };
 
 
@@ -1067,6 +1080,9 @@ namespace p44 { namespace Script {
     ScriptingDomain() : inherited(ScriptingDomainPtr(), ScriptObjPtr()), geoLocationP(NULL), maxBlockTime(DEFAULT_MAX_BLOCK_TIME) {};
 
     virtual void releaseObjsFromSource(SourceContainerPtr aSource) P44_OVERRIDE;
+
+    /// clear global functions and handlers that have embedded source (i.e. not linked to a still accessible source)
+    void clearFloatingGlobs();
 
     /// set geolocation to use for functions that refer to location
     void setGeoLocation(GeoLocation* aGeoLocationP) { geoLocationP = aGeoLocationP; };
@@ -1414,8 +1430,10 @@ namespace p44 { namespace Script {
 
     CompiledCode(const string aName) : name(aName) {};
     CompiledCode(const string aName, const SourceCursor& aCursor) : name(aName), cursor(aCursor) {};
-    void setCursor(const SourceCursor& aCursor) { cursor = aCursor; };
+    virtual ~CompiledCode();
+    void setCursor(const SourceCursor& aCursor);
     virtual bool originatesFrom(SourceContainerPtr aSource) const P44_OVERRIDE { return cursor.refersTo(aSource); };
+    virtual bool floating() const P44_OVERRIDE { return cursor.source->floating(); }
     virtual P44LoggingObj* loggingContext() const P44_OVERRIDE { return cursor.source ? cursor.source->loggingContextP : NULL; };
 
     /// get subroutine context to call this object as a subroutine/function call from a given context
@@ -1431,6 +1449,7 @@ namespace p44 { namespace Script {
 
     /// get identifier (name) of this function object
     virtual string getIdentifier() const P44_OVERRIDE { return name; };
+
 
   };
 
@@ -1568,6 +1587,7 @@ namespace p44 { namespace Script {
     void setTrigger(ScriptObjPtr aTrigger, TriggerMode aMode);
     virtual bool originatesFrom(SourceContainerPtr aSource) const P44_OVERRIDE
       { return inherited::originatesFrom(aSource) || (trigger && trigger->originatesFrom(aSource)); };
+    virtual bool floating() const P44_OVERRIDE { return inherited::floating() || (trigger && trigger->floating()); }
 
   private:
     void triggered(ScriptObjPtr aTriggerResult);
@@ -1630,7 +1650,7 @@ namespace p44 { namespace Script {
     friend class ScriptCodeContext;
     friend class BuiltinFunctionContext;
 
-    ScriptCodeContextPtr owner; ///< the execution context which owns (has started) this thread
+    ScriptCodeContextPtr mOwner; ///< the execution context which owns (has started) this thread
     CompiledCodePtr codeObj; ///< the code object this thread is running
     MLMicroSeconds maxBlockTime; ///< how long the thread is allowed to block in evaluate()
     MLMicroSeconds maxRunTime; ///< how long the thread is allowed to run overall
@@ -1674,13 +1694,16 @@ namespace p44 { namespace Script {
     /// abort all threads in the same context execpt this one
     /// @param aAbortResult if set, this is what abort will report back
     void abortOthers(EvaluationFlags aAbortFlags = stopall, ScriptObjPtr aAbortResult = ScriptObjPtr())
-      { if (owner) owner->abort(aAbortFlags, aAbortResult, this); }
+      { if (mOwner) mOwner->abort(aAbortFlags, aAbortResult, this); }
 
     /// complete the current thread
     virtual void complete(ScriptObjPtr aFinalResult) P44_OVERRIDE;
 
     /// register a object to get notify()-ed when the thread completes
     void registerCompletionNotification(ScriptObjPtr aObj);
+
+    /// @return the owner (the execution context that has started this thread)
+    ScriptCodeContextPtr owner() { return mOwner; }
 
     /// convenience end of step using current result and checking for errors
     virtual void checkAndResume() P44_OVERRIDE;

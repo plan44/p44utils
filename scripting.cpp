@@ -702,6 +702,26 @@ void ScriptCodeContext::releaseObjsFromSource(SourceContainerPtr aSource)
 }
 
 
+void ScriptCodeContext::clearFloatingGlobs()
+{
+  NamedVarMap::iterator pos = namedVars.begin();
+  while (pos!=namedVars.end()) {
+    if (pos->second->floating()) {
+      #if P44_CPP11_FEATURE
+      pos = namedVars.erase(pos); // source is gone -> remove
+      #else
+      NamedVarMap::iterator dpos = pos++; // pre-C++ 11
+      namedVars.erase(dpos); // source is gone -> remove
+      #endif
+    }
+    else {
+      ++pos;
+    }
+  }
+}
+
+
+
 void ScriptCodeContext::clearVars()
 {
   namedVars.clear();
@@ -1863,7 +1883,7 @@ ScriptObjPtr SourceProcessor::captureCode(ScriptObjPtr aCodeContainer)
     return new ErrorPosValue(src, ScriptError::Internal, "no compiled code");
   }
   else {
-    if (evaluationFlags & embeddedGlobs) {
+    if (evaluationFlags & floatingGlobs) {
       // copy from the original source
       SourceContainerPtr s = SourceContainerPtr(new SourceContainer(src, poppedPos, src.pos));
       code->setCursor(s->getCursor());
@@ -2441,8 +2461,8 @@ void SourceProcessor::s_declarations()
             exitWithSyntaxError("missing closing ')' for argument list");
             return;
           }
-          src.skipNonCode();
         }
+        src.skipNonCode();
       }
       result = function;
       // now capture the code
@@ -3019,6 +3039,19 @@ void SourceProcessor::executeResult()
 
 // MARK: - CompiledScript, CompiledFunction, CompiledHandler
 
+
+void CompiledCode::setCursor(const SourceCursor& aCursor)
+{
+  cursor = aCursor;
+  FOCUSLOG("New code named '%s' @ 0x%p: %s", name.c_str(), this, cursor.displaycode(70).c_str());
+}
+
+
+CompiledCode::~CompiledCode()
+{
+  FOCUSLOG("Released code named '%s' @ 0x%p", name.c_str(), this);
+}
+
 ExecutionContextPtr CompiledCode::contextForCallingFrom(ScriptMainContextPtr aMainContext, ScriptCodeThreadPtr aThread) const
 {
   // functions get executed in a private context linked to the caller's (main) context
@@ -3361,15 +3394,17 @@ void ScriptCompiler::storeHandler()
 // MARK: - SourceContainer
 
 SourceContainer::SourceContainer(const char *aOriginLabel, P44LoggingObj* aLoggingContextP, const string aSource) :
- originLabel(aOriginLabel),
- source(aSource)
+  originLabel(aOriginLabel),
+  source(aSource),
+  mFloating(false)
 {
 }
 
 
 SourceContainer::SourceContainer(const SourceCursor &aCodeFrom, const SourcePos &aStartPos, const SourcePos &aEndPos) :
   originLabel("copied"),
-  loggingContextP(aCodeFrom.source->loggingContextP)
+  loggingContextP(aCodeFrom.source->loggingContextP),
+  mFloating(true) // copied source is floating
 {
   source.assign(aStartPos.ptr, aEndPos.ptr-aStartPos.ptr);
 }
@@ -3543,6 +3578,19 @@ void ScriptingDomain::releaseObjsFromSource(SourceContainerPtr aSource)
 }
 
 
+void ScriptingDomain::clearFloatingGlobs()
+{
+  HandlerList::iterator pos = handlers.begin();
+  while (pos!=handlers.end()) {
+    if ((*pos)->floating()) {
+      pos = handlers.erase(pos); // source is gone -> remove
+    }
+  }
+  inherited::clearFloatingGlobs();
+}
+
+
+
 ScriptObjPtr ScriptingDomain::registerHandler(ScriptObjPtr aHandler)
 {
   CompiledHandlerPtr handler = dynamic_pointer_cast<CompiledHandler>(aHandler);
@@ -3557,7 +3605,7 @@ ScriptObjPtr ScriptingDomain::registerHandler(ScriptObjPtr aHandler)
 // MARK: - ScriptCodeThread
 
 ScriptCodeThread::ScriptCodeThread(ScriptCodeContextPtr aOwner, CompiledCodePtr aCode, const SourceCursor& aStartCursor) :
-  owner(aOwner),
+  mOwner(aOwner),
   codeObj(aCode),
   maxBlockTime(0),
   maxRunTime(Infinite),
@@ -3616,7 +3664,7 @@ void ScriptCodeThread::complete(ScriptObjPtr aFinalResult)
     (*pos)->notifyThreadValue(aFinalResult);
   }
   waitingList.clear();
-  owner->threadTerminated(this, evaluationFlags);
+  mOwner->threadTerminated(this, evaluationFlags);
 }
 
 
@@ -3681,7 +3729,7 @@ void ScriptCodeThread::memberByIdentifier()
   }
   else {
     // context level
-    result = owner->memberByName(identifier);
+    result = mOwner->memberByName(identifier);
   }
   checkAndResume();
 }
@@ -3718,7 +3766,7 @@ void ScriptCodeThread::setMemberBySpecifier(TypeInfo aStorageAttributes)
     }
     else {
       // note: this case should not occur, context has no direct indexed member access
-      err = owner->setMemberAtIndex(index, result);
+      err = mOwner->setMemberAtIndex(index, result);
     }
   }
   else {
@@ -3728,7 +3776,7 @@ void ScriptCodeThread::setMemberBySpecifier(TypeInfo aStorageAttributes)
       err = olderResult->setMemberByName(name, result, aStorageAttributes);
     }
     else {
-      err = owner->setMemberByName(name, result, aStorageAttributes);
+      err = mOwner->setMemberByName(name, result, aStorageAttributes);
     }
   }
   if (!Error::isOK(err)) {
@@ -3755,7 +3803,7 @@ void ScriptCodeThread::memberByIndex(size_t aIndex)
 void ScriptCodeThread::newFunctionCallContext()
 {
   if (result) {
-    funcCallContext = result->contextForCallingFrom(owner->scriptmain(), this);
+    funcCallContext = result->contextForCallingFrom(mOwner->scriptmain(), this);
   }
   if (!funcCallContext) {
     result = new ErrorPosValue(src, ScriptError::NotCallable, "not a function");
@@ -3766,7 +3814,7 @@ void ScriptCodeThread::newFunctionCallContext()
 
 void ScriptCodeThread::startBlockThreadAndStoreInIdentifier()
 {
-  ScriptCodeThreadPtr thread = owner->newThreadFrom(codeObj, src, concurrently|block, NULL);
+  ScriptCodeThreadPtr thread = mOwner->newThreadFrom(codeObj, src, concurrently|block, NULL);
   if (thread) {
     if (!identifier.empty()) {
       storageSpecifier = new StringValue(identifier);
@@ -4241,6 +4289,18 @@ static void abort_func(BuiltinFunctionContextPtr f)
 }
 
 
+// undeclare()    undeclare functions and handlers - only works in embeddedGlobs threads
+static void undeclare_func(BuiltinFunctionContextPtr f)
+{
+  if ((f->evalFlags() & floatingGlobs)==0) {
+    f->finish(new ErrorValue(ScriptError::Invalid, "undeclare() can only be used in interactive sessions"));
+    return;
+  }
+  f->thread()->owner()->domain()->clearFloatingGlobs();
+  f->finish();
+}
+
+
 
 // log (logmessage)
 // log (loglevel, logmessage)
@@ -4707,6 +4767,7 @@ static const BuiltinFunctionDescriptor standardFunctions[] = {
   { "eval", any, eval_numargs, eval_args, &eval_func },
   { "await", any, await_numargs, await_args, &await_func },
   { "abort", null, abort_numargs, abort_args, &abort_func },
+  { "undeclare", null, 0, NULL, &undeclare_func },
   { "log", null, log_numargs, log_args, &log_func },
   { "loglevel", numeric, loglevel_numargs, loglevel_args, &loglevel_func },
   { "logleveloffset", numeric, logleveloffset_numargs, logleveloffset_args, &logleveloffset_func },
@@ -4757,6 +4818,7 @@ ScriptingDomain& StandardScriptingDomain::sharedDomain()
 #if SIMPLE_REPL_APP
 
 // MARK: - Simple REPL (Read Execute Print Loop) App
+#include "fdcomm.hpp"
 
 class SimpleREPLApp : public CmdLineApp
 {
@@ -4764,16 +4826,13 @@ class SimpleREPLApp : public CmdLineApp
 
   ScriptSource source;
   ScriptMainContextPtr replContext;
-  char *buffer;
-  size_t bufsize = 4096;
-  size_t characters;
+  FdCommPtr input;
 
 public:
 
   SimpleREPLApp() :
     source("REPL")
   {
-    buffer = (char *)malloc(bufsize * sizeof(char));
   }
 
   virtual int main(int argc, char **argv)
@@ -4798,20 +4857,38 @@ public:
     replContext = source.domain()->newContext();
     source.setSharedMainContext(replContext);
     printf("p44Script REPL - type 'quit' to leave\n\n");
-    RE();
+    input = FdCommPtr(new FdComm);
+    R();
+    input->setFd(0); // stdin
+    input->makeNonBlocking();
+    input->setReceiveHandler(boost::bind(&SimpleREPLApp::E, this, _1), '\n');
   }
 
-  void RE()
+
+  void R()
   {
     printf("p44Script: ");
-    characters = getline(&buffer,&bufsize,stdin);
-    if (strucmp(buffer, "quit", 4)==0) {
-      printf("\nquitting p44Script REPL - bye!\n");
-      terminateApp(EXIT_SUCCESS);
+  }
+
+
+  void E(ErrorPtr err)
+  {
+    string cmd;
+    if(Error::notOK(err)) {
+      printf("\nI/O error: %s\n", err->text());
+      terminateApp(EXIT_FAILURE);
       return;
     }
-    source.setSource(buffer, sourcecode);
-    source.run(sourcecode+regular+keepvars+concurrently+embeddedGlobs, boost::bind(&SimpleREPLApp::PL, this, _1));
+    if (input->receiveDelimitedString(cmd)) {
+      cmd = trimWhiteSpace(cmd);
+      if (uequals(cmd, "quit")) {
+        printf("\nquitting p44Script REPL - bye!\n");
+        terminateApp(EXIT_SUCCESS);
+        return;
+      }
+      source.setSource(cmd, sourcecode);
+      source.run(sourcecode+regular+keepvars+concurrently+floatingGlobs, boost::bind(&SimpleREPLApp::PL, this, _1));
+    }
   }
 
   void PL(ScriptObjPtr aResult)
@@ -4838,7 +4915,7 @@ public:
     else {
       printf("   result: <none>\n\n");
     }
-    MainLoop::currentMainLoop().executeNow(boost::bind(&SimpleREPLApp::RE, this));
+    R();
   }
 };
 

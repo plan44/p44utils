@@ -206,7 +206,7 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "Focus", "[scripting],[DEBUG]" )
 {
   SETLOGLEVEL(LOG_DEBUG);
   //puts(JSON_TEST_OBJ);
-  REQUIRE(s.test(sourcecode|embeddedGlobs, "function m(...) { return 1+ifvalid(arg1,0)+ifvalid(arg2,0)+ifvalid(arg3,0); } return m")->stringValue() == "function");
+  REQUIRE(s.test(sourcecode|floatingGlobs, "function m(...) { return 1+ifvalid(arg1,0)+ifvalid(arg2,0)+ifvalid(arg3,0); } return m")->stringValue() == "function");
   REQUIRE(s.test(scriptbody, "m")->stringValue() == "function");
 }
 
@@ -566,7 +566,7 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "statements", "[scripting],[FOCUS]" )
   }
 
   SECTION("custom functions") {
-    REQUIRE(s.test(sourcecode|embeddedGlobs, "function m(...) { return 1+ifvalid(arg1,0)+ifvalid(arg2,0)+ifvalid(arg3,0); } return m")->stringValue() == "function");
+    REQUIRE(s.test(sourcecode|floatingGlobs, "function m(...) { return 1+ifvalid(arg1,0)+ifvalid(arg2,0)+ifvalid(arg3,0); } return m")->stringValue() == "function");
     REQUIRE(s.test(scriptbody, "m")->stringValue() == "function");
     REQUIRE(s.test(scriptbody, "m()")->doubleValue() == 1);
     REQUIRE(s.test(scriptbody, "m(1,2,3)")->doubleValue() == 7);
