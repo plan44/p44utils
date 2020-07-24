@@ -127,7 +127,7 @@ namespace p44 {
 
   public:
 
-    HttpComm(MainLoop &aMainLoop);
+    HttpComm(MainLoop &aMainLoop = MainLoop::currentMainLoop());
     virtual ~HttpComm();
 
     /// clear request headers

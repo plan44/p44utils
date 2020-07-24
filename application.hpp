@@ -51,7 +51,7 @@ namespace p44 {
 
   public:
     /// construct application with specific mainloop
-    Application(MainLoop &aMainLoop);
+    Application(MainLoop &aMainLoop = MainLoop::currentMainLoop());
 
     /// construct application using current thread's mainloop
     Application();
@@ -223,8 +223,7 @@ namespace p44 {
   public:
 
     /// constructors
-    CmdLineApp(MainLoop &aMainLoop);
-    CmdLineApp();
+    CmdLineApp(MainLoop &aMainLoop = MainLoop::currentMainLoop());
 
     /// destructor
     virtual ~CmdLineApp();

@@ -365,12 +365,6 @@ CmdLineApp::CmdLineApp(MainLoop &aMainLoop) :
 {
 }
 
-CmdLineApp::CmdLineApp() :
-  optionDescriptors(NULL)
-{
-}
-
-
 /// destructor
 CmdLineApp::~CmdLineApp()
 {

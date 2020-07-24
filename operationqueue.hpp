@@ -182,7 +182,7 @@ namespace p44 {
   public:
 
     /// create operation queue linked into specified mainloop
-    OperationQueue(MainLoop &aMainLoop);
+    OperationQueue(MainLoop &aMainLoop = MainLoop::currentMainLoop());
 
     /// destructor
     virtual ~OperationQueue();

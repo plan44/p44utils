@@ -125,7 +125,7 @@ namespace p44 {
     SocketCommPtr serverConnection;
   public:
 
-    SocketComm(MainLoop &aMainLoop);
+    SocketComm(MainLoop &aMainLoop = MainLoop::currentMainLoop());
     virtual ~SocketComm();
 
     /// Set parameters for connection (client and server)

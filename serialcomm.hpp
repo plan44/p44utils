@@ -103,7 +103,7 @@ namespace p44 {
 
   public:
 
-    SerialComm(MainLoop &aMainLoop);
+    SerialComm(MainLoop &aMainLoop = MainLoop::currentMainLoop());
     virtual ~SerialComm();
 
     /// Specify the serial connection parameters as single string

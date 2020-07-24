@@ -52,7 +52,7 @@ namespace p44 {
 
   public:
 
-    JsonWebClient(MainLoop &aMainLoop);
+    JsonWebClient(MainLoop &aMainLoop = MainLoop::currentMainLoop());
     virtual ~JsonWebClient();
 
     /// send a JSON request via HTTP or HTTPS

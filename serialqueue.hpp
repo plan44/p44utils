@@ -208,7 +208,7 @@ namespace p44 {
     SerialCommPtr serialComm;
 
     /// create operation queue linked into specified Synchronous IO mainloop
-    SerialOperationQueue(MainLoop &aMainLoop);
+    SerialOperationQueue(MainLoop &aMainLoop = MainLoop::currentMainLoop());
 
     /// destructor
     virtual ~SerialOperationQueue();

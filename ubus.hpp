@@ -161,7 +161,7 @@ namespace p44 {
 
   public:
 
-    UbusServer(MainLoop &aMainLoop);
+    UbusServer(MainLoop &aMainLoop = MainLoop::currentMainLoop());
     virtual ~UbusServer();
 
     /// start the server

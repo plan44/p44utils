@@ -85,7 +85,7 @@ namespace p44 {
 
   public:
 
-    JsonRpcComm(MainLoop &aMainLoop);
+    JsonRpcComm(MainLoop &aMainLoop = MainLoop::currentMainLoop());
     virtual ~JsonRpcComm();
 
     /// install callback for received JSON-RPC requests
