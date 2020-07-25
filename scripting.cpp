@@ -103,7 +103,6 @@ void ScriptObj::makeValid(EvaluationCB aEvaluationCB)
 }
 
 
-// FIXME: move source code to ScriptObj
 string ScriptObj::typeDescription(TypeInfo aInfo)
 {
   string s;
@@ -2489,8 +2488,7 @@ void SourceProcessor::s_declarations()
       return;
     } // function
     if (uequals(identifier, "on")) {
-      // FIXME: implement
-      // on (trigger) { code }
+      // on (triggerexpression) [toggling|changing|evaluating] { code }
       src.skipNonCode();
       if (!src.nextIf('(')) {
         exitWithSyntaxError("'(' expected");
@@ -2532,10 +2530,29 @@ void SourceProcessor::s_defineTrigger()
     exitWithSyntaxError("')' as end of trigger expression expected");
     return;
   }
-  CompiledScriptPtr trigger = new CompiledTrigger("trigger", getCompilerMainContext());
+  CompiledTriggerPtr trigger = new CompiledTrigger("trigger", getCompilerMainContext());
   result = captureCode(trigger);
   src.next(); // skip ')'
   src.skipNonCode();
+  // optional trigger mode
+  TriggerMode mode = onGettingTrue;
+  if (src.parseIdentifier(identifier)) {
+    if (uequals(identifier, "changing")) {
+      mode = onChange;
+    }
+    else if (uequals(identifier, "toggling")) {
+      mode = onChangingBool;
+    }
+    else if (uequals(identifier, "evaluating")) {
+      mode = onEvaluation;
+    }
+    else {
+      exitWithSyntaxError("invalid trigger mode");
+      return;
+    }
+    src.skipNonCode();
+  }
+  trigger->setTriggerMode(mode);
   // check for beginning of handler body
   if (src.c()!='{') {
     exitWithSyntaxError("expected handler body");
@@ -2555,11 +2572,10 @@ void SourceProcessor::s_defineHandler()
   // after scanning a block containing a handler body
   // - poppedPos points to the opening '{' of the body
   // - src.pos is after the closing '}' of the body
-  // - olderResult is the trigger
+  // - olderResult is the trigger, mode already set
   setState(&SourceProcessor::s_declarations); // back to declarations
   CompiledHandlerPtr handler = new CompiledHandler("handler", getCompilerMainContext());
-  // FIXME: later allow other trigger modes than onGettingTrue with alternative "onchange(...) {}" syntax maybe
-  handler->setTrigger(olderResult, onGettingTrue);
+  handler->installAndInitializeTrigger(olderResult);
   result = captureCode(handler);
   storeHandler();
 }
@@ -3202,7 +3218,7 @@ void CompiledTrigger::triggerDidEvaluate(EvaluationFlags aEvalMode, ScriptObjPtr
     fpos++;
   }
   // check if trigger is likely to work
-  if ((aEvalMode & initial) && nextEvaluation==Never && numSources()==0) {
+  if ((aEvalMode&runModeMask)==initial && nextEvaluation==Never && numSources()==0) {
     OLOG(LOG_WARNING, "probably trigger will not work as intended (no timers nor events): %s", cursor.displaycode(70).c_str());
     // send a null as initial result
     aResult = new AnnotatedNullValue("probably will never trigger");
@@ -3314,13 +3330,13 @@ bool CompiledTrigger::unfreeze(SourceCursor::UniquePos aFreezeId)
 
 // MARK: - CompiledHandler
 
-void CompiledHandler::setTrigger(ScriptObjPtr aTrigger, TriggerMode aMode)
+void CompiledHandler::installAndInitializeTrigger(ScriptObjPtr aTrigger)
 {
   trigger = dynamic_pointer_cast<CompiledTrigger>(aTrigger);
   // link trigger with my handler action
   if (trigger) {
-    trigger->setTriggerCB(boost::bind(&CompiledHandler::triggered, this, _1), aMode);
-    trigger->initializeTrigger(expression|synchronously|concurrently); // need to be concurrent because handler might run in context shared by
+    trigger->setTriggerCB(boost::bind(&CompiledHandler::triggered, this, _1));
+    trigger->initializeTrigger(expression|synchronously|concurrently); // need to be concurrent because handler might run in same shared context as trigger does
   }
 }
 
@@ -3573,7 +3589,8 @@ ScriptObjPtr ScriptSource::initializeTrigger(EvaluationCB aTriggerCB, TriggerMod
 {
   CompiledTriggerPtr trigger = dynamic_pointer_cast<CompiledTrigger>(getExecutable());
   if (!trigger) return  new ErrorValue(ScriptError::Internal, "is not a trigger");
-  trigger->setTriggerCB(aTriggerCB, aTriggerMode);
+  trigger->setTriggerMode(aTriggerMode);
+  trigger->setTriggerCB(aTriggerCB);
   return trigger->initializeTrigger(aEvalFlags);
 }
 

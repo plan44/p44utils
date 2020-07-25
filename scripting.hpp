@@ -1516,7 +1516,10 @@ namespace p44 { namespace Script {
 
     /// set the callback to fire on every trigger event
     /// @note callback will get the trigger expression result
-    void setTriggerCB(EvaluationCB aTriggerCB, TriggerMode aTriggerMode) { triggerCB = aTriggerCB; triggerMode = aTriggerMode; }
+    void setTriggerCB(EvaluationCB aTriggerCB) { triggerCB = aTriggerCB; }
+
+    /// set the trigger mode
+    void setTriggerMode(TriggerMode aTriggerMode) { triggerMode = aTriggerMode; }
 
     /// the current result of the trigger (the result of the last evaluation that happened)
     ScriptObjPtr currentResult() { return mCurrentResult ? mCurrentResult : new AnnotatedNullValue("trigger never evaluated"); }
@@ -1584,7 +1587,7 @@ namespace p44 { namespace Script {
 
     virtual string getAnnotation() const P44_OVERRIDE { return "handler"; };
 
-    void setTrigger(ScriptObjPtr aTrigger, TriggerMode aMode);
+    void installAndInitializeTrigger(ScriptObjPtr aTrigger);
     virtual bool originatesFrom(SourceContainerPtr aSource) const P44_OVERRIDE
       { return inherited::originatesFrom(aSource) || (trigger && trigger->originatesFrom(aSource)); };
     virtual bool floating() const P44_OVERRIDE { return inherited::floating() || (trigger && trigger->floating()); }
