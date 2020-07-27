@@ -452,10 +452,103 @@ void HttpComm::appendFormValue(string &aDataString, const string &aFieldname, co
 
 // MARK: - script support
 
-#if ENABLE_HTTP_SCRIPT_FUNCS
+#if ENABLE_HTTP_SCRIPT_FUNCS && ENABLE_P44SCRIPT
 
-/// This function implements geturl/puturl/posturl http utility functions, and is intended to get called
-/// from a EvaluationContext's evaluateAsyncFunctions() method to provide http functionality
+using namespace P44Script;
+
+static void httpFuncDone(BuiltinFunctionContextPtr f, HttpCommPtr aHttpAction, const string &aResponse, ErrorPtr aError)
+{
+  SPLOG(f, LOG_INFO, "http action returns '%s', error = %s", aResponse.c_str(), Error::text(aError));
+  if (Error::isOK(aError)) {
+    f->finish(new StringValue(aResponse));
+  }
+  else {
+    f->finish(new ErrorValue(aError));
+  }
+}
+
+static void httpFuncImpl(BuiltinFunctionContextPtr f, string aMethod)
+{
+  // xxxurl("<url>"[,timeout][,"<data>"])
+  string url = f->arg(0)->stringValue();
+  string data;
+  MLMicroSeconds timeout = Never;
+  int ai = 1;
+  if (f->numArgs()>ai) {
+    // could be timeout if it is numeric
+    if (f->arg(ai)->hasType(numeric)) {
+      timeout = f->arg(ai)->doubleValue()*Second;
+      ai++;
+    }
+  }
+  if (aMethod!="GET") {
+    if (f->numArgs()>ai) data = f->arg(ai)->stringValue();
+  }
+  // extract from url
+  string user;
+  string password;
+  HttpCommPtr httpAction;
+//  if (aHttpCommP) httpAction = *aHttpCommP;
+  if (!httpAction) httpAction = HttpCommPtr(new HttpComm(MainLoop::currentMainLoop()));
+//  if (aHttpCommP) *aHttpCommP = httpAction;
+  splitURL(url.c_str(), NULL, NULL, NULL, &user, &password);
+  httpAction->setHttpAuthCredentials(user, password);
+  if (timeout!=Never) httpAction->setTimeout(timeout);
+  SPLOG(f, LOG_INFO, "issuing %s to %s %s", aMethod.c_str(), url.c_str(), data.c_str());
+  f->setAbortCallback(boost::bind(&HttpComm::cancelRequest, httpAction));
+//  httpAction->cancelRequest(); // abort any previous request
+  if (!httpAction->httpRequest(
+    url.c_str(),
+    boost::bind(&httpFuncDone, f, httpAction, _1, _2),
+    aMethod.c_str(),
+    data.c_str()
+  )) {
+    f->finish(new ErrorValue(TextError::err("could not issue http request")));
+  }
+}
+
+// geturl("<url>"[,timeout])
+static const BuiltInArgDesc geturl_args[] = { { text }, { numeric+optional } };
+static const size_t geturl_numargs = sizeof(geturl_args)/sizeof(BuiltInArgDesc);
+static void geturl_func(BuiltinFunctionContextPtr f)
+{
+  httpFuncImpl(f, "GET");
+}
+
+static const BuiltInArgDesc postputurl_args[] = { { text } , { any+optional }, { any+optional } };
+static const size_t postputurl_numargs = sizeof(postputurl_args)/sizeof(BuiltInArgDesc);
+
+// posturl("<url>"[,timeout][,"<data>"])
+static void posturl_func(BuiltinFunctionContextPtr f)
+{
+  httpFuncImpl(f, "POST");
+}
+
+// puturl("<url>"[,timeout][,"<data>"])
+static void puturl_func(BuiltinFunctionContextPtr f)
+{
+  httpFuncImpl(f, "PUT");
+}
+
+
+static const BuiltinMemberDescriptor httpGlobals[] = {
+  { "geturl", text, geturl_numargs, geturl_args, &geturl_func },
+  { "posturl", text, postputurl_numargs, postputurl_args, &posturl_func },
+  { "puturl", text, postputurl_numargs, postputurl_args, &puturl_func },
+  { NULL } // terminator
+};
+
+HttpLookup::HttpLookup() :
+  inherited(httpGlobals)
+{
+}
+
+#endif // ENABLE_HTTP_SCRIPT_FUNCS && ENABLE_P44SCRIPT
+
+
+// TODO: remove legacy EXPRESSION_SCRIPT_SUPPORT later
+#if ENABLE_HTTP_SCRIPT_FUNCS && EXPRESSION_SCRIPT_SUPPORT
+
 bool HttpComm::evaluateAsyncHttpFunctions(EvaluationContext* aEvalContext, const string &aFunc, const FunctionArguments &aArgs, bool &aNotYielded, HttpCommPtr* aHttpCommP)
 {
   bool isGet = false;
@@ -468,7 +561,7 @@ bool HttpComm::evaluateAsyncHttpFunctions(EvaluationContext* aEvalContext, const
   if (aArgs.size()<1) return false; // not enough params
   if (isGet && aArgs.size()>2) return false; // geturl has one or two params
   // one of:
-  //   geturl("<url>"[,timeout][,"<data>"])
+  //   geturl("<url>"[,timeout])
   //   posturl("<url>"[,timeout][,"<data>"])
   //   puturl("<url>"[,timeout][,"<data>"])
   if (aArgs[0].notValue()) return aEvalContext->errorInArg(aArgs[0], true);
@@ -525,5 +618,4 @@ void HttpComm::httpFunctionDone(EvaluationContext* aEvalContext, const string &a
   aEvalContext->continueWithAsyncFunctionResult(res);
 }
 
-
-#endif // ENABLE_HTTP_SCRIPT_FUNCS
+#endif // ENABLE_HTTP_SCRIPT_FUNCS && EXPRESSION_SCRIPT_SUPPORT
