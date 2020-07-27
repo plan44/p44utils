@@ -21,7 +21,7 @@
 
 #include "catch.hpp"
 
-#include "scripting.hpp"
+#include "p44script.hpp"
 #include <stdlib.h>
 
 #define LOGLEVELOFFSET 0

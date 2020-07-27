@@ -26,9 +26,9 @@
 //   Note: must be before including "logger.hpp" (or anything that includes "logger.hpp")
 #define FOCUSLOGLEVEL 7
 
-#include "scripting.hpp"
+#include "p44script.hpp"
 
-#if ENABLE_SCRIPTING
+#if ENABLE_P44SCRIPT
 
 #include "math.h"
 
@@ -38,7 +38,7 @@
 
 
 using namespace p44;
-using namespace p44::Script;
+using namespace p44::P44Script;
 
 
 // MARK: - script error
@@ -513,6 +513,52 @@ ErrorPtr JsonValue::setMemberAtIndex(size_t aIndex, const ScriptObjPtr aMember, 
 
 #endif // SCRIPTING_JSON_SUPPORT
 
+// MARK: - StructuredObject
+
+const ScriptObjPtr StructuredLookupObject::memberByName(const string aName, TypeInfo aTypeRequirements)
+{
+  FOCUSLOGLOOKUP("StructuredObject");
+  ScriptObjPtr m;
+  LookupList::const_iterator pos = lookups.begin();
+  while (pos!=lookups.end()) {
+    MemberLookupPtr lookup = *pos;
+    if (typeRequirementMet(lookup->containsTypes(), aTypeRequirements)) {
+      if ((m = lookup->memberByNameFrom(this, aName, aTypeRequirements))) return m;
+    }
+    ++pos;
+  }
+  return m;
+}
+
+
+ErrorPtr StructuredLookupObject::setMemberByName(const string aName, const ScriptObjPtr aMember, TypeInfo aStorageAttributes)
+{
+  ErrorPtr err;
+  LookupList::const_iterator pos = lookups.begin();
+  while (pos!=lookups.end()) {
+    MemberLookupPtr lookup = *pos;
+    if (lookup->containsTypes() & mutablemembers) {
+      if (Error::isOK(err =lookup->setMemberByNameFrom(this, aName, aMember, aStorageAttributes))) return err; // modified or created a property in mutable lookup
+      if (!err->isError(ScriptError::domain(), ScriptError::NotFound)) {
+        break;
+      }
+      // continue searching as long as property just does not exist.
+    }
+    ++pos;
+  }
+  return err;
+}
+
+
+
+void StructuredLookupObject::registerMemberLookup(MemberLookupPtr aMemberLookup)
+{
+  if (aMemberLookup) {
+    // last registered lookup overrides same named objects in lookups registered before
+    lookups.push_front(aMemberLookup);
+  }
+}
+
 
 // MARK: - ExecutionContext
 
@@ -751,6 +797,8 @@ const ScriptObjPtr ScriptCodeContext::memberByName(const string aName, TypeInfo 
   // 3) functions from the main level (but no local objects/vars of main, these must be passed into functions as arguments)
   if (mainContext && (m = mainContext->memberByName(aName, aTypeRequirements|classscope|constant|objscope))) return m;
   // nothing found
+  // Note: do NOT call inherited, altough there is a overridden memberByName in StructuredObject, but this
+  //   is NOT a default lookup for ScriptCodeContext (but explicitly used from ScriptMainContext)
   return m;
 }
 
@@ -955,14 +1003,7 @@ const ScriptObjPtr ScriptMainContext::memberByName(const string aName, TypeInfo 
     if ((m = inherited::memberByName(aName, aTypeRequirements))) return m;
   }
   // 3) members from registered lookups, which might or might not be instance related (depends on the lookup)
-  LookupList::const_iterator pos = lookups.begin();
-  while (pos!=lookups.end()) {
-    ClassLevelLookupPtr lookup = *pos;
-    if (typeRequirementMet(lookup->containsTypes(), aTypeRequirements)) {
-      if ((m = lookup->memberByNameFrom(instance(), aName, aTypeRequirements))) return m;
-    }
-    ++pos;
-  }
+  if ((m = StructuredLookupObject::memberByName(aName, aTypeRequirements))) return m;
   // 4) lookup global members in the script domain (vars, functions, constants)
   if (domain() && (m = domain()->memberByName(aName, aTypeRequirements))) return m;
   // nothing found (note that inherited was queried early above, already!)
@@ -992,18 +1033,7 @@ ErrorPtr ScriptMainContext::setMemberByName(const string aName, const ScriptObjP
     // 3) properties in lookup chain on those lookups which have mutablemembers (if no local or thisObj variable exists),
     //    which might or might not be instance related (depends on the lookup)
     if (err->isError(ScriptError::domain(), ScriptError::NotFound)) {
-      LookupList::const_iterator pos = lookups.begin();
-      while (pos!=lookups.end()) {
-        ClassLevelLookupPtr lookup = *pos;
-        if (lookup->containsTypes() & mutablemembers) {
-          if (Error::isOK(err =lookup->setMemberByNameFrom(instance(), aName, aMember, aStorageAttributes))) return err; // modified or created a property in mutable lookup
-          if (!err->isError(ScriptError::domain(), ScriptError::NotFound)) {
-            break;
-          }
-          // continue searching as long as property just does not exist.
-        }
-        ++pos;
-      }
+      if (Error::isOK(err = StructuredLookupObject::setMemberByName(aName, aMember, aStorageAttributes))) return err; // modified or created an existing local variable
     }
     // 4) modify (but never create w/o global storage attribute) global variables (if no local, thisObj or lookup chain variable of this name exists)
     if (domain() && err->isError(ScriptError::domain(), ScriptError::NotFound)) {
@@ -1014,46 +1044,44 @@ ErrorPtr ScriptMainContext::setMemberByName(const string aName, const ScriptObjP
 }
 
 
-void ScriptMainContext::registerMemberLookup(ClassLevelLookupPtr aMemberLookup)
-{
-  if (aMemberLookup) {
-    // last registered lookup overrides same named objects in lookups registered before
-    lookups.push_front(aMemberLookup);
-  }
-}
-
-
 // MARK: - Scripting Domain
 
 
 
 // MARK: - Built-in function support
 
-BuiltInFunctionLookup::BuiltInFunctionLookup(const BuiltinFunctionDescriptor* aFunctionDescriptors)
+BuiltInMemberLookup::BuiltInMemberLookup(const BuiltinMemberDescriptor* aMemberDescriptors)
 {
   // build name lookup map
-  if (aFunctionDescriptors) {
-    while (aFunctionDescriptors->name) {
-      functions[aFunctionDescriptors->name]=aFunctionDescriptors;
-      aFunctionDescriptors++;
+  if (aMemberDescriptors) {
+    while (aMemberDescriptors->name) {
+      functions[aMemberDescriptors->name]=aMemberDescriptors;
+      aMemberDescriptors++;
     }
   }
 }
 
 
-ScriptObjPtr BuiltInFunctionLookup::memberByNameFrom(ScriptObjPtr aThisObj, const string aName, TypeInfo aTypeRequirements) const
+ScriptObjPtr BuiltInMemberLookup::memberByNameFrom(ScriptObjPtr aThisObj, const string aName, TypeInfo aTypeRequirements) const
 {
-  ScriptObjPtr func;
+  ScriptObjPtr member;
 
   FOCUSLOGLOOKUP("BuiltInFunctionLookup");
   // actual type requirement must match, scope requirements are irrelevant here
   if (ScriptObj::typeRequirementMet(executable, aTypeRequirements, typeMask)) {
     FunctionMap::const_iterator pos = functions.find(aName);
     if (pos!=functions.end()) {
-      func = ScriptObjPtr(new BuiltinFunctionObj(pos->second, aThisObj));
+      if (pos->second->returnTypeInfo&builtinmember) {
+        // is a non-executable member, just call getter to retrieve it
+        member = pos->second->getter(*const_cast<BuiltInMemberLookup *>(this), aThisObj);
+      }
+      else {
+        // is a function, return a executable that can be function-called with arguments
+        member = ScriptObjPtr(new BuiltinFunctionObj(pos->second, aThisObj));
+      }
     }
   }
-  return func;
+  return member;
 }
 
 
@@ -4778,7 +4806,7 @@ static void delay_func(BuiltinFunctionContextPtr f)
 
 
 // The standard function descriptor table
-static const BuiltinFunctionDescriptor standardFunctions[] = {
+static const BuiltinMemberDescriptor standardFunctions[] = {
   { "ifvalid", any, ifvalid_numargs, ifvalid_args, &ifvalid_func },
   { "isvalid", numeric, isvalid_numargs, isvalid_args, &isvalid_func },
   { "if", any, if_numargs, if_args, &if_func },
@@ -4849,7 +4877,7 @@ ScriptingDomain& StandardScriptingDomain::sharedDomain()
   if (!standardScriptingDomain) {
     standardScriptingDomain = new StandardScriptingDomain();
     // the standard scripting domains has the standard functions
-    standardScriptingDomain->registerMemberLookup(new BuiltInFunctionLookup(BuiltinFunctions::standardFunctions));
+    standardScriptingDomain->registerMemberLookup(new BuiltInMemberLookup(BuiltinFunctions::standardFunctions));
   }
   return *standardScriptingDomain.get();
 };
@@ -4975,5 +5003,5 @@ int main(int argc, char **argv)
 
 #endif // SIMPLE_REPL_APP
 
-#endif // ENABLE_EXPRESSIONS
+#endif // ENABLE_P44SCRIPT
 

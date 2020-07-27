@@ -19,12 +19,12 @@
 //  along with p44utils. If not, see <http://www.gnu.org/licenses/>.
 //
 
-#ifndef __p44utils__scripting__
-#define __p44utils__scripting__
+#ifndef __p44utils__p44script__
+#define __p44utils__p44script__
 
 #include "p44utils_common.hpp"
 
-#if ENABLE_SCRIPTING
+#if ENABLE_P44SCRIPT
 
 #include "timeutils.hpp"
 #include <string>
@@ -40,7 +40,7 @@
 
 using namespace std;
 
-namespace p44 { namespace Script {
+namespace p44 { namespace P44Script {
 
   // MARK: - class and smart pointer forward definitions
 
@@ -52,6 +52,8 @@ namespace p44 { namespace Script {
   typedef boost::intrusive_ptr<ErrorValue> ErrorValuePtr;
   class NumericValue;
   class StringValue;
+  class StructuredObject;
+  class StructuredLookupObject;
 
   class ImplementationObj;
   class CompiledCode;
@@ -84,8 +86,8 @@ namespace p44 { namespace Script {
   class ScriptCodeThread;
   typedef boost::intrusive_ptr<ScriptCodeThread> ScriptCodeThreadPtr;
 
-  class ClassLevelLookup;
-  typedef boost::intrusive_ptr<ClassLevelLookup> ClassLevelLookupPtr;
+  class MemberLookup;
+  typedef boost::intrusive_ptr<MemberLookup> MemberLookupPtr;
 
 
   // MARK: - Scripting Error
@@ -211,6 +213,7 @@ namespace p44 { namespace Script {
     classscope = 0x200000, ///< set to select only class scope members
     allscopes = classscope+objscope+global,
     mutablemembers = 0x400000, ///< members are mutable
+    builtinmember = 0x800000, ///< special flag for use in built-in member descriptions to differentiate members from functions
   };
   typedef uint32_t TypeInfo;
 
@@ -621,10 +624,38 @@ namespace p44 { namespace Script {
 
   // MARK: - Extendable class member lookup
 
+  /// structured object base class
+  class StructuredObject : public ScriptObj
+  {
+    typedef ScriptObj inherited;
+  public:
+    virtual string getAnnotation() const P44_OVERRIDE { return "object"; };
+    virtual TypeInfo getTypeInfo() const P44_OVERRIDE { return object; }
+  };
+
+  /// structured object with the ability to register member lookups
+  class StructuredLookupObject : public StructuredObject
+  {
+    typedef StructuredObject inherited;
+    typedef std::list<MemberLookupPtr> LookupList;
+    LookupList lookups;
+  public:
+
+    // access to (sub)objects in the installed lookups
+    virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aTypeRequirements = none) P44_OVERRIDE;
+    virtual ErrorPtr setMemberByName(const string aName, const ScriptObjPtr aMember, TypeInfo aStorageAttributes = none) P44_OVERRIDE;
+
+    /// register an additional lookup
+    /// @param aMemberLookup a lookup object
+    void registerMemberLookup(MemberLookupPtr aMemberLookup);
+  };
+
+
+
   /// implements a lookup step that can be shared between multiple execution contexts. It does NOT
-  /// hold any _instance_ state, but can still serve to lookup instances by using the _aThisObj_ provided
-  /// by callers (which can be ignored when providing class members).
-  class ClassLevelLookup : public P44Obj
+  /// hold any _instance_ state by itself, but can still serve to lookup instances by using the _aThisObj_ provided
+  /// by callers (which can be ignored when providing _class_ members).
+  class MemberLookup : public P44Obj
   {
   public:
 
@@ -650,8 +681,6 @@ namespace p44 { namespace Script {
 
   };
 
-
-
   // MARK: - Execution contexts
 
   #define DEFAULT_SYNC_MAX_RUN_TIME (10*Second)
@@ -660,9 +689,9 @@ namespace p44 { namespace Script {
   /// Abstract base class for executables.
   /// Can hold indexed (positional) arguments as these are needed for all types
   /// of implementations (e.g. built-ins as well as script defined functions)
-  class ExecutionContext : public ScriptObj
+  class ExecutionContext : public StructuredLookupObject
   {
-    typedef ScriptObj inherited;
+    typedef StructuredLookupObject inherited;
     friend class ScriptCodeContext;
     friend class BuiltinFunctionContext;
 
@@ -715,7 +744,7 @@ namespace p44 { namespace Script {
     /// @return the main context from which this context was called (as a subroutine)
     virtual ScriptMainContextPtr scriptmain() const { return mainContext; }
 
-    /// @return the object _instance_ that
+    /// @return the object _instance_ that is the implicit "this" for the context
     /// @note plain execution contexts do not have a thisObj() of their own, but use the linked mainContext's
     virtual ScriptObjPtr instance() const;
 
@@ -801,8 +830,6 @@ namespace p44 { namespace Script {
     typedef ScriptCodeContext inherited;
     friend class ScriptingDomain;
 
-    typedef std::list<ClassLevelLookupPtr> LookupList;
-    LookupList lookups;
     ScriptingDomainPtr domainObj; ///< the scripting domain (unless it's myself to avoid locking)
     ScriptObjPtr thisObj; ///< the object _instance_ scope of this execution context (if any)
 
@@ -823,10 +850,6 @@ namespace p44 { namespace Script {
     virtual ScriptObjPtr instance() const P44_OVERRIDE { return thisObj; }
     virtual ScriptingDomainPtr domain() const P44_OVERRIDE { return domainObj; }
     virtual ScriptMainContextPtr scriptmain() const P44_OVERRIDE { return ScriptMainContextPtr(const_cast<ScriptMainContext*>(this)); }
-
-    /// register an additional lookup
-    /// @param aMemberLookup a lookup object
-    void registerMemberLookup(ClassLevelLookupPtr aMemberLookup);
 
   };
 
@@ -1761,7 +1784,7 @@ namespace p44 { namespace Script {
 
   // MARK: - Built-in function support
 
-  class BuiltInFunctionLookup;
+  class BuiltInMemberLookup;
   class BuiltinFunctionObj;
   typedef boost::intrusive_ptr<BuiltinFunctionObj> BuiltinFunctionObjPtr;
   class BuiltinFunctionContext;
@@ -1775,31 +1798,37 @@ namespace p44 { namespace Script {
 
   /// Signature for built-in function/method implementation
   /// @param aContext execution context, containing parameters and expecting result
-  /// @note must call resume() or resumeWithResult() on the context when function has finished executing.
+  /// @note must call finish() on the context when function has finished executing (before or after returning)
   typedef void (*BuiltinFunctionImplementation)(BuiltinFunctionContextPtr aContext);
 
+  /// Signature for built-in member getter. Must return the member. aParentObj is the parent obj (if it's not a global member)
+  typedef ScriptObjPtr (*BuiltinMemberGetter)(BuiltInMemberLookup& aMemberLookup, ScriptObjPtr aParentObj);
+
   typedef struct {
-    const char* name; ///< name of the function
-    TypeInfo returnTypeInfo; ///< possible return types
-    size_t numArgs; ///< number of arguemnts
-    const BuiltInArgDesc* arguments; ///< arguments
-    BuiltinFunctionImplementation implementation; ///< function pointer to implementation (as a plain function)
-  } BuiltinFunctionDescriptor;
+    const char* name; ///< name of the function / member
+    TypeInfo returnTypeInfo; ///< possible return types (for functions, this is the type(s) the functions might return, the member returned is always a executable)
+    size_t numArgs; ///< for functions: number of arguemnts, can be 0
+    const BuiltInArgDesc* arguments; ///< for functions: arguments, can be NULL
+    union {
+      BuiltinFunctionImplementation implementation; ///< function pointer to implementation (as a plain function)
+      BuiltinMemberGetter getter; ///< function pointer to getter (as a plain function)
+    };
+  } BuiltinMemberDescriptor;
 
 
   /// member lookup for built-in functions, driven by static const struct table to describe functions and link implementations
-  class BuiltInFunctionLookup : public ClassLevelLookup
+  class BuiltInMemberLookup : public MemberLookup
   {
-    typedef ClassLevelLookup inherited;
-    typedef std::map<const string, const BuiltinFunctionDescriptor*, lessStrucmp> FunctionMap;
+    typedef MemberLookup inherited;
+    typedef std::map<const string, const BuiltinMemberDescriptor*, lessStrucmp> FunctionMap;
     FunctionMap functions;
 
   public:
-    /// create a builtin function lookup from descriptor table
-    /// @param aFunctionDescriptors pointer to an array of function descriptors, terminated with an entry with .name==NULL
-    BuiltInFunctionLookup(const BuiltinFunctionDescriptor* aFunctionDescriptors);
+    /// create a builtin member lookup from descriptor table
+    /// @param aMemberDescriptors pointer to an array of member descriptors, terminated with an entry with .name==NULL
+    BuiltInMemberLookup(const BuiltinMemberDescriptor* aMemberDescriptors);
 
-    virtual TypeInfo containsTypes() const P44_OVERRIDE { return executable+constant+allscopes; } // executables only, constant, from all scopes
+    virtual TypeInfo containsTypes() const P44_OVERRIDE { return constant+allscopes; } // constant, from all scopes
     virtual ScriptObjPtr memberByNameFrom(ScriptObjPtr aThisObj, const string aName, TypeInfo aTypeRequirements = none) const P44_OVERRIDE;
 
   };
@@ -1811,14 +1840,14 @@ namespace p44 { namespace Script {
     typedef ImplementationObj inherited;
     friend class BuiltinFunctionContext;
 
-    const BuiltinFunctionDescriptor *descriptor; ///< function signature, name and pointer to actual implementation function
+    const BuiltinMemberDescriptor *descriptor; ///< function signature, name and pointer to actual implementation function
     ScriptObjPtr thisObj; ///< the object this function is a method of (if it's not a plain function)
 
   public:
 
     virtual string getAnnotation() const P44_OVERRIDE { return "built-in function"; };
 
-    BuiltinFunctionObj(const BuiltinFunctionDescriptor *aDescriptor, ScriptObjPtr aThisObj) : descriptor(aDescriptor), thisObj(aThisObj) {};
+    BuiltinFunctionObj(const BuiltinMemberDescriptor *aDescriptor, ScriptObjPtr aThisObj) : descriptor(aDescriptor), thisObj(aThisObj) {};
 
     /// Get description of arguments required to call this internal function
     virtual bool argumentInfo(size_t aIndex, ArgumentDescriptor& aArgDesc) const P44_OVERRIDE;
@@ -1890,12 +1919,14 @@ namespace p44 { namespace Script {
     /// @note this must be called when a builtin function implementation completes
     void finish(const ScriptObjPtr aResult = ScriptObjPtr());
 
+    /// @return the object this function was called on as a method, NULL for plain functions
+    ScriptObjPtr thisObj() { return func->thisObj; }
+
     /// @return the thread this function was called in
     ScriptCodeThreadPtr thread() { return mThread; }
 
     /// @return the evaluation flags of the current evaluation
     EvaluationFlags evalFlags() { return mThread ? mThread->evaluationFlags : regular; }
-
 
     /// @return the trigger object if this function is executing as part of a trigger expression
     CompiledTrigger* trigger() { return mThread ? dynamic_cast<CompiledTrigger *>(mThread->codeObj.get()) : NULL; }
@@ -1921,6 +1952,6 @@ namespace p44 { namespace Script {
 
 }} // namespace p44::Script
 
-#endif // ENABLE_SCRIPTING
+#endif // ENABLE_P44SCRIPT
 
-#endif // defined(__p44utils__scripting__)
+#endif // defined(__p44utils__p44script__)
