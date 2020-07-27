@@ -108,6 +108,7 @@ namespace p44 { namespace P44Script {
       NotCreated, ///< object/field does not exist and cannot be created, either
       Immutable, ///< object/field exists but is immutable and cannot be assigned
       NotCallable, ///< object cannot be called as a function
+      NotLvalue, ///< object is not an LValue and can't be assigned to
       Busy, ///< currently running
       // Fatal errors, cannot be catched
       FatalErrors,
@@ -137,6 +138,7 @@ namespace p44 { namespace P44Script {
       "NotCreated",
       "Immutable",
       "NotCallable",
+      "NotLvalue",
       "Busy",
       "Syntax",
       "Aborted",
@@ -184,13 +186,13 @@ namespace p44 { namespace P44Script {
     none = 0x000, ///< no type specification
     null = 0x001, ///< NULL/undefined
     error = 0x002, ///< Error
-    numeric = 0x004, ///< numeric value
-    text = 0x008, ///< text/string value
-    json = 0x010, ///< JSON value
-    executable = 0x020, ///< executable code
-    object = 0x040, ///< is a object with named members
-    array = 0x080, ///< is an array with indexed elements
+    numeric = 0x010, ///< numeric value
+    text = 0x020, ///< text/string value
+    json = 0x040, ///< JSON value
+    executable = 0x080, ///< executable code
     threadref = 0x100, ///< represents a running thread
+    object = 0x400, ///< is a object with named members
+    array = 0x800, ///< is an array with indexed elements
     // type classes
     any = typeMask-null-error, ///< any type except null and error
     scalar = numeric+text+json, ///< scalar types (json can also be structured)
@@ -205,14 +207,14 @@ namespace p44 { namespace P44Script {
     undefres = 0x04000, ///< if set, and an argument does not match type, the function result is automatically made null/undefined without executing the implementation
     async = 0x08000, ///< if set, the object cannot evaluate synchronously
     // - storage attributes and directives for named members
-    create = 0x10000, ///< set to create member if not yet existing (special use also for explicitly created errors)
-    onlycreate = 0x20000, ///< set to only create if new, but not overwrite
-    global = 0x40000, ///< set to store in global context
-    constant = 0x80000, ///< set to select only constant  (in the sense of: not settable by scripts) members
-    objscope = 0x100000, ///< set to select only object scope members
-    classscope = 0x200000, ///< set to select only class scope members
+    lvalue = 0x10000, ///< is a left hand value (lvalue), possibly assignable, probably needs makeValid() to get real value
+    create = 0x20000, ///< set to create member if not yet existing (special use also for explicitly created errors)
+    onlycreate = 0x40000, ///< set to only create if new, but not overwrite
+    global = 0x80000, ///< set to store in global context
+    constant = 0x100000, ///< set to select only constant  (in the sense of: not settable by scripts) members
+    objscope = 0x200000, ///< set to select only object scope members
+    classscope = 0x400000, ///< set to select only class scope members
     allscopes = classscope+objscope+global,
-    mutablemembers = 0x400000, ///< members are mutable
     builtinmember = 0x800000, ///< special flag for use in built-in member descriptions to differentiate members from functions
   };
   typedef uint32_t TypeInfo;
@@ -323,17 +325,24 @@ namespace p44 { namespace P44Script {
 
     /// @}
 
-    /// @name lazy value loading / proxy objects
+    /// @name lazy value loading / proxy objects / lvalue assignment
     /// @{
 
-    /// @return true when the object's value is available. Might be false when this object is just a proxy
+    /// @return a pointer to the object's actual value when it is available.
+    /// Might be false when this object is an lvalue or another type of proxy
     /// @note call makeValid() to get a valid version from this object
-    virtual bool valid() const { return true; } // base class objects are always valid
+    virtual ScriptObjPtr actualValue() { return ScriptObjPtr(this); } // simple value objects including this base class have an immediate value
 
+    /// Get the actual value of an object (which might be a lvalue or other type of proxy)
     /// @param aEvaluationCB will be called with a valid version of the object.
     /// @note if called on an already valid object, it returns itself in the callback, so
     ///   makeValid() can always be called. But for performance reasons, checking valid() before is recommended
     virtual void makeValid(EvaluationCB aEvaluationCB);
+
+    /// Assign a new value to a lvalue
+    /// @param aNewValue the value to assign, NULL to remove the lvalue from its container
+    /// @param aEvaluationCB will be called with a valid version of the object or an error or NULL in case the lvalue was deleted
+    virtual void assignLValue(EvaluationCB aEvaluationCB, ScriptObjPtr aNewValue);
 
     /// @}
 
@@ -363,10 +372,11 @@ namespace p44 { namespace P44Script {
 
     /// get object subfield/member by name
     /// @param aName name of the member to find
-    /// @param aTypeRequirements what type and type attributes the returned member must have, defaults to no restriction
+    /// @param aMemberAccessFlags what type and type attributes the returned member must have, defaults to no restriction.
+    ///   If lvalue is set and the member can be created and/or assigned to, an ScriptLvalue might be returned
     /// @return ScriptObj representing the member, or NULL if none
-    /// @note only possibly returns something in objects with type attribute "object"
-    virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aTypeRequirements = none) { return ScriptObjPtr(); };
+    /// @note only possibly returns something for container objects marked with "object" type
+    virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aMemberAccessFlags) { return ScriptObjPtr(); };
 
     /// number of members accessible by index (e.g. positional parameters or array elements)
     /// @return number of members
@@ -375,18 +385,20 @@ namespace p44 { namespace P44Script {
 
     /// get object subfield/member by index, for example positional arguments in a ExecutionContext
     /// @param aIndex index of the member to find
-    /// @param aTypeRequirements what type and type attributes the returned member must have, defaults to no restriction
+    /// @param aMemberAccessFlags what type and type attributes the returned member must have, defaults to no restriction.
+    ///   If lvalue is set and the member can be created and/or assigned to, an ScriptLvalue might be returned
     /// @return ScriptObj representing the member with index
     /// @note only possibly returns something in objects with type attribute "array"
-    virtual const ScriptObjPtr memberAtIndex(size_t aIndex, TypeInfo aTypeRequirements = none) { return ScriptObjPtr(); };
+    virtual const ScriptObjPtr memberAtIndex(size_t aIndex, TypeInfo aMemberAccessFlags) { return ScriptObjPtr(); };
 
-    /// set new object for named member
+    /// set new object for named member in this container (and nowhere else!)
     /// @param aName name of the member to assign
     /// @param aMember the member to assign
-    /// @param aStorageAttributes flags directing storage (such as global vs local vars).
     /// @return ok or Error describing reason for assignment failure
-    /// @note only possibly works on objects with type attribute "mutablemembers"
-    virtual ErrorPtr setMemberByName(const string aName, const ScriptObjPtr aMember, TypeInfo aStorageAttributes = none);
+    /// @note this method is primarily an interface for ScriptLvalue and usually should NOT be used directly
+    /// @note this method must NOT do any scope walks, but apply only to this container. It's the task of
+    ///   memberByName() to find the correct scope and return an lvalue
+    virtual ErrorPtr setMemberByName(const string aName, const ScriptObjPtr aMember);
 
     /// set new object for member at index (array, positional parameter)
     /// @param aIndex name of the member to assign
@@ -471,7 +483,62 @@ namespace p44 { namespace P44Script {
   };
 
 
+  // MARK: - lvalues
+
+
+  /// Base class for a value reference that might be assigned to
+  class ScriptLValue  : public ScriptObj
+  {
+    typedef ScriptObj inherited;
+    ScriptObjPtr mCurrentValue;
+  protected:
+    ScriptLValue(ScriptObjPtr aCurrentValue) : mCurrentValue(aCurrentValue) {};
+  public:
+    virtual TypeInfo getTypeInfo() const P44_OVERRIDE { return lvalue; };
+    virtual string getAnnotation() const P44_OVERRIDE { return "lvalue"; };
+
+    /// @return true when the object's value is available. Might be false when this object is an lvalue or another type of proxy
+    /// @note call makeValid() to get a valid version from this object
+    virtual ScriptObjPtr actualValue() P44_OVERRIDE { return mCurrentValue; } // LValues are valid if they have a current value
+
+    /// Get the actual value of an object (which might be a lvalue or other type of proxy)
+    /// @param aEvaluationCB will be called with a valid version of the object.
+    /// @note if called on an already valid object, it returns itself in the callback, so
+    ///   makeValid() can always be called. But for performance reasons, checking valid() before is recommended
+    virtual void makeValid(EvaluationCB aEvaluationCB) P44_OVERRIDE;
+
+  };
+
+
+  class StandardLValue : public ScriptLValue
+  {
+    typedef ScriptLValue inherited;
+
+    string mMemberName;
+    size_t mMemberIndex;
+    ScriptObjPtr mContainer;
+
+  public:
+    /// create a lvalue for a container which has setMemberByName()
+    /// @note this should be called by suitable container's memberByName() only
+    /// @note subclasses might provide optimized/different mechanisms
+    StandardLValue(ScriptObjPtr aContainer, const string aMemberName, ScriptObjPtr aCurrentValue);
+    /// create a lvalue for a container which has setMemberAtIndex()
+    StandardLValue(ScriptObjPtr aContainer, size_t aMemberIndex, ScriptObjPtr aCurrentValue);
+
+    /// Assign a new value to a lvalue
+    /// @param aNewValue the value to assign, NULL to remove the lvalue from its container
+    /// @param aEvaluationCB will be called with a valid version of the object or an error or NULL in case the lvalue was deleted
+    virtual void assignLValue(EvaluationCB aEvaluationCB, ScriptObjPtr aNewValue) P44_OVERRIDE;
+
+    /// get identifier (name) of this lvalue object
+    virtual string getIdentifier() const P44_OVERRIDE { return mMemberName; };
+
+  };
+
+
   // MARK: - Special Value classes
+
 
   /// an explicitly annotated null value (in contrast to ScriptObj base class which is a non-annotated null)
   class AnnotatedNullValue : public ScriptObj
@@ -613,10 +680,10 @@ namespace p44 { namespace P44Script {
     virtual string stringValue() const P44_OVERRIDE;
     virtual bool boolValue() const P44_OVERRIDE;
     // member access
-    virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aTypeRequirements = none) P44_OVERRIDE;
+    virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aMemberAccessFlags = none) P44_OVERRIDE;
     virtual size_t numIndexedMembers() const P44_OVERRIDE;
-    virtual const ScriptObjPtr memberAtIndex(size_t aIndex, TypeInfo aTypeRequirements = none) P44_OVERRIDE;
-    virtual ErrorPtr setMemberByName(const string aName, const ScriptObjPtr aMember, TypeInfo aStorageAttributes = none) P44_OVERRIDE;
+    virtual const ScriptObjPtr memberAtIndex(size_t aIndex, TypeInfo aMemberAccessFlags = none) P44_OVERRIDE;
+    virtual ErrorPtr setMemberByName(const string aName, const ScriptObjPtr aMember) P44_OVERRIDE;
     virtual ErrorPtr setMemberAtIndex(size_t aIndex, const ScriptObjPtr aMember, const string aName = "") P44_OVERRIDE;
   };
   #endif // SCRIPTING_JSON_SUPPORT
@@ -642,14 +709,12 @@ namespace p44 { namespace P44Script {
   public:
 
     // access to (sub)objects in the installed lookups
-    virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aTypeRequirements = none) P44_OVERRIDE;
-    virtual ErrorPtr setMemberByName(const string aName, const ScriptObjPtr aMember, TypeInfo aStorageAttributes = none) P44_OVERRIDE;
+    virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aTypeRequirements) P44_OVERRIDE;
 
     /// register an additional lookup
     /// @param aMemberLookup a lookup object
     void registerMemberLookup(MemberLookupPtr aMemberLookup);
   };
-
 
 
   /// implements a lookup step that can be shared between multiple execution contexts. It does NOT
@@ -668,18 +733,11 @@ namespace p44 { namespace P44Script {
     /// @param aName name of the member to find
     /// @param aTypeRequirements what type and type attributes the returned member must have, defaults to no restriction
     /// @return ScriptObj representing the member, or NULL if none
-    virtual ScriptObjPtr memberByNameFrom(ScriptObjPtr aThisObj, const string aName, TypeInfo aTypeRequirements = none) const = 0;
-
-    /// set new object for named member
-    /// @param aThisObj the object _instance_ of which we want to access a member (can be NULL in case of singletons)
-    /// @param aName name of the member to assign
-    /// @param aMember the member to assign
-    /// @return ok or Error describing reason for assignment failure
-    /// @note only possibly works on objects with type attribute "mutablemembers"
-    virtual ErrorPtr setMemberByNameFrom(ScriptObjPtr aThisObj, const string aName, const ScriptObjPtr aMember, TypeInfo aStorageAttributes = none)
-       { return ScriptError::err(ScriptError::NotFound, "cannot assign '%s'", aName.c_str()); }
+    virtual ScriptObjPtr memberByNameFrom(ScriptObjPtr aThisObj, const string aName, TypeInfo aTypeRequirements) const = 0;
 
   };
+
+
 
   // MARK: - Execution contexts
 
@@ -712,7 +770,7 @@ namespace p44 { namespace P44Script {
 
     // access to function arguments (positional) by index plus optionally a name
     virtual size_t numIndexedMembers() const P44_OVERRIDE;
-    virtual const ScriptObjPtr memberAtIndex(size_t aIndex, TypeInfo aTypeRequirements = none) P44_OVERRIDE;
+    virtual const ScriptObjPtr memberAtIndex(size_t aIndex, TypeInfo aMemberAccessFlags = none) P44_OVERRIDE;
     virtual ErrorPtr setMemberAtIndex(size_t aIndex, const ScriptObjPtr aMember, const string aName = "") P44_OVERRIDE;
 
     /// release all objects stored in this container and other known containers which were defined by aSource
@@ -789,9 +847,11 @@ namespace p44 { namespace P44Script {
     /// clear local variables (named members)
     virtual void clearVars() P44_OVERRIDE;
 
-    // access to local variables by name
-    virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aTypeRequirements = none) P44_OVERRIDE;
-    virtual ErrorPtr setMemberByName(const string aName, const ScriptObjPtr aMember, TypeInfo aStorageAttributes = none) P44_OVERRIDE;
+    /// access to local variables by name
+    virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aMemberAccessFlags) P44_OVERRIDE;
+
+    // internal for StandardLValue
+    virtual ErrorPtr setMemberByName(const string aName, const ScriptObjPtr aMember) P44_OVERRIDE;
     virtual ErrorPtr setMemberAtIndex(size_t aIndex, const ScriptObjPtr aMember, const string aName = "") P44_OVERRIDE;
 
     /// Execute a executable object in this context
@@ -843,8 +903,7 @@ namespace p44 { namespace P44Script {
 
     // access to objects in the context hierarchy of a local execution
     // (local objects, parent context objects, global objects)
-    virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aTypeRequirements = none) P44_OVERRIDE;
-    virtual ErrorPtr setMemberByName(const string aName, const ScriptObjPtr aMember, TypeInfo aStorageAttributes = none) P44_OVERRIDE;
+    virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aMemberAccessFlags) P44_OVERRIDE;
 
     // direct access to this and domain (not via mainContext, as we can't set maincontext w/o self-locking)
     virtual ScriptObjPtr instance() const P44_OVERRIDE { return thisObj; }
@@ -1144,6 +1203,7 @@ namespace p44 { namespace P44Script {
   /// interfacing with the environment to subclasses
   class SourceProcessor
   {
+    friend class ScriptCodeThread;
   public:
 
     SourceProcessor();
@@ -1211,16 +1271,19 @@ namespace p44 { namespace P44Script {
     /// @{
 
     /// must retrieve the member as specified with storageSpecifier from current result (or from the script scope if result==NULL)
+    /// @param aMemberAccessFlags if this has lvalue set, caller would like to get an ScriptLValue which allows assigning a new value
+    /// @param aNoNotFoundError if this is set, even finding nothing will not raise an error, but just return a NULL result
     /// @note must cause calling resume() when result contains the member (or NULL if not found)
-    virtual void memberByIdentifier();
-
-    /// must assign a member as specified with storageSpecifier with current result to olderResult (or to the script scope if olderResult==NULL)
-    /// @note must cause calling resume() when storage is complete. Result might contain a storage error.
-    virtual void setMemberBySpecifier(TypeInfo aStorageAttributes);
+    virtual void memberByIdentifier(TypeInfo aMemberAccessFlags, bool aNoNotFoundError=false);
 
     /// must retrieve the indexed member from current result (or from the script scope if result==NULL)
+    /// @param aMemberAccessFlags if this has lvalue set, caller would like to get an ScriptLValue which allows assigning a new value
     /// @note must cause calling resume() when result contains the member (or NULL if not found)
-    virtual void memberByIndex(size_t aIndex);
+    virtual void memberByIndex(size_t aIndex, TypeInfo aMemberAccessFlags);
+
+    /// must assign result to the lvalue member olderResult
+    /// @note must cause calling resume() when storage is complete. Result might contain a storage error or the assigned value
+    virtual void setLvalueMember();
 
     /// execute the current result and replace it with the output from the evaluation (e.g. function call)
     /// @note must cause calling resume() when result contains the member (or NULL if not found)
@@ -1281,7 +1344,6 @@ namespace p44 { namespace P44Script {
 
     // other internal state, not pushed
     string identifier; ///< for processing identifiers
-    ScriptObjPtr storageSpecifier; ///< for assignments (assignments cannot be nested!)
 
     /// Scanner Stack frame
     class StackFrame {
@@ -1375,14 +1437,10 @@ namespace p44 { namespace P44Script {
 
     // Simple Term
     void s_simpleTerm(); ///< at the beginning of a term
-    void s_member(); ///< immediately after identifier
+    void s_member(); ///< immediately after accessing a member for reading
     void s_subscriptArg(); ///< immediately after subscript expression evaluation
     void s_nextSubscript(); ///< multi-dimensional subscripts, 2nd and further arguments
-    void s_defineGlobalMember(); ///< assign or create global variable
-    void s_defineMember(); ///< assign or create a member of a structured variable or other object
     void assignOrAccess(bool aAllowAssign); ///< access or assign identifier
-    void s_assignMember(); ///< assign existing variable or member of a variable or other object
-    void assignMember(TypeInfo aStorageAttributes); ///< common processing for assignment
     void s_funcArg(); ///< immediately after function argument evaluation
     void s_funcContext(); ///< after getting function calling context
     void s_funcExec(); ///< ready to execute the function
@@ -1396,6 +1454,11 @@ namespace p44 { namespace P44Script {
     void s_exprFirstTerm(); ///< first term of an expression
     void s_exprLeftSide(); ///< left side of an ongoing expression
     void s_exprRightSide(); ///< further terms of an expression
+    void s_assignExpression(); ///< evaluate expression and assign to (lvalue) result
+    void s_assignOlder(); ///< assign older result to freshly obtained (lvalue) result
+    void s_checkAndAssignLvalue(); ///< check result for throwing error, then assign to lvalue
+    void s_assignLvalue(); ///< assign to lvalue
+    void s_unsetMember(); ///< unset the current result
 
     // Script Body
     void s_block(); ///< within a block, exits when '}' is encountered, but skips ';'
@@ -1737,17 +1800,20 @@ namespace p44 { namespace P44Script {
     /// @name execution hooks. These must call resume()
     /// @{
 
-    /// must retrieve the member with name==identifier from current result (or from the script scope if result==NULL)
+    /// must retrieve the member as specified with storageSpecifier from current result (or from the script scope if result==NULL)
+    /// @param aMemberAccessFlags if this has lvalue set, caller would like to get an ScriptLValue which allows assigning a new value
+    /// @param aNoNotFoundError if this is set, even finding nothing will not raise an error, but just return a NULL result
     /// @note must cause calling resume() when result contains the member (or NULL if not found)
-    virtual void memberByIdentifier() P44_OVERRIDE;
-
-    /// must assign a member as specified with storageSpecifier with current result to olderResult (or to the script scope if olderResult==NULL)
-    /// @note must cause calling resume() when storage is complete. Result might contain a storage error.
-    virtual void setMemberBySpecifier(TypeInfo aStorageAttributes) P44_OVERRIDE;
+    virtual void memberByIdentifier(TypeInfo aMemberAccessFlags, bool aNoNotFoundError=false) P44_OVERRIDE;
 
     /// must retrieve the indexed member from current result (or from the script scope if result==NULL)
+    /// @param aMemberAccessFlags if this has lvalue set, caller would like to get an ScriptLValue which allows assigning a new value
     /// @note must cause calling resume() when result contains the member (or NULL if not found)
-    virtual void memberByIndex(size_t aIndex) P44_OVERRIDE;
+    virtual void memberByIndex(size_t aIndex, TypeInfo aMemberAccessFlags) P44_OVERRIDE;
+
+    /// must assign result to the lvalue member olderResult
+    /// @note must cause calling resume() when storage is complete. Result might contain a storage error or the assigned value
+    virtual void setLvalueMember() P44_OVERRIDE;
 
     /// fork executing a block at the current position, if identifier is not empty, store a new ThreadValue.
     /// @note MUST NOT call resume() directly. This call will return when the new thread yields execution the first time.
@@ -1785,6 +1851,7 @@ namespace p44 { namespace P44Script {
   // MARK: - Built-in function support
 
   class BuiltInMemberLookup;
+  typedef boost::intrusive_ptr<BuiltInMemberLookup> BuiltInMemberLookupPtr;
   class BuiltinFunctionObj;
   typedef boost::intrusive_ptr<BuiltinFunctionObj> BuiltinFunctionObjPtr;
   class BuiltinFunctionContext;
@@ -1801,27 +1868,42 @@ namespace p44 { namespace P44Script {
   /// @note must call finish() on the context when function has finished executing (before or after returning)
   typedef void (*BuiltinFunctionImplementation)(BuiltinFunctionContextPtr aContext);
 
-  /// Signature for built-in member getter. Must return the member. aParentObj is the parent obj (if it's not a global member)
-  typedef ScriptObjPtr (*BuiltinMemberGetter)(BuiltInMemberLookup& aMemberLookup, ScriptObjPtr aParentObj);
+  /// Signature for built-in member accessor.
+  /// @param aParentObj the parent obj (if it's not a global member)
+  /// @param aObjToWrite if not NULL, this is the value to write to the member
+  /// @return if aObjToWrite==NULL, accessor must return the current value. Otherwise, the return value is ignored
+  typedef ScriptObjPtr (*BuiltinMemberAccessor)(BuiltInMemberLookup& aMemberLookup, ScriptObjPtr aParentObj, ScriptObjPtr aObjToWrite);
 
   typedef struct {
     const char* name; ///< name of the function / member
-    TypeInfo returnTypeInfo; ///< possible return types (for functions, this is the type(s) the functions might return, the member returned is always a executable)
+    TypeInfo returnTypeInfo; ///< possible return types (for functions, this is the type(s) the functions might return, the member returned is always a executable). Members must have lvalue to become assignable
     size_t numArgs; ///< for functions: number of arguemnts, can be 0
     const BuiltInArgDesc* arguments; ///< for functions: arguments, can be NULL
     union {
       BuiltinFunctionImplementation implementation; ///< function pointer to implementation (as a plain function)
-      BuiltinMemberGetter getter; ///< function pointer to getter (as a plain function)
+      BuiltinMemberAccessor accessor; ///< function pointer to accessor (as a plain function)
     };
   } BuiltinMemberDescriptor;
 
+
+  class BuiltInLValue : public ScriptLValue
+  {
+    typedef ScriptLValue inherited;
+    BuiltInMemberLookupPtr mLookup;
+    ScriptObjPtr mThisObj;
+    const BuiltinMemberDescriptor *descriptor; ///< function signature, name and pointer to actual implementation function
+  public:
+    BuiltInLValue(const BuiltInMemberLookupPtr aLookup, const BuiltinMemberDescriptor *aMemberDescriptor, ScriptObjPtr aThisObj, ScriptObjPtr aCurrentValue);
+    virtual void assignLValue(EvaluationCB aEvaluationCB, ScriptObjPtr aNewValue) P44_OVERRIDE;
+    virtual string getIdentifier() const P44_OVERRIDE { return descriptor ? descriptor->name : ""; };
+  };
 
   /// member lookup for built-in functions, driven by static const struct table to describe functions and link implementations
   class BuiltInMemberLookup : public MemberLookup
   {
     typedef MemberLookup inherited;
-    typedef std::map<const string, const BuiltinMemberDescriptor*, lessStrucmp> FunctionMap;
-    FunctionMap functions;
+    typedef std::map<const string, const BuiltinMemberDescriptor*, lessStrucmp> MemberMap;
+    MemberMap members;
 
   public:
     /// create a builtin member lookup from descriptor table
@@ -1829,7 +1911,7 @@ namespace p44 { namespace P44Script {
     BuiltInMemberLookup(const BuiltinMemberDescriptor* aMemberDescriptors);
 
     virtual TypeInfo containsTypes() const P44_OVERRIDE { return constant+allscopes; } // constant, from all scopes
-    virtual ScriptObjPtr memberByNameFrom(ScriptObjPtr aThisObj, const string aName, TypeInfo aTypeRequirements = none) const P44_OVERRIDE;
+    virtual ScriptObjPtr memberByNameFrom(ScriptObjPtr aThisObj, const string aName, TypeInfo aMemberAccessFlags) const P44_OVERRIDE;
 
   };
 

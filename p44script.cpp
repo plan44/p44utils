@@ -75,19 +75,15 @@ void EventSource::unregisterEventSink(EventSink *aEventSink)
 // MARK: - ScriptObj
 
 #define FOCUSLOGLOOKUP(p) \
-  { string s = string_format("%s::%s(%s)", p, __func__, aName.c_str()); FOCUSLOG("%60s : requirements=0x%08x", s.c_str(), aTypeRequirements ); }
+  { string s = string_format("searching %s for '%s'", p, aName.c_str()); FOCUSLOG("%60s : requirements=0x%08x", s.c_str(), aMemberAccessFlags ); }
 #define FOCUSLOGSTORE(p) \
-  { string s = string_format("%s::%s(%s)", p, __func__, aName.c_str()); FOCUSLOG("%60s : requirements=0x%08x", s.c_str(), aStorageAttributes ); }
+  { string s = string_format("setting '%s' in %s", aName.c_str(), p); FOCUSLOG("%60s : value=%s", s.c_str(), ScriptObj::describe(aMember).c_str()); }
 
 
-ErrorPtr ScriptObj::setMemberByName(const string aName, const ScriptObjPtr aMember, TypeInfo aStorageAttributes)
+ErrorPtr ScriptObj::setMemberByName(const string aName, const ScriptObjPtr aMember)
 {
-  if (aStorageAttributes & create) {
-    return ScriptError::err(ScriptError::NotCreated, "cannot create '%s'", aName.c_str());
-  }
-  else {
-    return ScriptError::err(ScriptError::NotFound, "'%s' not found", aName.c_str());
-  }
+  FOCUSLOGSTORE("ScriptObj")
+  return ScriptError::err(ScriptError::NotCreated, "cannot assign to '%s'", aName.c_str());
 }
 
 ErrorPtr ScriptObj::setMemberAtIndex(size_t aIndex, const ScriptObjPtr aMember, const string aName)
@@ -101,6 +97,13 @@ void ScriptObj::makeValid(EvaluationCB aEvaluationCB)
   // I am already valid - just return myself via callback
   if (aEvaluationCB) aEvaluationCB(ScriptObjPtr(this));
 }
+
+
+void ScriptObj::assignLValue(EvaluationCB aEvaluationCB, ScriptObjPtr aNewValue)
+{
+  if (aEvaluationCB) aEvaluationCB(new ErrorValue(ScriptError::err(ScriptError::NotLvalue, "not assignable")));
+}
+
 
 
 string ScriptObj::typeDescription(TypeInfo aInfo)
@@ -148,6 +151,10 @@ string ScriptObj::typeDescription(TypeInfo aInfo)
       s += "error";
     }
     if (aInfo & null) {
+      if (!s.empty()) s += " or ";
+      s += "undefined";
+    }
+    if (aInfo & lvalue) {
       if (!s.empty()) s += " or ";
       s += "undefined";
     }
@@ -306,6 +313,55 @@ ScriptObjPtr NumericValue::operator%(const ScriptObj& aRightSide) const
 }
 
 
+// MARK: - lvalues
+
+void ScriptLValue::makeValid(EvaluationCB aEvaluationCB)
+{
+  if (aEvaluationCB) {
+    if (!mCurrentValue) aEvaluationCB(new ErrorValue(ScriptError::NotFound, "lvalue does not yet exist"));
+    else aEvaluationCB(mCurrentValue);
+  }
+}
+
+
+StandardLValue::StandardLValue(ScriptObjPtr aContainer, const string aMemberName, ScriptObjPtr aCurrentValue) :
+  inherited(aCurrentValue),
+  mContainer(aContainer),
+  mMemberName(aMemberName),
+  mMemberIndex(0)
+{
+}
+
+
+StandardLValue::StandardLValue(ScriptObjPtr aContainer, size_t aMemberIndex, ScriptObjPtr aCurrentValue) :
+  inherited(aCurrentValue),
+  mContainer(aContainer),
+  mMemberName(""),
+  mMemberIndex(aMemberIndex)
+{
+}
+
+
+
+void StandardLValue::assignLValue(EvaluationCB aEvaluationCB, ScriptObjPtr aNewValue)
+{
+  if (mContainer) {
+    ErrorPtr err;
+    if (mMemberName.empty()) {
+      err = mContainer->setMemberAtIndex(mMemberIndex, aNewValue);
+    }
+    else {
+      err = mContainer->setMemberByName(mMemberName, aNewValue);
+    }
+    if (Error::notOK(err)) {
+      aNewValue = new ErrorValue(err);
+    }
+  }
+  if (aEvaluationCB) {
+    aEvaluationCB(aNewValue);
+  }
+}
+
 
 // MARK: - Special Value classes
 
@@ -449,14 +505,26 @@ TypeInfo JsonValue::getTypeInfo() const
 }
 
 
-const ScriptObjPtr JsonValue::memberByName(const string aName, TypeInfo aTypeRequirements)
+const ScriptObjPtr JsonValue::memberByName(const string aName, TypeInfo aMemberAccessFlags)
 {
   FOCUSLOGLOOKUP("JsonValue");
   ScriptObjPtr m;
-  if (jsonval && typeRequirementMet(json, aTypeRequirements, typeMask)) {
+  if (jsonval && typeRequirementMet(json, aMemberAccessFlags, typeMask)) {
+    // we cannot meet any other type requirement but json
     JsonObjectPtr j = jsonval->get(aName.c_str());
     if (j) {
+      // we have that member
       m = ScriptObjPtr(new JsonValue(j));
+      if ((aMemberAccessFlags & lvalue) && (aMemberAccessFlags & onlycreate)==0) {
+        m = new StandardLValue(this, aName, m); // it is allowed to overwrite this value
+      }
+    }
+    else {
+      // no such member yet
+      if (aMemberAccessFlags & lvalue) {
+        // creation of new json object fields is generally allowed, return lvalue to create object
+        m = new StandardLValue(this, aName, ScriptObjPtr()); // it is allowed to create a new value
+      }
     }
   }
   return m;
@@ -470,17 +538,31 @@ size_t JsonValue::numIndexedMembers() const
 }
 
 
-const ScriptObjPtr JsonValue::memberAtIndex(size_t aIndex, TypeInfo aTypeRequirements)
+const ScriptObjPtr JsonValue::memberAtIndex(size_t aIndex, TypeInfo aMemberAccessFlags)
 {
   ScriptObjPtr m;
-  if (aIndex>=0 && aIndex<numIndexedMembers()) {
-    m = ScriptObjPtr(new JsonValue(jsonval->arrayGet((int)aIndex)));
+  if (jsonval && typeRequirementMet(json, aMemberAccessFlags, typeMask)) {
+    // we cannot meet any other type requirement but json
+    if (aIndex<numIndexedMembers()) {
+      // we have that member
+      m = ScriptObjPtr(new JsonValue(jsonval->arrayGet((int)aIndex)));
+      if ((aMemberAccessFlags & lvalue) && (aMemberAccessFlags & onlycreate)==0) {
+        m = new StandardLValue(this, aIndex, m); // it is allowed to overwrite this value
+      }
+    }
+    else {
+      // no such member yet
+      if (aMemberAccessFlags & lvalue) {
+        // creation allowed, return lvalue to create object
+        m = new StandardLValue(this, aIndex, ScriptObjPtr()); // it is allowed to create a new value
+      }
+    }
   }
   return m;
 }
 
 
-ErrorPtr JsonValue::setMemberByName(const string aName, const ScriptObjPtr aMember, TypeInfo aStorageAttributes)
+ErrorPtr JsonValue::setMemberByName(const string aName, const ScriptObjPtr aMember)
 {
   FOCUSLOGSTORE("JsonValue");
   if (!jsonval) {
@@ -507,7 +589,12 @@ ErrorPtr JsonValue::setMemberAtIndex(size_t aIndex, const ScriptObjPtr aMember, 
   else if (!jsonval->isType(json_type_array)) {
     return ScriptError::err(ScriptError::Invalid, "json is not an array, cannot set element");
   }
-  jsonval->arrayPut((int)aIndex, aMember->jsonValue());
+  if (aMember) {
+    jsonval->arrayPut((int)aIndex, aMember->jsonValue());
+  }
+  else {
+    return ScriptError::err(ScriptError::Invalid, "cannot delete from json arrays");
+  }
   return ErrorPtr();
 }
 
@@ -515,40 +602,20 @@ ErrorPtr JsonValue::setMemberAtIndex(size_t aIndex, const ScriptObjPtr aMember, 
 
 // MARK: - StructuredObject
 
-const ScriptObjPtr StructuredLookupObject::memberByName(const string aName, TypeInfo aTypeRequirements)
+const ScriptObjPtr StructuredLookupObject::memberByName(const string aName, TypeInfo aMemberAccessFlags)
 {
   FOCUSLOGLOOKUP("StructuredObject");
   ScriptObjPtr m;
   LookupList::const_iterator pos = lookups.begin();
   while (pos!=lookups.end()) {
     MemberLookupPtr lookup = *pos;
-    if (typeRequirementMet(lookup->containsTypes(), aTypeRequirements)) {
-      if ((m = lookup->memberByNameFrom(this, aName, aTypeRequirements))) return m;
+    if (typeRequirementMet(lookup->containsTypes(), aMemberAccessFlags, typeMask)) {
+      if ((m = lookup->memberByNameFrom(this, aName, aMemberAccessFlags))) return m;
     }
     ++pos;
   }
   return m;
 }
-
-
-ErrorPtr StructuredLookupObject::setMemberByName(const string aName, const ScriptObjPtr aMember, TypeInfo aStorageAttributes)
-{
-  ErrorPtr err;
-  LookupList::const_iterator pos = lookups.begin();
-  while (pos!=lookups.end()) {
-    MemberLookupPtr lookup = *pos;
-    if (lookup->containsTypes() & mutablemembers) {
-      if (Error::isOK(err =lookup->setMemberByNameFrom(this, aName, aMember, aStorageAttributes))) return err; // modified or created a property in mutable lookup
-      if (!err->isError(ScriptError::domain(), ScriptError::NotFound)) {
-        break;
-      }
-      // continue searching as long as property just does not exist.
-    }
-    ++pos;
-  }
-  return err;
-}
-
 
 
 void StructuredLookupObject::registerMemberLookup(MemberLookupPtr aMemberLookup)
@@ -607,29 +674,44 @@ size_t ExecutionContext::numIndexedMembers() const
 }
 
 
-const ScriptObjPtr ExecutionContext::memberAtIndex(size_t aIndex, TypeInfo aTypeRequirements)
+const ScriptObjPtr ExecutionContext::memberAtIndex(size_t aIndex, TypeInfo aMemberAccessFlags)
 {
-  ScriptObjPtr v;
+  ScriptObjPtr m;
   if (aIndex<indexedVars.size()) {
-    v = indexedVars[aIndex];
-    if (!v->meetsRequirement(aTypeRequirements, typeMask)) return ScriptObjPtr();
+    // we have that member
+    m = indexedVars[aIndex];
+    if (!m->meetsRequirement(aMemberAccessFlags, typeMask)) return ScriptObjPtr();
+    if ((aMemberAccessFlags & lvalue) && (aMemberAccessFlags & onlycreate)==0) {
+      m = new StandardLValue(this, aIndex, m); // it is allowed to overwrite this value
+    }
   }
-  return v;
+  else {
+    // no such member yet
+    if ((aMemberAccessFlags & lvalue) && (aMemberAccessFlags & create)) {
+      // creation allowed, return lvalue to create object
+      m = new StandardLValue(this, aIndex, ScriptObjPtr()); // it is allowed to create a new value
+    }
+  }
+  return m;
 }
 
 
 ErrorPtr ExecutionContext::setMemberAtIndex(size_t aIndex, const ScriptObjPtr aMember, const string aName)
 {
-  if (aIndex==indexedVars.size()) {
+  if (aIndex==indexedVars.size() && aMember) {
     // specially optimized case: appending
     indexedVars.push_back(aMember);
   }
-  else {
+  else if (aMember) {
     if (aIndex>indexedVars.size()) {
       // resize, will result in sparse array
       indexedVars.resize(aIndex+1);
     }
     indexedVars[aIndex] = aMember;
+  }
+  else {
+    // delete member
+    indexedVars.erase(indexedVars.begin()+aIndex);
   }
   return ErrorPtr();
 }
@@ -779,23 +861,35 @@ void ScriptCodeContext::clearVars()
 }
 
 
-const ScriptObjPtr ScriptCodeContext::memberByName(const string aName, TypeInfo aTypeRequirements)
+const ScriptObjPtr ScriptCodeContext::memberByName(const string aName, TypeInfo aMemberAccessFlags)
 {
-  FOCUSLOGLOOKUP("ScriptCodeContext");
+  FOCUSLOGLOOKUP(mainContext ? "local" : (domain() ? "main" : "global"));
   ScriptObjPtr m;
   // 1) local variables/objects
-  if ((aTypeRequirements & (classscope+objscope))==0) {
+  if ((aMemberAccessFlags & (classscope+objscope))==0) {
     NamedVarMap::const_iterator pos = namedVars.find(aName);
     if (pos!=namedVars.end()) {
+      // we have that member
       m = pos->second;
-      if (!m->meetsRequirement(aTypeRequirements, typeMask)) return ScriptObjPtr();
-      return m;
+      if (m->meetsRequirement(aMemberAccessFlags, typeMask)) {
+        if ((aMemberAccessFlags & lvalue) && (aMemberAccessFlags & onlycreate)==0) {
+          return new StandardLValue(this, aName, m); // it is allowed to overwrite this value
+        }
+        return m;
+      }
+    }
+    else {
+      // no such member yet
+      if ((aMemberAccessFlags & lvalue) && (aMemberAccessFlags & create)) {
+        // creation allowed, return lvalue to create object
+        return new StandardLValue(this, aName, ScriptObjPtr()); // it is allowed to create a new value
+      }
     }
   }
   // 2) access to ANY members of the _instance_ itself if running in a object context
-  if (instance() && (m = instance()->memberByName(aName, aTypeRequirements) )) return m;
+  if (instance() && (m = instance()->memberByName(aName, aMemberAccessFlags) )) return m;
   // 3) functions from the main level (but no local objects/vars of main, these must be passed into functions as arguments)
-  if (mainContext && (m = mainContext->memberByName(aName, aTypeRequirements|classscope|constant|objscope))) return m;
+  if (mainContext && (m = mainContext->memberByName(aName, aMemberAccessFlags|classscope|constant|objscope))) return m;
   // nothing found
   // Note: do NOT call inherited, altough there is a overridden memberByName in StructuredObject, but this
   //   is NOT a default lookup for ScriptCodeContext (but explicitly used from ScriptMainContext)
@@ -803,37 +897,26 @@ const ScriptObjPtr ScriptCodeContext::memberByName(const string aName, TypeInfo 
 }
 
 
-ErrorPtr ScriptCodeContext::setMemberByName(const string aName, const ScriptObjPtr aMember, TypeInfo aStorageAttributes)
+ErrorPtr ScriptCodeContext::setMemberByName(const string aName, const ScriptObjPtr aMember)
 {
-  FOCUSLOGSTORE("ScriptCodeContext");
-  ErrorPtr err;
-  // 1) ONLY local variables/objects
-  if ((aStorageAttributes & (classscope+objscope))==0) {
-    NamedVarMap::iterator pos = namedVars.find(aName);
-    if (pos!=namedVars.end()) {
-      // exists in local vars
-      if (aMember) {
-        // assign if not onlycreate, otherwise silently ignore value
-        if ((aStorageAttributes & onlycreate)==0) {
-          pos->second = aMember;
-        }
-      }
-      else {
-        // delete
-        namedVars.erase(pos);
-      }
-    }
-    else if (aMember && (aStorageAttributes & create)) {
-      // create it, but only if we have a member (not a delete attempt)
-      namedVars[aName] = aMember;
+  FOCUSLOGSTORE(domain() ? "named vars" : "global vars");
+  NamedVarMap::iterator pos = namedVars.find(aName);
+  if (pos!=namedVars.end()) {
+    // exists in local vars
+    if (aMember) {
+      // assign new value
+      pos->second = aMember;
     }
     else {
-      err = ScriptError::err(ScriptError::NotFound, "no local variable '%s'", aName.c_str());
+      // delete
+      namedVars.erase(pos);
     }
   }
-  // 2) instance itself does not allow writable members (by design), but sub-members of them could well be writable
-  // 3) main itself also does not allow writable member (by design), but sub-members of them could well be writable
-  return err;
+  else if (aMember) {
+    // create it, but only if we have a member (not a delete attempt)
+    namedVars[aName] = aMember;
+  }
+  return ErrorPtr();
 }
 
 
@@ -841,7 +924,7 @@ ErrorPtr ScriptCodeContext::setMemberAtIndex(size_t aIndex, const ScriptObjPtr a
 {
   ErrorPtr err = inherited::setMemberAtIndex(aIndex, aMember, aName);
   if (!aName.empty() && Error::isOK(err)) {
-    err = setMemberByName(aName, aMember, create);
+    err = setMemberByName(aName, aMember);
   }
   return err;
 }
@@ -991,97 +1074,94 @@ ScriptMainContext::ScriptMainContext(ScriptingDomainPtr aDomain, ScriptObjPtr aT
 }
 
 
-const ScriptObjPtr ScriptMainContext::memberByName(const string aName, TypeInfo aTypeRequirements)
+const ScriptObjPtr ScriptMainContext::memberByName(const string aName, TypeInfo aMemberAccessFlags)
 {
-  FOCUSLOGLOOKUP("ScriptMainContext");
+  FOCUSLOGLOOKUP("main scope");
   ScriptObjPtr m;
   // member lookup during execution of a function or script body
-  if ((aTypeRequirements & constant)==0) {
-    // Only if not looking only for constant members (in the sense of: not settable by scripts)
+  if ((aMemberAccessFlags & (constant|(domain() ? global : none)))==0) {
+    // Only if not looking only for constant members (in the sense of: not settable by scripts) or globals (which are locals when we are the domain!)
     // 1) lookup local variables/arguments in this context...
     // 2) ...and members of the instance (if any)
-    if ((m = inherited::memberByName(aName, aTypeRequirements))) return m;
+    if ((m = inherited::memberByName(aName, aMemberAccessFlags))) return m;
   }
-  // 3) members from registered lookups, which might or might not be instance related (depends on the lookup)
-  if ((m = StructuredLookupObject::memberByName(aName, aTypeRequirements))) return m;
+  // 3) if not excplicitly global: members from registered lookups, which might or might not be instance related (depends on the lookup)
+  if ((aMemberAccessFlags & global)==0) {
+    if ((m = StructuredLookupObject::memberByName(aName, aMemberAccessFlags))) return m;
+  }
   // 4) lookup global members in the script domain (vars, functions, constants)
-  if (domain() && (m = domain()->memberByName(aName, aTypeRequirements))) return m;
+  if (domain() && (m = domain()->memberByName(aName, aMemberAccessFlags))) return m;
   // nothing found (note that inherited was queried early above, already!)
   return m;
-}
-
-
-ErrorPtr ScriptMainContext::setMemberByName(const string aName, const ScriptObjPtr aMember, TypeInfo aStorageAttributes)
-{
-  FOCUSLOGSTORE("ScriptMainContext");
-  ErrorPtr err;
-  if (aStorageAttributes & global) {
-    // 5) explicitly requested global storage
-    if (domain()) return domain()->setMemberByName(aName, aMember, aStorageAttributes);
-    // having no domain means that I _am_ the domain
-    return inherited::setMemberByName(aName, aMember, aStorageAttributes);
-  }
-  else {
-    // Not explicit global storage, use normal chain
-    // 1) local variables have precedence
-    if (Error::isOK(err = inherited::setMemberByName(aName, aMember, aStorageAttributes))) return err; // modified or created an existing local variable
-    // 2) properties in the instance itself (if no local member exists)
-    if (instance() && err->isError(ScriptError::domain(), ScriptError::NotFound)) {
-      err = instance()->setMemberByName(aName, aMember, aStorageAttributes);
-      if (Error::isOK(err)) return err; // modified or created a property in thisObj
-    }
-    // 3) properties in lookup chain on those lookups which have mutablemembers (if no local or thisObj variable exists),
-    //    which might or might not be instance related (depends on the lookup)
-    if (err->isError(ScriptError::domain(), ScriptError::NotFound)) {
-      if (Error::isOK(err = StructuredLookupObject::setMemberByName(aName, aMember, aStorageAttributes))) return err; // modified or created an existing local variable
-    }
-    // 4) modify (but never create w/o global storage attribute) global variables (if no local, thisObj or lookup chain variable of this name exists)
-    if (domain() && err->isError(ScriptError::domain(), ScriptError::NotFound)) {
-      err = domain()->setMemberByName(aName, aMember, aStorageAttributes & ~create);
-    }
-  }
-  return err;
 }
 
 
 // MARK: - Scripting Domain
 
 
+// MARK: - Built-in member support
 
-// MARK: - Built-in function support
+BuiltInLValue::BuiltInLValue(const BuiltInMemberLookupPtr aLookup, const BuiltinMemberDescriptor *aMemberDescriptor, ScriptObjPtr aThisObj, ScriptObjPtr aCurrentValue) :
+  inherited(aCurrentValue),
+  mLookup(aLookup),
+  descriptor(aMemberDescriptor),
+  mThisObj(aThisObj)
+{
+}
+
+
+void BuiltInLValue::assignLValue(EvaluationCB aEvaluationCB, ScriptObjPtr aNewValue)
+{
+  ScriptObjPtr m;
+  if (aNewValue) {
+    m = descriptor->accessor(*const_cast<BuiltInMemberLookup *>(mLookup.get()), mThisObj, aNewValue); // write access
+    if (!m) m = aNewValue;
+  }
+  else {
+    m = new ErrorValue(ScriptError::Invalid, "cannot unset built-in values");
+  }
+  if (aEvaluationCB) aEvaluationCB(m);
+}
+
+
+
 
 BuiltInMemberLookup::BuiltInMemberLookup(const BuiltinMemberDescriptor* aMemberDescriptors)
 {
   // build name lookup map
   if (aMemberDescriptors) {
     while (aMemberDescriptors->name) {
-      functions[aMemberDescriptors->name]=aMemberDescriptors;
+      members[aMemberDescriptors->name]=aMemberDescriptors;
       aMemberDescriptors++;
     }
   }
 }
 
 
-ScriptObjPtr BuiltInMemberLookup::memberByNameFrom(ScriptObjPtr aThisObj, const string aName, TypeInfo aTypeRequirements) const
+ScriptObjPtr BuiltInMemberLookup::memberByNameFrom(ScriptObjPtr aThisObj, const string aName, TypeInfo aMemberAccessFlags) const
 {
-  ScriptObjPtr member;
-
-  FOCUSLOGLOOKUP("BuiltInFunctionLookup");
+  FOCUSLOGLOOKUP("builtin");
   // actual type requirement must match, scope requirements are irrelevant here
-  if (ScriptObj::typeRequirementMet(executable, aTypeRequirements, typeMask)) {
-    FunctionMap::const_iterator pos = functions.find(aName);
-    if (pos!=functions.end()) {
-      if (pos->second->returnTypeInfo&builtinmember) {
-        // is a non-executable member, just call getter to retrieve it
-        member = pos->second->getter(*const_cast<BuiltInMemberLookup *>(this), aThisObj);
-      }
-      else {
-        // is a function, return a executable that can be function-called with arguments
-        member = ScriptObjPtr(new BuiltinFunctionObj(pos->second, aThisObj));
+  ScriptObjPtr m;
+  MemberMap::const_iterator pos = members.find(aName);
+  if (pos!=members.end()) {
+    // we have a member by that name
+    TypeInfo ty = pos->second->returnTypeInfo;
+    if (ty & builtinmember) {
+      // is a built-in variable/object/property
+      m = pos->second->accessor(*const_cast<BuiltInMemberLookup *>(this), aThisObj, ScriptObjPtr()); // read access
+      if (ScriptObj::typeRequirementMet(ty, aMemberAccessFlags, typeMask)) {
+        if ((ty & lvalue) && (aMemberAccessFlags & lvalue) && (aMemberAccessFlags & onlycreate)==0) {
+          m = new BuiltInLValue(const_cast<BuiltInMemberLookup *>(this), pos->second, aThisObj, m); // it is allowed to overwrite this value
+        }
       }
     }
+    else {
+      // is a function, return a executable that can be function-called with arguments
+      m = ScriptObjPtr(new BuiltinFunctionObj(pos->second, aThisObj));
+    }
   }
-  return member;
+  return m;
 }
 
 
@@ -1606,8 +1686,9 @@ ScriptObjPtr SourceCursor::parseJSONLiteral()
 // MARK: - SourceProcessor
 
 #define FOCUSLOGSTATE FOCUSLOG( \
-  "%s %22s : %25s : result = %s (olderResult = %s), precedence=%d", \
-  skipping ? " SKIPPING" : "EXECUTING", \
+  "%04lx %s %22s : %25s : result = %s (olderResult = %s), precedence=%d", \
+  ((intptr_t)this & 0xFFFF), \
+  skipping ? "SKIP" : "EXEC", \
   __func__, \
   src.displaycode(25).c_str(), \
   ScriptObj::describe(result).c_str(), \
@@ -1814,8 +1895,14 @@ void SourceProcessor::pop()
 void SourceProcessor::popWithResult(bool aThrowErrors)
 {
   FOCUSLOGSTATE;
-  if (skipping || !result || result->valid()) {
-    // no need for a validation step for loading lazy results
+  ScriptObjPtr validResult;
+  if (result) {
+    // try to get the actual value (in case what we have is an lvalue
+    validResult = result->actualValue();
+    if (validResult) result = validResult; // value available without extra validation step
+  }
+  if (skipping || !result || validResult || result->hasType(lvalue)) {
+    // no need for a validation step for loading lazy results or for empty lvalues
     popWithValidResult(aThrowErrors);
     return;
   }
@@ -2032,10 +2119,41 @@ void SourceProcessor::s_simpleTerm()
 
 // MARK: member access
 
+void SourceProcessor::assignOrAccess(bool aAllowAssign)
+{
+  // left hand term leaf member accces
+  // - identifier represents the leaf member to access
+  // - result represents the parent member or NULL if accessing context scope variables
+  // - precedence==0 means that this could be an lvalue term
+  // Note: when skipping, we do NOT need to do complicated check for assignment.
+  //   Syntactically, an assignment looks the same as a regular expression
+  if (!skipping) {
+    if (aAllowAssign && precedence==0) {
+      // COULD be an assignment
+      SourcePos opos = src.pos;
+      ScriptOperator aop = src.parseOperator();
+      if (aop==op_assign || aop==op_assignOrEq) {
+        // this IS an assignment. We need to obtain an lvalue and the right hand expression to assign
+        push(&SourceProcessor::s_assignExpression);
+        setState(&SourceProcessor::s_validResult);
+        memberByIdentifier(lvalue);
+        return;
+      }
+    }
+    // not an assignment, just request member value
+    setState(&SourceProcessor::s_member);
+    memberByIdentifier(none); // will lookup member of result, or global if result is NULL
+    return;
+  }
+  setState(&SourceProcessor::s_member);
+}
+
+
+
 void SourceProcessor::s_member()
 {
   FOCUSLOGSTATE;
-  // immediately after retrieving a member's value, i.e. immediately after an identifier or closing subscript bracket
+  // immediately after retrieving a member's value or lvalue, i.e. immediately after an identifier or closing subscript bracket
   // - result is the member's value
   if (src.nextIf('.')) {
     // direct sub-member access
@@ -2045,6 +2163,7 @@ void SourceProcessor::s_member()
       return;
     }
     // assign to this identifier or access its value (from parent object in result)
+    src.skipNonCode();
     assignOrAccess(true);
     return;
   }
@@ -2068,26 +2187,8 @@ void SourceProcessor::s_member()
     resume();
     return;
   }
-  else if (!olderResult && !result && !skipping) {
-    // we are on script scope (olderResult==NULL) and haven't found something (result==NULL), so check for built-in constants that are overrideable
-    static const char * const weekdayNames[7] = { "sun", "mon", "tue", "wed", "thu", "fri", "sat" };
-    if (identifier.size()==3) {
-      // Optimisation, all weekdays have 3 chars
-      for (int w=0; w<7; w++) {
-        if (uequals(identifier, weekdayNames[w])) {
-          result = new NumericValue(w);
-          break;
-        }
-      }
-    }
-  }
-  // identifier as-is represents the value, which is now stored in result (if not skipping)
-  if (!skipping && !result) {
-    // having no object at this point means identifier could not be found
-    result = new ErrorPosValue(src, ScriptError::NotFound , "cannot find '%s'", identifier.c_str());
-  }
-  // do not error-check at this level
-  popWithResult(false);
+  // do not error-check or validate at this level, might be lvalue
+  popWithValidResult(false);
   return;
 }
 
@@ -2122,34 +2223,35 @@ void SourceProcessor::s_subscriptArg()
   }
   else {
     // now either get or assign the member indicated by the subscript
+    TypeInfo accessFlags = none; // subscript access is always local, no scope or assignment restrictions
+    ScriptObjPtr subScript = result;
+    result = olderResult; // object to access member from
     if (precedence==0) {
       // COULD be an assignment
       SourcePos opos = src.pos;
       ScriptOperator aop = src.parseOperator();
       if (aop==op_assign || aop==op_assignOrEq) {
-        // this IS an assignment. result is the subscript (member name or index) to assign
-        storageSpecifier = result;
-        result = olderResult; // object to access member from
-        // allow creating sub-members implicitly, but not creating vars
-        push(result ? &SourceProcessor::s_assignMember : &SourceProcessor::s_defineMember); // when expression value is ready
-        resumeAt(&SourceProcessor::s_expression); // s_expression does NOT allow any further nested assignments!
-        return;
+        // this IS an assignment. We need to obtain an lvalue and the right hand expression to assign
+        push(&SourceProcessor::s_assignExpression);
+        setState(&SourceProcessor::s_validResult);
+        accessFlags |= lvalue; // we need an lvalue
       }
-      src.pos = opos; // back to before operator
+      else {
+        // not an assignment, continue pocessing normally
+        src.pos = opos; // back to before operator
+      }
     }
-    // not an assignment, we want the value of the member
-    if (result->hasType(numeric)) {
+    // now get member
+    if (subScript->hasType(numeric)) {
       // array access by index
-      size_t index = result->doubleValue();
-      result = olderResult;
-      memberByIndex(index);
+      size_t index = subScript->int64Value();
+      memberByIndex(index, accessFlags);
       return;
     }
     else {
       // member access by name
-      identifier = result->stringValue();
-      result = olderResult;
-      memberByIdentifier();
+      identifier = subScript->stringValue();
+      memberByIdentifier(accessFlags);
       return;
     }
   }
@@ -2164,70 +2266,42 @@ void SourceProcessor::s_nextSubscript()
 }
 
 
-void SourceProcessor::assignOrAccess(bool aAllowAssign)
-{
-  // left hand term leaf member accces
-  // - identifier represents the leaf member to access
-  // - result represents the parent member or NULL if accessing context scope variables
-  // Note: when skipping, we do NOT need to do complicated check for assignment.
-  //   Syntactically, an assignment looks the same as a regular expression
-  if (precedence==0 && !skipping) {
-    // COULD be an assignment
-    SourcePos opos = src.pos;
-    ScriptOperator aop = src.parseOperator();
-    if (aop==op_assign || aop==op_assignOrEq) {
-      // this IS an assignment. The identifier is the member name to assign
-      storageSpecifier = new StringValue(identifier);
-      // allow creating sub-members implicitly, but not creating vars
-      push(olderResult ? &SourceProcessor::s_defineMember : &SourceProcessor::s_assignMember); // when expression value is ready
-      resumeAt(&SourceProcessor::s_expression);
-      return;
-    }
-    src.pos = opos;
-  }
-  setState(&SourceProcessor::s_member);
-  if (!skipping) {
-    memberByIdentifier(); // will lookup from result
-  }
-}
+//void SourceProcessor::s_defineGlobalMember()
+//{
+//  FOCUSLOGSTATE;
+//  assignMember(global|create|onlycreate);
+//}
+//
+//void SourceProcessor::s_defineMember()
+//{
+//  FOCUSLOGSTATE;
+//  assignMember(create);
+//}
+//
+//void SourceProcessor::s_assignMember()
+//{
+//  FOCUSLOGSTATE;
+//  assignMember(none);
+//}
 
-
-void SourceProcessor::s_defineGlobalMember()
-{
-  FOCUSLOGSTATE;
-  assignMember(global|create|onlycreate);
-}
-
-void SourceProcessor::s_defineMember()
-{
-  FOCUSLOGSTATE;
-  assignMember(create);
-}
-
-void SourceProcessor::s_assignMember()
-{
-  FOCUSLOGSTATE;
-  assignMember(none);
-}
-
-void SourceProcessor::assignMember(TypeInfo aStorageAttributes)
-{
-  // end of the rvalue of an assignment
-  // - result is the value to assign or NULL to delete
-  // - olderResult is where to assign (NULL -> script level context, object->member of this object)
-  // - storageSpecifier is the member name (string) or index (numweric) to assign
-  //   Note: as nested assignments, or assignments in non-body-level expressions are NOT supported,
-  //     storage specifier is never overridden in subexpressions and does not need to get stacked
-  setState(&SourceProcessor::s_result);
-  if (!result || !result->isErr()) {
-    if (!skipping) {
-      if (result) result = result->assignableValue(); // get a copy in case the value is mutable (i.e. copy-on-write, assignment is "writing")
-      setMemberBySpecifier(aStorageAttributes);
-      return;
-    }
-  }
-  checkAndResume();
-}
+//  void SourceProcessor::assignMember(TypeInfo aStorageAttributes)
+//  {
+//    // end of the rvalue of an assignment
+//    // - result is the value to assign or NULL to delete
+//    // - olderResult is the lvalue to assign to
+//    // - storageSpecifier is the member name (string) or index (numweric) to assign
+//    //   Note: as nested assignments, or assignments in non-body-level expressions are NOT supported,
+//    //     storage specifier is never overridden in subexpressions and does not need to get stacked
+//    setState(&SourceProcessor::s_result);
+//    if (!result || !result->isErr()) {
+//      if (!skipping) {
+//        if (result) result = result->assignableValue(); // get a copy in case the value is mutable (i.e. copy-on-write, assignment is "writing")
+//        setMemberBySpecifier(aStorageAttributes);
+//        return;
+//      }
+//    }
+//    checkAndResume();
+//  }
 
 
 // MARK: function calls
@@ -2310,7 +2384,7 @@ void SourceProcessor::s_assignmentExpression()
 void SourceProcessor::s_expression()
 {
   FOCUSLOGSTATE;
-  precedence = 1; // lvalue is not assignable
+  precedence = 1; // first left hand term is not assignable
   processExpression();
 }
 
@@ -2401,6 +2475,72 @@ void SourceProcessor::s_exprLeftSide()
   push(&SourceProcessor::s_exprRightSide); // push the old precedence
   precedence = newPrecedence; // subexpression needs to exit when finding an operator weaker than this one
   resumeAt(&SourceProcessor::s_subExpression);
+}
+
+
+void SourceProcessor::s_assignExpression()
+{
+  FOCUSLOGSTATE;
+  // assign an expression to the current result
+  push(&SourceProcessor::s_checkAndAssignLvalue);
+  resumeAt(&SourceProcessor::s_expression);
+  return;
+}
+
+
+
+void SourceProcessor::s_assignOlder()
+{
+  FOCUSLOGSTATE;
+  // - result = lvalue
+  // - olderresult = value to assign
+  if (!skipping) {
+    // assign a null to the current result
+    ScriptObjPtr lvalue = result;
+    result = olderResult;
+    olderResult = lvalue;
+  }
+  // we don't want the result checked! Using s_assignOlder means the
+  // result was known before the assignment was initiated, so the to-be-assigned value
+  // can be considered checked.
+  s_assignLvalue();
+}
+
+
+void SourceProcessor::s_unsetMember()
+{
+  FOCUSLOGSTATE;
+  // try to delete the current result
+  if (!skipping) {
+    olderResult = result;
+    result.reset(); // no object means deleting
+    if (!olderResult) {
+      result = new AnnotatedNullValue("nothing to unset");
+      s_result();
+      return;
+    }
+  }
+  s_assignLvalue();
+}
+
+
+void SourceProcessor::s_checkAndAssignLvalue()
+{
+  FOCUSLOGSTATE;
+  checkAndResumeAt(&SourceProcessor::s_assignLvalue);
+}
+
+void SourceProcessor::s_assignLvalue()
+{
+  FOCUSLOGSTATE;
+  // olderResult = lvalue
+  // result = value to assign (or NULL to delete)
+  setState(&SourceProcessor::s_result); // assignment expression ends here, will either result in assigned value or storage error
+  if (!skipping) {
+    setLvalueMember();
+    return;
+  }
+  resume();
 }
 
 
@@ -2680,7 +2820,7 @@ void SourceProcessor::processStatement()
   // at the beginning of a statement which is not beginning of a new block
   result.reset(); // no result to begin with at the beginning of a statement. Important for if/else, try/catch!
   // - could be language keyword, variable assignment
-  SourcePos statementStart = src.pos; // remember
+  SourcePos memPos = src.pos; // remember
   if (src.parseIdentifier(identifier)) {
     src.skipNonCode();
     // execution statements
@@ -2795,25 +2935,25 @@ void SourceProcessor::processStatement()
       return;
     }
     // Check variable definition keywords
-    StateHandler varHandler = NULL;
     bool allowInitializer = true;
     bool unset = false;
+    TypeInfo varFlags = none;
     if (uequals(identifier, "var")) {
-      varHandler = &SourceProcessor::s_defineMember;
+      varFlags = lvalue|create;
     }
     else if (uequals(identifier, "glob") || uequals(identifier, "global")) {
-      varHandler = &SourceProcessor::s_defineGlobalMember;
+      varFlags = lvalue|create|onlycreate|global;
       allowInitializer = false;
     }
     else if (uequals(identifier, "let")) {
-      varHandler = &SourceProcessor::s_assignMember;
+      varFlags = lvalue;
     }
     else if (uequals(identifier, "unset")) {
-      varHandler = &SourceProcessor::s_assignMember;
+      varFlags = lvalue;
       allowInitializer = false;
       unset = true;
     }
-    if (varHandler) {
+    if (varFlags & lvalue) {
       // one of the definition keywords -> an identifier must follow
       if (!src.parseIdentifier(identifier)) {
         exitWithSyntaxError("missing variable name after '%s'", identifier.c_str());
@@ -2821,30 +2961,35 @@ void SourceProcessor::processStatement()
       }
       push(currentState); // return to current state when var definion statement finishes
       src.skipNonCode();
+      memPos = src.pos;
       ScriptOperator op = src.parseOperator();
-      storageSpecifier = new StringValue(identifier);
       // with initializer ?
       if (op==op_assign || op==op_assignOrEq) {
         if (!allowInitializer) {
           exitWithSyntaxError("no initializer allowed");
           return;
         }
-        // initialize with a value
-        push(varHandler);
-        resumeAt(&SourceProcessor::s_expression);
+        // initializing with a value
+        setState(&SourceProcessor::s_assignExpression);
+        memberByIdentifier(varFlags);
         return;
       }
       else if (op==op_none) {
         if (unset) {
-          // NO result object at all means deleting
-          result.reset();
+          // after accessing lvalue, delete it
+          setState(&SourceProcessor::s_unsetMember);
+          memberByIdentifier(varFlags, true); // lookup lvalue
+          return;
         }
         else {
-          // just initialize with null
+          // just create and initialize with null
           result = new AnnotatedNullValue("uninitialized variable");
+          push(&SourceProcessor::s_assignOlder);
+          setState(&SourceProcessor::s_nothrowResult);
+          result.reset(); // look up on context level
+          memberByIdentifier(varFlags); // lookup lvalue
+          return;
         }
-        resumeAt(varHandler);
-        return;
       }
       else {
         exitWithSyntaxError("assignment or end of statement expected");
@@ -2853,11 +2998,11 @@ void SourceProcessor::processStatement()
     }
     else {
       // identifier we've parsed above is not a keyword, rewind cursor
-      src.pos = statementStart;
+      src.pos = memPos;
     }
   }
   // is an expression or possibly an assignment, also handled in expression
-  push(currentState); // return to current state when if statement finishes
+  push(currentState); // return to current state when expression evaluation completes
   resumeAt(&SourceProcessor::s_assignmentExpression);
   return;
 }
@@ -2989,10 +3134,12 @@ void SourceProcessor::s_tryStatement()
         return;
       }
       if (!skipping) {
-        result = olderResult; // the error
-        olderResult.reset(); // store in context
-        storageSpecifier = new StringValue(identifier);
-        setMemberBySpecifier(create); // allow to create it
+        result = olderResult; // the error value
+        push(currentState); // want to return here
+        push(&SourceProcessor::s_assignOlder); // push the error value
+        setState(&SourceProcessor::s_nothrowResult);
+        result.reset(); // create error variable on scope level
+        memberByIdentifier(lvalue+create);
         return;
       }
     }
@@ -3041,25 +3188,25 @@ void SourceProcessor::s_complete()
 
 // MARK: source processor execution hooks
 
-void SourceProcessor::memberByIdentifier()
+void SourceProcessor::memberByIdentifier(TypeInfo aMemberAccessFlags, bool aNoNotFoundError)
 {
   result.reset(); // base class cannot access members
   checkAndResume();
 }
 
 
-void SourceProcessor::setMemberBySpecifier(TypeInfo aStorageAttributes)
-{
-  result = new ErrorPosValue(src, ScriptError::Immutable, "cannot write values here");
-  checkAndResume();
-}
-
-
-void SourceProcessor::memberByIndex(size_t aIndex)
+void SourceProcessor::memberByIndex(size_t aIndex, TypeInfo aMemberAccessFlags)
 {
   result.reset(); // base class cannot access members
   checkAndResume();
 }
+
+
+void SourceProcessor::setLvalueMember()
+{
+  resume();
+}
+
 
 
 void SourceProcessor::newFunctionCallContext()
@@ -3377,7 +3524,7 @@ void CompiledHandler::triggered(ScriptObjPtr aTriggerResult)
     ExecutionContextPtr ctx = contextForCallingFrom(mainContext->domain(), NULL);
     if (ctx) {
       // FIXME: not so clean, as it sets a "result" variable also visible from trigger
-      ctx->setMemberByName("result", aTriggerResult, create);
+      ctx->setMemberByName("result", aTriggerResult);
       // execute in order with other non-concurrently started threads (queue|concurrently), but allow a subthreads to continue running (!mainthread)
       ctx->execute(this, scriptbody|keepvars|queue|concurrently, boost::bind(&CompiledHandler::actionExecuted, this, _1));
       return;
@@ -3439,7 +3586,7 @@ void ScriptCompiler::storeFunction()
 {
   if (!result->isErr()) {
     // functions are always global
-    ErrorPtr err = domain->setMemberByName(result->getIdentifier(), result, global|create);
+    ErrorPtr err = domain->setMemberByName(result->getIdentifier(), result);
     if (Error::notOK(err)) {
       result = new ErrorPosValue(src, err);
     }
@@ -3681,12 +3828,12 @@ ScriptCodeThread::ScriptCodeThread(ScriptCodeContextPtr aOwner, CompiledCodePtr 
   runningSince(Never)
 {
   setCursor(aStartCursor);
-  FOCUSLOG("\n   New thread 0x%08x created : %s", (uint32_t)((intptr_t)this), src.displaycode(130).c_str());
+  FOCUSLOG("\n%04x START        thread created : %s", (uint32_t)((intptr_t)static_cast<SourceProcessor *>(this)) & 0xFFFF, src.displaycode(130).c_str());
 }
 
 ScriptCodeThread::~ScriptCodeThread()
 {
-  FOCUSLOG("\n       thread 0x%08x deleted : %s", (uint32_t)((intptr_t)this), src.displaycode(130).c_str());
+  FOCUSLOG("\n%04x END          thread deleted : %s", (uint32_t)((intptr_t)static_cast<SourceProcessor *>(this)) & 0xFFFF, src.displaycode(130).c_str());
 }
 
 
@@ -3790,25 +3937,59 @@ void ScriptCodeThread::checkAndResume()
 }
 
 
-void ScriptCodeThread::memberByIdentifier()
+void ScriptCodeThread::memberByIdentifier(TypeInfo aMemberAccessFlags, bool aNoNotFoundError)
 {
   if (result) {
     // look up member of the result itself
-    result = result->memberByName(identifier);
+    result = result->memberByName(identifier, aMemberAccessFlags);
   }
   else {
     // context level
-    result = mOwner->memberByName(identifier);
+    result = mOwner->memberByName(identifier, aMemberAccessFlags);
+    if (!result) {
+      // on context level, if nothing else was found, check overrideable convenience constants
+      static const char * const weekdayNames[7] = { "sun", "mon", "tue", "wed", "thu", "fri", "sat" };
+      if (identifier.size()==3) {
+        // Optimisation, all weekdays have 3 chars
+        for (int w=0; w<7; w++) {
+          if (uequals(identifier, weekdayNames[w])) {
+            result = new NumericValue(w);
+            break;
+          }
+        }
+      }
+    }
   }
-  checkAndResume();
+  if (!result && !aNoNotFoundError) {
+    // not having a result here (not even a not-yet-created lvalue) means the member
+    // does not exist and cannot/must not be created
+    result = new ErrorPosValue(src, ScriptError::NotFound , "'%s' unknown here", identifier.c_str());
+  }
+  memberCheckAndResume();
+}
+
+
+void ScriptCodeThread::memberByIndex(size_t aIndex, TypeInfo aMemberAccessFlags)
+{
+  if (result) {
+    // look up member of the result itself
+    result = result->memberAtIndex(aIndex, aMemberAccessFlags);
+  }
+  if (!result) {
+    // not having a result here (not even a not-yet-created lvalue) means the member
+    // does not exist and cannot/must not be created
+    result = new ErrorPosValue(src, ScriptError::NotFound , "array element %d unknown here", aIndex);
+  }
+  // no indexed members at the context level!
+  memberCheckAndResume();
 }
 
 
 void ScriptCodeThread::memberCheckAndResume()
 {
-  // check for event source in case this is a trigger initial run
+  // special checks after member retrieval
   if (evaluationFlags & initial) {
-    // initial run of trigger -> register trigger itself as event source
+    // initial run of trigger -> register trigger itself as event sink
     EventSource* eventSource = result->eventSource();
     if (eventSource) {
       // register the code object (the trigger) as event sink
@@ -3818,54 +3999,15 @@ void ScriptCodeThread::memberCheckAndResume()
       }
     }
   }
-}
-
-
-void ScriptCodeThread::setMemberBySpecifier(TypeInfo aStorageAttributes)
-{
-  // - storageSpecifier = name/index of leaf member to assign
-  // - result = value to assign or NULL to delete
-  // - olderResult = parent object or NULL for script scope level
-  ErrorPtr err;
-  if (storageSpecifier->hasType(numeric)) {
-    size_t index = storageSpecifier->doubleValue();
-    // store to array access by index
-    if (olderResult) {
-      err = olderResult->setMemberAtIndex(index, result);
-    }
-    else {
-      // note: this case should not occur, context has no direct indexed member access
-      err = mOwner->setMemberAtIndex(index, result);
-    }
-  }
-  else {
-    // store by name
-    string name = storageSpecifier->stringValue();
-    if (olderResult) {
-      err = olderResult->setMemberByName(name, result, aStorageAttributes);
-    }
-    else {
-      err = mOwner->setMemberByName(name, result, aStorageAttributes);
-    }
-  }
-  if (!Error::isOK(err)) {
-    result = new ErrorPosValue(src, err);
-  }
-  checkAndResume();
+  resume(); // member access by itself must not throw
 }
 
 
 
-/// must retrieve the indexed member from current result (or from the script scope if result==NULL)
-/// @note must call resume() when result contains the member (or NULL if not found)
-void ScriptCodeThread::memberByIndex(size_t aIndex)
+void ScriptCodeThread::setLvalueMember()
 {
-  if (result) {
-    // look up member of the result itself
-    result = result->memberAtIndex(aIndex);
-  }
-  // no indexed members at the context level!
-  checkAndResume();
+  if (result) result = result->assignableValue(); // get a copy in case the value is mutable (i.e. copy-on-write, assignment is "writing")
+  olderResult->assignLValue(boost::bind(&SourceProcessor::resume, this, _1), result);
 }
 
 
@@ -3886,11 +4028,13 @@ void ScriptCodeThread::startBlockThreadAndStoreInIdentifier()
   ScriptCodeThreadPtr thread = mOwner->newThreadFrom(codeObj, src, concurrently|block, NULL);
   if (thread) {
     if (!identifier.empty()) {
-      storageSpecifier = new StringValue(identifier);
+      push(currentState);
       result = new ThreadValue(thread);
-      olderResult.reset();
+      push(&SourceProcessor::s_assignOlder);
       thread->run();
-      setMemberBySpecifier(create); // includes resume()
+      result.reset();
+      memberByIdentifier(lvalue+create);
+      return;
     }
     else {
       thread->run();
@@ -4196,7 +4340,7 @@ static void find_func(BuiltinFunctionContextPtr f)
   if (p!=string::npos)
     f->finish(new NumericValue((double)p));
   else
-    f->finish(new AnnotatedNullValue("not found")); // not found
+    f->finish(new AnnotatedNullValue("no such substring")); // not found
 }
 
 
@@ -4888,6 +5032,7 @@ ScriptingDomain& StandardScriptingDomain::sharedDomain()
 
 // MARK: - Simple REPL (Read Execute Print Loop) App
 #include "fdcomm.hpp"
+#include "httpcomm.hpp"
 
 class SimpleREPLApp : public CmdLineApp
 {
@@ -4923,6 +5068,9 @@ public:
 
   virtual void initialize()
   {
+    // add some capabilities
+    source.domain()->registerMemberLookup(new HttpLookup);
+    // get context
     replContext = source.domain()->newContext();
     source.setSharedMainContext(replContext);
     printf("p44Script REPL - type 'quit' to leave\n\n");

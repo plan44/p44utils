@@ -29,10 +29,10 @@
 #define JSON_TEST_OBJ "{\"array\":[\"first\",2,3,\"fourth\",6.6],\"obj\":{\"objA\":\"A\",\"objB\":42,\"objC\":{\"objD\":\"D\",\"objE\":45}},\"string\":\"abc\",\"number\":42,\"bool\":true}"
 
 using namespace p44;
-using namespace p44::Script;
+using namespace p44::P44Script;
 
 
-class TestLookup : public ClassLevelLookup
+class TestLookup : public MemberLookup
 {
 public:
   virtual TypeInfo containsTypes() const P44_OVERRIDE { return value; }
@@ -65,7 +65,7 @@ public:
     mainContext = StandardScriptingDomain::sharedDomain().newContext();
     s.setSharedMainContext(mainContext);
     mainContext->registerMemberLookup(&testLookup);
-    mainContext->domain()->setMemberByName("jstest", new JsonValue(JsonObject::objFromText(JSON_TEST_OBJ)), global|create);
+    mainContext->domain()->setMemberByName("jstest", new JsonValue(JsonObject::objFromText(JSON_TEST_OBJ)));
   };
   virtual ~ScriptingCodeFixture()
   {
@@ -205,13 +205,22 @@ TEST_CASE("CodeCursor", "[scripting]" )
 
 // MARK: - debug test case
 
-//TEST_CASE_METHOD(ScriptingCodeFixture, "Focus", "[scripting],[DEBUG]" )
-//{
-//  SETLOGLEVEL(LOG_DEBUG);
-//  //puts(JSON_TEST_OBJ);
-//  REQUIRE(s.test(sourcecode|floatingGlobs, "function m(...) { return 1+ifvalid(arg1,0)+ifvalid(arg2,0)+ifvalid(arg3,0); } return m")->stringValue() == "function");
-//  REQUIRE(s.test(scriptbody, "m")->stringValue() == "function");
-//}
+TEST_CASE_METHOD(ScriptingCodeFixture, "Focus", "[scripting],[DEBUG]" )
+{
+  SETLOGLEVEL(LOG_DEBUG);
+  //puts(JSON_TEST_OBJ);
+  REQUIRE(s.test(scriptbody|keepvars, "glob k; k=42; return k")->doubleValue() == 42);
+  REQUIRE(s.test(scriptbody|keepvars, "k")->doubleValue() == 42); // must stay
+  REQUIRE(s.test(scriptbody|keepvars, "var k = 43")->doubleValue() == 43); // hide global k with a local k
+  REQUIRE(s.test(scriptbody|keepvars, "k")->doubleValue() == 43); // must stay
+  REQUIRE(s.test(scriptbody|keepvars, "unset k = 47")->isErr() == true); // unset cannot have an initializer
+  REQUIRE(s.test(scriptbody|keepvars, "k")->doubleValue() == 43); // global still shadowed
+  REQUIRE(s.test(scriptbody|keepvars, "unset k")->isErr() == false); // should work
+  REQUIRE(s.test(scriptbody|keepvars, "k")->doubleValue() == 42); // again global
+  REQUIRE(s.test(scriptbody|keepvars, "unset k")->isErr() == false); // should work, deleting global
+  REQUIRE(s.test(scriptbody|keepvars, "k")->isErr() == true); // deleted
+  REQUIRE(s.test(scriptbody|keepvars, "unset k")->isErr() == false); // unsetting nonexisting variable should still not throw an error
+}
 
 // MARK: - Literals
 
@@ -510,7 +519,7 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "statements", "[scripting],[FOCUS]" )
     REQUIRE(s.test(scriptbody|keepvars, "k")->doubleValue() == 42); // again global
     REQUIRE(s.test(scriptbody|keepvars, "unset k")->isErr() == false); // should work, deleting global
     REQUIRE(s.test(scriptbody|keepvars, "k")->isErr() == true); // deleted
-    REQUIRE(s.test(scriptbody|keepvars, "unset k")->isErr() == true); // already deleted
+    REQUIRE(s.test(scriptbody|keepvars, "unset k")->isErr() == false); // unsetting nonexisting variable should still not throw an error
   }
 
   // "{\"array\":[\"first\",2,3,\"fourth\",6.6],\"obj\":{\"objA\":\"A\",\"objB\":42,\"objC\":{\"objD\":\"D\",\"objE\":45}},\"string\":\"abc\",\"number\":42,\"bool\":true}"
@@ -589,7 +598,7 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "statements", "[scripting],[FOCUS]" )
     REQUIRE(s.test(scriptbody, "f42p(null)")->undefined() == true); // null in calculation results in null
     REQUIRE(s.test(scriptbody, "f42p(8)")->doubleValue() == 50);
     REQUIRE(s.test(scriptbody, "f42p(41,4)")->isErr() == true); // too many args
-    // Simple function with more than one
+    // Simple function with more than one arg
     REQUIRE(s.test(sourcecode|floatingGlobs, "function f42pp(a,b) { return 42+a+b; }")->isErr() == false);
     REQUIRE(s.test(scriptbody, "f42pp()")->isErr() == true); // needs a arg
     REQUIRE(s.test(scriptbody, "f42pp(1)")->isErr() == true); // needs two args
