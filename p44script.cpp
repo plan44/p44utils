@@ -129,6 +129,15 @@ string ScriptObj::typeDescription(TypeInfo aInfo)
       if (!s.empty()) s += ", ";
       s += "object";
     }
+    // special
+    if (aInfo & threadref) {
+      if (!s.empty()) s += ", ";
+      s += "thread";
+    }
+    if (aInfo & executable) {
+      if (!s.empty()) s += ", ";
+      s += "executable";
+    }
     // scalar
     if (aInfo & numeric) {
       if (!s.empty()) s += ", ";
@@ -142,10 +151,7 @@ string ScriptObj::typeDescription(TypeInfo aInfo)
       if (!s.empty()) s += ", ";
       s += "json";
     }
-    if (aInfo & executable) {
-      if (!s.empty()) s += ", ";
-      s += "executable";
-    }
+    // alternatives
     if (aInfo & error) {
       if (!s.empty()) s += " or ";
       s += "error";
@@ -156,7 +162,7 @@ string ScriptObj::typeDescription(TypeInfo aInfo)
     }
     if (aInfo & lvalue) {
       if (!s.empty()) s += " or ";
-      s += "undefined";
+      s += "lvalue";
     }
   }
   return s;
@@ -168,9 +174,10 @@ string ScriptObj::describe(ScriptObjPtr aObj)
   if (!aObj) return "<none>";
   string n = aObj->getIdentifier();
   if (!n.empty()) n.insert(0, " named ");
+  ScriptObjPtr valObj = aObj->actualValue();
   return string_format(
     "'%s' [%s%s]",
-    aObj->stringValue().c_str(),
+    valObj ? valObj->stringValue().c_str() : "<no value>",
     typeDescription(aObj->getTypeInfo()).c_str(),
     n.c_str()
   );
@@ -976,7 +983,7 @@ void ScriptCodeContext::execute(ScriptObjPtr aToExecute, EvaluationFlags aEvalFl
     thread->run();
     return;
   }
-  if (aEvaluationCB) aEvaluationCB(new ErrorValue(ScriptError::Internal, "no thread"));
+  // Note: no thread at this point is ok, means that execution was queued
 }
 
 
@@ -1016,12 +1023,12 @@ ScriptCodeThreadPtr ScriptCodeContext::newThreadFrom(CompiledCodePtr aCodeObj, S
       }
       // queue for later
       queuedThreads.push_back(newThread);
-      return ScriptCodeThreadPtr();
+      return ScriptCodeThreadPtr(); // no thread to start now, but ok because it was queued
     }
     else if ((aEvalFlags & concurrently)==0) {
       // none of the multithread modes and already running: just report busy
       newThread->abort(new ErrorValue(ScriptError::Busy, "Already busy executing script"));
-      return ScriptCodeThreadPtr();
+      return newThread; // return the thread, which will immediately terminate with "already busy" error
     }
   }
   // can start new thread now
@@ -2493,16 +2500,25 @@ void SourceProcessor::s_assignOlder()
 {
   FOCUSLOGSTATE;
   // - result = lvalue
-  // - olderresult = value to assign
+  // - olderResult = value to assign
+  // Note: s_assignOlder is only used from language constructs, not from normal expressions/assignments.
+  //   This means the result was known before the assignment was initiated,
+  //   so the to-be-assigned value can be considered checked.
+  //   Also, if the value to assign to is not an lvalue, this is silently ignored (re-initialisation of globals)
   if (!skipping) {
-    // assign a null to the current result
+    // assign a olderResult to the current result
+    if (result && !result->hasType(lvalue)) {
+      // not an lvalue, silently ignore assignment
+      FOCUSLOG("   s_assignOlder: silently IGNORING assignment to non-lvalue : value=%s", ScriptObj::describe(result).c_str());
+      setState(&SourceProcessor::s_result);
+      resume();
+      return;
+    }
     ScriptObjPtr lvalue = result;
     result = olderResult;
     olderResult = lvalue;
   }
-  // we don't want the result checked! Using s_assignOlder means the
-  // result was known before the assignment was initiated, so the to-be-assigned value
-  // can be considered checked.
+  // we don't want the result checked!
   s_assignLvalue();
 }
 
@@ -2537,7 +2553,8 @@ void SourceProcessor::s_assignLvalue()
   // result = value to assign (or NULL to delete)
   setState(&SourceProcessor::s_result); // assignment expression ends here, will either result in assigned value or storage error
   if (!skipping) {
-    setLvalueMember();
+    if (result) result = result->assignableValue(); // get a copy in case the value is mutable (i.e. copy-on-write, assignment is "writing")
+    olderResult->assignLValue(boost::bind(&SourceProcessor::resume, this, _1), result);
     return;
   }
   resume();
@@ -2606,7 +2623,12 @@ void SourceProcessor::s_declarations()
   } while (src.nextIf(';'));
   SourcePos declStart = src.pos;
   if (src.parseIdentifier(identifier)) {
-    // could be a declaration
+    // could be a variable declaration
+    if (uequals(identifier, "glob") || uequals(identifier, "global")) {
+      // allow initialisation of global vars here!
+      processVarDefs(lvalue|create|onlycreate|global, true, true);
+      return;
+    }
     if (uequals(identifier, "function")) {
       // function fname([param[,param...]]) { code }
       src.skipNonCode();
@@ -2743,8 +2765,8 @@ void SourceProcessor::s_defineHandler()
   // - olderResult is the trigger, mode already set
   setState(&SourceProcessor::s_declarations); // back to declarations
   CompiledHandlerPtr handler = new CompiledHandler("handler", getCompilerMainContext());
+  result = captureCode(handler); // get the code first, so we can execute it in the trigger init
   handler->installAndInitializeTrigger(olderResult);
-  result = captureCode(handler);
   storeHandler();
 }
 
@@ -2935,77 +2957,79 @@ void SourceProcessor::processStatement()
       return;
     }
     // Check variable definition keywords
-    bool allowInitializer = true;
-    bool unset = false;
-    TypeInfo varFlags = none;
     if (uequals(identifier, "var")) {
-      varFlags = lvalue|create;
+      processVarDefs(lvalue+create, true);
+      return;
     }
-    else if (uequals(identifier, "glob") || uequals(identifier, "global")) {
-      varFlags = lvalue|create|onlycreate|global;
-      allowInitializer = false;
+    if (uequals(identifier, "glob") || uequals(identifier, "global")) {
+      processVarDefs(lvalue+create+onlycreate+global, false);
+      return;
     }
-    else if (uequals(identifier, "let")) {
-      varFlags = lvalue;
+    if (uequals(identifier, "let")) {
+      processVarDefs(lvalue, true);
+      return;
     }
-    else if (uequals(identifier, "unset")) {
-      varFlags = lvalue;
-      allowInitializer = false;
-      unset = true;
+    if (uequals(identifier, "unset")) {
+      processVarDefs(lvalue+unset, false);
+      return;
     }
-    if (varFlags & lvalue) {
-      // one of the definition keywords -> an identifier must follow
-      if (!src.parseIdentifier(identifier)) {
-        exitWithSyntaxError("missing variable name after '%s'", identifier.c_str());
-        return;
-      }
-      push(currentState); // return to current state when var definion statement finishes
-      src.skipNonCode();
-      memPos = src.pos;
-      ScriptOperator op = src.parseOperator();
-      // with initializer ?
-      if (op==op_assign || op==op_assignOrEq) {
-        if (!allowInitializer) {
-          exitWithSyntaxError("no initializer allowed");
-          return;
-        }
-        // initializing with a value
-        setState(&SourceProcessor::s_assignExpression);
-        memberByIdentifier(varFlags);
-        return;
-      }
-      else if (op==op_none) {
-        if (unset) {
-          // after accessing lvalue, delete it
-          setState(&SourceProcessor::s_unsetMember);
-          memberByIdentifier(varFlags, true); // lookup lvalue
-          return;
-        }
-        else {
-          // just create and initialize with null
-          result = new AnnotatedNullValue("uninitialized variable");
-          push(&SourceProcessor::s_assignOlder);
-          setState(&SourceProcessor::s_nothrowResult);
-          result.reset(); // look up on context level
-          memberByIdentifier(varFlags); // lookup lvalue
-          return;
-        }
-      }
-      else {
-        exitWithSyntaxError("assignment or end of statement expected");
-        return;
-      }
-    }
-    else {
-      // identifier we've parsed above is not a keyword, rewind cursor
-      src.pos = memPos;
-    }
+    // identifier we've parsed above is not a keyword, rewind cursor
+    src.pos = memPos;
   }
   // is an expression or possibly an assignment, also handled in expression
   push(currentState); // return to current state when expression evaluation completes
   resumeAt(&SourceProcessor::s_assignmentExpression);
   return;
 }
+
+
+void SourceProcessor::processVarDefs(TypeInfo aVarFlags, bool aAllowInitializer, bool aDeclaration)
+{
+  src.skipNonCode();
+  // one of the variable definition keywords -> an identifier must follow
+  if (!src.parseIdentifier(identifier)) {
+    exitWithSyntaxError("missing variable name after '%s'", identifier.c_str());
+    return;
+  }
+  push(currentState); // return to current state when var definion statement finishes
+  if (aDeclaration) skipping = false; // must enable processing now for actually assigning globals.
+  src.skipNonCode();
+  SourcePos memPos = src.pos;
+  ScriptOperator op = src.parseOperator();
+  // with initializer ?
+  if (op==op_assign || op==op_assignOrEq) {
+    if (!aAllowInitializer) {
+      exitWithSyntaxError("no initializer allowed");
+      return;
+    }
+    // initializing with a value
+    setState(&SourceProcessor::s_assignExpression);
+    memberByIdentifier(aVarFlags);
+    return;
+  }
+  else if (op==op_none) {
+    if (aVarFlags & unset) {
+      // after accessing lvalue, delete it
+      setState(&SourceProcessor::s_unsetMember);
+      memberByIdentifier(aVarFlags, true); // lookup lvalue
+      return;
+    }
+    else {
+      // just create and initialize with null (if not already existing)
+      result = new AnnotatedNullValue("uninitialized variable");
+      push(&SourceProcessor::s_assignOlder);
+      setState(&SourceProcessor::s_nothrowResult);
+      result.reset(); // look up on context level
+      memberByIdentifier(aVarFlags); // lookup lvalue
+      return;
+    }
+  }
+  else {
+    exitWithSyntaxError("assignment or end of statement expected");
+    return;
+  }
+}
+
 
 
 void SourceProcessor::s_ifCondition()
@@ -3202,13 +3226,6 @@ void SourceProcessor::memberByIndex(size_t aIndex, TypeInfo aMemberAccessFlags)
 }
 
 
-void SourceProcessor::setLvalueMember()
-{
-  resume();
-}
-
-
-
 void SourceProcessor::newFunctionCallContext()
 {
   result.reset(); // base class cannot execute functions
@@ -3328,6 +3345,7 @@ CompiledTrigger::CompiledTrigger(const string aName, ScriptMainContextPtr aMainC
 ScriptObjPtr CompiledTrigger::initializeTrigger(EvaluationFlags aEvalMode)
 {
   // initialize it
+  FOCUSLOG("\n---------- Initializing Trigger  : %s", cursor.displaycode(130).c_str());
   reEvaluationTicket.cancel();
   nextEvaluation = Never; // reset
   frozenResults.clear(); // (re)initializing trigger unfreezes all values
@@ -3348,6 +3366,7 @@ ScriptObjPtr CompiledTrigger::initializeTrigger(EvaluationFlags aEvalMode)
 
 void CompiledTrigger::triggerEvaluation(EvaluationFlags aEvalMode)
 {
+  FOCUSLOG("\n---------- Evaluating Trigger    : %s", cursor.displaycode(130).c_str());
   reEvaluationTicket.cancel();
   nextEvaluation = Never; // reset
   ExecutionContextPtr ctx = contextForCallingFrom(NULL, NULL);
@@ -3402,7 +3421,7 @@ void CompiledTrigger::triggerDidEvaluate(EvaluationFlags aEvalMode, ScriptObjPtr
   }
   // schedule next timed evaluation if one is needed
   if (nextEvaluation!=Never) {
-    OLOG(LOG_INFO, "Trigger demands re-evaluation at %s: '%s'", MainLoop::string_mltime(nextEvaluation).c_str(), cursor.displaycode(70).c_str());
+    OLOG(LOG_INFO, "Trigger demands re-evaluation at %s: '%s'", MainLoop::string_mltime(nextEvaluation, 3).c_str(), cursor.displaycode(70).c_str());
     reEvaluationTicket.executeOnceAt(
       boost::bind(&CompiledTrigger::triggerEvaluation, this, (aEvalMode&~runModeMask)|timed),
       nextEvaluation
@@ -3411,6 +3430,7 @@ void CompiledTrigger::triggerDidEvaluate(EvaluationFlags aEvalMode, ScriptObjPtr
   nextEvaluation = Never; // reset
   // callback (always, even when initializing)
   if (doTrigger && triggerCB) {
+    FOCUSLOG("\n---------- FIRING Trigger        : result = %s", ScriptObj::describe(aResult).c_str());
     triggerCB(aResult);
   }
 }
@@ -3446,7 +3466,7 @@ CompiledTrigger::FrozenResult* CompiledTrigger::getFrozen(ScriptObjPtr &aResult,
       frozenResultP->frozenResult->stringValue().c_str(),
       aResult->stringValue().c_str(),
       aFreezeId,
-      frozenResultP->frozen() ? MainLoop::string_mltime(frozenResultP->frozenUntil).c_str() : "NOW"
+      frozenResultP->frozen() ? MainLoop::string_mltime(frozenResultP->frozenUntil, 3).c_str() : "NOW"
     );
     aResult = frozenVal->second.frozenResult;
     if (!frozenResultP->frozen()) frozenVal->second.frozenUntil = Never; // mark expired
@@ -3472,14 +3492,14 @@ CompiledTrigger::FrozenResult* CompiledTrigger::newFreeze(FrozenResult* aExistin
     OLOG(LOG_DEBUG, "- new result (%s) frozen for freezeId 0x%p until %s",
       aNewResult->stringValue().c_str(),
       aFreezeId,
-      MainLoop::string_mltime(newFreeze.frozenUntil).c_str()
+      MainLoop::string_mltime(newFreeze.frozenUntil, 3).c_str()
     );
     return &frozenResults[aFreezeId];
   }
   else if (!aExistingFreeze->frozen() || aUpdate || aFreezeUntil==Never) {
     OLOG(LOG_DEBUG, "- existing freeze updated to value %s and to expire %s",
       aNewResult->stringValue().c_str(),
-      aFreezeUntil==Never ? "IMMEDIATELY" : MainLoop::string_mltime(aFreezeUntil).c_str()
+      aFreezeUntil==Never ? "IMMEDIATELY" : MainLoop::string_mltime(aFreezeUntil, 3).c_str()
     );
     aExistingFreeze->frozenResult = aNewResult;
     aExistingFreeze->frozenUntil = aFreezeUntil;
@@ -3593,6 +3613,23 @@ void ScriptCompiler::storeFunction()
   }
   checkAndResume();
 }
+
+
+void ScriptCompiler::memberByIdentifier(TypeInfo aMemberAccessFlags, bool aNoNotFoundError)
+{
+  // global members are available at compile time
+  if (skipping) {
+    result.reset();
+    resume();
+  }
+  // non-skipping compilation means evaluating global var initialisation
+  result = domain->memberByName(identifier, aMemberAccessFlags);
+  if (!result) {
+    result = new ErrorPosValue(src, ScriptError::Syntax, "'%s' cannot be accessed in declarations", identifier.c_str());
+  }
+  checkAndResume();
+}
+
 
 
 void ScriptCompiler::storeHandler()
@@ -4004,13 +4041,6 @@ void ScriptCodeThread::memberCheckAndResume()
 
 
 
-void ScriptCodeThread::setLvalueMember()
-{
-  if (result) result = result->assignableValue(); // get a copy in case the value is mutable (i.e. copy-on-write, assignment is "writing")
-  olderResult->assignLValue(boost::bind(&SourceProcessor::resume, this, _1), result);
-}
-
-
 void ScriptCodeThread::newFunctionCallContext()
 {
   if (result) {
@@ -4028,11 +4058,13 @@ void ScriptCodeThread::startBlockThreadAndStoreInIdentifier()
   ScriptCodeThreadPtr thread = mOwner->newThreadFrom(codeObj, src, concurrently|block, NULL);
   if (thread) {
     if (!identifier.empty()) {
-      push(currentState);
+      push(currentState); // skipping==true is pushed (as we're already skipping the concurrent block in the main thread)
+      skipping = false; // ...but we need it off to store the thread var
       result = new ThreadValue(thread);
       push(&SourceProcessor::s_assignOlder);
       thread->run();
       result.reset();
+      setState(&SourceProcessor::s_validResult);
       memberByIdentifier(lvalue+create);
       return;
     }
@@ -4624,7 +4656,7 @@ static void timeCheckFunc(bool aIsTime, BuiltinFunctionContextPtr f)
   bool met = daySecs>=secs->intValue();
   // next check at specified time, today if not yet met, tomorrow if already met for today
   loctim.tm_hour = 0; loctim.tm_min = 0; loctim.tm_sec = secs->intValue();
-  LOG(LOG_INFO, "is/after_time() reference time for current check is: %s", MainLoop::string_mltime(MainLoop::localTimeToMainLoopTime(loctim)).c_str());
+  LOG(LOG_INFO, "is/after_time() reference time for current check is: %s", MainLoop::string_mltime(MainLoop::localTimeToMainLoopTime(loctim), 3).c_str());
   bool res = met;
   // limit to a few secs around target if it's "is_time"
   if (aIsTime && met && daySecs<secs->intValue()+IS_TIME_TOLERANCE_SECONDS) {
@@ -5103,8 +5135,9 @@ public:
         terminateApp(EXIT_SUCCESS);
         return;
       }
-      source.setSource(cmd, sourcecode);
-      source.run(sourcecode+regular+keepvars+concurrently+floatingGlobs, boost::bind(&SimpleREPLApp::PL, this, _1));
+      TypeInfo mode = sourcecode;
+      source.setSource(cmd, mode);
+      source.run(mode+regular+keepvars+concurrently+floatingGlobs, boost::bind(&SimpleREPLApp::PL, this, _1));
     }
   }
 

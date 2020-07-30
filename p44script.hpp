@@ -210,12 +210,13 @@ namespace p44 { namespace P44Script {
     lvalue = 0x10000, ///< is a left hand value (lvalue), possibly assignable, probably needs makeValid() to get real value
     create = 0x20000, ///< set to create member if not yet existing (special use also for explicitly created errors)
     onlycreate = 0x40000, ///< set to only create if new, but not overwrite
-    global = 0x80000, ///< set to store in global context
-    constant = 0x100000, ///< set to select only constant  (in the sense of: not settable by scripts) members
-    objscope = 0x200000, ///< set to select only object scope members
-    classscope = 0x400000, ///< set to select only class scope members
+    unset = 0x80000, ///< set to unset/delete member
+    global = 0x100000, ///< set to store in global context
+    constant = 0x200000, ///< set to select only constant  (in the sense of: not settable by scripts) members
+    objscope = 0x400000, ///< set to select only object scope members
+    classscope = 0x800000, ///< set to select only class scope members
     allscopes = classscope+objscope+global,
-    builtinmember = 0x800000, ///< special flag for use in built-in member descriptions to differentiate members from functions
+    builtinmember = 0x1000000, ///< special flag for use in built-in member descriptions to differentiate members from functions
   };
   typedef uint32_t TypeInfo;
 
@@ -1281,10 +1282,6 @@ namespace p44 { namespace P44Script {
     /// @note must cause calling resume() when result contains the member (or NULL if not found)
     virtual void memberByIndex(size_t aIndex, TypeInfo aMemberAccessFlags);
 
-    /// must assign result to the lvalue member olderResult
-    /// @note must cause calling resume() when storage is complete. Result might contain a storage error or the assigned value
-    virtual void setLvalueMember();
-
     /// execute the current result and replace it with the output from the evaluation (e.g. function call)
     /// @note must cause calling resume() when result contains the member (or NULL if not found)
     virtual void executeResult();
@@ -1455,7 +1452,7 @@ namespace p44 { namespace P44Script {
     void s_exprLeftSide(); ///< left side of an ongoing expression
     void s_exprRightSide(); ///< further terms of an expression
     void s_assignExpression(); ///< evaluate expression and assign to (lvalue) result
-    void s_assignOlder(); ///< assign older result to freshly obtained (lvalue) result
+    void s_assignOlder(); ///< assign older result to freshly obtained (lvalue) result, special language construct only!
     void s_checkAndAssignLvalue(); ///< check result for throwing error, then assign to lvalue
     void s_assignLvalue(); ///< assign to lvalue
     void s_unsetMember(); ///< unset the current result
@@ -1466,6 +1463,7 @@ namespace p44 { namespace P44Script {
     void s_oneStatement(); ///< a single statement, exits when ';' is encountered
     void s_body(); ///< at the body level of a function or script (end of expression ends body)
     void processStatement(); ///< common processing for statement states
+    void processVarDefs(TypeInfo aVarFlags, bool aAllowInitializer, bool aDeclaration = false); ///< common processing of variable declarations/assignments
     // - if/then/else
     void s_ifCondition(); ///< executing the condition of an if
     void s_ifTrueStatement(); ///< executing the if statement
@@ -1719,6 +1717,12 @@ namespace p44 { namespace P44Script {
     /// @note must cause calling resume()
     virtual void startOfBodyCode() P44_OVERRIDE;
 
+    /// must retrieve the member as specified. Note that compiler only can access global scope
+    /// @param aMemberAccessFlags if this has lvalue set, caller would like to get an ScriptLValue which allows assigning a new value
+    /// @param aNoNotFoundError if this is set, even finding nothing will not raise an error, but just return a NULL result
+    /// @note must cause calling resume() when result contains the member (or NULL if not found)
+    void memberByIdentifier(TypeInfo aMemberAccessFlags, bool aNoNotFoundError) P44_OVERRIDE;
+
     /// @return the main context passed to the compiler. This is used to associate scripts defined as part of a
     /// source (e.g. "on"-handlers) with a execution context to call them later
     virtual ScriptMainContextPtr getCompilerMainContext() P44_OVERRIDE { return compileForContext; }
@@ -1810,10 +1814,6 @@ namespace p44 { namespace P44Script {
     /// @param aMemberAccessFlags if this has lvalue set, caller would like to get an ScriptLValue which allows assigning a new value
     /// @note must cause calling resume() when result contains the member (or NULL if not found)
     virtual void memberByIndex(size_t aIndex, TypeInfo aMemberAccessFlags) P44_OVERRIDE;
-
-    /// must assign result to the lvalue member olderResult
-    /// @note must cause calling resume() when storage is complete. Result might contain a storage error or the assigned value
-    virtual void setLvalueMember() P44_OVERRIDE;
 
     /// fork executing a block at the current position, if identifier is not empty, store a new ThreadValue.
     /// @note MUST NOT call resume() directly. This call will return when the new thread yields execution the first time.

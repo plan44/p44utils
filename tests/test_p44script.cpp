@@ -75,6 +75,54 @@ public:
 };
 
 
+class AsyncScriptingFixture
+{
+
+  ScriptSource s;
+  ScriptMainContextPtr mainContext;
+  ScriptObjPtr testResult;
+  MLMicroSeconds tm;
+
+public:
+
+  AsyncScriptingFixture()
+  {
+    SETDAEMONMODE(false);
+    SETLOGLEVEL(LOG_NOTICE);
+    LOG(LOG_INFO, "\n+++++++ constructing AsyncScriptingFixture");
+    StandardScriptingDomain::sharedDomain().setLogLevelOffset(LOGLEVELOFFSET);
+    mainContext = StandardScriptingDomain::sharedDomain().newContext();
+    s.setSharedMainContext(mainContext);
+  };
+
+  virtual ~AsyncScriptingFixture()
+  {
+    LOG(LOG_INFO, "------- destructing AsyncScriptingFixture\n");
+  }
+
+  void resultCapture(ScriptObjPtr aResult)
+  {
+    testResult = aResult;
+    MainLoop::currentMainLoop().terminate(EXIT_SUCCESS);
+  }
+
+  ScriptObjPtr scriptTest(EvaluationFlags aEvalFlags, const string aSource)
+  {
+    testResult.reset();
+    s.setSource(aSource, aEvalFlags);
+    EvaluationCB cb = boost::bind(&AsyncScriptingFixture::resultCapture, this, _1);
+    MainLoop::currentMainLoop().executeNow(boost::bind(&ScriptSource::run, &s, aEvalFlags|regular, cb, /* 20*Second */ Infinite));
+    tm = MainLoop::now();
+    MainLoop::currentMainLoop().run(true);
+    tm = MainLoop::now()-tm;
+    return testResult;
+  }
+
+  double runningTime() { return (double)tm/Second; }
+
+};
+
+
 
 
 // MARK: CodeCursor tests
@@ -205,21 +253,11 @@ TEST_CASE("CodeCursor", "[scripting]" )
 
 // MARK: - debug test case
 
-TEST_CASE_METHOD(ScriptingCodeFixture, "Focus", "[scripting],[DEBUG]" )
+TEST_CASE_METHOD(AsyncScriptingFixture, "Focus", "[scripting],[DEBUG]" )
 {
   SETLOGLEVEL(LOG_DEBUG);
-  //puts(JSON_TEST_OBJ);
-  REQUIRE(s.test(scriptbody|keepvars, "glob k; k=42; return k")->doubleValue() == 42);
-  REQUIRE(s.test(scriptbody|keepvars, "k")->doubleValue() == 42); // must stay
-  REQUIRE(s.test(scriptbody|keepvars, "var k = 43")->doubleValue() == 43); // hide global k with a local k
-  REQUIRE(s.test(scriptbody|keepvars, "k")->doubleValue() == 43); // must stay
-  REQUIRE(s.test(scriptbody|keepvars, "unset k = 47")->isErr() == true); // unset cannot have an initializer
-  REQUIRE(s.test(scriptbody|keepvars, "k")->doubleValue() == 43); // global still shadowed
-  REQUIRE(s.test(scriptbody|keepvars, "unset k")->isErr() == false); // should work
-  REQUIRE(s.test(scriptbody|keepvars, "k")->doubleValue() == 42); // again global
-  REQUIRE(s.test(scriptbody|keepvars, "unset k")->isErr() == false); // should work, deleting global
-  REQUIRE(s.test(scriptbody|keepvars, "k")->isErr() == true); // deleted
-  REQUIRE(s.test(scriptbody|keepvars, "unset k")->isErr() == false); // unsetting nonexisting variable should still not throw an error
+  SETDELTATIME(true);
+  REQUIRE(scriptTest(sourcecode, "glob res='declaration'; on(every(1)) { res = res + 'Ping'; log(4, 'Ping'); } on(every(2/3)) { res = res + 'Pong'; log(4, 'Pong'); } res=''; log(4, 'before delay') delay(3.5); log(4, 'after delay') res")->stringValue() == "PingPongPongPingPongPongPingPongPing");
 }
 
 // MARK: - Literals
@@ -497,7 +535,8 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "statements", "[scripting],[FOCUS]" )
     REQUIRE(s.test(scriptbody, "var x = 4321; X = 1234; return X")->doubleValue() == 1234); // case insensitivity
     REQUIRE(s.test(scriptbody, "var x = 4321; x = x + 1234; return x")->doubleValue() == 1234+4321); // case insensitivity
     REQUIRE(s.test(scriptbody, "var x = 1; var x = 2; return x")->doubleValue() == 2); // locals initialized whenerver encountered (now! was different before)
-    REQUIRE(s.test(scriptbody, "glob g = 1; return g")->isErr() == true); // globals cannot be initialized (ANY MORE, they could, ONCE, in old ScriptContext)
+    REQUIRE(s.test(scriptbody, "glob g = 1; return g")->isErr() == true); // globals cannot be initialized in a script BODY (ANY MORE, they could, ONCE, in old ScriptContext)
+    REQUIRE(s.test(sourcecode, "glob g = 1; return g")->doubleValue() == 1); // ..however, in the declaration part, initialisation IS possible
     REQUIRE(s.test(scriptbody, "glob g; g = 4; return g")->doubleValue() == 4); // normal assignment is possible, however
     #if SCRIPT_OPERATOR_MODE==SCRIPT_OPERATOR_MODE_FLEXIBLE
     REQUIRE(s.test(scriptbody, "var h; var i = 8; h = 3 + (i = 8)")->doubleValue() == 4); // inner "=" is treated as comparison
@@ -629,11 +668,27 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "statements", "[scripting],[FOCUS]" )
     REQUIRE(s.test(scriptbody, "f42pp")->isErr() == true); // should be gone
   }
 
+}
 
+TEST_CASE_METHOD(AsyncScriptingFixture, "async", "[scripting],[FOCUS]") {
 
-// does not work synchronously...
-//  SECTION("concurrency") {
-//    REQUIRE(s.test(scriptbody, "var res=''; concurrent test { delay(2); res = res + '2sec' } delay(1); res = res+'1sec'; await(test); res")->stringValue() == "1sec2sec");
+  SECTION("fixtureTest") {
+    REQUIRE(scriptTest(scriptbody, "42")->doubleValue() == 42);
+  }
+
+  SECTION("delay") {
+    REQUIRE(scriptTest(scriptbody, "delay(2)")->isErr() == false); // no error
+    REQUIRE(runningTime() ==  Approx(2).epsilon(0.01));
+  }
+
+  SECTION("concurrency") {
+    REQUIRE(scriptTest(scriptbody, "var res=''; concurrent test { delay(2); res = res + '2sec' } delay(1); res = res+'1sec'; await(test); res")->stringValue() == "1sec2sec");
+    REQUIRE(scriptTest(scriptbody, "var res=''; concurrent test { delay(3); res = res + '3sec' } concurrent test2 { delay(2); res = res + '2sec' } delay(1); res = res+'1sec'; await(test); res")->stringValue() == "1sec2sec3sec");
+    REQUIRE(scriptTest(scriptbody, "var res=''; concurrent test { delay(3); res = res + '3sec' } concurrent test2 { delay(2); res = res + '2sec' } delay(1); res = res+'1sec'; abort(test2) await(test); res")->stringValue() == "1sec3sec");
+  }
+
+//  SECTION("event handlers") {
+//    REQUIRE(scriptTest(sourcecode, "glob res='declaration'; on(every(1)) { res = res + 'Ping'; } on(every(2/3)) { res = res + 'Pong'; } res=''; delay(3.5); res")->stringValue() == "PingPongPongPingPongPongPingPongPing");
 //  }
 
 
