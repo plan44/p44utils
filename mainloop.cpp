@@ -195,9 +195,13 @@ MLMicroSeconds MainLoop::timeValToMainLoopTime(struct timeval *aTimeValP)
 }
 
 
-void MainLoop::mainLoopTimeTolocalTime(MLMicroSeconds aMLTime, struct tm& aLocalTime)
+void MainLoop::mainLoopTimeTolocalTime(MLMicroSeconds aMLTime, struct tm& aLocalTime, double* aFractionalSecondsP)
 {
-  time_t t = mainLoopTimeToUnixTime(aMLTime)/Second;
+  MLMicroSeconds ut = mainLoopTimeToUnixTime(aMLTime);
+  time_t t = ut/Second;
+  if (aFractionalSecondsP) {
+    *aFractionalSecondsP = (double)ut/Second-t;
+  }
   localtime_r(&t, &aLocalTime);
 }
 
@@ -220,18 +224,27 @@ void MainLoop::getLocalTime(struct tm& aLocalTime, double* aFractionalSecondsP, 
 }
 
 
-string MainLoop::string_mltime(MLMicroSeconds aTime)
+string MainLoop::string_mltime(MLMicroSeconds aTime, int aFractionals)
 {
-  return string_fmltime("%Y-%m-%d %H:%M:%S", aTime);
+  return string_fmltime("%Y-%m-%d %H:%M:%S", aTime, aFractionals);
 }
 
 
-string MainLoop::string_fmltime(const char *aFormat, MLMicroSeconds aTime)
+string MainLoop::string_fmltime(const char *aFormat, MLMicroSeconds aTime, int aFractionals)
 {
   struct tm tim;
-  mainLoopTimeTolocalTime(aTime, tim);
   string ts;
-  string_ftime_append(ts, aFormat, &tim);
+  if (aFractionals==0) {
+    mainLoopTimeTolocalTime(aTime, tim);
+    string_ftime_append(ts, aFormat, &tim);
+  }
+  else {
+    double fracSecs;
+    mainLoopTimeTolocalTime(aTime, tim, &fracSecs);
+    string_ftime_append(ts, aFormat, &tim);
+    int f = fracSecs*pow(10, aFractionals);
+    string_format_append(ts, ".%0*d", aFractionals, f);
+  }
   return ts;
 }
 

@@ -314,7 +314,8 @@ namespace p44 {
     /// convert mainloop time into localtime (struct tm)
     /// @param aMLTime a mainloop timestamp in MLMicroSeconds
     /// @param aLocalTime time components will be updated to represent aMLTime in localtime
-    static void mainLoopTimeTolocalTime(MLMicroSeconds aMLTime, struct tm& aLocalTime);
+    /// @param aFractionalSecondsP if not NULL, the fractional seconds part will be returned [0..1[
+    static void mainLoopTimeTolocalTime(MLMicroSeconds aMLTime, struct tm& aLocalTime, double* aFractionalSecondsP = NULL);
 
     /// convert a struct tm to mainloop timestamp
     /// @param aLocalTime local time compontents in a struct tm
@@ -329,13 +330,15 @@ namespace p44 {
     /// strftime from mainloop time with output to std::string
     /// @param aFormat strftime-style format string
     /// @param aTime time in mainloop now() scale
+    /// @param aFractionals number of fractional second digits to append at end of string
     /// @return formatted time string (in local time)
-    static string string_fmltime(const char *aFormat, MLMicroSeconds aTime);
+    static string string_fmltime(const char *aFormat, MLMicroSeconds aTime, int aFractionals = 0);
 
     /// format mainloop time as localtime in YYYY-MM-DD HH:MM:SS format with output to std::string
     /// @param aTime time in mainloop now() scale
+    /// @param aFractionals number of fractional second digits to show
     /// @return formatted time string (in local time)
-    static string string_mltime(MLMicroSeconds aTime);
+    static string string_mltime(MLMicroSeconds aTime, int aFractionals = 0);
 
 
     /// sleeps for given number of microseconds
