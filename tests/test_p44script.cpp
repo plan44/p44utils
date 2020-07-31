@@ -24,6 +24,8 @@
 #include "p44script.hpp"
 #include <stdlib.h>
 
+#include "httpcomm.hpp"
+
 #define LOGLEVELOFFSET 0
 
 #define JSON_TEST_OBJ "{\"array\":[\"first\",2,3,\"fourth\",6.6],\"obj\":{\"objA\":\"A\",\"objB\":42,\"objC\":{\"objD\":\"D\",\"objE\":45}},\"string\":\"abc\",\"number\":42,\"bool\":true}"
@@ -91,6 +93,9 @@ public:
     SETLOGLEVEL(LOG_NOTICE);
     LOG(LOG_INFO, "\n+++++++ constructing AsyncScriptingFixture");
     StandardScriptingDomain::sharedDomain().setLogLevelOffset(LOGLEVELOFFSET);
+    #if ENABLE_HTTP_SCRIPT_FUNCS
+    StandardScriptingDomain::sharedDomain().registerMemberLookup(new P44Script::HttpLookup);
+    #endif
     mainContext = StandardScriptingDomain::sharedDomain().newContext();
     s.setSharedMainContext(mainContext);
   };
@@ -111,7 +116,8 @@ public:
     testResult.reset();
     s.setSource(aSource, aEvalFlags);
     EvaluationCB cb = boost::bind(&AsyncScriptingFixture::resultCapture, this, _1);
-    MainLoop::currentMainLoop().executeNow(boost::bind(&ScriptSource::run, &s, aEvalFlags|regular, cb, /* 20*Second */ Infinite));
+    // Note: as we share an eval context with all triggers and handlers, main script must be concurrent as well
+    MainLoop::currentMainLoop().executeNow(boost::bind(&ScriptSource::run, &s, aEvalFlags|regular|concurrently, cb, /* 20*Second */ Infinite));
     tm = MainLoop::now();
     MainLoop::currentMainLoop().run(true);
     tm = MainLoop::now()-tm;
@@ -257,12 +263,17 @@ TEST_CASE_METHOD(AsyncScriptingFixture, "Focus", "[scripting],[DEBUG]" )
 {
   SETLOGLEVEL(LOG_DEBUG);
   SETDELTATIME(true);
-  REQUIRE(scriptTest(sourcecode, "glob res='declaration'; on(every(1)) { res = res + 'Ping'; log(4, 'Ping'); } on(every(2/3)) { res = res + 'Pong'; log(4, 'Pong'); } res=''; log(4, 'before delay') delay(3.5); log(4, 'after delay') res")->stringValue() == "PingPongPongPingPongPongPingPongPing");
+#define TEST_URL "plan44.ch/testing/httptest.php"
+#define DATA_IN_7SEC_TEST_URL "plan44.ch/testing/httptest.php?delay=7"
+//  REQUIRE(scriptTest(sourcecode, "glob res='not completed'; log(4, 'will take 3 secs'); concurrent http { try { res=geturl('http://" DATA_IN_7SEC_TEST_URL "', 5) } catch (err) { res = err } } delay(3); abort(http); return res")->stringValue() == "ok");
+  REQUIRE(scriptTest(sourcecode, "glob res='not completed'; log(4, 'will take 3 secs'); concurrent http { res=geturl('http://" DATA_IN_7SEC_TEST_URL "', 5) } delay(3); abort(http); return res")->stringValue() == "not completed");
 }
+
+
 
 // MARK: - Literals
 
-TEST_CASE_METHOD(ScriptingCodeFixture, "Literals", "[scripting],[FOCUS]" )
+TEST_CASE_METHOD(ScriptingCodeFixture, "Literals", "[scripting]" )
 {
   SECTION("Literals") {
     REQUIRE(s.test(expression, "42")->doubleValue() == 42);
@@ -317,7 +328,7 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "Literals", "[scripting],[FOCUS]" )
 
 // MARK: - Lookups
 
-TEST_CASE_METHOD(ScriptingCodeFixture, "lookups", "[scripting],[FOCUS]") {
+TEST_CASE_METHOD(ScriptingCodeFixture, "lookups", "[scripting]") {
 
   SECTION("Scalars") {
     REQUIRE(s.test(expression, "UA")->doubleValue() == 42);
@@ -354,7 +365,7 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "lookups", "[scripting],[FOCUS]") {
 
 // MARK: - Expressions
 
-TEST_CASE_METHOD(ScriptingCodeFixture, "expressions", "[scripting],[FOCUS]") {
+TEST_CASE_METHOD(ScriptingCodeFixture, "expressions", "[scripting]") {
 
   SECTION("Operations") {
     REQUIRE(s.test(expression, "-42.42")->doubleValue() == -42.42); // unary minus
@@ -512,7 +523,7 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "expressions", "[scripting],[FOCUS]") {
   }
 }
 
-TEST_CASE_METHOD(ScriptingCodeFixture, "statements", "[scripting],[FOCUS]" )
+TEST_CASE_METHOD(ScriptingCodeFixture, "statements", "[scripting]" )
 {
 
   SECTION("return values") {
@@ -670,7 +681,7 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "statements", "[scripting],[FOCUS]" )
 
 }
 
-TEST_CASE_METHOD(AsyncScriptingFixture, "async", "[scripting],[FOCUS]") {
+TEST_CASE_METHOD(AsyncScriptingFixture, "async", "[scripting]") {
 
   SECTION("fixtureTest") {
     REQUIRE(scriptTest(scriptbody, "42")->doubleValue() == 42);
@@ -682,14 +693,50 @@ TEST_CASE_METHOD(AsyncScriptingFixture, "async", "[scripting],[FOCUS]") {
   }
 
   SECTION("concurrency") {
-    REQUIRE(scriptTest(scriptbody, "var res=''; concurrent test { delay(2); res = res + '2sec' } delay(1); res = res+'1sec'; await(test); res")->stringValue() == "1sec2sec");
-    REQUIRE(scriptTest(scriptbody, "var res=''; concurrent test { delay(3); res = res + '3sec' } concurrent test2 { delay(2); res = res + '2sec' } delay(1); res = res+'1sec'; await(test); res")->stringValue() == "1sec2sec3sec");
-    REQUIRE(scriptTest(scriptbody, "var res=''; concurrent test { delay(3); res = res + '3sec' } concurrent test2 { delay(2); res = res + '2sec' } delay(1); res = res+'1sec'; abort(test2) await(test); res")->stringValue() == "1sec3sec");
+    REQUIRE(scriptTest(scriptbody, "var res=''; log(4, 'will take 2 secs'); concurrent test { delay(2); res = res + '2sec' } delay(1); res = res+'1sec'; await(test); res")->stringValue() == "1sec2sec");
+    REQUIRE(runningTime() ==  Approx(2).epsilon(0.05));
+    REQUIRE(scriptTest(scriptbody, "var res=''; log(4, 'will take 3 secs'); concurrent test { delay(3); res = res + '3sec' } concurrent test2 { delay(2); res = res + '2sec' } delay(1); res = res+'1sec'; await(test); res")->stringValue() == "1sec2sec3sec");
+    REQUIRE(runningTime() ==  Approx(3).epsilon(0.05));
+    REQUIRE(scriptTest(scriptbody, "var res=''; log(4, 'will take 3 secs'); concurrent test { delay(3); res = res + '3sec' } concurrent test2 { delay(2); res = res + '2sec' } delay(1); res = res+'1sec'; abort(test2) await(test); res")->stringValue() == "1sec3sec");
+    REQUIRE(runningTime() ==  Approx(3).epsilon(0.05));
   }
 
-//  SECTION("event handlers") {
-//    REQUIRE(scriptTest(sourcecode, "glob res='declaration'; on(every(1)) { res = res + 'Ping'; } on(every(2/3)) { res = res + 'Pong'; } res=''; delay(3.5); res")->stringValue() == "PingPongPongPingPongPongPingPongPing");
-//  }
-
+  SECTION("event handlers") {
+    // Note: might fail when execution is sluggish, because order of events might be affected then:  5/7  1  10/7  2  15/7  20/7  3  25/7  4  30/7   4.5  Seconds
+    REQUIRE(scriptTest(sourcecode, "glob res='decl'; on(every(1) & !initial()) { res = res + 'Ping' } on(every(5/7) & !initial()) { res = res + 'Pong' } res='init'; log(4, 'will take 4.5 secs'); delay(4.5); res")->stringValue() == "initPongPingPongPingPongPongPingPongPingPong");
+    REQUIRE(runningTime() ==  Approx(4.5).epsilon(0.05));
+}
 
 }
+
+#if ENABLE_HTTP_SCRIPT_FUNCS
+
+#define TEST_URL "plan44.ch/testing/httptest.php"
+#define DATA_IN_7SEC_TEST_URL "plan44.ch/testing/httptest.php?delay=7"
+
+TEST_CASE_METHOD(AsyncScriptingFixture, "http scripting", "[scripting],[FOCUS]") {
+
+//  SECTION("geturl") {
+//    REQUIRE(scriptTest(sourcecode, "find(geturl('http://" TEST_URL "'), 'Document OK')")->intValue() > 0);
+//    REQUIRE(scriptTest(sourcecode, "find(geturl('https://" TEST_URL "'), 'Document OK')")->intValue() > 0);
+//    REQUIRE(scriptTest(sourcecode, "log(4, 'will take 5 secs'); geturl('http://" DATA_IN_7SEC_TEST_URL "', 5)")->isErr() == true);
+//    REQUIRE(runningTime() ==  Approx(5).epsilon(0.05));
+//    REQUIRE(scriptTest(sourcecode, "glob res='not completed'; log(4, 'will take 3 secs'); concurrent http { res=geturl('http://" DATA_IN_7SEC_TEST_URL "', 5) } delay(3); abort(http); return res")->stringValue() == "not completed");
+//    REQUIRE(runningTime() ==  Approx(3).epsilon(0.05));
+//  }
+  SECTION("posturl") {
+    REQUIRE(scriptTest(sourcecode, "find(posturl('http://" TEST_URL "', 'Gugus'), 'POST data=\"Gugus\"')")->intValue() > 0);
+    REQUIRE(scriptTest(sourcecode, "find(posturl('http://" TEST_URL "', 10, 'Gugus'), 'POST data=\"Gugus\"')")->intValue() > 0);
+    REQUIRE(scriptTest(sourcecode, "find(posturl('https://" TEST_URL "', 'Gugus'), 'POST data=\"Gugus\"')")->intValue() > 0);
+  }
+
+  SECTION("puturl") {
+    REQUIRE(scriptTest(sourcecode, "find(puturl('http://" TEST_URL "', 'Gugus'), 'PUT data=\"Gugus\"')")->intValue() > 0);
+    REQUIRE(scriptTest(sourcecode, "find(puturl('http://" TEST_URL "', 10, 'Gugus'), 'PUT data=\"Gugus\"')")->intValue() > 0);
+    REQUIRE(scriptTest(sourcecode, "find(puturl('https://" TEST_URL "', 'Gugus'), 'PUT data=\"Gugus\"')")->intValue() > 0);
+  }
+
+}
+
+#endif // ENABLE_HTTP_SCRIPT_FUNCS
+
