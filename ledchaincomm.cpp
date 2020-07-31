@@ -30,6 +30,7 @@
 #include "ledchaincomm.hpp"
 #if ENABLE_APPLICATION_SUPPORT
   #include "application.hpp"
+  #include "p44script.hpp"
 #endif
 
 using namespace p44;
@@ -450,11 +451,21 @@ void LEDChainArrangement::setRootView(P44ViewPtr aRootView)
 
 #if ENABLE_APPLICATION_SUPPORT
 
+#if ENABLE_P44LRGRAPHICS
+#include "viewfactory.hpp"
+#endif
+
 void LEDChainArrangement::addLEDChain(LEDChainArrangementPtr &aLedChainArrangement, const string &aChainSpec)
 {
   if (aChainSpec.empty()) return;
   if (!aLedChainArrangement) {
     aLedChainArrangement = LEDChainArrangementPtr(new LEDChainArrangement);
+    #if ENABLE_P44SCRIPT && ENABLE_P44LRGRAPHICS && ENABLE_VIEWCONFIG
+    // also install p44script lookup providing "lrg" global
+    p44::P44Script::StandardScriptingDomain::sharedDomain().registerMemberLookup(
+      new P44Script::P44lrgLookup(aLedChainArrangement->getRootView())
+    );
+    #endif // ENABLE_P44SCRIPT
   }
   // now add chain
   aLedChainArrangement->addLEDChain(aChainSpec);
