@@ -259,7 +259,7 @@ TEST_CASE("CodeCursor", "[scripting]" )
 
 // MARK: - debug test case
 
-TEST_CASE_METHOD(AsyncScriptingFixture, "Focus", "[scripting],[DEBUG]" )
+TEST_CASE_METHOD(AsyncScriptingFixture, "Debugging single case/assertion", "[DEBUG]" )
 {
   SETLOGLEVEL(LOG_DEBUG);
   SETDELTATIME(true);
@@ -716,14 +716,14 @@ TEST_CASE_METHOD(AsyncScriptingFixture, "async", "[scripting]") {
 
 TEST_CASE_METHOD(AsyncScriptingFixture, "http scripting", "[scripting],[FOCUS]") {
 
-//  SECTION("geturl") {
-//    REQUIRE(scriptTest(sourcecode, "find(geturl('http://" TEST_URL "'), 'Document OK')")->intValue() > 0);
-//    REQUIRE(scriptTest(sourcecode, "find(geturl('https://" TEST_URL "'), 'Document OK')")->intValue() > 0);
-//    REQUIRE(scriptTest(sourcecode, "log(4, 'will take 5 secs'); geturl('http://" DATA_IN_7SEC_TEST_URL "', 5)")->isErr() == true);
-//    REQUIRE(runningTime() ==  Approx(5).epsilon(0.05));
-//    REQUIRE(scriptTest(sourcecode, "glob res='not completed'; log(4, 'will take 3 secs'); concurrent http { res=geturl('http://" DATA_IN_7SEC_TEST_URL "', 5) } delay(3); abort(http); return res")->stringValue() == "not completed");
-//    REQUIRE(runningTime() ==  Approx(3).epsilon(0.05));
-//  }
+  SECTION("geturl") {
+    REQUIRE(scriptTest(sourcecode, "find(geturl('http://" TEST_URL "'), 'Document OK')")->intValue() > 0);
+    REQUIRE(scriptTest(sourcecode, "find(geturl('https://" TEST_URL "'), 'Document OK')")->intValue() > 0);
+    REQUIRE(scriptTest(sourcecode, "log(4, 'will take 5 secs'); geturl('http://" DATA_IN_7SEC_TEST_URL "', 5)")->isErr() == true);
+    REQUIRE(runningTime() ==  Approx(5).epsilon(0.05));
+    REQUIRE(scriptTest(sourcecode, "glob res='not completed'; log(4, 'will take 3 secs'); concurrent http { res=geturl('http://" DATA_IN_7SEC_TEST_URL "', 5) } delay(3); abort(http); return res")->stringValue() == "not completed");
+    REQUIRE(runningTime() ==  Approx(3).epsilon(0.05));
+  }
   SECTION("posturl") {
     REQUIRE(scriptTest(sourcecode, "find(posturl('http://" TEST_URL "', 'Gugus'), 'POST data=\"Gugus\"')")->intValue() > 0);
     REQUIRE(scriptTest(sourcecode, "find(posturl('http://" TEST_URL "', 10, 'Gugus'), 'POST data=\"Gugus\"')")->intValue() > 0);

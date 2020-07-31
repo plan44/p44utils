@@ -5083,7 +5083,9 @@ public:
   virtual void initialize()
   {
     // add some capabilities
+    #if ENABLE_HTTP_SCRIPT_FUNCS
     source.domain()->registerMemberLookup(new HttpLookup);
+    #endif
     // get context
     replContext = source.domain()->newContext();
     source.setSharedMainContext(replContext);
