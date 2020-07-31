@@ -2608,8 +2608,8 @@ void SourceProcessor::s_declarations()
   if (src.parseIdentifier(identifier)) {
     // could be a variable declaration
     if (uequals(identifier, "glob") || uequals(identifier, "global")) {
-      // allow initialisation of global vars here!
-      processVarDefs(lvalue|create|onlycreate|global, true, true);
+      // allow initialisation, even re-initialisation of global vars here!
+      processVarDefs(lvalue|create|global, true, true);
       return;
     }
     if (uequals(identifier, "function")) {
