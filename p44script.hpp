@@ -29,6 +29,9 @@
 #include "timeutils.hpp"
 #include <string>
 
+#ifndef P44SCRIPT_FULL_SUPPORT
+  #define P44SCRIPT_FULL_SUPPORT 1 // on by default, can be switched off for small targets only needing expressions // TODO: actually implements sizing down!
+#endif
 #ifndef SCRIPTING_JSON_SUPPORT
   #define SCRIPTING_JSON_SUPPORT 1 // on by default
 #endif
@@ -620,6 +623,7 @@ namespace p44 { namespace P44Script {
   class NumericValue : public ScriptObj
   {
     typedef ScriptObj inherited;
+  protected:
     double num;
   public:
     NumericValue(double aNumber) : num(aNumber) {};
@@ -1116,7 +1120,12 @@ namespace p44 { namespace P44Script {
     /// set source code and compile mode
     /// @param aSource the source code
     /// @param aCompileFlags how to compile (as expression, scriptbody, source, possibly with embeddedGlobs)
-    void setSource(const string aSource, EvaluationFlags aCompileFlags = sourcecode);
+    /// @return true if source or compile flags have actually changed. Otherwise, nothing happens and false is returned
+    bool setSource(const string aSource, EvaluationFlags aCompileFlags = sourcecode);
+
+    /// get the source code
+    /// @return the source code as set by setSource()
+    string getSource() const;
 
     /// check if a cursor refers to this source
     /// @param aCursor the cursor to check
@@ -1144,6 +1153,51 @@ namespace p44 { namespace P44Script {
       { setSource(aSource, aEvalFlags); return run(aEvalFlags|regular|synchronously, NULL, Infinite); }
 
   };
+
+
+  /// convenience class for standalone triggers
+  class TriggerSource : public ScriptSource
+  {
+    typedef ScriptSource inherited;
+
+    EvaluationCB mTriggerCB;
+    TriggerMode mTriggerMode;
+    EvaluationFlags mEvalFlags;
+  public:
+    TriggerSource(const char* aOriginLabel, P44LoggingObj* aLoggingContextP, EvaluationCB aTriggerCB, TriggerMode aTriggerMode = onGettingTrue, EvaluationFlags aEvalFlags = expression|synchronously) :
+      inherited(aOriginLabel, aLoggingContextP),
+      mTriggerCB(aTriggerCB),
+      mTriggerMode(aTriggerMode),
+      mEvalFlags(aEvalFlags)
+    {
+    }
+
+    /// set new trigger source with the callback/mode/evalFlags as set with the constructor
+    /// @return true if changed.
+    /// @note usually, reInitialize() should be called when source has changed
+    bool setTriggerSource(const string aSource);
+
+    /// re-initialize the trigger
+    /// @return the result of the initialisation run
+    ScriptObjPtr reInitialize();
+
+    /// (re-)evaluate the trigger outside of the evaluations caused by timing and event sources
+    /// @param aRunMode runmode flags (combined with evaluation flags set in constructor)
+    /// @return false if trigger evaluation could not be started
+    /// @note will execute the callback when done
+    bool evaluate(EvaluationFlags aRunMode = triggered);
+
+
+    /// schedule a (re-)evaluation at the specified time latest
+    /// @param aLatestEval new time when evaluation must happen latest
+    /// @note this makes sure there is an evaluation NOT LATER than the given time, but does not guarantee a
+    ///   evaluation actually does happen AT that time. So the trigger callback might want to re-schedule when the
+    ///   next evaluation happens too early.
+    void nextEvaluationNotLaterThan(MLMicroSeconds aLatestEval);
+
+  };
+
+
 
 
   /// Scripting domain, usually singleton, containing global variables and event handlers
@@ -1616,6 +1670,17 @@ namespace p44 { namespace P44Script {
     /// @return result of the initialisation (can be null when not requested synchronous execution)
     ScriptObjPtr initializeTrigger(EvaluationFlags aEvalMode = expression|synchronously);
 
+    /// trigger an evaluation
+    void triggerEvaluation(EvaluationFlags aEvalMode = expression|synchronously);
+
+    /// schedule a (re-)evaluation at the specified time latest
+    /// @param aLatestEval new time when next evaluation must happen latest
+    /// @note this makes sure there is an evaluation NOT LATER than the given time, but does not guarantee a
+    ///   evaluation actually does happen AT that time. So the trigger callback might want to re-schedule when the
+    ///   next evaluation happens too early.
+    void scheduleEvalNotLaterThan(const MLMicroSeconds aLatestEval, EvaluationFlags aEvalMode = expression|synchronously);
+
+
     /// @name API for timed evaluation and freezing values in functions that can be used in timed evaluations
     /// @{
 
@@ -1650,11 +1715,11 @@ namespace p44 { namespace P44Script {
 
   private:
 
-    /// trigger an evaluation
-    void triggerEvaluation(EvaluationFlags aEvalMode);
-
     /// called whenever trigger was evaluated, fires callback depending on aEvalFlags and triggerMode
     void triggerDidEvaluate(EvaluationFlags aEvalMode, ScriptObjPtr aResult);
+
+    /// schedule the next evaluation according to consolidated result of all updateNextEval() calls
+    void scheduleNextEval(EvaluationFlags aEvalMode);
 
   };
 

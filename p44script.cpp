@@ -3403,18 +3403,31 @@ void CompiledTrigger::triggerDidEvaluate(EvaluationFlags aEvalMode, ScriptObjPtr
     updateNextEval(MainLoop::now()+1*Second);
   }
   // schedule next timed evaluation if one is needed
+  scheduleNextEval(aEvalMode);
+  // callback (always, even when initializing)
+  if (doTrigger && triggerCB) {
+    FOCUSLOG("\n---------- FIRING Trigger        : result = %s", ScriptObj::describe(aResult).c_str());
+    triggerCB(aResult);
+  }
+}
+
+
+void CompiledTrigger::scheduleNextEval(EvaluationFlags aEvalMode)
+{
   if (nextEvaluation!=Never) {
-    OLOG(LOG_INFO, "Trigger demands re-evaluation at %s: '%s'", MainLoop::string_mltime(nextEvaluation, 3).c_str(), cursor.displaycode(70).c_str());
+    OLOG(LOG_INFO, "Trigger re-evaluation scheduled for %s: '%s'", MainLoop::string_mltime(nextEvaluation, 3).c_str(), cursor.displaycode(70).c_str());
     reEvaluationTicket.executeOnceAt(
       boost::bind(&CompiledTrigger::triggerEvaluation, this, (aEvalMode&~runModeMask)|timed),
       nextEvaluation
     );
   }
-  nextEvaluation = Never; // reset
-  // callback (always, even when initializing)
-  if (doTrigger && triggerCB) {
-    FOCUSLOG("\n---------- FIRING Trigger        : result = %s", ScriptObj::describe(aResult).c_str());
-    triggerCB(aResult);
+}
+
+
+void CompiledTrigger::scheduleEvalNotLaterThan(const MLMicroSeconds aLatestEval, EvaluationFlags aEvalMode)
+{
+  if (updateNextEval(aLatestEval)) {
+    scheduleNextEval(aEvalMode);
   }
 }
 
@@ -3692,8 +3705,15 @@ void ScriptSource::setSharedMainContext(ScriptMainContextPtr aSharedMainContext)
 
 
 
-void ScriptSource::setSource(const string aSource, EvaluationFlags aCompileFlags)
+bool ScriptSource::setSource(const string aSource, EvaluationFlags aCompileFlags)
 {
+  if (compileFlags==aCompileFlags) {
+    // same flags, check source
+    if (sourceContainer && sourceContainer->source == aSource) {
+      return false; // no change at all -> NOP
+    }
+  }
+  // changed, invalidate everything related to the previous code
   compileFlags = aCompileFlags;
   if (cachedExecutable) {
     cachedExecutable.reset(); // release cached executable (will release SourceCursor holding our source)
@@ -3706,7 +3726,15 @@ void ScriptSource::setSource(const string aSource, EvaluationFlags aCompileFlags
   if (!aSource.empty()) {
     sourceContainer = SourceContainerPtr(new SourceContainer(originLabel, loggingContextP, aSource));
   }
+  return true; // source has changed
 }
+
+
+string ScriptSource::getSource() const
+{
+  return sourceContainer ? sourceContainer->source : "";
+}
+
 
 
 bool ScriptSource::refersTo(const SourceCursor& aCursor)
@@ -3787,6 +3815,40 @@ ScriptObjPtr ScriptSource::initializeTrigger(EvaluationCB aTriggerCB, TriggerMod
   trigger->setTriggerCB(aTriggerCB);
   return trigger->initializeTrigger(aEvalFlags);
 }
+
+
+bool TriggerSource::setTriggerSource(const string aSource)
+{
+  return setSource(aSource, mEvalFlags);
+}
+
+
+ScriptObjPtr TriggerSource::reInitialize()
+{
+  return initializeTrigger(mTriggerCB, mTriggerMode, mEvalFlags);
+}
+
+
+bool TriggerSource::evaluate(EvaluationFlags aRunMode)
+{
+  CompiledTriggerPtr trigger = dynamic_pointer_cast<CompiledTrigger>(getExecutable());
+  if (trigger) {
+    EvaluationFlags f = (mEvalFlags&~runModeMask) | (aRunMode&runModeMask);
+    trigger->triggerEvaluation(f);
+    return true;
+  }
+  return false;
+}
+
+
+void TriggerSource::nextEvaluationNotLaterThan(MLMicroSeconds aLatestEval)
+{
+  CompiledTriggerPtr trigger = dynamic_pointer_cast<CompiledTrigger>(getExecutable());
+  if (trigger) {
+    trigger->scheduleEvalNotLaterThan(aLatestEval, mEvalFlags);
+  }
+}
+
 
 
 // MARK: - ScriptingDomain
