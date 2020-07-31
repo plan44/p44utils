@@ -155,29 +155,29 @@ namespace p44 { namespace P44Script {
   /// Evaluation flags
   enum {
     // run mode
-    runModeMask = 0x000F,
-    regular = 0x0000, ///< regular script or expression code
-    initial = 0x0001, ///< handler, initial trigger expression run (no external event, implicit event is startup or code change)
-    triggered = 0x0002, ///< handler, externally triggered (re-)evaluation
-    timed = 0x0003, ///< handler, timed evaluation by timed retrigger
-    scanning = 0x0004, ///< scanning only (compiling)
+    runModeMask = 0x00FF,
+    regular = 0x01, ///< regular script or expression code
+    initial = 0x02, ///< initial trigger expression run (no external event, implicit event is startup or code change)
+    triggered = 0x04, ///< externally triggered (re-)evaluation
+    timed = 0x08, ///< timed evaluation by timed retrigger
+    scanning = 0x80, ///< scanning only (compiling)
     // modifiers
-    modifierMask = 0xFFF0,
-    expression = 0x0010, ///< evaluate as an expression (no flow control, variable assignments, blocks etc.)
-    scriptbody = 0x0020, ///< evaluate as script body (no function or handler definitions)
-    sourcecode = 0x0040, ///< evaluate as script (include parsing functions and handlers)
-    block = 0x0080, ///< evaluate as a block (complete when reaching end of block)
-    synchronously = 0x0100, ///< evaluate synchronously, error out on async code
-    stoprunning = 0x0200, ///< abort running execution in the same context before starting a new one
-    queue = 0x0400, ///< queue for execution if other executions are still running/pending
+    modifierMask = 0xFFFFFF00,
+    expression = 0x100, ///< evaluate as an expression (no flow control, variable assignments, blocks etc.)
+    scriptbody = 0x200, ///< evaluate as script body (no function or handler definitions)
+    sourcecode = 0x400, ///< evaluate as script (include parsing functions and handlers)
+    block = 0x800, ///< evaluate as a block (complete when reaching end of block)
+    synchronously = 0x1000, ///< evaluate synchronously, error out on async code
+    stoprunning = 0x2000, ///< abort running execution in the same context before starting a new one
+    queue = 0x4000, ///< queue for execution if other executions are still running/pending
     stopall = stoprunning+queue, ///< stop everything
-    concurrently = 0x0800, ///< run concurrently with already executing code (together with queued: can be started when all other running threads were started concurrently, queued otherwise)
-    keepvars = 0x1000, ///< keep the local variables already set in the context
-    floatingGlobs = 0x2000, ///< global function+handler definitions are kept floating (not deleted when originating source code is changed/deleted)
-    mainthread = 0x4000, ///< if a thread with this set terminates, this also terminates all of its siblings
-    anonymousfunction = 0x8000, ///< compile and run as anonymous function body
+    concurrently = 0x10000, ///< run concurrently with already executing code
+    keepvars = 0x20000, ///< keep the local variables already set in the context
+    floatingGlobs = 0x40000, ///< global function+handler definitions are kept floating (not deleted when originating source code is changed/deleted)
+    mainthread = 0x80000, ///< if a thread with this flag set terminates, it also terminates all of its siblings
+    anonymousfunction = 0x100000, ///< compile and run as anonymous function body
   };
-  typedef uint16_t EvaluationFlags;
+  typedef uint32_t EvaluationFlags;
 
   /// Type info
   enum {

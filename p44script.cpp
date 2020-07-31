@@ -1004,23 +1004,6 @@ ScriptCodeThreadPtr ScriptCodeContext::newThreadFrom(CompiledCodePtr aCodeObj, S
       // ...then start new
     }
     else if (aEvalFlags & queue) {
-      if (aEvalFlags & concurrently) {
-        // special mode: is allowed to to run directly with threads that were started concurrently
-        // but will get queued if non-concurrently started threads are running
-        bool allConcurrent = true;
-        for (ThreadList::iterator pos=threads.begin(); pos!=threads.end(); ++pos) {
-          if (((*pos)->evaluationFlags & concurrently)==0) {
-            allConcurrent = false;
-            break;
-          }
-        }
-        if (allConcurrent) {
-          // can start the new thread concurrently to those already running
-          newThread->evaluationFlags &= ~concurrently; // remove the special mode marker, is not really started concurrently in the sense above
-          threads.push_back(newThread);
-          return newThread;
-        }
-      }
       // queue for later
       queuedThreads.push_back(newThread);
       return ScriptCodeThreadPtr(); // no thread to start now, but ok because it was queued
@@ -1738,7 +1721,7 @@ void SourceProcessor::start()
   FOCUSLOGSTATE
   stack.clear();
   // just scanning?
-  skipping = ((evaluationFlags & runModeMask)==scanning);
+  skipping = (evaluationFlags&scanning)!=0;
   // scope to start in
   if (evaluationFlags & expression)
     setState(&SourceProcessor::s_expression);
@@ -3351,7 +3334,7 @@ ScriptObjPtr CompiledTrigger::initializeTrigger(EvaluationFlags aEvalMode)
   frozenResults.clear(); // (re)initializing trigger unfreezes all values
   ExecutionContextPtr ctx = contextForCallingFrom(NULL, NULL);
   if (!ctx) return  new ErrorValue(ScriptError::Internal, "no context for trigger");
-  aEvalMode = (aEvalMode&~runModeMask)|initial; // set initial run mode
+  aEvalMode = (aEvalMode&~runModeMask)|initial; // set initial run mode (only!)
   if (aEvalMode & synchronously) {
     ScriptObjPtr res = ctx->executeSynchronously(this, aEvalMode, 2*Second);
     triggerDidEvaluate(aEvalMode, res);
@@ -3412,7 +3395,7 @@ void CompiledTrigger::triggerDidEvaluate(EvaluationFlags aEvalMode, ScriptObjPtr
     fpos++;
   }
   // check if trigger is likely to work
-  if ((aEvalMode&runModeMask)==initial && nextEvaluation==Never && numSources()==0) {
+  if ((aEvalMode&initial)!=0 && nextEvaluation==Never && numSources()==0) {
     OLOG(LOG_WARNING, "probably trigger will not work as intended (no timers nor events): %s", cursor.displaycode(70).c_str());
     // send a null as initial result
     aResult = new AnnotatedNullValue("probably will never trigger");
@@ -3539,14 +3522,13 @@ void CompiledHandler::installAndInitializeTrigger(ScriptObjPtr aTrigger)
 void CompiledHandler::triggered(ScriptObjPtr aTriggerResult)
 {
   // execute the handler script now
-  SPLOG(mainContext->domain(), LOG_INFO, "%s triggered: '%s' with result = %s", name.c_str(), cursor.displaycode(50).c_str(), ScriptObj::describe(aTriggerResult).c_str());
   if (mainContext) {
+    SPLOG(mainContext->domain(), LOG_INFO, "%s triggered: '%s' with result = %s", name.c_str(), cursor.displaycode(50).c_str(), ScriptObj::describe(aTriggerResult).c_str());
     ExecutionContextPtr ctx = contextForCallingFrom(mainContext->domain(), NULL);
     if (ctx) {
       // FIXME: not so clean, as it sets a "result" variable also visible from trigger
       ctx->setMemberByName("result", aTriggerResult);
-      // execute in order with other non-concurrently started threads (queue|concurrently), but allow a subthreads to continue running (!mainthread)
-      ctx->execute(this, scriptbody|keepvars|queue|concurrently, boost::bind(&CompiledHandler::actionExecuted, this, _1));
+      ctx->execute(this, scriptbody|keepvars|concurrently, boost::bind(&CompiledHandler::actionExecuted, this, _1));
       return;
     }
   }
@@ -4697,7 +4679,7 @@ static void is_time_func(BuiltinFunctionContextPtr f)
 // initial()  returns true if this is a "initial" run of a trigger, meaning after startup or expression changes
 static void initial_func(BuiltinFunctionContextPtr f)
 {
-  f->finish(new NumericValue((f->evalFlags()&runModeMask)==initial));
+  f->finish(new NumericValue((f->evalFlags()&initial)!=0));
 }
 
 // testlater(seconds, timedtest [, retrigger])
@@ -4724,8 +4706,8 @@ static void testlater_func(BuiltinFunctionContextPtr f)
   SourceCursor::UniquePos  freezeId = f->argId(0);
   CompiledTrigger::FrozenResult* frozenP = trigger->getFrozen(currentSecs, freezeId);
   bool evalNow = frozenP && !frozenP->frozen();
-  if ((f->evalFlags()&runModeMask)!=timed) {
-    if ((f->evalFlags()&runModeMask)!=initial || retrigger) {
+  if ((f->evalFlags()&timed)==0) {
+    if ((f->evalFlags()&initial)==0 || retrigger) {
       // evaluating non-timed, non-initial (or retriggering) means "not yet ready" and must start or extend freeze period
       trigger->newFreeze(frozenP, secs, freezeId, MainLoop::now()+s*Second, true);
     }
@@ -4777,7 +4759,7 @@ static void every_func(BuiltinFunctionContextPtr f)
   SourceCursor::UniquePos freezeId = f->argId(0);
   CompiledTrigger::FrozenResult* frozenP = trigger->getFrozen(currentSecs, freezeId);
   bool triggered = frozenP && !frozenP->frozen();
-  if (triggered || (f->evalFlags()&runModeMask)==initial) {
+  if (triggered || (f->evalFlags()&initial)!=0) {
     // setup new interval
     double interval = s;
     if (syncoffset<0) {
