@@ -2143,7 +2143,7 @@ void SourceProcessor::assignOrAccess(bool aAllowAssign)
 void SourceProcessor::s_member()
 {
   FOCUSLOGSTATE;
-  // immediately after retrieving a member's value or lvalue, i.e. immediately after an identifier or closing subscript bracket
+  // after retrieving a potential member's value or lvalue (e.g. after identifier, subscript, function call, paranthesized subexpression)
   // - result is the member's value
   if (src.nextIf('.')) {
     // direct sub-member access
@@ -2256,44 +2256,6 @@ void SourceProcessor::s_nextSubscript()
 }
 
 
-//void SourceProcessor::s_defineGlobalMember()
-//{
-//  FOCUSLOGSTATE;
-//  assignMember(global|create|onlycreate);
-//}
-//
-//void SourceProcessor::s_defineMember()
-//{
-//  FOCUSLOGSTATE;
-//  assignMember(create);
-//}
-//
-//void SourceProcessor::s_assignMember()
-//{
-//  FOCUSLOGSTATE;
-//  assignMember(none);
-//}
-
-//  void SourceProcessor::assignMember(TypeInfo aStorageAttributes)
-//  {
-//    // end of the rvalue of an assignment
-//    // - result is the value to assign or NULL to delete
-//    // - olderResult is the lvalue to assign to
-//    // - storageSpecifier is the member name (string) or index (numweric) to assign
-//    //   Note: as nested assignments, or assignments in non-body-level expressions are NOT supported,
-//    //     storage specifier is never overridden in subexpressions and does not need to get stacked
-//    setState(&SourceProcessor::s_result);
-//    if (!result || !result->isErr()) {
-//      if (!skipping) {
-//        if (result) result = result->assignableValue(); // get a copy in case the value is mutable (i.e. copy-on-write, assignment is "writing")
-//        setMemberBySpecifier(aStorageAttributes);
-//        return;
-//      }
-//    }
-//    checkAndResume();
-//  }
-
-
 // MARK: function calls
 
 void SourceProcessor::s_funcContext()
@@ -2352,7 +2314,7 @@ void SourceProcessor::s_funcExec()
   FOCUSLOGSTATE;
   // after closing parantheis of a function call
   // - result is the function to call
-  setState(&SourceProcessor::s_nothrowResult); // result of the function call
+  setState(&SourceProcessor::s_member); // result of the function call might be a member
   if (skipping) {
     checkAndResume(); // just NOP
   }
@@ -2426,7 +2388,8 @@ void SourceProcessor::s_groupedExpression()
     exitWithSyntaxError("missing ')'");
     return;
   }
-  resumeAt(&SourceProcessor::s_exprFirstTerm);
+  push(&SourceProcessor::s_exprFirstTerm);
+  resumeAt(&SourceProcessor::s_member); // always check for submember access first (grouped expression result could be an object)
 }
 
 

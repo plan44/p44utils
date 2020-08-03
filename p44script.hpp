@@ -1119,7 +1119,7 @@ namespace p44 { namespace P44Script {
 
     /// set source code and compile mode
     /// @param aSource the source code
-    /// @param aCompileFlags how to compile (as expression, scriptbody, source, possibly with embeddedGlobs)
+    /// @param aCompileFlags how to compile (as expression, scriptbody, sourcecode, possibly with embeddedGlobs)
     /// @return true if source or compile flags have actually changed. Otherwise, nothing happens and false is returned
     bool setSource(const string aSource, EvaluationFlags aCompileFlags = sourcecode);
 
