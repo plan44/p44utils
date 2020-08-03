@@ -2120,6 +2120,7 @@ void SourceProcessor::assignOrAccess(bool aAllowAssign)
   if (!skipping) {
     if (aAllowAssign && precedence==0) {
       // COULD be an assignment
+      src.skipNonCode();
       SourcePos opos = src.pos;
       ScriptOperator aop = src.parseOperator();
       if (aop==op_assign || aop==op_assignOrEq) {
@@ -2129,6 +2130,7 @@ void SourceProcessor::assignOrAccess(bool aAllowAssign)
         memberByIdentifier(lvalue);
         return;
       }
+      src.pos = opos; // back to before operator
     }
     // not an assignment, just request member value
     setState(&SourceProcessor::s_member);
