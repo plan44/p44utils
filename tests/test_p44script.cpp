@@ -259,16 +259,28 @@ TEST_CASE("CodeCursor", "[scripting]" )
 
 // MARK: - debug test case
 
+/*
 TEST_CASE_METHOD(AsyncScriptingFixture, "Debugging single case/assertion", "[DEBUG]" )
 {
   SETLOGLEVEL(LOG_DEBUG);
   SETDELTATIME(true);
+
 #define TEST_URL "plan44.ch/testing/httptest.php"
 #define DATA_IN_7SEC_TEST_URL "plan44.ch/testing/httptest.php?delay=7"
 //  REQUIRE(scriptTest(sourcecode, "glob res='not completed'; log(4, 'will take 3 secs'); concurrent http { try { res=geturl('http://" DATA_IN_7SEC_TEST_URL "', 5) } catch (err) { res = err } } delay(3); abort(http); return res")->stringValue() == "ok");
   REQUIRE(scriptTest(sourcecode, "glob res='not completed'; log(4, 'will take 3 secs'); concurrent http { res=geturl('http://" DATA_IN_7SEC_TEST_URL "', 5) } delay(3); abort(http); return res")->stringValue() == "not completed");
 }
+*/
 
+/*
+TEST_CASE_METHOD(ScriptingCodeFixture, "Debugging single case/assertion", "[DEBUG]" )
+{
+  SETLOGLEVEL(LOG_DEBUG);
+  SETDELTATIME(true);
+
+  REQUIRE(s.test(expression, "jstest.array[2]")->doubleValue() == 3);
+}
+*/
 
 
 // MARK: - Literals
@@ -352,6 +364,7 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "lookups", "[scripting]") {
     REQUIRE(s.test(expression, "jstest['array',0]")->stringValue() == "first");
     REQUIRE(s.test(expression, "jstest.obj.objA")->stringValue() == "A");
     REQUIRE(s.test(expression, "jstest.obj.objB")->doubleValue() == 42);
+    REQUIRE(s.test(expression, "(jstest.obj).objB")->doubleValue() == 42); // submember of subexpression must work as well
     REQUIRE(s.test(expression, "jstest.obj['objB']")->doubleValue() == 42);
     REQUIRE(s.test(expression, "jstest['obj'].objB")->doubleValue() == 42);
     REQUIRE(s.test(expression, "jstest['obj','objB']")->doubleValue() == 42);

@@ -950,7 +950,7 @@ void ScriptCodeContext::abort(EvaluationFlags aAbortFlags, ScriptObjPtr aAbortRe
     ThreadList tba = threads; // copy list as original get modified while aborting
     for (ThreadList::iterator pos = tba.begin(); pos!=tba.end(); ++pos) {
       if (!aExceptThread || aExceptThread!=(*pos)) {
-        (*pos)->abort(); // should cause threadTerminated to get called which will remove actually terminated thread from the list
+        (*pos)->abort(aAbortResult); // should cause threadTerminated to get called which will remove actually terminated thread from the list
       }
     }
   }
@@ -4123,9 +4123,9 @@ void ScriptCodeThread::executeResult()
 
 void ScriptCodeThread::executedResult(ScriptObjPtr aResult)
 {
-//  // just to make sure nothing keeps running forever. Normally, nothing should be running here,
-//  // and if it is, it does not have a callback to this execution thread
-//  childContext->abort(stopall);
+  if (!aResult) {
+    aResult = new AnnotatedNullValue("no return value");
+  }
   childContext.reset(); // release the child context
   resume(aResult);
 }
@@ -4439,7 +4439,7 @@ static const size_t errordomain_numargs = sizeof(errordomain_args)/sizeof(BuiltI
 static void errordomain_func(BuiltinFunctionContextPtr f)
 {
   ErrorPtr err = f->arg(0)->errorValue();
-  if (Error::isOK(err)) f->finish(new AnnotatedNullValue("no error")); // no error, no domain
+  if (Error::isOK(err)) f->finish(new AnnotatedNullValue("not error")); // no error, no domain
   f->finish(new StringValue(err->getErrorDomain()));
 }
 
@@ -4450,7 +4450,7 @@ static const size_t errorcode_numargs = sizeof(errorcode_args)/sizeof(BuiltInArg
 static void errorcode_func(BuiltinFunctionContextPtr f)
 {
   ErrorPtr err = f->arg(0)->errorValue();
-  if (Error::isOK(err)) f->finish(new AnnotatedNullValue("no error")); // no error, no code
+  if (Error::isOK(err)) f->finish(new AnnotatedNullValue("not error")); // no error, no code
   f->finish(new NumericValue((double)err->getErrorCode()));
 }
 
@@ -4461,7 +4461,7 @@ static const size_t errormessage_numargs = sizeof(errormessage_args)/sizeof(Buil
 static void errormessage_func(BuiltinFunctionContextPtr f)
 {
   ErrorPtr err = f->arg(0)->errorValue();
-  if (Error::isOK(err)) f->finish(new AnnotatedNullValue("no error")); // no error, no message
+  if (Error::isOK(err)) f->finish(new AnnotatedNullValue("not error")); // no error, no message
   f->finish(new StringValue(err->getErrorMessage()));
 }
 

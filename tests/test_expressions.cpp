@@ -21,6 +21,8 @@
 
 #include "catch.hpp"
 
+#if ENABLE_EXPRESSIONS
+
 #include "expressions.hpp"
 #include <stdlib.h>
 
@@ -486,3 +488,5 @@ TEST_CASE_METHOD(ScriptFixture, "Scripts", "[expressions]" )
   }
 
 }
+
+#endif // ENABLE_EXPRESSIONS
