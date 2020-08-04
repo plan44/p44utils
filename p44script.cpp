@@ -184,6 +184,27 @@ string ScriptObj::describe(ScriptObjPtr aObj)
 }
 
 
+int ScriptObj::getLogLevelOffset()
+{
+  if (logLevelOffset==0) {
+    // no own offset - inherit context's
+    if (loggingContext()) return loggingContext()->getLogLevelOffset();
+    return 0;
+  }
+  return inherited::getLogLevelOffset();
+}
+
+
+string ScriptObj::logContextPrefix()
+{
+  string prefix;
+  if (loggingContext()) {
+    prefix = loggingContext()->logContextPrefix();
+  }
+  return prefix;
+}
+
+
 
 // MARK: Generic Operators
 
@@ -1731,6 +1752,8 @@ void SourceProcessor::start()
     setState(&SourceProcessor::s_declarations);
   else if (evaluationFlags & block)
     setState(&SourceProcessor::s_block);
+  else
+    complete(new ErrorValue(ScriptError::Internal, "no processing scope defined"));
   push(&SourceProcessor::s_complete);
   result.reset();
   olderResult.reset();
@@ -3607,6 +3630,7 @@ void ScriptCompiler::storeHandler()
 
 SourceContainer::SourceContainer(const char *aOriginLabel, P44LoggingObj* aLoggingContextP, const string aSource) :
   originLabel(aOriginLabel),
+  loggingContextP(aLoggingContextP),
   source(aSource),
   mFloating(false)
 {
@@ -3737,9 +3761,16 @@ ScriptObjPtr ScriptSource::getExecutable()
 }
 
 
-ScriptObjPtr ScriptSource::run(EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB, MLMicroSeconds aMaxRunTime)
+ScriptObjPtr ScriptSource::run(EvaluationFlags aRunFlags, EvaluationCB aEvaluationCB, MLMicroSeconds aMaxRunTime)
 {
-  compileFlags = aEvalFlags;
+  if (aRunFlags==inherit) {
+    // no run flags at all: just assume all flags were set with setSource() already
+    aRunFlags = compileFlags;
+  }
+  else if ((aRunFlags & scopeMask)==0) {
+    // no scope set in run flags -> inherit from compile flags
+    aRunFlags |= (compileFlags&scopeMask);
+  }
   ScriptObjPtr code = getExecutable();
   ScriptObjPtr result;
   // get the context to run it
@@ -3747,11 +3778,11 @@ ScriptObjPtr ScriptSource::run(EvaluationFlags aEvalFlags, EvaluationCB aEvaluat
     if (code->hasType(executable)) {
       ExecutionContextPtr ctx = code->contextForCallingFrom(domain(), NULL);
       if (ctx) {
-        if (aEvalFlags & synchronously) {
-          result = ctx->executeSynchronously(code, aEvalFlags, aMaxRunTime);
+        if (aRunFlags & synchronously) {
+          result = ctx->executeSynchronously(code, aRunFlags, aMaxRunTime);
         }
         else {
-          ctx->execute(code, aEvalFlags, aEvaluationCB, aMaxRunTime);
+          ctx->execute(code, aRunFlags, aEvaluationCB, aMaxRunTime);
           return result; // null, callback will deliver result
         }
       }
@@ -3881,6 +3912,38 @@ ScriptCodeThread::~ScriptCodeThread()
 {
   FOCUSLOG("\n%04x END          thread deleted : %s", (uint32_t)((intptr_t)static_cast<SourceProcessor *>(this)) & 0xFFFF, src.displaycode(130).c_str());
 }
+
+
+
+P44LoggingObj* ScriptCodeThread::loggingContext()
+{
+  return codeObj && codeObj->loggingContext() ? codeObj->loggingContext() : NULL;
+}
+
+
+int ScriptCodeThread::getLogLevelOffset()
+{
+  if (logLevelOffset==0) {
+    // no own offset - inherit context's
+    if (loggingContext()) return loggingContext()->getLogLevelOffset();
+    return 0;
+  }
+  return P44LoggingObj::getLogLevelOffset();
+}
+
+
+string ScriptCodeThread::logContextPrefix()
+{
+  string prefix;
+  if (loggingContext()) {
+    prefix = loggingContext()->logContextPrefix();
+  }
+  return prefix;
+}
+
+
+
+
 
 
 void ScriptCodeThread::prepareRun(

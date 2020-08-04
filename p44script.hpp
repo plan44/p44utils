@@ -157,6 +157,7 @@ namespace p44 { namespace P44Script {
 
   /// Evaluation flags
   enum {
+    inherit = 0, ///< no flags, inherit from compile flags
     // run mode
     runModeMask = 0x00FF,
     regular = 0x01, ///< regular script or expression code
@@ -164,12 +165,13 @@ namespace p44 { namespace P44Script {
     triggered = 0x04, ///< externally triggered (re-)evaluation
     timed = 0x08, ///< timed evaluation by timed retrigger
     scanning = 0x80, ///< scanning only (compiling)
-    // modifiers
-    modifierMask = 0xFFFFFF00,
+    // scope modifiers
+    scopeMask = 0xF00,
     expression = 0x100, ///< evaluate as an expression (no flow control, variable assignments, blocks etc.)
     scriptbody = 0x200, ///< evaluate as script body (no function or handler definitions)
     sourcecode = 0x400, ///< evaluate as script (include parsing functions and handlers)
     block = 0x800, ///< evaluate as a block (complete when reaching end of block)
+    // other modifiers
     synchronously = 0x1000, ///< evaluate synchronously, error out on async code
     stoprunning = 0x2000, ///< abort running execution in the same context before starting a new one
     queue = 0x4000, ///< queue for execution if other executions are still running/pending
@@ -271,6 +273,7 @@ namespace p44 { namespace P44Script {
   /// Base Object in scripting
   class ScriptObj : public P44LoggingObj
   {
+    typedef P44LoggingObj inherited;
   public:
 
     /// @name information
@@ -323,6 +326,13 @@ namespace p44 { namespace P44Script {
 
     /// logging context to use
     virtual P44LoggingObj* loggingContext() const { return NULL; };
+
+    /// @return the prefix to be used for logging from this object
+    virtual string logContextPrefix() P44_OVERRIDE;
+
+    /// @return the per-instance log level offset
+    /// @note is virtual because some objects might want to use the log level offset of another object
+    virtual int getLogLevelOffset() P44_OVERRIDE;
 
     /// @return associated position, can be NULL
     virtual SourceCursor* cursor() { return NULL; }
@@ -1137,10 +1147,13 @@ namespace p44 { namespace P44Script {
     ScriptObjPtr getExecutable();
 
     /// convenience quick runner
-    /// @param aEvalFlags if synchronously is set here, the result will be delivered directly (AND with the callback if one is set)
+    /// @param aRunFlags run flags.
+    ///   Notes: - if synchronously is set here, the result will be delivered directly (AND with the callback if one is set)
+    ///          - if set to 0 (==inherit), script will be run with flags inherited from what was set at setSource()
+    ///          - if all scope flags (sourcecode/scriptbody/expression/block) are 0, scope flags are inherited from flags set at setSource()
     /// @param aEvaluationCB will be called with the result
     /// @param aMaxRunTime the maximum run time
-    ScriptObjPtr run(EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB = NULL, MLMicroSeconds aMaxRunTime = Infinite);
+    ScriptObjPtr run(EvaluationFlags aRunFlags, EvaluationCB aEvaluationCB = NULL, MLMicroSeconds aMaxRunTime = Infinite);
 
     /// convenience method to perform the initialisation run for a trigger to get active
     /// @param aTriggerCB the callback to be fired when the trigger fires.
@@ -1802,7 +1815,7 @@ namespace p44 { namespace P44Script {
   /// The "stack" is NOT a function calling stack, but only the stack
   /// needed to walk the nested code/expression structure with
   /// a state machine.
-  class ScriptCodeThread : public P44Obj, public SourceProcessor
+  class ScriptCodeThread : public P44LoggingObj, public SourceProcessor
   {
     typedef SourceProcessor inherited;
     friend class ScriptCodeContext;
@@ -1828,6 +1841,17 @@ namespace p44 { namespace P44Script {
     ScriptCodeThread(ScriptCodeContextPtr aOwner, CompiledCodePtr aCode, const SourceCursor& aStartCursor);
 
     virtual ~ScriptCodeThread();
+
+    /// logging context to use
+    P44LoggingObj* loggingContext();
+
+    /// @return the prefix to be used for logging from this object
+    virtual string logContextPrefix() P44_OVERRIDE;
+
+    /// @return the per-instance log level offset
+    /// @note is virtual because some objects might want to use the log level offset of another object
+    virtual int getLogLevelOffset() P44_OVERRIDE;
+
 
     /// prepare for running
     /// @param aTerminationCB will be called to deliver when the thread ends
