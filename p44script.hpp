@@ -809,7 +809,8 @@ namespace p44 { namespace P44Script {
     /// @param aArgument the object to be passed as argument. Pass NULL to check if aCallee has more non-optional arguments
     /// @param aIndex argument index
     /// @param aCallee the object to be called with this argument (provides the signature)
-    ErrorPtr checkAndSetArgument(ScriptObjPtr aArgument, size_t aIndex, ScriptObjPtr aCallee);
+    /// @return NULL if argument is ok and can be passed, otherwise result to get checked for throwing
+    ScriptObjPtr checkAndSetArgument(ScriptObjPtr aArgument, size_t aIndex, ScriptObjPtr aCallee);
 
     /// @name execution environment info
     /// @{

@@ -745,21 +745,21 @@ ErrorPtr ExecutionContext::setMemberAtIndex(size_t aIndex, const ScriptObjPtr aM
 }
 
 
-ErrorPtr ExecutionContext::checkAndSetArgument(ScriptObjPtr aArgument, size_t aIndex, ScriptObjPtr aCallee)
+ScriptObjPtr ExecutionContext::checkAndSetArgument(ScriptObjPtr aArgument, size_t aIndex, ScriptObjPtr aCallee)
 {
-  if (!aCallee) return ScriptError::err(ScriptError::Internal, "missing callee");
+  if (!aCallee) return new ErrorValue(ScriptError::Internal, "missing callee");
   ArgumentDescriptor info;
   bool hasInfo = aCallee->argumentInfo(aIndex, info);
   if (!hasInfo) {
     if (aArgument) {
-      return ScriptError::err(ScriptError::Syntax, "too many arguments for '%s'", aCallee->getIdentifier().c_str());
+      return new ErrorValue(ScriptError::Syntax, "too many arguments for '%s'", aCallee->getIdentifier().c_str());
     }
   }
   if (!aArgument && hasInfo) {
     // check if there SHOULD be an argument at aIndex (but we have none)
     if ((info.typeInfo & (optional|multiple))==0) {
       // at aIndex is a non-optional argument expected
-      return ScriptError::err(ScriptError::Syntax,
+      return new ErrorValue(ScriptError::Syntax,
         "missing argument %zu (%s) in call to '%s'",
         aIndex+1,
         typeDescription(info.typeInfo).c_str(),
@@ -781,8 +781,12 @@ ErrorPtr ExecutionContext::checkAndSetArgument(ScriptObjPtr aArgument, size_t aI
           // type mismatch is not an error, but just enforces undefined function result w/o executing
           undefinedResult = true;
         }
+        else if (argInfo & error) {
+          // getting an error for an argument that does not allow errors should forward the error as-is
+          return aArgument;
+        }
         else {
-          return ScriptError::err(ScriptError::Syntax,
+          return new ErrorValue(ScriptError::Syntax,
             "argument %zu in call to '%s' is %s - expected %s",
             aIndex+1,
             aCallee->getIdentifier().c_str(),
@@ -793,9 +797,12 @@ ErrorPtr ExecutionContext::checkAndSetArgument(ScriptObjPtr aArgument, size_t aI
       }
     }
     // argument is fine, set it
-    return setMemberAtIndex(aIndex, aArgument, info.name);
+    ErrorPtr err = setMemberAtIndex(aIndex, aArgument, info.name);
+    if (Error::notOK(err)) {
+      return new ErrorValue(err);
+    }
   }
-  return ErrorPtr(); // ok
+  return ScriptObjPtr(); // ok
 }
 
 
@@ -4165,10 +4172,9 @@ void ScriptCodeThread::startBlockThreadAndStoreInIdentifier()
 void ScriptCodeThread::pushFunctionArgument(ScriptObjPtr aArgument)
 {
   // apply the specified argument to the current function call context
-
   if (funcCallContext) {
-    ErrorPtr err = funcCallContext->checkAndSetArgument(aArgument, funcCallContext->numIndexedMembers(), result);
-    if (Error::notOK(err)) result = new ErrorPosValue(src, err);
+    ScriptObjPtr errVal = funcCallContext->checkAndSetArgument(aArgument, funcCallContext->numIndexedMembers(), result);
+    if (errVal) result = errVal;
   }
   checkAndResume();
 }
@@ -4179,9 +4185,9 @@ void ScriptCodeThread::executeResult()
 {
   if (funcCallContext && result) {
     // check for missing arguments after those we have
-    ErrorPtr err = funcCallContext->checkAndSetArgument(ScriptObjPtr(), funcCallContext->numIndexedMembers(), result);
-    if (Error::notOK(err)) {
-      result = new ErrorPosValue(src, err);
+    ScriptObjPtr errVal = funcCallContext->checkAndSetArgument(ScriptObjPtr(), funcCallContext->numIndexedMembers(), result);
+    if (errVal) {
+      result = errVal;
       checkAndResume();
     }
     else {
