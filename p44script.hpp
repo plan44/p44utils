@@ -1181,14 +1181,16 @@ namespace p44 { namespace P44Script {
       inherited(aOriginLabel, aLoggingContextP),
       mTriggerCB(aTriggerCB),
       mTriggerMode(aTriggerMode),
-      mEvalFlags(aEvalFlags)
+      mEvalFlags((aEvalFlags&~runModeMask)|initial) // actual run mode is set when run, but a trigger related mode must be set to generate a CompiledTrigger object
     {
     }
 
     /// set new trigger source with the callback/mode/evalFlags as set with the constructor
+    /// @param aSource the trigger source code to set
+    /// @param aAutoInit if set, and source code has actually changed, reInitalize() will be called
     /// @return true if changed.
     /// @note usually, reInitialize() should be called when source has changed
-    bool setTriggerSource(const string aSource);
+    bool setTriggerSource(const string aSource, bool aAutoInit = false);
 
     /// re-initialize the trigger
     /// @return the result of the initialisation run
@@ -1671,6 +1673,9 @@ namespace p44 { namespace P44Script {
 
     /// set the trigger mode
     void setTriggerMode(TriggerMode aTriggerMode) { triggerMode = aTriggerMode; }
+
+    /// check if trigger is active (could possibly trigger)
+    bool isActive() { return triggerCB!=NULL && triggerMode!=inactive; };
 
     /// the current result of the trigger (the result of the last evaluation that happened)
     ScriptObjPtr currentResult() { return mCurrentResult ? mCurrentResult : new AnnotatedNullValue("trigger never evaluated"); }

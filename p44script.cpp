@@ -3359,7 +3359,7 @@ void CompiledTrigger::triggerDidEvaluate(EvaluationFlags aEvalMode, ScriptObjPtr
     // bool modes
     doTrigger = mCurrentState!=newState;
     if (triggerMode==onGettingTrue) {
-      doTrigger = doTrigger & (newState==yes); // only if becoming true
+      doTrigger = doTrigger && (newState==yes); // only if becoming true
     }
   }
   // update state
@@ -3395,6 +3395,7 @@ void CompiledTrigger::triggerDidEvaluate(EvaluationFlags aEvalMode, ScriptObjPtr
   // callback (always, even when initializing)
   if (doTrigger && triggerCB) {
     FOCUSLOG("\n---------- FIRING Trigger        : result = %s", ScriptObj::describe(aResult).c_str());
+    OLOG(LOG_INFO, "trigger fires with result = %s", ScriptObj::describe(aResult).c_str());
     triggerCB(aResult);
   }
 }
@@ -3813,9 +3814,15 @@ ScriptObjPtr ScriptSource::initializeTrigger(EvaluationCB aTriggerCB, TriggerMod
 }
 
 
-bool TriggerSource::setTriggerSource(const string aSource)
+// MARK: - TriggerSource
+
+bool TriggerSource::setTriggerSource(const string aSource, bool aAutoInit)
 {
-  return setSource(aSource, mEvalFlags);
+  bool changed = setSource(aSource, mEvalFlags);
+  if (changed && aAutoInit) {
+    reInitialize();
+  }
+  return changed;
 }
 
 
@@ -3830,7 +3837,12 @@ bool TriggerSource::evaluate(EvaluationFlags aRunMode)
   CompiledTriggerPtr trigger = dynamic_pointer_cast<CompiledTrigger>(getExecutable());
   if (trigger) {
     EvaluationFlags f = (mEvalFlags&~runModeMask) | (aRunMode&runModeMask);
-    trigger->triggerEvaluation(f);
+    if (!trigger->isActive()) {
+      reInitialize();
+    }
+    else {
+      trigger->triggerEvaluation(f);
+    }
     return true;
   }
   return false;
