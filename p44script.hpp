@@ -521,9 +521,6 @@ namespace p44 { namespace P44Script {
     /// @return a souce of events for this object, or NULL if none
     virtual EventSource *eventSource() const { return NULL; /* none in base class */ }
 
-    // FIXME: convert thread value to EventSource/EventSink model
-    virtual void notifyThreadValue(ScriptObjPtr aEvent) { /* NOP in base class */ }
-
     /// @}
 
   };
@@ -583,8 +580,7 @@ namespace p44 { namespace P44Script {
   };
 
 
-  // MARK: - Special Value classes
-
+  // MARK: - Error Values
 
   /// an explicitly annotated null value (in contrast to ScriptObj base class which is a non-annotated null)
   class AnnotatedNullValue : public ScriptObj
@@ -625,36 +621,20 @@ namespace p44 { namespace P44Script {
   };
 
 
-  class AwaitableValue : public ScriptObj
+  // MARK: - ThreadValue
+
+  class ThreadValue : public ScriptObj
   {
     typedef ScriptObj inherited;
-    typedef std::list<EvaluationCB> EvalCBList;
-    EvalCBList evalCBList;
-    ScriptObjPtr notification;
-  public:
-    virtual string getAnnotation() const P44_OVERRIDE { return "awaitable"; };
-    void registerCB(EvaluationCB aEvaluationCB);
-    ScriptObjPtr receivedNotification() { return notification; }
-  protected:
-    void continueWaiters(ScriptObjPtr aNotification);
-  };
-
-
-  class ThreadValue : public AwaitableValue
-  {
-    typedef AwaitableValue inherited;
-    ScriptCodeThreadPtr thread;
-    EvaluationCB eventHandler;
+    ScriptCodeThreadPtr mThread;
+    ScriptObjPtr threadExitValue;
   public:
     ThreadValue(ScriptCodeThreadPtr aThread);
     virtual string getAnnotation() const P44_OVERRIDE { return "thread"; };
     virtual TypeInfo getTypeInfo() const P44_OVERRIDE { return threadref; };
-    virtual double doubleValue() const P44_OVERRIDE;
-    virtual string stringValue() const P44_OVERRIDE { return getAnnotation(); };
 
-    // FIXME: q&d for now, integrate with triggers later
-    virtual void notifyThreadValue(ScriptObjPtr aNotification) P44_OVERRIDE;
-
+    virtual ScriptObjPtr actualValue() P44_OVERRIDE; /// < ThreadValue is a proxy for the thread's exit value
+    virtual EventSource *eventSource() const P44_OVERRIDE; ///< ThreadValue is an event source, event is the exit value of a thread terminating
     void abort(); ///< abort the thread
   };
 
@@ -1323,9 +1303,6 @@ namespace p44 { namespace P44Script {
     /// @note setCursor(), setCompletedCB() and initProcessing() must be called before!
     virtual void start();
 
-    /// @return true if running
-    bool isRunning();
-
     /// resume processing
     /// @param aNewResult if not NULL, this object will be stored to result as first step of the resume
     /// @note must be called for every step of the process that does not lead to completion
@@ -1859,7 +1836,7 @@ namespace p44 { namespace P44Script {
   /// The "stack" is NOT a function calling stack, but only the stack
   /// needed to walk the nested code/expression structure with
   /// a state machine.
-  class ScriptCodeThread : public P44LoggingObj, public SourceProcessor
+  class ScriptCodeThread : public P44LoggingObj, public SourceProcessor, public EventSource
   {
     typedef SourceProcessor inherited;
     friend class ScriptCodeContext;
@@ -1873,9 +1850,6 @@ namespace p44 { namespace P44Script {
     MLMicroSeconds runningSince; ///< time the thread was started
     ExecutionContextPtr childContext; ///< set during calls to other contexts, e.g. to propagate abort()
     MLTicket autoResumeTicket; ///< auto-resume ticket
-
-    typedef std::list<ScriptObjPtr> WaitingList;
-    WaitingList waitingList;
 
   public:
 
@@ -1917,6 +1891,9 @@ namespace p44 { namespace P44Script {
     /// @param aAbortResult if set, this is what abort will report back
     virtual void abort(ScriptObjPtr aAbortResult = ScriptObjPtr()) P44_OVERRIDE;
 
+    /// @return NULL when the thread is still running, final result value otherwise
+    ScriptObjPtr finalResult();
+
     /// abort all threads in the same context execpt this one
     /// @param aAbortResult if set, this is what abort will report back
     void abortOthers(EvaluationFlags aAbortFlags = stopall, ScriptObjPtr aAbortResult = ScriptObjPtr())
@@ -1924,9 +1901,6 @@ namespace p44 { namespace P44Script {
 
     /// complete the current thread
     virtual void complete(ScriptObjPtr aFinalResult) P44_OVERRIDE;
-
-    /// register a object to get notify()-ed when the thread completes
-    void registerCompletionNotification(ScriptObjPtr aObj);
 
     /// @return the owner (the execution context that has started this thread)
     ScriptCodeContextPtr owner() { return mOwner; }

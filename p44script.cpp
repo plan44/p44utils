@@ -430,7 +430,7 @@ void StandardLValue::assignLValue(EvaluationCB aEvaluationCB, ScriptObjPtr aNewV
 }
 
 
-// MARK: - Special Value classes
+// MARK: - Error Values
 
 ErrorValue::ErrorValue(ScriptError::ErrorCodes aErrCode, const char *aFmt, ...) :
   thrown(false)
@@ -454,43 +454,39 @@ ErrorPosValue::ErrorPosValue(const SourceCursor &aCursor, ScriptError::ErrorCode
 }
 
 
-void AwaitableValue::registerCB(EvaluationCB aEvaluationCB)
+// MARK: - ThreadValue
+
+ThreadValue::ThreadValue(ScriptCodeThreadPtr aThread) : mThread(aThread)
 {
-  evalCBList.push_back(aEvaluationCB);
 }
 
 
-void AwaitableValue::continueWaiters(ScriptObjPtr aNotification)
+ScriptObjPtr ThreadValue::actualValue()
 {
-  notification = aNotification;
-  while (!evalCBList.empty()) {
-    EvaluationCB cb = evalCBList.front();
-    evalCBList.pop_front();
-    cb(notification);
+  if (!threadExitValue) {
+    // might still be running, or is in zombie state holding final result
+    if (mThread) {
+      threadExitValue = mThread->finalResult();
+      if (threadExitValue) {
+        mThread.reset(); // release the zombie thread object itself
+      }
+    }
   }
+  if (!threadExitValue) return new AnnotatedNullValue("still running");
+  return threadExitValue;
 }
 
-
-ThreadValue::ThreadValue(ScriptCodeThreadPtr aThread) : thread(aThread)
-{
-  thread->registerCompletionNotification(this);
-}
-
-double ThreadValue::doubleValue() const
-{
-  return thread && thread->isRunning() ? 1 : 0;
-}
-
-
-void ThreadValue::notifyThreadValue(ScriptObjPtr aNotification)
-{
-  continueWaiters(aNotification);
-  thread.reset(); // release the thread
-}
 
 void ThreadValue::abort()
 {
-  if (thread) thread->abort();
+  if (mThread) mThread->abort();
+}
+
+
+EventSource* ThreadValue::eventSource() const
+{
+  if (!mThread) return NULL;
+  return static_cast<EventSource*>(mThread.get());
 }
 
 
@@ -1805,12 +1801,6 @@ void SourceProcessor::start()
   olderResult.reset();
   resuming = false;
   resume();
-}
-
-
-bool SourceProcessor::isRunning()
-{
-  return currentState!=NULL;
 }
 
 
@@ -4045,21 +4035,20 @@ void ScriptCodeThread::abort(ScriptObjPtr aAbortResult)
 }
 
 
+ScriptObjPtr ScriptCodeThread::finalResult()
+{
+  if (currentState==NULL) return result; // exit value of the thread
+  return ScriptObjPtr(); // still running
+}
+
+
+
 void ScriptCodeThread::complete(ScriptObjPtr aFinalResult)
 {
   autoResumeTicket.cancel();
   inherited::complete(aFinalResult);
-  for (WaitingList::iterator pos = waitingList.begin(); pos!=waitingList.end(); ++pos) {
-    (*pos)->notifyThreadValue(aFinalResult);
-  }
-  waitingList.clear();
+  sendEvent(result); // send the final result as event to registered EventSinks
   mOwner->threadTerminated(this, evaluationFlags);
-}
-
-
-void ScriptCodeThread::registerCompletionNotification(ScriptObjPtr aObj)
-{
-  waitingList.push_back(aObj);
 }
 
 
@@ -4631,18 +4620,57 @@ static void eval_func(BuiltinFunctionContextPtr f)
 }
 
 
-// await(thread)    wait for the thread to complete, return the thread's exit value
-static const BuiltInArgDesc await_args[] = { { threadref+exacttype } };
+class AwaitEventSink : public EventSink
+{
+  BuiltinFunctionContextPtr f;
+public:
+  MLTicket timeoutTicket;
+  AwaitEventSink(BuiltinFunctionContextPtr aF) : f(aF) {};
+  virtual void processEvent(ScriptObjPtr aEvent, EventSource &aSource) P44_OVERRIDE
+  {
+    f->finish(aEvent);
+    f->setAbortCallback(NULL);
+    delete this;
+  }
+  void timeout()
+  {
+    f->finish(new AnnotatedNullValue("await timeout"));
+    f->setAbortCallback(NULL);
+    delete this;
+  }
+};
+
+// await(event [, event...] [,timeout])    wait for an event (or one of serveral)
+static void await_abort(AwaitEventSink* aAwaitEventSink)
+{
+  delete aAwaitEventSink;
+}
+static const BuiltInArgDesc await_args[] = { { any }, { any+optional+multiple } };
 static const size_t await_numargs = sizeof(await_args)/sizeof(BuiltInArgDesc);
 static void await_func(BuiltinFunctionContextPtr f)
 {
-  ThreadValue *t = dynamic_cast<ThreadValue *>(f->arg(0).get());
-  if (t && t->doubleValue()) {
-    // running
-    t->registerCB(boost::bind(&BuiltinFunctionContext::finish, f, _1));
-    return;
+  int ai=0;
+  AwaitEventSink* awaitEventSink = new AwaitEventSink(f); // temporary object that will receive one of the events or the timeout
+  MLMicroSeconds to = Infinite;
+  do {
+    EventSource* ev = f->arg(ai)->eventSource();
+    if (!ev) {
+      // must be last arg and numeric to be timeout, otherwise error
+      if (ai==f->numArgs()-1 && f->arg(ai)->hasType(numeric)) {
+        to = f->arg(ai)->doubleValue()*Second;
+        break;
+      }
+      f->finish(new ErrorValue(ScriptError::Invalid, "argument %d is not a event value, cannot wait for it", ai+1));
+      delete awaitEventSink;
+      return;
+    }
+    ev->registerForEvents(awaitEventSink); // register each of the event sources for getting events
+    ai++;
+  } while(ai<f->numArgs());
+  if (to!=Infinite) {
+    awaitEventSink->timeoutTicket.executeOnce(boost::bind(&AwaitEventSink::timeout, awaitEventSink));
   }
-  f->finish(t->receivedNotification());
+  f->setAbortCallback(boost::bind(&await_abort, awaitEventSink));
   return;
 }
 
