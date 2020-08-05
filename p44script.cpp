@@ -68,6 +68,7 @@ void EventSink::clearSources()
     EventSource *src = *(eventSources.begin());
     eventSources.erase(eventSources.begin());
     src->eventSinks.erase(this);
+    src->sinksModified = true;
   }
 }
 
@@ -83,11 +84,13 @@ EventSource::~EventSource()
     sink->eventSources.erase(this);
   }
   eventSinks.clear();
+  sinksModified = true;
 }
 
 void EventSource::registerForEvents(EventSink *aEventSink)
 {
   if (aEventSink) {
+    sinksModified = true;
     eventSinks.insert(aEventSink); // multiple registrations are possible, counted only once
     aEventSink->eventSources.insert(this);
   }
@@ -96,6 +99,7 @@ void EventSource::registerForEvents(EventSink *aEventSink)
 void EventSource::unregisterFromEvents(EventSink *aEventSink)
 {
   if (aEventSink) {
+    sinksModified = true;
     eventSinks.erase(aEventSink);
     aEventSink->eventSources.erase(this);
   }
@@ -103,9 +107,16 @@ void EventSource::unregisterFromEvents(EventSink *aEventSink)
 
 void EventSource::sendEvent(ScriptObjPtr aEvent)
 {
-  for (EventSinkSet::iterator pos=eventSinks.begin(); pos!=eventSinks.end(); ++pos) {
-    (*pos)->processEvent(aEvent, *this);
-  }
+  // note: duplicate notification is possible when sending event causes event sink changes and restarts
+  // TODO: maybe fix this if it turns out to be a problem
+  //       (should not, because entire triggering is designed to re-evaluate events after triggering)
+  do {
+    sinksModified = false;
+    for (EventSinkSet::iterator pos=eventSinks.begin(); pos!=eventSinks.end(); ++pos) {
+      (*pos)->processEvent(aEvent, *this);
+      if (sinksModified) break;
+    }
+  } while(sinksModified);
 }
 
 
@@ -483,9 +494,16 @@ void ThreadValue::abort()
 }
 
 
+bool ThreadValue::running()
+{
+  return mThread && (mThread->finalResult()==NULL);
+}
+
+
+
 EventSource* ThreadValue::eventSource() const
 {
-  if (!mThread) return NULL;
+  if (!mThread) return NULL; // no longer running -> no event source any more
   return static_cast<EventSource*>(mThread.get());
 }
 
@@ -1940,17 +1958,12 @@ void SourceProcessor::pop()
   stack.pop_back();
 }
 
+//#error here we ruined something with lvalues - popWithResult
 
 void SourceProcessor::popWithResult(bool aThrowErrors)
 {
   FOCUSLOGSTATE;
-  ScriptObjPtr validResult;
-  if (result) {
-    // try to get the actual value (in case what we have is an lvalue
-    validResult = result->actualValue();
-    if (validResult) result = validResult; // value available without extra validation step
-  }
-  if (skipping || !result || validResult || result->hasType(lvalue)) {
+  if (skipping || !result || result->actualValue() || result->hasType(lvalue)) {
     // no need for a validation step for loading lazy results or for empty lvalues
     popWithValidResult(aThrowErrors);
     return;
@@ -1964,10 +1977,26 @@ void SourceProcessor::popWithResult(bool aThrowErrors)
 void SourceProcessor::popWithValidResult(bool aThrowErrors)
 {
   pop(); // get state to continue with
-  if (result && result->isErr() && !result->cursor()) {
-    // Errors should get position as near to the creation as possible (and not
-    // later when thrown and pos is no longer valid!)
-    result = new ErrorPosValue(src, result->errorValue());
+  if (result) {
+    // try to get the actual value (in case what we have is an lvalue or similar proxy)
+    ScriptObjPtr validResult = result->actualValue();
+    // - replace original value only...
+    if (
+      validResult && (
+        !result->hasType(keeporiginal|lvalue) || ( // ..if keeping not demanded and not lvalue
+          currentState!=&SourceProcessor::s_exprFirstTerm && // ..or receiver is neither first term...
+          currentState!=&SourceProcessor::s_funcArg && // ..nor function argument...
+          currentState!=&SourceProcessor::s_assignExpression // ..nor assignment
+        )
+      )
+    ) {
+      result = validResult; // replace original result with its actualValue()
+    }
+    if (result->isErr() && !result->cursor()) {
+      // Errors should get position as near to the creation as possible (and not
+      // later when thrown and pos is no longer valid!)
+      result = new ErrorPosValue(src, result->errorValue());
+    }
   }
   if (aThrowErrors)
     checkAndResume();
@@ -3203,6 +3232,15 @@ void SourceProcessor::s_validResult()
   popWithValidResult(false);
 }
 
+void SourceProcessor::s_uncheckedResult()
+{
+  FOCUSLOGSTATE;
+  pop();
+  resume();
+}
+
+
+
 void SourceProcessor::s_validResultCheck()
 {
   FOCUSLOGSTATE;
@@ -4189,7 +4227,7 @@ void ScriptCodeThread::startBlockThreadAndStoreInIdentifier()
       push(&SourceProcessor::s_assignOlder);
       thread->run();
       result.reset();
-      setState(&SourceProcessor::s_validResult);
+      setState(&SourceProcessor::s_uncheckedResult);
       memberByIdentifier(lvalue+create);
       return;
     }
@@ -4620,6 +4658,7 @@ static void eval_func(BuiltinFunctionContextPtr f)
 }
 
 
+// await(event [, event...] [,timeout])    wait for an event (or one of serveral)
 class AwaitEventSink : public EventSink
 {
   BuiltinFunctionContextPtr f;
@@ -4640,12 +4679,12 @@ public:
   }
 };
 
-// await(event [, event...] [,timeout])    wait for an event (or one of serveral)
 static void await_abort(AwaitEventSink* aAwaitEventSink)
 {
   delete aAwaitEventSink;
 }
-static const BuiltInArgDesc await_args[] = { { any }, { any+optional+multiple } };
+
+static const BuiltInArgDesc await_args[] = { { any+null }, { any+null+optional+multiple } };
 static const size_t await_numargs = sizeof(await_args)/sizeof(BuiltInArgDesc);
 static void await_func(BuiltinFunctionContextPtr f)
 {
@@ -4660,15 +4699,16 @@ static void await_func(BuiltinFunctionContextPtr f)
         to = f->arg(ai)->doubleValue()*Second;
         break;
       }
-      f->finish(new ErrorValue(ScriptError::Invalid, "argument %d is not a event value, cannot wait for it", ai+1));
+      // not an event source -> just immediately return the value itself
       delete awaitEventSink;
+      f->finish(f->arg(ai));
       return;
     }
     ev->registerForEvents(awaitEventSink); // register each of the event sources for getting events
     ai++;
   } while(ai<f->numArgs());
   if (to!=Infinite) {
-    awaitEventSink->timeoutTicket.executeOnce(boost::bind(&AwaitEventSink::timeout, awaitEventSink));
+    awaitEventSink->timeoutTicket.executeOnce(boost::bind(&AwaitEventSink::timeout, awaitEventSink), to);
   }
   f->setAbortCallback(boost::bind(&await_abort, awaitEventSink));
   return;
@@ -4684,8 +4724,8 @@ static void abort_func(BuiltinFunctionContextPtr f)
   if (f->numArgs()==1) {
     // single thread represented by arg0
     ThreadValue *t = dynamic_cast<ThreadValue *>(f->arg(0).get());
-    if (t && t->doubleValue()) {
-      // running
+    if (t && t->running()) {
+      // still running
       t->abort();
     }
   }
@@ -4723,7 +4763,7 @@ static void log_func(BuiltinFunctionContextPtr f)
     ai++;
   }
   LOG(loglevel, "Script log: %s", f->arg(ai)->stringValue().c_str());
-  f->finish();
+  f->finish(f->arg(ai)); // also return the message logged
 }
 
 
@@ -5176,7 +5216,7 @@ static const BuiltinMemberDescriptor standardFunctions[] = {
   { "await", any, await_numargs, await_args, &await_func },
   { "abort", null, abort_numargs, abort_args, &abort_func },
   { "undeclare", null, 0, NULL, &undeclare_func },
-  { "log", null, log_numargs, log_args, &log_func },
+  { "log", text, log_numargs, log_args, &log_func },
   { "loglevel", numeric, loglevel_numargs, loglevel_args, &loglevel_func },
   { "logleveloffset", numeric, logleveloffset_numargs, logleveloffset_args, &logleveloffset_func },
   { "is_weekday", any, is_weekday_numargs, is_weekday_args, &is_weekday_func },

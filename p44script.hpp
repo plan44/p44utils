@@ -225,6 +225,7 @@ namespace p44 { namespace P44Script {
     classscope = 0x800000, ///< set to select only class scope members
     allscopes = classscope+objscope+global,
     builtinmember = 0x1000000, ///< special flag for use in built-in member descriptions to differentiate members from functions
+    keeporiginal = 0x2000000, ///< special flag for values that should not be replaced by their actualValue()
   };
   typedef uint32_t TypeInfo;
 
@@ -278,6 +279,7 @@ namespace p44 { namespace P44Script {
     friend class EventSink;
     typedef std::set<EventSink *> EventSinkSet;
     EventSinkSet eventSinks;
+    bool sinksModified;
   public:
     virtual ~EventSource();
 
@@ -519,6 +521,8 @@ namespace p44 { namespace P44Script {
     /// @{
 
     /// @return a souce of events for this object, or NULL if none
+    /// @note objects that represent a on-time event (such as a thread ending) must not return an
+    ///    event source (that will never emit an event) after the singular event has already happened!
     virtual EventSource *eventSource() const { return NULL; /* none in base class */ }
 
     /// @}
@@ -631,10 +635,11 @@ namespace p44 { namespace P44Script {
   public:
     ThreadValue(ScriptCodeThreadPtr aThread);
     virtual string getAnnotation() const P44_OVERRIDE { return "thread"; };
-    virtual TypeInfo getTypeInfo() const P44_OVERRIDE { return threadref; };
+    virtual TypeInfo getTypeInfo() const P44_OVERRIDE { return threadref+keeporiginal; };
 
     virtual ScriptObjPtr actualValue() P44_OVERRIDE; /// < ThreadValue is a proxy for the thread's exit value
     virtual EventSource *eventSource() const P44_OVERRIDE; ///< ThreadValue is an event source, event is the exit value of a thread terminating
+    bool running(); ///< @return true if still running
     void abort(); ///< abort the thread
   };
 
@@ -1559,6 +1564,7 @@ namespace p44 { namespace P44Script {
     void s_nothrowResult(); ///< result of an expression, made valid if needed, but not throwing errors here
     void s_validResult(); ///< final result of an expression or term ready, check for error and pop the stack to see next state to run
     void s_validResultCheck(); ///< final result of an expression or term ready, pop the stack but do not check errors, but pass them on
+    void s_uncheckedResult(); ///< final result of an expression or term ready, check for error and pop the stack to see next state to run
     void s_complete(); ///< nothing more to do, result represents result of entire scanning/evaluation process
 
     /// @}
