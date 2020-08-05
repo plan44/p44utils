@@ -92,6 +92,9 @@ namespace p44 { namespace P44Script {
   class MemberLookup;
   typedef boost::intrusive_ptr<MemberLookup> MemberLookupPtr;
 
+  class EventSource;
+  class EventSink;
+
 
   // MARK: - Scripting Error
 
@@ -251,21 +254,50 @@ namespace p44 { namespace P44Script {
   /// Event Sink
   class EventSink
   {
-    // TODO: implement
+    friend class EventSource;
+    typedef std::set<EventSource *> EventSourceSet;
+    EventSourceSet eventSources;
   public:
-    virtual void notify(ScriptObjPtr aEvent);
+    virtual ~EventSink();
 
-    /// @return number of event sources this sink currently has
-    size_t numSources();
+    /// is called from sources to deliver an event
+    /// @param aEvent the event object, can be NULL for unspecific events
+    /// @param aSource the source sending the event
+    virtual void processEvent(ScriptObjPtr aEvent, EventSource &aSource) { /* NOP in base class */ };
+
+    /// clear all event sources (unregister from all)
+    void clearSources();
+
+    /// @return number of event sources (senders) this sink currently has
+    size_t numSources() { return eventSources.size(); }
   };
 
   /// Event Source
   class EventSource
   {
+    friend class EventSink;
+    typedef std::set<EventSink *> EventSinkSet;
+    EventSinkSet eventSinks;
   public:
-    // TODO: implement
-    void registerEventSink(EventSink *aEventSink);
-    void unregisterEventSink(EventSink *aEventSink);
+    virtual ~EventSource();
+
+    /// send event to all registered event sinks
+    /// @param aEvent event object, can also be NULL pointer
+    void sendEvent(ScriptObjPtr aEvent);
+
+    /// register an event sink to get events from this source
+    /// @param aEventSink the event sink (receiver) to register for events (NULL allowed -> NOP)
+    /// @note registering the same event sink multiple times is allowed, but will not duplicate events sent
+    void registerForEvents(EventSink *aEventSink);
+
+    /// release an event sink from getting events from this source
+    /// @param aEventSink the event sink (receiver) to unregister from receiving events (NULL allowed -> NOP)
+    /// @note tring to unregister a event sink that is not registered is allowed -> NOP
+    void unregisterFromEvents(EventSink *aEventSink);
+
+    /// @return number of event sinks (reveivers) this source currently has
+    size_t numSinks() { return eventSinks.size(); }
+
   };
 
 
@@ -486,8 +518,8 @@ namespace p44 { namespace P44Script {
     /// @name triggering support
     /// @{
 
-    /// @return a souce of events for this object
-    EventSource *eventSource() { return NULL; /* none in base class */ }
+    /// @return a souce of events for this object, or NULL if none
+    virtual EventSource *eventSource() const { return NULL; /* none in base class */ }
 
     // FIXME: convert thread value to EventSource/EventSink model
     virtual void notifyThreadValue(ScriptObjPtr aEvent) { /* NOP in base class */ }
@@ -1101,10 +1133,11 @@ namespace p44 { namespace P44Script {
   /// class representing a script source in its entiety including all context needed to run it
   class ScriptSource
   {
+  protected:
     ScriptingDomainPtr scriptingDomain; ///< the scripting domain
     ScriptMainContextPtr sharedMainContext; ///< a shared context to always run this source in. If not set, each script gets a new main context
     ScriptObjPtr cachedExecutable; ///< the compiled executable for the script's body.
-    EvaluationFlags compileFlags; ///< how to compile (as expression, scriptbody, source)
+    EvaluationFlags compileFlags; ///< how to compile (as expression, scriptbody, source), also used as default run flags
     const char *originLabel; ///< a label used for logging and error reporting
     P44LoggingObj* loggingContextP; ///< the logging context
     SourceContainerPtr sourceContainer; ///< the container of the source
@@ -1156,12 +1189,6 @@ namespace p44 { namespace P44Script {
     /// @param aMaxRunTime the maximum run time
     ScriptObjPtr run(EvaluationFlags aRunFlags, EvaluationCB aEvaluationCB = NULL, MLMicroSeconds aMaxRunTime = Infinite);
 
-    /// convenience method to perform the initialisation run for a trigger to get active
-    /// @param aTriggerCB the callback to be fired when the trigger fires.
-    /// @param aTriggerMode the triggering mode
-    /// @param aEvalFlags how to execute the trigger (defaults to synchronously evaluating expression)
-    ScriptObjPtr initializeTrigger(EvaluationCB aTriggerCB, TriggerMode aTriggerMode = onChangingBool, EvaluationFlags aEvalFlags = expression|synchronously);
-
     /// for single-line tests
     ScriptObjPtr test(EvaluationFlags aEvalFlags, const string aSource)
       { setSource(aSource, aEvalFlags); return run(aEvalFlags|regular|synchronously, NULL, Infinite); }
@@ -1182,7 +1209,7 @@ namespace p44 { namespace P44Script {
       inherited(aOriginLabel, aLoggingContextP),
       mTriggerCB(aTriggerCB),
       mTriggerMode(aTriggerMode),
-      mEvalFlags((aEvalFlags&~runModeMask)|initial) // actual run mode is set when run, but a trigger related mode must be set to generate a CompiledTrigger object
+      mEvalFlags(aEvalFlags)
     {
     }
 
@@ -1190,16 +1217,17 @@ namespace p44 { namespace P44Script {
     /// @param aSource the trigger source code to set
     /// @param aAutoInit if set, and source code has actually changed, reInitalize() will be called
     /// @return true if changed.
-    /// @note usually, reInitialize() should be called when source has changed
+    /// @note usually, compileAndInit() should be called when source has changed
     bool setTriggerSource(const string aSource, bool aAutoInit = false);
 
     /// re-initialize the trigger
     /// @return the result of the initialisation run
-    ScriptObjPtr reInitialize();
+    ScriptObjPtr compileAndInit();
 
     /// (re-)evaluate the trigger outside of the evaluations caused by timing and event sources
-    /// @param aRunMode runmode flags (combined with evaluation flags set in constructor)
+    /// @param aRunMode runmode flags (combined with evaluation flags set at initialisation), non-runmode bits here are ignored
     /// @return false if trigger evaluation could not be started
+    /// @note automatically runs compileAndInit() if the trigger is not yet active
     /// @note will execute the callback when done
     bool evaluate(EvaluationFlags aRunMode = triggered);
 
@@ -1652,8 +1680,9 @@ namespace p44 { namespace P44Script {
     };
 
   private:
-    EvaluationCB triggerCB;
-    TriggerMode triggerMode;
+    EvaluationCB mTriggerCB;
+    TriggerMode mTriggerMode;
+    EvaluationFlags mEvalFlags;
     ScriptObjPtr mCurrentResult;
     Tristate mCurrentState;
     MLMicroSeconds nextEvaluation;
@@ -1670,13 +1699,17 @@ namespace p44 { namespace P44Script {
 
     /// set the callback to fire on every trigger event
     /// @note callback will get the trigger expression result
-    void setTriggerCB(EvaluationCB aTriggerCB) { triggerCB = aTriggerCB; }
+    void setTriggerCB(EvaluationCB aTriggerCB) { mTriggerCB = aTriggerCB; }
 
     /// set the trigger mode
-    void setTriggerMode(TriggerMode aTriggerMode) { triggerMode = aTriggerMode; }
+    void setTriggerMode(TriggerMode aTriggerMode) { mTriggerMode = aTriggerMode; }
+
+    /// set the trigger evaluation flags
+    void setTriggerEvalFlags(EvaluationFlags aEvalFlags) { mEvalFlags = aEvalFlags; }
+
 
     /// check if trigger is active (could possibly trigger)
-    bool isActive() { return triggerCB!=NULL && triggerMode!=inactive; };
+    bool isActive() { return mTriggerCB!=NULL && mTriggerMode!=inactive; };
 
     /// the current result of the trigger (the result of the last evaluation that happened)
     ScriptObjPtr currentResult() { return mCurrentResult ? mCurrentResult : new AnnotatedNullValue("trigger never evaluated"); }
@@ -1685,19 +1718,24 @@ namespace p44 { namespace P44Script {
     Tristate currentState() { return mCurrentState; }
 
     /// initialize (activate) the trigger
-    /// @param aEvalMode mode (script, expression) to use for initialisation
     /// @return result of the initialisation (can be null when not requested synchronous execution)
-    ScriptObjPtr initializeTrigger(EvaluationFlags aEvalMode = expression|synchronously);
+    ScriptObjPtr initializeTrigger();
+
+    /// called from event sources related to this trigger
+    virtual void processEvent(ScriptObjPtr aEvent, EventSource &aSource) P44_OVERRIDE;
 
     /// trigger an evaluation
-    void triggerEvaluation(EvaluationFlags aEvalMode = expression|synchronously);
+    /// @param aEvalMode primarily, sets the trigger evaluation run mode (triggered/timed/initial) and uses the other flags as set in
+    ///   initializeTrigger(). Only if non-runmode flags are set, the evaluation will use aEvalMode as is and ignore the stored flags from initialisation.
+    void triggerEvaluation(EvaluationFlags aEvalMode);
+
 
     /// schedule a (re-)evaluation at the specified time latest
     /// @param aLatestEval new time when next evaluation must happen latest
     /// @note this makes sure there is an evaluation NOT LATER than the given time, but does not guarantee a
     ///   evaluation actually does happen AT that time. So the trigger callback might want to re-schedule when the
     ///   next evaluation happens too early.
-    void scheduleEvalNotLaterThan(const MLMicroSeconds aLatestEval, EvaluationFlags aEvalMode = expression|synchronously);
+    void scheduleEvalNotLaterThan(const MLMicroSeconds aLatestEval);
 
 
     /// @name API for timed evaluation and freezing values in functions that can be used in timed evaluations
@@ -1738,7 +1776,7 @@ namespace p44 { namespace P44Script {
     void triggerDidEvaluate(EvaluationFlags aEvalMode, ScriptObjPtr aResult);
 
     /// schedule the next evaluation according to consolidated result of all updateNextEval() calls
-    void scheduleNextEval(EvaluationFlags aEvalMode);
+    void scheduleNextEval();
 
   };
 

@@ -53,23 +53,62 @@ ErrorPtr ScriptError::err(ErrorCodes aErrCode, const char *aFmt, ...)
   return ErrorPtr(errP);
 }
 
-// MARK: - Event Source and Sink
+// MARK: - EventSink
 
-void EventSink::notify(ScriptObjPtr aEvent) { /* FIXME: implement */ };
-
-size_t EventSink::numSources() { return 0; /* FIXME: implement */ };
-
-void EventSource::registerEventSink(EventSink *aEventSink)
+EventSink::~EventSink()
 {
-  // FIXME: implement
-  LOG(LOG_CRIT, "%s not implemented", __func__);
+  // clear references in all sources
+  clearSources();
 }
 
-void EventSource::unregisterEventSink(EventSink *aEventSink)
+
+void EventSink::clearSources()
 {
-  // FIXME: implement
-  LOG(LOG_CRIT, "%s not implemented", __func__);
+  while (!eventSources.empty()) {
+    EventSource *src = *(eventSources.begin());
+    eventSources.erase(eventSources.begin());
+    src->eventSinks.erase(this);
+  }
 }
+
+
+// MARK: - EventSource
+
+EventSource::~EventSource()
+{
+  // clear references in all sinks
+  while (!eventSinks.empty()) {
+    EventSink *sink = *(eventSinks.begin());
+    eventSinks.erase(eventSinks.begin());
+    sink->eventSources.erase(this);
+  }
+  eventSinks.clear();
+}
+
+void EventSource::registerForEvents(EventSink *aEventSink)
+{
+  if (aEventSink) {
+    eventSinks.insert(aEventSink); // multiple registrations are possible, counted only once
+    aEventSink->eventSources.insert(this);
+  }
+}
+
+void EventSource::unregisterFromEvents(EventSink *aEventSink)
+{
+  if (aEventSink) {
+    eventSinks.erase(aEventSink);
+    aEventSink->eventSources.erase(this);
+  }
+}
+
+void EventSource::sendEvent(ScriptObjPtr aEvent)
+{
+  for (EventSinkSet::iterator pos=eventSinks.begin(); pos!=eventSinks.end(); ++pos) {
+    (*pos)->processEvent(aEvent, *this);
+  }
+}
+
+
 
 
 // MARK: - ScriptObj
@@ -3313,33 +3352,42 @@ ExecutionContextPtr CompiledScript::contextForCallingFrom(ScriptMainContextPtr a
 
 CompiledTrigger::CompiledTrigger(const string aName, ScriptMainContextPtr aMainContext) :
   inherited(aName, aMainContext),
-  triggerMode(inactive),
+  mTriggerMode(inactive),
   mCurrentState(p44::undefined),
+  mEvalFlags(expression|synchronously),
   nextEvaluation(Never)
 {
 }
 
 
-ScriptObjPtr CompiledTrigger::initializeTrigger(EvaluationFlags aEvalMode)
+ScriptObjPtr CompiledTrigger::initializeTrigger()
 {
   // initialize it
   FOCUSLOG("\n---------- Initializing Trigger  : %s", cursor.displaycode(130).c_str());
   reEvaluationTicket.cancel();
   nextEvaluation = Never; // reset
   frozenResults.clear(); // (re)initializing trigger unfreezes all values
+  clearSources(); // forget all event sources
   ExecutionContextPtr ctx = contextForCallingFrom(NULL, NULL);
   if (!ctx) return  new ErrorValue(ScriptError::Internal, "no context for trigger");
-  aEvalMode = (aEvalMode&~runModeMask)|initial; // set initial run mode (only!)
-  if (aEvalMode & synchronously) {
-    ScriptObjPtr res = ctx->executeSynchronously(this, aEvalMode, 2*Second);
-    triggerDidEvaluate(aEvalMode, res);
+  EvaluationFlags initFlags = (mEvalFlags&~runModeMask)|initial;
+  if (mEvalFlags & synchronously) {
+    ScriptObjPtr res = ctx->executeSynchronously(this, initFlags, 2*Second);
+    triggerDidEvaluate(initFlags, res);
     return res;
   }
   else {
-    triggerEvaluation(aEvalMode);
+    triggerEvaluation(initFlags);
     return new AnnotatedNullValue("asynchonously initializing trigger");
   }
 }
+
+
+void CompiledTrigger::processEvent(ScriptObjPtr aEvent, EventSource &aSource)
+{
+  triggerEvaluation(timed);
+}
+
 
 
 void CompiledTrigger::triggerEvaluation(EvaluationFlags aEvalMode)
@@ -3348,7 +3396,9 @@ void CompiledTrigger::triggerEvaluation(EvaluationFlags aEvalMode)
   reEvaluationTicket.cancel();
   nextEvaluation = Never; // reset
   ExecutionContextPtr ctx = contextForCallingFrom(NULL, NULL);
-  ctx->execute(ScriptObjPtr(this), aEvalMode, boost::bind(&CompiledTrigger::triggerDidEvaluate, this, aEvalMode, _1), 30*Second);
+  aEvalMode &= ~runModeMask;
+  EvaluationFlags runFlags = aEvalMode ? aEvalMode : mEvalFlags&~runModeMask; // use only runmode from aEvalMode if nothing else is set
+  ctx->execute(ScriptObjPtr(this), runFlags, boost::bind(&CompiledTrigger::triggerDidEvaluate, this, runFlags, _1), 30*Second);
 }
 
 
@@ -3356,16 +3406,16 @@ void CompiledTrigger::triggerDidEvaluate(EvaluationFlags aEvalMode, ScriptObjPtr
 {
   bool doTrigger = false;
   Tristate newState = aResult->defined() ? (aResult->boolValue() ? p44::yes : p44::no) : p44::undefined;
-  if (triggerMode==onEvaluation) {
+  if (mTriggerMode==onEvaluation) {
     doTrigger = true;
   }
-  else if (triggerMode==onChange) {
+  else if (mTriggerMode==onChange) {
     doTrigger = (*aResult) != *currentResult();
   }
   else {
     // bool modes
     doTrigger = mCurrentState!=newState;
-    if (triggerMode==onGettingTrue) {
+    if (mTriggerMode==onGettingTrue) {
       doTrigger = doTrigger && (newState==yes); // only if becoming true
     }
   }
@@ -3398,32 +3448,32 @@ void CompiledTrigger::triggerDidEvaluate(EvaluationFlags aEvalMode, ScriptObjPtr
     updateNextEval(MainLoop::now()+1*Second);
   }
   // schedule next timed evaluation if one is needed
-  scheduleNextEval(aEvalMode);
+  scheduleNextEval();
   // callback (always, even when initializing)
-  if (doTrigger && triggerCB) {
+  if (doTrigger && mTriggerCB) {
     FOCUSLOG("\n---------- FIRING Trigger        : result = %s", ScriptObj::describe(aResult).c_str());
     OLOG(LOG_INFO, "trigger fires with result = %s", ScriptObj::describe(aResult).c_str());
-    triggerCB(aResult);
+    mTriggerCB(aResult);
   }
 }
 
 
-void CompiledTrigger::scheduleNextEval(EvaluationFlags aEvalMode)
+void CompiledTrigger::scheduleNextEval()
 {
   if (nextEvaluation!=Never) {
     OLOG(LOG_INFO, "Trigger re-evaluation scheduled for %s: '%s'", MainLoop::string_mltime(nextEvaluation, 3).c_str(), cursor.displaycode(70).c_str());
     reEvaluationTicket.executeOnceAt(
-      boost::bind(&CompiledTrigger::triggerEvaluation, this, (aEvalMode&~runModeMask)|timed),
+      boost::bind(&CompiledTrigger::triggerEvaluation, this, timed),
       nextEvaluation
     );
   }
 }
 
 
-void CompiledTrigger::scheduleEvalNotLaterThan(const MLMicroSeconds aLatestEval, EvaluationFlags aEvalMode)
+void CompiledTrigger::scheduleEvalNotLaterThan(const MLMicroSeconds aLatestEval)
 {
   if (updateNextEval(aLatestEval)) {
-    scheduleNextEval(aEvalMode);
+    scheduleNextEval();
   }
 }
 
@@ -3523,7 +3573,8 @@ void CompiledHandler::installAndInitializeTrigger(ScriptObjPtr aTrigger)
   // link trigger with my handler action
   if (trigger) {
     trigger->setTriggerCB(boost::bind(&CompiledHandler::triggered, this, _1));
-    trigger->initializeTrigger(expression|synchronously|concurrently); // need to be concurrent because handler might run in same shared context as trigger does
+    trigger->setTriggerEvalFlags(expression|synchronously|concurrently);
+    trigger->initializeTrigger(); // need to be concurrent because handler might run in same shared context as trigger does
   }
 }
 
@@ -3811,31 +3862,26 @@ ScriptObjPtr ScriptSource::run(EvaluationFlags aRunFlags, EvaluationCB aEvaluati
 }
 
 
-ScriptObjPtr ScriptSource::initializeTrigger(EvaluationCB aTriggerCB, TriggerMode aTriggerMode, EvaluationFlags aEvalFlags)
-{
-  CompiledTriggerPtr trigger = dynamic_pointer_cast<CompiledTrigger>(getExecutable());
-  if (!trigger) return  new ErrorValue(ScriptError::Internal, "is not a trigger");
-  trigger->setTriggerMode(aTriggerMode);
-  trigger->setTriggerCB(aTriggerCB);
-  return trigger->initializeTrigger(aEvalFlags);
-}
-
-
 // MARK: - TriggerSource
 
 bool TriggerSource::setTriggerSource(const string aSource, bool aAutoInit)
 {
-  bool changed = setSource(aSource, mEvalFlags);
+  bool changed = setSource(aSource, mEvalFlags|initial); // actual run mode is set when run, but a trigger related mode must be set to generate a CompiledTrigger object
   if (changed && aAutoInit) {
-    reInitialize();
+    compileAndInit();
   }
   return changed;
 }
 
 
-ScriptObjPtr TriggerSource::reInitialize()
+ScriptObjPtr TriggerSource::compileAndInit()
 {
-  return initializeTrigger(mTriggerCB, mTriggerMode, mEvalFlags);
+  CompiledTriggerPtr trigger = dynamic_pointer_cast<CompiledTrigger>(getExecutable());
+  if (!trigger) return  new ErrorValue(ScriptError::Internal, "is not a trigger");
+  trigger->setTriggerMode(mTriggerMode);
+  trigger->setTriggerCB(mTriggerCB);
+  trigger->setTriggerEvalFlags(compileFlags);
+  return trigger->initializeTrigger();
 }
 
 
@@ -3843,12 +3889,11 @@ bool TriggerSource::evaluate(EvaluationFlags aRunMode)
 {
   CompiledTriggerPtr trigger = dynamic_pointer_cast<CompiledTrigger>(getExecutable());
   if (trigger) {
-    EvaluationFlags f = (mEvalFlags&~runModeMask) | (aRunMode&runModeMask);
     if (!trigger->isActive()) {
-      reInitialize();
+      compileAndInit();
     }
     else {
-      trigger->triggerEvaluation(f);
+      trigger->triggerEvaluation(aRunMode&runModeMask);
     }
     return true;
   }
@@ -3860,7 +3905,7 @@ void TriggerSource::nextEvaluationNotLaterThan(MLMicroSeconds aLatestEval)
 {
   CompiledTriggerPtr trigger = dynamic_pointer_cast<CompiledTrigger>(getExecutable());
   if (trigger) {
-    trigger->scheduleEvalNotLaterThan(aLatestEval, mEvalFlags);
+    trigger->scheduleEvalNotLaterThan(aLatestEval);
   }
 }
 
@@ -4120,10 +4165,10 @@ void ScriptCodeThread::memberCheckAndResume()
     // initial run of trigger -> register trigger itself as event sink
     EventSource* eventSource = result->eventSource();
     if (eventSource) {
-      // register the code object (the trigger) as event sink
-      EventSink* eventSink = dynamic_cast<EventSink*>(codeObj.get());
-      if (eventSink) {
-        eventSource->registerEventSink(eventSink);
+      // register the code object (the trigger) as event sink with the source
+      EventSink* triggerEventSink = dynamic_cast<EventSink*>(codeObj.get());
+      if (triggerEventSink) {
+        eventSource->registerForEvents(triggerEventSink);
       }
     }
   }
