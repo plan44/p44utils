@@ -2225,7 +2225,9 @@ void SourceProcessor::assignOrAccess(bool aAllowAssign)
     memberByIdentifier(none); // will lookup member of result, or global if result is NULL
     return;
   }
+  // only skipping
   setState(&SourceProcessor::s_member);
+  resume();
 }
 
 
@@ -3742,7 +3744,8 @@ SourceCursor SourceContainer::getCursor()
 
 // MARK: - ScriptSource
 
-ScriptSource::ScriptSource(const char* aOriginLabel, P44LoggingObj* aLoggingContextP) :
+ScriptSource::ScriptSource(EvaluationFlags aDefaultFlags, const char* aOriginLabel, P44LoggingObj* aLoggingContextP) :
+  defaultFlags(aDefaultFlags),
   originLabel(aOriginLabel),
   loggingContextP(aLoggingContextP)
 {
@@ -3781,16 +3784,16 @@ void ScriptSource::setSharedMainContext(ScriptMainContextPtr aSharedMainContext)
 
 
 
-bool ScriptSource::setSource(const string aSource, EvaluationFlags aCompileFlags)
+bool ScriptSource::setSource(const string aSource, EvaluationFlags aEvaluationFlags)
 {
-  if (compileFlags==aCompileFlags) {
+  if (aEvaluationFlags==inherit || defaultFlags==aEvaluationFlags) {
     // same flags, check source
     if (sourceContainer && sourceContainer->source == aSource) {
       return false; // no change at all -> NOP
     }
   }
   // changed, invalidate everything related to the previous code
-  compileFlags = aCompileFlags;
+  if (aEvaluationFlags!=inherit) defaultFlags = aEvaluationFlags;
   if (cachedExecutable) {
     cachedExecutable.reset(); // release cached executable (will release SourceCursor holding our source)
   }
@@ -3831,16 +3834,16 @@ ScriptObjPtr ScriptSource::getExecutable()
         mctx = domain()->newContext();
       }
       CompiledCodePtr code;
-      if (compileFlags & anonymousfunction) {
+      if (defaultFlags & anonymousfunction) {
         code = new CompiledCode("anonymous");
       }
-      else if (compileFlags & (triggered|timed|initial)) {
+      else if (defaultFlags & (triggered|timed|initial)) {
         code = new CompiledTrigger("trigger", mctx);
       }
       else {
         code = new CompiledScript("script", mctx);
       }
-      cachedExecutable = compiler.compile(sourceContainer, code, compileFlags, mctx);
+      cachedExecutable = compiler.compile(sourceContainer, code, defaultFlags, mctx);
     }
     return cachedExecutable;
   }
@@ -3850,14 +3853,17 @@ ScriptObjPtr ScriptSource::getExecutable()
 
 ScriptObjPtr ScriptSource::run(EvaluationFlags aRunFlags, EvaluationCB aEvaluationCB, MLMicroSeconds aMaxRunTime)
 {
-  if (aRunFlags==inherit) {
-    // no run flags at all: just assume all flags were set with setSource() already
-    aRunFlags = compileFlags;
+  EvaluationFlags flags = defaultFlags; // default to compile flags
+  if (aRunFlags & runModeMask) {
+    // runmode set in run flags -> use it
+    flags = (flags&~runModeMask) | (aRunFlags&runModeMask);
   }
-  else if ((aRunFlags & scopeMask)==0) {
-    // no scope set in run flags -> inherit from compile flags
-    aRunFlags |= (compileFlags&scopeMask);
+  if (aRunFlags & scopeMask) {
+    // scope set in run flags -> use it
+    flags = (flags&~scopeMask) | (aRunFlags&scopeMask);
   }
+  // add in execution modifiers
+  flags |= (aRunFlags&execModifierMask);
   ScriptObjPtr code = getExecutable();
   ScriptObjPtr result;
   // get the context to run it
@@ -3865,11 +3871,11 @@ ScriptObjPtr ScriptSource::run(EvaluationFlags aRunFlags, EvaluationCB aEvaluati
     if (code->hasType(executable)) {
       ExecutionContextPtr ctx = code->contextForCallingFrom(domain(), NULL);
       if (ctx) {
-        if (aRunFlags & synchronously) {
-          result = ctx->executeSynchronously(code, aRunFlags, aMaxRunTime);
+        if (flags & synchronously) {
+          result = ctx->executeSynchronously(code, flags, aMaxRunTime);
         }
         else {
-          ctx->execute(code, aRunFlags, aEvaluationCB, aMaxRunTime);
+          ctx->execute(code, flags, aEvaluationCB, aMaxRunTime);
           return result; // null, callback will deliver result
         }
       }
@@ -3894,7 +3900,7 @@ ScriptObjPtr ScriptSource::run(EvaluationFlags aRunFlags, EvaluationCB aEvaluati
 
 bool TriggerSource::setTriggerSource(const string aSource, bool aAutoInit)
 {
-  bool changed = setSource(aSource, mEvalFlags|initial); // actual run mode is set when run, but a trigger related mode must be set to generate a CompiledTrigger object
+  bool changed = setSource(aSource); // actual run mode is set when run, but a trigger related mode must be set to generate a CompiledTrigger object
   if (changed && aAutoInit) {
     compileAndInit();
   }
@@ -3908,7 +3914,7 @@ ScriptObjPtr TriggerSource::compileAndInit()
   if (!trigger) return  new ErrorValue(ScriptError::Internal, "is not a trigger");
   trigger->setTriggerMode(mTriggerMode);
   trigger->setTriggerCB(mTriggerCB);
-  trigger->setTriggerEvalFlags(compileFlags);
+  trigger->setTriggerEvalFlags(defaultFlags);
   return trigger->initializeTrigger();
 }
 
@@ -4633,11 +4639,12 @@ static void eval_func(BuiltinFunctionContextPtr f)
   else {
     // need to compile string first
     ScriptSource src(
+      scriptbody|anonymousfunction,
       "eval function",
       f->instance() ? f->instance()->loggingContext() : NULL
     );
     src.setDomain(f->domain());
-    src.setSource(f->arg(0)->stringValue(), scriptbody|anonymousfunction);
+    src.setSource(f->arg(0)->stringValue());
     evalcode = src.getExecutable();
   }
   if (evalcode->hasType(executable)) {
@@ -5341,8 +5348,8 @@ public:
         return;
       }
       TypeInfo mode = sourcecode;
-      source.setSource(cmd, mode);
-      source.run(mode+regular+keepvars+concurrently+floatingGlobs, boost::bind(&SimpleREPLApp::PL, this, _1));
+      source.setSource(cmd, mode+regular+keepvars+concurrently+floatingGlobs);
+      source.run(inherit, boost::bind(&SimpleREPLApp::PL, this, _1));
     }
   }
 

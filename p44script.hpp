@@ -160,7 +160,7 @@ namespace p44 { namespace P44Script {
 
   /// Evaluation flags
   enum {
-    inherit = 0, ///< no flags, inherit from compile flags
+    inherit = 0, ///< for ScriptSource::run() only: no flags, inherit from compile flags
     // run mode
     runModeMask = 0x00FF,
     regular = 0x01, ///< regular script or expression code
@@ -174,16 +174,18 @@ namespace p44 { namespace P44Script {
     scriptbody = 0x200, ///< evaluate as script body (no function or handler definitions)
     sourcecode = 0x400, ///< evaluate as script (include parsing functions and handlers)
     block = 0x800, ///< evaluate as a block (complete when reaching end of block)
-    // other modifiers
+    // execution modifiers
+    execModifierMask = 0xFF000,
     synchronously = 0x1000, ///< evaluate synchronously, error out on async code
     stoprunning = 0x2000, ///< abort running execution in the same context before starting a new one
     queue = 0x4000, ///< queue for execution if other executions are still running/pending
     stopall = stoprunning+queue, ///< stop everything
     concurrently = 0x10000, ///< run concurrently with already executing code
     keepvars = 0x20000, ///< keep the local variables already set in the context
-    floatingGlobs = 0x40000, ///< global function+handler definitions are kept floating (not deleted when originating source code is changed/deleted)
-    mainthread = 0x80000, ///< if a thread with this flag set terminates, it also terminates all of its siblings
-    anonymousfunction = 0x100000, ///< compile and run as anonymous function body
+    mainthread = 0x40000, ///< if a thread with this flag set terminates, it also terminates all of its siblings
+    // compilation modifiers
+    floatingGlobs = 0x100000, ///< global function+handler definitions are kept floating (not deleted when originating source code is changed/deleted)
+    anonymousfunction = 0x200000, ///< compile and run as anonymous function body
   };
   typedef uint32_t EvaluationFlags;
 
@@ -1122,14 +1124,14 @@ namespace p44 { namespace P44Script {
     ScriptingDomainPtr scriptingDomain; ///< the scripting domain
     ScriptMainContextPtr sharedMainContext; ///< a shared context to always run this source in. If not set, each script gets a new main context
     ScriptObjPtr cachedExecutable; ///< the compiled executable for the script's body.
-    EvaluationFlags compileFlags; ///< how to compile (as expression, scriptbody, source), also used as default run flags
+    EvaluationFlags defaultFlags; ///< default flags for how to compile (as expression, scriptbody, source), also used as default run flags
     const char *originLabel; ///< a label used for logging and error reporting
     P44LoggingObj* loggingContextP; ///< the logging context
     SourceContainerPtr sourceContainer; ///< the container of the source
 
   public:
     /// create empty script source
-    ScriptSource(const char* aOriginLabel = NULL, P44LoggingObj* aLoggingContextP = NULL);
+    ScriptSource(EvaluationFlags aDefaultFlags, const char* aOriginLabel = NULL, P44LoggingObj* aLoggingContextP = NULL);
 
     ~ScriptSource();
 
@@ -1148,13 +1150,17 @@ namespace p44 { namespace P44Script {
 
     /// set source code and compile mode
     /// @param aSource the source code
-    /// @param aCompileFlags how to compile (as expression, scriptbody, sourcecode, possibly with embeddedGlobs)
+    /// @param aEvaluationFlags if set (not ==0==inherit), these flags control compilation and are default
+    ///   flags for running the script via run().
     /// @return true if source or compile flags have actually changed. Otherwise, nothing happens and false is returned
-    bool setSource(const string aSource, EvaluationFlags aCompileFlags = sourcecode);
+    bool setSource(const string aSource, EvaluationFlags aEvaluationFlags = inherit);
 
     /// get the source code
     /// @return the source code as set by setSource()
     string getSource() const;
+
+    /// @return the origin label string
+    const char *getOriginLabel() { return nonNullCStr(originLabel); }
 
     /// check if a cursor refers to this source
     /// @param aCursor the cursor to check
@@ -1166,10 +1172,12 @@ namespace p44 { namespace P44Script {
     ScriptObjPtr getExecutable();
 
     /// convenience quick runner
-    /// @param aRunFlags run flags.
+    /// @param aRunFlags additional run flags.
     ///   Notes: - if synchronously is set here, the result will be delivered directly (AND with the callback if one is set)
-    ///          - if set to 0 (==inherit), script will be run with flags inherited from what was set at setSource()
-    ///          - if all scope flags (sourcecode/scriptbody/expression/block) are 0, scope flags are inherited from flags set at setSource()
+    ///          - by default, flags are inherited from those set at setSource().
+    ///          - if a scope flag is set, all scope flags are used from aRunFlags
+    ///          - if a run mode flag is set, all run mode flags are used from aRunFlags
+    ///          - execution modfier flags from aRunFlags are ADDED to those already set with setSource()
     /// @param aEvaluationCB will be called with the result
     /// @param aMaxRunTime the maximum run time
     ScriptObjPtr run(EvaluationFlags aRunFlags, EvaluationCB aEvaluationCB = NULL, MLMicroSeconds aMaxRunTime = Infinite);
@@ -1188,13 +1196,11 @@ namespace p44 { namespace P44Script {
 
     EvaluationCB mTriggerCB;
     TriggerMode mTriggerMode;
-    EvaluationFlags mEvalFlags;
   public:
     TriggerSource(const char* aOriginLabel, P44LoggingObj* aLoggingContextP, EvaluationCB aTriggerCB, TriggerMode aTriggerMode = onGettingTrue, EvaluationFlags aEvalFlags = expression|synchronously) :
-      inherited(aOriginLabel, aLoggingContextP),
+      inherited(aEvalFlags|triggered, aOriginLabel, aLoggingContextP), // make sure one of the trigger flags is set for the compile to produce a CompiledTrigger
       mTriggerCB(aTriggerCB),
-      mTriggerMode(aTriggerMode),
-      mEvalFlags(aEvalFlags)
+      mTriggerMode(aTriggerMode)
     {
     }
 
@@ -1690,7 +1696,6 @@ namespace p44 { namespace P44Script {
     /// set the trigger evaluation flags
     void setTriggerEvalFlags(EvaluationFlags aEvalFlags) { mEvalFlags = aEvalFlags; }
 
-
     /// check if trigger is active (could possibly trigger)
     bool isActive() { return mTriggerCB!=NULL && mTriggerMode!=inactive; };
 
@@ -2116,6 +2121,9 @@ namespace p44 { namespace P44Script {
 
     /// @return the object this function was called on as a method, NULL for plain functions
     ScriptObjPtr thisObj() { return func->thisObj; }
+
+    /// @return the function object
+    BuiltinFunctionObjPtr funcObj() { return func; }
 
     /// @return the thread this function was called in
     ScriptCodeThreadPtr thread() { return mThread; }
