@@ -302,6 +302,9 @@ namespace p44 { namespace P44Script {
     /// @return number of event sinks (reveivers) this source currently has
     size_t numSinks() { return eventSinks.size(); }
 
+    /// @return true if source has any sinks
+    bool hasSinks() { return !eventSinks.empty(); }
+
   };
 
 
@@ -1372,6 +1375,9 @@ namespace p44 { namespace P44Script {
     /// @note must cause calling resume() when result contains the member (or NULL if not found)
     virtual void executeResult();
 
+    /// check if member can issue event that should be connected to trigger
+    virtual void memberEventCheck();
+
     /// fork executing a block at the current position, if identifier is not empty, store a new ThreadValue.
     /// @note MUST NOT call resume() directly. This call will return when the new thread yields execution the first time.
     virtual void startBlockThreadAndStoreInIdentifier();
@@ -1949,6 +1955,9 @@ namespace p44 { namespace P44Script {
     /// evaluate the current result and replace it with the output from the evaluation (e.g. function call)
     virtual void executeResult() P44_OVERRIDE;
 
+    /// check if member can issue event that should be connected to trigger
+    virtual void memberEventCheck() P44_OVERRIDE;
+
     /// @}
 
   protected:
@@ -1959,7 +1968,6 @@ namespace p44 { namespace P44Script {
 
   private:
 
-    void memberCheckAndResume();
     void executedResult(ScriptObjPtr aResult);
 
   };

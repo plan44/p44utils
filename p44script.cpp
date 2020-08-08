@@ -107,6 +107,7 @@ void EventSource::unregisterFromEvents(EventSink *aEventSink)
 
 void EventSource::sendEvent(ScriptObjPtr aEvent)
 {
+  if (eventSinks.empty()) return; // optimisation
   // note: duplicate notification is possible when sending event causes event sink changes and restarts
   // TODO: maybe fix this if it turns out to be a problem
   //       (should not, because entire triggering is designed to re-evaluate events after triggering)
@@ -2269,7 +2270,8 @@ void SourceProcessor::s_member()
     resume();
     return;
   }
-  // do not error-check or validate at this level, might be lvalue
+  // Leaf value: do not error-check or validate at this level, might be lvalue
+  memberEventCheck();
   popWithValidResult(false);
   return;
 }
@@ -3315,6 +3317,11 @@ void SourceProcessor::executeResult()
 }
 
 
+void SourceProcessor::memberEventCheck()
+{
+  /* NOP here */
+}
+
 
 // MARK: - CompiledScript, CompiledFunction, CompiledHandler
 
@@ -3402,7 +3409,11 @@ ScriptObjPtr CompiledTrigger::initializeTrigger()
   if (!ctx) return  new ErrorValue(ScriptError::Internal, "no context for trigger");
   EvaluationFlags initFlags = (mEvalFlags&~runModeMask)|initial;
   if (mEvalFlags & synchronously) {
+    #if DEBUGLOGGING
+    ScriptObjPtr res = ctx->executeSynchronously(this, initFlags, Infinite);
+    #else
     ScriptObjPtr res = ctx->executeSynchronously(this, initFlags, 2*Second);
+    #endif
     triggerDidEvaluate(initFlags, res);
     return res;
   }
@@ -3603,8 +3614,8 @@ void CompiledHandler::installAndInitializeTrigger(ScriptObjPtr aTrigger)
   // link trigger with my handler action
   if (trigger) {
     trigger->setTriggerCB(boost::bind(&CompiledHandler::triggered, this, _1));
-    trigger->setTriggerEvalFlags(expression|synchronously|concurrently);
-    trigger->initializeTrigger(); // need to be concurrent because handler might run in same shared context as trigger does
+    trigger->setTriggerEvalFlags(expression|synchronously|concurrently); // need to be concurrent because handler might run in same shared context as trigger does
+    trigger->initializeTrigger();
   }
 }
 
@@ -4171,7 +4182,7 @@ void ScriptCodeThread::memberByIdentifier(TypeInfo aMemberAccessFlags, bool aNoN
     // does not exist and cannot/must not be created
     result = new ErrorPosValue(src, ScriptError::NotFound , "'%s' unknown here", identifier.c_str());
   }
-  memberCheckAndResume();
+  resume();
 }
 
 
@@ -4187,27 +4198,8 @@ void ScriptCodeThread::memberByIndex(size_t aIndex, TypeInfo aMemberAccessFlags)
     result = new ErrorPosValue(src, ScriptError::NotFound , "array element %d unknown here", aIndex);
   }
   // no indexed members at the context level!
-  memberCheckAndResume();
+  resume();
 }
-
-
-void ScriptCodeThread::memberCheckAndResume()
-{
-  // special checks after member retrieval
-  if (evaluationFlags & initial) {
-    // initial run of trigger -> register trigger itself as event sink
-    EventSource* eventSource = result->eventSource();
-    if (eventSource) {
-      // register the code object (the trigger) as event sink with the source
-      EventSink* triggerEventSink = dynamic_cast<EventSink*>(codeObj.get());
-      if (triggerEventSink) {
-        eventSource->registerForEvents(triggerEventSink);
-      }
-    }
-  }
-  resume(); // member access by itself must not throw
-}
-
 
 
 void ScriptCodeThread::newFunctionCallContext()
@@ -4290,6 +4282,25 @@ void ScriptCodeThread::executedResult(ScriptObjPtr aResult)
   childContext.reset(); // release the child context
   resume(aResult);
 }
+
+
+void ScriptCodeThread::memberEventCheck()
+{
+  // check for event sources in member
+  if (!skipping && (evaluationFlags&initial)) {
+    // initial run of trigger -> register trigger itself as event sink
+    EventSource* eventSource = result->eventSource();
+    if (eventSource) {
+      // register the code object (the trigger) as event sink with the source
+      EventSink* triggerEventSink = dynamic_cast<EventSink*>(codeObj.get());
+      if (triggerEventSink) {
+        eventSource->registerForEvents(triggerEventSink);
+      }
+    }
+  }
+}
+
+
 
 
 

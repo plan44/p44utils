@@ -57,7 +57,8 @@ class ScriptingCodeFixture
 public:
   ScriptSource s;
 
-  ScriptingCodeFixture()
+  ScriptingCodeFixture() :
+    s(scriptbody)
   {
     SETDAEMONMODE(false);
     SETLOGLEVEL(LOG_NOTICE);
@@ -87,7 +88,8 @@ class AsyncScriptingFixture
 
 public:
 
-  AsyncScriptingFixture()
+  AsyncScriptingFixture() :
+    s(scriptbody)
   {
     SETDAEMONMODE(false);
     SETLOGLEVEL(LOG_NOTICE);
