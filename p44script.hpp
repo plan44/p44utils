@@ -28,6 +28,7 @@
 
 #include "timeutils.hpp"
 #include <string>
+#include <set>
 
 #ifndef P44SCRIPT_FULL_SUPPORT
   #define P44SCRIPT_FULL_SUPPORT 1 // on by default, can be switched off for small targets only needing expressions // TODO: actually implements sizing down!
