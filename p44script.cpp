@@ -3648,17 +3648,17 @@ void CompiledHandler::actionExecuted(ScriptObjPtr aActionResult)
 
 static void flagSetter(bool* aFlag) { *aFlag = true; }
 
-ScriptObjPtr ScriptCompiler::compile(SourceContainerPtr aSource, CompiledCodePtr aIntoContainer, EvaluationFlags aParsingMode, ScriptMainContextPtr aMainContext)
+ScriptObjPtr ScriptCompiler::compile(SourceContainerPtr aSource, CompiledCodePtr aIntoCodeObj, EvaluationFlags aParsingMode, ScriptMainContextPtr aMainContext)
 {
   // set up starting point
-  if ((aParsingMode & sourcecode)==0) {
-    // Shortcut for expression and scriptbody: no need to "compile"
+  if ((aParsingMode & (sourcecode|checking))==0) {
+    // Shortcut for non-checked expression and scriptbody: no need to "compile"
     bodyRef = aSource->getCursor();
   }
   else {
     // could contain declarations, must scan these now
     setCursor(aSource->getCursor());
-    aParsingMode = (aParsingMode & ~runModeMask)|scanning; // compiling only!
+    aParsingMode = (aParsingMode & ~runModeMask) | scanning | (aParsingMode&checking); // compiling only, with optional checking
     initProcessing(aParsingMode);
     bool completed = false;
     setCompletedCB(boost::bind(&flagSetter,&completed));
@@ -3673,15 +3673,22 @@ ScriptObjPtr ScriptCompiler::compile(SourceContainerPtr aSource, CompiledCodePtr
       return result;
     }
   }
-  aIntoContainer->setCursor(bodyRef);
-  return aIntoContainer;
+  if (aIntoCodeObj) {
+    aIntoCodeObj->setCursor(bodyRef);
+  }
+  return aIntoCodeObj;
 }
 
 
 void ScriptCompiler::startOfBodyCode()
 {
   bodyRef = src; // rest of source code is body
-  complete(new AnnotatedNullValue("compiled"));
+  if ((evaluationFlags&checking)==0) {
+    complete(new AnnotatedNullValue("compiled"));
+    return;
+  }
+  // we want a full syntax scan, continue skipping
+  resume();
 }
 
 
@@ -3859,6 +3866,19 @@ ScriptObjPtr ScriptSource::getExecutable()
     return cachedExecutable;
   }
   return new ErrorValue(ScriptError::Internal, "no source -> no executable");
+}
+
+
+ScriptObjPtr ScriptSource::syntaxcheck()
+{
+  EvaluationFlags checkFlags = (defaultFlags&~runModeMask)|scanning|checking;
+  ScriptCompiler compiler(domain());
+  ScriptMainContextPtr mctx = sharedMainContext; // use shared context if one is set
+  if (!mctx) {
+    // default to independent execution in a non-object context (no instance pointer)
+    mctx = domain()->newContext();
+  }
+  return compiler.compile(sourceContainer, CompiledCodePtr(), checkFlags, mctx);
 }
 
 

@@ -167,7 +167,8 @@ namespace p44 { namespace P44Script {
     initial = 0x02, ///< initial trigger expression run (no external event, implicit event is startup or code change)
     triggered = 0x04, ///< externally triggered (re-)evaluation
     timed = 0x08, ///< timed evaluation by timed retrigger
-    scanning = 0x80, ///< scanning only (compiling)
+    scanning = 0x40, ///< scanning only (compiling)
+    checking = 0x80, ///< scanning everything (for finding syntax errors early)
     // scope modifiers
     scopeMask = 0xF00,
     expression = 0x100, ///< evaluate as an expression (no flow control, variable assignments, blocks etc.)
@@ -1174,6 +1175,10 @@ namespace p44 { namespace P44Script {
     /// @return executable from this source
     ScriptObjPtr getExecutable();
 
+    /// convenience quick syntax checker
+    /// @return error in case of syntax errors or other fatal conditions
+    ScriptObjPtr syntaxcheck();
+
     /// convenience quick runner
     /// @param aRunFlags additional run flags.
     ///   Notes: - if synchronously is set here, the result will be delivered directly (AND with the callback if one is set)
@@ -1815,11 +1820,11 @@ namespace p44 { namespace P44Script {
 
     /// Scan code, extract function definitions, global vars, event handlers into scripting domain, return actual code
     /// @param aSource the source code
-    /// @param aIntoContainer the CompiledCode container where to store the main code of the script compiled
+    /// @param aIntoCodeObj the CompiledCode object where to store the main code of the script compiled
     /// @param aParsingMode how to parse (as expression, scriptbody or full script with function+handler definitions)
     /// @param aMainContext the context in which this script should execute in. It is stored with the
     /// @return an executable object or error (syntax, other fatal problems)
-    ScriptObjPtr compile(SourceContainerPtr aSource, CompiledCodePtr aIntoContainer, EvaluationFlags aParsingMode, ScriptMainContextPtr aMainContext);
+    ScriptObjPtr compile(SourceContainerPtr aSource, CompiledCodePtr aIntoCodeObj, EvaluationFlags aParsingMode, ScriptMainContextPtr aMainContext);
 
     /// must store result as a compiled function in the scripting domain
     /// @note must cause calling resume()
