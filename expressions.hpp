@@ -88,7 +88,7 @@ namespace p44 {
       "User",
     };
     #endif // ENABLE_NAMED_ERRORS
-};
+  };
 
   /// expression value, consisting of a value and an error to indicate non-value and reason for it
   class ExpressionValue {

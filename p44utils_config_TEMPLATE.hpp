@@ -29,7 +29,7 @@
 //       your needs.
 
 #ifndef ENABLE_NAMED_ERRORS
-  #define ENABLE_NAMED_ERRORS P44_CPP11_FEATURE // Enable if compiler can do C++11
+  #define ENABLE_NAMED_ERRORS P44_CPP17_FEATURE // Enable if compiler can do C++17
 #endif
 #if !ENABLE_EXPRESSIONS
   #define ENABLE_EXPRESSIONS 0 // "Expressions" is deprecated, use "p44Script" instead

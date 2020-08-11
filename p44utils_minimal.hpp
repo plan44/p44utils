@@ -31,10 +31,25 @@
   #define P44_FINAL final
   #define P44_OVERRIDE override
   #define P44_CPP11_FEATURE 1
+  #if __cplusplus >= 201703L
+    // we have C++ 17
+    #define P44_CPP17_FEATURE 1
+    #if __cplusplus >= 202002L
+      // we have C++ 20
+      #define P44_CPP20_FEATURE 1
+    #else
+      #define P44_CPP20_FEATURE 0
+    #endif
+  #else
+    #define P44_CPP17_FEATURE 0
+    #define P44_CPP20_FEATURE 0
+  #endif
 #else
   #define P44_FINAL
   #define P44_OVERRIDE
   #define P44_CPP11_FEATURE 0
+  #define P44_CPP17_FEATURE 0
+  #define P44_CPP20_FEATURE 0
 #endif
 
 #include "p44utils_config.hpp"
