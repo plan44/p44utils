@@ -31,13 +31,13 @@
 #ifndef ENABLE_NAMED_ERRORS
   #define ENABLE_NAMED_ERRORS P44_CPP11_FEATURE // Enable if compiler can do C++11
 #endif
-#ifndef ENABLE_EXPRESSIONS
+#if !ENABLE_EXPRESSIONS
   #define ENABLE_EXPRESSIONS 0 // "Expressions" is deprecated, use "p44Script" instead
   #ifndef ENABLE_P44SCRIPT
     #define ENABLE_P44SCRIPT 1 // Scripting support in some of the p44utils components
   #endif
 #else
-  #ifdef ENABLE_P44SCRIPT
+  #if ENABLE_P44SCRIPT
     #warning "ENABLE_EXPRESSIONS should not be used in parallel with ENABLE_P44SCRIPT"
   #else
     #define ENABLE_P44SCRIPT 0
