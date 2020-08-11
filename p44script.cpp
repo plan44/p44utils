@@ -3987,6 +3987,9 @@ void ScriptingDomain::clearFloatingGlobs()
     if ((*pos)->floating()) {
       pos = handlers.erase(pos); // source is gone -> remove
     }
+    else {
+      ++pos;
+    }
   }
   inherited::clearFloatingGlobs();
 }
