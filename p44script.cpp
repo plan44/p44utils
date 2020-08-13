@@ -3189,6 +3189,7 @@ void SourceProcessor::s_whileStatement()
 void SourceProcessor::s_tryStatement()
 {
   FOCUSLOGSTATE
+  // Syntax: try { statements to try } catch [as errorvariable] { statements handling error }
   // try statement is executed
   // - olderResult contains the error
   // - check for "catch" following
@@ -3202,9 +3203,10 @@ void SourceProcessor::s_tryStatement()
     // run (or skip) what follows as one statement
     setState(&SourceProcessor::s_oneStatement);
     // check for error capturing variable
-    if (src.nextIf('(')) {
-      if (!src.parseIdentifier(identifier) || !src.nextIf(')')) {
-        exitWithSyntaxError("expecting '(errorvariable)'");
+    if (src.checkForIdentifier("as")) {
+      src.skipNonCode();
+      if (!src.parseIdentifier(identifier)) {
+        exitWithSyntaxError("missing error variable name after 'as'");
         return;
       }
       if (!skipping) {

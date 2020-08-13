@@ -198,8 +198,7 @@ TEST_CASE("CodeCursor", "[scripting]" )
     cursor3.skipNonCode();
     REQUIRE(cursor3.lineno() == 1);
     // "than"
-    REQUIRE(cursor3.parseIdentifier(i) == true);
-    REQUIRE(i == "than");
+    REQUIRE(cursor3.checkForIdentifier("than") == true);
     REQUIRE(cursor3.lineno() == 1);
     REQUIRE(cursor3.charpos() == 12);
     // skip EOL comment
@@ -269,7 +268,7 @@ TEST_CASE_METHOD(AsyncScriptingFixture, "Debugging single case/assertion", "[DEB
 
 #define TEST_URL "plan44.ch/testing/httptest.php"
 #define DATA_IN_7SEC_TEST_URL "plan44.ch/testing/httptest.php?delay=7"
-//  REQUIRE(scriptTest(sourcecode, "glob res='not completed'; log(4, 'will take 3 secs'); concurrent http { try { res=geturl('http://" DATA_IN_7SEC_TEST_URL "', 5) } catch (err) { res = err } } delay(3); abort(http); return res")->stringValue() == "ok");
+//  REQUIRE(scriptTest(sourcecode, "glob res='not completed'; log(4, 'will take 3 secs'); concurrent http { try { res=geturl('http://" DATA_IN_7SEC_TEST_URL "', 5) } catch as err { res = err } } delay(3); abort(http); return res")->stringValue() == "ok");
   REQUIRE(scriptTest(sourcecode, "glob res='not completed'; log(4, 'will take 3 secs'); concurrent http { res=geturl('http://" DATA_IN_7SEC_TEST_URL "', 5) } delay(3); abort(http); return res")->stringValue() == "not completed");
 }
 */
@@ -638,7 +637,8 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "statements", "[scripting]" )
     REQUIRE(s.test(scriptbody, "throw('test error')")->isErr() == true);
     REQUIRE(Error::isError(s.test(scriptbody, "throw('test error')")->errorValue(), ScriptError::domain(), ScriptError::User) == true);
     REQUIRE(strcmp(s.test(scriptbody, "throw('test error')")->errorValue()->getErrorMessage(), "test error") == 0);
-    REQUIRE(Error::isError(s.test(scriptbody, "try var zerodiv = 7/0; catch (error) return error; return 'ok'")->errorValue(), ScriptError::domain(), ScriptError::DivisionByZero) == true);
+    REQUIRE(Error::isError(s.test(scriptbody, "try var zerodiv = 7/0; catch as error return error; return 'ok'")->errorValue(), ScriptError::domain(), ScriptError::DivisionByZero) == true);
+    REQUIRE(Error::isError(s.test(scriptbody, "try var zerodiv = 7/0; catch as error { return error; } return 'ok'")->errorValue(), ScriptError::domain(), ScriptError::DivisionByZero) == true);
     REQUIRE(s.test(scriptbody, "try var zerodiv = 7/0; catch return 'not allowed'; return 'ok'")->stringValue() == "not allowed");
     REQUIRE(s.test(scriptbody, "try var zerodiv = 7/1; catch return 'error'; return zerodiv")->doubleValue() == 7);
     REQUIRE(s.test(scriptbody, "try { var zerodiv = 42; zerodiv = 7/0 } catch { log(6,'CAUGHT!') }; return zerodiv")->doubleValue() == 42);
