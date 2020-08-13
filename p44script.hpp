@@ -1681,6 +1681,8 @@ namespace p44 { namespace P44Script {
       bool frozen();
     };
 
+    string resultVarName; ///< name of the variable that should represent the trigger result in handler code
+
   private:
     EvaluationCB mTriggerCB;
     TriggerMode mTriggerMode;

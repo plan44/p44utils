@@ -2767,6 +2767,7 @@ void SourceProcessor::s_defineFunction()
 void SourceProcessor::s_defineTrigger()
 {
   FOCUSLOGSTATE
+  // on (triggerexpression) [changing|toggling|evaluating|gettingtrue] [ as triggerresult ] { handlercode }
   // after scanning the trigger condition expression of a on() statement
   // - poppedPos points to the beginning of the expression
   // - src.pos should be on the ')' of the trigger expression
@@ -2779,8 +2780,9 @@ void SourceProcessor::s_defineTrigger()
   src.next(); // skip ')'
   src.skipNonCode();
   // optional trigger mode
-  TriggerMode mode = onGettingTrue;
-  if (src.parseIdentifier(identifier)) {
+  TriggerMode mode = inactive;
+  bool hasid = src.parseIdentifier(identifier);
+  if (hasid) {
     if (uequals(identifier, "changing")) {
       mode = onChange;
     }
@@ -2790,11 +2792,31 @@ void SourceProcessor::s_defineTrigger()
     else if (uequals(identifier, "evaluating")) {
       mode = onEvaluation;
     }
+    else if (uequals(identifier, "gettingtrue")) {
+      mode = onGettingTrue;
+    }
+  }
+  if (mode==inactive) {
+    // no explicit mode, default to onGettingTrue
+    mode = onGettingTrue;
+  }
+  else {
+    src.skipNonCode();
+    hasid = src.parseIdentifier(identifier);
+  }
+  if (hasid) {
+    if (uequals(identifier, "as")) {
+      src.skipNonCode();
+      if (!src.parseIdentifier(identifier)) {
+        exitWithSyntaxError("missing trigger result variable name");
+        return;
+      }
+      trigger->resultVarName = identifier;
+    }
     else {
-      exitWithSyntaxError("invalid trigger mode");
+      exitWithSyntaxError("missing trigger mode or 'as'");
       return;
     }
-    src.skipNonCode();
   }
   trigger->setTriggerMode(mode);
   // check for beginning of handler body
@@ -3639,8 +3661,9 @@ void CompiledHandler::triggered(ScriptObjPtr aTriggerResult)
     SPLOG(mainContext->domain(), LOG_INFO, "%s triggered: '%s' with result = %s", name.c_str(), cursor.displaycode(50).c_str(), ScriptObj::describe(aTriggerResult).c_str());
     ExecutionContextPtr ctx = contextForCallingFrom(mainContext->domain(), NULL);
     if (ctx) {
-      // FIXME: not so clean, as it sets a "result" variable also visible from trigger
-      ctx->setMemberByName("result", aTriggerResult);
+      if (!trigger->resultVarName.empty()) {
+        ctx->setMemberByName(trigger->resultVarName, aTriggerResult);
+      }
       ctx->execute(this, scriptbody|keepvars|concurrently, boost::bind(&CompiledHandler::actionExecuted, this, _1));
       return;
     }
