@@ -36,6 +36,12 @@ namespace p44 {
   /// @return ok or error
   ErrorPtr string_fromfile(const string aFilePath, string &aData);
 
+  /// saves string to file
+  /// @param aFilePath the path of the file to write
+  /// @param aData the string to store in the file
+  /// @return ok or error
+  ErrorPtr string_tofile(const string aFilePath, const string &aData);
+
 } // namespace p44
 
 #endif /* defined(__p44utils__extutils__) */

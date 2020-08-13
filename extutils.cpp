@@ -41,3 +41,18 @@ ErrorPtr p44::string_fromfile(const string aFilePath, string &aData)
   }
   return err;
 }
+
+
+ErrorPtr p44::string_tofile(const string aFilePath, const string &aData)
+{
+  ErrorPtr err;
+  FILE* f = fopen(aFilePath.c_str(), "w");
+  if (f==NULL) {
+    return SysError::errNo();
+  }
+  else {
+    fwrite(aData.c_str(), aData.size(), 1, f);
+    fclose(f);
+  }
+  return err;
+}
