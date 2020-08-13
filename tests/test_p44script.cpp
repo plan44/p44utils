@@ -268,8 +268,8 @@ TEST_CASE_METHOD(AsyncScriptingFixture, "Debugging single case/assertion", "[DEB
 
 #define TEST_URL "plan44.ch/testing/httptest.php"
 #define DATA_IN_7SEC_TEST_URL "plan44.ch/testing/httptest.php?delay=7"
-//  REQUIRE(scriptTest(sourcecode, "glob res='not completed'; log(4, 'will take 3 secs'); concurrent http { try { res=geturl('http://" DATA_IN_7SEC_TEST_URL "', 5) } catch as err { res = err } } delay(3); abort(http); return res")->stringValue() == "ok");
-  REQUIRE(scriptTest(sourcecode, "glob res='not completed'; log(4, 'will take 3 secs'); concurrent http { res=geturl('http://" DATA_IN_7SEC_TEST_URL "', 5) } delay(3); abort(http); return res")->stringValue() == "not completed");
+//  REQUIRE(scriptTest(sourcecode, "glob res='not completed'; log(4, 'will take 3 secs'); concurrent as http { try { res=geturl('http://" DATA_IN_7SEC_TEST_URL "', 5) } catch as err { res = err } } delay(3); abort(http); return res")->stringValue() == "ok");
+  REQUIRE(scriptTest(sourcecode, "glob res='not completed'; log(4, 'will take 3 secs'); concurrent as http { res=geturl('http://" DATA_IN_7SEC_TEST_URL "', 5) } delay(3); abort(http); return res")->stringValue() == "not completed");
 }
 */
 
@@ -708,11 +708,11 @@ TEST_CASE_METHOD(AsyncScriptingFixture, "async", "[scripting]") {
   }
 
   SECTION("concurrency") {
-    REQUIRE(scriptTest(scriptbody, "var res=''; log(4, 'will take 2 secs'); concurrent test { delay(2); res = res + '2sec' } delay(1); res = res+'1sec'; await(test); res")->stringValue() == "1sec2sec");
+    REQUIRE(scriptTest(scriptbody, "var res=''; log(4, 'will take 2 secs'); concurrent as test { delay(2); res = res + '2sec' } delay(1); res = res+'1sec'; await(test); res")->stringValue() == "1sec2sec");
     REQUIRE(runningTime() ==  Approx(2).epsilon(0.05));
-    REQUIRE(scriptTest(scriptbody, "var res=''; log(4, 'will take 3 secs'); concurrent test { delay(3); res = res + '3sec' } concurrent test2 { delay(2); res = res + '2sec' } delay(1); res = res+'1sec'; await(test); res")->stringValue() == "1sec2sec3sec");
+    REQUIRE(scriptTest(scriptbody, "var res=''; log(4, 'will take 3 secs'); concurrent as test { delay(3); res = res + '3sec' } concurrent as test2 { delay(2); res = res + '2sec' } delay(1); res = res+'1sec'; await(test); res")->stringValue() == "1sec2sec3sec");
     REQUIRE(runningTime() ==  Approx(3).epsilon(0.05));
-    REQUIRE(scriptTest(scriptbody, "var res=''; log(4, 'will take 3 secs'); concurrent test { delay(3); res = res + '3sec' } concurrent test2 { delay(2); res = res + '2sec' } delay(1); res = res+'1sec'; abort(test2) await(test); res")->stringValue() == "1sec3sec");
+    REQUIRE(scriptTest(scriptbody, "var res=''; log(4, 'will take 3 secs'); concurrent as test { delay(3); res = res + '3sec' } concurrent as test2 { delay(2); res = res + '2sec' } delay(1); res = res+'1sec'; abort(test2) await(test); res")->stringValue() == "1sec3sec");
     REQUIRE(runningTime() ==  Approx(3).epsilon(0.05));
   }
 
@@ -736,7 +736,7 @@ TEST_CASE_METHOD(AsyncScriptingFixture, "http scripting", "[scripting],[FOCUS]")
     REQUIRE(scriptTest(sourcecode, "find(geturl('https://" TEST_URL "'), 'Document OK')")->intValue() > 0);
     REQUIRE(scriptTest(sourcecode, "log(4, 'will take 5 secs'); geturl('http://" DATA_IN_7SEC_TEST_URL "', 5)")->isErr() == true);
     REQUIRE(runningTime() ==  Approx(5).epsilon(0.05));
-    REQUIRE(scriptTest(sourcecode, "glob res='not completed'; log(4, 'will take 3 secs'); concurrent http { res=geturl('http://" DATA_IN_7SEC_TEST_URL "', 5) } delay(3); abort(http); return res")->stringValue() == "not completed");
+    REQUIRE(scriptTest(sourcecode, "glob res='not completed'; log(4, 'will take 3 secs'); concurrent as http { res=geturl('http://" DATA_IN_7SEC_TEST_URL "', 5) } delay(3); abort(http); return res")->stringValue() == "not completed");
     REQUIRE(runningTime() ==  Approx(3).epsilon(0.05));
   }
   SECTION("posturl") {

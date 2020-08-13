@@ -3009,13 +3009,16 @@ void SourceProcessor::processStatement()
       return;
     }
     if (uequals(identifier, "concurrent")) {
-      // Syntax: concurrent myThread {}
+      // Syntax: concurrent as myThread {}
       //     or: concurrent {}
       src.skipNonCode();
       identifier.clear();
-      if (src.parseIdentifier(identifier)) {
-        // we want the thread be a variable in order to wait for it and stop it
+      if (src.checkForIdentifier("as")) {
         src.skipNonCode();
+        if (src.parseIdentifier(identifier)) {
+          // we want the thread be a variable in order to wait for it and stop it
+          src.skipNonCode();
+        }
       }
       if (!src.nextIf('{')) {
         exitWithSyntaxError("missing '{' to start concurrent block");
