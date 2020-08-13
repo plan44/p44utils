@@ -1535,6 +1535,20 @@ bool SourceCursor::parseIdentifier(string& aIdentifier, size_t* aIdentifierLenP)
 }
 
 
+bool SourceCursor::checkForIdentifier(const char *aIdentifier)
+{
+  if (EOT()) return false;
+  size_t o = 0; // offset
+  if (!isalpha(c(o))) return false; // is not an identifier
+  // is identifier
+  o++;
+  while (c(o) && (isalnum(c(o)) || c(o)=='_')) o++;
+  if (strucmp(pos.ptr, aIdentifier, o)!=0) return false; // no match
+  pos.ptr += o; // advance
+  return true;
+}
+
+
 ScriptOperator SourceCursor::parseOperator()
 {
   skipNonCode();
@@ -3104,14 +3118,12 @@ void SourceProcessor::s_ifTrueStatement()
   //   else-ifs must be checked or last else must be executed. Otherwise, skip everything from here on.
   // Note: "skipping" at this point is not relevant for deciding further flow
   // check for "else" following
-  SourcePos ipos = src.pos;
   src.skipNonCode();
-  if (src.parseIdentifier(identifier) && uequals(identifier, "else")) {
+  if (src.checkForIdentifier("else")) {
     // else
     skipping = olderResult==NULL;
     src.skipNonCode();
-    ipos = src.pos;
-    if (src.parseIdentifier(identifier) && uequals(identifier, "if")) {
+    if (src.checkForIdentifier("if")) {
       // else if
       src.skipNonCode();
       if (!src.nextIf('(')) {
@@ -3128,14 +3140,12 @@ void SourceProcessor::s_ifTrueStatement()
     }
     else {
       // last else in chain
-      src.pos = ipos; // restore to right behind "else"
       resumeAt(&SourceProcessor::s_oneStatement); // run one statement, then pop
       return;
     }
   }
   else {
     // if without else
-    src.pos = ipos; // restore to right behind "if" statement's end
     pop(); // end if/then/else
     resume();
     return;
@@ -3183,7 +3193,7 @@ void SourceProcessor::s_tryStatement()
   // - olderResult contains the error
   // - check for "catch" following
   src.skipNonCode();
-  if (src.parseIdentifier(identifier) && uequals(identifier, "catch")) {
+  if (src.checkForIdentifier("catch")) {
     // if olderResult is an error, we must catch it. Otherwise skip the catch statement.
     // Note: olderResult can be the try statement's regular result at this point
     skipping = !olderResult || !olderResult->isErr();

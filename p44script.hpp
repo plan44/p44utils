@@ -1068,6 +1068,7 @@ namespace p44 { namespace P44Script {
 
     // parsing utilities
     bool parseIdentifier(string& aIdentifier, size_t* aIdentifierLenP = NULL); ///< @return true if identifier found, stored in aIndentifier and cursor advanced
+    bool checkForIdentifier(const char *aIdentifier); ///< return true if specified identifier found at this position
     ScriptOperator parseOperator(); ///< @return operator or op_none, advances cursor on success
 
     ScriptObjPtr parseNumericLiteral(); ///< @return numeric or error, advances cursor on success
