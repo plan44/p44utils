@@ -580,7 +580,7 @@ bool JsonValue::boolValue() const
 
 TypeInfo JsonValue::getTypeInfo() const
 {
-  if (!jsonval) return null;
+  if (!jsonval || jsonval->isType(json_type_null)) return null;
   if (jsonval->isType(json_type_object)) return json+object;
   if (jsonval->isType(json_type_array)) return json+array;
   return json;
@@ -966,6 +966,7 @@ const ScriptObjPtr ScriptCodeContext::memberByName(const string aName, TypeInfo 
         }
         return m;
       }
+      m.reset(); // does not meet requirements
     }
     else {
       // no such member yet
@@ -1162,7 +1163,7 @@ const ScriptObjPtr ScriptMainContext::memberByName(const string aName, TypeInfo 
     if ((m = StructuredLookupObject::memberByName(aName, aMemberAccessFlags))) return m;
   }
   // 4) lookup global members in the script domain (vars, functions, constants)
-  if (domain() && (m = domain()->memberByName(aName, aMemberAccessFlags))) return m;
+  if (domain() && (m = domain()->ScriptCodeContext::memberByName(aName, aMemberAccessFlags&~(classscope|constant|objscope)))) return m;
   // nothing found (note that inherited was queried early above, already!)
   return m;
 }
@@ -2133,8 +2134,8 @@ void SourceProcessor::s_simpleTerm()
     SourceCursor peek = src;
     peek.next();
     peek.skipNonCode();
-    if (peek.c()=='"' || peek.c()=='\'') {
-      // first thing within "{" is a quoted field name: must be JSON literal
+    if (peek.c()=='"' || peek.c()=='\'' || peek.c()=='}') {
+      // empty "{}" or first thing within "{" is a quoted field name: must be JSON literal
       result = src.parseJSONLiteral();
       popWithValidResult();
       return;
@@ -4163,6 +4164,7 @@ void ScriptCodeThread::complete(ScriptObjPtr aFinalResult)
 {
   autoResumeTicket.cancel();
   inherited::complete(aFinalResult);
+  OLOG(LOG_DEBUG, "complete at: %s\nwith result: %s", src.displaycode(90).c_str(), ScriptObj::describe(result).c_str());
   sendEvent(result); // send the final result as event to registered EventSinks
   mOwner->threadTerminated(this, evaluationFlags);
 }
@@ -4205,6 +4207,7 @@ void ScriptCodeThread::checkAndResume()
   if (e) {
     if (!e->wasThrown()) {
       // need to throw, adding pos if not yet included
+      OLOG(LOG_DEBUG, "   error at: %s\nwith result: %s", src.displaycode(90).c_str(), ScriptObj::describe(e).c_str());
       throwOrComplete(e);
       return;
     }
