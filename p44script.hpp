@@ -2011,7 +2011,7 @@ namespace p44 { namespace P44Script {
 
   typedef struct {
     const char* name; ///< name of the function / member
-    TypeInfo returnTypeInfo; ///< possible return types (for functions, this is the type(s) the functions might return, the member returned is always a executable). Members must have lvalue to become assignable
+    TypeInfo returnTypeInfo; ///< possible return types (for functions, this must have set "executable", but also contains the type(s) the functions might return. Members must have "lvalue" set to become assignable.
     size_t numArgs; ///< for functions: number of arguemnts, can be 0
     const BuiltInArgDesc* arguments; ///< for functions: arguments, can be NULL
     union {
@@ -2045,7 +2045,7 @@ namespace p44 { namespace P44Script {
     /// @param aMemberDescriptors pointer to an array of member descriptors, terminated with an entry with .name==NULL
     BuiltInMemberLookup(const BuiltinMemberDescriptor* aMemberDescriptors);
 
-    virtual TypeInfo containsTypes() const P44_OVERRIDE { return constant+allscopes; } // constant, from all scopes
+    virtual TypeInfo containsTypes() const P44_OVERRIDE { return constant+allscopes+any; } // constant, from all scopes, any type
     virtual ScriptObjPtr memberByNameFrom(ScriptObjPtr aThisObj, const string aName, TypeInfo aMemberAccessFlags) const P44_OVERRIDE;
 
   };

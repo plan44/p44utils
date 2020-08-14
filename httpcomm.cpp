@@ -508,14 +508,14 @@ static void httpFuncImpl(BuiltinFunctionContextPtr f, string aMethod)
 }
 
 // geturl("<url>"[,timeout])
-static const BuiltInArgDesc geturl_args[] = { { text }, { numeric+optional } };
+static const BuiltInArgDesc geturl_args[] = { { text }, { numeric|optional } };
 static const size_t geturl_numargs = sizeof(geturl_args)/sizeof(BuiltInArgDesc);
 static void geturl_func(BuiltinFunctionContextPtr f)
 {
   httpFuncImpl(f, "GET");
 }
 
-static const BuiltInArgDesc postputurl_args[] = { { text } , { any+optional }, { any+optional } };
+static const BuiltInArgDesc postputurl_args[] = { { text } , { any|optional }, { any|optional } };
 static const size_t postputurl_numargs = sizeof(postputurl_args)/sizeof(BuiltInArgDesc);
 
 // posturl("<url>"[,timeout][,"<data>"])
@@ -532,9 +532,9 @@ static void puturl_func(BuiltinFunctionContextPtr f)
 
 
 static const BuiltinMemberDescriptor httpGlobals[] = {
-  { "geturl", text, geturl_numargs, geturl_args, &geturl_func },
-  { "posturl", text, postputurl_numargs, postputurl_args, &posturl_func },
-  { "puturl", text, postputurl_numargs, postputurl_args, &puturl_func },
+  { "geturl", executable|async|text, geturl_numargs, geturl_args, &geturl_func },
+  { "posturl", executable|async|text, postputurl_numargs, postputurl_args, &posturl_func },
+  { "puturl", executable|async|text, postputurl_numargs, postputurl_args, &puturl_func },
   { NULL } // terminator
 };
 
