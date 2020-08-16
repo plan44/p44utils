@@ -4661,6 +4661,32 @@ static void format_func(BuiltinFunctionContextPtr f)
 }
 
 
+// formattime([time] [formatstring]])
+static const BuiltInArgDesc formattime_args[] = { { numeric|text|optional } , { text|optional } };
+static const size_t formattime_numargs = sizeof(formattime_args)/sizeof(BuiltInArgDesc);
+static void formattime_func(BuiltinFunctionContextPtr f)
+{
+  MLMicroSeconds t;
+  size_t ai = 0;
+  if (f->arg(ai)->hasType(numeric)) {
+    t = f->arg(ai)->doubleValue()*Second;
+    ai++;
+  }
+  else {
+    t = MainLoop::unixtime();
+  }
+  struct tm disptim;
+  const char *fmt;
+  if (f->numArgs()>ai) {
+    fmt = f->arg(ai)->stringValue().c_str();
+  }
+  else if (t>Day) fmt = "%Y-%m-%d %H:%M:%S";
+  else fmt = "%H:%M:%S";
+  MainLoop::getLocalTime(disptim, NULL, t, t<Day);
+  f->finish(new StringValue(string_ftime(fmt, &disptim)));
+}
+
+
 // throw(value)       - throw a expression user error with the string value of value as errormessage
 static const BuiltInArgDesc throw_args[] = { { any|error } };
 static const size_t throw_numargs = sizeof(throw_args)/sizeof(BuiltInArgDesc);
@@ -5191,7 +5217,7 @@ static void epochtime_func(BuiltinFunctionContextPtr f)
   } \
   double fracSecs; \
   struct tm loctim; \
-  MainLoop::getLocalTime(loctim, &fracSecs, t);
+  MainLoop::getLocalTime(loctim, &fracSecs, t, t<=Day);
 
 // common argument descriptor for all time funcs
 static const BuiltInArgDesc timegetter_args[] = { { numeric|optional } };
@@ -5308,6 +5334,7 @@ static const BuiltinMemberDescriptor standardFunctions[] = {
   { "substr", executable|text|null, substr_numargs, substr_args, &substr_func },
   { "find", executable|numeric|null, find_numargs, find_args, &find_func },
   { "format", executable|text, format_numargs, format_args, &format_func },
+  { "formattime", executable|text, formattime_numargs, formattime_args, &formattime_func },
   { "throw", executable|any, throw_numargs, throw_args, &throw_func },
   { "error", executable|error, error_numargs, error_args, &error_func },
   { "errordomain", executable|text|null, errordomain_numargs, errordomain_args, &errordomain_func },
