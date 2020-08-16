@@ -213,11 +213,12 @@ MLMicroSeconds MainLoop::localTimeToMainLoopTime(const struct tm& aLocalTime)
 }
 
 
-void MainLoop::getLocalTime(struct tm& aLocalTime, double* aFractionalSecondsP, MLMicroSeconds aUnixTime)
+void MainLoop::getLocalTime(struct tm& aLocalTime, double* aFractionalSecondsP, MLMicroSeconds aUnixTime, bool aGMT)
 {
   double unixsecs = aUnixTime/Second;
   time_t t = unixsecs;
-  localtime_r(&t, &aLocalTime);
+  if (aGMT) gmtime_r(&t, &aLocalTime);
+  else localtime_r(&t, &aLocalTime);
   if (aFractionalSecondsP) {
     *aFractionalSecondsP = unixsecs-floor(unixsecs);
   }
