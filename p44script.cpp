@@ -2820,6 +2820,7 @@ void SourceProcessor::s_defineTrigger()
     }
   }
   trigger->setTriggerMode(mode);
+  src.skipNonCode();
   // check for beginning of handler body
   if (src.c()!='{') {
     exitWithSyntaxError("expected handler body");
@@ -2902,10 +2903,15 @@ void SourceProcessor::processStatement()
     resumeAt(&SourceProcessor::s_block); // continue as block
     return;
   }
-  if (currentState==&SourceProcessor::s_block && src.nextIf('}')) {
+  if (src.nextIf('}')) {
     // block ends
-    pop();
-    checkAndResume();
+    if (currentState==&SourceProcessor::s_block) {
+      // actually IS a block
+      pop();
+      checkAndResume();
+      return;
+    }
+    exitWithSyntaxError("unexpected '}'");
     return;
   }
   if (src.nextIf(';')) {
@@ -2932,11 +2938,6 @@ void SourceProcessor::processStatement()
       push(currentState); // return to current state when if statement finishes
       push(&SourceProcessor::s_ifCondition);
       resumeAt(&SourceProcessor::s_expression);
-      return;
-    }
-    if (uequals(identifier, "else")) {
-      // just check to give sensible error message
-      exitWithSyntaxError("'else' without preceeding 'if'");
       return;
     }
     if (uequals(identifier, "while")) {
@@ -3051,6 +3052,15 @@ void SourceProcessor::processStatement()
     }
     if (uequals(identifier, "unset")) {
       processVarDefs(lvalue+unset, false);
+      return;
+    }
+    // just check to give sensible error message
+    if (uequals(identifier, "else")) {
+      exitWithSyntaxError("'else' without preceeding 'if'");
+      return;
+    }
+    if (uequals(identifier, "on") || uequals(identifier, "function")) {
+      exitWithSyntaxError("declarations must be made before first script statement");
       return;
     }
     // identifier we've parsed above is not a keyword, rewind cursor
