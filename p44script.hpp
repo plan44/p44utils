@@ -410,7 +410,7 @@ namespace p44 { namespace P44Script {
     virtual ScriptObjPtr assignableValue() { return ScriptObjPtr(this); }
 
     virtual double doubleValue() const { return 0; }; ///< @return a conversion to numeric (using literal syntax), if value is string
-    virtual bool boolValue() const { return doubleValue()!=0; }; ///< @return a conversion to boolean (true = not numerically 0, not JSON-falsish)
+    virtual bool boolValue() const { return doubleValue()!=0; }; ///< @return a conversion to boolean (true = not numerically 0, not JSON-falsish, not empty string)
     virtual string stringValue() const { return getAnnotation(); }; ///< @return a conversion to string of the value
     virtual ErrorPtr errorValue() const { return Error::ok(); } ///< @return error value (always an object, OK if not in error)
     #if SCRIPTING_JSON_SUPPORT
@@ -693,6 +693,7 @@ namespace p44 { namespace P44Script {
     // value getters
     virtual string stringValue() const P44_OVERRIDE { return str; }; // native
     virtual double doubleValue() const P44_OVERRIDE;
+    virtual bool boolValue() const P44_OVERRIDE;
     #if SCRIPTING_JSON_SUPPORT
     virtual JsonObjectPtr jsonValue() const P44_OVERRIDE;
     #endif

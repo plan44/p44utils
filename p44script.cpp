@@ -524,6 +524,14 @@ double StringValue::doubleValue() const
 }
 
 
+bool StringValue::boolValue() const
+{
+  // Like in JS, empty strings are false, non-empty ones are true
+  return !str.empty();
+}
+
+
+
 #if SCRIPTING_JSON_SUPPORT
 
 // MARK: JsonValue + conversions
@@ -5168,6 +5176,7 @@ static void epochtime_func(BuiltinFunctionContextPtr f)
 {
   f->finish(new NumericValue((double)MainLoop::unixtime()/Day)); // epoch time in days with fractional time
 }
+
 
 // TODO: convert into single function returning a structured time object
 
