@@ -506,6 +506,13 @@ JsonObjectPtr JsonObject::newBool(bool aBool)
 
 bool JsonObject::boolValue() const
 {
+  // TODO: remove once bugfix in json-c is common
+  // workaround for bug in json_object_get_boolean() returning false for arrays and objects
+  // Bug was reported on github: https://github.com/json-c/json-c/issues/658
+  // PR for fixing the bug: https://github.com/json-c/json-c/pull/659
+  json_type t = json_object_get_type(json_obj);
+  if (t==json_type_object || t==json_type_array) return true;
+  // end of bugfix
   return json_object_get_boolean(json_obj);
 }
 
