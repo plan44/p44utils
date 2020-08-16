@@ -5304,8 +5304,6 @@ static const BuiltinMemberDescriptor standardFunctions[] = {
   { "errordomain", executable|text|null, errordomain_numargs, errordomain_args, &errordomain_func },
   { "errorcode", executable|numeric|null, errorcode_numargs, errorcode_args, &errorcode_func },
   { "errormessage", executable|text|null, errormessage_numargs, errormessage_args, &errormessage_func },
-  { "eval", executable|any, eval_numargs, eval_args, &eval_func },
-  { "await", executable|any, await_numargs, await_args, &await_func },
   { "abort", executable|null, abort_numargs, abort_args, &abort_func },
   { "undeclare", executable|null, 0, NULL, &undeclare_func },
   { "log", executable|text, log_numargs, log_args, &log_func },
@@ -5333,7 +5331,9 @@ static const BuiltinMemberDescriptor standardFunctions[] = {
   { "weekday", executable|numeric, timegetter_numargs, timegetter_args, &weekday_func },
   { "yearday", executable|numeric, timegetter_numargs, timegetter_args, &yearday_func },
   // Async
-  { "delay", executable|null|async, delay_numargs, delay_args, &delay_func },
+  { "await", executable|async|any, await_numargs, await_args, &await_func },
+  { "delay", executable|async|null, delay_numargs, delay_args, &delay_func },
+  { "eval", executable|async|any, eval_numargs, eval_args, &eval_func },
   { NULL } // terminator
 };
 
