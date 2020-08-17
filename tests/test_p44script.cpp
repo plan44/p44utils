@@ -28,7 +28,7 @@
 
 #define LOGLEVELOFFSET 0
 
-#define JSON_TEST_OBJ "{\"array\":[\"first\",2,3,\"fourth\",6.6],\"obj\":{\"objA\":\"A\",\"objB\":42,\"objC\":{\"objD\":\"D\",\"objE\":45}},\"string\":\"abc\",\"number\":42,\"bool\":true}"
+#define JSON_TEST_OBJ "{\"array\":[\"first\",2,3,\"fourth\",6.6],\"obj\":{\"objA\":\"A\",\"objB\":42,\"objC\":{\"objD\":\"D\",\"objE\":45}},\"string\":\"abc\",\"number\":42,\"bool\":true,\"bool2\":false,\"null\":null }"
 
 using namespace p44;
 using namespace p44::P44Script;
@@ -354,7 +354,7 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "lookups", "[scripting]") {
   }
 
   SECTION("Json") {
-    // JSON tests, see JSON_TEST_OBJ
+    // JSON access tests, see JSON_TEST_OBJ
     REQUIRE(s.test(expression, "jstest")->stringValue() == JSON_TEST_OBJ);
     REQUIRE(s.test(expression, "jstest.string")->stringValue() == "abc");
     REQUIRE(s.test(expression, "jstest.number")->doubleValue() == 42);
@@ -372,6 +372,14 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "lookups", "[scripting]") {
     REQUIRE(s.test(expression, "jstest['obj']['objB']")->doubleValue() == 42);
     REQUIRE(s.test(expression, "jstest['obj'].objC.objD")->stringValue() == "D");
     REQUIRE(s.test(expression, "jstest['obj'].objC.objE")->doubleValue() == 45);
+    // JSON boolean interpretation (JavaScriptish...)
+    REQUIRE(s.test(expression, "{}")->boolValue() == true); // empty object must be true
+    REQUIRE(s.test(expression, "[]")->boolValue() == true); // empty array must be true
+    REQUIRE(s.test(expression, "{ 'a':2 }")->boolValue() == true); // object must be true
+    REQUIRE(s.test(expression, "[1,2]")->boolValue() == true); // array must be true
+    REQUIRE(s.test(expression, "jstest.bool2")->boolValue() == false);
+    REQUIRE(s.test(expression, "jstest.null")->boolValue() == false);
+    REQUIRE(s.test(expression, "jstest.null")->defined() == false);
   }
 
 }
@@ -404,6 +412,7 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "expressions", "[scripting]") {
     REQUIRE(s.test(expression, "0==false")->boolValue() == true);
     REQUIRE(s.test(expression, "0==no")->boolValue() == true);
     REQUIRE(s.test(expression, "undefined")->boolValue() == false);
+    // Comparisons
     REQUIRE(s.test(expression, "undefined!=undefined")->boolValue() == false); // == is now evaluated between nulls
     REQUIRE(s.test(expression, "undefined!=undefined")->defined() == true); // ..so result is defined
     REQUIRE(s.test(expression, "undefined==undefined")->boolValue() == true); // == is now evaluated between nulls
@@ -421,7 +430,6 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "expressions", "[scripting]") {
     REQUIRE(s.test(expression, "42<>78")->boolValue() == true);
     REQUIRE(s.test(expression, "42=42")->defined() == (SCRIPT_OPERATOR_MODE!=SCRIPT_OPERATOR_MODE_C));
     REQUIRE(s.test(expression, "42=42")->boolValue() == (SCRIPT_OPERATOR_MODE!=SCRIPT_OPERATOR_MODE_C));
-    // Comparisons
     REQUIRE(s.test(expression, "7<8")->boolValue() == true);
     REQUIRE(s.test(expression, "7<7")->boolValue() == false);
     REQUIRE(s.test(expression, "8<7")->boolValue() == false);
@@ -509,6 +517,10 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "expressions", "[scripting]") {
     REQUIRE(s.test(expression, "cyclic(2.2,1,2)")->doubleValue() == Approx(1.2));
     REQUIRE(s.test(expression, "cyclic(4.2,1,2)")->doubleValue() == Approx(1.2));
     REQUIRE(s.test(expression, "epochtime()")->doubleValue() == Approx((double)MainLoop::unixtime()/Day));
+    REQUIRE(s.test(expression, "hour(23:42)")->doubleValue() == 23);
+    REQUIRE(s.test(expression, "minute(23:42)")->doubleValue() == 42);
+    REQUIRE(s.test(expression, "formattime(23:42)")->stringValue() == "23:42:00");
+    REQUIRE(s.test(expression, "formattime()==formattime(epochtime()*24*60*60)")->boolValue() == true);
     // strings
     REQUIRE(s.test(expression, "string(33)")->stringValue() == "33");
     REQUIRE(s.test(expression, "string(undefined)")->stringValue() == "undefined");
