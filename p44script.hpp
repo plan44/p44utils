@@ -229,7 +229,8 @@ namespace p44 { namespace P44Script {
     classscope = 0x800000, ///< set to select only class scope members
     allscopes = classscope+objscope+global,
     builtinmember = 0x1000000, ///< special flag for use in built-in member descriptions to differentiate members from functions
-    keeporiginal = 0x2000000, ///< special flag for values that should not be replaced by their actualValue()
+    keeporiginal = 0x2000000, ///< special flag for values that should NOT be replaced by their actualValue()
+    oneshot = 0x4000000, ///< special flag for values that occur only once, such as event messages. Relevant for triggers, which will auto-reset when oneshot values are involved
   };
   typedef uint32_t TypeInfo;
 
@@ -1690,6 +1691,7 @@ namespace p44 { namespace P44Script {
     EvaluationFlags mEvalFlags;
     ScriptObjPtr mCurrentResult;
     Tristate mCurrentState;
+    bool mOneShotEvent;
     MLMicroSeconds nextEvaluation;
 
     typedef std::map<SourceCursor::UniquePos, FrozenResult> FrozenResultsMap;

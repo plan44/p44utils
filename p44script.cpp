@@ -24,7 +24,7 @@
 #define ALWAYS_DEBUG 0
 // - set FOCUSLOGLEVEL to non-zero log level (usually, 5,6, or 7==LOG_DEBUG) to get focus (extensive logging) for this file
 //   Note: must be before including "logger.hpp" (or anything that includes "logger.hpp")
-#define FOCUSLOGLEVEL 7
+#define FOCUSLOGLEVEL 0
 
 #include "p44script.hpp"
 
@@ -559,8 +559,11 @@ JsonObjectPtr StringValue::jsonValue() const
 
 ScriptObjPtr JsonValue::assignableValue()
 {
-  // must copy the contained json object!
-  return new JsonValue(JsonObjectPtr(new JsonObject(*jsonval)));
+  if (!hasType(keeporiginal)) {
+    // must copy the contained json object, unless this is a derived object such as a JSON API request that must be kept as-is
+    return new JsonValue(JsonObjectPtr(new JsonObject(*jsonval)));
+  }
+  return inherited::assignableValue();
 }
 
 
@@ -3447,6 +3450,7 @@ CompiledTrigger::CompiledTrigger(const string aName, ScriptMainContextPtr aMainC
   inherited(aName, aMainContext),
   mTriggerMode(inactive),
   mCurrentState(p44::undefined),
+  mOneShotEvent(false),
   mEvalFlags(expression|synchronously),
   nextEvaluation(Never)
 {
@@ -3482,6 +3486,7 @@ ScriptObjPtr CompiledTrigger::initializeTrigger()
 
 void CompiledTrigger::processEvent(ScriptObjPtr aEvent, EventSource &aSource)
 {
+  mOneShotEvent = aEvent->hasType(oneshot);
   triggerEvaluation(timed);
 }
 
@@ -3501,6 +3506,7 @@ void CompiledTrigger::triggerEvaluation(EvaluationFlags aEvalMode)
 
 void CompiledTrigger::triggerDidEvaluate(EvaluationFlags aEvalMode, ScriptObjPtr aResult)
 {
+  OLOG(LOG_DEBUG, "evaluated trigger: %s\n      with result: %s%s", cursor.displaycode(90).c_str(), mOneShotEvent ? "(ONESHOT) " : "", ScriptObj::describe(aResult).c_str());
   bool doTrigger = false;
   Tristate newState = aResult->defined() ? (aResult->boolValue() ? p44::yes : p44::no) : p44::undefined;
   if (mTriggerMode==onEvaluation) {
@@ -3517,8 +3523,14 @@ void CompiledTrigger::triggerDidEvaluate(EvaluationFlags aEvalMode, ScriptObjPtr
     }
   }
   // update state
+  if (mOneShotEvent) {
+    // oneshot triggers do not toggle status, but must return to undefined
+    mCurrentState = p44::undefined;
+  }
+  else {
+    mCurrentState = newState;
+  }
   mCurrentResult = aResult;
-  mCurrentState = newState;
   // take unfreeze time of frozen results into account for next evaluation
   FrozenResultsMap::iterator fpos = frozenResults.begin();
   while (fpos!=frozenResults.end()) {
