@@ -822,7 +822,7 @@ ScriptObjPtr ExecutionContext::checkAndSetArgument(ScriptObjPtr aArgument, size_
   }
   if (!aArgument && hasInfo) {
     // check if there SHOULD be an argument at aIndex (but we have none)
-    if ((info.typeInfo & (optional|multiple))==0) {
+    if ((info.typeInfo & (optionalarg|multiple))==0) {
       // at aIndex is a non-optional argument expected
       return new ErrorValue(ScriptError::Syntax,
         "missing argument %zu (%s) in call to '%s'",
@@ -4469,7 +4469,7 @@ static void frac_func(BuiltinFunctionContextPtr f)
 
 // round (a)       round value to integer
 // round (a, p)    round value to specified precision (1=integer, 0.5=halves, 100=hundreds, etc...)
-static const BuiltInArgDesc round_args[] = { { scalar|undefres }, { numeric|optional } };
+static const BuiltInArgDesc round_args[] = { { scalar|undefres }, { numeric|optionalarg } };
 static const size_t round_numargs = sizeof(round_args)/sizeof(BuiltInArgDesc);
 static void round_func(BuiltinFunctionContextPtr f)
 {
@@ -4560,7 +4560,7 @@ static void number_func(BuiltinFunctionContextPtr f)
 #if SCRIPTING_JSON_SUPPORT
 
 // json(string)     parse json from string
-static const BuiltInArgDesc json_args[] = { { text }, { numeric|optional } };
+static const BuiltInArgDesc json_args[] = { { text }, { numeric|optionalarg } };
 static const size_t json_numargs = sizeof(json_args)/sizeof(BuiltInArgDesc);
 static void json_func(BuiltinFunctionContextPtr f)
 {
@@ -4613,7 +4613,7 @@ static void strlen_func(BuiltinFunctionContextPtr f)
 
 // substr(string, from)
 // substr(string, from, count)
-static const BuiltInArgDesc substr_args[] = { { text|undefres }, { numeric }, { numeric|optional } };
+static const BuiltInArgDesc substr_args[] = { { text|undefres }, { numeric }, { numeric|optionalarg } };
 static const size_t substr_numargs = sizeof(substr_args)/sizeof(BuiltInArgDesc);
 static void substr_func(BuiltinFunctionContextPtr f)
 {
@@ -4630,7 +4630,7 @@ static void substr_func(BuiltinFunctionContextPtr f)
 
 // find(haystack, needle)
 // find(haystack, needle, from)
-static const BuiltInArgDesc find_args[] = { { text|undefres }, { text }, { numeric|optional }  };
+static const BuiltInArgDesc find_args[] = { { text|undefres }, { text }, { numeric|optionalarg }  };
 static const size_t find_numargs = sizeof(find_args)/sizeof(BuiltInArgDesc);
 static void find_func(BuiltinFunctionContextPtr f)
 {
@@ -4674,7 +4674,7 @@ static void format_func(BuiltinFunctionContextPtr f)
 
 
 // formattime([time] [formatstring]])
-static const BuiltInArgDesc formattime_args[] = { { numeric|text|optional } , { text|optional } };
+static const BuiltInArgDesc formattime_args[] = { { numeric|text|optionalarg } , { text|optionalarg } };
 static const size_t formattime_numargs = sizeof(formattime_args)/sizeof(BuiltInArgDesc);
 static void formattime_func(BuiltinFunctionContextPtr f)
 {
@@ -4822,7 +4822,7 @@ static void await_abort(AwaitEventSink* aAwaitEventSink)
   delete aAwaitEventSink;
 }
 
-static const BuiltInArgDesc await_args[] = { { any|null }, { any|null|optional|multiple } };
+static const BuiltInArgDesc await_args[] = { { any|null }, { any|null|optionalarg|multiple } };
 static const size_t await_numargs = sizeof(await_args)/sizeof(BuiltInArgDesc);
 static void await_func(BuiltinFunctionContextPtr f)
 {
@@ -4855,7 +4855,7 @@ static void await_func(BuiltinFunctionContextPtr f)
 
 // abort(thread)    abort specified thread
 // abort()          abort all subthreads
-static const BuiltInArgDesc abort_args[] = { { threadref|exacttype|optional } };
+static const BuiltInArgDesc abort_args[] = { { threadref|exacttype|optionalarg } };
 static const size_t abort_numargs = sizeof(abort_args)/sizeof(BuiltInArgDesc);
 static void abort_func(BuiltinFunctionContextPtr f)
 {
@@ -4890,7 +4890,7 @@ static void undeclare_func(BuiltinFunctionContextPtr f)
 
 // log (logmessage)
 // log (loglevel, logmessage)
-static const BuiltInArgDesc log_args[] = { { value }, { value|optional } };
+static const BuiltInArgDesc log_args[] = { { value }, { value|optionalarg } };
 static const size_t log_numargs = sizeof(log_args)/sizeof(BuiltInArgDesc);
 static void log_func(BuiltinFunctionContextPtr f)
 {
@@ -4907,7 +4907,7 @@ static void log_func(BuiltinFunctionContextPtr f)
 
 // loglevel()
 // loglevel(newlevel)
-static const BuiltInArgDesc loglevel_args[] = { { numeric|optional } };
+static const BuiltInArgDesc loglevel_args[] = { { numeric|optionalarg } };
 static const size_t loglevel_numargs = sizeof(loglevel_args)/sizeof(BuiltInArgDesc);
 static void loglevel_func(BuiltinFunctionContextPtr f)
 {
@@ -4925,7 +4925,7 @@ static void loglevel_func(BuiltinFunctionContextPtr f)
 
 // logleveloffset()
 // logleveloffset(newoffset)
-static const BuiltInArgDesc logleveloffset_args[] = { { numeric|optional } };
+static const BuiltInArgDesc logleveloffset_args[] = { { numeric|optionalarg } };
 static const size_t logleveloffset_numargs = sizeof(logleveloffset_args)/sizeof(BuiltInArgDesc);
 static void logleveloffset_func(BuiltinFunctionContextPtr f)
 {
@@ -5017,7 +5017,7 @@ static void timeCheckFunc(bool aIsTime, BuiltinFunctionContextPtr f)
 
 
 // after_time(time)
-static const BuiltInArgDesc after_time_args[] = { { numeric }, { numeric|optional } };
+static const BuiltInArgDesc after_time_args[] = { { numeric }, { numeric|optionalarg } };
 static const size_t after_time_numargs = sizeof(after_time_args)/sizeof(BuiltInArgDesc);
 static void after_time_func(BuiltinFunctionContextPtr f)
 {
@@ -5025,7 +5025,7 @@ static void after_time_func(BuiltinFunctionContextPtr f)
 }
 
 // is_time(time)
-static const BuiltInArgDesc is_time_args[] = { { numeric }, { numeric|optional } };
+static const BuiltInArgDesc is_time_args[] = { { numeric }, { numeric|optionalarg } };
 static const size_t is_time_numargs = sizeof(is_time_args)/sizeof(BuiltInArgDesc);
 static void is_time_func(BuiltinFunctionContextPtr f)
 {
@@ -5044,7 +5044,7 @@ static void initial_func(BuiltinFunctionContextPtr f)
 // testlater(seconds, timedtest [, retrigger])
 // return "invalid" now, re-evaluate after given seconds and return value of test then.
 // If retrigger is true then, the timer will be re-scheduled
-static const BuiltInArgDesc testlater_args[] = { { numeric }, { numeric }, { numeric|optional } };
+static const BuiltInArgDesc testlater_args[] = { { numeric }, { numeric }, { numeric|optionalarg } };
 static const size_t testlater_numargs = sizeof(testlater_args)/sizeof(BuiltInArgDesc);
 static void testlater_func(BuiltinFunctionContextPtr f)
 {
@@ -5094,7 +5094,7 @@ static void testlater_func(BuiltinFunctionContextPtr f)
 // returns true once every interval
 // Note: first true is returned at first evaluation or, if syncoffset is set,
 //   at next integer number of intervals calculated from beginning of the day + syncoffset
-static const BuiltInArgDesc every_args[] = { { numeric }, { numeric|optional } };
+static const BuiltInArgDesc every_args[] = { { numeric }, { numeric|optionalarg } };
 static const size_t every_numargs = sizeof(every_args)/sizeof(BuiltInArgDesc);
 static void every_func(BuiltinFunctionContextPtr f)
 {
@@ -5232,7 +5232,7 @@ static void epochtime_func(BuiltinFunctionContextPtr f)
   MainLoop::getLocalTime(loctim, &fracSecs, t, t<=Day);
 
 // common argument descriptor for all time funcs
-static const BuiltInArgDesc timegetter_args[] = { { numeric|optional } };
+static const BuiltInArgDesc timegetter_args[] = { { numeric|optionalarg } };
 static const size_t timegetter_numargs = sizeof(timegetter_args)/sizeof(BuiltInArgDesc);
 
 // timeofday([epochtime])
@@ -5420,7 +5420,7 @@ class SimpleREPLApp : public CmdLineApp
 public:
 
   SimpleREPLApp() :
-    source("REPL")
+    source(sourcecode|regular|keepvars|concurrently|floatingGlobs, "REPL")
   {
   }
 
@@ -5480,8 +5480,7 @@ public:
         terminateApp(EXIT_SUCCESS);
         return;
       }
-      TypeInfo mode = sourcecode;
-      source.setSource(cmd, mode+regular+keepvars+concurrently+floatingGlobs);
+      source.setSource(cmd);
       source.run(inherit, boost::bind(&SimpleREPLApp::PL, this, _1));
     }
   }

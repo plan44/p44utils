@@ -213,7 +213,7 @@ namespace p44 { namespace P44Script {
     // attributes
     attrMask = 0xFFFFF000,
     // - for argument checking
-    optional = null, ///< if set, the argument is optional (means: is is allowed to be null even when null is not explicitly allowed)
+    optionalarg = null, ///< if set, the argument is optional (means: is is allowed to be null even when null is not explicitly allowed)
     multiple = 0x01000, ///< this argument type can occur mutiple times (... signature)
     exacttype = 0x02000, ///< if set, type of argument must match, no autoconversion
     undefres = 0x04000, ///< if set, and an argument does not match type, the function result is automatically made null/undefined without executing the implementation
