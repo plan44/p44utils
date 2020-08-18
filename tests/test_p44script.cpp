@@ -28,7 +28,7 @@
 
 #define LOGLEVELOFFSET 0
 
-#define JSON_TEST_OBJ "{\"array\":[\"first\",2,3,\"fourth\",6.6],\"obj\":{\"objA\":\"A\",\"objB\":42,\"objC\":{\"objD\":\"D\",\"objE\":45}},\"string\":\"abc\",\"number\":42,\"bool\":true,\"bool2\":false,\"null\":null }"
+#define JSON_TEST_OBJ "{\"array\":[\"first\",2,3,\"fourth\",6.6],\"obj\":{\"objA\":\"A\",\"objB\":42,\"objC\":{\"objD\":\"D\",\"objE\":45}},\"string\":\"abc\",\"number\":42,\"bool\":true,\"bool2\":false,\"null\":null}"
 
 using namespace p44;
 using namespace p44::P44Script;
@@ -536,7 +536,7 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "expressions", "[scripting]") {
     REQUIRE(s.test(expression, "format('%.1f', 33.7)")->stringValue() == "33.7");
     REQUIRE(s.test(expression, "format('%08X', 0x24F5E21)")->stringValue() == "024F5E21");
     // divs
-    REQUIRE(s.test(expression, "eval('333*777')")->doubleValue() == 333*777);
+    REQUIRE(s.test(expression, "eval('333*777')")->isErr() == true); // eval is async, s.test is synchronous!
     // error handling
     REQUIRE(s.test(expression, "error('testerror')")->stringValue() == string_format("testerror (ScriptError::User[%d])", ScriptError::User));
     REQUIRE(s.test(expression, "errordomain(error('testerror'))")->stringValue() == "ScriptError");
@@ -712,6 +712,10 @@ TEST_CASE_METHOD(AsyncScriptingFixture, "async", "[scripting]") {
 
   SECTION("fixtureTest") {
     REQUIRE(scriptTest(scriptbody, "42")->doubleValue() == 42);
+  }
+
+  SECTION("eval") {
+    REQUIRE(scriptTest(expression, "eval('333*777')")->doubleValue() == 333*777); // eval is marked async
   }
 
   SECTION("delay") {

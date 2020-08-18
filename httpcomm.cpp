@@ -508,14 +508,14 @@ static void httpFuncImpl(BuiltinFunctionContextPtr f, string aMethod)
 }
 
 // geturl("<url>"[,timeout])
-static const BuiltInArgDesc geturl_args[] = { { text }, { numeric|optional } };
+static const BuiltInArgDesc geturl_args[] = { { text }, { numeric|optionalarg } };
 static const size_t geturl_numargs = sizeof(geturl_args)/sizeof(BuiltInArgDesc);
 static void geturl_func(BuiltinFunctionContextPtr f)
 {
   httpFuncImpl(f, "GET");
 }
 
-static const BuiltInArgDesc postputurl_args[] = { { text } , { any|optional }, { any|optional } };
+static const BuiltInArgDesc postputurl_args[] = { { text } , { any|optionalarg }, { any|optionalarg } };
 static const size_t postputurl_numargs = sizeof(postputurl_args)/sizeof(BuiltInArgDesc);
 
 // posturl("<url>"[,timeout][,"<data>"])
