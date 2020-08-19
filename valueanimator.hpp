@@ -24,6 +24,15 @@
 
 #include "p44utils_common.hpp"
 
+#if ENABLE_P44SCRIPT && !defined(ENABLE_ANIMATOR_SCRIPT_FUNCS)
+  #define ENABLE_ANIMATOR_SCRIPT_FUNCS 1
+#endif
+
+#if ENABLE_ANIMATOR_SCRIPT_FUNCS
+#include "p44script.hpp"
+#endif
+
+
 using namespace std;
 
 namespace p44 {
@@ -155,6 +164,9 @@ namespace p44 {
     /// @return true when the animator is valid, i.e. has a value setter
     bool valid();
 
+    /// @return current value
+    double current() { return currentValue; }
+
 
     /// Animation functions
     static double linear(double aProgress, double aTuning);
@@ -172,6 +184,27 @@ namespace p44 {
     MLMicroSeconds cycleComplete(MLMicroSeconds aNow);
 
   };
+
+
+  #if ENABLE_ANIMATOR_SCRIPT_FUNCS
+  namespace P44Script {
+
+    /// represents a view of a P44lrgraphics view hierarchy
+    class ValueAnimatorObj : public P44Script::StructuredLookupObject, public P44Script::EventSource
+    {
+      typedef P44Script::StructuredLookupObject inherited;
+      ValueAnimatorPtr mAnimator;
+    public:
+      ValueAnimatorObj(ValueAnimatorPtr aAnimator);
+      virtual string getAnnotation() const P44_OVERRIDE { return "animator"; };
+      ValueAnimatorPtr animator() { return mAnimator; }
+      virtual EventSource *eventSource() const P44_OVERRIDE;
+    };
+    typedef boost::intrusive_ptr<ValueAnimatorObj> ValueAnimatorObjPtr;
+
+  } // namespace P44Script
+  #endif // ENABLE_ANIMATOR_SCRIPT_FUNCS
+
 
 } // namespace p44
 

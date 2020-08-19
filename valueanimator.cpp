@@ -374,3 +374,135 @@ double ValueAnimator::easeInOut(double aProgress, double aTuning)
 }
 
 
+#if ENABLE_ANIMATOR_SCRIPT_FUNCS
+
+using namespace P44Script;
+
+// .delay(startdelay)
+static const BuiltInArgDesc delay_args[] = { { numeric } };
+static const size_t delay_numargs = sizeof(delay_args)/sizeof(BuiltInArgDesc);
+static void delay_func(BuiltinFunctionContextPtr f)
+{
+  ValueAnimatorObj* a = dynamic_cast<ValueAnimatorObj*>(f->thisObj().get());
+  assert(a);
+  a->animator()->startDelay(f->arg(0)->doubleValue()*Second);
+  f->finish(a); // return myself for chaining calls
+}
+
+// .runafter(animator)
+static const BuiltInArgDesc runafter_args[] = { { any } };
+static const size_t runafter_numargs = sizeof(runafter_args)/sizeof(BuiltInArgDesc);
+static void runafter_func(BuiltinFunctionContextPtr f)
+{
+  ValueAnimatorObjPtr a = boost::dynamic_pointer_cast<ValueAnimatorObj>(f->thisObj());
+  assert(a);
+  ValueAnimatorObjPtr after = boost::dynamic_pointer_cast<ValueAnimatorObj>(f->arg(0));
+  if (!after) {
+    f->finish(new ErrorValue(ScriptError::Invalid, "argument must be an animator"));
+    return;
+  }
+  a->animator()->runAfter(after->animator());
+  f->finish(a); // return myself for chaining calls
+}
+
+// .repeat(repetitions [,autoreverse])
+static const BuiltInArgDesc repeat_args[] = { { numeric }, { numeric|optionalarg } };
+static const size_t repeat_numargs = sizeof(repeat_args)/sizeof(BuiltInArgDesc);
+static void repeat_func(BuiltinFunctionContextPtr f)
+{
+  ValueAnimatorObj* a = dynamic_cast<ValueAnimatorObj*>(f->thisObj().get());
+  assert(a);
+  a->animator()->repeat(f->arg(1)->boolValue(), f->arg(0)->doubleValue());
+  f->finish(a); // return myself for chaining calls
+}
+
+// .function(animationfunctionname [, animationfunctionparam])
+static const BuiltInArgDesc function_args[] = { { text }, { numeric|optionalarg } };
+static const size_t function_numargs = sizeof(function_args)/sizeof(BuiltInArgDesc);
+static void function_func(BuiltinFunctionContextPtr f)
+{
+  ValueAnimatorObj* a = dynamic_cast<ValueAnimatorObj*>(f->thisObj().get());
+  assert(a);
+  a->animator()->function(f->arg(0)->stringValue());
+  if (f->numArgs()>1) {
+    a->animator()->param(f->arg(1)->doubleValue());
+  }
+  f->finish(a); // return myself for chaining calls
+}
+
+// .from(initialvalue)
+static const BuiltInArgDesc from_args[] = { { numeric } };
+static const size_t from_numargs = sizeof(from_args)/sizeof(BuiltInArgDesc);
+static void from_func(BuiltinFunctionContextPtr f)
+{
+  ValueAnimatorObj* a = dynamic_cast<ValueAnimatorObj*>(f->thisObj().get());
+  assert(a);
+  a->animator()->from(f->arg(0)->doubleValue());
+  f->finish(a); // return myself for chaining calls
+}
+
+// .runto(endvalue, intime [, minsteptime])    actually start animation
+static void animation_complete(ValueAnimatorObjPtr aAnimationObj, double aReachedValue, bool aCompleted)
+{
+  aAnimationObj->sendEvent(new NumericValue(aCompleted));
+}
+static const BuiltInArgDesc runto_args[] = { { numeric }, { numeric }, { numeric|optionalarg } };
+static const size_t runto_numargs = sizeof(runto_args)/sizeof(BuiltInArgDesc);
+static void runto_func(BuiltinFunctionContextPtr f)
+{
+  ValueAnimatorObjPtr a = boost::dynamic_pointer_cast<ValueAnimatorObj>(f->thisObj());
+  assert(a);
+  MLMicroSeconds minStepTime = 0;
+  if (f->numArgs()>2) minStepTime = f->arg(2)->doubleValue()*Second;
+  a->animator()->animate(f->arg(0)->doubleValue(), f->arg(1)->doubleValue()*Second, boost::bind(&animation_complete, a, _1, _2), minStepTime);
+  f->finish(); // no return value
+}
+
+// .stop()
+static void stop_func(BuiltinFunctionContextPtr f)
+{
+  ValueAnimatorObj* a = dynamic_cast<ValueAnimatorObj*>(f->thisObj().get());
+  assert(a);
+  a->animator()->stop();
+  f->finish(); // no return value
+}
+
+
+static ScriptObjPtr current_accessor(BuiltInMemberLookup& aMemberLookup, ScriptObjPtr aParentObj, ScriptObjPtr aObjToWrite)
+{
+  ValueAnimatorObj* a = dynamic_cast<ValueAnimatorObj*>(aParentObj.get());
+  return new NumericValue(a->animator()->current());
+}
+
+
+static const BuiltinMemberDescriptor animatorFunctions[] = {
+  { "delay", executable|any, delay_numargs, delay_args, &delay_func },
+  { "runafter", executable|null, runafter_numargs, runafter_args, &runafter_func },
+  { "repeat", executable|any, repeat_numargs, repeat_args, &repeat_func },
+  { "function", executable|any, function_numargs, function_args, &function_func },
+  { "from", executable|any, from_numargs, from_args, &from_func },
+  { "runto", executable|null, runto_numargs, runto_args, &runto_func },
+  { "stop", executable|any, 0, NULL, &stop_func },
+  { "current", builtinmember|numeric, 0, NULL, (BuiltinFunctionImplementation)&current_accessor }, // Note: correct '.accessor=&lrg_accessor' form does not work with OpenWrt g++, so need ugly cast here
+  { NULL } // terminator
+};
+
+static BuiltInMemberLookup* sharedAnimatorFunctionLookupP = NULL;
+
+ValueAnimatorObj::ValueAnimatorObj(ValueAnimatorPtr aAnimator) :
+  mAnimator(aAnimator)
+{
+  if (sharedAnimatorFunctionLookupP==NULL) {
+    sharedAnimatorFunctionLookupP = new BuiltInMemberLookup(animatorFunctions);
+    sharedAnimatorFunctionLookupP->isMemberVariable(); // disable refcounting
+  }
+  registerMemberLookup(sharedAnimatorFunctionLookupP);
+}
+
+EventSource* ValueAnimatorObj::eventSource() const
+{
+  if (!mAnimator->inProgress()) return NULL; // no longer running -> no event source any more
+  return static_cast<EventSource*>(const_cast<ValueAnimatorObj*>(this));
+}
+
+#endif // ENABLE_ANIMATOR_SCRIPT_FUNCS
