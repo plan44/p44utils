@@ -529,7 +529,7 @@ namespace p44 { namespace P44Script {
     /// @{
 
     /// @return a souce of events for this object, or NULL if none
-    /// @note objects that represent a on-time event (such as a thread ending) must not return an
+    /// @note objects that represent a one-time event (such as a thread ending) must not return an
     ///    event source (that will never emit an event) after the singular event has already happened!
     virtual EventSource *eventSource() const { return NULL; /* none in base class */ }
 
@@ -753,7 +753,8 @@ namespace p44 { namespace P44Script {
     virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aTypeRequirements) P44_OVERRIDE;
 
     /// register an additional lookup
-    /// @param aMemberLookup a lookup object
+    /// @param aMemberLookup a lookup object.
+    /// @note if same lookup object is registered more than once, only the first registration counts, others are ignored
     void registerMemberLookup(MemberLookupPtr aMemberLookup);
   };
 

@@ -123,7 +123,7 @@ TEST_CASE("ExpressionValue", "[expressions]" )
   SECTION("Default Value") {
     REQUIRE(ExpressionValue().isNull()); // default expression is NULL
     REQUIRE(ExpressionValue().isString() == false);
-    REQUIRE(ExpressionValue().isValue() == false); // FIXME: for now, is notOK because NULL is an error
+    REQUIRE(ExpressionValue().isValue() == false);
     REQUIRE(ExpressionValue().isOK() == true);
     REQUIRE(ExpressionValue().syntaxOk() == true);
     REQUIRE(ExpressionValue().boolValue() == false);

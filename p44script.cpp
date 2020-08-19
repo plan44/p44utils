@@ -715,6 +715,9 @@ void StructuredLookupObject::registerMemberLookup(MemberLookupPtr aMemberLookup)
 {
   if (aMemberLookup) {
     // last registered lookup overrides same named objects in lookups registered before
+    for (LookupList::iterator pos = lookups.begin(); pos!=lookups.end(); ++pos) {
+      if (pos->get()==aMemberLookup.get()) return; // avoid registering the same lookup twice
+    }
     lookups.push_front(aMemberLookup);
   }
 }
@@ -3863,10 +3866,12 @@ ScriptingDomainPtr ScriptSource::domain()
 void ScriptSource::setSharedMainContext(ScriptMainContextPtr aSharedMainContext)
 {
   // cached executable gets invalid when setting new context
-  if (cachedExecutable) {
-    cachedExecutable.reset(); // release cached executable (will release SourceCursor holding our source)
+  if (sharedMainContext!=aSharedMainContext) {
+    if (cachedExecutable) {
+      cachedExecutable.reset(); // release cached executable (will release SourceCursor holding our source)
+    }
+    sharedMainContext = aSharedMainContext; // use this particular context for executing scripts
   }
-  sharedMainContext = aSharedMainContext; // use this particular context for executing scripts
 }
 
 
