@@ -5217,6 +5217,13 @@ static void dusk_func(BuiltinFunctionContextPtr f)
 // epochtime()
 static void epochtime_func(BuiltinFunctionContextPtr f)
 {
+  f->finish(new NumericValue((double)MainLoop::unixtime()/Second)); // epoch time in seconds
+}
+
+
+// epochdays()
+static void epochdays_func(BuiltinFunctionContextPtr f)
+{
   f->finish(new NumericValue((double)MainLoop::unixtime()/Day)); // epoch time in days with fractional time
 }
 
@@ -5374,6 +5381,7 @@ static const BuiltinMemberDescriptor standardFunctions[] = {
   { "sunset", executable|numeric|null, 0, NULL, &sunset_func },
   { "dusk", executable|numeric|null, 0, NULL, &dusk_func },
   { "epochtime", executable|any, 0, NULL, &epochtime_func },
+  { "epochdays", executable|any, 0, NULL, &epochdays_func },
   { "timeofday", executable|numeric, timegetter_numargs, timegetter_args, &timeofday_func },
   { "hour", executable|numeric, timegetter_numargs, timegetter_args, &hour_func },
   { "minute", executable|numeric, timegetter_numargs, timegetter_args, &minute_func },

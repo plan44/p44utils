@@ -516,11 +516,12 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "expressions", "[scripting]") {
     REQUIRE(s.test(expression, "cyclic(-1.8,1,2)")->doubleValue() == Approx(1.2));
     REQUIRE(s.test(expression, "cyclic(2.2,1,2)")->doubleValue() == Approx(1.2));
     REQUIRE(s.test(expression, "cyclic(4.2,1,2)")->doubleValue() == Approx(1.2));
-    REQUIRE(s.test(expression, "epochtime()")->doubleValue() == Approx((double)MainLoop::unixtime()/Day));
+    REQUIRE(s.test(expression, "epochdays()")->int64Value() == floor(MainLoop::unixtime()/Day));
+    REQUIRE(s.test(expression, "epochtime()")->doubleValue() == Approx((double)MainLoop::unixtime()/Second));
     REQUIRE(s.test(expression, "hour(23:42)")->doubleValue() == 23);
     REQUIRE(s.test(expression, "minute(23:42)")->doubleValue() == 42);
     REQUIRE(s.test(expression, "formattime(23:42)")->stringValue() == "23:42:00");
-    REQUIRE(s.test(expression, "formattime()==formattime(epochtime()*24*60*60)")->boolValue() == true);
+    REQUIRE(s.test(expression, "formattime()==formattime(epochtime())")->boolValue() == true);
     // strings
     REQUIRE(s.test(expression, "string(33)")->stringValue() == "33");
     REQUIRE(s.test(expression, "string(undefined)")->stringValue() == "undefined");
