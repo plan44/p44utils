@@ -536,6 +536,11 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "expressions", "[scripting]") {
     REQUIRE(s.test(expression, "format('%4d', 33.7)")->stringValue() == "  33");
     REQUIRE(s.test(expression, "format('%.1f', 33.7)")->stringValue() == "33.7");
     REQUIRE(s.test(expression, "format('%08X', 0x24F5E21)")->stringValue() == "024F5E21");
+    REQUIRE(s.test(expression, "format('%X', 0xABCDEF24F5E21)")->stringValue() == "ABCDEF24F5E21");
+    REQUIRE(s.test(expression, "format('%15s', 'hello world')")->stringValue() == "    hello world");
+    REQUIRE(s.test(expression, "format('%.5s', 'hello world')")->stringValue() == "hello");
+    REQUIRE(s.test(expression, "format('full format with decimal %04d%% and float %.3f and string %s in one call', 42, 78.787878, 'UA')")->stringValue() == "full format with decimal 0042% and float 78.788 and string UA in one call");
+
     // divs
     REQUIRE(s.test(expression, "eval('333*777')")->isErr() == true); // eval is async, s.test is synchronous!
     // error handling

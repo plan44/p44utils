@@ -4654,27 +4654,57 @@ static void find_func(BuiltinFunctionContextPtr f)
 }
 
 
-// format(formatstring, number)
+// format(formatstring, value [, value...])
 // only % + - 0..9 . d, x, and f supported
-static const BuiltInArgDesc format_args[] = { { text }, { numeric } };
+static const BuiltInArgDesc format_args[] = { { text }, { numeric|text|multiple } };
 static const size_t format_numargs = sizeof(format_args)/sizeof(BuiltInArgDesc);
 static void format_func(BuiltinFunctionContextPtr f)
 {
   string fmt = f->arg(0)->stringValue();
-  if (
-    fmt.size()<2 ||
-    fmt[0]!='%' ||
-    fmt.substr(1,fmt.size()-2).find_first_not_of("+-0123456789.")!=string::npos || // excluding last digit
-    fmt.find_first_not_of("duxXeEgGf", fmt.size()-1)!=string::npos // which must be d,x or f
-  ) {
-    f->finish(new ErrorValue(ScriptError::Syntax, "invalid format string, only basic %%duxXeEgGf specs allowed"));
+  string res;
+  const char* p = fmt.c_str();
+  size_t ai = 1;
+  while (*p) {
+    const char *e = strchr(p, '%');
+    if (!e) e = fmt.c_str()+fmt.size();
+    if (e>p) res.append(p, e-p);
+    p=e;
+    if (*p) {
+      // decode format
+      p++;
+      if (*p=='%') {
+        res += *p++; // copy single % to output
+      }
+      else {
+        // real format
+        e=p;
+        char c = *e++;
+        while (c && (isdigit(c)||(c=='.')||(c=='+')||(c=='-'))) c = *e++; // skip field length specs
+        if (c=='d'||c=='u'||c=='x'||c=='X') {
+          // integer formatting
+          string nfmt(p-1,e-p);
+          nfmt.append("ll"); nfmt.append(1, c); // make it a longlong in all cases
+          string_format_append(res, nfmt.c_str(), f->arg(ai++)->int64Value());
+        }
+        else if (c=='e'||c=='E'||c=='g'||c=='G'||c=='f') {
+          // double formatting
+          string nfmt(p-1,e-p+1);
+          string_format_append(res, nfmt.c_str(), f->arg(ai++)->doubleValue());
+        }
+        else if (c=='s') {
+          // string formatting
+          string nfmt(p-1,e-p+1);
+          string_format_append(res, nfmt.c_str(), f->arg(ai++)->stringValue().c_str());
+        }
+        else {
+          f->finish(new ErrorValue(ScriptError::Syntax, "invalid format string, only basic %%duxXeEgGfs specs allowed"));
+          return;
+        }
+        p=e;
+      }
+    }
   }
-  else {
-    if (fmt.find_first_of("duxX", fmt.size()-1)!=string::npos)
-      f->finish(new StringValue(string_format(fmt.c_str(), f->arg(1)->intValue()))); // int format
-    else
-      f->finish(new StringValue(string_format(fmt.c_str(), f->arg(1)->doubleValue()))); // double format
-  }
+  f->finish(new StringValue(res));
 }
 
 
