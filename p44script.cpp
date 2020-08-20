@@ -559,7 +559,7 @@ JsonObjectPtr StringValue::jsonValue() const
 
 ScriptObjPtr JsonValue::assignableValue()
 {
-  if (!hasType(keeporiginal)) {
+  if (!hasType(keeporiginal) && jsonval) {
     // must copy the contained json object, unless this is a derived object such as a JSON API request that must be kept as-is
     return new JsonValue(JsonObjectPtr(new JsonObject(*jsonval)));
   }
