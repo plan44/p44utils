@@ -3554,10 +3554,6 @@ void CompiledTrigger::triggerDidEvaluate(EvaluationFlags aEvalMode, ScriptObjPtr
   // check if trigger is likely to work
   if ((aEvalMode&initial)!=0 && nextEvaluation==Never && numSources()==0) {
     OLOG(LOG_WARNING, "probably trigger will not work as intended (no timers nor events): %s", cursor.displaycode(70).c_str());
-    // send a null as initial result
-    aResult = new AnnotatedNullValue("probably will never trigger");
-    // but have it executed normally once just a bit later
-    updateNextEval(MainLoop::now()+1*Second);
   }
   // schedule next timed evaluation if one is needed
   scheduleNextEval();
