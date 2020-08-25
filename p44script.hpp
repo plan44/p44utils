@@ -276,6 +276,10 @@ namespace p44 { namespace P44Script {
 
     /// @return number of event sources (senders) this sink currently has
     size_t numSources() { return eventSources.size(); }
+
+    /// @return true if sink has any sources
+    bool hasSources() { return !eventSources.empty(); }
+
   };
 
   /// Event Source
@@ -1209,20 +1213,30 @@ namespace p44 { namespace P44Script {
 
     EvaluationCB mTriggerCB;
     TriggerMode mTriggerMode;
+    MLMicroSeconds mHoldOffTime;
   public:
-    TriggerSource(const char* aOriginLabel, P44LoggingObj* aLoggingContextP, EvaluationCB aTriggerCB, TriggerMode aTriggerMode = onGettingTrue, EvaluationFlags aEvalFlags = expression|synchronously) :
+    TriggerSource(const char* aOriginLabel, P44LoggingObj* aLoggingContextP, EvaluationCB aTriggerCB, TriggerMode aTriggerMode, MLMicroSeconds aHoldOffTime, EvaluationFlags aEvalFlags) :
       inherited(aEvalFlags|triggered, aOriginLabel, aLoggingContextP), // make sure one of the trigger flags is set for the compile to produce a CompiledTrigger
       mTriggerCB(aTriggerCB),
-      mTriggerMode(aTriggerMode)
+      mTriggerMode(aTriggerMode),
+      mHoldOffTime(aHoldOffTime)
     {
     }
 
     /// set new trigger source with the callback/mode/evalFlags as set with the constructor
     /// @param aSource the trigger source code to set
-    /// @param aAutoInit if set, and source code has actually changed, reInitalize() will be called
+    /// @param aAutoInit if set, and source code has actually changed, compileAndInit() will be called
     /// @return true if changed.
-    /// @note usually, compileAndInit() should be called when source has changed
     bool setTriggerSource(const string aSource, bool aAutoInit = false);
+
+    /// set new trigger holdoff time
+    /// @param aHoldOffTime the new holdoff time
+    /// @param aAutoInit if set, and holdoff time has actually changed, compileAndInit() will be called
+    /// @return true if changed.
+    bool setTriggerHoldoff(MLMicroSeconds aHoldOffTime, bool aAutoInit = false);
+
+    /// @return current holdoff time
+    MLMicroSeconds getTriggerHoldoff() { return mHoldOffTime; }
 
     /// re-initialize the trigger
     /// @return the result of the initialisation run
@@ -1684,7 +1698,7 @@ namespace p44 { namespace P44Script {
       bool frozen();
     };
 
-    string resultVarName; ///< name of the variable that should represent the trigger result in handler code
+    string mResultVarName; ///< name of the variable that should represent the trigger result in handler code
 
   private:
     EvaluationCB mTriggerCB;
@@ -1693,11 +1707,14 @@ namespace p44 { namespace P44Script {
     ScriptObjPtr mCurrentResult;
     Tristate mCurrentState;
     bool mOneShotEvent;
-    MLMicroSeconds nextEvaluation;
+    MLMicroSeconds mNextEvaluation;
 
     typedef std::map<SourceCursor::UniquePos, FrozenResult> FrozenResultsMap;
-    FrozenResultsMap frozenResults; ///< map of expression starting indices and associated frozen results
-    MLTicket reEvaluationTicket; ///< ticket for re-evaluation timer
+    FrozenResultsMap mFrozenResults; ///< map of expression starting indices and associated frozen results
+    MLTicket mReEvaluationTicket; ///< ticket for re-evaluation timer
+
+    MLMicroSeconds mHoldOff; ///< how long the evaluation result must be stable in order to fire the trigger
+    MLMicroSeconds mMetAt; ///< time when holdoff is over and current trigger result can be fired
 
   public:
 
@@ -1709,8 +1726,8 @@ namespace p44 { namespace P44Script {
     /// @note callback will get the trigger expression result
     void setTriggerCB(EvaluationCB aTriggerCB) { mTriggerCB = aTriggerCB; }
 
-    /// set the trigger mode
-    void setTriggerMode(TriggerMode aTriggerMode) { mTriggerMode = aTriggerMode; }
+    /// set the trigger mode and optional holdoff time
+    void setTriggerMode(TriggerMode aTriggerMode, MLMicroSeconds aHoldOffTime) { mTriggerMode = aTriggerMode; mHoldOff = aHoldOffTime; }
 
     /// set the trigger evaluation flags
     void setTriggerEvalFlags(EvaluationFlags aEvalFlags) { mEvalFlags = aEvalFlags; }

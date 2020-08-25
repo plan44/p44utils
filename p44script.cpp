@@ -2782,7 +2782,7 @@ void SourceProcessor::s_defineFunction()
 void SourceProcessor::s_defineTrigger()
 {
   FOCUSLOGSTATE
-  // on (triggerexpression) [changing|toggling|evaluating|gettingtrue] [ as triggerresult ] { handlercode }
+  // on (triggerexpression) [changing|toggling|evaluating|gettingtrue] [ stable <stabilizing time numeric literal>] [ as triggerresult ] { handlercode }
   // after scanning the trigger condition expression of a on() statement
   // - poppedPos points to the beginning of the expression
   // - src.pos should be on the ')' of the trigger expression
@@ -2796,6 +2796,7 @@ void SourceProcessor::s_defineTrigger()
   src.skipNonCode();
   // optional trigger mode
   TriggerMode mode = inactive;
+  MLMicroSeconds holdOff = Never;
   bool hasid = src.parseIdentifier(identifier);
   if (hasid) {
     if (uequals(identifier, "changing")) {
@@ -2820,20 +2821,33 @@ void SourceProcessor::s_defineTrigger()
     hasid = src.parseIdentifier(identifier);
   }
   if (hasid) {
+    if (uequals(identifier, "stable")) {
+      src.skipNonCode();
+      ScriptObjPtr h = src.parseNumericLiteral();
+      if (h->isErr()) {
+        complete(h);
+        return;
+      }
+      holdOff = h->doubleValue()*Second;
+      src.skipNonCode();
+      hasid = src.parseIdentifier(identifier);
+    }
+  }
+  if (hasid) {
     if (uequals(identifier, "as")) {
       src.skipNonCode();
       if (!src.parseIdentifier(identifier)) {
         exitWithSyntaxError("missing trigger result variable name");
         return;
       }
-      trigger->resultVarName = identifier;
+      trigger->mResultVarName = identifier;
     }
     else {
       exitWithSyntaxError("missing trigger mode or 'as'");
       return;
     }
   }
-  trigger->setTriggerMode(mode);
+  trigger->setTriggerMode(mode, holdOff);
   src.skipNonCode();
   // check for beginning of handler body
   if (src.c()!='{') {
@@ -3455,7 +3469,9 @@ CompiledTrigger::CompiledTrigger(const string aName, ScriptMainContextPtr aMainC
   mCurrentState(p44::undefined),
   mOneShotEvent(false),
   mEvalFlags(expression|synchronously),
-  nextEvaluation(Never)
+  mNextEvaluation(Never),
+  mMetAt(Never),
+  mHoldOff(0)
 {
 }
 
@@ -3464,13 +3480,14 @@ ScriptObjPtr CompiledTrigger::initializeTrigger()
 {
   // initialize it
   FOCUSLOG("\n---------- Initializing Trigger  : %s", cursor.displaycode(130).c_str());
-  reEvaluationTicket.cancel();
-  nextEvaluation = Never; // reset
-  frozenResults.clear(); // (re)initializing trigger unfreezes all values
+  mReEvaluationTicket.cancel();
+  mNextEvaluation = Never; // reset
+  mFrozenResults.clear(); // (re)initializing trigger unfreezes all values
   clearSources(); // forget all event sources
   ExecutionContextPtr ctx = contextForCallingFrom(NULL, NULL);
   if (!ctx) return  new ErrorValue(ScriptError::Internal, "no context for trigger");
   EvaluationFlags initFlags = (mEvalFlags&~runModeMask)|initial;
+  OLOG(LOG_INFO, "initial trigger evaluation: %s", cursor.displaycode(130).c_str());
   if (mEvalFlags & synchronously) {
     #if DEBUGLOGGING
     ScriptObjPtr res = ctx->executeSynchronously(this, initFlags, Infinite);
@@ -3498,18 +3515,17 @@ void CompiledTrigger::processEvent(ScriptObjPtr aEvent, EventSource &aSource)
 void CompiledTrigger::triggerEvaluation(EvaluationFlags aEvalMode)
 {
   FOCUSLOG("\n---------- Evaluating Trigger    : %s", cursor.displaycode(130).c_str());
-  reEvaluationTicket.cancel();
-  nextEvaluation = Never; // reset
+  mReEvaluationTicket.cancel();
+  mNextEvaluation = Never; // reset
   ExecutionContextPtr ctx = contextForCallingFrom(NULL, NULL);
-  aEvalMode &= ~runModeMask;
-  EvaluationFlags runFlags = aEvalMode ? aEvalMode : mEvalFlags&~runModeMask; // use only runmode from aEvalMode if nothing else is set
+  EvaluationFlags runFlags = (aEvalMode&~runModeMask) ? aEvalMode : (mEvalFlags&~runModeMask)|aEvalMode; // use only runmode from aEvalMode if nothing else is set
   ctx->execute(ScriptObjPtr(this), runFlags, boost::bind(&CompiledTrigger::triggerDidEvaluate, this, runFlags, _1), 30*Second);
 }
 
 
 void CompiledTrigger::triggerDidEvaluate(EvaluationFlags aEvalMode, ScriptObjPtr aResult)
 {
-  OLOG(LOG_DEBUG, "evaluated trigger: %s\n      with result: %s%s", cursor.displaycode(90).c_str(), mOneShotEvent ? "(ONESHOT) " : "", ScriptObj::describe(aResult).c_str());
+  OLOG(aEvalMode&initial ? LOG_INFO : LOG_DEBUG, "evaluated trigger: %s\n      with result: %s%s", cursor.displaycode(90).c_str(), mOneShotEvent ? "(ONESHOT) " : "", ScriptObj::describe(aResult).c_str());
   bool doTrigger = false;
   Tristate newState = aResult->defined() ? (aResult->boolValue() ? p44::yes : p44::no) : p44::undefined;
   if (mTriggerMode==onEvaluation) {
@@ -3521,8 +3537,34 @@ void CompiledTrigger::triggerDidEvaluate(EvaluationFlags aEvalMode, ScriptObjPtr
   else {
     // bool modes
     doTrigger = mCurrentState!=newState;
-    if (mTriggerMode==onGettingTrue) {
-      doTrigger = doTrigger && (newState==yes); // only if becoming true
+    if (mTriggerMode==onGettingTrue && doTrigger) {
+      if (newState!=yes) {
+        doTrigger = false; // do not trigger on getting false
+        mMetAt = Never; // also reset holdoff
+      }
+    }
+  }
+  if (mHoldOff>0 && (aEvalMode&initial)==0 && !mOneShotEvent) { // holdoff is only active for non-initial runs and without oneshots involved
+    MLMicroSeconds now = MainLoop::now();
+    // we have a hold-off
+    if (doTrigger) {
+      // trigger would fire now, but may not do so now -> (re)start hold-off period
+      doTrigger = false; // can't trigger now
+      mMetAt = now+mHoldOff;
+      OLOG(LOG_INFO, "triggering conditions met, but must await holdoff period of %.2f seconds", (double)mHoldOff/Second);
+      updateNextEval(mMetAt);
+    }
+    else if (mMetAt!=Never) {
+      // not changed, but waiting for holdoff
+      if (now>=mMetAt) {
+        OLOG(LOG_INFO, "trigger condition has been stable for holdoff period of %.2f seconds -> fire now", (double)mHoldOff/Second);
+        doTrigger = true;
+        mMetAt = Never;
+      }
+      else {
+        // not yet, silently re-schedule
+        updateNextEval(mMetAt);
+      }
     }
   }
   // update state
@@ -3535,13 +3577,13 @@ void CompiledTrigger::triggerDidEvaluate(EvaluationFlags aEvalMode, ScriptObjPtr
   }
   mCurrentResult = aResult;
   // take unfreeze time of frozen results into account for next evaluation
-  FrozenResultsMap::iterator fpos = frozenResults.begin();
-  while (fpos!=frozenResults.end()) {
+  FrozenResultsMap::iterator fpos = mFrozenResults.begin();
+  while (fpos!=mFrozenResults.end()) {
     if (fpos->second.frozenUntil==Never) {
       // already detected expired -> erase
       // Note: delete only DETECTED ones, just expired ones in terms of now() MUST wait until checked in next evaluation!
       #if P44_CPP11_FEATURE
-      fpos = frozenResults.erase(fpos);
+      fpos = mFrozenResults.erase(fpos);
       #else
       FrozenResultsMap::iterator dpos = fpos++;
       frozenResults.erase(dpos);
@@ -3552,7 +3594,7 @@ void CompiledTrigger::triggerDidEvaluate(EvaluationFlags aEvalMode, ScriptObjPtr
     fpos++;
   }
   // check if trigger is likely to work
-  if ((aEvalMode&initial)!=0 && nextEvaluation==Never && numSources()==0) {
+  if ((aEvalMode&initial)!=0 && mNextEvaluation==Never && !hasSources()) {
     OLOG(LOG_WARNING, "probably trigger will not work as intended (no timers nor events): %s", cursor.displaycode(70).c_str());
   }
   // schedule next timed evaluation if one is needed
@@ -3563,16 +3605,20 @@ void CompiledTrigger::triggerDidEvaluate(EvaluationFlags aEvalMode, ScriptObjPtr
     OLOG(LOG_INFO, "trigger fires with result = %s", ScriptObj::describe(aResult).c_str());
     mTriggerCB(aResult);
   }
+  // treat static trigger like oneshot
+  if (mNextEvaluation==Never && !hasSources()) {
+    mCurrentState = p44::undefined;
+  }
 }
 
 
 void CompiledTrigger::scheduleNextEval()
 {
-  if (nextEvaluation!=Never) {
-    OLOG(LOG_INFO, "Trigger re-evaluation scheduled for %s: '%s'", MainLoop::string_mltime(nextEvaluation, 3).c_str(), cursor.displaycode(70).c_str());
-    reEvaluationTicket.executeOnceAt(
+  if (mNextEvaluation!=Never) {
+    OLOG(LOG_INFO, "Trigger re-evaluation scheduled for %s: '%s'", MainLoop::string_mltime(mNextEvaluation, 3).c_str(), cursor.displaycode(70).c_str());
+    mReEvaluationTicket.executeOnceAt(
       boost::bind(&CompiledTrigger::triggerEvaluation, this, timed),
-      nextEvaluation
+      mNextEvaluation
     );
   }
 }
@@ -3589,9 +3635,9 @@ void CompiledTrigger::scheduleEvalNotLaterThan(const MLMicroSeconds aLatestEval)
 bool CompiledTrigger::updateNextEval(const MLMicroSeconds aLatestEval)
 {
   if (aLatestEval==Never || aLatestEval==Infinite) return false; // no next evaluation needed, no need to update
-  if (nextEvaluation==Never || aLatestEval<nextEvaluation) {
+  if (mNextEvaluation==Never || aLatestEval<mNextEvaluation) {
     // new time is more recent than previous, update
-    nextEvaluation = aLatestEval;
+    mNextEvaluation = aLatestEval;
     return true;
   }
   return false;
@@ -3607,9 +3653,9 @@ bool CompiledTrigger::updateNextEval(const struct tm& aLatestEvalTm)
 
 CompiledTrigger::FrozenResult* CompiledTrigger::getFrozen(ScriptObjPtr &aResult, SourceCursor::UniquePos aFreezeId)
 {
-  FrozenResultsMap::iterator frozenVal = frozenResults.find(aFreezeId);
+  FrozenResultsMap::iterator frozenVal = mFrozenResults.find(aFreezeId);
   FrozenResult* frozenResultP = NULL;
-  if (frozenVal!=frozenResults.end()) {
+  if (frozenVal!=mFrozenResults.end()) {
     frozenResultP = &(frozenVal->second);
     // there is a frozen result for this position in the expression
     OLOG(LOG_DEBUG, "- frozen result (%s) for actual result (%s) for freezeId 0x%p exists - will expire %s",
@@ -3638,13 +3684,13 @@ CompiledTrigger::FrozenResult* CompiledTrigger::newFreeze(FrozenResult* aExistin
     FrozenResult newFreeze;
     newFreeze.frozenResult = aNewResult;
     newFreeze.frozenUntil = aFreezeUntil;
-    frozenResults[aFreezeId] = newFreeze;
+    mFrozenResults[aFreezeId] = newFreeze;
     OLOG(LOG_DEBUG, "- new result (%s) frozen for freezeId 0x%p until %s",
       aNewResult->stringValue().c_str(),
       aFreezeId,
       MainLoop::string_mltime(newFreeze.frozenUntil, 3).c_str()
     );
-    return &frozenResults[aFreezeId];
+    return &mFrozenResults[aFreezeId];
   }
   else if (!aExistingFreeze->frozen() || aUpdate || aFreezeUntil==Never) {
     OLOG(LOG_DEBUG, "- existing freeze updated to value %s and to expire %s",
@@ -3663,9 +3709,9 @@ CompiledTrigger::FrozenResult* CompiledTrigger::newFreeze(FrozenResult* aExistin
 
 bool CompiledTrigger::unfreeze(SourceCursor::UniquePos aFreezeId)
 {
-  FrozenResultsMap::iterator frozenVal = frozenResults.find(aFreezeId);
-  if (frozenVal!=frozenResults.end()) {
-    frozenResults.erase(frozenVal);
+  FrozenResultsMap::iterator frozenVal = mFrozenResults.find(aFreezeId);
+  if (frozenVal!=mFrozenResults.end()) {
+    mFrozenResults.erase(frozenVal);
     return true;
   }
   return false;
@@ -3694,8 +3740,8 @@ void CompiledHandler::triggered(ScriptObjPtr aTriggerResult)
     SPLOG(mainContext->domain(), LOG_INFO, "%s triggered: '%s' with result = %s", name.c_str(), cursor.displaycode(50).c_str(), ScriptObj::describe(aTriggerResult).c_str());
     ExecutionContextPtr ctx = contextForCallingFrom(mainContext->domain(), NULL);
     if (ctx) {
-      if (!trigger->resultVarName.empty()) {
-        ctx->setMemberByName(trigger->resultVarName, aTriggerResult);
+      if (!trigger->mResultVarName.empty()) {
+        ctx->setMemberByName(trigger->mResultVarName, aTriggerResult);
       }
       ctx->execute(this, scriptbody|keepvars|concurrently, boost::bind(&CompiledHandler::actionExecuted, this, _1));
       return;
@@ -4009,11 +4055,24 @@ bool TriggerSource::setTriggerSource(const string aSource, bool aAutoInit)
 }
 
 
+bool TriggerSource::setTriggerHoldoff(MLMicroSeconds aHoldOffTime, bool aAutoInit)
+{
+  if (aHoldOffTime!=mHoldOffTime) {
+    mHoldOffTime = aHoldOffTime;
+    if (aAutoInit) {
+      compileAndInit();
+    }
+    return true;
+  }
+  return false;
+}
+
+
 ScriptObjPtr TriggerSource::compileAndInit()
 {
   CompiledTriggerPtr trigger = dynamic_pointer_cast<CompiledTrigger>(getExecutable());
   if (!trigger) return  new ErrorValue(ScriptError::Internal, "is not a trigger");
-  trigger->setTriggerMode(mTriggerMode);
+  trigger->setTriggerMode(mTriggerMode, mHoldOffTime);
   trigger->setTriggerCB(mTriggerCB);
   trigger->setTriggerEvalFlags(defaultFlags);
   return trigger->initializeTrigger();
@@ -4652,7 +4711,7 @@ static void find_func(BuiltinFunctionContextPtr f)
 
 // format(formatstring, value [, value...])
 // only % + - 0..9 . d, x, and f supported
-static const BuiltInArgDesc format_args[] = { { text }, { numeric|text|multiple } };
+static const BuiltInArgDesc format_args[] = { { text }, { any+null+error|multiple } };
 static const size_t format_numargs = sizeof(format_args)/sizeof(BuiltInArgDesc);
 static void format_func(BuiltinFunctionContextPtr f)
 {
@@ -4676,7 +4735,11 @@ static void format_func(BuiltinFunctionContextPtr f)
         e=p;
         char c = *e++;
         while (c && (isdigit(c)||(c=='.')||(c=='+')||(c=='-'))) c = *e++; // skip field length specs
-        if (c=='d'||c=='u'||c=='x'||c=='X') {
+        if (f->arg(ai)->undefined()) {
+          // whatever undefined value, show annotation
+          string_format_append(res, "<%s>", f->arg(ai++)->getAnnotation().c_str());
+        }
+        else if (c=='d'||c=='u'||c=='x'||c=='X') {
           // integer formatting
           string nfmt(p-1,e-p);
           nfmt.append("ll"); nfmt.append(1, c); // make it a longlong in all cases
@@ -5028,7 +5091,7 @@ static void timeCheckFunc(bool aIsTime, BuiltinFunctionContextPtr f)
   bool met = daySecs>=secs->intValue();
   // next check at specified time, today if not yet met, tomorrow if already met for today
   loctim.tm_hour = 0; loctim.tm_min = 0; loctim.tm_sec = secs->intValue();
-  LOG(LOG_INFO, "is/after_time() reference time for current check is: %s", MainLoop::string_mltime(MainLoop::localTimeToMainLoopTime(loctim), 3).c_str());
+  FOCUSLOG("is/after_time() reference time for current check is: %s", MainLoop::string_mltime(MainLoop::localTimeToMainLoopTime(loctim), 3).c_str());
   bool res = met;
   // limit to a few secs around target if it's "is_time"
   if (aIsTime && met && daySecs<secs->intValue()+IS_TIME_TOLERANCE_SECONDS) {
