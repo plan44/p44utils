@@ -519,7 +519,7 @@ namespace p44 { namespace P44Script {
     // - virtual, type-specific
     virtual bool operator<(const ScriptObj& aRightSide) const;
     virtual bool operator==(const ScriptObj& aRightSide) const;
-    // arithmetic, returning a SciptObjPtr, type-specific
+    // arithmetic, returning a ScriptObjPtr, type-specific
     virtual ScriptObjPtr operator+(const ScriptObj& aRightSide) const { return new ScriptObj(); };
     virtual ScriptObjPtr operator-(const ScriptObj& aRightSide) const { return new ScriptObj(); };
     virtual ScriptObjPtr operator*(const ScriptObj& aRightSide) const { return new ScriptObj(); };
@@ -730,6 +730,9 @@ namespace p44 { namespace P44Script {
     virtual const ScriptObjPtr memberAtIndex(size_t aIndex, TypeInfo aMemberAccessFlags = none) P44_OVERRIDE;
     virtual ErrorPtr setMemberByName(const string aName, const ScriptObjPtr aMember) P44_OVERRIDE;
     virtual ErrorPtr setMemberAtIndex(size_t aIndex, const ScriptObjPtr aMember, const string aName = "") P44_OVERRIDE;
+    // operators
+    virtual bool operator<(const ScriptObj& aRightSide) const P44_OVERRIDE;
+    virtual bool operator==(const ScriptObj& aRightSide) const P44_OVERRIDE;
   };
   #endif // SCRIPTING_JSON_SUPPORT
 

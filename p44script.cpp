@@ -598,6 +598,36 @@ TypeInfo JsonValue::getTypeInfo() const
 }
 
 
+bool JsonValue::operator==(const ScriptObj& aRightSide) const
+{
+  if (inherited::operator==(aRightSide)) return true; // object identity
+  if (aRightSide.undefined()) return undefined(); // both undefined is equal
+  if (aRightSide.hasType(json)) {
+    // compare JSON with JSON
+    if (jsonval.get()==aRightSide.jsonValue().get()) return true; // json object identity (or both NULL)
+    if (!jsonval || !aRightSide.jsonValue()) return false;
+    if (strcmp(jsonval->c_strValue(),aRightSide.jsonValue()->c_strValue())==0) return true; // same stringified value
+  }
+  else {
+    // compare JSON to non-JSON
+    if (aRightSide.hasType(numeric)) return doubleValue()==aRightSide.doubleValue();
+    if (aRightSide.hasType(text)) return stringValue()==aRightSide.stringValue();
+  }
+  return false; // everything else: not equal
+}
+
+
+bool JsonValue::operator<(const ScriptObj& aRightSide) const
+{
+  if (!aRightSide.hasType(json)) {
+    // compare JSON to non-JSON
+    if (aRightSide.hasType(numeric)) return doubleValue()<aRightSide.doubleValue();
+    if (aRightSide.hasType(text)) return stringValue()<aRightSide.stringValue();
+  }
+  return false; // everything else: not orderable -> never less
+}
+
+
 const ScriptObjPtr JsonValue::memberByName(const string aName, TypeInfo aMemberAccessFlags)
 {
   FOCUSLOGLOOKUP("JsonValue");
@@ -4670,6 +4700,18 @@ static void strlen_func(BuiltinFunctionContextPtr f)
   f->finish(new NumericValue((double)f->arg(0)->stringValue().size())); // length of string
 }
 
+// elements(array)
+static const BuiltInArgDesc elements_args[] = { { any|undefres } };
+static const size_t elements_numargs = sizeof(elements_args)/sizeof(BuiltInArgDesc);
+static void elements_func(BuiltinFunctionContextPtr f)
+{
+  if (f->arg(0)->hasType(json)) {
+    f->finish(new NumericValue(f->arg(0)->jsonValue()->arrayLength()));
+    return;
+  }
+  f->finish(new AnnotatedNullValue("not an array"));
+}
+
 
 // substr(string, from)
 // substr(string, from, count)
@@ -5442,6 +5484,7 @@ static const BuiltinMemberDescriptor standardFunctions[] = {
   { "number", executable|numeric, number_numargs, number_args, &number_func },
   { "json", executable|json, json_numargs, json_args, &json_func },
   { "jsonresource", executable|json|error, jsonresource_numargs, jsonresource_args, &jsonresource_func },
+  { "elements", executable|numeric|null, elements_numargs, elements_args, &elements_func },
   { "lastarg", executable|any, lastarg_numargs, lastarg_args, &lastarg_func },
   { "strlen", executable|numeric|null, strlen_numargs, strlen_args, &strlen_func },
   { "substr", executable|text|null, substr_numargs, substr_args, &substr_func },
