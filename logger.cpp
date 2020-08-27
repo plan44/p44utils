@@ -120,7 +120,7 @@ void Logger::logStr_always(int aErrLevel, string aMessage)
   struct timeval t;
   gettimeofday(&t, NULL);
   p += strftime(p, sizeof(tsbuf), "[%Y-%m-%d %H:%M:%S", localtime(&t.tv_sec));
-  p += sprintf(p, ".%03d", t.tv_usec/1000);
+  p += sprintf(p, ".%03d", (int)(t.tv_usec/1000));
   if (deltaTime) {
     long long millisPassed = ((t.tv_sec*1e6+t.tv_usec) - (lastLogTS.tv_sec*1e6+lastLogTS.tv_usec))/1000; // in mS
     p += sprintf(p, "%6lldmS", millisPassed);

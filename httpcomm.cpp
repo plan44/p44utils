@@ -127,7 +127,7 @@ void HttpComm::requestThread(ChildThreadWrapper &aThread)
         "\r\n"
         "%s",
         contentType.c_str(),
-        requestBody.length(),
+        (long)requestBody.length(),
         extraHeaders.c_str(),
         requestBody.c_str()
       );

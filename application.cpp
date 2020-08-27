@@ -24,7 +24,7 @@
 
 #include <stdlib.h> // for strtol
 #include <sys/stat.h> // for umask
-#include <sys/signal.h>
+#include <signal.h>
 
 #define TEMP_DIR_PATH "/tmp"
 
