@@ -417,9 +417,9 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "expressions", "[scripting]") {
     REQUIRE(s.test(expression, "undefined!=undefined")->defined() == true); // ..so result is defined
     REQUIRE(s.test(expression, "undefined==undefined")->boolValue() == true); // == is now evaluated between nulls
     REQUIRE(s.test(expression, "undefined==undefined")->defined() == true); // ..so result is defined
-    REQUIRE(s.test(expression, "undefined==42")->boolValue() == false); // == is now evaluated between nulls
     REQUIRE(s.test(expression, "42==undefined")->boolValue() == false); // == is now evaluated between nulls
     REQUIRE(s.test(expression, "42!=undefined")->boolValue() == true); // != is now evaluated between nulls
+    REQUIRE(s.test(expression, "undefined==42")->boolValue() == false); // == is now evaluated between nulls
     REQUIRE(s.test(expression, "undefined!=42")->boolValue() == true); // != is now evaluated between nulls
     REQUIRE(s.test(expression, "42>undefined")->undefined() == true);
     REQUIRE(s.test(expression, "42<undefined")->undefined() == true);
@@ -427,6 +427,10 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "expressions", "[scripting]") {
     REQUIRE(s.test(expression, "undefined>42")->undefined() == true);
     REQUIRE(s.test(expression, "!undefined")->undefined() == true);
     REQUIRE(s.test(expression, "-undefined")->undefined() == true);
+    REQUIRE(s.test(expression, "0==undefined")->boolValue() == false); // zero is not NULL
+    REQUIRE(s.test(expression, "0!=undefined")->boolValue() == true); // zero is not NULL
+    REQUIRE(s.test(expression, "undefined==0")->boolValue() == false); // zero is not NULL
+    REQUIRE(s.test(expression, "undefined!=0")->boolValue() == true); // zero is not NULL
     REQUIRE(s.test(expression, "42<>78")->boolValue() == true);
     REQUIRE(s.test(expression, "42=42")->defined() == (SCRIPT_OPERATOR_MODE!=SCRIPT_OPERATOR_MODE_C));
     REQUIRE(s.test(expression, "42=42")->boolValue() == (SCRIPT_OPERATOR_MODE!=SCRIPT_OPERATOR_MODE_C));
@@ -612,6 +616,15 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "statements", "[scripting]" )
     REQUIRE(s.test(scriptbody, "var js = " JSON_TEST_OBJ "; js.array[0] = 'modified'; log(6,js); return js.array[0]")->stringValue() == "modified");
     // test if json assignment really copies var, such that modifications to the members of the copied object does NOT affect the original val
     REQUIRE(s.test(scriptbody, "var js = " JSON_TEST_OBJ "; var js2 = js; js2.array[0] = 'first MODIFIED'; log(6,js); return js.array[0]")->stringValue() == "first");
+  }
+
+  SECTION("json leaf values") {
+    REQUIRE(s.test(scriptbody, "var j = { 'text':'hello' }; j.text")->stringValue() == "hello");
+    REQUIRE(s.test(scriptbody, "var j = { 'text':'hello' }; j.text=='hello'")->boolValue() == true);
+    REQUIRE(s.test(scriptbody, "var j = { 'text':'hello' }; j.text+' world'")->stringValue() == "hello world"); // calculatioValue() of json text field must be string that can be appended to
+    REQUIRE(s.test(scriptbody, "var j = { 'number':42 }; j.number")->doubleValue() == 42.0);
+    REQUIRE(s.test(scriptbody, "var j = { 'number':42 }; j.number==42")->boolValue() == true);
+    REQUIRE(s.test(scriptbody, "var j = { 'number':42 }; j.number+2")->doubleValue() == 44.0); // calculatioValue() of json numeric field must be number that can be added to
   }
 
   SECTION("control flow") {

@@ -286,11 +286,13 @@ bool ScriptObj::operator==(const ScriptObj& aRightSide) const
 
 bool NumericValue::operator==(const ScriptObj& aRightSide) const
 {
+  if (aRightSide.undefined()) return false; // a number (especially: zero) is never equal with undefined
   return num==aRightSide.doubleValue();
 }
 
 bool StringValue::operator==(const ScriptObj& aRightSide) const
 {
+  if (aRightSide.undefined()) return false; // a string (especially: empty) is never equal with undefined
   return str==aRightSide.stringValue();
 }
 
@@ -557,13 +559,29 @@ JsonObjectPtr StringValue::jsonValue() const
 }
 
 
-ScriptObjPtr JsonValue::assignableValue()
+ScriptObjPtr JsonValue::calculationValue() const
 {
-  if (!hasType(keeporiginal) && jsonval) {
-    // must copy the contained json object, unless this is a derived object such as a JSON API request that must be kept as-is
-    return new JsonValue(JsonObjectPtr(new JsonObject(*jsonval)));
+  if (!jsonval) return new AnnotatedNullValue("json null");
+  if (jsonval->isType(json_type_boolean)) return new NumericValue(jsonval->boolValue());
+  if (jsonval->isType(json_type_int)) return new NumericValue(jsonval->int64Value());
+  if (jsonval->isType(json_type_double)) return new NumericValue(jsonval->doubleValue());
+  if (jsonval->isType(json_type_string)) return new StringValue(jsonval->stringValue());
+  return inherited::calculationValue();
+}
+
+
+ScriptObjPtr JsonValue::assignmentValue() const
+{
+  // break down to standard value or copied json, unless this is a derived object such as a JSON API request that indicates to be kept as-is
+  if (!hasType(keeporiginal)) {
+    // avoid creating new json values for simple types
+    if (jsonval && (jsonval->isType(json_type_array) || jsonval->isType(json_type_object))) {
+      // must copy the contained json object
+      return new JsonValue(JsonObjectPtr(new JsonObject(*jsonval)));
+    }
+    return calculationValue();
   }
-  return inherited::assignableValue();
+  return inherited::assignmentValue();
 }
 
 
@@ -610,8 +628,7 @@ bool JsonValue::operator==(const ScriptObj& aRightSide) const
   }
   else {
     // compare JSON to non-JSON
-    if (aRightSide.hasType(numeric)) return doubleValue()==aRightSide.doubleValue();
-    if (aRightSide.hasType(text)) return stringValue()==aRightSide.stringValue();
+    return calculationValue()->operator==(aRightSide);
   }
   return false; // everything else: not equal
 }
@@ -2652,7 +2669,7 @@ void SourceProcessor::s_assignLvalue()
   // result = value to assign (or NULL to delete)
   setState(&SourceProcessor::s_result); // assignment expression ends here, will either result in assigned value or storage error
   if (!skipping) {
-    if (result) result = result->assignableValue(); // get a copy in case the value is mutable (i.e. copy-on-write, assignment is "writing")
+    if (result) result = result->assignmentValue(); // get a copy in case the value is mutable (i.e. copy-on-write, assignment is "writing")
     olderResult->assignLValue(boost::bind(&SourceProcessor::resume, this, _1), result);
     return;
   }
@@ -2666,13 +2683,15 @@ void SourceProcessor::s_exprRightSide()
   // olderResult = leftside, result = rightside
   if (!skipping) {
     // all operations involving nulls return null except equality which compares being null with not being null
+    ScriptObjPtr left = olderResult->calculationValue();
+    ScriptObjPtr right = result->calculationValue();
     if (pendingOperation==op_equal || pendingOperation==op_assignOrEq) {
-      result = new NumericValue(*olderResult == *result);
+      result = new NumericValue(*left == *right);
     }
     else if (pendingOperation==op_notequal) {
-      result = new NumericValue(*olderResult != *result);
+      result = new NumericValue(*left != *right);
     }
-    else if (olderResult->defined() && result->defined()) {
+    else if (left->defined() && right->defined()) {
       // both are values -> apply the operation between leftside and rightside
       switch (pendingOperation) {
         case op_assign: {
@@ -2684,26 +2703,26 @@ void SourceProcessor::s_exprRightSide()
           exitWithSyntaxError("NOT operator not allowed here");
           return;
         }
-        case op_divide:     result = *olderResult / *result; break;
-        case op_modulo:     result = *olderResult % *result; break;
-        case op_multiply:   result = *olderResult * *result; break;
-        case op_add:        result = *olderResult + *result; break;
-        case op_subtract:   result = *olderResult - *result; break;
+        case op_divide:     result = *left / *right; break;
+        case op_modulo:     result = *left % *right; break;
+        case op_multiply:   result = *left * *right; break;
+        case op_add:        result = *left + *right; break;
+        case op_subtract:   result = *left - *right; break;
         // boolean result
-        case op_less:       result = new NumericValue(*olderResult <  *result); break;
-        case op_greater:    result = new NumericValue(*olderResult >  *result); break;
-        case op_leq:        result = new NumericValue(*olderResult <= *result); break;
-        case op_geq:        result = new NumericValue(*olderResult >= *result); break;
-        case op_and:        result = new NumericValue(*olderResult && *result); break;
-        case op_or:         result = new NumericValue(*olderResult || *result); break;
+        case op_less:       result = new NumericValue(*left <  *right); break;
+        case op_greater:    result = new NumericValue(*left >  *right); break;
+        case op_leq:        result = new NumericValue(*left <= *right); break;
+        case op_geq:        result = new NumericValue(*left >= *right); break;
+        case op_and:        result = new NumericValue(*left && *right); break;
+        case op_or:         result = new NumericValue(*left || *right); break;
         default: break;
       }
     }
-    else if (olderResult->isErr()) {
+    else if (left->isErr()) {
       // if first is error, return that independently of what the second is
-      result = olderResult;
+      result = left;
     }
-    else if (!result->isErr()) {
+    else if (!right->isErr()) {
       // one or both operands undefined, and none of them an error
       result = new AnnotatedNullValue("operation between undefined values");
     }

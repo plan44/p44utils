@@ -410,9 +410,13 @@ namespace p44 { namespace P44Script {
     /// @name value getters
     /// @{
 
-    /// @return a value that can be assigned to a variable without depending on the original value
-    ///    This is relevant for values like JSON. Simple values are immutable anyway
-    virtual ScriptObjPtr assignableValue() { return ScriptObjPtr(this); }
+    /// @return the value that should be used to assigned to a variable without depending on the original value
+    ///    This is relevant for values like JSON, or special application objects. Simple values are immutable anyway
+    virtual ScriptObjPtr assignmentValue() const { return ScriptObjPtr(const_cast<ScriptObj *>(this)); }
+
+    /// @return a value to be used in calculations. This should return a basic type whenever possible
+    ///    This is relevant for values like JSON, where e.g. a string field is not of type "text", but "json" (with a suitable stringValue())
+    virtual ScriptObjPtr calculationValue() const { return ScriptObjPtr(const_cast<ScriptObj *>(this)); }
 
     virtual double doubleValue() const { return 0; }; ///< @return a conversion to numeric (using literal syntax), if value is string
     virtual bool boolValue() const { return doubleValue()!=0; }; ///< @return a conversion to boolean (true = not numerically 0, not JSON-falsish, not empty string)
@@ -668,6 +672,7 @@ namespace p44 { namespace P44Script {
     NumericValue(double aNumber) : num(aNumber) {};
     NumericValue(bool aBool) : num(aBool ? 1 : 0) {};
     NumericValue(int aInt) : num(aInt) {};
+    NumericValue(int64_t aInt) : num(aInt) {};
     virtual string getAnnotation() const P44_OVERRIDE { return "numeric"; };
     virtual TypeInfo getTypeInfo() const P44_OVERRIDE { return numeric; };
     // value getters
@@ -715,7 +720,8 @@ namespace p44 { namespace P44Script {
     typedef ScriptObj inherited;
     JsonObjectPtr jsonval;
   public:
-    virtual ScriptObjPtr assignableValue() P44_OVERRIDE;
+    virtual ScriptObjPtr calculationValue() const P44_OVERRIDE;
+    virtual ScriptObjPtr assignmentValue() const P44_OVERRIDE;
     JsonValue(JsonObjectPtr aJson) : jsonval(aJson) {};
     virtual string getAnnotation() const P44_OVERRIDE { return "json"; };
     virtual TypeInfo getTypeInfo() const P44_OVERRIDE;
