@@ -3813,6 +3813,7 @@ static void flagSetter(bool* aFlag) { *aFlag = true; }
 
 ScriptObjPtr ScriptCompiler::compile(SourceContainerPtr aSource, CompiledCodePtr aIntoCodeObj, EvaluationFlags aParsingMode, ScriptMainContextPtr aMainContext)
 {
+  if (!aSource) return new ErrorValue(ScriptError::Internal, "No source code");
   // set up starting point
   if ((aParsingMode & (sourcecode|checking))==0) {
     // Shortcut for non-checked expression and scriptbody: no need to "compile"
