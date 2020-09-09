@@ -227,6 +227,8 @@ void MainLoop::getLocalTime(struct tm& aLocalTime, double* aFractionalSecondsP, 
 
 string MainLoop::string_mltime(MLMicroSeconds aTime, int aFractionals)
 {
+  if (aTime==Infinite) return "Infinite";
+  if (aTime==Never) return "Never";
   return string_fmltime("%Y-%m-%d %H:%M:%S", aTime, aFractionals);
 }
 
@@ -390,6 +392,7 @@ void MainLoop::scheduleTimer(MLTimer &aTimer)
     }
   }
   // none executes later than this one, just append
+  timersChanged = true; // when processing timers now, the list must be re-checked! Processing iterator might be at end of list already!
   timers.push_back(aTimer);
 }
 
