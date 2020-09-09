@@ -75,6 +75,7 @@
 #define DBGLOGENABLED(lvl) LOGENABLED(lvl)
 #define DBGLOG(lvl,...) LOG(lvl,##__VA_ARGS__)
 #define DBGFOCUSLOG FOCUSLOG
+#define DBGFOCUSOLOG FOCUSOLOG
 #define DBGOLOGENABLED(lvl) OLOGENABLED(lvl)
 #define DBGOLOG(lvl,...) OLOG(lvl,##__VA_ARGS__)
 #define DBGSOLOGENABLED(obj,lvl) SOLOGENABLED(obj,lvl)
@@ -85,6 +86,7 @@
 #define DBGLOGENABLED(lvl) false
 #define DBGLOG(lvl,...)
 #define DBGFOCUSLOG(...)
+#define DBGFOCUSOLOG(...)
 #define DBGOLOGENABLED(lvl) false
 #define DBGOLOG(lvl,...)
 #define DBGSOLOGENABLED(obj,lvl) false
