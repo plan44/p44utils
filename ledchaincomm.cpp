@@ -463,7 +463,7 @@ void LEDChainArrangement::addLEDChain(LEDChainArrangementPtr &aLedChainArrangeme
     #if ENABLE_P44SCRIPT && ENABLE_P44LRGRAPHICS && ENABLE_VIEWCONFIG
     // also install p44script lookup providing "lrg" global
     p44::P44Script::StandardScriptingDomain::sharedDomain().registerMemberLookup(
-      new P44Script::P44lrgLookup(aLedChainArrangement->getRootView())
+      new P44Script::P44lrgLookup(&(aLedChainArrangement->rootView))
     );
     #endif // ENABLE_P44SCRIPT
   }
