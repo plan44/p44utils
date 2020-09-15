@@ -443,8 +443,11 @@ void LEDChainArrangement::clear()
 
 void LEDChainArrangement::setRootView(P44ViewPtr aRootView)
 {
-  if (rootView) rootView->setNeedUpdateCB(NULL); // make sure previous rootview will not call back any more!
+  if (rootView) {
+    rootView->setNeedUpdateCB(NULL); // make sure previous rootview will not call back any more!
+  }
   rootView = aRootView;
+  rootView->setDefaultLabel("rootview");
   rootView->setNeedUpdateCB(boost::bind(&LEDChainArrangement::rootViewRequestsUpdate, this));
 }
 

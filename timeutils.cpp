@@ -95,16 +95,16 @@ static double f1(double lat, double declin)
 };
 
 
-// Find the ecliptic longitude of the Sun
-static double FNsun (double d)
-{
-  //   mean longitude of the Sun
-  double L = FNrange(280.461 * RADS + .9856474 * RADS * d);
-  //   mean anomaly of the Sun
-  double g = FNrange(357.528 * RADS + .9856003 * RADS * d);
-  //   Ecliptic longitude of the Sun
-  return FNrange(L + 1.915 * RADS * sin(g) + .02 * RADS * sin(2 * g));
-};
+//  // Find the ecliptic longitude of the Sun
+//  static double FNsun (double d)
+//  {
+//    //   mean longitude of the Sun
+//    double L = FNrange(280.461 * RADS + .9856474 * RADS * d);
+//    //   mean anomaly of the Sun
+//    double g = FNrange(357.528 * RADS + .9856003 * RADS * d);
+//    //   Ecliptic longitude of the Sun
+//    return FNrange(L + 1.915 * RADS * sin(g) + .02 * RADS * sin(2 * g));
+//  };
 
 
 void p44::getSunParams(time_t aTime, const GeoLocation &aGeoLocation, SunParams &aSunParams)
