@@ -327,7 +327,8 @@ namespace p44 {
       { 0,   "ledchainmax",   true,  "max;max output value (0..255) sent to LED. Defaults to 255." }, \
       { 0,   "ledpowerlimit", true,  "max_mW;maximal power in milliwatts the entire LED arrangement is allowed to consume (approximately)." \
                                      "If power would exceed limit, all LEDs are dimmed to stay below limit." \
-                                     "Standby/off power of LED chains is not included in the calculation. Defaults to 0=no limit" }
+                                     "Standby/off power of LED chains is not included in the calculation. Defaults to 0=no limit" }, \
+      { 0,   "ledrefresh",    true,  "update_ms;minimal number of milliseconds between LED chain updates. Defaults to 15ms." }
 
     /// Factory helper to create ledchain arrangement with one or multiple led chains from --ledchain command line options
     /// @param aLedChainArrangement if not set, new arrangement will be created, otherwise existing one is used

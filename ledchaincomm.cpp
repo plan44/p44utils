@@ -484,6 +484,9 @@ void LEDChainArrangement::processCmdlineOptions()
   if (CmdLineApp::sharedCmdLineApp()->getIntOption("ledpowerlimit", v)) {
     setPowerLimit(v);
   }
+  if (CmdLineApp::sharedCmdLineApp()->getIntOption("ledrefresh", v)) {
+    minUpdateInterval = v*MilliSecond;
+  }
 }
 
 #endif // ENABLE_APPLICATION_SUPPORT
