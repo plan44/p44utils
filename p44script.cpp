@@ -5163,7 +5163,8 @@ static void timeCheckFunc(bool aIsTime, BuiltinFunctionContextPtr f)
   else {
     loctim.tm_hour = 0; loctim.tm_min = 0; loctim.tm_sec = newSecs;
     if (met) {
-      loctim.tm_mday++; // already met today, check again tomorrow
+      loctim.tm_mday++; // already met today, check again at midnight tomorrow (to make sure result gets false before it gets true again!)
+      loctim.tm_sec = 0; // midnight
       if (aIsTime) res = false;
     }
     if (trigger) trigger->newFreeze(frozenP, new NumericValue(newSecs), freezeId, MainLoop::localTimeToMainLoopTime(loctim));
