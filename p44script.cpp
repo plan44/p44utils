@@ -226,11 +226,25 @@ string ScriptObj::describe(ScriptObjPtr aObj)
   string n = aObj->getIdentifier();
   if (!n.empty()) n.insert(0, " named ");
   ScriptObjPtr valObj = aObj->actualValue();
+  ScriptObjPtr calcObj;
+  if (valObj) calcObj = valObj->calculationValue();
+  string ty = typeDescription(aObj->getTypeInfo());
+  string ann = aObj->getAnnotation();
+  string v;
+  if (calcObj) {
+    v = calcObj->stringValue();
+    if (calcObj->hasType(text)) v = shellQuote(v);
+  }
+  else {
+    v = "<no value>";
+  }
+  if (ann==ty || ann==v) ann = ""; else ann.insert(0, " // ");
   return string_format(
-    "'%s' [%s%s]",
-    valObj ? valObj->stringValue().c_str() : "<no value>",
-    typeDescription(aObj->getTypeInfo()).c_str(),
-    n.c_str()
+    "%s [%s%s]%s",
+    v.c_str(),
+    ty.c_str(),
+    n.c_str(),
+    ann.c_str()
   );
 }
 
@@ -4666,6 +4680,16 @@ static void string_func(BuiltinFunctionContextPtr f)
 }
 
 
+// describe(anything)
+static const BuiltInArgDesc describe_args[] = { { any|error|null } };
+static const size_t describe_numargs = sizeof(string_args)/sizeof(BuiltInArgDesc);
+static void describe_func(BuiltinFunctionContextPtr f)
+{
+  f->finish(new StringValue(ScriptObj::describe(f->arg(0))));
+}
+
+
+
 // number(anything)
 static const BuiltInArgDesc number_args[] = { { any|error|null } };
 static const size_t number_numargs = sizeof(number_args)/sizeof(BuiltInArgDesc);
@@ -5511,6 +5535,7 @@ static const BuiltinMemberDescriptor standardFunctions[] = {
   { "cyclic", executable|numeric|null, cyclic_numargs, cyclic_args, &cyclic_func },
   { "string", executable|text, string_numargs, string_args, &string_func },
   { "number", executable|numeric, number_numargs, number_args, &number_func },
+  { "describe", executable|text, describe_numargs, describe_args, &describe_func },
   { "json", executable|json, json_numargs, json_args, &json_func },
   { "jsonresource", executable|json|error, jsonresource_numargs, jsonresource_args, &jsonresource_func },
   { "elements", executable|numeric|null, elements_numargs, elements_args, &elements_func },
