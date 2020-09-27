@@ -222,15 +222,16 @@ namespace p44 { namespace P44Script {
     lvalue = 0x10000, ///< is a left hand value (lvalue), possibly assignable, probably needs makeValid() to get real value
     create = 0x20000, ///< set to create member if not yet existing (special use also for explicitly created errors)
     onlycreate = 0x40000, ///< set to only create if new, but not overwrite
-    unset = 0x80000, ///< set to unset/delete member
-    global = 0x100000, ///< set to store in global context
-    constant = 0x200000, ///< set to select only constant  (in the sense of: not settable by scripts) members
-    objscope = 0x400000, ///< set to select only object scope members
-    classscope = 0x800000, ///< set to select only class scope members
+    nooverride = 0x80000, ///< do not override existing globals by creating a local var
+    unset = 0x100000, ///< set to unset/delete member
+    global = 0x200000, ///< set to store in global context
+    constant = 0x400000, ///< set to select only constant  (in the sense of: not settable by scripts) members
+    objscope = 0x800000, ///< set to select only object scope members
+    classscope = 0x1000000, ///< set to select only class scope members
     allscopes = classscope+objscope+global,
-    builtinmember = 0x1000000, ///< special flag for use in built-in member descriptions to differentiate members from functions
-    keeporiginal = 0x2000000, ///< special flag for values that should NOT be replaced by their actualValue()
-    oneshot = 0x4000000, ///< special flag for values that occur only once, such as event messages. Relevant for triggers, which will auto-reset when oneshot values are involved
+    builtinmember = 0x2000000, ///< special flag for use in built-in member descriptions to differentiate members from functions
+    keeporiginal = 0x4000000, ///< special flag for values that should NOT be replaced by their actualValue()
+    oneshot = 0x8000000, ///< special flag for values that occur only once, such as event messages. Relevant for triggers, which will auto-reset when oneshot values are involved
   };
   typedef uint32_t TypeInfo;
 

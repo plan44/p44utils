@@ -265,11 +265,7 @@ TEST_CASE_METHOD(AsyncScriptingFixture, "Debugging single case/assertion", "[DEB
 {
   SETLOGLEVEL(LOG_DEBUG);
   SETDELTATIME(true);
-
-#define TEST_URL "plan44.ch/testing/httptest.php"
-#define DATA_IN_7SEC_TEST_URL "plan44.ch/testing/httptest.php?delay=7"
-//  REQUIRE(scriptTest(sourcecode, "glob res='not completed'; log(4, 'will take 3 secs'); concurrent as http { try { res=geturl('http://" DATA_IN_7SEC_TEST_URL "', 5) } catch as err { res = err } } delay(3); abort(http); return res")->stringValue() == "ok");
-  REQUIRE(scriptTest(sourcecode, "glob res='not completed'; log(4, 'will take 3 secs'); concurrent as http { res=geturl('http://" DATA_IN_7SEC_TEST_URL "', 5) } delay(3); abort(http); return res")->stringValue() == "not completed");
+//  REQUIRE(scriptTest(scriptbody, "glob th; var res=''; concurrent as th { delay(0.5); res = 'done' } var th='notThread'; unset th; abort(th); delay(1); res")->stringValue() == "");
 }
 */
 
@@ -279,7 +275,7 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "Debugging single case/assertion", "[DEBU
   SETLOGLEVEL(LOG_DEBUG);
   SETDELTATIME(true);
 
-  REQUIRE(s.test(expression, "jstest.array[2]")->doubleValue() == 3);
+//  REQUIRE(s.test(expression, "jstest.array[2]")->doubleValue() == 3);
 }
 */
 
@@ -754,8 +750,9 @@ TEST_CASE_METHOD(AsyncScriptingFixture, "async", "[scripting]") {
     REQUIRE(scriptTest(scriptbody, "var res=''; concurrent as test { delay(0.5); res = 'done' } var test2 = test; abort(test2); await(test); res")->stringValue() == "");
     REQUIRE(runningTime() < 0.4);
     // - "as" clause must assign to existing global if one exists
-    REQUIRE(scriptTest(scriptbody, "glob th; var res=''; concurrent as th { delay(0.5); res = 'done' } var th='notThread'; unset th; abort(th); delay(1); res")->stringValue() == "");
-    REQUIRE(runningTime() < 0.4);
+    REQUIRE(scriptTest(scriptbody, "log(4, 'will take 1 sec'); glob th; var res=''; concurrent as th { delay(0.5); res = 'done' } var th='notThread'; unset th; abort(th); delay(1); res")->stringValue() == "");
+    // - but "as" clause must USE existing local even when global exists
+    REQUIRE(scriptTest(scriptbody, "log(4, 'will take 1 sec'); glob th; th = 'noThread'; var th; var res=''; concurrent as th { delay(0.5); res = 'done' } abort(th); unset th; delay(1); th+res")->stringValue() == "noThread");
   }
 
   SECTION("event handlers") {
