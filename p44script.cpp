@@ -475,7 +475,7 @@ ThreadValue::ThreadValue(ScriptCodeThreadPtr aThread) : mThread(aThread)
 }
 
 
-ScriptObjPtr ThreadValue::actualValue()
+ScriptObjPtr ThreadValue::calculationValue()
 {
   if (!threadExitValue) {
     // might still be running, or is in zombie state holding final result
@@ -559,7 +559,7 @@ JsonObjectPtr StringValue::jsonValue() const
 }
 
 
-ScriptObjPtr JsonValue::calculationValue() const
+ScriptObjPtr JsonValue::calculationValue()
 {
   if (!jsonval) return new AnnotatedNullValue("json null");
   if (jsonval->isType(json_type_boolean)) return new NumericValue(jsonval->boolValue());
@@ -570,7 +570,7 @@ ScriptObjPtr JsonValue::calculationValue() const
 }
 
 
-ScriptObjPtr JsonValue::assignmentValue() const
+ScriptObjPtr JsonValue::assignmentValue()
 {
   // break down to standard value or copied json, unless this is a derived object such as a JSON API request that indicates to be kept as-is
   if (!hasType(keeporiginal)) {
@@ -628,7 +628,7 @@ bool JsonValue::operator==(const ScriptObj& aRightSide) const
   }
   else {
     // compare JSON to non-JSON
-    return calculationValue()->operator==(aRightSide);
+    return const_cast<JsonValue *>(this)->calculationValue()->operator==(aRightSide);
   }
   return false; // everything else: not equal
 }
@@ -4986,7 +4986,8 @@ static void await_func(BuiltinFunctionContextPtr f)
   AwaitEventSink* awaitEventSink = new AwaitEventSink(f); // temporary object that will receive one of the events or the timeout
   MLMicroSeconds to = Infinite;
   do {
-    EventSource* ev = f->arg(ai)->eventSource();
+    ScriptObjPtr cv = f->arg(ai)->calculationValue(); // e.g. threadVars detect stopped thread only when being asked for calculation value first
+    EventSource* ev = f->arg(ai)->eventSource(); // ...but ask original value for event source (calculation value is not an event itself)
     if (!ev) {
       // must be last arg and numeric to be timeout, otherwise error
       if (ai==f->numArgs()-1 && f->arg(ai)->hasType(numeric)) {

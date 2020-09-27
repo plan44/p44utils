@@ -410,13 +410,15 @@ namespace p44 { namespace P44Script {
     /// @name value getters
     /// @{
 
-    /// @return the value that should be used to assigned to a variable without depending on the original value
-    ///    This is relevant for values like JSON, or special application objects. Simple values are immutable anyway
-    virtual ScriptObjPtr assignmentValue() const { return ScriptObjPtr(const_cast<ScriptObj *>(this)); }
+    /// @return the value that should be used to assign to a variable.
+    ///   The purpose of this can be to detach the the assigned value from the original value (e.g. JSON which needs to copy
+    ///   subfields when assiging). Simple values are immutable and can be shared between variables,
+    ///   so this base implementation returns itself.
+    virtual ScriptObjPtr assignmentValue() { return ScriptObjPtr(this); }
 
     /// @return a value to be used in calculations. This should return a basic type whenever possible
     ///    This is relevant for values like JSON, where e.g. a string field is not of type "text", but "json" (with a suitable stringValue())
-    virtual ScriptObjPtr calculationValue() const { return ScriptObjPtr(const_cast<ScriptObj *>(this)); }
+    virtual ScriptObjPtr calculationValue() { return ScriptObjPtr(this); }
 
     virtual double doubleValue() const { return 0; }; ///< @return a conversion to numeric (using literal syntax), if value is string
     virtual bool boolValue() const { return doubleValue()!=0; }; ///< @return a conversion to boolean (true = not numerically 0, not JSON-falsish, not empty string)
@@ -653,7 +655,7 @@ namespace p44 { namespace P44Script {
     virtual string getAnnotation() const P44_OVERRIDE { return "thread"; };
     virtual TypeInfo getTypeInfo() const P44_OVERRIDE { return threadref+keeporiginal; };
 
-    virtual ScriptObjPtr actualValue() P44_OVERRIDE; /// < ThreadValue is a proxy for the thread's exit value
+    virtual ScriptObjPtr calculationValue() P44_OVERRIDE; /// < ThreadValue calculates to NULL as long as running or to the thread's exit value
     virtual EventSource *eventSource() const P44_OVERRIDE; ///< ThreadValue is an event source, event is the exit value of a thread terminating
     bool running(); ///< @return true if still running
     void abort(); ///< abort the thread
@@ -720,8 +722,8 @@ namespace p44 { namespace P44Script {
     typedef ScriptObj inherited;
     JsonObjectPtr jsonval;
   public:
-    virtual ScriptObjPtr calculationValue() const P44_OVERRIDE;
-    virtual ScriptObjPtr assignmentValue() const P44_OVERRIDE;
+    virtual ScriptObjPtr calculationValue() P44_OVERRIDE;
+    virtual ScriptObjPtr assignmentValue() P44_OVERRIDE;
     JsonValue(JsonObjectPtr aJson) : jsonval(aJson) {};
     virtual string getAnnotation() const P44_OVERRIDE { return "json"; };
     virtual TypeInfo getTypeInfo() const P44_OVERRIDE;

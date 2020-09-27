@@ -749,6 +749,13 @@ TEST_CASE_METHOD(AsyncScriptingFixture, "async", "[scripting]") {
     REQUIRE(runningTime() ==  Approx(3).epsilon(0.05));
     REQUIRE(scriptTest(scriptbody, "var res=''; log(4, 'will take 3 secs'); concurrent as test { delay(3); res = res + '3sec' } concurrent as test2 { delay(2); res = res + '2sec' } delay(1); res = res+'1sec'; abort(test2) await(test); res")->stringValue() == "1sec3sec");
     REQUIRE(runningTime() ==  Approx(3).epsilon(0.05));
+    // assignment of thread variables
+    // - thread must be assigned by reference to a new variable
+    REQUIRE(scriptTest(scriptbody, "var res=''; concurrent as test { delay(0.5); res = 'done' } var test2 = test; abort(test2); await(test); res")->stringValue() == "");
+    REQUIRE(runningTime() < 0.4);
+    // - "as" clause must assign to existing global if one exists
+    REQUIRE(scriptTest(scriptbody, "glob th; var res=''; concurrent as th { delay(0.5); res = 'done' } var th='notThread'; unset th; abort(th); delay(1); res")->stringValue() == "");
+    REQUIRE(runningTime() < 0.4);
   }
 
   SECTION("event handlers") {
