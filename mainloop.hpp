@@ -177,7 +177,8 @@ namespace p44 {
     MLTicketNo operator= (MLTicketNo aTicketNo);
 
     // cancel current ticket
-    void cancel();
+    // @return true if actually cancelled a scheduled timer
+    bool cancel();
 
     /// reschedule existing execution request
     /// @param aDelay delay from now when to reschedule execution (approximately)

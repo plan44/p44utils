@@ -76,12 +76,14 @@ MLTicket::operator bool() const
 }
 
 
-void MLTicket::cancel()
+bool MLTicket::cancel()
 {
   if (ticketNo!=0) {
-    MainLoop::currentMainLoop().cancelExecutionTicket(ticketNo);
+    bool cancelled = MainLoop::currentMainLoop().cancelExecutionTicket(ticketNo);
     ticketNo = 0;
+    return cancelled;
   }
+  return false; // no ticket
 }
 
 
