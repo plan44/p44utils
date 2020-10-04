@@ -4875,14 +4875,14 @@ static void formattime_func(BuiltinFunctionContextPtr f)
     t = MainLoop::unixtime();
   }
   struct tm disptim;
-  const char *fmt;
+  string fmt;
   if (f->numArgs()>ai) {
-    fmt = f->arg(ai)->stringValue().c_str();
+    fmt = f->arg(ai)->stringValue();
   }
   else if (t>Day) fmt = "%Y-%m-%d %H:%M:%S";
   else fmt = "%H:%M:%S";
   MainLoop::getLocalTime(disptim, NULL, t, t<Day);
-  f->finish(new StringValue(string_ftime(fmt, &disptim)));
+  f->finish(new StringValue(string_ftime(fmt.c_str(), &disptim)));
 }
 
 
