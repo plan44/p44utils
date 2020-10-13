@@ -236,6 +236,7 @@ MLMicroSeconds ValueAnimator::trigger()
       // schedule a timer to start
       animationTimer.executeOnceAt(boost::bind(&ValueAnimator::start, this), startTimeOrDelay);
     }
+    awaitingTrigger = false; // not waiting for trigger any more
     return startTimeOrDelay; // this is when we need to start
   }
   // can start right now
