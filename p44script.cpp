@@ -1603,6 +1603,14 @@ string SourceCursor::displaycode(size_t aMaxLen)
 }
 
 
+const char *SourceCursor::originLabel() const
+{
+  if (!source) return "<none>";
+  if (!source->originLabel) return "<unlabeled>";
+  return source->originLabel;
+}
+
+
 bool SourceCursor::parseIdentifier(string& aIdentifier, size_t* aIdentifierLenP)
 {
   if (EOT()) return false;
@@ -1856,7 +1864,7 @@ ScriptObjPtr SourceCursor::parseJSONLiteral()
 
 #define FOCUSLOGSTATE FOCUSLOG( \
   "%04lx %s %22s : %25s : result = %s (olderResult = %s), precedence=%d", \
-  ((intptr_t)this & 0xFFFF), \
+  threadId() & 0xFFFF, \
   skipping ? "SKIP" : "EXEC", \
   __func__, \
   src.displaycode(25).c_str(), \
@@ -4295,6 +4303,12 @@ void ScriptCodeThread::prepareRun(
 void ScriptCodeThread::run()
 {
   runningSince = MainLoop::now();
+  OLOG(LOG_DEBUG,
+    "starting %04lx at (%s:%zu,%zu):  %s",
+    threadId() & 0xFFFF,
+    src.originLabel(), src.lineno(), src.charpos(),
+    src.displaycode(90).c_str()
+  );
   start();
 }
 
@@ -4325,7 +4339,13 @@ void ScriptCodeThread::complete(ScriptObjPtr aFinalResult)
 {
   autoResumeTicket.cancel();
   inherited::complete(aFinalResult);
-  OLOG(LOG_DEBUG, "complete at: %s\nwith result: %s", src.displaycode(90).c_str(), ScriptObj::describe(result).c_str());
+  OLOG(LOG_DEBUG,
+    "complete %04lx at (%s:%zu,%zu):  %s\n- with result: %s",
+    threadId() & 0xFFFF,
+    src.originLabel(), src.lineno(), src.charpos(),
+    src.displaycode(90).c_str(),
+    ScriptObj::describe(result).c_str()
+  );
   sendEvent(result); // send the final result as event to registered EventSinks
   mOwner->threadTerminated(this, evaluationFlags);
 }

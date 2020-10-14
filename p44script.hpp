@@ -1084,6 +1084,7 @@ namespace p44 { namespace P44Script {
     void skipWhiteSpace(); ///< skip whitespace (but NOT comments)
     void skipNonCode(); ///< skip non-code, i.e. whitespace and comments
     string displaycode(size_t aMaxLen); ///< @return code on single line for displaying from current position, @param aMaxLen how much to show max before abbreviating with "..."
+    const char *originLabel() const; ///< @return the origin label of the source container
 
     // parsing utilities
     bool parseIdentifier(string& aIdentifier, size_t* aIdentifierLenP = NULL); ///< @return true if identifier found, stored in aIndentifier and cursor advanced
@@ -1371,6 +1372,9 @@ namespace p44 { namespace P44Script {
     // boost::bind object because it is a smart pointer argument.
     // Using this makes sure that no running thread can get destructed before being terminated properly
     static void selfKeepingResume(ScriptCodeThreadPtr aContext, ScriptObjPtr aAbortResult);
+
+    /// @return a unique ID for this source processor (which is the basis of any thread)
+    intptr_t threadId() { return (intptr_t)(this); }
 
   protected:
 
