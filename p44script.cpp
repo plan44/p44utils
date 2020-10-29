@@ -3698,6 +3698,7 @@ void CompiledTrigger::scheduleNextEval()
       boost::bind(&CompiledTrigger::triggerEvaluation, this, timed),
       mNextEvaluation
     );
+    mNextEvaluation = Never; // prevent re-triggering without calling updateNextEval()
   }
 }
 
