@@ -4548,8 +4548,6 @@ void ScriptCodeThread::memberEventCheck()
 
 
 
-
-
 // MARK: - Built-in Standard functions
 
 namespace BuiltinFunctions {
@@ -5628,6 +5626,7 @@ ScriptingDomain& StandardScriptingDomain::sharedDomain()
 // MARK: - Simple REPL (Read Execute Print Loop) App
 #include "fdcomm.hpp"
 #include "httpcomm.hpp"
+#include "socketcomm.hpp"
 
 class SimpleREPLApp : public CmdLineApp
 {
@@ -5666,6 +5665,9 @@ public:
     // add some capabilities
     #if ENABLE_HTTP_SCRIPT_FUNCS
     source.domain()->registerMemberLookup(new HttpLookup);
+    #endif
+    #if ENABLE_SOCKET_SCRIPT_FUNCS
+    source.domain()->registerMemberLookup(new SocketLookup);
     #endif
     // get context
     replContext = source.domain()->newContext();

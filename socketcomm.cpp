@@ -840,3 +840,106 @@ void SocketComm::dataExceptionHandler(int aFd, int aPollFlags)
     internalCloseConnection();
   }
 }
+
+
+// MARK: - script support
+
+#if ENABLE_SOCKET_SCRIPT_FUNCS && ENABLE_P44SCRIPT
+
+using namespace P44Script;
+
+// send(data)
+static const BuiltInArgDesc send_args[] = { { any } };
+static const size_t send_numargs = sizeof(send_args)/sizeof(BuiltInArgDesc);
+static void send_func(BuiltinFunctionContextPtr f)
+{
+  SocketObj* s = dynamic_cast<SocketObj*>(f->thisObj().get());
+  assert(s);
+  ErrorPtr err;
+  string datagram = f->arg(0)->stringValue();
+  size_t res = s->socket()->transmitBytes(datagram.length(), (uint8_t *)datagram.c_str(), err);
+  if (Error::notOK(err)) {
+    f->finish(new ErrorValue(err));
+  }
+  else {
+    f->finish(new NumericValue(res==datagram.length()));
+  }
+}
+
+
+static const BuiltinMemberDescriptor socketFunctions[] = {
+  { "send", executable|error, send_numargs, send_args, &send_func },
+  { NULL } // terminator
+};
+
+static BuiltInMemberLookup* sharedSocketFunctionLookupP = NULL;
+
+SocketObj::SocketObj(SocketCommPtr aSocket) :
+  mSocket(aSocket)
+{
+  if (sharedSocketFunctionLookupP==NULL) {
+    sharedSocketFunctionLookupP = new BuiltInMemberLookup(socketFunctions);
+    sharedSocketFunctionLookupP->isMemberVariable(); // disable refcounting
+  }
+  registerMemberLookup(sharedSocketFunctionLookupP);
+  // handle incoming data
+  mSocket->setReceiveHandler(boost::bind(&SocketObj::gotData, this, _1));
+}
+
+SocketObj::~SocketObj()
+{
+  mSocket->clearCallbacks();
+}
+
+
+EventSource* SocketObj::eventSource() const
+{
+  return static_cast<EventSource*>(const_cast<SocketObj*>(this));
+}
+
+void SocketObj::gotData(ErrorPtr aError)
+{
+  string datagram;
+  ErrorPtr err = mSocket->receiveIntoString(datagram);
+  if (Error::isOK(err)) {
+    sendEvent(new StringValue(datagram));
+  }
+  else {
+    sendEvent(new ErrorValue(err));
+  }
+}
+
+
+// udpsocket(host, port)
+static const BuiltInArgDesc udpsocket_args[] = { { text }, { text|numeric } };
+static const size_t udpsocket_numargs = sizeof(udpsocket_args)/sizeof(BuiltInArgDesc);
+static void udpsocket_func(BuiltinFunctionContextPtr f)
+{
+  SocketCommPtr socket = new SocketComm();
+  socket->setConnectionParams(
+    f->arg(0)->stringValue().c_str(),
+    f->arg(1)->stringValue().c_str(),
+    SOCK_DGRAM,
+    PF_UNSPEC
+  );
+  ErrorPtr err = socket->initiateConnection();
+  if (Error::isOK(err)) {
+    f->finish(new SocketObj(socket));
+  }
+  else {
+    f->finish(new ErrorValue(err));
+  }
+}
+
+
+static const BuiltinMemberDescriptor socketGlobals[] = {
+  { "udpsocket", executable|null, udpsocket_numargs, udpsocket_args, &udpsocket_func },
+  { NULL } // terminator
+};
+
+SocketLookup::SocketLookup() :
+  inherited(socketGlobals)
+{
+}
+
+#endif // ENABLE_SOCKET_SCRIPT_FUNCS && ENABLE_P44SCRIPT

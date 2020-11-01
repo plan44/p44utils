@@ -25,6 +25,7 @@
 #include <stdlib.h>
 
 #include "httpcomm.hpp"
+#include "socketcomm.hpp"
 
 #define LOGLEVELOFFSET 0
 
@@ -97,6 +98,9 @@ public:
     StandardScriptingDomain::sharedDomain().setLogLevelOffset(LOGLEVELOFFSET);
     #if ENABLE_HTTP_SCRIPT_FUNCS
     StandardScriptingDomain::sharedDomain().registerMemberLookup(new P44Script::HttpLookup);
+    #endif
+    #if ENABLE_SOCKET_SCRIPT_FUNCS
+    StandardScriptingDomain::sharedDomain().registerMemberLookup(new P44Script::SocketLookup);
     #endif
     mainContext = StandardScriptingDomain::sharedDomain().newContext();
     s.setSharedMainContext(mainContext);

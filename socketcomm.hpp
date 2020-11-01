@@ -34,6 +34,14 @@
 #include <netdb.h>
 #include <netinet/in.h>
 
+#if ENABLE_P44SCRIPT && !defined(ENABLE_SOCKET_SCRIPT_FUNCS)
+  #define ENABLE_SOCKET_SCRIPT_FUNCS 1
+#endif
+
+#if ENABLE_SOCKET_SCRIPT_FUNCS
+#include "p44script.hpp"
+#endif
+
 
 using namespace std;
 
@@ -243,7 +251,41 @@ namespace p44 {
     SocketCommPtr returnClientConnection(SocketCommPtr aClientConnection); // used to notify listening SocketComm when client connection ends
 
   };
-  
+
+
+  #if ENABLE_SOCKET_SCRIPT_FUNCS && ENABLE_P44SCRIPT
+
+  namespace P44Script {
+
+    /// represents a socket
+    class SocketObj : public P44Script::StructuredLookupObject, public P44Script::EventSource
+    {
+      typedef P44Script::StructuredLookupObject inherited;
+      SocketCommPtr mSocket;
+    public:
+      SocketObj(SocketCommPtr aSocket);
+      virtual ~SocketObj();
+      virtual string getAnnotation() const P44_OVERRIDE { return "socket"; };
+      SocketCommPtr socket() { return mSocket; }
+      virtual EventSource *eventSource() const P44_OVERRIDE;
+    private:
+      void gotData(ErrorPtr aError);
+    };
+
+
+    /// represents the global objects related to http
+    class SocketLookup : public BuiltInMemberLookup
+    {
+      typedef BuiltInMemberLookup inherited;
+    public:
+      SocketLookup();
+    };
+
+  }
+
+  #endif // ENABLE_SOCKET_SCRIPT_FUNCS && ENABLE_P44SCRIPT
+
+
 } // namespace p44
 
 

@@ -572,7 +572,6 @@ namespace p44 { namespace P44Script {
     /// @note if called on an already valid object, it returns itself in the callback, so
     ///   makeValid() can always be called. But for performance reasons, checking valid() before is recommended
     virtual void makeValid(EvaluationCB aEvaluationCB) P44_OVERRIDE;
-
   };
 
 
