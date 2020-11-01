@@ -64,6 +64,7 @@ namespace p44 {
     ValueSetterCB valueSetter;
     AnimationDoneCB doneCB;
     MLMicroSeconds startedAt; // if Never -> not running
+    MLMicroSeconds defaultMinStepTime;
     MLMicroSeconds stepTime;
     MLMicroSeconds duration;
     double startValue;
@@ -86,7 +87,7 @@ namespace p44 {
     /// @param aValueSetter the callback to use for changing the value
     /// @param aSelfTiming if set, the animator will time itself by scheduling timers in the mainloop
     ///    if not set, the animator expects to have its step() method called as indicated by step() and animate()'s return values
-    ValueAnimator(ValueSetterCB aValueSetter, bool aSelfTiming = false);
+    ValueAnimator(ValueSetterCB aValueSetter, bool aSelfTiming = false, MLMicroSeconds aDefaultMinStepTime = 0);
     virtual ~ValueAnimator();
 
     /// Start animation

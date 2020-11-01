@@ -35,9 +35,10 @@ using namespace p44;
 
 // MARK: ValueAnimator
 
-ValueAnimator::ValueAnimator(ValueSetterCB aValueSetter, bool aSelfTiming) :
+ValueAnimator::ValueAnimator(ValueSetterCB aValueSetter, bool aSelfTiming, MLMicroSeconds aDefaultMinStepTime) :
   valueSetter(aValueSetter),
   selfTiming(aSelfTiming),
+  defaultMinStepTime(aDefaultMinStepTime>0 ? ANIMATION_MIN_STEP_TIME : aDefaultMinStepTime),
   animationFunction(NULL),
   animationParam(3),
   startValue(0),
@@ -199,7 +200,7 @@ MLMicroSeconds ValueAnimator::animate(double aTo, MLMicroSeconds aDuration, Anim
   // precalculate operating params
   distance = aTo-startValue;
   if (!animationFunction) animationFunction = &linear; // default to linear
-  stepTime = aMinStepTime>0 ? aMinStepTime : ANIMATION_MIN_STEP_TIME; // default to not-too-small steps
+  stepTime = aMinStepTime>0 ? aMinStepTime : defaultMinStepTime; // default to not-too-small steps
   if (cycles==0) {
     // not yet set by repeat() -> default operation
     cycles = 1;
