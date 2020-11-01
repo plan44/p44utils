@@ -19,6 +19,13 @@
 //  along with p44utils. If not, see <http://www.gnu.org/licenses/>.
 //
 
+// File scope debugging options
+// - Set ALWAYS_DEBUG to 1 to enable DBGLOG output even in non-DEBUG builds of this file
+#define ALWAYS_DEBUG 0
+// - set FOCUSLOGLEVEL to non-zero log level (usually, 5,6, or 7==LOG_DEBUG) to get focus (extensive logging) for this file
+//   Note: must be before including "logger.hpp" (or anything that includes "logger.hpp")
+#define FOCUSLOGLEVEL 0
+
 #include "socketcomm.hpp"
 
 #include <sys/ioctl.h>
@@ -32,6 +39,7 @@ SocketComm::SocketComm(MainLoop &aMainLoop) :
   isConnecting(false),
   isClosing(false),
   serving(false),
+  nonLocal(true),
   clearHandlersAtClose(false),
   addressInfoList(NULL),
   currentAddressInfo(NULL),
@@ -51,6 +59,7 @@ SocketComm::SocketComm(MainLoop &aMainLoop) :
 
 SocketComm::~SocketComm()
 {
+  FOCUSLOG("~SocketComm()")
   if (!isClosing) {
     internalCloseConnection();
   }
@@ -158,7 +167,7 @@ ErrorPtr SocketComm::startServer(ServerConnectionCB aServerConnectionHandler, in
     proto = 0;
   }
   else {
-    // TODO: implement other portocol families
+    // TODO: implement other protocol families
     err = Error::err<SocketCommError>(SocketCommError::Unsupported, "Unsupported protocol family");
   }
   // now create and configure socket
@@ -443,20 +452,32 @@ ErrorPtr SocketComm::connectNextAddress()
           if (setsockopt(socketFD, SOL_SOCKET, SO_BROADCAST, (char *)&one, (int)sizeof(one)) == -1) {
             err = SysError::errNo("Cannot setsockopt(SO_BROADCAST): ");
           }
-          else {
-            // to receive answers, we also need to bind to INADDR_ANY
-            // - get port number
-            char sbuf[NI_MAXSERV];
-            int s = getnameinfo(
-              currentAddressInfo->ai_addr, currentAddressInfo->ai_addrlen,
-              NULL, 0, // no host address
-              sbuf, sizeof sbuf, // only service/port
-              NI_NUMERICSERV
-            );
-            if (s==0) {
-              // convert to numeric port number
-              int port;
-              if (sscanf(sbuf, "%d", &port)==1) {
+        }
+        if (Error::isOK(err)) {
+          // to receive answers, we also need to bind to INADDR_ANY
+          // - get port number
+          char sbuf[NI_MAXSERV];
+          int s = getnameinfo(
+            currentAddressInfo->ai_addr, currentAddressInfo->ai_addrlen,
+            NULL, 0, // no host address
+            sbuf, sizeof sbuf, // only service/port
+            NI_NUMERICSERV
+          );
+          if (s==0) {
+            // convert to numeric port number
+            int port;
+            if (sscanf(sbuf, "%d", &port)==1) {
+              if (currentAddressInfo->ai_family==AF_INET6) {
+                struct sockaddr_in6 recvaddr;
+                memset(&recvaddr, 0, sizeof recvaddr);
+                recvaddr.sin6_family = AF_INET6;
+                recvaddr.sin6_port = htons(port);
+                recvaddr.sin6_addr = in6addr_any;
+                if (::bind(socketFD, (struct sockaddr *)&recvaddr, sizeof recvaddr) == -1) {
+                  err = SysError::errNo("Cannot bind to in6addr_any: ");
+                }
+              }
+              else if (currentAddressInfo->ai_family==AF_INET) {
                 // bind connectionless socket to INADDR_ANY to receive broadcasts at all
                 struct sockaddr_in recvaddr;
                 memset(&recvaddr, 0, sizeof recvaddr);
