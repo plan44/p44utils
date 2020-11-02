@@ -376,18 +376,18 @@ ErrorPtr SocketComm::initiateConnection()
     }
     else {
       // assume internet connection -> get list of possible addresses and try them
-      if (hostNameOrAddress.empty()) {
-        err = Error::err<SocketCommError>(SocketCommError::NoParams, "Missing connection parameters");
+      if (hostNameOrAddress.empty() && !connectionLess) {
+        err = Error::err<SocketCommError>(SocketCommError::NoParams, "Missing host name or address");
         goto done;
       }
-      // try to resolve host name
+      // try to resolve host and service name (at least: service name)
       struct addrinfo hint;
       memset(&hint, 0, sizeof(addrinfo));
       hint.ai_flags = 0; // no flags
       hint.ai_family = protocolFamily;
       hint.ai_socktype = socketType;
       hint.ai_protocol = protocol;
-      res = getaddrinfo(hostNameOrAddress.c_str(), serviceOrPortOrSocket.c_str(), &hint, &addressInfoList);
+      res = getaddrinfo(hostNameOrAddress.empty() ? NULL : hostNameOrAddress.c_str(), serviceOrPortOrSocket.c_str(), &hint, &addressInfoList);
       if (res!=0) {
         // error
         err = Error::err<SocketCommError>(SocketCommError::CannotResolve, "getaddrinfo error %d: %s", res, gai_strerror(res));
@@ -399,7 +399,7 @@ ErrorPtr SocketComm::initiateConnection()
     // - init iterator pointer
     currentAddressInfo = addressInfoList;
     // - try connecting first address
-    LOG(LOG_DEBUG, "Initiating connection to %s:%s", hostNameOrAddress.c_str(), serviceOrPortOrSocket.c_str());
+    LOG(LOG_DEBUG, "Initializing socket for connection to %s:%s", hostNameOrAddress.c_str(), serviceOrPortOrSocket.c_str());
     err = connectNextAddress();
   }
 done:
@@ -453,10 +453,14 @@ ErrorPtr SocketComm::connectNextAddress()
             err = SysError::errNo("Cannot setsockopt(SO_BROADCAST): ");
           }
         }
-        if (Error::isOK(err)) {
-          // to receive answers, we also need to bind to INADDR_ANY
-          // - get port number
+        if (Error::isOK(err) && serving) {
+          // We want this socket to be ready to receive messages
+          // Note: w/o the following initialisation, the socket remains unbound for now,
+          //   but issuing the first send will bind it to a random port to have an identity
+          //   (which peers can use to send an answer)
+          // Get port number
           char sbuf[NI_MAXSERV];
+          // If we explicitly bind here, the socket will have the port number specified in setConnectionParams()
           int s = getnameinfo(
             currentAddressInfo->ai_addr, currentAddressInfo->ai_addrlen,
             NULL, 0, // no host address
@@ -472,9 +476,12 @@ ErrorPtr SocketComm::connectNextAddress()
                 memset(&recvaddr, 0, sizeof recvaddr);
                 recvaddr.sin6_family = AF_INET6;
                 recvaddr.sin6_port = htons(port);
-                recvaddr.sin6_addr = in6addr_any;
+                if (nonLocal)
+                  recvaddr.sin6_addr = in6addr_any;
+                else
+                  recvaddr.sin6_addr = in6addr_loopback;
                 if (::bind(socketFD, (struct sockaddr *)&recvaddr, sizeof recvaddr) == -1) {
-                  err = SysError::errNo("Cannot bind to in6addr_any: ");
+                  err = SysError::errNo("Cannot bind to in6addr_any/in6addr_loopback: ");
                 }
               }
               else if (currentAddressInfo->ai_family==AF_INET) {
@@ -483,14 +490,17 @@ ErrorPtr SocketComm::connectNextAddress()
                 memset(&recvaddr, 0, sizeof recvaddr);
                 recvaddr.sin_family = AF_INET;
                 recvaddr.sin_port = htons(port);
-                recvaddr.sin_addr.s_addr = INADDR_ANY;
+                if (nonLocal)
+                  recvaddr.sin_addr.s_addr = htonl(INADDR_ANY);
+                else
+                  recvaddr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
                 if (::bind(socketFD, (struct sockaddr*)&recvaddr, sizeof recvaddr) == -1) {
-                  err = SysError::errNo("Cannot bind to INADDR_ANY: ");
+                  err = SysError::errNo("Cannot bind to INADDR_ANY/INADDR_LOOPBACK: ");
                 }
               }
             }
           }
-        }
+        } // serving (UDP socket bound to specific port)
         if (Error::isOK(err)) {
           startedConnecting = true;
           // save valid address info for later use (UDP needs it to send datagrams)
@@ -500,7 +510,7 @@ ErrorPtr SocketComm::connectNextAddress()
           currentSockAddrP = (sockaddr *)malloc(currentSockAddrLen);
           memcpy(currentSockAddrP, currentAddressInfo->ai_addr, currentAddressInfo->ai_addrlen);
         }
-      }
+      } // connectionLess
       else {
         // TCP: initiate connection
         LOG(LOG_DEBUG, "- Attempting connection with address family = %d, protocol = %d, addrlen=%d/sizeof=%lu", currentAddressInfo->ai_family, currentAddressInfo->ai_protocol, currentAddressInfo->ai_addrlen, sizeof(*(currentAddressInfo->ai_addr)));
@@ -655,8 +665,8 @@ void SocketComm::closeConnection()
 void SocketComm::internalCloseConnection()
 {
   isClosing = true; // prevent doing it more than once due to handlers called
-  if (serving) {
-    // serving socket
+  if (!connectionLess && serving) {
+    // serving TCP socket
     // - close listening socket
     mainLoop.unregisterPollHandler(connectionFd);
     close(connectionFd);
@@ -910,8 +920,8 @@ void SocketObj::gotData(ErrorPtr aError)
 }
 
 
-// udpsocket(host, port)
-static const BuiltInArgDesc udpsocket_args[] = { { text }, { text|numeric } };
+// udpsocket(host, port, receive, nonlocal, broadcast)
+static const BuiltInArgDesc udpsocket_args[] = { { text }, { text|numeric }, { numeric|optionalarg }, { numeric|optionalarg }, { numeric|optionalarg } };
 static const size_t udpsocket_numargs = sizeof(udpsocket_args)/sizeof(BuiltInArgDesc);
 static void udpsocket_func(BuiltinFunctionContextPtr f)
 {
@@ -922,6 +932,11 @@ static void udpsocket_func(BuiltinFunctionContextPtr f)
     SOCK_DGRAM,
     PF_UNSPEC
   );
+  bool rec = f->arg(2)->boolValue(); // defaults to not receiving
+  bool nonlocal = f->arg(3)->boolValue(); // defaults to local only
+  bool broadcast = f->arg(3)->boolValue(); // defaults to no broadcast
+  socket->setAllowNonlocalConnections(nonlocal);
+  socket->setDatagramOptions(rec, broadcast);
   ErrorPtr err = socket->initiateConnection();
   if (Error::isOK(err)) {
     f->finish(new SocketObj(socket));
@@ -930,7 +945,6 @@ static void udpsocket_func(BuiltinFunctionContextPtr f)
     f->finish(new ErrorValue(err));
   }
 }
-
 
 static const BuiltinMemberDescriptor socketGlobals[] = {
   { "udpsocket", executable|null, udpsocket_numargs, udpsocket_args, &udpsocket_func },
