@@ -567,7 +567,7 @@ EventSource* ThreadValue::eventSource() const
 
 double StringValue::doubleValue() const
 {
-  SourceCursor cursor(str);
+  SourceCursor cursor(stringValue());
   cursor.skipWhiteSpace();
   ScriptObjPtr n = cursor.parseNumericLiteral();
   // note: like parseInt/Float in JS we allow trailing garbage
@@ -580,7 +580,7 @@ double StringValue::doubleValue() const
 bool StringValue::boolValue() const
 {
   // Like in JS, empty strings are false, non-empty ones are true
-  return !str.empty();
+  return !stringValue().empty();
 }
 
 
@@ -3627,7 +3627,7 @@ ScriptObjPtr CompiledTrigger::initializeTrigger()
 void CompiledTrigger::processEvent(ScriptObjPtr aEvent, EventSource &aSource)
 {
   mOneShotEvent = aEvent->hasType(oneshot);
-  triggerEvaluation(timed);
+  triggerEvaluation(triggered);
 }
 
 
