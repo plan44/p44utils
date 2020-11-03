@@ -3664,36 +3664,38 @@ void CompiledTrigger::triggerDidEvaluate(EvaluationFlags aEvalMode, ScriptObjPtr
       }
     }
   }
-  if (mHoldOff>0 && (aEvalMode&initial)==0 && !mOneShotEvent) { // holdoff is only active for non-initial runs and without oneshots involved
-    MLMicroSeconds now = MainLoop::now();
-    // we have a hold-off
-    if (doTrigger) {
-      // trigger would fire now, but may not do so now -> (re)start hold-off period
-      doTrigger = false; // can't trigger now
-      mMetAt = now+mHoldOff;
-      OLOG(LOG_INFO, "triggering conditions met, but must await holdoff period of %.2f seconds", (double)mHoldOff/Second);
-      updateNextEval(mMetAt);
-    }
-    else if (mMetAt!=Never) {
-      // not changed, but waiting for holdoff
-      if (now>=mMetAt) {
-        OLOG(LOG_INFO, "trigger condition has been stable for holdoff period of %.2f seconds -> fire now", (double)mHoldOff/Second);
-        doTrigger = true;
-        mMetAt = Never;
-      }
-      else {
-        // not yet, silently re-schedule
-        updateNextEval(mMetAt);
-      }
-    }
-  }
   // update state
   if (mOneShotEvent) {
     // oneshot triggers do not toggle status, but must return to undefined
     mCurrentState = p44::undefined;
   }
   else {
+    // Not oneshot: update state
     mCurrentState = newState;
+    // check holdoff
+    if (mHoldOff>0 && (aEvalMode&initial)==0) { // holdoff is only active for non-initial runs
+      MLMicroSeconds now = MainLoop::now();
+      // we have a hold-off
+      if (doTrigger) {
+        // trigger would fire now, but may not do so now -> (re)start hold-off period
+        doTrigger = false; // can't trigger now
+        mMetAt = now+mHoldOff;
+        OLOG(LOG_INFO, "triggering conditions met, but must await holdoff period of %.2f seconds", (double)mHoldOff/Second);
+        updateNextEval(mMetAt);
+      }
+      else if (mMetAt!=Never) {
+        // not changed, but waiting for holdoff
+        if (now>=mMetAt) {
+          OLOG(LOG_INFO, "trigger condition has been stable for holdoff period of %.2f seconds -> fire now", (double)mHoldOff/Second);
+          doTrigger = true;
+          mMetAt = Never;
+        }
+        else {
+          // not yet, silently re-schedule
+          updateNextEval(mMetAt);
+        }
+      }
+    }
   }
   mCurrentResult = aResult;
   // take unfreeze time of frozen results into account for next evaluation
@@ -3713,9 +3715,13 @@ void CompiledTrigger::triggerDidEvaluate(EvaluationFlags aEvalMode, ScriptObjPtr
     updateNextEval(fpos->second.frozenUntil);
     fpos++;
   }
-  // check if trigger is likely to work
-  if ((aEvalMode&initial)!=0 && mNextEvaluation==Never && !hasSources()) {
-    OLOG(LOG_WARNING, "probably trigger will not work as intended (no timers nor events): %s", cursor.displaycode(70).c_str());
+  // treat static trigger like oneshot (i.e. with no persistent current state)
+  if (mNextEvaluation==Never && !hasSources()) {
+    // Warn if trigger is unlikely to ever fire (note: still might make sense, e.g. as evaluator reset)
+    if ((aEvalMode&initial)!=0) {
+      OLOG(LOG_WARNING, "probably trigger will not work as intended (no timers nor events): %s", cursor.displaycode(70).c_str());
+    }
+    mCurrentState = p44::undefined;
   }
   // schedule next timed evaluation if one is needed
   scheduleNextEval();
@@ -3724,10 +3730,6 @@ void CompiledTrigger::triggerDidEvaluate(EvaluationFlags aEvalMode, ScriptObjPtr
     FOCUSLOG("\n---------- FIRING Trigger        : result = %s", ScriptObj::describe(aResult).c_str());
     OLOG(LOG_INFO, "trigger fires with result = %s", ScriptObj::describe(aResult).c_str());
     mTriggerCB(aResult);
-  }
-  // treat static trigger like oneshot
-  if (mNextEvaluation==Never && !hasSources()) {
-    mCurrentState = p44::undefined;
   }
 }
 
