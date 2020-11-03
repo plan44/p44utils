@@ -263,17 +263,34 @@ namespace p44 {
 
   namespace P44Script {
 
+    class SocketObj;
+  
+    /// represents a message from a socket
+    class SocketMessageObj : public StringValue
+    {
+      typedef StringValue inherited;
+      SocketObj* mSocketObj;
+    public:
+      SocketMessageObj(SocketObj* aSocketObj);
+      virtual string getAnnotation() const P44_OVERRIDE;
+      virtual TypeInfo getTypeInfo() const P44_OVERRIDE;
+      virtual EventSource *eventSource() const P44_OVERRIDE;
+      virtual string stringValue() const P44_OVERRIDE;
+    };
+
+
     /// represents a socket
+    /// Note: is an event source, but does not expose it directly, only via SocketMessageObjs
     class SocketObj : public P44Script::StructuredLookupObject, public P44Script::EventSource
     {
       typedef P44Script::StructuredLookupObject inherited;
       SocketCommPtr mSocket;
     public:
+      string lastDatagram;
       SocketObj(SocketCommPtr aSocket);
       virtual ~SocketObj();
       virtual string getAnnotation() const P44_OVERRIDE { return "socket"; };
       SocketCommPtr socket() { return mSocket; }
-      virtual EventSource *eventSource() const P44_OVERRIDE;
     private:
       void gotData(ErrorPtr aError);
     };

@@ -858,6 +858,39 @@ void SocketComm::dataExceptionHandler(int aFd, int aPollFlags)
 
 using namespace P44Script;
 
+SocketMessageObj::SocketMessageObj(SocketObj* aSocketObj) :
+  inherited(""),
+  mSocketObj(aSocketObj)
+{
+}
+
+
+string SocketMessageObj::getAnnotation() const
+{
+  return "UDP message";
+}
+
+
+TypeInfo SocketMessageObj::getTypeInfo() const
+{
+  return inherited::getTypeInfo()|oneshot|keeporiginal; // returns the request only once, must keep the original
+}
+
+
+EventSource* SocketMessageObj::eventSource() const
+{
+  return static_cast<EventSource*>(mSocketObj);
+}
+
+
+string SocketMessageObj::stringValue() const
+{
+  return mSocketObj ? mSocketObj->lastDatagram : "";
+}
+
+
+
+
 // send(data)
 static const BuiltInArgDesc send_args[] = { { any } };
 static const size_t send_numargs = sizeof(send_args)/sizeof(BuiltInArgDesc);
@@ -877,8 +910,19 @@ static void send_func(BuiltinFunctionContextPtr f)
 }
 
 
+// message()
+static void message_func(BuiltinFunctionContextPtr f)
+{
+  SocketObj* s = dynamic_cast<SocketObj*>(f->thisObj().get());
+  assert(s);
+  // return latest message
+  f->finish(new SocketMessageObj(s));
+}
+
+
 static const BuiltinMemberDescriptor socketFunctions[] = {
   { "send", executable|error, send_numargs, send_args, &send_func },
+  { "message", executable|text|null, 0, NULL, &message_func },
   { NULL } // terminator
 };
 
@@ -902,17 +946,11 @@ SocketObj::~SocketObj()
 }
 
 
-EventSource* SocketObj::eventSource() const
-{
-  return static_cast<EventSource*>(const_cast<SocketObj*>(this));
-}
-
 void SocketObj::gotData(ErrorPtr aError)
 {
-  string datagram;
-  ErrorPtr err = mSocket->receiveIntoString(datagram);
+  ErrorPtr err = mSocket->receiveIntoString(lastDatagram);
   if (Error::isOK(err)) {
-    sendEvent(new StringValue(datagram));
+    sendEvent(new SocketMessageObj(this));
   }
   else {
     sendEvent(new ErrorValue(err));
