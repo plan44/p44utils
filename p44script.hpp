@@ -313,6 +313,11 @@ namespace p44 { namespace P44Script {
     /// @return true if source has any sinks
     bool hasSinks() { return !eventSinks.empty(); }
 
+    /// copy all sinks from another source
+    /// @param aOtherSource the source to copy sinks from (can be NULL -> NOP)
+    /// @note other source keeps the sinks registered
+    void copySinksFrom(EventSource* aOtherSource);
+
   };
 
 
@@ -556,8 +561,8 @@ namespace p44 { namespace P44Script {
   class ScriptLValue  : public ScriptObj
   {
     typedef ScriptObj inherited;
-    ScriptObjPtr mCurrentValue;
   protected:
+    ScriptObjPtr mCurrentValue;
     ScriptLValue(ScriptObjPtr aCurrentValue) : mCurrentValue(aCurrentValue) {};
   public:
     virtual TypeInfo getTypeInfo() const P44_OVERRIDE { return lvalue; };
@@ -572,6 +577,12 @@ namespace p44 { namespace P44Script {
     /// @note if called on an already valid object, it returns itself in the callback, so
     ///   makeValid() can always be called. But for performance reasons, checking valid() before is recommended
     virtual void makeValid(EvaluationCB aEvaluationCB) P44_OVERRIDE;
+
+    /// Assign a new value to a lvalue
+    /// @param aNewValue the value to assign, NULL to remove the lvalue from its container
+    /// @param aEvaluationCB will be called with a valid version of the object or an error or NULL in case the lvalue was deleted
+    virtual void assignLValue(EvaluationCB aEvaluationCB, ScriptObjPtr aNewValue) P44_OVERRIDE = 0;
+
   };
 
 
@@ -602,7 +613,7 @@ namespace p44 { namespace P44Script {
   };
 
 
-  // MARK: - Error Values
+  // MARK: - Special NULL values
 
   /// an explicitly annotated null value (in contrast to ScriptObj base class which is a non-annotated null)
   class AnnotatedNullValue : public ScriptObj
@@ -615,6 +626,19 @@ namespace p44 { namespace P44Script {
     virtual string stringValue() const P44_OVERRIDE { return "undefined"; };
   };
 
+
+  /// a NULL value that event sinks can register to, so in case it is replaced (i.e. as a global variable) it can
+  /// pass over the registered sinks to the replacing object
+  class EventPlaceholderNullValue : public AnnotatedNullValue, public EventSource
+  {
+    typedef AnnotatedNullValue inherited;
+  public:
+    EventPlaceholderNullValue(string aAnnotation);
+    EventSource* eventSource() const;
+  };
+
+
+  // MARK: - Error Values
 
   /// An error value
   class ErrorValue : public ScriptObj

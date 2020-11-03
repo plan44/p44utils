@@ -87,6 +87,7 @@ EventSource::~EventSource()
   sinksModified = true;
 }
 
+
 void EventSource::registerForEvents(EventSink *aEventSink)
 {
   if (aEventSink) {
@@ -96,6 +97,7 @@ void EventSource::registerForEvents(EventSink *aEventSink)
   }
 }
 
+
 void EventSource::unregisterFromEvents(EventSink *aEventSink)
 {
   if (aEventSink) {
@@ -104,6 +106,7 @@ void EventSource::unregisterFromEvents(EventSink *aEventSink)
     aEventSink->eventSources.erase(this);
   }
 }
+
 
 void EventSource::sendEvent(ScriptObjPtr aEvent)
 {
@@ -119,6 +122,17 @@ void EventSource::sendEvent(ScriptObjPtr aEvent)
     }
   } while(sinksModified);
 }
+
+
+void EventSource::copySinksFrom(EventSource* aOtherSource)
+{
+  if (!aOtherSource) return;
+  for (EventSinkSet::iterator pos=aOtherSource->eventSinks.begin(); pos!=aOtherSource->eventSinks.end(); ++pos) {
+    sinksModified = true;
+    registerForEvents(*pos);
+  }
+}
+
 
 
 
@@ -451,10 +465,33 @@ void StandardLValue::assignLValue(EvaluationCB aEvaluationCB, ScriptObjPtr aNewV
     if (Error::notOK(err)) {
       aNewValue = new ErrorValue(err);
     }
+    else {
+      // if current value has event sinks, and new value is a event source, too, new value must inherit those sinks
+      EventSource* oldSource = mCurrentValue ? mCurrentValue->eventSource() : NULL;
+      EventSource* newSource = aNewValue ? aNewValue->eventSource() : NULL;
+      if (newSource) {
+        newSource->copySinksFrom(oldSource);
+      }
+      // previous value can now be overwritten
+      mCurrentValue = aNewValue;
+    }
   }
   if (aEvaluationCB) {
     aEvaluationCB(aNewValue);
   }
+}
+
+
+// MARK: - Special NULL values
+
+EventPlaceholderNullValue::EventPlaceholderNullValue(string aAnnotation) :
+  inherited(aAnnotation)
+{
+}
+
+EventSource* EventPlaceholderNullValue::eventSource() const
+{
+  return static_cast<EventSource*>(const_cast<EventPlaceholderNullValue*>(this));
 }
 
 
@@ -3212,7 +3249,12 @@ void SourceProcessor::processVarDefs(TypeInfo aVarFlags, bool aAllowInitializer,
     }
     else {
       // just create and initialize with null (if not already existing)
-      result = new AnnotatedNullValue("uninitialized variable");
+      if (aVarFlags & global) {
+        result = new EventPlaceholderNullValue("uninitialized global");
+      }
+      else {
+        result = new AnnotatedNullValue("uninitialized variable");
+      }
       push(&SourceProcessor::s_assignOlder);
       setState(&SourceProcessor::s_nothrowResult);
       result.reset(); // look up on context level
