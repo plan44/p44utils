@@ -1194,8 +1194,8 @@ ScriptCodeThreadPtr ScriptCodeContext::newThreadFrom(CompiledCodePtr aCodeObj, S
   if (!threads.empty()) {
     // some threads already running
     if (aEvalFlags & stoprunning) {
-      // kill all current threads first...
-      abort(stopall, new ErrorValue(ScriptError::Aborted, "Aborted by another script starting"));
+      // kill all current threads (with or without queued, depending on queue set in aEvalFlags or not) first...
+      abort(aEvalFlags & stopall, new ErrorValue(ScriptError::Aborted, "Aborted by another script starting"));
       // ...then start new
     }
     else if (aEvalFlags & queue) {
@@ -3700,6 +3700,7 @@ void CompiledTrigger::triggerDidEvaluate(EvaluationFlags aEvalMode, ScriptObjPtr
   mCurrentResult = aResult;
   // take unfreeze time of frozen results into account for next evaluation
   FrozenResultsMap::iterator fpos = mFrozenResults.begin();
+  MLMicroSeconds now = MainLoop::now();
   while (fpos!=mFrozenResults.end()) {
     if (fpos->second.frozenUntil==Never) {
       // already detected expired -> erase
@@ -3712,7 +3713,13 @@ void CompiledTrigger::triggerDidEvaluate(EvaluationFlags aEvalMode, ScriptObjPtr
       #endif
       continue;
     }
-    updateNextEval(fpos->second.frozenUntil);
+    MLMicroSeconds frozenUntil = fpos->second.frozenUntil;
+    if (frozenUntil<now) {
+      // unfreeze time is in the past (should not!)
+      OLOG(LOG_WARNING, "unfreeze time is in the past -> re-run in 30 sec: %s", cursor.displaycode(70).c_str());
+      frozenUntil = now+30*Second; // re-evaluate in 30 seconds to make sure it does not completely stall
+    }
+    updateNextEval(frozenUntil);
     fpos++;
   }
   // treat static trigger like oneshot (i.e. with no persistent current state)
