@@ -1224,6 +1224,9 @@ namespace p44 { namespace P44Script {
     /// @return error in case of syntax errors or other fatal conditions
     ScriptObjPtr syntaxcheck();
 
+    /// @return true if empty
+    bool empty() const;
+
     /// convenience quick runner
     /// @param aRunFlags additional run flags.
     ///   Notes: - if synchronously is set here, the result will be delivered directly (AND with the callback if one is set)

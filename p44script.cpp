@@ -4083,6 +4083,11 @@ string ScriptSource::getSource() const
 }
 
 
+bool ScriptSource::empty() const
+{
+  return sourceContainer ? sourceContainer->source.empty() : true;
+}
+
 
 bool ScriptSource::refersTo(const SourceCursor& aCursor)
 {
