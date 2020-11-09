@@ -1357,6 +1357,10 @@ namespace p44 { namespace P44Script {
   class SourceProcessor
   {
     friend class ScriptCodeThread;
+
+    static int cThreadIdGen;
+    int mThreadId;
+
   public:
 
     SourceProcessor();
@@ -1397,7 +1401,7 @@ namespace p44 { namespace P44Script {
     static void selfKeepingResume(ScriptCodeThreadPtr aContext, ScriptObjPtr aAbortResult);
 
     /// @return a unique ID for this source processor (which is the basis of any thread)
-    intptr_t threadId() { return (intptr_t)(this); }
+    int threadId() { return mThreadId; }
 
   protected:
 

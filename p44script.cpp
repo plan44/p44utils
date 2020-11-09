@@ -1900,8 +1900,8 @@ ScriptObjPtr SourceCursor::parseJSONLiteral()
 // MARK: - SourceProcessor
 
 #define FOCUSLOGSTATE FOCUSLOG( \
-  "%04lx %s %22s : %25s : result = %s (olderResult = %s), precedence=%d", \
-  threadId() & 0xFFFF, \
+  "%04d %s %22s : %25s : result = %s (olderResult = %s), precedence=%d", \
+  threadId(), \
   skipping ? "SKIP" : "EXEC", \
   __func__, \
   src.displaycode(25).c_str(), \
@@ -1909,6 +1909,8 @@ ScriptObjPtr SourceCursor::parseJSONLiteral()
   ScriptObj::describe(olderResult).c_str(), \
   precedence \
 )
+
+int SourceProcessor::cThreadIdGen = 0;
 
 SourceProcessor::SourceProcessor() :
   aborted(false),
@@ -1920,6 +1922,7 @@ SourceProcessor::SourceProcessor() :
   precedence(0),
   pendingOperation(op_none)
 {
+  mThreadId = cThreadIdGen++; // unique thread ID
 }
 
 void SourceProcessor::setCursor(const SourceCursor& aCursor)
@@ -3645,7 +3648,7 @@ void CompiledTrigger::triggerEvaluation(EvaluationFlags aEvalMode)
 
 void CompiledTrigger::triggerDidEvaluate(EvaluationFlags aEvalMode, ScriptObjPtr aResult)
 {
-  OLOG(aEvalMode&initial ? LOG_INFO : LOG_DEBUG, "evaluated trigger: %s\n      with result: %s%s", cursor.displaycode(90).c_str(), mOneShotEvent ? "(ONESHOT) " : "", ScriptObj::describe(aResult).c_str());
+  OLOG(aEvalMode&initial ? LOG_INFO : LOG_DEBUG, "evaluated trigger: %s in evalmode=0x%lx\n- with result: %s%s", cursor.displaycode(90).c_str(), aEvalMode, mOneShotEvent ? "(ONESHOT) " : "", ScriptObj::describe(aResult).c_str());
   bool doTrigger = false;
   Tristate newState = aResult->defined() ? (aResult->boolValue() ? p44::yes : p44::no) : p44::undefined;
   if (mTriggerMode==onEvaluation) {
@@ -4051,7 +4054,7 @@ void ScriptSource::setSharedMainContext(ScriptMainContextPtr aSharedMainContext)
 
 bool ScriptSource::setSource(const string aSource, EvaluationFlags aEvaluationFlags)
 {
-  if (aEvaluationFlags==inherit || defaultFlags==aEvaluationFlags) {
+  if (aEvaluationFlags==inherit || defaultFlags==aEvaluationFlags || aEvaluationFlags==inherit) {
     // same flags, check source
     if (sourceContainer && sourceContainer->source == aSource) {
       return false; // no change at all -> NOP
@@ -4356,8 +4359,8 @@ void ScriptCodeThread::run()
 {
   runningSince = MainLoop::now();
   OLOG(LOG_DEBUG,
-    "starting %04lx at (%s:%zu,%zu):  %s",
-    threadId() & 0xFFFF,
+    "starting %04d at (%s:%zu,%zu):  %s",
+    threadId(),
     src.originLabel(), src.lineno(), src.charpos(),
     src.displaycode(90).c_str()
   );
@@ -4392,8 +4395,8 @@ void ScriptCodeThread::complete(ScriptObjPtr aFinalResult)
   autoResumeTicket.cancel();
   inherited::complete(aFinalResult);
   OLOG(LOG_DEBUG,
-    "complete %04lx at (%s:%zu,%zu):  %s\n- with result: %s",
-    threadId() & 0xFFFF,
+    "complete %04d at (%s:%zu,%zu):  %s\n- with result: %s",
+    threadId(),
     src.originLabel(), src.lineno(), src.charpos(),
     src.displaycode(90).c_str(),
     ScriptObj::describe(result).c_str()
