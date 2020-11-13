@@ -312,7 +312,7 @@ void LEDChainComm::setColorXY(uint16_t aX, uint16_t aY, uint8_t aRed, uint8_t aG
   uint16_t ledindex = ledIndexFromXY(aX,aY);
   if (ledindex>=numLeds) return;
   #ifdef ESP_PLATFORM
-  pixels[ledindex] = makeRGBVal(aRed, aGreen, aBlue);
+  pixels[ledindex] = makeRGBVal(pwmtable[aRed], pwmtable[aGreen], pwmtable[aBlue]);
   #elif ENABLE_RPIWS281X
   ws2811_led_t pixel =
     (pwmtable[aRed] << 16) |
