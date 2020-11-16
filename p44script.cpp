@@ -4844,12 +4844,14 @@ static void elements_func(BuiltinFunctionContextPtr f)
 
 // substr(string, from)
 // substr(string, from, count)
+// substr(string, -fromend, count)
 static const BuiltInArgDesc substr_args[] = { { text|undefres }, { numeric }, { numeric|optionalarg } };
 static const size_t substr_numargs = sizeof(substr_args)/sizeof(BuiltInArgDesc);
 static void substr_func(BuiltinFunctionContextPtr f)
 {
   string s = f->arg(0)->stringValue();
-  size_t start = f->arg(1)->intValue();
+  ssize_t start = f->arg(1)->intValue();
+  if (start<0) start = s.size()+start;
   if (start>s.size()) start = s.size();
   size_t count = string::npos; // to the end
   if (f->arg(2)->defined()) {
