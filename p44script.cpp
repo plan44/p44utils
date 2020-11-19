@@ -663,7 +663,8 @@ TypeInfo JsonValue::getTypeInfo() const
   if (!jsonval || jsonval->isType(json_type_null)) return null;
   if (jsonval->isType(json_type_object)) return json+object;
   if (jsonval->isType(json_type_array)) return json+array;
-  return json;
+  if (jsonval->isType(json_type_string)) return json+text;
+  return json+numeric; // everything else is numeric
 }
 
 
