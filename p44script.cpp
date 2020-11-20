@@ -4568,9 +4568,9 @@ void ScriptCodeThread::executeResult()
     }
     else {
       childContext = funcCallContext; // as long as this executes, the function context becomes the child context of this thread
-      // execute function as main thread, which means all subthreads it might spawn will be killed when function itself completes
+      // NO LONGER: execute function as main thread, which means all subthreads it might spawn will be killed when function itself completes
       // Note: must have keepvars because these are the arguments!
-      funcCallContext->execute(result, evaluationFlags|mainthread|keepvars, boost::bind(&ScriptCodeThread::executedResult, this, _1));
+      funcCallContext->execute(result, evaluationFlags|keepvars/*|mainthread*/, boost::bind(&ScriptCodeThread::executedResult, this, _1));
     }
     // function call completion will call resume
     return;
@@ -5072,6 +5072,11 @@ public:
   MLTicket timeoutTicket;
   AwaitEventSink(BuiltinFunctionContextPtr aF) : f(aF) {};
   virtual void processEvent(ScriptObjPtr aEvent, EventSource &aSource) P44_OVERRIDE
+  {
+    // unwind stack before actually responding (to avoid changing containers this event originates from)
+    MainLoop::currentMainLoop().executeNow(boost::bind(&AwaitEventSink::finishWait, this, aEvent));
+  }
+  void finishWait(ScriptObjPtr aEvent)
   {
     f->finish(aEvent);
     f->setAbortCallback(NULL);
