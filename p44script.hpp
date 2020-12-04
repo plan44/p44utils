@@ -765,6 +765,7 @@ namespace p44 { namespace P44Script {
     // operators
     virtual bool operator<(const ScriptObj& aRightSide) const P44_OVERRIDE;
     virtual bool operator==(const ScriptObj& aRightSide) const P44_OVERRIDE;
+    virtual ScriptObjPtr operator+(const ScriptObj& aRightSide) const P44_OVERRIDE;
   };
   #endif // SCRIPTING_JSON_SUPPORT
 

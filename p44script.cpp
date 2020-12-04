@@ -697,6 +697,39 @@ bool JsonValue::operator<(const ScriptObj& aRightSide) const
 }
 
 
+ScriptObjPtr JsonValue::operator+(const ScriptObj& aRightSide) const
+{
+  JsonObjectPtr r = aRightSide.jsonValue();
+  if (r && r->isType(json_type_array)) {
+    // if I am an array, too -> append elements
+    if (jsonval && jsonval->isType(json_type_array)) {
+      JsonObjectPtr j = const_cast<JsonValue*>(this)->assignmentValue()->jsonValue();
+      for (int i = 0; i<r->arrayLength(); i++) {
+        j->arrayAppend(r->arrayGet(i));
+      }
+      return new JsonValue(j);
+    }
+  }
+  else if (r && r->isType(json_type_object)) {
+    // if I am an object, too -> merge fields
+    if (jsonval && jsonval->isType(json_type_object)) {
+      JsonObjectPtr j = const_cast<JsonValue*>(this)->assignmentValue()->jsonValue();
+      r->resetKeyIteration();
+      string k;
+      JsonObjectPtr o;
+      while(r->nextKeyValue(k, o)) {
+        j->add(k.c_str(), o);
+      }
+      return new JsonValue(j);
+    }
+  }
+  return new AnnotatedNullValue("neither array or object 'addition' (merge)");
+}
+
+
+
+
+
 const ScriptObjPtr JsonValue::memberByName(const string aName, TypeInfo aMemberAccessFlags)
 {
   FOCUSLOGLOOKUP("JsonValue");

@@ -404,14 +404,21 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "expressions", "[scripting]") {
     REQUIRE(s.test(expression, "78%9")->doubleValue() == 6.0);
     REQUIRE(s.test(expression, "77.77%9")->doubleValue() == Approx(5.77));
     REQUIRE(s.test(expression, "78/0")->isErr() == true); // division by zero
-    REQUIRE(s.test(expression, "\"ABC\" + \"abc\"")->stringValue() == "ABCabc");
-    REQUIRE(s.test(expression, "\"empty\"+\"\"")->stringValue() == "empty");
-    REQUIRE(s.test(expression, "\"\"+\"empty\"")->stringValue() == "empty");
     REQUIRE(s.test(expression, "1==true")->boolValue() == true);
     REQUIRE(s.test(expression, "1==yes")->boolValue() == true);
     REQUIRE(s.test(expression, "0==false")->boolValue() == true);
     REQUIRE(s.test(expression, "0==no")->boolValue() == true);
     REQUIRE(s.test(expression, "undefined")->boolValue() == false);
+    // String concatenation
+    REQUIRE(s.test(expression, "\"ABC\" + \"abc\"")->stringValue() == "ABCabc");
+    REQUIRE(s.test(expression, "\"empty\"+\"\"")->stringValue() == "empty");
+    REQUIRE(s.test(expression, "\"\"+\"empty\"")->stringValue() == "empty");
+    // JSON object and array concatenation
+    REQUIRE(s.test(expression, "[1,2,3] + [4,5]")->stringValue() == "[1,2,3,4,5]");
+    REQUIRE(s.test(expression, "{\"a\":1,\"b\":2,\"c\":3} + {\"d\":4,\"e\":5}")->stringValue() == "{\"a\":1,\"b\":2,\"c\":3,\"d\":4,\"e\":5}");
+    REQUIRE(s.test(expression, "{\"a\":1,\"b\":2,\"c\":3} + {\"c\":5}")->stringValue() == "{\"a\":1,\"b\":2,\"c\":5}");
+    REQUIRE(s.test(expression, "[1,2,3] + 42")->undefined() == true);
+    REQUIRE(s.test(expression, "{\"a\":1,\"b\":2,\"c\":3} + 42")->undefined() == true);
     // Comparisons
     REQUIRE(s.test(expression, "undefined!=undefined")->boolValue() == false); // == is now evaluated between nulls
     REQUIRE(s.test(expression, "undefined!=undefined")->defined() == true); // ..so result is defined
