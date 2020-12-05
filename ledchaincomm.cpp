@@ -415,7 +415,6 @@ void LEDChainComm::getColorXY(uint16_t aX, uint16_t aY, uint8_t &aRed, uint8_t &
 
 LEDChainArrangement::LEDChainArrangement() :
   covers(zeroRect),
-  hasWhiteLEDs(false),
   maxOutValue(255),
   powerLimit(0),
   powerLimited(false),
@@ -525,7 +524,6 @@ void LEDChainArrangement::addLEDChain(const string &aChainSpec)
           // chain type
           if (part=="SK6812") {
             ledType = LEDChainComm::ledtype_sk6812;
-            hasWhiteLEDs = true;
           }
           else if (part=="P9823") {
             ledType = LEDChainComm::ledtype_p9823;
@@ -651,6 +649,8 @@ void LEDChainArrangement::setPowerLimit(int aMilliWatts)
 }
 
 
+static const Row3 LEDwhite = { 0.333, 0.333, 0.333 };
+
 MLMicroSeconds LEDChainArrangement::updateDisplay()
 {
   MLMicroSeconds now = MainLoop::now();
@@ -673,6 +673,7 @@ MLMicroSeconds LEDChainArrangement::updateDisplay()
             // update LED chain content buffers from view hierarchy
             for(LedChainVector::iterator pos = ledChains.begin(); pos!=ledChains.end(); ++pos) {
               LEDChainFixture& l = *pos;
+              bool hasWhite = l.ledChain->hasWhite();
               for (int x=0; x<l.covers.dx; ++x) {
                 for (int y=0; y<l.covers.dy; ++y) {
                   // get pixel from view
@@ -690,24 +691,32 @@ MLMicroSeconds LEDChainArrangement::updateDisplay()
                     if (pix.g>maxOutValue) pix.g = maxOutValue;
                     if (pix.b>maxOutValue) pix.b = maxOutValue;
                   }
+                  PixelColorComponent w = 0;
+                  // if available, transfer common white from RGB to white channel
+                  if (hasWhite) {
+                    double r = (double)pix.r/255;
+                    double g = (double)pix.r/255;
+                    double b = (double)pix.r/255;
+                    w = p44::transferToColor(LEDwhite, r, g, b)*255;
+                  }
                   // accumulate power consumption
                   if (powerDim) {
                     // limit
                     dimPixel(pix, powerDim);
                     if (DEBUGLOGGING && FOCUSLOGENABLED) {
                       // re-calculate dimmed result for debug display
-                      lightPower += pwmtable[pix.r]+pwmtable[pix.g]+pwmtable[pix.b];
+                      lightPower += pwmtable[pix.r]+pwmtable[pix.g]+pwmtable[pix.b]+pwmtable[w];
                     }
                   }
                   else if (powerLimit) {
                     // measure
-                    lightPower += pwmtable[pix.r]+pwmtable[pix.g]+pwmtable[pix.b];
+                    lightPower += pwmtable[pix.r]+pwmtable[pix.g]+pwmtable[pix.b]+pwmtable[w];
                   }
                   // set pixel in chain
                   l.ledChain->setColorXY(
                     l.offset.x+x,
                     l.offset.y+y,
-                    pix.r, pix.g, pix.b
+                    pix.r, pix.g, pix.b, w
                   );
                 }
               }

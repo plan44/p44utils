@@ -164,6 +164,9 @@ namespace p44 {
     /// @return minimum r,g,b value
     uint8_t getMinVisibleColorIntensity();
 
+    /// @return true if chains has a separate (fourth) white channel
+    bool hasWhite() { return numColorComponents>=4; }
+
     /// set color of one LED
     /// @param aRed intensity of red component, 0..255
     /// @param aGreen intensity of green component, 0..255
@@ -237,7 +240,6 @@ namespace p44 {
     LedChainVector ledChains;
     P44ViewPtr rootView;
     PixelRect covers;
-    bool hasWhiteLEDs;
 
     MLMicroSeconds lastUpdate;
     MLTicket autoStepTicket;
@@ -297,9 +299,6 @@ namespace p44 {
     /// limit total power, dim LED chain output accordingly
     /// @param aMilliWatts how many milliwatts (approximatively) the total chain may use, 0=no limit
     void setPowerLimit(int aMilliWatts);
-
-    /// @return true if any of the chains do have a separate (fourth) white channel
-    bool hasWhite() { return hasWhiteLEDs; }
 
     /// start LED chains
     /// @param aAutoStep if true, step() will be called automatically as demanded by the view hierarchy
