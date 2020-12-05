@@ -58,6 +58,27 @@ namespace p44 {
 
   /// @}
 
+  /// @name transfer of brightness from RGB to a separate distinct color, such as white or amber
+  /// @{
+
+  /// transfer brightness from RGB into a specific color
+  /// @param aCol the specific color separate from R,G,B (such as a flavor of white, or amber)
+  /// @param aRed on input, the original red component. On output, the red amount still needed
+  /// @param aGreen on input, the original green component. On output, the green amount still needed
+  /// @param aBlue on input, the original blue component. On output, the blue amount still needed
+  /// @return the amount of aCol that should be used together with adjusted values in aRed, aGreen, aBlue
+  double transferToColor(const Row3 &aCol, double &aRed, double &aGreen, double &aBlue);
+
+/// transfer brightness from a specific color into RGB
+/// @param aCol the specific color separate from R,G,B (such as a flavor of white, or amber)
+/// @param aAmount the amount of the separate color to transfer
+/// @param aRed on input, the original red component. On output, the red amount now needed when aCol is missing
+/// @param aGreen on input, the original green component. On output, the green amount now needed when aCol is missing
+/// @param aBlue on input, the original blue component. On output, the blue amount now needed when aCol is missing
+  void transferFromColor(const Row3 &aCol, double aAmount, double &aRed, double &aGreen, double &aBlue);
+
+  /// @}
+
 
   /// @name PWM/brightness conversions
   /// @{

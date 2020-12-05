@@ -355,6 +355,85 @@ bool p44::xyVtoCT(const Row3 &xyV, double &mired)
   return true;
 }
 
+// MARK: - RGB to RGBW conversions
+
+double p44::transferToColor(const Row3 &aCol, double &aRed, double &aGreen, double &aBlue)
+{
+  bool hasRed = aCol[0]>0;
+  bool hasGreen = aCol[1]>0;
+  bool hasBlue = aCol[2]>0;
+  double fr = hasRed ? aRed/aCol[0] : 0;
+  double fg = hasGreen ? aGreen/aCol[1] : 0;
+  double fb = hasBlue ? aBlue/aCol[2] : 0;
+  // - find non-zero fraction to use of external color
+  double f = fg>fb && hasBlue ? fb : fg;
+  f = fr>f && (hasBlue || hasGreen) ? f : fr;
+  if (f>1) f=1; // limit to 1
+  // - now subtract from RGB values what we've transferred to separate color
+  if (hasRed) aRed = aRed - f*aCol[0];
+  if (hasGreen) aGreen = aGreen - f*aCol[1];
+  if (hasBlue) aBlue = aBlue - f*aCol[2];
+  // - find fraction RGB HAS to contribute without loosing color information
+  double u = 1-f*aCol[0]; // how much of red RGB needs to contribute
+  if (1-f*aCol[1]>u) u = 1-f*aCol[1]; // how much of green
+  if (1-f*aCol[2]>u) u = 1-f*aCol[2]; // how much of blue
+  //   now scale RGB up to minimal fraction it HAS to contribute
+  if (u>0) {
+    u = 1/u;
+    aRed *= u;
+    aBlue *= u;
+    aGreen *= u;
+  }
+  return f;
+}
+
+
+void p44::transferFromColor(const Row3 &aCol, double aAmount, double &aRed, double &aGreen, double &aBlue)
+{
+  // add amount from separate color
+  aRed += aAmount*aCol[0];
+  aGreen += aAmount*aCol[1];
+  aBlue += aAmount*aCol[2];
+  // scale down if we exceed 1
+  double m = aRed>aGreen ? aRed : aGreen;
+  m = aBlue>m ? aBlue : m;
+  if (m>1) {
+    aRed /= m;
+    aGreen /= m;
+    aBlue /= m;
+  }
+}
+
+
+/*
+
+ // data series of transfers from RGB into RGBW assuming W has 1/3 brightness of R+G+B combined
+
+ static const Row3 LEDwhite = { 1.0/3, 1.0/3, 1.0/3 };
+ static void rgbwtest()
+ {
+   printf("R\tG\tB\tR1\tG1\tB1\tW\n");
+   for (int r=0; r<256; r+=51) {
+     for (int g=0; g<256; g+=51) {
+       for (int b=0; b<256; b+=51) {
+         double fr,fg,fb;
+         fr = (double)r/255;
+         fg = (double)g/255;
+         fb = (double)b/255;
+         double r1,g1,b1;
+         r1 = fr;
+         g1 = fg;
+         b1 = fb;
+         double w = transferToColor(LEDwhite, r1, g1, b1);
+         printf("%.2f\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f\n",fr,fg,fb,r1,g1,b1,w);
+       }
+     }
+   }
+ }
+
+*/
+
+
 
 // MARK: - PWM to brightness conversions
 
