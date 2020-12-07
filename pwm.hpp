@@ -26,6 +26,11 @@
 
 #include "iopin.hpp"
 
+#ifdef ESP_PLATFORM
+  #include "driver/ledc.h"
+  #include "driver/gpio.h"
+#endif
+
 using namespace std;
 
 namespace p44 {
@@ -40,15 +45,20 @@ namespace p44 {
     uint32_t activeNs; ///< active time in nanoseconds
     uint32_t periodNs; ///< PWM period in nanoseconds
     bool inverted; ///< pwm inverted
+    #ifdef ESP_PLATFORM
+    gpio_num_t gpioNo; ///< the GPIO to use as PWM output
+    ledc_channel_t ledcChannel; ///< ledc channel number
+    #else
     int pwmChip; ///< chip number
     int pwmChannel; ///< channel number
     int pwmFD; ///< file descriptor for the "value" file
+    #endif
 
   public:
 
-    /// Create general purpose I/O pin
-    /// @param aPwmChip PWM chip number (0,1,...)
-    /// @param aPwmChannel number (0,1,...)
+    /// Create PWM output pin
+    /// @param aPwmChip PWM chip number (0,1,...), for ESP32: GPIO number
+    /// @param aPwmChannel number (0,1,...), for ESP32: ledc channel number
     /// @param aInitialValue initial duty cycle value (0..100)
     /// @param aPeriodInNs PWM period in nanoseconds
     PWMPin(int aPwmChip, int aPwmChannel, bool aInverted, double aInitialValue, uint32_t aPeriodInNs);
@@ -62,7 +72,7 @@ namespace p44 {
     /// @param aValue new value to set output to
     virtual void setValue(double aValue) P44_OVERRIDE;
 
-    /// get range and resolution of this input
+    /// get range and resolution of this pin
     /// @param aMin minimum value
     /// @param aMax maximum value
     /// @param aResolution resolution (LSBit value)
