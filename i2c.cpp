@@ -694,7 +694,7 @@ void MCP23017::updateDirection(int aForBitNo)
 
 
 /// create i2c based digital input or output pin (or use an analog pin as digital I/O)
-I2CPin::I2CPin(int aBusNumber, const char *aDeviceId, int aPinNumber, bool aOutput, bool aInitialState, bool aPullUp) :
+I2CPin::I2CPin(int aBusNumber, const char *aDeviceId, int aPinNumber, bool aOutput, bool aInitialState, Tristate aPull) :
   output(false),
   lastSetState(false)
 {
@@ -705,7 +705,7 @@ I2CPin::I2CPin(int aBusNumber, const char *aDeviceId, int aPinNumber, bool aOutp
   analogPortDevice = boost::dynamic_pointer_cast<I2CAnalogPortDevice>(dev);
   if (bitPortDevice) {
     // bitport device, which is configurable for I/O and pullup
-    bitPortDevice->setAsOutput(pinNumber, output, aInitialState, aPullUp);
+    bitPortDevice->setAsOutput(pinNumber, output, aInitialState, aPull==yes);
   }
   else if (analogPortDevice) {
     // analog device used as digital signal

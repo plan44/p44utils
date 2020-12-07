@@ -635,7 +635,7 @@ void MCP23S17::updateDirection(int aForBitNo)
 
 
 /// create SPI based digital input or output pin (or use an analog pin as digital I/O)
-SPIPin::SPIPin(int aBusNumber, const char *aDeviceId, int aPinNumber, bool aOutput, bool aInitialState, bool aPullUp) :
+SPIPin::SPIPin(int aBusNumber, const char *aDeviceId, int aPinNumber, bool aOutput, bool aInitialState, Tristate aPull) :
   output(false),
   lastSetState(false)
 {
@@ -645,7 +645,7 @@ SPIPin::SPIPin(int aBusNumber, const char *aDeviceId, int aPinNumber, bool aOutp
   bitPortDevice = boost::dynamic_pointer_cast<SPIBitPortDevice>(dev);
   if (bitPortDevice) {
     // bitport device, which is configurable for I/O and pullup
-    bitPortDevice->setAsOutput(pinNumber, output, aInitialState, aPullUp);
+    bitPortDevice->setAsOutput(pinNumber, output, aInitialState, aPull==yes);
   }
   else if (analogPortDevice) {
     // analog device used as digital signal

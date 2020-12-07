@@ -470,7 +470,7 @@ namespace p44 {
   public:
 
     /// create i2c based digital input or output pin
-    I2CPin(int aBusNumber, const char *aDeviceId, int aPinNumber, bool aOutput, bool aInitialState, bool aPullUp);
+    I2CPin(int aBusNumber, const char *aDeviceId, int aPinNumber, bool aOutput, bool aInitialState, Tristate aPull);
 
     /// get state of pin
     /// @return current state (from actual GPIO pin for inputs, from last set state for outputs)

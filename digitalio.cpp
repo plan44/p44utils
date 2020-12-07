@@ -50,14 +50,15 @@ using namespace p44;
 
 DigitalIo::DigitalIo(const char* aPinSpec, bool aOutput, bool aInitialState) :
   inverted(false),
-  pullUp(false)
+  pull(undefined)
 {
   // save params
   output = aOutput;
   // check for inverting and pullup prefixes
   while (aPinSpec && *aPinSpec) {
     if (*aPinSpec=='/') inverted = true;
-    else if (*aPinSpec=='+') pullUp = true;
+    else if (*aPinSpec=='+') pull = yes; // pullup
+    else if (*aPinSpec=='-') pull = no; // pulldown
     else break; // none of the allowed prefixes -> done
     ++aPinSpec; // processed prefix -> check next
   }
@@ -101,7 +102,7 @@ DigitalIo::DigitalIo(const char* aPinSpec, bool aOutput, bool aInitialState) :
     // Linux generic GPIO
     // gpio.<gpionumber>
     int pinNumber = atoi(pinName.c_str());
-    ioPin = IOPinPtr(new GpioPin(pinNumber, output, initialPinState));
+    ioPin = IOPinPtr(new GpioPin(pinNumber, output, initialPinState, pull));
   }
   else if (busName=="led") {
     // Linux generic LED
@@ -123,7 +124,7 @@ DigitalIo::DigitalIo(const char* aPinSpec, bool aOutput, bool aInitialState) :
     // i2c<busnum>.<devicespec>.<pinnum>
     int busNumber = atoi(busName.c_str()+3);
     int pinNumber = atoi(pinName.c_str());
-    ioPin = IOPinPtr(new I2CPin(busNumber, deviceName.c_str(), pinNumber, output, initialPinState, pullUp));
+    ioPin = IOPinPtr(new I2CPin(busNumber, deviceName.c_str(), pinNumber, output, initialPinState, pull));
   }
   else
   #endif
@@ -132,7 +133,7 @@ DigitalIo::DigitalIo(const char* aPinSpec, bool aOutput, bool aInitialState) :
     // spi<interfaceno*10+chipselno>.<devicespec>.<pinnum>
     int busNumber = atoi(busName.c_str()+3);
     int pinNumber = atoi(pinName.c_str());
-    ioPin = IOPinPtr(new SPIPin(busNumber, deviceName.c_str(), pinNumber, output, initialPinState, pullUp));
+    ioPin = IOPinPtr(new SPIPin(busNumber, deviceName.c_str(), pinNumber, output, initialPinState, pull));
   }
   else
   #endif
@@ -157,7 +158,7 @@ DigitalIo::~DigitalIo()
 
 string DigitalIo::getName()
 {
-  return string_format("%s%s%s", pullUp ? "+" : "", inverted ? "/" : "", pinSpec.c_str());
+  return string_format("%s%s%s", pull==yes ? "+" : (pull==no ? "-" : ""), inverted ? "/" : "", pinSpec.c_str());
 }
 
 

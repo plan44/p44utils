@@ -38,11 +38,12 @@ namespace p44 {
     string pinSpec;
     bool output;
     bool inverted;
-    bool pullUp;
+    Tristate pull; // yes = pull up, no = pull down, undefined = no pull
 
   public:
     /// Create general purpose I/O
-    /// @param aPinSpec specification of the IO; form is [+][/][bus.device.]pin, where optional leading plus '+' enables pullup (if device supports it)
+    /// @param aPinSpec specification of the IO; form is [+][-][/][bus.device.]pin,
+    ///   where optional leading plus '+'/'-' enable pullup/down (if device supports it)
     ///   optional slash '/' inverts the polarity, and where bus & device can be omitted for normal GPIOs.
     /// @param aOutput use as output
     /// @param aInitialState initial state (to set for output, to expect without triggering change for input)
@@ -68,12 +69,12 @@ namespace p44 {
     DigitalIo(const char* aPinSpec, bool aOutput, bool aInitialState = false);
     virtual ~DigitalIo();
 
-		/// get name
+    /// get name
     string getName();
 
     /// check for output
     bool isOutput() { return output; };
-		
+
     /// get state of GPIO
     /// @return current state (from actual GPIO pin for inputs, from last set state for outputs)
     bool isSet();
@@ -105,9 +106,9 @@ namespace p44 {
 
 
   };
-	typedef boost::intrusive_ptr<DigitalIo> DigitalIoPtr;
-	
-	
+  typedef boost::intrusive_ptr<DigitalIo> DigitalIoPtr;
+
+
 
   /// GPIO used as pushbutton
   class ButtonInput : public DigitalIo
@@ -147,12 +148,12 @@ namespace p44 {
     ///   Otherwise, only one event is issued per button press (on button release)
     /// @param aRepeatActiveReport time after which a still pressed button is reported again (to detect long presses without extra timers)
     void setButtonHandler(ButtonHandlerCB aButtonHandler, bool aPressAndRelease, MLMicroSeconds aRepeatActiveReport=p44::Never);
-    
-  };
-	typedef boost::intrusive_ptr<ButtonInput> ButtonInputPtr;
 
-	
-	
+  };
+  typedef boost::intrusive_ptr<ButtonInput> ButtonInputPtr;
+
+
+
   /// GPIO used for indicator (e.g. LED)
   class IndicatorOutput : public DigitalIo
   {
@@ -200,7 +201,7 @@ namespace p44 {
 
 
   };
-	typedef boost::intrusive_ptr<IndicatorOutput> IndicatorOutputPtr;
+  typedef boost::intrusive_ptr<IndicatorOutput> IndicatorOutputPtr;
 
 
 
