@@ -83,7 +83,8 @@ namespace p44 {
     /// @param aGpioNo numberof the GPIO
     /// @param aOutput use as output
     /// @param aInitialState initial state assumed for inputs and enforced for outputs
-    GpioPin(int aGpioNo, bool aOutput, bool aInitialState);
+    /// @param aPull yes = pull up, no = pull down, undefined = no pull
+    GpioPin(int aGpioNo, bool aOutput, bool aInitialState, Tristate aPull=undefined);
     virtual ~GpioPin();
 
     /// get state of GPIO

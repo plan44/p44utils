@@ -93,12 +93,13 @@ void GpioLedPin::setState(bool aState)
 #define GPIO_SYS_CLASS_PATH "/sys/class/gpio"
 
 
-GpioPin::GpioPin(int aGpioNo, bool aOutput, bool aInitialState) :
+GpioPin::GpioPin(int aGpioNo, bool aOutput, bool aInitialState, Tristate aPull) :
   gpioNo(aGpioNo),
   output(aOutput),
   pinState(aInitialState),
   gpioFD(-1)
 {
+  // TODO: convert to modern character device based gpio, implement pull up/down.
   int tempFd;
   ssize_t ret;
   string name;

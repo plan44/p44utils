@@ -377,7 +377,7 @@ namespace p44 {
   public:
 
     /// create spi based digital input or output pin
-    SPIPin(int aBusNumber, const char *aDeviceId, int aPinNumber, bool aOutput, bool aInitialState, bool aPullUp);
+    SPIPin(int aBusNumber, const char *aDeviceId, int aPinNumber, bool aOutput, bool aInitialState, Tristate aPull);
 
     /// get state of pin
     /// @return current state (from actual GPIO pin for inputs, from last set state for outputs)
