@@ -26,6 +26,10 @@
 
 #include "iopin.hpp"
 
+#ifdef ESP_PLATFORM
+  #include "driver/gpio.h"
+#endif
+
 #ifndef GPION9XXX_DEVICES_BASEPATH
 #define GPION9XXX_DEVICES_BASEPATH "/dev/gpio/"
 #endif
@@ -35,6 +39,8 @@ using namespace std;
 
 namespace p44 {
 
+
+  #ifndef ESP_PLATFORM
 
   /// Wrapper for LED output accessed via
   /// generic Linux kernel SysFS support for LEDs (
@@ -63,6 +69,8 @@ namespace p44 {
     virtual void setState(bool aState);
   };
 
+  #endif // !ESP_PLATFORM
+
 
   /// Wrapper for General Purpose I/O pin as accessed via
   /// generic Linux kernel SysFS support for GPIOs (
@@ -72,8 +80,12 @@ namespace p44 {
 
     bool pinState;
     bool output;
+    #ifdef ESP_PLATFORM
+    gpio_num_t gpioNo;
+    #else
     int gpioNo;
     int gpioFD;
+    #endif
 
     bool stateChanged(int aPollFlags);
 
