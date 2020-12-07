@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2013-2019 plan44.ch / Lukas Zeller, Zurich, Switzerland
+//  Copyright (c) 2013-2020 plan44.ch / Lukas Zeller, Zurich, Switzerland
 //
 //  Author: Lukas Zeller <luz@plan44.ch>
 //
@@ -22,6 +22,8 @@
 #ifndef __p44utils__utils__
 #define __p44utils__utils__
 
+#include "p44utils_minimal.hpp"
+
 #include <string>
 #include <stdarg.h>
 #include <stdint.h>
@@ -32,6 +34,8 @@
 #endif
 
 using namespace std;
+
+/// Basic utilities that DO NOT HAVE DEPENDENCIES on other p44utils classes
 
 namespace p44 {
 
@@ -66,6 +70,9 @@ namespace p44 {
   /// @note if the path is not empty, and does not yet end in a path delimiter, a path delimiter will be appended first
   void pathstring_format_append(std::string &aPathToAppendTo, const char *aFormat, ...) __printflike(2,3);
 
+  /// make path a directory, i.e. make sure it ends in a path delimiter
+  /// @param aPathToMakeDir path string
+  void pathstring_make_dir(std::string &aPathToMakeDir);
 
   /// strftime with output to std::string
   /// @param aFormat strftime-style format string
@@ -96,10 +103,35 @@ namespace p44 {
 	/// @return the input string if it is non-NULL, or an empty string
 	const char *nonNullCStr(const char *aNULLOrCStr);
 
+  /// case insensitive strncmp with separate size for both strings
+  /// @param s1 first string, if NULL, it is considered empty string
+  /// @param s2 second string, if NULL, it is considered empty string
+  /// @param len1 length of first string, or 0 if first string is zero terminated.
+  /// @param len2 length of second string, or 0 if second string is zero terminated.
+  /// @return same as with standard strncasecmp(), but on returns 0 only if strings are equal AND of same length
+  /// @note used like strucmp(varstr, "literal", varstrsz) to compare a partial string sequence to a literal
+  int strucmp(const char *s1, const char *s2, size_t len1=0, size_t len2=0);
+
+  /// case insensitive comparison functor for std containers, based on strucmp
+  struct lessStrucmp : public std::binary_function<string, string, bool> {
+    bool operator()(const string &lhs, const string &rhs) const {
+      return strucmp(lhs.c_str(), rhs.c_str()) < 0 ;
+    }
+  };
+
+  /// convenience for case insensitive equaltest
+  bool uequals(const string& aString, const char *aCmp);
+  bool uequals(const string& aString, const string& aCmp);
+
   /// return simple (non locale aware) ASCII lowercase version of string
-  /// @param aString a string
+  /// @param aStringP a C string pinter
+  /// @param aMaxSize max number of chars to read fom aStringP
   /// @return lowercase (char by char tolower())
-  string lowerCase(const char *aString);
+  string lowerCase(const char *aStringP, size_t aMaxSize = 0);
+
+  /// return simple (non locale aware) ASCII lowercase version of string
+  /// @param aString string pinter
+  /// @return lowercase (char by char tolower())
   string lowerCase(const string &aString);
 
   /// return string quoted such that it works as a single shell argument
@@ -114,6 +146,12 @@ namespace p44 {
   /// @param aTrailing if set, remove trailing spaces
   /// @return trimmed string
   string trimWhiteSpace(const string &aString, bool aLeading = true, bool aTrailing = true);
+
+  /// return string as single line (LF, CR, TAB converted to spaces)
+  /// @param aString a string
+  /// @param aCompactWSRuns if true, runs of consecutive spaces/LFs/CRs/TABs will be compacted to a single space
+  /// @param aEllipsisAtMax if >0, output string will not be longer than specified value, if input string is longer, it will made end with ellipsis ("...")
+  string singleLine(const char *aString, bool aCompactWSRuns = true, size_t aEllipsisAtMax = 0);
 
   /// return next line from buffer
   /// @param aCursor at entry, must point to the beginning of a line. At exit, will point
@@ -219,9 +257,12 @@ namespace p44 {
   /// @param aIPv4String IPv4 address in x.x.x.x notation
   /// @return IPv4 address as 32bit integer number, or 0 if input string is invalid
   uint32_t stringToIpv4(const char *aIPv4String);
-  
 
+  /// @return aValue, wrapped around at aMax to aMin
+  double cyclic(double aValue, double aMin, double aMax);
 
+  /// @return aValue, limited to be between and including aMin and aMax
+  double limited(double aValue, double aMin, double aMax);
 
 } // namespace p44
 

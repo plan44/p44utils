@@ -24,20 +24,19 @@
 #ifdef __APPLE__
   #include <mach/mach_time.h>
 #endif
-  #include <unistd.h>
-  #include <sys/param.h>
-  #include <sys/wait.h>
+#include <unistd.h>
+#include <sys/param.h>
+#include <sys/wait.h>
+#include <math.h>
 #ifdef ESP_PLATFORM
   #include "freertos/FreeRTOS.h"
   #include "freertos/task.h"
   #include "esp_system.h"
   #include "esp_timer.h"
 #endif
-
-
 #include "fdcomm.hpp"
 
-// MARK: ===== MainLoop default parameters
+// MARK: - MainLoop default parameters
 
 #define MAINLOOP_DEFAULT_MAXSLEEP Infinite // if really nothing to do, we can sleep
 #define MAINLOOP_DEFAULT_MAXRUN (100*MilliSecond) // noticeable reaction time
@@ -60,7 +59,7 @@ void boost::throw_exception(std::exception const & e){
 
 
 
-// MARK: ===== MLTicket
+// MARK: - MLTicket
 
 MLTicket::MLTicket() :
   ticketNo(0)
@@ -94,12 +93,14 @@ MLTicket::operator bool() const
 }
 
 
-void MLTicket::cancel()
+bool MLTicket::cancel()
 {
   if (ticketNo!=0) {
-    MainLoop::currentMainLoop().cancelExecutionTicket(ticketNo);
+    bool cancelled = MainLoop::currentMainLoop().cancelExecutionTicket(ticketNo);
     ticketNo = 0;
+    return cancelled;
   }
+  return false; // no ticket
 }
 
 
@@ -139,10 +140,9 @@ bool MLTicket::rescheduleAt(MLMicroSeconds aExecutionTime, MLMicroSeconds aToler
 
 
 
-// MARK: ===== MainLoop
+// MARK: - Time base
 
-// time reference in microseconds
-MLMicroSeconds MainLoop::now()
+long long _p44_now()
 {
   #if defined(__APPLE__) && __DARWIN_C_LEVEL < 199309L
   // pre-10.12 MacOS does not yet have clock_gettime
@@ -163,6 +163,23 @@ MLMicroSeconds MainLoop::now()
   return ((uint64_t)(tsp.tv_sec))*1000000ll + tsp.tv_nsec/1000; // uS
   #endif
 }
+
+
+unsigned long _p44_millis()
+{
+  return _p44_now()/1000; // mS
+}
+
+
+
+// MARK: - MainLoop
+
+// time reference in microseconds
+MLMicroSeconds MainLoop::now()
+{
+  return _p44_now();
+}
+
 
 MLMicroSeconds MainLoop::unixtime()
 {
@@ -194,6 +211,72 @@ MLMicroSeconds MainLoop::unixTimeToMainLoopTime(const MLMicroSeconds aUnixTime)
 {
   return aUnixTime-unixtime()+now();
 }
+
+
+MLMicroSeconds MainLoop::timeValToMainLoopTime(struct timeval *aTimeValP)
+{
+  if (!aTimeValP) return Never;
+  return aTimeValP->tv_sec*Second + aTimeValP->tv_usec;
+}
+
+
+void MainLoop::mainLoopTimeTolocalTime(MLMicroSeconds aMLTime, struct tm& aLocalTime, double* aFractionalSecondsP)
+{
+  MLMicroSeconds ut = mainLoopTimeToUnixTime(aMLTime);
+  time_t t = ut/Second;
+  if (aFractionalSecondsP) {
+    *aFractionalSecondsP = (double)ut/Second-t;
+  }
+  localtime_r(&t, &aLocalTime);
+}
+
+
+MLMicroSeconds MainLoop::localTimeToMainLoopTime(const struct tm& aLocalTime)
+{
+  time_t u = mktime((struct tm*) &aLocalTime);
+  return unixTimeToMainLoopTime(u*Second);
+}
+
+
+void MainLoop::getLocalTime(struct tm& aLocalTime, double* aFractionalSecondsP, MLMicroSeconds aUnixTime, bool aGMT)
+{
+  double unixsecs = aUnixTime/Second;
+  time_t t = unixsecs;
+  if (aGMT) gmtime_r(&t, &aLocalTime);
+  else localtime_r(&t, &aLocalTime);
+  if (aFractionalSecondsP) {
+    *aFractionalSecondsP = unixsecs-floor(unixsecs);
+  }
+}
+
+
+string MainLoop::string_mltime(MLMicroSeconds aTime, int aFractionals)
+{
+  if (aTime==Infinite) return "Infinite";
+  if (aTime==Never) return "Never";
+  return string_fmltime("%Y-%m-%d %H:%M:%S", aTime, aFractionals);
+}
+
+
+string MainLoop::string_fmltime(const char *aFormat, MLMicroSeconds aTime, int aFractionals)
+{
+  struct tm tim;
+  string ts;
+  if (aFractionals==0) {
+    mainLoopTimeTolocalTime(aTime, tim);
+    string_ftime_append(ts, aFormat, &tim);
+  }
+  else {
+    double fracSecs;
+    mainLoopTimeTolocalTime(aTime, tim, &fracSecs);
+    string_ftime_append(ts, aFormat, &tim);
+    int f = fracSecs*pow(10, aFractionals);
+    string_format_append(ts, ".%0*d", aFractionals, f);
+  }
+  return ts;
+}
+
+
 
 
 void MainLoop::sleep(MLMicroSeconds aSleepTime)
@@ -230,15 +313,15 @@ MainLoop &MainLoop::currentMainLoop()
 
 
 #if MAINLOOP_STATISTICS
-#define ML_STAT_START_AT(nw) MLMicroSeconds t = (nw);
-#define ML_STAT_ADD_AT(tmr, nw) tmr += (nw)-t;
-#define ML_STAT_START ML_STAT_START_AT(now());
-#define ML_STAT_ADD(tmr) ML_STAT_ADD_AT(tmr, now());
+  #define ML_STAT_START_AT(nw) MLMicroSeconds t = (nw);
+  #define ML_STAT_ADD_AT(tmr, nw) tmr += (nw)-t;
+  #define ML_STAT_START ML_STAT_START_AT(now());
+  #define ML_STAT_ADD(tmr) ML_STAT_ADD_AT(tmr, now());
 #else
-#define ML_STAT_START_AT(now)
-#define ML_STAT_ADD_AT(tmr, nw);
-#define ML_STAT_START
-#define ML_STAT_ADD(tmr)
+  #define ML_STAT_START_AT(now)
+  #define ML_STAT_ADD_AT(tmr, nw);
+  #define ML_STAT_START
+  #define ML_STAT_ADD(tmr)
 #endif
 
 
@@ -338,6 +421,7 @@ void MainLoop::scheduleTimer(MLTimer &aTimer)
     }
   }
   // none executes later than this one, just append
+  timersChanged = true; // when processing timers now, the list must be re-checked! Processing iterator might be at end of list already!
   timers.push_back(aTimer);
 }
 
@@ -569,7 +653,7 @@ void MainLoop::execChildTerminated(ExecCB aCallback, FdStringCollectorPtr aAnswe
 
 void MainLoop::childAnswerCollected(ExecCB aCallback, FdStringCollectorPtr aAnswerCollector, ErrorPtr aError)
 {
-  LOG(LOG_DEBUG, "childAnswerCollected: error = %s", Error::isOK(aError) ? "none" : aError->description().c_str());
+  LOG(LOG_DEBUG, "childAnswerCollected: error = %s", Error::text(aError));
   // close my end of the pipe
   aAnswerCollector->stopMonitoringAndClose();
   // now get answer
@@ -838,8 +922,8 @@ bool MainLoop::handleIOPoll(MLMicroSeconds aTimeout)
   // block until input becomes available or timeout
   int numReadyFDs = 0;
   if (numFDsToTest>0) {
-    // actual FDs to test
-    numReadyFDs = poll(pollFds, (int)numFDsToTest, (int)(aTimeout/MilliSecond));
+    // actual FDs to test. Note: while in Linux timeout<0 means block forever, ONLY exactly -1 means block in macOS!
+    numReadyFDs = poll(pollFds, (int)numFDsToTest, aTimeout==Infinite ? -1 : (int)(aTimeout/MilliSecond));
   }
   else {
     // nothing to test, just await timeout
@@ -920,7 +1004,7 @@ bool MainLoop::mainLoopCycle()
     }
     else {
       // nothing due before timeout
-      handleIOPoll(nextWake==Never ? -1 : pollTimeout); // negative timeout means blocking forever
+      handleIOPoll(nextWake==Never ? Infinite : pollTimeout);
       return true; // we had the chance to sleep
     }
     // otherwise, continue processing
@@ -977,8 +1061,8 @@ string MainLoop::description()
     "- installed I/O poll handlers   : %ld\n"
     "- pending child process waits   : %ld\n"
     "- pending timers right now      : %ld\n"
-    "  - earliest in                 : %lld mS from now\n"
-    "  - latest in                   : %lld mS from now\n"
+    "  - earliest                    : %s - %lld mS from now\n"
+    "  - latest                      : %s - %lld mS from now\n"
     #if MAINLOOP_STATISTICS
     "- statistics period             : %.3f S\n"
     "- I/O poll handler runtime      : %lld mS / %d%% of period\n"
@@ -993,8 +1077,8 @@ string MainLoop::description()
     ,(long)ioPollHandlers.size()
     ,(long)waitHandlers.size()
     ,(long)timers.size()
-    ,(long long)(timers.size()>0 ? timers.front().executionTime-now() : 0)/MilliSecond
-    ,(long long)(timers.size()>0 ? timers.back().executionTime-now() : 0)/MilliSecond
+    ,timers.size()>0 ? string_mltime(timers.front().executionTime).c_str() : "none" ,(long long)(timers.size()>0 ? timers.front().executionTime-now() : 0)/MilliSecond
+    ,timers.size()>0 ? string_mltime(timers.back().executionTime).c_str() : "none" ,(long long)(timers.size()>0 ? timers.back().executionTime-now() : 0)/MilliSecond
     #if MAINLOOP_STATISTICS
     ,(double)statisticsPeriod/Second
     ,ioHandlerTime/MilliSecond ,(int)(statisticsPeriod>0 ? 100ll * ioHandlerTime/statisticsPeriod : 0)
@@ -1026,7 +1110,7 @@ void MainLoop::statistics_reset()
 }
 
 
-// MARK: ===== execution in subthreads
+// MARK: - execution in subthreads
 
 
 ChildThreadWrapperPtr MainLoop::executeInThread(ThreadRoutine aThreadRoutine, ThreadSignalHandler aThreadSignalHandler)
@@ -1035,7 +1119,7 @@ ChildThreadWrapperPtr MainLoop::executeInThread(ThreadRoutine aThreadRoutine, Th
 }
 
 
-// MARK: ===== ChildThreadWrapper
+// MARK: - ChildThreadWrapper
 
 
 static void *thread_start_function(void *arg)

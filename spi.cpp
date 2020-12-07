@@ -30,7 +30,7 @@
 #include "spi.hpp"
 
 // locally disable actual functionality on unsupported platforms (but still provide console output dummies)
-#if !defined(DISABLE_SPI) && (defined(__APPLE__) || P44_BUILD_DIGI) && !P44_BUILD_RPI && !P44_BUILD_OW
+#if !defined(DISABLE_SPI) && (defined(__APPLE__) || P44_BUILD_DIGI) && !P44_BUILD_RPI && !P44_BUILD_RB && !P44_BUILD_OW
   #define DISABLE_SPI 1
 #endif
 
@@ -49,7 +49,7 @@ extern "C" {
 
 using namespace p44;
 
-// MARK: ===== I2C Manager
+// MARK: - I2C Manager
 
 static SPIManager *sharedSPIManager = NULL;
 
@@ -131,7 +131,7 @@ SPIDevicePtr SPIManager::getDevice(int aBusNumber, const char *aDeviceID)
 }
 
 
-// MARK: ===== SPIBus
+// MARK: - SPIBus
 
 
 SPIBus::SPIBus(int aBusNumber) :
@@ -427,7 +427,7 @@ void SPIBus::closeBus()
 
 
 
-// MARK: ===== SPIDevice
+// MARK: - SPIDevice
 
 
 //  #define SPI_CPHA		0x01
@@ -481,8 +481,15 @@ bool SPIDevice::isKindOf(const char *aDeviceType)
 }
 
 
+bool SPIDevice::SPIRawWriteRead(unsigned int aOutSz, uint8_t *aOutP, unsigned int aInSz, uint8_t *aInP, bool aFullDuplex)
+{
+  return spibus->SPIRawWriteRead(this, aOutSz, aOutP, aInSz, aInP, aFullDuplex);
+}
 
-// MARK: ===== SPIBitPortDevice
+
+
+
+// MARK: - SPIBitPortDevice
 
 
 SPIBitPortDevice::SPIBitPortDevice(uint8_t aDeviceAddress, SPIBus *aBusP, const char *aDeviceOptions) :
@@ -557,7 +564,7 @@ void SPIBitPortDevice::setAsOutput(int aBitNo, bool aOutput, bool aInitialState,
 
 
 
-// MARK: ===== MCP23S17
+// MARK: - MCP23S17
 
 
 MCP23S17::MCP23S17(uint8_t aDeviceAddress, SPIBus *aBusP, const char *aDeviceOptions) :
@@ -624,10 +631,10 @@ void MCP23S17::updateDirection(int aForBitNo)
 
 
 
-// MARK: ===== SPIpin
+// MARK: - SPIpin
 
 
-/// create SPI based digital input or output pin
+/// create SPI based digital input or output pin (or use an analog pin as digital I/O)
 SPIPin::SPIPin(int aBusNumber, const char *aDeviceId, int aPinNumber, bool aOutput, bool aInitialState, bool aPullUp) :
   output(false),
   lastSetState(false)
@@ -637,9 +644,14 @@ SPIPin::SPIPin(int aBusNumber, const char *aDeviceId, int aPinNumber, bool aOutp
   SPIDevicePtr dev = SPIManager::sharedManager().getDevice(aBusNumber, aDeviceId);
   bitPortDevice = boost::dynamic_pointer_cast<SPIBitPortDevice>(dev);
   if (bitPortDevice) {
+    // bitport device, which is configurable for I/O and pullup
     bitPortDevice->setAsOutput(pinNumber, output, aInitialState, aPullUp);
-    lastSetState = aInitialState;
   }
+  else if (analogPortDevice) {
+    // analog device used as digital signal
+    setState(aInitialState); // just set the state
+  }
+  lastSetState = aInitialState;
 }
 
 
@@ -653,6 +665,12 @@ bool SPIPin::getState()
     else
       return bitPortDevice->getBitState(pinNumber);
   }
+  else if (analogPortDevice) {
+    // use analog pin as digital input
+    double min=0, max=100, res=1;
+    analogPortDevice->getPinRange(pinNumber, min, max, res);
+    return analogPortDevice->getPinValue(pinNumber)>min+(max-min)/2; // above the middle
+  }
   return false;
 }
 
@@ -661,14 +679,23 @@ bool SPIPin::getState()
 /// @param aState new state to set output to
 void SPIPin::setState(bool aState)
 {
-  if (bitPortDevice && output)
-    bitPortDevice->setBitState(pinNumber, aState);
+  if (output) {
+    if (bitPortDevice) {
+      bitPortDevice->setBitState(pinNumber, aState);
+    }
+    else if (analogPortDevice) {
+      // use analog pin as digital output
+      double min=0, max=100, res=1;
+      analogPortDevice->getPinRange(pinNumber, min, max, res);
+      analogPortDevice->setPinValue(pinNumber, aState ? max : min);
+    }
+  }
   lastSetState = aState;
 }
 
 
 
-// MARK: ===== SPIAnalogPortDevice
+// MARK: - SPIAnalogPortDevice
 
 
 SPIAnalogPortDevice::SPIAnalogPortDevice(uint8_t aDeviceAddress, SPIBus *aBusP, const char *aDeviceOptions) :
@@ -688,7 +715,7 @@ bool SPIAnalogPortDevice::isKindOf(const char *aDeviceType)
 
 
 
-// MARK: ===== MCP3008
+// MARK: - MCP3008
 
 MCP3008::MCP3008(uint8_t aDeviceAddress, SPIBus *aBusP, const char *aDeviceOptions) :
   inherited(aDeviceAddress, aBusP, aDeviceOptions)
@@ -744,7 +771,7 @@ bool MCP3008::getPinRange(int aPinNo, double &aMin, double &aMax, double &aResol
 }
 
 
-// MARK: ===== MCP3002
+// MARK: - MCP3002
 
 MCP3002::MCP3002(uint8_t aDeviceAddress, SPIBus *aBusP, const char *aDeviceOptions) :
   inherited(aDeviceAddress, aBusP, aDeviceOptions)
@@ -815,7 +842,7 @@ bool MCP3002::getPinRange(int aPinNo, double &aMin, double &aMax, double &aResol
 
 
 
-// MARK: ===== AnalogSPIpin
+// MARK: - AnalogSPIpin
 
 
 /// create spi based digital input or output pin

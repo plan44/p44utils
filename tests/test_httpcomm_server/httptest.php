@@ -80,8 +80,18 @@
     printf('</body></html>');
   }
   else {
-    printf('<html><body><h1>Document OK</h1>');
-    generateData();
+    if ($_SERVER['REQUEST_METHOD']=="POST") {
+      $data = file_get_contents("php://input");
+      printf('<html><body><h1>Document OK, POST data="%s"</h1>', $data);
+    }
+    else if ($_SERVER['REQUEST_METHOD']=="PUT") {
+      $data = file_get_contents("php://input");
+      printf('<html><body><h1>Document OK, PUT data="%s"</h1>', $data);
+    }
+    else {
+      printf('<html><body><h1>Document OK</h1>');
+      generateData();
+    }
     printf('</body></html>');
   }
 

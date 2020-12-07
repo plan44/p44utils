@@ -155,6 +155,7 @@ namespace p44 {
     /// I2C direct read/write without SMBus protocol (old devices like PCF8574)
     bool I2CReadByte(I2CDevice *aDeviceP, uint8_t &aByte);
     bool I2CWriteByte(I2CDevice *aDeviceP, uint8_t aByte);
+    bool I2CReadBytes(I2CDevice *aDeviceP, uint8_t aCount, uint8_t *aBufferP);
 
 
   private:
@@ -195,7 +196,7 @@ namespace p44 {
   };
 
 
-  // MARK: ===== digital IO
+  // MARK: - digital IO
 
 
   class I2CBitPortDevice : public I2CDevice
@@ -319,32 +320,7 @@ namespace p44 {
 
 
 
-  /// wrapper class for digital I/O pin
-  class I2CPin : public IOPin
-  {
-    typedef IOPin inherited;
-
-    I2CBitPortDevicePtr bitPortDevice;
-    int pinNumber;
-    bool output;
-    bool lastSetState;
-
-  public:
-
-    /// create i2c based digital input or output pin
-    I2CPin(int aBusNumber, const char *aDeviceId, int aPinNumber, bool aOutput, bool aInitialState, bool aPullUp);
-
-    /// get state of pin
-    /// @return current state (from actual GPIO pin for inputs, from last set state for outputs)
-    virtual bool getState() P44_OVERRIDE;
-
-    /// set state of pin (NOP for inputs)
-    /// @param aState new state to set output to
-    virtual void setState(bool aState) P44_OVERRIDE;
-  };  
-
-
-  // MARK: ===== analog IO
+  // MARK: - analog IO
 
 
   class I2CAnalogPortDevice : public I2CDevice
@@ -425,10 +401,89 @@ namespace p44 {
   };
 
 
+  class MCP3021 : public I2CAnalogPortDevice
+  {
+    typedef I2CAnalogPortDevice inherited;
+
+  public:
+
+    /// create device
+    /// @param aDeviceAddress slave address of the device
+    /// @param aBusP I2CBus object
+    /// @param aDeviceOptions optional device-level options
+    MCP3021(uint8_t aDeviceAddress, I2CBus *aBusP, const char *aDeviceOptions);
+
+    /// @return device type identifier
+    virtual const char *deviceType() P44_OVERRIDE { return "MCP3021"; };
+
+    /// @return true if this device or one of it's ancestors is of the given type
+    virtual bool isKindOf(const char *aDeviceType) P44_OVERRIDE;
+
+    virtual double getPinValue(int aPinNo) P44_OVERRIDE;
+    virtual void setPinValue(int aPinNo, double aValue) P44_OVERRIDE { /* dummy */ };
+    virtual bool getPinRange(int aPinNo, double &aMin, double &aMax, double &aResolution) P44_OVERRIDE;
+
+  };
+
+
+  class MAX1161x : public I2CAnalogPortDevice
+  {
+    typedef I2CAnalogPortDevice inherited;
+
+  public:
+
+    /// create device
+    /// @param aDeviceAddress slave address of the device
+    /// @param aBusP I2CBus object
+    /// @param aDeviceOptions optional device-level options
+    MAX1161x(uint8_t aDeviceAddress, I2CBus *aBusP, const char *aDeviceOptions);
+
+    /// @return device type identifier
+    virtual const char *deviceType() P44_OVERRIDE { return "MAX1161x"; };
+
+    /// @return true if this device or one of it's ancestors is of the given type
+    virtual bool isKindOf(const char *aDeviceType) P44_OVERRIDE;
+
+    virtual double getPinValue(int aPinNo) P44_OVERRIDE;
+    virtual void setPinValue(int aPinNo, double aValue) P44_OVERRIDE { /* dummy */ };
+    virtual bool getPinRange(int aPinNo, double &aMin, double &aMax, double &aResolution) P44_OVERRIDE;
+
+  };
 
 
 
-  /// wrapper class for analog I/O pin
+
+  // MARK: - Wrapper classes
+
+
+  /// wrapper class for a pin that is used as digital I/O (can also make use of analog I/O pins for that)
+  class I2CPin : public IOPin
+  {
+    typedef IOPin inherited;
+
+    I2CBitPortDevicePtr bitPortDevice;
+    I2CAnalogPortDevicePtr analogPortDevice;
+    int pinNumber;
+    bool output;
+    bool lastSetState;
+
+  public:
+
+    /// create i2c based digital input or output pin
+    I2CPin(int aBusNumber, const char *aDeviceId, int aPinNumber, bool aOutput, bool aInitialState, bool aPullUp);
+
+    /// get state of pin
+    /// @return current state (from actual GPIO pin for inputs, from last set state for outputs)
+    virtual bool getState() P44_OVERRIDE;
+
+    /// set state of pin (NOP for inputs)
+    /// @param aState new state to set output to
+    virtual void setState(bool aState) P44_OVERRIDE;
+  };
+
+
+
+  /// wrapper class for analog I/O pin actually used as analog I/O
   class AnalogI2CPin : public AnalogIOPin
   {
     typedef AnalogIOPin inherited;

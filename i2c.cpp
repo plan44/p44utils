@@ -30,7 +30,7 @@
 #include "i2c.hpp"
 
 // locally disable actual functionality on unsupported platforms (but still provide console output dummies)
-#if !defined(DISABLE_I2C) && (defined(__APPLE__) || P44_BUILD_DIGI) && !P44_BUILD_RPI && !P44_BUILD_OW
+#if !defined(DISABLE_I2C) && (defined(__APPLE__) || P44_BUILD_DIGI) && !P44_BUILD_RPI && !P44_BUILD_RB && !P44_BUILD_OW
   #define DISABLE_I2C 1
 #endif
 
@@ -39,9 +39,10 @@
     #include <linux/lib-i2c-dev.h>
   #else
     #include <linux/i2c-dev.h>
-  #endif
-  #ifndef LIB_I2CDEV_H
-  #warning "Most probably, we have the wrong i2c-dev.h header here - maybe i2c-tools not installed?"
+    #ifndef LIB_I2CDEV_H
+      #warning "Extended i2c-dev.h header not available - including local i2c-dev-extensions.h to augment existing i2c-dev.h"
+      #include "i2c-dev-extensions.h"
+    #endif
   #endif
 #else
   #warning "No i2C supported on this platform - just showing calls in focus debug output"
@@ -49,7 +50,7 @@
 
 using namespace p44;
 
-// MARK: ===== I2C Manager
+// MARK: - I2C Manager
 
 static I2CManager *sharedI2CManager = NULL;
 
@@ -131,6 +132,10 @@ I2CDevicePtr I2CManager::getDevice(int aBusNumber, const char *aDeviceID)
       dev = I2CDevicePtr(new PCA9685(deviceAddress, bus.get(), deviceOptions.c_str()));
     else if (typeString=="LM75")
       dev = I2CDevicePtr(new LM75(deviceAddress, bus.get(), deviceOptions.c_str()));
+    else if (typeString=="MCP3021")
+      dev = I2CDevicePtr(new MCP3021(deviceAddress, bus.get(), deviceOptions.c_str()));
+    else if (typeString=="MAX1161x")
+      dev = I2CDevicePtr(new MAX1161x(deviceAddress, bus.get(), deviceOptions.c_str()));
     else if (typeString=="generic")
       dev = I2CDevicePtr(new I2CDevice(deviceAddress, bus.get(), deviceOptions.c_str()));
     // TODO: add more device types
@@ -143,7 +148,7 @@ I2CDevicePtr I2CManager::getDevice(int aBusNumber, const char *aDeviceID)
 }
 
 
-// MARK: ===== I2CBus
+// MARK: - I2CBus
 
 
 I2CBus::I2CBus(int aBusNumber) :
@@ -190,6 +195,25 @@ bool I2CBus::I2CReadByte(I2CDevice *aDeviceP, uint8_t &aByte)
   aByte = (uint8_t)res;
   return true;
 }
+
+
+bool I2CBus::I2CReadBytes(I2CDevice *aDeviceP, uint8_t aCount, uint8_t *aBufferP)
+{
+  if (!accessDevice(aDeviceP)) return false; // cannot read
+  #if !DISABLE_I2C
+  ssize_t res = read(busFD, aBufferP, aCount);
+  #else
+  for (int n=0; n<aCount; n++) {
+    aBufferP[n] = 0x42; // dummy
+  }
+  ssize_t res = aCount;
+  #endif
+  // read is shown only in real Debug log, because button polling creates lots of accesses
+  DBGFOCUSLOG("i2c device read(): first byte = %d / 0x%02X, res=%zd", *aBufferP, *aBufferP, res);
+  if (res<0 || res!=aCount) return false;
+  return true;
+}
+
 
 
 bool I2CBus::I2CWriteByte(I2CDevice *aDeviceP, uint8_t aByte)
@@ -392,7 +416,7 @@ void I2CBus::closeBus()
 
 
 
-// MARK: ===== I2CDevice
+// MARK: - I2CDevice
 
 
 I2CDevice::I2CDevice(uint8_t aDeviceAddress, I2CBus *aBusP, const char *aDeviceOptions)
@@ -417,7 +441,7 @@ bool I2CDevice::isKindOf(const char *aDeviceType)
 
 
 
-// MARK: ===== I2CBitPortDevice
+// MARK: - I2CBitPortDevice
 
 
 I2CBitPortDevice::I2CBitPortDevice(uint8_t aDeviceAddress, I2CBus *aBusP, const char *aDeviceOptions) :
@@ -491,7 +515,7 @@ void I2CBitPortDevice::setAsOutput(int aBitNo, bool aOutput, bool aInitialState,
 
 
 
-// MARK: ===== TCA9555
+// MARK: - TCA9555
 
 
 TCA9555::TCA9555(uint8_t aDeviceAddress, I2CBus *aBusP, const char *aDeviceOptions) :
@@ -547,7 +571,7 @@ void TCA9555::updateDirection(int aForBitNo)
 }
 
 
-// MARK: ===== PCF8574
+// MARK: - PCF8574
 
 
 PCF8574::PCF8574(uint8_t aDeviceAddress, I2CBus *aBusP, const char *aDeviceOptions) :
@@ -599,7 +623,7 @@ void PCF8574::updateDirection(int aForBitNo)
 
 
 
-// MARK: ===== MCP23017
+// MARK: - MCP23017
 
 
 MCP23017::MCP23017(uint8_t aDeviceAddress, I2CBus *aBusP, const char *aDeviceOptions) :
@@ -666,10 +690,10 @@ void MCP23017::updateDirection(int aForBitNo)
 
 
 
-// MARK: ===== I2Cpin
+// MARK: - I2Cpin
 
 
-/// create i2c based digital input or output pin
+/// create i2c based digital input or output pin (or use an analog pin as digital I/O)
 I2CPin::I2CPin(int aBusNumber, const char *aDeviceId, int aPinNumber, bool aOutput, bool aInitialState, bool aPullUp) :
   output(false),
   lastSetState(false)
@@ -678,10 +702,16 @@ I2CPin::I2CPin(int aBusNumber, const char *aDeviceId, int aPinNumber, bool aOutp
   output = aOutput;
   I2CDevicePtr dev = I2CManager::sharedManager().getDevice(aBusNumber, aDeviceId);
   bitPortDevice = boost::dynamic_pointer_cast<I2CBitPortDevice>(dev);
+  analogPortDevice = boost::dynamic_pointer_cast<I2CAnalogPortDevice>(dev);
   if (bitPortDevice) {
+    // bitport device, which is configurable for I/O and pullup
     bitPortDevice->setAsOutput(pinNumber, output, aInitialState, aPullUp);
-    lastSetState = aInitialState;
   }
+  else if (analogPortDevice) {
+    // analog device used as digital signal
+    setState(aInitialState); // just set the state
+  }
+  lastSetState = aInitialState;
 }
 
 
@@ -695,6 +725,12 @@ bool I2CPin::getState()
     else
       return bitPortDevice->getBitState(pinNumber);
   }
+  else if (analogPortDevice) {
+    // use analog pin as digital input
+    double min=0, max=100, res=1;
+    analogPortDevice->getPinRange(pinNumber, min, max, res);
+    return analogPortDevice->getPinValue(pinNumber)>min+(max-min)/2; // above the middle
+  }
   return false;
 }
 
@@ -703,14 +739,23 @@ bool I2CPin::getState()
 /// @param aState new state to set output to
 void I2CPin::setState(bool aState)
 {
-  if (bitPortDevice && output)
-    bitPortDevice->setBitState(pinNumber, aState);
+  if (output) {
+    if (bitPortDevice) {
+      bitPortDevice->setBitState(pinNumber, aState);
+    }
+    else if (analogPortDevice) {
+      // use analog pin as digital output
+      double min=0, max=100, res=1;
+      analogPortDevice->getPinRange(pinNumber, min, max, res);
+      analogPortDevice->setPinValue(pinNumber, aState ? max : min);
+    }
+  }
   lastSetState = aState;
 }
 
 
 
-// MARK: ===== I2CAnalogPortDevice
+// MARK: - I2CAnalogPortDevice
 
 
 I2CAnalogPortDevice::I2CAnalogPortDevice(uint8_t aDeviceAddress, I2CBus *aBusP, const char *aDeviceOptions) :
@@ -730,7 +775,7 @@ bool I2CAnalogPortDevice::isKindOf(const char *aDeviceType)
 
 
 
-// MARK: ===== PCA9685
+// MARK: - PCA9685
 
 
 PCA9685::PCA9685(uint8_t aDeviceAddress, I2CBus *aBusP, const char *aDeviceOptions) :
@@ -833,7 +878,7 @@ bool PCA9685::getPinRange(int aPinNo, double &aMin, double &aMax, double &aResol
 }
 
 
-// MARK: ===== LM75 (A,B,C...)
+// MARK: - LM75 (A,B,C...)
 
 LM75::LM75(uint8_t aDeviceAddress, I2CBus *aBusP, const char *aDeviceOptions) :
   inherited(aDeviceAddress, aBusP, aDeviceOptions),
@@ -879,9 +924,102 @@ bool LM75::getPinRange(int aPinNo, double &aMin, double &aMax, double &aResoluti
 }
 
 
+// MARK: - MCP3021 (5 pin, 10bit ADC, Microchip)
+
+MCP3021::MCP3021(uint8_t aDeviceAddress, I2CBus *aBusP, const char *aDeviceOptions) :
+  inherited(aDeviceAddress, aBusP, aDeviceOptions)
+{
+}
 
 
-// MARK: ===== AnalogI2Cpin
+bool MCP3021::isKindOf(const char *aDeviceType)
+{
+  if (strcmp(deviceType(),aDeviceType)==0)
+    return true;
+  else
+    return inherited::isKindOf(aDeviceType);
+}
+
+
+double MCP3021::getPinValue(int aPinNo)
+{
+  uint8_t buf[2];
+  uint16_t raw;
+  i2cbus->I2CReadBytes(this, 2, buf); // MCP3021 delivers MSB first
+  // discard two LSBs, limit to actual 10 bit result
+  raw = (((uint16_t)buf[0]<<6)) + (buf[1]>>2);
+  return raw;
+}
+
+
+bool MCP3021::getPinRange(int aPinNo, double &aMin, double &aMax, double &aResolution)
+{
+  // as we don't know what will be connected to the inputs, we return raw A/D value.
+  aMin = 0;
+  aMax = 1024;
+  aResolution = 1;
+  return true;
+}
+
+
+
+// MARK: - MAX11612-617 (12bit ADCs, Maxim)
+
+MAX1161x::MAX1161x(uint8_t aDeviceAddress, I2CBus *aBusP, const char *aDeviceOptions) :
+  inherited(aDeviceAddress, aBusP, aDeviceOptions)
+{
+  i2cbus->I2CWriteByte(this,
+    (1 << 7) | // B7 = 1 -> setup byte
+    (5 << 4) | // SEL: use internal reference, REF = n/c, AIN_/REF = analog input
+    (0 << 3) | // internal clock
+    (0 << 2) | // unipolar mode
+    (0 << 1) // reset configuration register to default
+  );
+}
+
+
+bool MAX1161x::isKindOf(const char *aDeviceType)
+{
+  if (strcmp(deviceType(),aDeviceType)==0)
+    return true;
+  else
+    return inherited::isKindOf(aDeviceType);
+}
+
+
+double MAX1161x::getPinValue(int aPinNo)
+{
+  uint8_t buf[2];
+  uint16_t raw;
+  // - configure scan
+  i2cbus->I2CWriteByte(this,
+    (0 << 7) | // B7 = 0 -> config byte
+    (3 << 5) | // Scan mode: 3 = just convert single channel
+    ((aPinNo & 0x0F) << 1) | // Channel Select = pin number bits 0..3
+    ((aPinNo & 0x10 ? 0 : 1) << 0) // differential when pin number bit 4 is set, single ended otherwise
+  );
+  // - read result
+  i2cbus->I2CReadBytes(this, 2, buf); // MAX1161x deliver MSB first
+  // actual result is in lower 4 bits of MSByte + 8 bits LSByte
+  raw = ((buf[0]&0xF)<<8) + buf[1];
+  return raw;
+}
+
+
+bool MAX1161x::getPinRange(int aPinNo, double &aMin, double &aMax, double &aResolution)
+{
+  // as we don't know what will be connected to the inputs, we return raw A/D value.
+  aMin = 0;
+  aMax = 4096;
+  aResolution = 1;
+  return true;
+}
+
+
+
+
+
+// MARK: - AnalogI2Cpin
 
 
 AnalogI2CPin::AnalogI2CPin(int aBusNumber, const char *aDeviceId, int aPinNumber, bool aOutput, double aInitialValue) :

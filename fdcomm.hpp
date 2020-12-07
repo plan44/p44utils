@@ -67,7 +67,7 @@ namespace p44 {
 
   public:
 
-    FdComm(MainLoop &aMainLoop);
+    FdComm(MainLoop &aMainLoop = MainLoop::currentMainLoop());
     virtual ~FdComm();
 
     /// place to attach a related object

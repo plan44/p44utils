@@ -24,6 +24,19 @@
 
 using namespace p44;
 
+#if ENABLE_NAMED_ERRORS
+const char* HttpCommError::errorName() const
+{
+  switch(getErrorCode()) {
+    case invalidParameters: return "invalidParameters";
+    case noConnection: return "noConnection";
+    case read: return "read";
+    case write: return "write";
+    case civetwebError: return "civetwebError";
+  }
+  return NULL;
+}
+#endif // ENABLE_NAMED_ERRORS
 
 typedef enum {
   httpThreadSignalDataReady = threadSignalUserSignal
@@ -114,7 +127,7 @@ void HttpComm::requestThread(ChildThreadWrapper &aThread)
         "\r\n"
         "%s",
         contentType.c_str(),
-        requestBody.length(),
+        (long)requestBody.length(),
         extraHeaders.c_str(),
         requestBody.c_str()
       );
@@ -372,7 +385,7 @@ void HttpComm::cancelRequest()
   }
 }
 
-// MARK: ===== Utilities
+// MARK: - Utilities
 
 
 //  8.2.1. The form-urlencoded Media Type
@@ -436,3 +449,173 @@ void HttpComm::appendFormValue(string &aDataString, const string &aFieldname, co
 }
 
 
+
+// MARK: - script support
+
+#if ENABLE_HTTP_SCRIPT_FUNCS && ENABLE_P44SCRIPT
+
+using namespace P44Script;
+
+static void httpFuncDone(BuiltinFunctionContextPtr f, HttpCommPtr aHttpAction, const string &aResponse, ErrorPtr aError)
+{
+  SPLOG(f, LOG_INFO, "http action returns '%s', error = %s", aResponse.c_str(), Error::text(aError));
+  if (Error::isOK(aError)) {
+    f->finish(new StringValue(aResponse));
+  }
+  else {
+    f->finish(new ErrorValue(aError));
+  }
+}
+
+static void httpFuncImpl(BuiltinFunctionContextPtr f, string aMethod)
+{
+  // xxxurl("<url>"[,timeout][,"<data>"])
+  string url = f->arg(0)->stringValue();
+  string data;
+  MLMicroSeconds timeout = Never;
+  int ai = 1;
+  if (f->numArgs()>ai) {
+    // could be timeout if it is numeric
+    if (f->arg(ai)->hasType(numeric)) {
+      timeout = f->arg(ai)->doubleValue()*Second;
+      ai++;
+    }
+  }
+  if (aMethod!="GET") {
+    if (f->numArgs()>ai) data = f->arg(ai)->stringValue();
+  }
+  // extract from url
+  string user;
+  string password;
+  HttpCommPtr httpAction;
+//  if (aHttpCommP) httpAction = *aHttpCommP;
+  if (!httpAction) httpAction = HttpCommPtr(new HttpComm(MainLoop::currentMainLoop()));
+//  if (aHttpCommP) *aHttpCommP = httpAction;
+  splitURL(url.c_str(), NULL, NULL, NULL, &user, &password);
+  httpAction->setHttpAuthCredentials(user, password);
+  if (timeout!=Never) httpAction->setTimeout(timeout);
+  SPLOG(f, LOG_INFO, "issuing %s to %s %s", aMethod.c_str(), url.c_str(), data.c_str());
+  f->setAbortCallback(boost::bind(&HttpComm::cancelRequest, httpAction));
+//  httpAction->cancelRequest(); // abort any previous request
+  if (!httpAction->httpRequest(
+    url.c_str(),
+    boost::bind(&httpFuncDone, f, httpAction, _1, _2),
+    aMethod.c_str(),
+    data.c_str()
+  )) {
+    f->finish(new ErrorValue(TextError::err("could not issue http request")));
+  }
+}
+
+// geturl("<url>"[,timeout])
+static const BuiltInArgDesc geturl_args[] = { { text }, { numeric|optionalarg } };
+static const size_t geturl_numargs = sizeof(geturl_args)/sizeof(BuiltInArgDesc);
+static void geturl_func(BuiltinFunctionContextPtr f)
+{
+  httpFuncImpl(f, "GET");
+}
+
+static const BuiltInArgDesc postputurl_args[] = { { text } , { any|optionalarg }, { any|optionalarg } };
+static const size_t postputurl_numargs = sizeof(postputurl_args)/sizeof(BuiltInArgDesc);
+
+// posturl("<url>"[,timeout][,"<data>"])
+static void posturl_func(BuiltinFunctionContextPtr f)
+{
+  httpFuncImpl(f, "POST");
+}
+
+// puturl("<url>"[,timeout][,"<data>"])
+static void puturl_func(BuiltinFunctionContextPtr f)
+{
+  httpFuncImpl(f, "PUT");
+}
+
+
+static const BuiltinMemberDescriptor httpGlobals[] = {
+  { "geturl", executable|async|text, geturl_numargs, geturl_args, &geturl_func },
+  { "posturl", executable|async|text, postputurl_numargs, postputurl_args, &posturl_func },
+  { "puturl", executable|async|text, postputurl_numargs, postputurl_args, &puturl_func },
+  { NULL } // terminator
+};
+
+HttpLookup::HttpLookup() :
+  inherited(httpGlobals)
+{
+}
+
+#endif // ENABLE_HTTP_SCRIPT_FUNCS && ENABLE_P44SCRIPT
+
+
+// TODO: remove legacy EXPRESSION_SCRIPT_SUPPORT later
+#if ENABLE_HTTP_SCRIPT_FUNCS && EXPRESSION_SCRIPT_SUPPORT
+
+bool HttpComm::evaluateAsyncHttpFunctions(EvaluationContext* aEvalContext, const string &aFunc, const FunctionArguments &aArgs, bool &aNotYielded, HttpCommPtr* aHttpCommP)
+{
+  bool isGet = false;
+  bool isPost = false;
+  bool isPut = false;
+  if (strucmp(aFunc.c_str(), "geturl")==0) isGet = true;
+  else if (strucmp(aFunc.c_str(), "posturl")==0) isPost = true;
+  else if (strucmp(aFunc.c_str(), "puturl")==0) isPut = true;
+  else return false; // unknown function
+  if (aArgs.size()<1) return false; // not enough params
+  if (isGet && aArgs.size()>2) return false; // geturl has one or two params
+  // one of:
+  //   geturl("<url>"[,timeout])
+  //   posturl("<url>"[,timeout][,"<data>"])
+  //   puturl("<url>"[,timeout][,"<data>"])
+  if (aArgs[0].notValue()) return aEvalContext->errorInArg(aArgs[0], true);
+  string url = aArgs[0].stringValue();
+  string method = isGet ? "GET" : (isPut ? "PUT" : "POST");
+  string data;
+  MLMicroSeconds timeout = Never;
+  int ai = 1;
+  if (aArgs.size()>ai) {
+    // could be timeout if it is numeric
+    if (!aArgs[ai].isString()) {
+      timeout = aArgs[ai].numValue()*Second;
+      ai++;
+    }
+  }
+  if (isPost || isPut) {
+    if (aArgs.size()>ai) data=aArgs[ai].stringValue();
+  }
+  // extract from url
+  string user;
+  string password;
+  HttpCommPtr httpAction;
+  if (aHttpCommP) httpAction = *aHttpCommP;
+  if (!httpAction) httpAction = HttpCommPtr(new HttpComm(MainLoop::currentMainLoop()));
+  if (aHttpCommP) *aHttpCommP = httpAction;
+  splitURL(url.c_str(), NULL, NULL, NULL, &user, &password);
+  httpAction->setHttpAuthCredentials(user, password);
+  if (timeout!=Never) httpAction->setTimeout(timeout);
+  SOLOG(*aEvalContext, LOG_INFO, "issuing %s to %s %s", method.c_str(), url.c_str(), data.c_str());
+  httpAction->cancelRequest(); // abort any previous request
+  if (!httpAction->httpRequest(
+    url.c_str(),
+    boost::bind(&HttpComm::httpFunctionDone, aEvalContext, _1, _2),
+    method.c_str(),
+    data.c_str()
+  )) {
+    return aEvalContext->throwError(TextError::err("could not issue http request"));
+  }
+  aNotYielded = false; // callback will get result
+  return true; // function found, aNotYielded must be set correctly!
+}
+
+
+void HttpComm::httpFunctionDone(EvaluationContext* aEvalContext, const string &aResponse, ErrorPtr aError)
+{
+  SOLOG(*aEvalContext, LOG_INFO, "http action returns '%s', error = %s", aResponse.c_str(), Error::text(aError));
+  ExpressionValue res;
+  if (Error::isOK(aError)) {
+    res.setString(aResponse);
+  }
+  else {
+    res.setError(aError);
+  }
+  aEvalContext->continueWithAsyncFunctionResult(res);
+}
+
+#endif // ENABLE_HTTP_SCRIPT_FUNCS && EXPRESSION_SCRIPT_SUPPORT

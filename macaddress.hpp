@@ -22,6 +22,8 @@
 #ifndef __p44utils__macaddress__
 #define __p44utils__macaddress__
 
+#include "p44utils_minimal.hpp"
+
 #include <stdint.h>
 #include <cstddef>
 

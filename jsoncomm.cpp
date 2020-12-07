@@ -147,7 +147,7 @@ void JsonComm::gotData(ErrorPtr aError)
       delete[] buf; buf = NULL;
     } // some data seems to be ready
   } // no connection error
-  if (!Error::isOK(aError)) {
+  if (Error::notOK(aError)) {
     // error occurred, report
     if (jsonMessageHandler) {
       jsonMessageHandler(aError, JsonObjectPtr());

@@ -37,7 +37,7 @@
 using namespace p44;
 
 
-// MARK: ===== LEDs via modern kernel support
+// MARK: - LEDs via modern kernel support
 
 #define GPIO_LED_CLASS_PATH "/sys/class/leds"
 
@@ -88,7 +88,7 @@ void GpioLedPin::setState(bool aState)
 
 
 
-// MARK: ===== GPIO via modern kernel support
+// MARK: - GPIO via modern kernel support
 
 #define GPIO_SYS_CLASS_PATH "/sys/class/gpio"
 
@@ -100,13 +100,15 @@ GpioPin::GpioPin(int aGpioNo, bool aOutput, bool aInitialState) :
   gpioFD(-1)
 {
   int tempFd;
+  ssize_t ret;
   string name;
   string s = string_format("%d", gpioNo);
   // have the kernel export the pin
   name = string_format("%s/export",GPIO_SYS_CLASS_PATH);
   tempFd = open(name.c_str(), O_WRONLY);
   if (tempFd<0) { LOG(LOG_ERR, "Cannot open GPIO export file %s: %s", name.c_str(), strerror(errno)); return; }
-  write(tempFd, s.c_str(), s.length());
+  ret = write(tempFd, s.c_str(), s.length());
+  if (ret<0) { LOG(LOG_WARNING, "Cannot write '%s' to GPIO export file %s: %s, probably already exported", s.c_str(), name.c_str(), strerror(errno)); }
   close(tempFd);
   // save base path
   string basePath = string_format("%s/gpio%d", GPIO_SYS_CLASS_PATH, gpioNo);
@@ -118,14 +120,15 @@ GpioPin::GpioPin(int aGpioNo, bool aOutput, bool aInitialState) :
     // output
     // - set output with initial value
     s = pinState ? "high" : "low";
-    write(tempFd, s.c_str(), s.length());
+    ret = write(tempFd, s.c_str(), s.length());
   }
   else {
     // input
     // - set input
     s = "in";
-    write(tempFd, s.c_str(), s.length());
+    ret = write(tempFd, s.c_str(), s.length());
   }
+  if (ret<0) { LOG(LOG_WARNING, "Cannot write '%s' to GPIO direction file %s: %s", s.c_str(), name.c_str(), strerror(errno)); }
   close(tempFd);
   // now keep the value FD open
   name = basePath + "/value";
@@ -187,7 +190,8 @@ bool GpioPin::setInputChangedHandler(InputChangedCB aInputChangedCB, bool aInver
   }
   // enable triggering on both edges
   string s = "both";
-  write(edgeFd, s.c_str(), s.length());
+  ssize_t ret = write(edgeFd, s.c_str(), s.length());
+  if (ret<0) { LOG(LOG_ERR, "Cannot write to GPIO edge file %s", strerror(errno)); return false; }
   close(edgeFd);
   // establish a IO poll
   MainLoop::currentMainLoop().registerPollHandler(gpioFD, POLLPRI, boost::bind(&GpioPin::stateChanged, this, _2));
@@ -378,7 +382,7 @@ void GpioPin::setState(bool aState)
 
 
 
-// MARK: ===== GPIO for NS9xxx (Digi ME 9210 LX)
+// MARK: - GPIO for NS9xxx (Digi ME 9210 LX)
 
 GpioNS9XXXPin::GpioNS9XXXPin(const char* aGpioName, bool aOutput, bool aInitialState) :
   gpioFD(-1),

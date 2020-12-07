@@ -28,31 +28,32 @@
 
 using namespace p44;
 
-// MARK: ===== error base class
+// MARK: - error base class
 
-Error::Error(ErrorCode aErrorCode)
+Error::Error(ErrorCode aErrorCode) :
+  errorCode(aErrorCode)
 {
-  errorCode = aErrorCode;
-  errorMessage.clear();
 }
 
 
-Error::Error(ErrorCode aErrorCode, const std::string &aErrorMessage)
+Error::Error(ErrorCode aErrorCode, const std::string &aErrorMessage) :
+  errorCode(aErrorCode),
+  errorMessage(aErrorMessage)
 {
-  errorCode = aErrorCode;
-  errorMessage = aErrorMessage;
 }
 
 
-void Error::setFormattedMessage(const char *aFmt, va_list aArgs)
+void Error::setFormattedMessage(const char *aFmt, va_list aArgs, bool aAppend)
 {
   // now make the string
-  string_format_v(errorMessage, true, aFmt, aArgs);
+  textCache.clear();
+  string_format_v(errorMessage, aAppend, aFmt, aArgs);
 }
 
 
 void Error::prefixMessage(const char *aFmt, ...)
 {
+  textCache.clear();
   string s;
   va_list args;
   va_start(args, aFmt);
@@ -64,6 +65,7 @@ void Error::prefixMessage(const char *aFmt, ...)
 
 ErrorPtr Error::withPrefix(const char *aFmt, ...)
 {
+  textCache.clear();
   string s;
   va_list args;
   va_start(args, aFmt);
@@ -71,15 +73,6 @@ ErrorPtr Error::withPrefix(const char *aFmt, ...)
   va_end(args);
   errorMessage.insert(0, s);
   return ErrorPtr(this);
-}
-
-
-
-
-
-ErrorCode Error::getErrorCode() const
-{
-  return errorCode;
 }
 
 
@@ -101,7 +94,6 @@ const char *Error::getErrorMessage() const
 }
 
 
-
 string Error::description() const
 {
   string errorText;
@@ -110,17 +102,40 @@ string Error::description() const
   else
     errorText = "Error";
   // Append domain and code to message text
+  #if ENABLE_NAMED_ERRORS
+  string_format_append(errorText, " (%s", getErrorDomain());
+  const char *errName = errorName();
+  if (!errName) errName = getErrorCode()==0 ? "OK" : "NotOK";
+  // Note: errorName() returning empty string means error has no error codes to show, only domain
+  if (*errName) {
+    errorText += "::";
+    errorText += errName;
+    if (getErrorCode()!=0) {
+      string_format_append(errorText, "[%ld]", getErrorCode());
+    }
+  }
+  errorText += ')';
+  #else
   string_format_append(errorText, " (%s:%ld)", getErrorDomain() , errorCode);
+  #endif
   return errorText;
 }
 
 
-string Error::text(ErrorPtr aError)
+const char* Error::text()
 {
-  if (!aError) return "<none>";
-  return aError->description();
+  if (textCache.empty()) {
+    textCache = description();
+  }
+  return textCache.c_str(); // is safe to return, as textCache lives as error object member
 }
 
+
+const char* Error::text(ErrorPtr aError)
+{
+  if (!aError) return "<none>";
+  return aError->text();
+}
 
 
 bool Error::isError(const char *aDomain, ErrorCode aErrorCode) const
@@ -129,19 +144,10 @@ bool Error::isError(const char *aDomain, ErrorCode aErrorCode) const
 }
 
 
-
 bool Error::isDomain(const char *aDomain) const
 {
   return strcmp(aDomain, getErrorDomain())==0;
 }
-
-
-
-bool Error::isOK(ErrorPtr aError)
-{
-  return (aError==NULL || aError->getErrorCode()==0);
-}
-
 
 
 bool Error::isError(ErrorPtr aError, const char *aDomain, ErrorCode aErrorCode)
@@ -158,7 +164,7 @@ ErrorPtr Error::ok(ErrorPtr aError)
 }
 
 
-// MARK: ===== system error
+// MARK: - system error
 
 
 const char *SysError::domain()
@@ -206,7 +212,7 @@ ErrorPtr SysError::err(int aErrNo, const char *aContextMessage)
 }
 
 
-// MARK: ===== web error
+// MARK: - web error
 
 
 ErrorPtr WebError::webErr(uint16_t aHTTPError, const char *aFmt, ... )
@@ -216,13 +222,13 @@ ErrorPtr WebError::webErr(uint16_t aHTTPError, const char *aFmt, ... )
   Error *errP = new WebError(aHTTPError);
   va_list args;
   va_start(args, aFmt);
-  errP->setFormattedMessage(aFmt, args);
+  errP->setFormattedMessage(aFmt, args, false);
   va_end(args);
   return ErrorPtr(errP);
 }
 
 
-// MARK: ===== text error
+// MARK: - text error
 
 
 ErrorPtr TextError::err(const char *aFmt, ...)
@@ -230,7 +236,7 @@ ErrorPtr TextError::err(const char *aFmt, ...)
   Error *errP = new TextError();
   va_list args;
   va_start(args, aFmt);
-  errP->setFormattedMessage(aFmt, args);
+  errP->setFormattedMessage(aFmt, args, false);
   va_end(args);
   return ErrorPtr(errP);
 }

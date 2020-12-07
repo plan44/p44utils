@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2014-2019 plan44.ch / Lukas Zeller, Zurich, Switzerland
+//  Copyright (c) 2014-2020 plan44.ch / Lukas Zeller, Zurich, Switzerland
 //
 //  Author: Lukas Zeller <luz@plan44.ch>
 //
@@ -22,9 +22,7 @@
 #ifndef __p44utils__common__
 #define __p44utils__common__
 
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-#endif
+#include "p44utils_minimal.hpp"
 
 #include <list>
 #include <vector>
@@ -49,19 +47,11 @@
   #define __printflike_template(...) __printflike(__VA_ARGS__)
 #endif
 
-#if __cplusplus >= 201103L
-  // we have C++ 11
-  #define P44_FINAL final
-  #define P44_OVERRIDE override
-#else
-  #define P44_FINAL
-  #define P44_OVERRIDE
-#endif
-
 #include "p44obj.hpp"
 #include "logger.hpp"
 #include "utils.hpp"
 #include "error.hpp"
+#include "extutils.hpp"
 #include "mainloop.hpp"
 
 // build platform dependencies
@@ -69,6 +59,12 @@
   #define DISABLE_I2C 1 // no user space I2C support
   #define DISABLE_SPI 1 // no user space SPI support
 #endif
-
+#if P44_BUILD_WIN
+  #define DISABLE_I2C 1
+  #define DISABLE_SPI 1
+  #define DISABLE_GPIO 1
+  #define DISABLE_PWM 1
+  #define DISABLE_SYSCMDIO 1
+#endif
 
 #endif /* __p44utils__common__ */

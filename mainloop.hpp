@@ -22,6 +22,23 @@
 #ifndef __p44utils__mainloop__
 #define __p44utils__mainloop__
 
+/* MARK: - C and C++ interfaces */
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+long long _p44_now();
+unsigned long _p44_millis();
+
+#ifdef __cplusplus
+};
+#endif
+
+#ifdef __cplusplus
+
+// MARK: - C++ only interface
+
 #include "p44utils_common.hpp"
 
 #ifdef ESP_PLATFORM
@@ -167,7 +184,8 @@ namespace p44 {
     MLTicketNo operator= (MLTicketNo aTicketNo);
 
     // cancel current ticket
-    void cancel();
+    // @return true if actually cancelled a scheduled timer
+    bool cancel();
 
     /// reschedule existing execution request
     /// @param aDelay delay from now when to reschedule execution (approximately)
@@ -196,6 +214,13 @@ namespace p44 {
     void executeOnce(TimerCB aTimerCallback, MLMicroSeconds aDelay = 0, MLMicroSeconds aTolerance = 0);
 
   };
+
+  class TicketObj : public P44Obj
+  {
+  public:
+    MLTicket ticket;
+  };
+  typedef boost::intrusive_ptr<TicketObj> TicketObjPtr;
 
 
   /// A main loop for a thread
@@ -266,6 +291,10 @@ namespace p44 {
     /// @return the mainloop for this thread
     static MainLoop &currentMainLoop();
 
+
+    /// @name time related static utility functions
+    /// @{
+
     /// returns the current microsecond in "Mainloop" time (monotonic as long as app runs, but not necessarily anchored with real time)
     /// @return mainloop time in microseconds
     static MLMicroSeconds now();
@@ -273,6 +302,13 @@ namespace p44 {
     /// returns the Unix epoch time in mainloop time scaling (microseconds)
     /// @return unix epoch time, in microseconds
     static MLMicroSeconds unixtime();
+
+    /// get now as localtime (struct tm)
+    /// @param aLocalTime time components will be updated to represent aUnixTime in localtime
+    /// @param aFractionalSecondsP if not NULL, the fractional seconds part will be returned [0..1[
+    /// @param aUnixTime optional unix time to calculate local time from. Defaults to current unixtime()
+    /// @param aGMT if set, conversion to localtime happens in GMT(UTC)
+    static void getLocalTime(struct tm& aLocalTime, double* aFractionalSecondsP = NULL, MLMicroSeconds aUnixTime = unixtime(), bool aGMT = false);
 
     /// convert a mainloop timestamp to unix epoch time
     /// @param aMLTime a mainloop timestamp in MLMicroSeconds
@@ -284,8 +320,40 @@ namespace p44 {
     /// @return mainloop timestamp in MLMicroSeconds
     static MLMicroSeconds unixTimeToMainLoopTime(const MLMicroSeconds aUnixTime);
 
+    /// convert mainloop time into localtime (struct tm)
+    /// @param aMLTime a mainloop timestamp in MLMicroSeconds
+    /// @param aLocalTime time components will be updated to represent aMLTime in localtime
+    /// @param aFractionalSecondsP if not NULL, the fractional seconds part will be returned [0..1[
+    static void mainLoopTimeTolocalTime(MLMicroSeconds aMLTime, struct tm& aLocalTime, double* aFractionalSecondsP = NULL);
+
+    /// convert a struct tm to mainloop timestamp
+    /// @param aLocalTime local time compontents in a struct tm
+    /// @return mainloop time in MLMicroSeconds
+    static MLMicroSeconds localTimeToMainLoopTime(const struct tm& aLocalTime);
+
+    /// convert a struct timeval to mainloop timestamp
+    /// @param aTimeValP pointer to a struct timeval
+    /// @return mainloop time in MLMicroSeconds
+    static MLMicroSeconds timeValToMainLoopTime(struct timeval *aTimeValP);
+
+    /// strftime from mainloop time with output to std::string
+    /// @param aFormat strftime-style format string
+    /// @param aTime time in mainloop now() scale
+    /// @param aFractionals number of fractional second digits to append at end of string
+    /// @return formatted time string (in local time)
+    static string string_fmltime(const char *aFormat, MLMicroSeconds aTime, int aFractionals = 0);
+
+    /// format mainloop time as localtime in YYYY-MM-DD HH:MM:SS format with output to std::string
+    /// @param aTime time in mainloop now() scale
+    /// @param aFractionals number of fractional second digits to show
+    /// @return formatted time string (in local time)
+    static string string_mltime(MLMicroSeconds aTime, int aFractionals = 0);
+
+
     /// sleeps for given number of microseconds
     static void sleep(MLMicroSeconds aSleepTime);
+
+    /// @}
 
 
     /// @name register timed handlers (fired at specified time)
@@ -387,7 +455,7 @@ namespace p44 {
     /// @param aCallback the functor to be called when execution is done (failed to start or completed)
     /// @param aCommandLine the command line to execute
     /// @param aPipeBackStdOut if true, stdout of the child is collected via a pipe by the parent and passed back in aCallBack
-    /// @param aPipeBackFdP if not NULL, and aPipeBackStdOut is set, this will be set to the file descriptor of the pipe,
+    /// @param aStdOutFdP if not NULL, and aPipeBackStdOut is set, this will be set to the file descriptor of the pipe,
     ///   so caller can handle output data of the process. The caller is responsible for closing the fd.
     /// @return the child's PID (can be used to send signals to it), or -1 if fork fails
     pid_t fork_and_system(ExecCB aCallback, const char *aCommandLine, bool aPipeBackStdOut = false, int* aStdOutFdP = NULL);
@@ -584,5 +652,7 @@ namespace p44 {
 
 
 } // namespace p44
+
+#endif // C++ only interface
 
 #endif /* defined(__p44utils__mainloop__) */

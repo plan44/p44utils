@@ -61,7 +61,7 @@ namespace p44 {
 
   public:
 
-    JsonComm(MainLoop &aMainLoop);
+    JsonComm(MainLoop &aMainLoop = MainLoop::currentMainLoop());
     virtual ~JsonComm();
 
     /// install callback for received JSON messages

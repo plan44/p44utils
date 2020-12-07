@@ -36,11 +36,22 @@ namespace p44 {
       OK,
       InvalidAnswer,
       Timeout,
+      numErrorCodes
     } ErrorCodes;
     
     static const char *domain() { return "Ssdp"; }
-    virtual const char *getErrorDomain() const { return SsdpError::domain(); };
+    virtual const char *getErrorDomain() const P44_OVERRIDE { return SsdpError::domain(); };
     SsdpError(ErrorCodes aError) : Error(ErrorCode(aError)) {};
+    #if ENABLE_NAMED_ERRORS
+  protected:
+    virtual const char* errorName() const P44_OVERRIDE { return errNames[getErrorCode()]; };
+  private:
+    static constexpr const char* const errNames[numErrorCodes] = {
+      "OK",
+      "InvalidAnswer",
+      "Timeout",
+    };
+    #endif // ENABLE_NAMED_ERRORS
   };
 
 
@@ -72,7 +83,7 @@ namespace p44 {
     string server; ///< will be set to the SERVER header
     int maxAge; ///< will be set to the max-age value
 
-    SsdpSearch(MainLoop &aMainLoop);
+    SsdpSearch(MainLoop &aMainLoop = MainLoop::currentMainLoop());
     virtual ~SsdpSearch();
 
     /// start a SSDP search for a specific UUID or all root devices

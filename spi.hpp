@@ -64,6 +64,17 @@ namespace p44 {
     /// @param aDeviceOptions device options (in base class: SPI mode)
     SPIDevice(uint8_t aDeviceAddress, SPIBus *aBusP, const char *aDeviceOptions);
 
+    /// SPI raw transaction with read and write
+    /// @param aDeviceP device to access
+    /// @param aOutSz number of bytes to send
+    /// @param aOutP pointer to bytes to send
+    /// @param aInSz number of bytes to receive, can be 0
+    /// @param aInP pointer to bytes to receive, can be NULL
+    /// @param aFullDuplex send and receive simultaneously (otherwise: first send, then receive)
+    /// @return true if successful
+    bool SPIRawWriteRead(unsigned int aOutSz, uint8_t *aOutP, unsigned int aInSz, uint8_t *aInP, bool aFullDuplex = false);
+
+
   };
   typedef boost::intrusive_ptr<SPIDevice> SPIDevicePtr;
 
@@ -161,7 +172,7 @@ namespace p44 {
     /// @param aOutP pointer to bytes to send
     /// @param aInSz number of bytes to receive
     /// @param aInP pointer to bytes to receive
-    /// @param aFullDuplex send and receive simultaneously (otherwise: first sent, then received)
+    /// @param aFullDuplex send and receive simultaneously (otherwise: first send, then receive)
     /// @return true if successful
     bool SPIRawWriteRead(SPIDevice *aDeviceP, unsigned int aOutSz, uint8_t *aOutP, unsigned int aInSz, uint8_t *aInP, bool aFullDuplex = false);
 
@@ -200,7 +211,7 @@ namespace p44 {
   };
 
 
-  // MARK: ===== digital IO
+  // MARK: - digital IO
 
 
   class SPIBitPortDevice : public SPIDevice
@@ -269,32 +280,7 @@ namespace p44 {
 
 
 
-  /// wrapper class for digital I/O pin
-  class SPIPin : public IOPin
-  {
-    typedef IOPin inherited;
-
-    SPIBitPortDevicePtr bitPortDevice;
-    int pinNumber;
-    bool output;
-    bool lastSetState;
-
-  public:
-
-    /// create spi based digital input or output pin
-    SPIPin(int aBusNumber, const char *aDeviceId, int aPinNumber, bool aOutput, bool aInitialState, bool aPullUp);
-
-    /// get state of pin
-    /// @return current state (from actual GPIO pin for inputs, from last set state for outputs)
-    virtual bool getState() P44_OVERRIDE;
-
-    /// set state of pin (NOP for inputs)
-    /// @param aState new state to set output to
-    virtual void setState(bool aState) P44_OVERRIDE;
-  };  
-
-
-  // MARK: ===== analog IO
+  // MARK: - analog IO
 
 
   class SPIAnalogPortDevice : public SPIDevice
@@ -375,7 +361,36 @@ namespace p44 {
 
 
 
-  /// wrapper class for analog I/O pin
+  // MARK: - Wrapper classes
+
+  /// wrapper class for a pin that is used as digital I/O (can also make use of analog I/O pins for that)
+  class SPIPin : public IOPin
+  {
+    typedef IOPin inherited;
+
+    SPIBitPortDevicePtr bitPortDevice;
+    SPIAnalogPortDevicePtr analogPortDevice;
+    int pinNumber;
+    bool output;
+    bool lastSetState;
+
+  public:
+
+    /// create spi based digital input or output pin
+    SPIPin(int aBusNumber, const char *aDeviceId, int aPinNumber, bool aOutput, bool aInitialState, bool aPullUp);
+
+    /// get state of pin
+    /// @return current state (from actual GPIO pin for inputs, from last set state for outputs)
+    virtual bool getState() P44_OVERRIDE;
+
+    /// set state of pin (NOP for inputs)
+    /// @param aState new state to set output to
+    virtual void setState(bool aState) P44_OVERRIDE;
+  };
+
+
+
+  /// wrapper class for analog I/O pin actually used as analog I/O
   class AnalogSPIPin : public AnalogIOPin
   {
     typedef AnalogIOPin inherited;

@@ -31,7 +31,7 @@
 #include <sys/ioctl.h>
 
 #ifndef ESP_PLATFORM
-#include <sys/poll.h>
+#include <poll.h>
 #endif
 
 using namespace p44;
@@ -262,8 +262,8 @@ bool FdComm::transmitString(const string &aString)
 {
   ErrorPtr err;
   size_t res = transmitBytes(aString.length(), (uint8_t *)aString.c_str(), err);
-  if (!Error::isOK(err)) {
-    FOCUSLOG("FdComm: Error sending data: %s", err->description().c_str());
+  if (Error::notOK(err)) {
+    FOCUSLOG("FdComm: Error sending data: %s", err->text());
   }
   return Error::isOK(err) && res==aString.length(); // ok if no error and all bytes sent
 }
@@ -339,7 +339,7 @@ void FdComm::makeNonBlocking(int aFd)
 }
 
 
-// MARK: ===== FdStringCollector
+// MARK: - FdStringCollector
 
 
 FdStringCollector::FdStringCollector(MainLoop &aMainLoop) :

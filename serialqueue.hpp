@@ -185,6 +185,10 @@ namespace p44 {
   /// SerialOperation receiver
   typedef boost::function<size_t (size_t aMaxBytes, uint8_t *aBytes)> SerialOperationReceiver;
 
+  /// SerialOperation extra bytes handler
+  typedef boost::function<ssize_t (size_t aNumBytes, const uint8_t *aBytes)> SerialOperationExtraBytesHandler;
+
+
   /// Serial operation queue
   class SerialOperationQueue : public OperationQueue
   {
@@ -192,6 +196,7 @@ namespace p44 {
 
     SerialOperationTransmitter transmitter;
     SerialOperationReceiver receiver;
+    SerialOperationExtraBytesHandler extraBytesHandler;
 
     size_t acceptBufferSize;
     size_t bufferedBytes;
@@ -203,22 +208,24 @@ namespace p44 {
     SerialCommPtr serialComm;
 
     /// create operation queue linked into specified Synchronous IO mainloop
-    SerialOperationQueue(MainLoop &aMainLoop);
+    SerialOperationQueue(MainLoop &aMainLoop = MainLoop::currentMainLoop());
 
     /// destructor
     virtual ~SerialOperationQueue();
 
-    /// set transmitter to be used for all operations
+    /// set transmitter to be used for all operations (for sending data to hardware)
     void setTransmitter(SerialOperationTransmitter aTransmitter);
 
-    /// set receiver
+    /// set receiver (which actually gets data from hardware)
     void setReceiver(SerialOperationReceiver aReceiver);
+
+    /// set extra byte handler (which gets "transmitted" extra bytes received from hardware and not accepted by queued operations)
+    void setExtraBytesHandler(SerialOperationExtraBytesHandler aExtraBytesHandler);
 
     /// set an accept buffer
     /// @param aBufferSize size of buffer that will hold received bytes until they can be processed.
     ///   setting a buffer size allows operations and acceptExtraBytes() to not accept bytes when there are to few bytes ready
     void setAcceptBuffer(size_t aBufferSize);
-
 
     /// queue a new operation
     /// @param aOperation the serial IO operation to queue
@@ -230,8 +237,15 @@ namespace p44 {
     /// @return number of extra bytes that could be accepted, 0 if none, NOT_ENOUGH_BYTES if extra bytes would be accepted,
     ///   but not enough of them are ready. Note that NOT_ENOUGH_BYTES may only be used when the SerialQueue has a
     ///   buffer for re-assembling messages (see setAcceptBuffer())
-    virtual ssize_t acceptExtraBytes(size_t aNumBytes, uint8_t *aBytes) { return 0; /* base class does not accept extra bytes */ };
+    /// @note if setExtraBytesHandler() has set a handler, this is called here. Otherwise, the baseclass' implementation
+    ///   always returns 0 (does not accept any extra bytes by default)
+    virtual ssize_t acceptExtraBytes(size_t aNumBytes, uint8_t *aBytes);
 
+    /// standard transmitter
+    size_t standardTransmitter(size_t aNumBytes, const uint8_t *aBytes);
+
+    /// standard receiver
+    size_t standardReceiver(size_t aMaxBytes, uint8_t *aBytes);
 
   private:
     /// base class implementation: deliver bytes to the most recent waiting operation,
@@ -240,14 +254,6 @@ namespace p44 {
 
     /// FdComm handler
     void receiveHandler(ErrorPtr aError);
-
-  protected:
-  
-    /// standard transmitter
-    size_t standardTransmitter(size_t aNumBytes, const uint8_t *aBytes);
-
-    /// standard receiver
-    size_t standardReceiver(size_t aMaxBytes, uint8_t *aBytes);
 
   };
 

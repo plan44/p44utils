@@ -39,6 +39,14 @@
 #include <netdb.h>
 #include <netinet/in.h>
 
+#if ENABLE_P44SCRIPT && !defined(ENABLE_SOCKET_SCRIPT_FUNCS)
+  #define ENABLE_SOCKET_SCRIPT_FUNCS 1
+#endif
+
+#if ENABLE_SOCKET_SCRIPT_FUNCS
+#include "p44script.hpp"
+#endif
+
 
 using namespace std;
 
@@ -57,11 +65,27 @@ namespace p44 {
       HungUp, ///< other side closed connection (hung up, HUP)
       Closed, ///< closed from my side
       FDErr, ///< error on file descriptor
+      numErrorCodes
     } ErrorCodes;
     
     static const char *domain() { return "SocketComm"; }
-    virtual const char *getErrorDomain() const { return SocketCommError::domain(); };
+    virtual const char *getErrorDomain() const P44_OVERRIDE { return SocketCommError::domain(); };
     SocketCommError(ErrorCodes aError) : Error(ErrorCode(aError)) {};
+    #if ENABLE_NAMED_ERRORS
+  protected:
+    virtual const char* errorName() const P44_OVERRIDE { return errNames[getErrorCode()]; };
+  private:
+    static constexpr const char* const errNames[numErrorCodes] = {
+      "OK",
+      "NoParams",
+      "Unsupported",
+      "CannotResolve",
+      "NoConnection",
+      "HungUp",
+      "Closed",
+      "FDErr",
+    };
+    #endif // ENABLE_NAMED_ERRORS
   };
 
 
@@ -89,9 +113,10 @@ namespace p44 {
     int socketType;
     int protocol;
     string interface;
-    bool nonLocal;
-    bool connectionLess;
-    bool broadcast;
+    bool serving; ///< is serving socket (TCP) or receiving socket (UDP)
+    bool nonLocal; ///< if set, server sockets (TCP) and receiving sockets (UDP) are bound to external interfaces, otherwise to local loopback only
+    bool connectionLess; ///< if set, this is a socket w/o connections (datagram, UDP)
+    bool broadcast; ///< if set and this is a connectionless socket (UDP), it will also receive broadcasts, not only unicasts
     // connection making fd (for server to listen, for clients or server handlers for opening connection)
     int connectionFd;
     // client connection internals
@@ -104,7 +129,6 @@ namespace p44 {
     bool isConnecting; ///< in progress of opening connection
     bool isClosing; ///< in progress of closing connection
     bool connectionOpen; ///< regular data connection is open
-    bool serving; ///< is serving socket
     bool clearHandlersAtClose; ///< when socket closes, all handlers are cleared (to break retain cycles)
     SocketCommCB connectionStatusHandler;
     // server connection internals
@@ -114,7 +138,7 @@ namespace p44 {
     SocketCommPtr serverConnection;
   public:
 
-    SocketComm(MainLoop &aMainLoop);
+    SocketComm(MainLoop &aMainLoop = MainLoop::currentMainLoop());
     virtual ~SocketComm();
 
     /// Set parameters for connection (client and server)
@@ -124,11 +148,21 @@ namespace p44 {
     /// @param aProtocolFamily defaults to PF_UNSPEC, means that address family is derived from host name and/or service name (starting with slash means PF_LOCAL)
     /// @param aProtocol defaults to 0
     /// @param aInterface specific network interface to be used, defaults to NULL
+    /// @note must be called before initiateConnection() or startServer()
     void setConnectionParams(const char* aHostNameOrAddress, const char* aServiceOrPortOrSocket, int aSocketType = SOCK_STREAM, int aProtocolFamily = PF_UNSPEC, int aProtocol = 0, const char* aInterface = NULL);
 
-    /// Enable/disable socket for broadcast (SO_BROADCAST)
-    /// @param aEnable if true, socket will be configured to be ready for broadcast
-    void enableBroadcast(bool aEnable) { broadcast = aEnable; }
+    /// Set if server may accept non-local connections
+    /// @param aAllow if set, server accepts non-local connections
+    /// @note must be called before initiateConnection() or startServer()
+    void setAllowNonlocalConnections(bool aAllow) { nonLocal = aAllow; };
+
+    /// Set datagram (UDP) socket options
+    /// @param aReceive set to enable receiving (using protocol family as set in setConnectionParams()).
+    ///   If setAllowNonlocalConnections(true) was used, the socket will be bound to INADDR_ANY/in6addr_any,
+    ///   otherwise to the local loopback only
+    /// @param aBroadcast if true, socket will be configured to allow broadcast (sending and receiving)
+    /// @note must be called before initiateConnection()
+    void setDatagramOptions(bool aReceive, bool aBroadcast) { serving = aReceive; broadcast = aBroadcast; }
 
     /// get host name we are connected to (useful for server to query connecting client's address)
     /// @return name or IP address of host (for server: actually connected, for client: as set with setConnectionParams())
@@ -144,10 +178,6 @@ namespace p44 {
     /// @return true if origin information is available
     /// @note only works for SOCK_DGRAM type connections, and is valid only after a successful receiveBytes() operation
     bool getDatagramOrigin(string &aAddress, string &aPort);
-
-    /// Set if server may accept non-local connections
-    /// @param aAllow if set, server accepts non-local connections
-    void setAllowNonlocalConnections(bool aAllow) { nonLocal = aAllow; };
 
     /// start the server
     /// @param aServerConnectionHandler will be called when a server connection is accepted
@@ -232,7 +262,58 @@ namespace p44 {
     SocketCommPtr returnClientConnection(SocketCommPtr aClientConnection); // used to notify listening SocketComm when client connection ends
 
   };
+
+
+  #if ENABLE_SOCKET_SCRIPT_FUNCS && ENABLE_P44SCRIPT
+
+  namespace P44Script {
+
+    class SocketObj;
   
+    /// represents a message from a socket
+    class SocketMessageObj : public StringValue
+    {
+      typedef StringValue inherited;
+      SocketObj* mSocketObj;
+    public:
+      SocketMessageObj(SocketObj* aSocketObj);
+      virtual string getAnnotation() const P44_OVERRIDE;
+      virtual TypeInfo getTypeInfo() const P44_OVERRIDE;
+      virtual EventSource *eventSource() const P44_OVERRIDE;
+      virtual string stringValue() const P44_OVERRIDE;
+    };
+
+
+    /// represents a socket
+    /// Note: is an event source, but does not expose it directly, only via SocketMessageObjs
+    class SocketObj : public P44Script::StructuredLookupObject, public P44Script::EventSource
+    {
+      typedef P44Script::StructuredLookupObject inherited;
+      SocketCommPtr mSocket;
+    public:
+      string lastDatagram;
+      SocketObj(SocketCommPtr aSocket);
+      virtual ~SocketObj();
+      virtual string getAnnotation() const P44_OVERRIDE { return "socket"; };
+      SocketCommPtr socket() { return mSocket; }
+    private:
+      void gotData(ErrorPtr aError);
+    };
+
+
+    /// represents the global objects related to http
+    class SocketLookup : public BuiltInMemberLookup
+    {
+      typedef BuiltInMemberLookup inherited;
+    public:
+      SocketLookup();
+    };
+
+  }
+
+  #endif // ENABLE_SOCKET_SCRIPT_FUNCS && ENABLE_P44SCRIPT
+
+
 } // namespace p44
 
 

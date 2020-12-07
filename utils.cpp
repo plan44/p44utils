@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2013-2019 plan44.ch / Lukas Zeller, Zurich, Switzerland
+//  Copyright (c) 2013-2020 plan44.ch / Lukas Zeller, Zurich, Switzerland
 //
 //  Author: Lukas Zeller <luz@plan44.ch>
 //
@@ -86,14 +86,21 @@ void p44::string_format_append(std::string &aStringToAppendTo, const char *aForm
 
 
 
+
+void p44::pathstring_make_dir(std::string &aPathToMakeDir)
+{
+  if (!aPathToMakeDir.empty() && aPathToMakeDir[aPathToMakeDir.length()-1]!='/') {
+    aPathToMakeDir.append("/");
+  }
+}
+
+
 void p44::pathstring_format_append(std::string &aPathToAppendTo, const char *aFormat, ...)
 {
   va_list args;
 
   va_start(args, aFormat);
-  if (!aPathToAppendTo.empty() && aPathToAppendTo[aPathToAppendTo.length()-1]!='/') {
-    aPathToAppendTo.append("/");
-  }
+  pathstring_make_dir(aPathToAppendTo);
   // now append the path element string
   string_format_v(aPathToAppendTo, true, aFormat, args);
   va_end(args);
@@ -190,7 +197,6 @@ bool p44::string_fgetfile(FILE *aFile, string &aData)
 }
 
 
-
 const char *p44::nonNullCStr(const char *aNULLOrCStr)
 {
 	if (aNULLOrCStr==NULL) return "";
@@ -198,11 +204,51 @@ const char *p44::nonNullCStr(const char *aNULLOrCStr)
 }
 
 
-string p44::lowerCase(const char *aString)
+int p44::strucmp(const char *s1, const char *s2, size_t len1, size_t len2)
+{
+  // allow NULL as empty strings
+  if (!s1) s1 = "";
+  if (!s2) s2 = "";
+  // s1>s2 : 1, s1==s2 : 0, s1<s2 : -1
+  size_t i;
+  // calc number of chars we must compare
+  size_t len = len1==0 ? len2 : (len2==0 ? len1 : (len1>len2 ? len2 : len1));
+  for (i=0; (!len || i<len) && *s1 && *s2; i++) {
+    // while both strings have chars and not len reached
+    if (toupper(*s1)!=toupper(*s2))
+      return toupper(*s1)>toupper(*s2) ? 1 : -1; // different
+    // next
+    s1++;
+    s2++;
+  }
+  // equal up to end of shorter string or reached len
+  // - if both reached end or len -> equal
+  if ( ((len1 ? i==len1 : false) || *s1==0) && ((len2 ? i==len2 : false) || *s2==0) ) return 0;
+  // - not equal, longer string is larger
+  //   (if not reached end of s1 or stopped before len1, s1 is longer
+  //    but note than len1 can be longer than actual length of s1, so we
+  //    must check for *s1 to make sure we have really not reached end of s1)
+  return (len1 ? i<len1 && *s1 : *s1) ? 1 : -1;
+} // strucmp
+
+
+bool p44::uequals(const string& aString, const char *aCmp)
+{
+  return strucmp(aString.c_str(), aCmp, aString.size())==0;
+}
+
+bool p44::uequals(const string& aString, const string& aCmp)
+{
+  return strucmp(aString.c_str(), aCmp.c_str(), aString.size(), aCmp.size())==0;
+}
+
+
+string p44::lowerCase(const char *aString, size_t aMaxSize)
 {
   string s;
   while (char c=*aString++) {
     s += tolower(c);
+    if (aMaxSize>0 && --aMaxSize==0) break;
   }
   return s;
 }
@@ -227,6 +273,35 @@ string p44::trimWhiteSpace(const string &aString, bool aLeading, bool aTrailing)
   }
   return aString.substr(s,e-s);
 }
+
+
+string p44::singleLine(const char *aString, bool aCompactWSRuns, size_t aEllipsisAtMax)
+{
+  string s;
+  if (aString) {
+    bool wsrun = false;
+    while (char c=*aString++) {
+      if (c==' ' || c=='\n' || c=='\r' || c=='\t') {
+        // whitespace
+        if (wsrun && aCompactWSRuns) continue;
+        s += ' ';
+        wsrun = true;
+      }
+      else {
+        wsrun = false;
+        s += c;
+      }
+      if (aEllipsisAtMax!=0) {
+        if (--aEllipsisAtMax<=3) {
+          s += "...";
+          break;
+        }
+      }
+    }
+  }
+  return s;
+}
+
 
 
 string p44::shellQuote(const char *aString)
@@ -603,3 +678,22 @@ uint32_t p44::stringToIpv4(const char *aIPv4String)
   }
   return 0; // failed
 }
+
+
+double p44::cyclic(double aValue, double aMin, double aMax)
+{
+  aValue = aValue-aMin; // make null based
+  double r = aMax-aMin; // wrap range
+  if (aValue>=r) aValue -= int(aValue/r)*r;
+  else if (aValue<0) aValue += (int(-aValue/r)+1)*r;
+  return aValue+aMin;
+}
+
+
+double p44::limited(double aValue, double aMin, double aMax)
+{
+  if (aValue<aMin) aValue = aMin;
+  else if (aValue>aMax) aValue = aMax;
+  return aValue;
+}
+

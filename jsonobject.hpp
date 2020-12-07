@@ -74,6 +74,12 @@ namespace p44 {
     /// destructor, releases internally kept json_object (which is possibly owned by other objects)
     virtual ~JsonObject();
 
+    /// copy constructor
+    JsonObject(const JsonObject& aObj);
+
+    /// assignment operator
+    JsonObject& operator=(const JsonObject& aObj);
+
     /// factory to return smart pointer to new wrapper of a newly created json_object
     /// @param aObjPassingOwnership json_object, ownership is passed into this JsonObject, caller looses ownership!
     static JsonObjectPtr newObj(struct json_object *aObjPassingOwnership);
@@ -91,6 +97,10 @@ namespace p44 {
     const char *json_c_str(int aFlags=0);
     string json_str(int aFlags=0);
 
+    /// Note: should only be used to pass object to other json-c native APIs
+    /// Note: Ownership of the jsonobject remains with this JsonObject
+    /// @return pointer the embedded json-c object structure
+    const struct json_object *jsoncObj() const { return json_obj; }
 
     /// add object for key
     void add(const char* aKey, JsonObjectPtr aObj);
@@ -161,10 +171,10 @@ namespace p44 {
 
 
     /// create new object from text
-    static JsonObjectPtr objFromText(const char *aJsonText, ssize_t aMaxChars = -1, ErrorPtr *aErrorP = NULL);
+    static JsonObjectPtr objFromText(const char *aJsonText, ssize_t aMaxChars = -1, ErrorPtr *aErrorP = NULL, bool aAllowCComments = false, ssize_t* aParsedCharsP = NULL);
 
     /// create new object from text file
-    static JsonObjectPtr objFromFile(const char *aJsonFilePath, ErrorPtr *aErrorP = NULL);
+    static JsonObjectPtr objFromFile(const char *aJsonFilePath, ErrorPtr *aErrorP = NULL, bool aAllowCComments = false);
 
     /// save object to text file
     ErrorPtr saveToFile(const char *aJsonFilePath);

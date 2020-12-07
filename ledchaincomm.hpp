@@ -23,6 +23,11 @@
 #define __p44utils__ledchaincomm__
 
 #include "p44utils_common.hpp"
+#include "colorutils.hpp"
+
+#if ENABLE_P44LRGRAPHICS
+#include "p44view.hpp"
+#endif
 
 #include <stdint.h>
 #include <stdio.h>
@@ -57,17 +62,8 @@ using namespace std;
 
 namespace p44 {
 
-
-  /// convert PWM value to brightness
-  /// @param aPWM PWM (energy) value 0..255
-  /// @return brightness 0..255
-  uint8_t pwmToBrightness(uint8_t aPWM);
-
-  /// convert brightness value to PWM
-  /// @param aBrightness brightness 0..255
-  /// @return PWM (energy) value 0..255
-  uint8_t brightnessToPwm(uint8_t aBrightness);
-
+  class LEDChainComm;
+  typedef boost::intrusive_ptr<LEDChainComm> LEDChainCommPtr;
 
   class LEDChainComm : public P44Obj
   {
@@ -85,6 +81,9 @@ namespace p44 {
 
     LedType ledType; // type of LED in the chain
     string deviceName; // the LED device name
+    uint16_t inactiveStartLeds; // number of inactive LEDs at the start of the chain
+    uint16_t inactiveBetweenLeds; // number of inactive LEDs between physical rows
+    uint16_t inactiveEndLeds; // number of inactive LEDs at the end of the chain (we have buffer for them, but do not set colors for them)
     uint16_t numLeds; // number of LEDs
     uint16_t ledsPerRow; // number of LEDs per row (physically, along WS2812 chain)
     uint16_t numRows; // number of rows (sections of WS2812 chain)
@@ -95,6 +94,8 @@ namespace p44 {
 
     bool initialized;
     uint8_t numColorComponents; // depends on ledType
+
+    LEDChainCommPtr chainDriver; // the LED chain used for outputting LED values. Usually: myself, but if this instance just maps a second part of another chain, this will point to the other chain
 
     #ifdef ESP_PLATFORM
     int gpioNo; // the GPIO to be used
@@ -113,17 +114,45 @@ namespace p44 {
     /// - ledchain device: full path like /dev/ledchain1
     /// - ESP32: name must be "gpioX" with X being the output pin to be used
     /// - RPi library (ENABLE_RPIWS281X): unused
-    /// @param aNumLeds number of LEDs in the chain
-    /// @param aLedsPerRow number of consecutive LEDs in the WS2812 chain that build a row
+    /// @param aNumLeds number of LEDs in the chain (physically)
+    /// @param aLedsPerRow number of consecutive LEDs in the WS2812 chain that build a row (active LEDs, not counting ainactiveBetweenLeds)
     ///   (usually x direction, y if swapXY was set). Set to 0 for single line of LEDs
     /// @param aXReversed X direction is reversed
     /// @param aAlternating X direction is reversed in first row, normal in second, reversed in third etc..
     /// @param aSwapXY X and Y reversed (for up/down wiring)
     /// @param aYReversed Y direction is reversed
-    LEDChainComm(LedType aLedType, const string aDeviceName, uint16_t aNumLeds, uint16_t aLedsPerRow=0, bool aXReversed=false, bool aAlternating=false, bool aSwapXY=false, bool aYReversed=false);
+    /// @param aInactiveStartLeds number of extra LEDs at the beginning of the chain that are not active
+    /// @param aInactiveBetweenLeds number of extra LEDs between rows that are not active
+    /// @param aInactiveEndLeds number of LEDs at the end of the chain that are not mapped by this instance (but might be in use by other instances which use this one with setChainDriver())
+    LEDChainComm(
+      LedType aLedType,
+      const string aDeviceName,
+      uint16_t aNumLeds,
+      uint16_t aLedsPerRow=0,
+      bool aXReversed=false,
+      bool aAlternating=false,
+      bool aSwapXY=false,
+      bool aYReversed=false,
+      uint16_t aInactiveStartLeds=0,
+      uint16_t aInactiveBetweenLeds=0,
+      uint16_t aInactiveEndLeds=0
+    );
 
     /// destructor
     ~LEDChainComm();
+
+    /// @return device (driver) name of this chain. Must be unqiuely identify the actual hardware output channel
+    const string &getDeviceName() { return deviceName; };
+
+    /// set this LedChainComm to use another chain's actual output driver, i.e. only act as mapping
+    /// layer. This allows to have multiple different mappings on the same chain (i.e. part of the chain wound as tube,
+    /// extending into a linear chain etc.)
+    /// @param aLedChainComm a LedChainComm to be used to output LED values
+    /// @note must be called before begin()
+    void setChainDriver(LEDChainCommPtr aLedChainComm);
+
+    /// @return true if this LedChainComm acts as a hardware driver (and not as a secondary)
+    bool isHardwareDriver() { return chainDriver==NULL; };
 
     /// begin using the driver
     bool begin();
@@ -134,6 +163,7 @@ namespace p44 {
     /// transfer RGB values to LED chain
     /// @note this must be called to update the actual LEDs after modifying RGB values
     /// with setColor() and/or setColorDimmed()
+    /// @note if this is a secondary mapping, show() does nothing - only the driving chain can transfer value to the hardware
     void show();
 
     /// clear all LEDs to off (but must call show() to actually show it
@@ -143,11 +173,15 @@ namespace p44 {
     /// @return minimum r,g,b value
     uint8_t getMinVisibleColorIntensity();
 
+    /// @return true if chains has a separate (fourth) white channel
+    bool hasWhite() { return numColorComponents>=4; }
+
     /// set color of one LED
     /// @param aRed intensity of red component, 0..255
     /// @param aGreen intensity of green component, 0..255
     /// @param aBlue intensity of blue component, 0..255
     /// @param aWhite intensity of separate white component for RGBW LEDs, 0..255
+    /// @note aLedNumber is the logical LED number, and aX/aY are logical coordinates, excluding any inactive LEDs
     void setColorXY(uint16_t aX, uint16_t aY, uint8_t aRed, uint8_t aGreen, uint8_t aBlue, uint8_t aWhite=0);
     void setColor(uint16_t aLedNumber, uint8_t aRed, uint8_t aGreen, uint8_t aBlue, uint8_t aWhite=0);
 
@@ -157,6 +191,7 @@ namespace p44 {
     /// @param aBlue intensity of blue component, 0..255
     /// @param aWhite intensity of separate white component for RGBW LEDs, 0..255
     /// @param aBrightness overall brightness, 0..255
+    /// @note aLedNumber is the logical LED number, and aX/aY are logical coordinates, excluding any inactive LEDs
     void setColorDimmedXY(uint16_t aX, uint16_t aY, uint8_t aRed, uint8_t aGreen, uint8_t aBlue, uint8_t aWhite, uint8_t aBrightness);
     void setColorDimmed(uint16_t aLedNumber, uint8_t aRed, uint8_t aGreen, uint8_t aBlue, uint8_t aWhite, uint8_t aBrightness);
 
@@ -166,10 +201,11 @@ namespace p44 {
     /// @param aBlue set to intensity of blue component, 0..255
     /// @note for LEDs set with setColorDimmed(), this returns the scaled down RGB values,
     ///   not the original r,g,b parameters. Note also that internal brightness resolution is 5 bits only.
+    /// @note aLedNumber is the logical LED number, and aX/aY are logical coordinates, excluding any inactive LEDs
     void getColorXY(uint16_t aX, uint16_t aY, uint8_t &aRed, uint8_t &aGreen, uint8_t &aBlue, uint8_t &aWhite);
     void getColor(uint16_t aLedNumber, uint8_t &aRed, uint8_t &aGreen, uint8_t &aBlue, uint8_t &aWhite);
 
-    /// @return number of LEDs
+    /// @return number of active LEDs in the chain (that are active, i.e. minus inactiveStartLeds/inactiveBetweenLeds/inactiveEndLeds)
     uint16_t getNumLeds();
 
     /// @return size of array in X direction (x range is 0..getSizeX()-1)
@@ -182,8 +218,156 @@ namespace p44 {
 
     uint16_t ledIndexFromXY(uint16_t aX, uint16_t aY);
 
+    /// set color at raw LED index with no mapping calculations in between
+    void setColorAtLedIndex(uint16_t aLedIndex, uint8_t aRed, uint8_t aGreen, uint8_t aBlue, uint8_t aWhite);
+
+    /// set color from raw LED index with no mapping calculations in between
+    void getColorAtLedIndex(uint16_t aLedIndex, uint8_t &aRed, uint8_t &aGreen, uint8_t &aBlue, uint8_t &aWhite);
+
+
   };
-  typedef boost::intrusive_ptr<LEDChainComm> LEDChainCommPtr;
+
+
+  #if ENABLE_P44LRGRAPHICS
+
+  class LEDChainArrangement;
+  typedef boost::intrusive_ptr<LEDChainArrangement> LEDChainArrangementPtr;
+
+  class LEDChainArrangement : public P44Obj
+  {
+
+    class LEDChainFixture {
+    public:
+      LEDChainFixture(LEDChainCommPtr aLedChain, PixelRect aCovers, PixelPoint aOffset) : ledChain(aLedChain), covers(aCovers), offset(aOffset) {};
+      LEDChainCommPtr ledChain; ///< a LED chain
+      PixelRect covers; ///< the rectangle in the arrangement covered by this LED chain
+      PixelPoint offset; ///< offset within the LED chain where to start coverage
+    };
+
+    typedef vector<LEDChainFixture> LedChainVector;
+
+    LedChainVector ledChains;
+    P44ViewPtr rootView;
+    PixelRect covers;
+
+    MLMicroSeconds lastUpdate;
+    MLTicket autoStepTicket;
+    uint8_t maxOutValue;
+    uint32_t powerLimit; // max power (accumulated PWM values of all LEDs)
+    bool powerLimited; // set while power is limited
+
+  public:
+
+    /// minimum interval kept between updates to LED chain hardware
+    MLMicroSeconds minUpdateInterval;
+
+    /// maximum interval during which noisy view children are prevented from requesting rendering updates
+    /// after prioritized (localTimingPriority==true) parent view did
+    MLMicroSeconds maxPriorityInterval;
+
+    LEDChainArrangement();
+    virtual ~LEDChainArrangement();
+
+    /// clear all LEDs to off
+    void clear();
+
+    /// set the root view
+    /// @param  aRootView the view to ask for pixels in the arrangement
+    void setRootView(P44ViewPtr aRootView);
+
+    /// @return return current root view
+    P44ViewPtr getRootView() { return rootView; }
+
+    /// add a LED chain to the arrangement
+    /// @param aLedChain the LED chain
+    /// @param aCover the rectangle of pixels in the arrangement the led chain covers
+    /// @param aOffset an offset within the chain where coverage starts
+    void addLEDChain(LEDChainCommPtr aLedChain, PixelRect aCover, PixelPoint aOffset);
+
+    /// add a LED chain to the arrangement by specification
+    /// @param aChainSpec string describing the LED chain parameters and the coverage in the arrangement
+    /// @note config syntax is as follows:
+    ///   [chaintype:[leddevicename:]]numberOfLeds[:x:dx:y:dy:firstoffset:betweenoffset][:XYSA]
+    ///   - chaintype can be SK6812, P9823 or WS281x
+    ///   - XYSA are optional flags for X,Y reversal, x<>y Swap, Alternating chain direction
+    void addLEDChain(const string &aChainSpec);
+
+    /// returns the enclosing rectangle over all LED chains
+    PixelRect totalCover() { return covers; }
+
+    /// get minimal color intensity that does not completely switch off the color channel of the LED
+    /// @return minimum r,g,b value
+    uint8_t getMinVisibleColorIntensity();
+
+    /// set max output value (0..255) to be sent to the LED chains
+    void setMaxOutValue(uint8_t aMaxOutValue) { maxOutValue = aMaxOutValue; }
+
+    /// get max output value (0..255) to be sent to the LED chains
+    uint8_t getMaxOutValue() { return maxOutValue; }
+
+    /// limit total power, dim LED chain output accordingly
+    /// @param aMilliWatts how many milliwatts (approximatively) the total chain may use, 0=no limit
+    void setPowerLimit(int aMilliWatts);
+
+    /// start LED chains
+    /// @param aAutoStep if true, step() will be called automatically as demanded by the view hierarchy
+    void begin(bool aAutoStep);
+
+    /// request re-rendering now
+    /// @note this should be called when views have been changed from the outside
+    /// @note a step() will be triggered ASAP
+    void render();
+
+    /// stop LED chains and auto updates
+    void end();
+
+    #if ENABLE_APPLICATION_SUPPORT
+
+    /// - option to construct LEDChainArrangement from command line
+    #define CMDLINE_LEDCHAIN_OPTIONS \
+      { 0,   "ledchain",      true,  "[chaintype:[leddevicename:]]numberOfLeds:[x:dx:y:dy:firstoffs:betweenoffs][XYSA];" \
+                                     "enable support for LED chains forming one or multiple RGB lights" \
+                                     "\n- chaintype can be WS2812 (GRB, default), SK6812 (RGBW), P9823 (RGB)" \
+                                     "\n- leddevicename can be a device name when chain is driven by a kernel module" \
+                                     "\n- x,dx,y,dy,firstoffs,betweenoffs specify how the chain is mapped to the display space" \
+                                     "\n- XYSA are flags: X or Y: x or y reversed, S: x/y swapped, A: alternating (zigzag)" \
+                                     "\nNote: this option can be used multiple times to combine ledchains" }, \
+      { 0,   "ledchainmax",   true,  "max;max output value (0..255) sent to LED. Defaults to 255." }, \
+      { 0,   "ledpowerlimit", true,  "max_mW;maximal power in milliwatts the entire LED arrangement is allowed to consume (approximately)." \
+                                     "If power would exceed limit, all LEDs are dimmed to stay below limit." \
+                                     "Standby/off power of LED chains is not included in the calculation. Defaults to 0=no limit" }, \
+      { 0,   "ledrefresh",    true,  "update_ms;minimal number of milliseconds between LED chain updates. Defaults to 15ms." }
+
+    /// Factory helper to create ledchain arrangement with one or multiple led chains from --ledchain command line options
+    /// @param aLedChainArrangement if not set, new arrangement will be created, otherwise existing one is used
+    /// @param aChainSpec string describing the LED chain parameters and the coverage in the arrangement
+    static void addLEDChain(LEDChainArrangementPtr &aLedChainArrangement, const string &aChainSpec);
+
+    /// process ledchain arrangement specific command line options
+    void processCmdlineOptions();
+
+    #endif
+
+  private:
+
+    /// perform needed LED chain updates
+    /// @return time when step() should be called again latest
+    /// @note use stepASAP() to request a step an automatically schedule it at the next possible time
+    ///    in case it cannot be executed right noow
+    MLMicroSeconds step();
+
+    void recalculateCover();
+    MLMicroSeconds updateDisplay();
+
+    void autoStep(MLTimer &aTimer);
+
+    void rootViewRequestsUpdate();
+
+
+  };
+
+
+  #endif // ENABLE_P44LRGRAPHICS
 
 
 } // namespace p44

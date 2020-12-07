@@ -52,7 +52,7 @@ void JsonWebClient::requestThreadSignal(ChildThreadWrapper &aChildThread, Thread
           JsonError::ErrorCodes err = json_tokener_get_error(tokener);
           if (err!=json_tokener_continue) {
             // real JSON error - however, if we already have a http level error, just annotate
-            if (!Error::isOK(requestError))
+            if (Error::notOK(requestError))
               requestError->prefixMessage("JSON cannot be decoded, probably due to: ");
             else
               requestError = ErrorPtr(new JsonError(err));
@@ -65,7 +65,7 @@ void JsonWebClient::requestThreadSignal(ChildThreadWrapper &aChildThread, Thread
         json_tokener_free(tokener);
       }
       // call back with result of request
-      LOG(LOG_DEBUG, "JsonWebClient: <- received JSON response (Error=%s), answer:\n%s", requestError ? requestError->description().c_str() : "<none>", message ? message->json_c_str() : "<none>");
+      LOG(LOG_DEBUG, "JsonWebClient: <- received JSON response (Error=%s), answer:\n%s", Error::text(requestError), message ? message->json_c_str() : "<none>");
       // Note: this callback might initiate another request already
       if (jsonResponseCallback) {
         // use this callback, but as callback routine might post another request immediately, we need to free the member first

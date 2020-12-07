@@ -22,14 +22,15 @@
 
 #include "mainloop.hpp"
 
+#include <stdlib.h> // for strtol
 #include <sys/stat.h> // for umask
-#include <sys/signal.h>
+#include <signal.h>
 
 #define TEMP_DIR_PATH "/tmp"
 
 using namespace p44;
 
-// MARK: ===== Application base class
+// MARK: - Application base class
 
 static Application *sharedApplicationP = NULL;
 
@@ -83,6 +84,8 @@ void Application::initializeInternal()
 {
   resourcepath = "."; // current directory by default
   datapath = TEMP_DIR_PATH; // tmp by default
+  // make random a bit "random" (not really, but ok for games)
+  srand((unsigned)(MainLoop::now()>>32 ^ MainLoop::now()));
   // "publish" singleton
   sharedApplicationP = this;
   #ifndef ESP_PLATFORM
@@ -187,7 +190,15 @@ void Application::terminateAppWith(ErrorPtr aError)
     mainLoop.terminate(EXIT_SUCCESS);
   }
   else {
-    LOG(LOG_ERR, "Terminating because of error: %s", aError->description().c_str());
+    if (!LOGENABLED(LOG_ERR)) {
+      // if even error logging is off, which is standard case for command line utilies (not daemons),
+      // just output the error message to stderr, with no logging adornments
+      const char *msg = aError->text();
+      if (*msg) fprintf(stderr, "Error: %s\n", msg);
+    }
+    else {
+      LOG(LOG_ERR, "Terminating because of error: %s", aError->text());
+    }
     mainLoop.terminate(EXIT_FAILURE);
   }
 }
@@ -236,12 +247,66 @@ void Application::setDataPath(const char *aDataPath)
 string Application::tempPath(const string aTempFile)
 {
   if (aTempFile.empty())
-    return TEMP_DIR_PATH; // just return data path
+    return TEMP_DIR_PATH; // just return temp path
   if (aTempFile[0]=='/')
     return aTempFile; // argument is absolute path, use it as-is
   // relative to temp directory
   return TEMP_DIR_PATH "/" + aTempFile;
 }
+
+
+#if ENABLE_JSON_APPLICATION
+
+JsonObjectPtr Application::jsonObjOrResource(const string &aText, ErrorPtr *aErrorP, const string aPrefix)
+{
+  JsonObjectPtr obj;
+  if (!aText.empty() && aText[0]=='{') {
+    // parse JSON
+    obj = JsonObject::objFromText(aText.c_str(), -1, aErrorP, true);
+  }
+  else {
+    // pass as a simple string, will try to load resource file
+    obj = jsonObjOrResource(JsonObject::newString(aText), aErrorP, aPrefix);
+  }
+  return obj;
+}
+
+
+JsonObjectPtr Application::jsonResource(string aResourceName, ErrorPtr *aErrorP, const string aPrefix)
+{
+  JsonObjectPtr r;
+  ErrorPtr err;
+  if (aResourceName.substr(0,2)=="./")
+    aResourceName.erase(0,2);
+  else
+    aResourceName.insert(0, aPrefix);
+  string fn = Application::sharedApplication()->resourcePath(aResourceName);
+  r = JsonObject::objFromFile(fn.c_str(), &err, true);
+  if (aErrorP) *aErrorP = err;
+  return r;
+}
+
+
+JsonObjectPtr Application::jsonObjOrResource(JsonObjectPtr aConfig, ErrorPtr *aErrorP, const string aPrefix)
+{
+  ErrorPtr err;
+  if (aConfig) {
+    if (aConfig->isType(json_type_string)) {
+      // could be resource
+      string resname = aConfig->stringValue();
+      if (resname.substr(resname.size()-5)==".json") {
+        aConfig = jsonResource(resname, &err, aPrefix);
+      }
+    }
+  }
+  else {
+    err = TextError::err("missing JSON or filename");
+  }
+  if (aErrorP) *aErrorP = err;
+  return aConfig;
+}
+
+#endif // ENABLE_JSON_APPLICATION
 
 
 
@@ -310,12 +375,6 @@ CmdLineApp::CmdLineApp(MainLoop &aMainLoop) :
   optionDescriptors(NULL)
 {
 }
-
-CmdLineApp::CmdLineApp() :
-  optionDescriptors(NULL)
-{
-}
-
 
 /// destructor
 CmdLineApp::~CmdLineApp()
@@ -596,18 +655,18 @@ void CmdLineApp::parseCommandLine(int aArgc, char **aArgv)
 bool CmdLineApp::processOption(const CmdLineOptionDescriptor &aOptionDescriptor, const char *aOptionValue)
 {
   // directly process "help" option (long name must be "help", short name can be anything but usually is 'h')
-  if (!aOptionDescriptor.withArgument && strcmp(aOptionDescriptor.longOptionName,"help")==0) {
+  if (!aOptionDescriptor.withArgument && strucmp(aOptionDescriptor.longOptionName,"help")==0) {
     showUsage();
     terminateApp(EXIT_SUCCESS);
   }
-  else if (!aOptionDescriptor.withArgument && strcmp(aOptionDescriptor.longOptionName,"version")==0) {
+  else if (!aOptionDescriptor.withArgument && strucmp(aOptionDescriptor.longOptionName,"version")==0) {
     fprintf(stdout, "%s\n", version().c_str());
     terminateApp(EXIT_SUCCESS);
   }
-  else if (aOptionDescriptor.withArgument && strcmp(aOptionDescriptor.longOptionName,"resourcepath")==0) {
+  else if (aOptionDescriptor.withArgument && strucmp(aOptionDescriptor.longOptionName,"resourcepath")==0) {
     setResourcePath(aOptionValue);
   }
-  else if (aOptionDescriptor.withArgument && strcmp(aOptionDescriptor.longOptionName,"datapath")==0) {
+  else if (aOptionDescriptor.withArgument && strucmp(aOptionDescriptor.longOptionName,"datapath")==0) {
     setDataPath(aOptionValue);
   }
   return false; // not processed
@@ -644,7 +703,12 @@ bool CmdLineApp::getIntOption(const char *aOptionName, int &aInteger)
 {
   const char *opt = getOption(aOptionName);
   if (opt) {
-    return sscanf(opt, "%d", &aInteger)==1;
+    char *e = NULL;
+    long i = strtol(opt, &e, 0);
+    if (e && *e==0) {
+      aInteger = (int)i;
+      return true;
+    }
   }
   return false; // no such option
 }
@@ -681,14 +745,63 @@ size_t CmdLineApp::numOptions()
 
 const char *CmdLineApp::getArgument(size_t aArgumentIndex)
 {
-  if (aArgumentIndex>arguments.size()) return NULL;
+  if (aArgumentIndex>=arguments.size()) return NULL;
   return arguments[aArgumentIndex].c_str();
 }
+
+
+bool CmdLineApp::getStringArgument(size_t aArgumentIndex, string &aArg)
+{
+  const char *a = getArgument(aArgumentIndex);
+  if (!a) return false;
+  aArg = a;
+  return true;
+}
+
+
+bool CmdLineApp::getIntArgument(size_t aArgumentIndex, int &aInteger)
+{
+  const char *a = getArgument(aArgumentIndex);
+  if (!a || *a==0) return false;
+  char *e = NULL;
+  long i = strtol(a, &e, 0);
+  if (e && *e==0) {
+    aInteger = (int)i;
+    return true;
+  }
+  return false;
+}
+
+
+
 
 
 size_t CmdLineApp::numArguments()
 {
   return arguments.size();
+}
+
+
+void CmdLineApp::processStandardLogOptions(bool aForDaemon, int aDefaultErrLevel)
+{
+  // determines the mode
+  SETDAEMONMODE(aForDaemon);
+  if (DAEMONMODE) {
+    int loglevel = LOG_NOTICE; // moderate logging by default
+    getIntOption("loglevel", loglevel);
+    SETLOGLEVEL(loglevel);
+    int errLevel = aDefaultErrLevel;
+    getIntOption("errlevel", errLevel);
+    bool dontLogErrors = false;
+    if (getOption("dontlogerrors")) dontLogErrors = true;
+    SETERRLEVEL(errLevel, !dontLogErrors); // errors and more serious go to stderr, all log goes to stdout
+  }
+  else {
+    int loglevel = LOG_CRIT; // almost no logging by default
+    getIntOption("loglevel", loglevel);
+    SETLOGLEVEL(loglevel);
+  }
+  SETDELTATIME(getOption("deltatstamps"));
 }
 
 #endif // !ESP_PLATFORM

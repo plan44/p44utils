@@ -25,6 +25,8 @@
 
 using namespace p44;
 
+// MARK: - color space conversions
+
 // sRGB with D65 reference white calibration matrix
 // [[Xr,Xg,Xb],[Yr,Yg,Yb],[Zr,Zg,Zb]]
 const Matrix3x3 p44::sRGB_d65_calibration = {
@@ -208,8 +210,12 @@ bool p44::RGBtoHSV(const Row3 &RGB, Row3 &HSV)
 
 bool p44::HSVtoRGB(const Row3 &HSV, Row3 &RGB)
 {
-  int hi = (int)floor(HSV[0] / 60) % 6;
-  double f = (HSV[0] / 60 - hi);
+  double hue = HSV[0];
+  if (hue<0 || hue>=360) {
+    hue = ((int)(hue*1000) % (360*1000))/1000;
+  }
+  int hi = (int)floor(hue / 60) % 6;
+  double f = (hue / 60 - hi);
   double p = HSV[2] * (1 - HSV[1]);
   double q = HSV[2] * (1 - (HSV[1]*f));
   double t = HSV[2] * (1 - (HSV[1]*(1-f)));
@@ -348,4 +354,136 @@ bool p44::xyVtoCT(const Row3 &xyV, double &mired)
   mired = (x)/(0.65-0.28)*900 + 100;
   return true;
 }
+
+// MARK: - RGB to RGBW conversions
+
+double p44::transferToColor(const Row3 &aCol, double &aRed, double &aGreen, double &aBlue)
+{
+  bool hasRed = aCol[0]>0;
+  bool hasGreen = aCol[1]>0;
+  bool hasBlue = aCol[2]>0;
+  double fr = hasRed ? aRed/aCol[0] : 0;
+  double fg = hasGreen ? aGreen/aCol[1] : 0;
+  double fb = hasBlue ? aBlue/aCol[2] : 0;
+  // - find non-zero fraction to use of external color
+  double f = fg>fb && hasBlue ? fb : fg;
+  f = fr>f && (hasBlue || hasGreen) ? f : fr;
+  if (f>1) f=1; // limit to 1
+  // - now subtract from RGB values what we've transferred to separate color
+  if (hasRed) aRed = aRed - f*aCol[0];
+  if (hasGreen) aGreen = aGreen - f*aCol[1];
+  if (hasBlue) aBlue = aBlue - f*aCol[2];
+  // - find fraction RGB HAS to contribute without loosing color information
+  double u = 1-f*aCol[0]; // how much of red RGB needs to contribute
+  if (1-f*aCol[1]>u) u = 1-f*aCol[1]; // how much of green
+  if (1-f*aCol[2]>u) u = 1-f*aCol[2]; // how much of blue
+  //   now scale RGB up to minimal fraction it HAS to contribute
+  if (u>0) {
+    u = 1/u;
+    aRed *= u;
+    aBlue *= u;
+    aGreen *= u;
+  }
+  return f;
+}
+
+
+void p44::transferFromColor(const Row3 &aCol, double aAmount, double &aRed, double &aGreen, double &aBlue)
+{
+  // add amount from separate color
+  aRed += aAmount*aCol[0];
+  aGreen += aAmount*aCol[1];
+  aBlue += aAmount*aCol[2];
+  // scale down if we exceed 1
+  double m = aRed>aGreen ? aRed : aGreen;
+  m = aBlue>m ? aBlue : m;
+  if (m>1) {
+    aRed /= m;
+    aGreen /= m;
+    aBlue /= m;
+  }
+}
+
+
+/*
+
+ // data series of transfers from RGB into RGBW assuming W has 1/3 brightness of R+G+B combined
+
+ static const Row3 LEDwhite = { 1.0/3, 1.0/3, 1.0/3 };
+ static void rgbwtest()
+ {
+   printf("R\tG\tB\tR1\tG1\tB1\tW\n");
+   for (int r=0; r<256; r+=51) {
+     for (int g=0; g<256; g+=51) {
+       for (int b=0; b<256; b+=51) {
+         double fr,fg,fb;
+         fr = (double)r/255;
+         fg = (double)g/255;
+         fb = (double)b/255;
+         double r1,g1,b1;
+         r1 = fr;
+         g1 = fg;
+         b1 = fb;
+         double w = transferToColor(LEDwhite, r1, g1, b1);
+         printf("%.2f\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f\n",fr,fg,fb,r1,g1,b1,w);
+       }
+     }
+   }
+ }
+
+*/
+
+
+
+// MARK: - PWM to brightness conversions
+
+// brightness to PWM value conversion
+const uint8_t p44::pwmtable[256] = {
+  0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2,
+  3, 3, 3, 3, 3, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 5, 5, 5, 5, 5, 5, 6, 6, 6, 6, 6,
+  6, 7, 7, 7, 7, 7, 7, 8, 8, 8, 8, 8, 9, 9, 9, 9, 10, 10, 10, 10, 10, 11, 11, 11,
+  11, 12, 12, 12, 12, 13, 13, 13, 14, 14, 14, 14, 15, 15, 15, 16, 16, 16, 17, 17,
+  17, 18, 18, 18, 19, 19, 20, 20, 20, 21, 21, 22, 22, 22, 23, 23, 24, 24, 25, 25,
+  26, 26, 26, 27, 27, 28, 29, 29, 30, 30, 31, 31, 32, 32, 33, 34, 34, 35, 35, 36,
+  37, 37, 38, 39, 39, 40, 41, 42, 42, 43, 44, 44, 45, 46, 47, 48, 49, 49, 50, 51,
+  52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 72,
+  73, 74, 75, 77, 78, 79, 81, 82, 83, 85, 86, 87, 89, 90, 92, 93, 95, 97, 98, 100,
+  101, 103, 105, 107, 108, 110, 112, 114, 116, 118, 120, 121, 123, 126, 128, 130,
+  132, 134, 136, 138, 141, 143, 145, 148, 150, 152, 155, 157, 160, 163, 165, 168,
+  171, 174, 176, 179, 182, 185, 188, 191, 194, 197, 201, 204, 207, 210, 214, 217,
+  221, 224, 228, 232, 235, 239, 243, 247, 251, 255
+};
+
+
+const uint8_t p44::brightnesstable[256] = {
+  0, 7, 18, 27, 36, 43, 49, 55, 61, 66, 70, 75, 79, 83, 86, 90, 93, 96, 99, 102, 104,
+  107, 109, 112, 114, 116, 118, 121, 123, 124, 126, 128, 130, 132, 133, 135, 137, 138,
+  140, 141, 143, 144, 145, 147, 148, 150, 151, 152, 153, 154, 156, 157, 158, 159, 160,
+  161, 162, 163, 164, 165, 166, 167, 168, 169, 170, 171, 172, 173, 174, 175, 176, 177,
+  177, 178, 179, 180, 181, 181, 182, 183, 184, 184, 185, 186, 187, 187, 188, 189, 190,
+  190, 191, 192, 192, 193, 194, 194, 195, 195, 196, 197, 197, 198, 199, 199, 200, 200,
+  201, 201, 202, 203, 203, 204, 204, 205, 205, 206, 206, 207, 207, 208, 208, 209, 210,
+  210, 211, 211, 211, 212, 212, 213, 213, 214, 214, 215, 215, 216, 216, 217, 217, 218,
+  218, 218, 219, 219, 220, 220, 221, 221, 221, 222, 222, 223, 223, 224, 224, 224, 225,
+  225, 226, 226, 226, 227, 227, 227, 228, 228, 229, 229, 229, 230, 230, 230, 231, 231,
+  231, 232, 232, 233, 233, 233, 234, 234, 234, 235, 235, 235, 236, 236, 236, 237, 237,
+  237, 238, 238, 238, 239, 239, 239, 240, 240, 240, 240, 241, 241, 241, 242, 242, 242,
+  243, 243, 243, 244, 244, 244, 244, 245, 245, 245, 246, 246, 246, 246, 247, 247, 247,
+  248, 248, 248, 248, 249, 249, 249, 249, 250, 250, 250, 251, 251, 251, 251, 252, 252,
+  252, 252, 253, 253, 253, 253, 254, 254, 254, 254, 255, 255, 255, 255
+};
+
+
+uint8_t p44::pwmToBrightness(uint8_t aPWM)
+{
+  return brightnesstable[aPWM];
+}
+
+
+uint8_t p44::brightnessToPwm(uint8_t aBrightness)
+{
+  return pwmtable[aBrightness];
+}
+
+
 

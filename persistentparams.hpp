@@ -37,6 +37,12 @@ namespace p44 {
   class ParamStore : public SQLite3Persistence
   {
     typedef SQLite3Persistence inherited;
+
+  public:
+    uint32_t writeOpsCount; ///< global number of write operations (INSERT, UPDATE, DELETE)
+
+    ParamStore() : writeOpsCount(0) {};
+
   };
 
 
@@ -171,8 +177,8 @@ namespace p44 {
     size_t appendfieldList(string &sql, bool keyFields, bool aAppendFields, bool aWithParamAssignment);
 
   };
-  
-  
+
+
 } // namespace
 
 

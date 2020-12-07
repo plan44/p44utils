@@ -22,6 +22,8 @@
 #ifndef __p44utils__error__
 #define __p44utils__error__
 
+#include "p44utils_minimal.hpp"
+
 #include <string>
 #include <stdint.h>
 #include <stdarg.h>
@@ -30,7 +32,7 @@
 #ifndef __printflike
   #define __printflike(...)
 #endif
-#ifdef ESP_PLATFORM
+#ifdef ESP_PLATFORM || P44_BUILD_WIN
   #define __printflike_template(...)
 #else
   #define __printflike_template(...) __printflike(__VA_ARGS__)
@@ -51,11 +53,13 @@ namespace p44 {
   {
     ErrorCode errorCode;
     string errorMessage;
+    string textCache; // only created on demand
   public:
 
     enum {
       OK,
-      NotOK
+      NotOK,
+      numErrorCodes
     };
     typedef ErrorCode ErrorCodes;
 
@@ -70,6 +74,16 @@ namespace p44 {
     /// @param aErrorMessage error message
     Error(ErrorCode aErrorCode, const std::string &aErrorMessage);
 
+
+    /// create a Error subclass object
+    /// @param aErrorCode error code. aErrorCode==0 from any domain means OK.
+    template<typename T> static ErrorPtr err(ErrorCode aErrorCode)
+    {
+      Error *errP = new T(static_cast<typename T::ErrorCodes>(aErrorCode));
+      return ErrorPtr(errP);
+    };
+
+
     /// create a Error subclass object with printf-style formatted error
     /// @param aErrorCode error code. aErrorCode==0 from any domain means OK.
     /// @param aFmt ... error message format string and arguments
@@ -78,7 +92,7 @@ namespace p44 {
       Error *errP = new T(static_cast<typename T::ErrorCodes>(aErrorCode));
       va_list args;
       va_start(args, aFmt);
-      errP->setFormattedMessage(aFmt, args);
+      errP->setFormattedMessage(aFmt, args, false);
       va_end(args);
       return ErrorPtr(errP);
     };
@@ -103,12 +117,11 @@ namespace p44 {
       return ErrorPtr(errP);
     };
 
-
-
     /// set formatted error message
     /// @param aFmt error message format string
     /// @param aArgs argument list for formatting
-    void setFormattedMessage(const char *aFmt, va_list aArgs);
+    /// @param aAppend if set, append to message rather than replacing it
+    void setFormattedMessage(const char *aFmt, va_list aArgs, bool aAppend = true);
 
     /// insert additional message context
     void prefixMessage(const char *aFmt, ...) __printflike(2,3);
@@ -119,9 +132,16 @@ namespace p44 {
     /// get error code
     /// @return the error code. Note that error codes are unique only within the same error domain.
     ///   error code 0 from any domain means OK.
-    ErrorCode getErrorCode() const;
+    inline ErrorCode getErrorCode() const { return errorCode; }
 
-    /// get error domain
+    /// @return true if error is OK code (= no error)
+    inline bool isOK() { return errorCode==OK; };
+
+    /// @return true if error is a real error (not the OK code)
+    inline bool notOK() { return errorCode!=OK; };
+
+
+    /// get error message
     /// @return the explicitly set error message, empty string if none is set.
     /// @note use description() to get a text at least showing the error domain and code if no message is set
     virtual const char *getErrorMessage() const;
@@ -133,6 +153,9 @@ namespace p44 {
     /// get the description of the error
     /// @return a description string. If an error message was not set, a standard string with the error domain and number will be shown
     virtual std::string description() const;
+
+    /// returns the error text c_str which is safe to use as long as the error object lives
+    const char* text();
 
     /// check for a specific error
     /// @param aDomain the domain or NULL to match any domain
@@ -147,12 +170,17 @@ namespace p44 {
     /// checks for OK condition, which means either no error object assigned at all to the smart ptr, or ErrorCode==0
     /// @param aError error pointer to check
     /// @return true if OK
-    static bool isOK(ErrorPtr aError);
+    static inline bool isOK(ErrorPtr aError) { return (aError==NULL || aError->isOK()); };
 
-    /// returns a error description in all cases, even if no error object is passed
+    /// checks for error (not OK) condition, which means aError assigned but not == 0 == OK
     /// @param aError error pointer to check
-    /// @return "<none>" if NULL error object, description of error otherwise
-    static string text(ErrorPtr aError);
+    /// @return true if this is a real error
+    static inline bool notOK(ErrorPtr aError) { return aError && aError->notOK(); }
+
+    /// returns a error description text in all cases, even if no error object is passed
+    /// @param aError error pointer to check
+    /// @return "<none>" if NULL error object, text() of error otherwise
+    static const char* text(ErrorPtr aError);
 
     /// factory function to create a explicit OK error (object with ErrorCode==0)
     /// @param aError if set and is !isOK(), then aError will be returned instead of OK
@@ -160,6 +188,13 @@ namespace p44 {
     /// @return OK error object if aError is OK or NULL, aError otherwise
     static ErrorPtr ok(ErrorPtr aError = ErrorPtr());
 
+    #if ENABLE_NAMED_ERRORS
+  protected:
+    /// return name of the error
+    /// @return error name or NULL if subclass has no named error, empty string for
+    ///   subclasses without meaningful error codes beyond OK/notOK
+    virtual const char* errorName() const { return NULL; }
+    #endif // ENABLE_NAMED_ERRORS
   };
 
 
@@ -172,7 +207,7 @@ namespace p44 {
   {
   public:
     static const char *domain();
-    virtual const char *getErrorDomain() const;
+    virtual const char *getErrorDomain() const P44_OVERRIDE;
 
     /// create system error from current errno and set message to strerror() text
     SysError(const char *aContextMessage = NULL);
@@ -196,14 +231,13 @@ namespace p44 {
   {
   public:
     static const char *domain() { return "WebError"; }
-    virtual const char *getErrorDomain() const { return WebError::domain(); };
+    virtual const char *getErrorDomain() const P44_OVERRIDE { return WebError::domain(); };
     WebError(uint16_t aHTTPError) : Error(ErrorCode(aHTTPError)) {};
     WebError(uint16_t aHTTPError, std::string aErrorMessage) : Error(ErrorCode(aHTTPError), aErrorMessage) {};
 
     /// factory function to create a ErrorPtr either containing NULL (if aErrNo indicates OK)
     /// or a SysError (if aErrNo indicates error)
     static ErrorPtr webErr(uint16_t aHTTPError, const char *aFmt, ... ) __printflike(2,3);
-
   };
 
 
@@ -212,11 +246,15 @@ namespace p44 {
   {
   public:
     static const char *domain() { return "TextError"; }
-    virtual const char *getErrorDomain() const { return TextError::domain(); };
+    virtual const char *getErrorDomain() const P44_OVERRIDE { return TextError::domain(); };
     TextError() : Error(Error::NotOK) {};
 
     /// factory method to create string error fprint style
     static ErrorPtr err(const char *aFmt, ...) __printflike(1,2);
+    #if ENABLE_NAMED_ERRORS
+  protected:
+    virtual const char* errorName() const P44_OVERRIDE { return ""; };
+    #endif // ENABLE_NAMED_ERRORS
   };
 
 

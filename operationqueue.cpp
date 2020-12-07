@@ -38,6 +38,7 @@ Operation::Operation() :
   timeout(0), // no timeout
   timesOutAt(0), // no timeout time set
   initiationDelay(0), // no initiation delay
+  fromLastInitiation(false),
   initiatesNotBefore(0), // no initiation time
   inSequence(true) // by default, execute in sequence
 {
@@ -69,9 +70,10 @@ void Operation::setTimeout(MLMicroSeconds aTimeout)
 }
 
 
-void Operation::setInitiationDelay(MLMicroSeconds aInitiationDelay)
+void Operation::setInitiationDelay(MLMicroSeconds aInitiationDelay, bool aFromLastInitiation)
 {
   initiationDelay = aInitiationDelay;
+  fromLastInitiation = aFromLastInitiation;
   initiatesNotBefore = 0;
 }
 
@@ -96,14 +98,14 @@ void Operation::setCompletionCallback(StatusCB aCompletionCB)
 
 
 // check if can be initiated
-bool Operation::canInitiate()
+bool Operation::canInitiate(MLMicroSeconds aLastInitiation)
 {
   MLMicroSeconds now = MainLoop::now();
   if (initiationDelay>0) {
     DBGFOCUSLOG("Operation 0x%pX: requesting initiation delay of %lld uS", this, initiationDelay);
     if (initiatesNotBefore==0) {
       // first time queried, start delay now
-      initiatesNotBefore = now+initiationDelay;
+      initiatesNotBefore = (fromLastInitiation ? aLastInitiation : now)+initiationDelay;
       DBGFOCUSLOG("- now is %lld, will initiate at %lld uS", now, initiatesNotBefore);
       initiationDelay = 0; // consumed
     }
@@ -117,7 +119,6 @@ bool Operation::canInitiate()
 // call to initiate operation
 bool Operation::initiate()
 {
-  if (!canInitiate()) return false;
   initiated = true;
   if (timeout!=0)
     timesOutAt = MainLoop::now()+timeout;
@@ -198,7 +199,7 @@ void Operation::abortOperation(ErrorPtr aError)
 
 
 
-// MARK: ===== OperationQueue
+// MARK: - OperationQueue
 
 
 #define QUEUE_RECHECK_INTERVAL (30*MilliSecond)
@@ -207,7 +208,8 @@ void Operation::abortOperation(ErrorPtr aError)
 // create operation queue into specified mainloop
 OperationQueue::OperationQueue(MainLoop &aMainLoop) :
   mainLoop(aMainLoop),
-  processingQueue(false)
+  processingQueue(false),
+  lastInitiation(Never)
 {
   // register with mainloop
   mainLoop.executeTicketOnce(recheckTicket, boost::bind(&OperationQueue::queueRecheck, this, _1));
@@ -300,8 +302,13 @@ bool OperationQueue::processOneOperation()
         break;
       }
       if (!op->isInitiated()) {
-        // initiate now
-        if (!op->initiate()) {
+        // try to initiate now
+        if (op->canInitiate(lastInitiation)) {
+          if (op->initiate()) {
+            lastInitiation = now;
+          }
+        }
+        else {
           // cannot initiate this one now, check if we can continue with others
           if (op->inSequence) {
             // this op needs to be initiated before others can be checked

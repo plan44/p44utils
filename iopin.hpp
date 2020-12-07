@@ -32,7 +32,7 @@ using namespace std;
 
 namespace p44 {
 
-  // MARK: ===== digital pins
+  // MARK: - digital pins
 
   /// callback for input pin state change reporting
   /// @param aNewState the new state of the Input pin
@@ -181,7 +181,7 @@ namespace p44 {
 
 
 
-  // MARK: ===== analog pins
+  // MARK: - analog pins
 
   /// abstract wrapper class for analog I/O pin
   class AnalogIOPin : public P44Obj
@@ -231,6 +231,7 @@ namespace p44 {
     /// set value of pin (NOP for inputs)
     /// @param aValue new value to set output to
     virtual void setValue(double aValue);
+
   };
 
 

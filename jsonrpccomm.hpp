@@ -43,8 +43,12 @@ namespace p44 {
     typedef uint32_t ErrorCodes;
 
     static const char *domain() { return "JsonRPC"; }
-    virtual const char *getErrorDomain() const { return JsonRpcError::domain(); };
+    virtual const char *getErrorDomain() const P44_OVERRIDE { return JsonRpcError::domain(); };
     JsonRpcError(ErrorCode aError) : Error(aError) {};
+    #if ENABLE_NAMED_ERRORS
+  protected:
+    virtual const char* errorName() const P44_OVERRIDE;
+    #endif // ENABLE_NAMED_ERRORS
   };
 
 
@@ -81,7 +85,7 @@ namespace p44 {
 
   public:
 
-    JsonRpcComm(MainLoop &aMainLoop);
+    JsonRpcComm(MainLoop &aMainLoop = MainLoop::currentMainLoop());
     virtual ~JsonRpcComm();
 
     /// install callback for received JSON-RPC requests

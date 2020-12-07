@@ -99,6 +99,7 @@ void PersistentParams::checkAndUpdateSchema()
     }
     sql += ")";
     // - create it
+    paramStore.writeOpsCount++; // count the operation
     sqlite3pp::command cmd(paramStore, sql.c_str());
     cmd.execute();
     // create index for parentID (first field, getKeyDef(0))
@@ -109,13 +110,15 @@ void PersistentParams::checkAndUpdateSchema()
   else {
     // table exists, but maybe not all fields
     // - just try to add each of them. SQLite will not accept duplicates anyway
+    paramStore.writeOpsCount++; // count as one write operation
     for (size_t i=0; i<numFieldDefs(); ++i) {
       const FieldDefinition *fd = getFieldDef(i);
       sql = string_format("ALTER TABLE %s ADD ", tableName());
       sql += fieldDeclaration(fd);
       sqlite3pp::command cmd(paramStore);
-      if (cmd.prepare(sql.c_str())==SQLITE_OK)
+      if (cmd.prepare(sql.c_str())==SQLITE_OK) {
         cmd.execute();
+      }
     }
   }
 }
@@ -264,6 +267,7 @@ ErrorPtr PersistentParams::saveToStore(const char *aParentIdentifier, bool aMult
       }
     }
     // now save
+    paramStore.writeOpsCount++; // count the operation
     if (rowid!=0) {
       // already exists in the DB, just update
       sql = string_format("UPDATE %s SET ", tableName());
@@ -334,8 +338,8 @@ ErrorPtr PersistentParams::saveToStore(const char *aParentIdentifier, bool aMult
         }
       }
     }
-    if (!Error::isOK(err)) {
-      LOG(LOG_ERR, "saveToStore: %s - failed: %s", sql.c_str(), err->description().c_str());
+    if (Error::notOK(err)) {
+      LOG(LOG_ERR, "saveToStore: %s - failed: %s", sql.c_str(), err->text());
     }
   }
   // anyway, have children checked
@@ -351,6 +355,7 @@ ErrorPtr PersistentParams::deleteFromStore()
   ErrorPtr err;
   dirty = false; // forget any unstored changes
   if (rowid!=0) {
+    paramStore.writeOpsCount++; // count the operation
     FOCUSLOG("deleteFromStore: deleting row %lld in table %s", rowid, tableName());
     if (paramStore.executef("DELETE FROM %s WHERE ROWID=%lld", tableName(), rowid) != SQLITE_OK) {
       err = paramStore.error();
@@ -362,8 +367,8 @@ ErrorPtr PersistentParams::deleteFromStore()
   if (Error::isOK(err)) {
     err = deleteChildren();
   }
-  if (!Error::isOK(err)) {
-    LOG(LOG_ERR, "deleteFromStore: table=%s, ROWID=%lld - failed: %s", tableName(), rowid, err->description().c_str());
+  if (Error::notOK(err)) {
+    LOG(LOG_ERR, "deleteFromStore: table=%s, ROWID=%lld - failed: %s", tableName(), rowid, err->text());
   }
   return err;
 }

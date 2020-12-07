@@ -57,11 +57,22 @@ namespace p44 {
       OK,
       InvalidHost,
       UnknownBaudrate,
+      numErrorCodes
     } ErrorCodes;
     
     static const char *domain() { return "SerialComm"; }
-    virtual const char *getErrorDomain() const { return SerialCommError::domain(); };
+    virtual const char *getErrorDomain() const P44_OVERRIDE { return SerialCommError::domain(); };
     SerialCommError(ErrorCodes aError) : Error(ErrorCode(aError)) {};
+    #if ENABLE_NAMED_ERRORS
+  protected:
+    virtual const char* errorName() const P44_OVERRIDE { return errNames[getErrorCode()]; };
+  private:
+    static constexpr const char* const errNames[numErrorCodes] = {
+      "OK",
+      "InvalidHost",
+      "UnknownBaudrate",
+    };
+    #endif // ENABLE_NAMED_ERRORS
   };
 
 
@@ -92,14 +103,30 @@ namespace p44 {
 
   public:
 
-    SerialComm(MainLoop &aMainLoop);
+    SerialComm(MainLoop &aMainLoop = MainLoop::currentMainLoop());
     virtual ~SerialComm();
 
     /// Specify the serial connection parameters as single string
     /// @param aConnectionSpec "/dev[:commParams]" or "hostname[:port]"
     /// @param aDefaultPort default port number for TCP connection (irrelevant for direct serial device connection)
     /// @param aDefaultCommParams default communication parameters (in case spec does not contain :commParams)
+    /// @note commParams syntax is: [baud rate][,[bits][,[parity][,[stopbits][,[H]]]]]
+    ///   - parity can be O, E or N
+    ///   - H means hardware handshake enabled
     void setConnectionSpecification(const char* aConnectionSpec, uint16_t aDefaultPort, const char *aDefaultCommParams);
+
+    /// @return true if local serial port, false otherwise (none or IP)
+    static bool parseConnectionSpecification(
+      const char* aConnectionSpec, uint16_t aDefaultPort, const char *aDefaultCommParams,
+      string &aConnectionPath,
+      int &aBaudRate,
+      int &aCharSize,
+      bool &aParityEnable,
+      bool &aEvenParity,
+      bool &aTwoStopBits,
+      bool &aHardwareHandshake,
+      uint16_t &aConnectionPort
+    );
 
     /// @return connection path (IP address or device path)
     string getConnectionPath() { return connectionPath; };

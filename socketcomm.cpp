@@ -19,6 +19,13 @@
 //  along with p44utils. If not, see <http://www.gnu.org/licenses/>.
 //
 
+// File scope debugging options
+// - Set ALWAYS_DEBUG to 1 to enable DBGLOG output even in non-DEBUG builds of this file
+#define ALWAYS_DEBUG 0
+// - set FOCUSLOGLEVEL to non-zero log level (usually, 5,6, or 7==LOG_DEBUG) to get focus (extensive logging) for this file
+//   Note: must be before including "logger.hpp" (or anything that includes "logger.hpp")
+#define FOCUSLOGLEVEL 0
+
 #include "socketcomm.hpp"
 
 #include <sys/ioctl.h>
@@ -36,6 +43,7 @@ SocketComm::SocketComm(MainLoop &aMainLoop) :
   isConnecting(false),
   isClosing(false),
   serving(false),
+  nonLocal(true),
   clearHandlersAtClose(false),
   addressInfoList(NULL),
   currentAddressInfo(NULL),
@@ -55,6 +63,7 @@ SocketComm::SocketComm(MainLoop &aMainLoop) :
 
 SocketComm::~SocketComm()
 {
+  FOCUSLOG("~SocketComm()")
   if (!isClosing) {
     internalCloseConnection();
   }
@@ -74,7 +83,7 @@ void SocketComm::setConnectionParams(const char* aHostNameOrAddress, const char*
 }
 
 
-// MARK: ===== becoming a server
+// MARK: - becoming a server
 
 ErrorPtr SocketComm::startServer(ServerConnectionCB aServerConnectionHandler, int aMaxConnections)
 {
@@ -179,7 +188,7 @@ ErrorPtr SocketComm::startServer(ServerConnectionCB aServerConnectionHandler, in
   }
   #endif // !ESP_PLATFORM
   else {
-    // TODO: implement other portocol families
+    // TODO: implement other protocol families
     err = Error::err<SocketCommError>(SocketCommError::Unsupported, "Unsupported protocol family");
   }
   // now create and configure socket
@@ -354,7 +363,7 @@ SocketCommPtr SocketComm::returnClientConnection(SocketCommPtr aClientConnection
 
 
 
-// MARK: ===== connecting to a client
+// MARK: - connecting to a client
 
 
 bool SocketComm::connectable()
@@ -403,18 +412,18 @@ ErrorPtr SocketComm::initiateConnection()
     #endif // !ESP_PLATFORM
     {
       // assume internet connection -> get list of possible addresses and try them
-      if (hostNameOrAddress.empty()) {
-        err = Error::err<SocketCommError>(SocketCommError::NoParams, "Missing connection parameters");
+      if (hostNameOrAddress.empty() && !connectionLess) {
+        err = Error::err<SocketCommError>(SocketCommError::NoParams, "Missing host name or address");
         goto done;
       }
-      // try to resolve host name
+      // try to resolve host and service name (at least: service name)
       struct addrinfo hint;
       memset(&hint, 0, sizeof(addrinfo));
       hint.ai_flags = 0; // no flags
       hint.ai_family = protocolFamily;
       hint.ai_socktype = socketType;
       hint.ai_protocol = protocol;
-      res = getaddrinfo(hostNameOrAddress.c_str(), serviceOrPortOrSocket.c_str(), &hint, &addressInfoList);
+      res = getaddrinfo(hostNameOrAddress.empty() ? NULL : hostNameOrAddress.c_str(), serviceOrPortOrSocket.c_str(), &hint, &addressInfoList);
       if (res!=0) {
         // error
         #ifdef ESP_PLATFORM
@@ -422,7 +431,7 @@ ErrorPtr SocketComm::initiateConnection()
         #else
         err = Error::err<SocketCommError>(SocketCommError::CannotResolve, "getaddrinfo error %d: %s", res, gai_strerror(res));
         #endif
-        DBGLOG(LOG_DEBUG, "SocketComm: getaddrinfo failed: %s", err->description().c_str());
+        DBGLOG(LOG_DEBUG, "SocketComm: getaddrinfo failed: %s", err->text());
         goto done;
       }
     }
@@ -430,11 +439,11 @@ ErrorPtr SocketComm::initiateConnection()
     // - init iterator pointer
     currentAddressInfo = addressInfoList;
     // - try connecting first address
-    LOG(LOG_DEBUG, "Initiating connection to %s:%s", hostNameOrAddress.c_str(), serviceOrPortOrSocket.c_str());
+    LOG(LOG_DEBUG, "Initializing socket for connection to %s:%s", hostNameOrAddress.c_str(), serviceOrPortOrSocket.c_str());
     err = connectNextAddress();
   }
 done:
-  if (!Error::isOK(err) && connectionStatusHandler) {
+  if (Error::notOK(err) && connectionStatusHandler) {
     connectionStatusHandler(this, err);
   }
   // return it
@@ -483,39 +492,61 @@ ErrorPtr SocketComm::connectNextAddress()
           if (setsockopt(socketFD, SOL_SOCKET, SO_BROADCAST, (char *)&one, (int)sizeof(one)) == -1) {
             err = SysError::errNo("Cannot setsockopt(SO_BROADCAST): ");
           }
-          else {
-            // to receive answers, we also need to bind to INADDR_ANY
-            #ifdef ESP_PLATFORM
-            #warning "%%% ESP32 version of getnameinfo missing"
-            // TODO: find how to use getnameinfo on ESP32
-            err = TextError::err("ESP32: Cannot determine port and thus cannot bind to INADDR_ANY");
-            #else
-            // - get port number
-            char sbuf[NI_MAXSERV];
-            int s = getnameinfo(
-              currentAddressInfo->ai_addr, currentAddressInfo->ai_addrlen,
-              NULL, 0, // no host address
-              sbuf, sizeof sbuf, // only service/port
-              NI_NUMERICSERV
-            );
-            if (s==0) {
-              // convert to numeric port number
-              int port;
-              if (sscanf(sbuf, "%d", &port)==1) {
+        }
+        if (Error::isOK(err) && serving) {
+          // We want this socket to be ready to receive messages
+          // Note: w/o the following initialisation, the socket remains unbound for now,
+          //   but issuing the first send will bind it to a random port to have an identity
+          //   (which peers can use to send an answer)
+          #ifdef ESP_PLATFORM
+          #warning "%%% ESP32 version of getnameinfo missing"
+          // TODO: find how to use getnameinfo on ESP32
+          err = TextError::err("ESP32: Cannot determine port and thus cannot bind to INADDR_ANY");
+          #else
+          // Get port number
+          char sbuf[NI_MAXSERV];
+          // If we explicitly bind here, the socket will have the port number specified in setConnectionParams()
+          int s = getnameinfo(
+            currentAddressInfo->ai_addr, currentAddressInfo->ai_addrlen,
+            NULL, 0, // no host address
+            sbuf, sizeof sbuf, // only service/port
+            NI_NUMERICSERV
+          );
+          if (s==0) {
+            // convert to numeric port number
+            int port;
+            if (sscanf(sbuf, "%d", &port)==1) {
+              if (currentAddressInfo->ai_family==AF_INET6) {
+                struct sockaddr_in6 recvaddr;
+                memset(&recvaddr, 0, sizeof recvaddr);
+                recvaddr.sin6_family = AF_INET6;
+                recvaddr.sin6_port = htons(port);
+                if (nonLocal)
+                  recvaddr.sin6_addr = in6addr_any;
+                else
+                  recvaddr.sin6_addr = in6addr_loopback;
+                if (::bind(socketFD, (struct sockaddr *)&recvaddr, sizeof recvaddr) == -1) {
+                  err = SysError::errNo("Cannot bind to in6addr_any/in6addr_loopback: ");
+                }
+              }
+              else if (currentAddressInfo->ai_family==AF_INET) {
                 // bind connectionless socket to INADDR_ANY to receive broadcasts at all
                 struct sockaddr_in recvaddr;
                 memset(&recvaddr, 0, sizeof recvaddr);
                 recvaddr.sin_family = AF_INET;
                 recvaddr.sin_port = htons(port);
-                recvaddr.sin_addr.s_addr = INADDR_ANY;
+                if (nonLocal)
+                  recvaddr.sin_addr.s_addr = htonl(INADDR_ANY);
+                else
+                  recvaddr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
                 if (::bind(socketFD, (struct sockaddr*)&recvaddr, sizeof recvaddr) == -1) {
-                  err = SysError::errNo("Cannot bind to INADDR_ANY: ");
+                  err = SysError::errNo("Cannot bind to INADDR_ANY/INADDR_LOOPBACK: ");
                 }
               }
             }
-            #endif
+            #endif // !ESP_PLATFORM
           }
-        }
+        } // serving (UDP socket bound to specific port)
         if (Error::isOK(err)) {
           startedConnecting = true;
           // save valid address info for later use (UDP needs it to send datagrams)
@@ -525,7 +556,7 @@ ErrorPtr SocketComm::connectNextAddress()
           currentSockAddrP = (sockaddr *)malloc(currentSockAddrLen);
           memcpy(currentSockAddrP, currentAddressInfo->ai_addr, currentAddressInfo->ai_addrlen);
         }
-      }
+      } // connectionLess
       else {
         // TCP: initiate connection
         LOG(LOG_DEBUG, "- Attempting connection with address family = %d, protocol = %d, addrlen=%d/sizeof=%zu", currentAddressInfo->ai_family, currentAddressInfo->ai_protocol, currentAddressInfo->ai_addrlen, sizeof(*(currentAddressInfo->ai_addr)));
@@ -546,7 +577,7 @@ ErrorPtr SocketComm::connectNextAddress()
   if (!startedConnecting) {
     // exhausted addresses without starting to connect
     if (!err) err = Error::err<SocketCommError>(SocketCommError::NoConnection, "No connection could be established");
-    LOG(LOG_DEBUG, "Cannot initiate connection to %s:%s - %s", hostNameOrAddress.c_str(), serviceOrPortOrSocket.c_str(), err->description().c_str());
+    LOG(LOG_DEBUG, "Cannot initiate connection to %s:%s - %s", hostNameOrAddress.c_str(), serviceOrPortOrSocket.c_str(), err->text());
   }
   else {
     if (!connectionLess) {
@@ -583,7 +614,7 @@ ErrorPtr SocketComm::connectNextAddress()
 }
 
 
-// MARK: ===== general connection handling
+// MARK: - general connection handling
 
 
 ErrorPtr SocketComm::socketError(int aSocketFd)
@@ -634,12 +665,12 @@ bool SocketComm::connectionMonitorHandler(int aFd, int aPollFlags)
   }
   else {
     // this attempt has failed, try next (if any)
-    LOG(LOG_DEBUG, "- Connection attempt failed: %s", err->description().c_str());
+    LOG(LOG_DEBUG, "- Connection attempt failed: %s", err->text());
     // this will return no error if we have another address to try
     err = connectNextAddress();
     if (err) {
       // no next attempt started, report error
-      LOG(LOG_WARNING, "Connection to %s:%s failed: %s", hostNameOrAddress.c_str(), serviceOrPortOrSocket.c_str(), err->description().c_str());
+      LOG(LOG_WARNING, "Connection to %s:%s failed: %s", hostNameOrAddress.c_str(), serviceOrPortOrSocket.c_str(), err->text());
       if (connectionStatusHandler) {
         connectionStatusHandler(this, err);
       }
@@ -680,8 +711,8 @@ void SocketComm::closeConnection()
 void SocketComm::internalCloseConnection()
 {
   isClosing = true; // prevent doing it more than once due to handlers called
-  if (serving) {
-    // serving socket
+  if (!connectionLess && serving) {
+    // serving TCP socket
     // - close listening socket
     mainLoop.unregisterPollHandler(connectionFd);
     close(connectionFd);
@@ -745,7 +776,7 @@ bool SocketComm::connecting()
 }
 
 
-// MARK: ===== connectionless data exchange
+// MARK: - connectionless data exchange
 
 
 size_t SocketComm::transmitBytes(size_t aNumBytes, const uint8_t *aBytes, ErrorPtr &aError)
@@ -823,7 +854,7 @@ bool SocketComm::getDatagramOrigin(string &aAddress, string &aPort)
 }
 
 
-// MARK: ===== handling data exception
+// MARK: - handling data exception
 
 
 void SocketComm::dataExceptionHandler(int aFd, int aPollFlags)
@@ -845,7 +876,7 @@ void SocketComm::dataExceptionHandler(int aFd, int aPollFlags)
       ErrorPtr err = socketError(aFd);
       if (Error::isOK(err))
         err = Error::err<SocketCommError>(SocketCommError::HungUp, "Connection closed (POLLIN but no data -> interpreted as HUP)");
-      DBGLOG(LOG_DEBUG, "Connection to %s:%s has POLLIN but no data; error: %s", hostNameOrAddress.c_str(), serviceOrPortOrSocket.c_str(), err->description().c_str());
+      DBGLOG(LOG_DEBUG, "Connection to %s:%s has POLLIN but no data; error: %s", hostNameOrAddress.c_str(), serviceOrPortOrSocket.c_str(), err->text());
       // - report
       if (connectionStatusHandler) {
         // report reason for closing
@@ -855,7 +886,7 @@ void SocketComm::dataExceptionHandler(int aFd, int aPollFlags)
     else if (aPollFlags & POLLERR) {
       // error
       ErrorPtr err = socketError(aFd);
-      LOG(LOG_WARNING, "Connection to %s:%s reported error: %s", hostNameOrAddress.c_str(), serviceOrPortOrSocket.c_str(), err->description().c_str());
+      LOG(LOG_WARNING, "Connection to %s:%s reported error: %s", hostNameOrAddress.c_str(), serviceOrPortOrSocket.c_str(), err->text());
       // - report
       if (connectionStatusHandler) {
         // report reason for closing
@@ -870,3 +901,148 @@ void SocketComm::dataExceptionHandler(int aFd, int aPollFlags)
     internalCloseConnection();
   }
 }
+
+
+// MARK: - script support
+
+#if ENABLE_SOCKET_SCRIPT_FUNCS && ENABLE_P44SCRIPT
+
+using namespace P44Script;
+
+SocketMessageObj::SocketMessageObj(SocketObj* aSocketObj) :
+  inherited(""),
+  mSocketObj(aSocketObj)
+{
+}
+
+
+string SocketMessageObj::getAnnotation() const
+{
+  return "UDP message";
+}
+
+
+TypeInfo SocketMessageObj::getTypeInfo() const
+{
+  return inherited::getTypeInfo()|oneshot|keeporiginal; // returns the request only once, must keep the original
+}
+
+
+EventSource* SocketMessageObj::eventSource() const
+{
+  return static_cast<EventSource*>(mSocketObj);
+}
+
+
+string SocketMessageObj::stringValue() const
+{
+  return mSocketObj ? mSocketObj->lastDatagram : "";
+}
+
+
+
+
+// send(data)
+static const BuiltInArgDesc send_args[] = { { any } };
+static const size_t send_numargs = sizeof(send_args)/sizeof(BuiltInArgDesc);
+static void send_func(BuiltinFunctionContextPtr f)
+{
+  SocketObj* s = dynamic_cast<SocketObj*>(f->thisObj().get());
+  assert(s);
+  ErrorPtr err;
+  string datagram = f->arg(0)->stringValue();
+  size_t res = s->socket()->transmitBytes(datagram.length(), (uint8_t *)datagram.c_str(), err);
+  if (Error::notOK(err)) {
+    f->finish(new ErrorValue(err));
+  }
+  else {
+    f->finish(new NumericValue(res==datagram.length()));
+  }
+}
+
+
+// message()
+static void message_func(BuiltinFunctionContextPtr f)
+{
+  SocketObj* s = dynamic_cast<SocketObj*>(f->thisObj().get());
+  assert(s);
+  // return latest message
+  f->finish(new SocketMessageObj(s));
+}
+
+
+static const BuiltinMemberDescriptor socketFunctions[] = {
+  { "send", executable|error, send_numargs, send_args, &send_func },
+  { "message", executable|text|null, 0, NULL, &message_func },
+  { NULL } // terminator
+};
+
+static BuiltInMemberLookup* sharedSocketFunctionLookupP = NULL;
+
+SocketObj::SocketObj(SocketCommPtr aSocket) :
+  mSocket(aSocket)
+{
+  if (sharedSocketFunctionLookupP==NULL) {
+    sharedSocketFunctionLookupP = new BuiltInMemberLookup(socketFunctions);
+    sharedSocketFunctionLookupP->isMemberVariable(); // disable refcounting
+  }
+  registerMemberLookup(sharedSocketFunctionLookupP);
+  // handle incoming data
+  mSocket->setReceiveHandler(boost::bind(&SocketObj::gotData, this, _1));
+}
+
+SocketObj::~SocketObj()
+{
+  mSocket->clearCallbacks();
+}
+
+
+void SocketObj::gotData(ErrorPtr aError)
+{
+  ErrorPtr err = mSocket->receiveIntoString(lastDatagram);
+  if (Error::isOK(err)) {
+    sendEvent(new SocketMessageObj(this));
+  }
+  else {
+    sendEvent(new ErrorValue(err));
+  }
+}
+
+
+// udpsocket(host, port, receive, nonlocal, broadcast)
+static const BuiltInArgDesc udpsocket_args[] = { { text }, { text|numeric }, { numeric|optionalarg }, { numeric|optionalarg }, { numeric|optionalarg } };
+static const size_t udpsocket_numargs = sizeof(udpsocket_args)/sizeof(BuiltInArgDesc);
+static void udpsocket_func(BuiltinFunctionContextPtr f)
+{
+  SocketCommPtr socket = new SocketComm();
+  socket->setConnectionParams(
+    f->arg(0)->stringValue().c_str(),
+    f->arg(1)->stringValue().c_str(),
+    SOCK_DGRAM,
+    PF_UNSPEC
+  );
+  bool rec = f->arg(2)->boolValue(); // defaults to not receiving
+  bool nonlocal = f->arg(3)->boolValue(); // defaults to local only
+  bool broadcast = f->arg(3)->boolValue(); // defaults to no broadcast
+  socket->setAllowNonlocalConnections(nonlocal);
+  socket->setDatagramOptions(rec, broadcast);
+  ErrorPtr err = socket->initiateConnection();
+  if (Error::isOK(err)) {
+    f->finish(new SocketObj(socket));
+  }
+  else {
+    f->finish(new ErrorValue(err));
+  }
+}
+
+static const BuiltinMemberDescriptor socketGlobals[] = {
+  { "udpsocket", executable|null, udpsocket_numargs, udpsocket_args, &udpsocket_func },
+  { NULL } // terminator
+};
+
+SocketLookup::SocketLookup() :
+  inherited(socketGlobals)
+{
+}
+
+#endif // ENABLE_SOCKET_SCRIPT_FUNCS && ENABLE_P44SCRIPT

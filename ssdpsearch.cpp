@@ -98,18 +98,19 @@ void SsdpSearch::startSearchForTarget(SsdpSearchCB aSearchResultHandler, const c
 
 void SsdpSearch::socketStatusHandler(ErrorPtr aError)
 {
-  FOCUSLOG("SSDP socket status: %s", aError ? aError->description().c_str() : "<no error>");
+  FOCUSLOG("SSDP socket status: %s", Error::text(aError));
   if (Error::isOK(aError)) {
     FOCUSLOG("### sending UDP M-SEARCH");
     // unregister socket status handler (or we'll get called when connection closes)
     setConnectionStatusHandler(NULL);
     // send search request
     string ssdpSearch = string_format(
-      "M-SEARCH * HTTP/1.1\n"
-      "HOST: %s:%s\n"
-      "MAN: \"ssdp:discover\"\n"
-      "MX: %d\n"
-      "ST: %s\n",
+      "M-SEARCH * HTTP/1.1\r\n"
+      "HOST: %s:%s\r\n"
+      "MAN: \"ssdp:discover\"\r\n"
+      "MX: %d\r\n"
+      "ST: %s\r\n"
+      "\r\n",
       SSDP_MULTICAST_ADDR,
       SSDP_PORT,
       SSDP_MX,

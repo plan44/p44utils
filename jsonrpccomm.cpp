@@ -34,6 +34,24 @@
 using namespace p44;
 
 
+#if ENABLE_NAMED_ERRORS
+const char* JsonRpcError::errorName() const
+{
+  switch(getErrorCode()) {
+    case ParseError: return "ParseError";
+    case InvalidRequest: return "InvalidRequest";
+    case MethodNotFound: return "MethodNotFound";
+    case InvalidParams: return "InvalidParams";
+    case InternalError: return "InternalError";
+  }
+  if (getErrorCode()>=ServerError && getErrorCode()<=ServerErrorMax) {
+    return "ServerError";
+  }
+  return NULL;
+}
+#endif // ENABLE_NAMED_ERRORS
+
+
 JsonRpcComm::JsonRpcComm(MainLoop &aMainLoop) :
   inherited(aMainLoop),
   requestIdCounter(0),
@@ -65,7 +83,7 @@ static JsonObjectPtr jsonRPCObj()
 
 
 
-// MARK: ===== sending outgoing requests and responses
+// MARK: - sending outgoing requests and responses
 
 
 ErrorPtr JsonRpcComm::sendRequest(const char *aMethod, JsonObjectPtr aParams, JsonRpcResponseCB aResponseHandler)
@@ -135,15 +153,15 @@ ErrorPtr JsonRpcComm::sendError(const char *aJsonRpcId, uint32_t aErrorCode, con
 
 ErrorPtr JsonRpcComm::sendError(const char *aJsonRpcId, ErrorPtr aErrorToSend)
 {
-  if (!Error::isOK(aErrorToSend)) {
-    return sendError(aJsonRpcId, (uint32_t)aErrorToSend->getErrorCode(), aErrorToSend->getErrorMessage());
+  if (Error::notOK(aErrorToSend)) {
+    return sendError(aJsonRpcId, (uint32_t)aErrorToSend->getErrorCode(), aErrorToSend->text());
   }
   return ErrorPtr();
 }
 
 
 
-// MARK: ===== handling incoming requests and responses
+// MARK: - handling incoming requests and responses
 
 
 void JsonRpcComm::gotJson(ErrorPtr aError, JsonObjectPtr aJsonObject)
@@ -262,11 +280,11 @@ void JsonRpcComm::gotJson(ErrorPtr aError, JsonObjectPtr aJsonObject)
     }
   }
   // auto-generate error response for internally created errors
-  if (!Error::isOK(respErr)) {
+  if (Error::notOK(respErr)) {
     if (safeError || reportAllErrors)
       sendError(idString, respErr);
     else
-      LOG(LOG_WARNING, "Received data that generated error which can't be sent back: Code=%ld, Message='%s'", respErr->getErrorCode(), respErr->description().c_str());
+      LOG(LOG_WARNING, "Received data that generated error which can't be sent back: Code=%ld, Message='%s'", respErr->getErrorCode(), respErr->text());
   }
 }
 

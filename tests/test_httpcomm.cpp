@@ -117,8 +117,9 @@ public:
 
 
 #define TEST_URL "plan44.ch/testing/httptest.php"
-#define NOCERT_TEST_URL "localhost/"
-#define WRONGCN_TEST_URL "plan442.nine.ch/testing/httptest.php"
+#define NOCERT_TEST_URL "self-signed.badssl.com/" // see https://github.com/chromium/badssl.com
+#define WRONGCN_TEST_URL "wrong.host.badssl.com/"
+//#define WRONGCN_TEST_URL "plan442.nine.ch/testing/httptest.php"
 #define ERR404_TEST_URL "plan44.ch/testing/BADhttptest.php"
 #define ERR500_TEST_URL "plan44.ch/testing/httptest.php?err=500"
 #define NOCONTENT204_TEST_URL "plan44.ch/testing/httptest.php?err=204"
@@ -236,7 +237,7 @@ TEST_CASE_METHOD(HttpFixture, "https GET test: request to working server with no
   REQUIRE(runHttp("https://" NOCERT_TEST_URL)==EXIT_SUCCESS);
   INFO(URL);
   INFO(Error::text(httpErr));
-  REQUIRE(!Error::isOK(httpErr));
+  REQUIRE(Error::notOK(httpErr));
 }
 
 TEST_CASE_METHOD(HttpFixture, "https GET test without checking to local server w/o cert", "[https],[ssl]") {
@@ -252,7 +253,7 @@ TEST_CASE_METHOD(HttpFixture, "https GET test: request to working server with va
   REQUIRE(runHttp("https://" WRONGCN_TEST_URL)==EXIT_SUCCESS);
   INFO(URL);
   INFO(Error::text(httpErr));
-  REQUIRE(!Error::isOK(httpErr));
+  REQUIRE(Error::notOK(httpErr));
 }
 
 TEST_CASE_METHOD(HttpFixture, "https timeout test: not responding IPv4", "[https]") {
@@ -348,7 +349,7 @@ TEST_CASE_METHOD(HttpFixture, "https 4MBytes GET test", "[https]") {
   REQUIRE(response.size()>4000000);
 }
 
-TEST_CASE_METHOD(HttpFixture, "http 204 no content test", "[http],[FOCUS]") {
+TEST_CASE_METHOD(HttpFixture, "http 204 no content test", "[http]") {
   http->setBufferSize(512*1024);
   REQUIRE(runHttp("http://" NOCONTENT204_TEST_URL, "GET", 15*Second)==EXIT_SUCCESS);
   INFO(Error::text(httpErr));
@@ -356,7 +357,7 @@ TEST_CASE_METHOD(HttpFixture, "http 204 no content test", "[http],[FOCUS]") {
   REQUIRE(response.size()==0);
 }
 
-TEST_CASE_METHOD(HttpFixture, "http 304 not modified test", "[http],[FOCUS]") {
+TEST_CASE_METHOD(HttpFixture, "http 304 not modified test", "[http]") {
   http->setBufferSize(512*1024);
   REQUIRE(runHttp("http://" NOTMODIFIED304_TEST_URL, "GET", 15*Second)==EXIT_SUCCESS);
   INFO(Error::text(httpErr));

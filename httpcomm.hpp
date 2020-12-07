@@ -30,6 +30,16 @@
 #include "civetweb.h"
 #endif
 
+
+#if (ENABLE_EXPRESSIONS || ENABLE_P44SCRIPT) && !defined(ENABLE_HTTP_SCRIPT_FUNCS)
+  #define ENABLE_HTTP_SCRIPT_FUNCS 1
+#endif
+
+#if ENABLE_HTTP_SCRIPT_FUNCS
+#include "p44script.hpp"
+#include "expressions.hpp"
+#endif
+
 using namespace std;
 
 namespace p44 {
@@ -50,8 +60,12 @@ namespace p44 {
     typedef uint16_t ErrorCodes;
 
     static const char *domain() { return "HttpComm"; }
-    virtual const char *getErrorDomain() const { return HttpCommError::domain(); };
+    virtual const char *getErrorDomain() const P44_OVERRIDE { return HttpCommError::domain(); };
     HttpCommError(ErrorCodes aError) : Error(ErrorCode(aError)) {};
+    #if ENABLE_NAMED_ERRORS
+  protected:
+    virtual const char* errorName() const P44_OVERRIDE;
+    #endif // ENABLE_NAMED_ERRORS
   };
 
 
@@ -91,9 +105,9 @@ namespace p44 {
     int responseDataFd;
     size_t bufferSz; ///< buffer size for civetweb/mongoose data read operations
     bool streamResult; ///< if set, result will be "streamed", meaning callback will be called multiple times as data chunks arrive
-    MLMicroSeconds timeout; // timeout, Never = use default, do not set
-    struct mg_connection *mgConn; // mongoose connection
-    void *httpAuthInfo; // opaque auth info kept stored between connections
+    MLMicroSeconds timeout; ///< timeout, Never = use default, do not set
+    struct mg_connection *mgConn; ///< mongoose connection
+    void *httpAuthInfo; ///< opaque auth info kept stored between connections
 
   public:
 
@@ -114,7 +128,7 @@ namespace p44 {
 
   public:
 
-    HttpComm(MainLoop &aMainLoop);
+    HttpComm(MainLoop &aMainLoop = MainLoop::currentMainLoop());
     virtual ~HttpComm();
 
     /// clear request headers
@@ -126,8 +140,8 @@ namespace p44 {
     void addRequestHeader(const string aHeaderName, const string aHeaderValue) { requestHeaders[aHeaderName] = aHeaderValue; };
 
     /// set http (digest) auth credentials (will be used on all subsequent requests)
-    /// @param aUsername user name
-    /// @param aPassword password
+    /// @param aUsername user name (empty means no http auth user)
+    /// @param aPassword password (empty means no http auth pw)
     void setHttpAuthCredentials(const string aUsername, const string aPassword) { username = aUsername; password = aPassword; };
 
     /// explicitly set socket timeout to use
@@ -189,6 +203,14 @@ namespace p44 {
     static string urlEncode(const string &aString, bool aFormURLEncoded);
     static void appendFormValue(string &aDataString, const string &aFieldname, const string &aValue);
 
+    #if ENABLE_HTTP_SCRIPT_FUNCS && ENABLE_EXPRESSIONS
+    /// This function implements geturl/puturl/posturl http utility functions, and is intended to get called
+    /// from a EvaluationContext's evaluateAsyncFunctions() method to provide http functionality
+    /// @param aHttpCommP can be used to pass a pre-existing http context, but ONLY IF evaluateAsyncHttpFunctions() is not called again before evaluation has completed!
+    static bool evaluateAsyncHttpFunctions(EvaluationContext* aEvalContext, const string &aFunc, const FunctionArguments &aArgs, bool &aNotYielded, HttpCommPtr* aHttpCommP = NULL);
+
+    static void httpFunctionDone(EvaluationContext* aEvalContext, const string &aResponse, ErrorPtr aError);
+    #endif // ENABLE_HTTP_SCRIPT_FUNCS
 
   protected:
     virtual const char *defaultContentType() { return "text/html; charset=UTF-8"; };
@@ -199,6 +221,21 @@ namespace p44 {
     void requestThread(ChildThreadWrapper &aThread);
 
   };
+
+  #if ENABLE_HTTP_SCRIPT_FUNCS && ENABLE_P44SCRIPT
+  namespace P44Script {
+
+    /// represents the global objects related to http
+    class HttpLookup : public BuiltInMemberLookup
+    {
+      typedef BuiltInMemberLookup inherited;
+    public:
+      HttpLookup();
+    };
+
+  }
+  #endif
+
 
   
 } // namespace p44

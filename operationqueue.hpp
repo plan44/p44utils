@@ -38,11 +38,22 @@ namespace p44 {
       OK,
       Aborted,
       TimedOut,
+      numErrorCodes
     } ErrorCodes;
     
     static const char *domain() { return "OperationQueue"; };
-    virtual const char *getErrorDomain() const { return OQError::domain(); };
+    virtual const char *getErrorDomain() const P44_OVERRIDE { return OQError::domain(); };
     OQError(ErrorCodes aError) : Error(ErrorCode(aError)) {};
+    #if ENABLE_NAMED_ERRORS
+  protected:
+    virtual const char* errorName() const P44_OVERRIDE { return errNames[getErrorCode()]; };
+  private:
+    static constexpr const char* const errNames[numErrorCodes] = {
+      "OK",
+      "Aborted",
+      "TimedOut",
+    };
+    #endif // ENABLE_NAMED_ERRORS
   };
 
 
@@ -60,7 +71,8 @@ namespace p44 {
     bool aborted;
     MLMicroSeconds timeout; ///< timeout
     MLMicroSeconds timesOutAt; ///< absolute time for timeout
-    MLMicroSeconds initiationDelay; ///< how much to delay initiation (after first attempt to initiate)
+    MLMicroSeconds initiationDelay; ///< how much to delay initiation after first attempt to initiate (or after last initiation, see below)
+    bool fromLastInitiation; ///< if set, initiationDelay counts from last initiation happened on this queue
     MLMicroSeconds initiatesNotBefore; ///< absolute time for earliest initiation
 
     StatusCB completionCB; ///< completion callback
@@ -94,7 +106,8 @@ namespace p44 {
 
     /// set delay for initiation (after first attempt to initiate)
     /// @param aInitiationDelay how long to delay initiation of the operation minimally
-    void setInitiationDelay(MLMicroSeconds aInitiationDelay);
+    /// @param aFromLastInitiation if set, delay is measured from last initiation on this queue
+    void setInitiationDelay(MLMicroSeconds aInitiationDelay, bool aFromLastInitiation = false);
 
     /// set earliest time to execute
     /// @param aInitiatesAt when to initiate the operation earliest
@@ -117,15 +130,17 @@ namespace p44 {
     /// @{
 
     /// check if can be initiated
+    /// @param aLastInitiation time when last operation was initiated on the queue (or Never)
     /// @return false if cannot be initiated now and must be retried
     /// @note base class implementation implements initiation delay here.
     ///   Derived classes might check other criteria in addition
-    virtual bool canInitiate();
+    virtual bool canInitiate(MLMicroSeconds aLastInitiation);
 
     /// call to initiate operation
-    /// @return false if cannot be initiated now and must be retried
     /// @note base class starts timeout when initiation has occurred
-    /// @note internally calls canInitiate() first
+    /// @note must only be called after canInitiate() returns true!
+    /// @return false if could not be initiated despite canInitiate() having returned true
+    ///   (canInitiate() and initiate() will be retried in this case)
     virtual bool initiate();
     
     /// call to check if operation has completed (after being initiated)
@@ -157,6 +172,7 @@ namespace p44 {
     MainLoop &mainLoop;
     bool processingQueue; ///< set when queue is currently processing
     MLTicket recheckTicket; ///< regular checking of the queue
+    MLMicroSeconds lastInitiation; ///< time when last initiation was fired
 
   protected:
 
@@ -166,7 +182,7 @@ namespace p44 {
   public:
 
     /// create operation queue linked into specified mainloop
-    OperationQueue(MainLoop &aMainLoop);
+    OperationQueue(MainLoop &aMainLoop = MainLoop::currentMainLoop());
 
     /// destructor
     virtual ~OperationQueue();

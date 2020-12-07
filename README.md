@@ -2,18 +2,21 @@
 p44utils
 ========
 
-[![Flattr this git repo](http://api.flattr.com/button/flattr-badge-large.png)](https://flattr.com/submit/auto?user_id=luz&url=https://github.com/plan44/p44utils&title=p44utils&language=&tags=github&category=software) 
+*[[if you want to support p44utils development, please consider to sponsor plan44]](https://github.com/sponsors/plan44)* 
 
-"p44utils" is a set of free (opensource, GPLv3) C++ utility classes and functions for creating single-threaded, mainloop event based applications, mainly targeted at linux deamons for automation.
+*p44utils* is a set of free (opensource, GPLv3) C++ utility classes and functions for creating single-threaded, mainloop event based applications, mainly targeted at linux daemons for automation.
 
-"p44utils" have been developed as part of the [vdcd project](https://github.com/plan44/vdcd) (a digitalSTROM virtual device container daemon), but are of more generic use, and thus have been separated from the vdcd repository (and made vdcd and other tools use p44utils as a submodule)
+*p44utils* have been developed as part of the [vdcd project](https://github.com/plan44/vdcd) (a digitalSTROM virtual device container daemon), but are of more generic use, and thus have been separated from the vdcd repository (and made vdcd and other tools use p44utils as a submodule)
 
-"p44utils" makes very light use of boost (intrusive\_ptr, bind), and has some classes that use civetweb, sqlitepp, rpi_ws281x, json-c.
+*p44utils* makes very light use of boost (intrusive\_ptr, bind), and has some classes that use civetweb, sqlitepp, rpi_ws281x, json-c.
 
 Usage
 -----
-p44utils are meant to be included as .cpp and .hpp files into a project (usually as a git submodule) and compiled together with the project's other sources.
-Examples using p44utils: [p44vdc](https://github.com/plan44/p44vdc)/[vdcd](https://github.com/plan44/vdcd), [pixelboardd](https://github.com/plan44/pixelboardd), [p44wiperd](https://github.com/plan44/p44wiperd), [lethd](https://github.com/plan44/lethd).
+*p44utils* are meant to be included as .cpp and .hpp files into a project (usually as a git submodule) and compiled together with the project's other sources.
+
+Some aspects can be configured via the `p44utils_config.hpp` header file, which should be placed somewhere in the project's header search path. There is a template file name `p44utils_config_TEMPLATE.hpp` which can be copied into the project and renamed to `p44utils_config.hpp`.
+
+Examples using p44utils: [p44vdc](https://github.com/plan44/p44vdc)/[vdcd](https://github.com/plan44/vdcd), [pixelboardd](https://github.com/plan44/pixelboardd), [p44wiperd](https://github.com/plan44/p44wiperd), [p44featured](https://github.com/plan44/p44featured).
 
 License
 -------
@@ -33,6 +36,7 @@ Features
 - Application base class implementing command line parsing, option handling and usage message formatting
 - logging with loglevels, efficiently avoiding disabled log levels to waste CPU time
 - support for using unix file descriptors with the I/O based mainloop events
+- a full-featured script language *p44script*, designed for exposing to end users for allowing very flexible but still simple to use customisation.
 - helper classes for serial line communication
 - helper class for socket communication
 - helper class for socket based generic JSON and JSON RPC 2 protocols
@@ -41,14 +45,11 @@ Features
 - support for a simple http client (mainly targeted at automation APIs)
 - support for JSON based http APIs
 - wrappers to abstract various sources of digital and analog inputs (such as GPIO, I2C and SPI peripherals) into easy to use input or output objects, including debouncing for inputs and blinking sequences for indicator outputs.
-- helper class for serial data controlled RGB and RGBW LED chains (WS281x, SK6812; APA102 planned)
+- helper class for serial data controlled RGB and RGBW LED chains (WS281x, SK6812 etc.), and arranging multiple chains to form a display surface that can be used with [p44lrgraphics](https://github.com/plan44/p44lrgraphics).
+- value animator class which provides all functionality to change a numeric property over a given time with a specific curve, for example properties of [p44lrgraphics](https://github.com/plan44/p44lrgraphics) views or a PWM output.
+- support for using [lvgl](https://lvgl.io) embedded graphics library in p44utils based applications, including a JSON-based UI configuration mechanism.
+- utils: simple utility functions that DO NOT depend on other p44utils classes
+- extutils: simple utility functions that depend on other p44utils classes
 - other stuff :-)
 
-(c) 2013-2018 by Lukas Zeller / [plan44.ch](http://www.plan44.ch/opensource)
-
-
-
-
-
-
-
+(c) 2013-2020 by Lukas Zeller / [plan44.ch](http://www.plan44.ch/opensource)

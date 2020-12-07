@@ -35,7 +35,7 @@ using namespace p44;
 #define DEFAULT_RECEIVE_TIMEOUT (3*Second) // [uS] = 3 seconds
 
 
-// MARK: ===== SerialOperation
+// MARK: - SerialOperation
 
 
 // set transmitter
@@ -52,7 +52,7 @@ ssize_t SerialOperation::acceptBytes(size_t aNumBytes, uint8_t *aBytes)
 }
 
 
-// MARK: ===== SerialOperationSend
+// MARK: - SerialOperationSend
 
 
 SerialOperationSend::SerialOperationSend() :
@@ -112,7 +112,6 @@ void SerialOperationSend::appendByte(uint8_t aByte)
 
 bool SerialOperationSend::initiate()
 {
-  if (!canInitiate()) return false;
   FOCUSLOG("SerialOperationSend::initiate: sending %zd bytes now", dataSize);
   size_t res;
   if (dataP && transmitter) {
@@ -131,7 +130,7 @@ bool SerialOperationSend::initiate()
 
 
 
-// MARK: ===== SerialOperationReceive
+// MARK: - SerialOperationReceive
 
 
 SerialOperationReceive::SerialOperationReceive() :
@@ -200,7 +199,7 @@ void SerialOperationReceive::abortOperation(ErrorPtr aError)
 }
 
 
-// MARK: ===== SerialOperationQueue
+// MARK: - SerialOperationQueue
 
 
 // Link into mainloop
@@ -228,17 +227,32 @@ SerialOperationQueue::~SerialOperationQueue()
 }
 
 
-// set transmitter
 void SerialOperationQueue::setTransmitter(SerialOperationTransmitter aTransmitter)
 {
   transmitter = aTransmitter;
 }
 
 
-// set receiver
 void SerialOperationQueue::setReceiver(SerialOperationReceiver aReceiver)
 {
   receiver = aReceiver;
+}
+
+
+void SerialOperationQueue::setExtraBytesHandler(SerialOperationExtraBytesHandler aExtraBytesHandler)
+{
+  extraBytesHandler = aExtraBytesHandler;
+}
+
+
+ssize_t SerialOperationQueue::acceptExtraBytes(size_t aNumBytes, uint8_t *aBytes)
+{
+  if (extraBytesHandler) {
+    return extraBytesHandler(aNumBytes, aBytes);
+  }
+  else {
+    return 0; // base class does not accept any extra bytes by default
+  }
 }
 
 
@@ -389,7 +403,7 @@ size_t SerialOperationQueue::acceptBytes(size_t aNumBytes, uint8_t *aBytes)
 };
 
 
-// MARK: ===== standard transmitter and receivers
+// MARK: - standard transmitter and receivers
 
 
 
@@ -403,8 +417,8 @@ size_t SerialOperationQueue::standardTransmitter(size_t aNumBytes, const uint8_t
   if (Error::isOK(err)) {
     while (aNumBytes>0) {
       res = serialComm->transmitBytes(aNumBytes, aBytes+numWritten, err);
-      if (!Error::isOK(err)) {
-        FOCUSLOG("Error writing serial data: %s", err->description().c_str());
+      if (Error::notOK(err)) {
+        FOCUSLOG("Error writing serial data: %s", err->text());
         break;
       }
       else if (res<=0) {
@@ -442,8 +456,8 @@ size_t SerialOperationQueue::standardReceiver(size_t aMaxBytes, uint8_t *aBytes)
 		// get number of bytes available
     ErrorPtr err;
     gotBytes = serialComm->receiveBytes(aMaxBytes, aBytes, err);
-    if (!Error::isOK(err)) {
-      FOCUSLOG("- Error reading serial: %s", err->description().c_str());
+    if (Error::notOK(err)) {
+      FOCUSLOG("- Error reading serial: %s", err->text());
       return 0;
     }
     else {
