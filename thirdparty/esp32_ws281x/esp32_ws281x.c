@@ -5,6 +5,9 @@
  * signals sent to the WS281x LEDs.
  *
  * This code is placed in the public domain (or CC0 licensed, at your option).
+ *
+ * Adapted to p44utils context by Lukas Zeller <luz@plan44.ch>
+ *
  */
 
 #include "esp32_ws281x.h"

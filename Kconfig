@@ -10,4 +10,14 @@ config P44UTILS_ENABLE_JSON
     help
         This enables the JSON support in p44utils.
 
+config P44UTILS_ENABLE_P44SCRIPT
+    bool "Enable p44script support"
+    help
+        This enables p44script scripting engine in p44utils.
+
+config P44UTILS_ENABLE_P44LRGRAPHICS
+    bool "Enable p44lrgraphics support"
+    help
+        This enables lrgraphics support
+
 endmenu

@@ -23,6 +23,9 @@ JSON_OBJS = \
   $(JSON_TPDIR)/printbuf.o \
   $(JSON_TPDIR)/random_seed.o
 
+P44SCRIPT_OBJS = \
+  p44script.o
+
 
 COMPONENT_SRCDIRS := \
   . \
@@ -39,8 +42,18 @@ COMPONENT_OBJS:= \
   mainloop.o \
   fdcomm.o \
   socketcomm.o \
+  valueanimator.o \
+  colorutils.o \
+  extutils.o \
+  analogio.o \
+  digitalio.o \
+  dcmotor.o \
+  iopin.o \
+  gpio.o \
+  pwm.o \
   $(call compile_only_if,$(CONFIG_P44UTILS_ENABLE_LEDCHAIN),$(LEDCHAIN_OBJS)) \
-  $(call compile_only_if,$(CONFIG_P44UTILS_ENABLE_JSON),$(JSON_OBJS))
+  $(call compile_only_if,$(CONFIG_P44UTILS_ENABLE_JSON),$(JSON_OBJS)) \
+  $(call compile_only_if,$(P44UTILS_ENABLE_P44SCRIPT),$(P44SCRIPT_OBJS_OBJS))
 
 
 COMPONENT_ADD_INCLUDEDIRS = \
@@ -51,7 +64,6 @@ COMPONENT_ADD_INCLUDEDIRS = \
 
 CPPFLAGS += \
   -Wno-reorder \
-  -isystem \
-  /Volumes/CaseSens/openwrt/build_dir/target-mipsel_24kc_musl/boost_1_67_0
+  -isystem /Volumes/CaseSens/openwrt/build_dir/target-mipsel_24kc_musl/boost_1_67_0
 
 # %%%ugly hack above ^^^^^^ for now%%% just take a boost checkout we already have
