@@ -55,11 +55,17 @@ extern "C" {
  */
 #define JSON_C_TO_STRING_NOZERO     (1<<2)
 
-#undef FALSE
-#define FALSE ((json_bool)0)
+#ifndef FALSE
+  #define FALSE 0
+#elif FALSE!=0
+  #error "another header defines FALSE!=0"
+#endif
 
-#undef TRUE
-#define TRUE ((json_bool)1)
+#ifndef TRUE
+  #define TRUE 1
+#elif TRUE!=1
+  #error "another header defines TRUE!=1"
+#endif
 
 extern const char *json_number_chars;
 extern const char *json_hex_chars;
