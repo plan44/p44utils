@@ -64,6 +64,6 @@ COMPONENT_ADD_INCLUDEDIRS = \
 
 CPPFLAGS += \
   -Wno-reorder \
-  -isystem /Volumes/CaseSens/openwrt/build_dir/target-mipsel_24kc_musl/boost_1_67_0
+  -isystem /Volumes/CaseSens/openwrt/build_dir/target-mipsel_24kc_musl/boost_1_71_0
 
 # %%%ugly hack above ^^^^^^ for now%%% just take a boost checkout we already have

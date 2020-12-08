@@ -143,7 +143,7 @@ namespace p44 {
   };
 
 
-  #ifndef DISABLE_SYSTEMCMDIO
+  #if !DISABLE_SYSTEMCMDIO && !defined(ESP_PLATFORM)
 
   /// Digital System Command I/O pin
   class SysCommandPin : public IOPin
@@ -177,7 +177,7 @@ namespace p44 {
 
   };
 
-  #endif // !DISABLE_SYSTEMCMDIO
+  #endif // !DISABLE_SYSTEMCMDIO && !defined(ESP_PLATFORM)
 
 
 
@@ -257,7 +257,7 @@ namespace p44 {
 
 
 
-  #ifndef DISABLE_SYSTEMCMDIO
+  #if !DISABLE_SYSTEMCMDIO && !defined(ESP_PLATFORM)
 
   /// Digital System Command I/O pin
   class AnalogSysCommandPin : public AnalogIOPin
@@ -291,7 +291,7 @@ namespace p44 {
 
   };
 
-  #endif // !DISABLE_SYSTEMCMDIO
+  #endif // !DISABLE_SYSTEMCMDIO && !defined(ESP_PLATFORM)
 
   /// simulated I/O pin via file device
   class AnalogSimPinFd : public AnalogIOPin

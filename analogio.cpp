@@ -108,7 +108,7 @@ AnalogIo::AnalogIo(const char* aPinSpec, bool aOutput, double aInitialValue)
   }
   else
   #endif
-  #if !DISABLE_SYSCMDIO
+  #if !DISABLE_SYSCMDIO && !defined(ESP_PLATFORM)
   if (busName=="syscmd") {
     // analog I/O calling system command to set value
     ioPin = AnalogIOPinPtr(new AnalogSysCommandPin(pinName.c_str(), output, aInitialValue));

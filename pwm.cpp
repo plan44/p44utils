@@ -36,12 +36,9 @@
 using namespace p44;
 
 
-// MARK: - PWM via modern kernel support
-
-#define PWM_SYS_CLASS_PATH "/sys/class/pwm"
-
-
 #ifdef ESP_PLATFORM
+
+// MARK: - PWM via ESP32 LEDC PWM controller
 
 PWMPin::PWMPin(int aPwmChip, int aPwmChannel, bool aInverted, double aInitialValue, uint32_t aPeriodInNs) :
   gpioNo((gpio_num_t)aPwmChip),
@@ -122,6 +119,10 @@ bool PWMPin::getRange(double &aMin, double &aMax, double &aResolution)
 
 
 #else
+
+// MARK: - PWM via modern kernel support
+
+#define PWM_SYS_CLASS_PATH "/sys/class/pwm"
 
 
 PWMPin::PWMPin(int aPwmChip, int aPwmChannel, bool aInverted, double aInitialValue, uint32_t aPeriodInNs) :

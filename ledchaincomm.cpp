@@ -121,8 +121,8 @@ bool LEDChainComm::begin()
     }
     else {
       #ifdef ESP_PLATFORM
-      if (aDeviceName.substr(0,4)=="gpio") {
-        sscanf(aDeviceName.c_str()+4, "%d", &gpioNo);
+      if (deviceName.substr(0,4)=="gpio") {
+        sscanf(deviceName.c_str()+4, "%d", &gpioNo);
       }
       // prepare buffer and initialize library
       if (pixels) {
@@ -269,9 +269,10 @@ void LEDChainComm::setColorAtLedIndex(uint16_t aLedIndex, uint8_t aRed, uint8_t 
     uint8_t r = pwmtable[aRed];
     uint8_t g = pwmtable[aGreen];
     uint8_t b = pwmtable[aBlue];
-    uint8_t w = pwmtable[aBlue];
+    uint8_t w = pwmtable[aWhite];
     #ifdef ESP_PLATFORM
-    pixels[ledindex] = makeRGBVal(r, g, b);
+    pixels[aLedIndex] = makeRGBVal(r, g, b);
+    // TODO: support RGBW in esp32_ws281x
     #elif ENABLE_RPIWS281X
     ws2811_led_t pixel =
       ((uint32_t)r << 16) |
@@ -302,12 +303,12 @@ void LEDChainComm::getColorAtLedIndex(uint16_t aLedIndex, uint8_t &aRed, uint8_t
   else {
     if (aLedIndex>=numLeds) return;
     #ifdef ESP_PLATFORM
-    rgbVal &pixel = pixels[ledindex];
+    rgbVal &pixel = pixels[aLedIndex];
     aRed = brightnesstable[pixel.r];
     aGreen = brightnesstable[pixel.g];
     aBlue = brightnesstable[pixel.b];
     aWhite = 0;
-    #if ENABLE_RPIWS281X
+    #elif ENABLE_RPIWS281X
     ws2811_led_t pixel = ledstring.channel[0].leds[aLedIndex];
     aRed = brightnesstable[(pixel>>16) & 0xFF];
     aGreen = brightnesstable[(pixel>>8) & 0xFF];

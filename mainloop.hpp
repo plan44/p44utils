@@ -42,10 +42,7 @@ unsigned long _p44_millis();
 #include "p44utils_common.hpp"
 
 #ifdef ESP_PLATFORM
-  #define POLLIN  0x0001 // any readable data available
-  #define POLLOUT 0x0004 // file descriptor is writeable
-  #define POLLERR 0x0008 // some poll error occurred
-  #define POLLHUP 0x0010 // file descriptor was "hung up"
+  #include <sys/poll.h>
 #else
   #include <poll.h>
   #include <pthread.h>

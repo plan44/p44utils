@@ -3,7 +3,7 @@
 //
 //  Author: Lukas Zeller <luz@plan44.ch>
 //
-//  This file is part of p44wiperd.
+//  This file is part of p44utils.
 //
 //  p44ayabd is free software: you can redistribute it and/or modify
 //  it under the terms of the GNU General Public License as published by
@@ -29,7 +29,7 @@
 using namespace p44;
 
 
-#pragma mark - DCMotorDriver
+// MARK: - DCMotorDriver
 
 DcMotorDriver::DcMotorDriver(const char *aPWMOutput, const char *aCWDirectionOutput, const char *aCCWDirectionOutput) :
   currentPower(0),

@@ -544,8 +544,8 @@ ErrorPtr SocketComm::connectNextAddress()
                 }
               }
             }
-            #endif // !ESP_PLATFORM
           }
+          #endif // !ESP_PLATFORM
         } // serving (UDP socket bound to specific port)
         if (Error::isOK(err)) {
           startedConnecting = true;

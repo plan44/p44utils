@@ -54,7 +54,7 @@ namespace p44 {
 
   public:
     /// construct application with specific mainloop
-    Application(MainLoop &aMainLoop = MainLoop::currentMainLoop());
+    Application(MainLoop &aMainLoop);
 
     /// construct application using current thread's mainloop
     Application();

@@ -30,6 +30,8 @@ using namespace std;
 
 namespace p44 {
 
+  #ifndef ESP_PLATFORM
+
   /// reads string from file
   /// @param aFilePath the path of the file to read
   /// @param aData the string to store the contents of the file to
@@ -41,6 +43,8 @@ namespace p44 {
   /// @param aData the string to store in the file
   /// @return ok or error
   ErrorPtr string_tofile(const string aFilePath, const string &aData);
+
+  #endif
 
 } // namespace p44
 
