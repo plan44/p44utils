@@ -321,6 +321,11 @@ namespace p44 {
     /// stop LED chains and auto updates
     void end();
 
+    /// Factory helper to create ledchain arrangement with one or multiple led chains from --ledchain command line options
+    /// @param aLedChainArrangement if not set, new arrangement will be created, otherwise existing one is used
+    /// @param aChainSpec string describing the LED chain parameters and the coverage in the arrangement
+    static void addLEDChain(LEDChainArrangementPtr &aLedChainArrangement, const string &aChainSpec);
+
     #if ENABLE_APPLICATION_SUPPORT
 
     /// - option to construct LEDChainArrangement from command line
@@ -337,11 +342,6 @@ namespace p44 {
                                      "If power would exceed limit, all LEDs are dimmed to stay below limit." \
                                      "Standby/off power of LED chains is not included in the calculation. Defaults to 0=no limit" }, \
       { 0,   "ledrefresh",    true,  "update_ms;minimal number of milliseconds between LED chain updates. Defaults to 15ms." }
-
-    /// Factory helper to create ledchain arrangement with one or multiple led chains from --ledchain command line options
-    /// @param aLedChainArrangement if not set, new arrangement will be created, otherwise existing one is used
-    /// @param aChainSpec string describing the LED chain parameters and the coverage in the arrangement
-    static void addLEDChain(LEDChainArrangementPtr &aLedChainArrangement, const string &aChainSpec);
 
     /// process ledchain arrangement specific command line options
     void processCmdlineOptions();

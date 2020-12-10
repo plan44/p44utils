@@ -469,7 +469,6 @@ void LEDChainArrangement::clear()
   for(LedChainVector::iterator pos = ledChains.begin(); pos!=ledChains.end(); ++pos) {
     pos->ledChain->clear();
     pos->ledChain->show();
->>>>>>> plan44/luz
   }
 }
 
@@ -484,8 +483,6 @@ void LEDChainArrangement::setRootView(P44ViewPtr aRootView)
   rootView->setNeedUpdateCB(boost::bind(&LEDChainArrangement::rootViewRequestsUpdate, this), minUpdateInterval);
 }
 
-
-#if ENABLE_APPLICATION_SUPPORT
 
 #if ENABLE_P44LRGRAPHICS
 #include "viewfactory.hpp"
@@ -507,6 +504,8 @@ void LEDChainArrangement::addLEDChain(LEDChainArrangementPtr &aLedChainArrangeme
   aLedChainArrangement->addLEDChain(aChainSpec);
 }
 
+
+#if ENABLE_APPLICATION_SUPPORT
 
 void LEDChainArrangement::processCmdlineOptions()
 {

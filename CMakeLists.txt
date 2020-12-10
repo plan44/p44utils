@@ -31,7 +31,8 @@ if(CONFIG_P44UTILS_ENABLE_LEDCHAIN)
       "ledchaincomm.cpp"
       "thirdparty/esp32_ws281x/esp32_ws281x.c")
     list(APPEND incl
-      "thirdparty/esp32_ws281x")
+      "thirdparty/esp32_ws281x"
+      "../../components/p44lrgraphics")
 endif()
 
 if(CONFIG_P44UTILS_ENABLE_JSON)
