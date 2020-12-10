@@ -49,6 +49,7 @@ PWMPin::PWMPin(int aPwmChip, int aPwmChannel, bool aInverted, double aInitialVal
 {
   esp_err_t ret;
 
+  if (periodNs==0) periodNs = 200000; // 5kHz
   // timer params
   ledc_timer_config_t ledc_timer = {
     .speed_mode = LEDC_HIGH_SPEED_MODE,   // timer mode
@@ -57,7 +58,7 @@ PWMPin::PWMPin(int aPwmChip, int aPwmChannel, bool aInverted, double aInitialVal
     .freq_hz = 5000,                      // frequency of PWM signal
     .clk_cfg = LEDC_AUTO_CLK              // Auto select the source clock
   };
-  if (aPeriodInNs>0) ledc_timer.freq_hz = 1e-9/aPeriodInNs;
+  ledc_timer.freq_hz = 1e9/periodNs;
   // channel params
   ledc_channel_config_t ledc_channel = {
     .gpio_num   = GPIO_NUM_NC,
@@ -135,6 +136,7 @@ PWMPin::PWMPin(int aPwmChip, int aPwmChannel, bool aInverted, double aInitialVal
 {
   int tempFd;
   string name;
+  if (periodNs==0) periodNs = 20000; // 50kHz
   string s = string_format("%d", pwmChannel);
   // have the kernel export the pwm channel
   name = string_format("%s/pwmchip%d/export", PWM_SYS_CLASS_PATH, pwmChip);
@@ -156,7 +158,7 @@ PWMPin::PWMPin(int aPwmChip, int aPwmChannel, bool aInverted, double aInitialVal
   name = basePath + "/period";
   tempFd = open(name.c_str(), O_RDWR);
   if (tempFd<0) { LOG(LOG_ERR, "Cannot open PWM period file %s: %s", name.c_str(), strerror(errno)); return; }
-  s = string_format("%u", aPeriodInNs);
+  s = string_format("%u", periodNs);
   write(tempFd, s.c_str(), s.length());
   close(tempFd);
   // now keep the duty cycle FD open

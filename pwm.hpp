@@ -60,7 +60,7 @@ namespace p44 {
     /// @param aPwmChip PWM chip number (0,1,...), for ESP32: GPIO number
     /// @param aPwmChannel number (0,1,...), for ESP32: ledc channel number
     /// @param aInitialValue initial duty cycle value (0..100)
-    /// @param aPeriodInNs PWM period in nanoseconds
+    /// @param aPeriodInNs PWM period in nanoseconds, 0 = default
     PWMPin(int aPwmChip, int aPwmChannel, bool aInverted, double aInitialValue, uint32_t aPeriodInNs);
     virtual ~PWMPin();
 
