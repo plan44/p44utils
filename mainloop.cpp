@@ -19,6 +19,13 @@
 //  along with p44utils. If not, see <http://www.gnu.org/licenses/>.
 //
 
+// File scope debugging options
+// - Set ALWAYS_DEBUG to 1 to enable DBGLOG output even in non-DEBUG builds of this file
+#define ALWAYS_DEBUG 0
+// - set FOCUSLOGLEVEL to non-zero log level (usually, 5,6, or 7==LOG_DEBUG) to get focus (extensive logging) for this file
+//   Note: must be before including "logger.hpp" (or anything that includes "logger.hpp")
+#define FOCUSLOGLEVEL 0
+
 #include "mainloop.hpp"
 
 #ifdef __APPLE__
@@ -31,8 +38,10 @@
 #ifdef ESP_PLATFORM
   #include "freertos/FreeRTOS.h"
   #include "freertos/task.h"
+  #include "freertos/semphr.h"
   #include "esp_system.h"
   #include "esp_timer.h"
+  #include "esp_vfs.h"
 #endif
 #include "fdcomm.hpp"
 
@@ -334,6 +343,65 @@ ErrorPtr ExecError::exitStatus(int aExitStatus, const char *aContextMessage)
 }
 
 
+#ifdef ESP_PLATFORM
+
+#define P44UTILS_MAINLOOP_EVFS_PATH "/p44EvFs"
+
+static bool evFsInstalled = false;
+static bool foreignTaskTimersWaiting = false;
+
+static int evFs_open(const char *path, int flags, int mode)
+{
+  // is a singleton, local FD is always 0
+  DBGFOCUSLOG("evFs_open");
+  return 0; // FD
+}
+
+static int evFs_close(int fd)
+{
+  // nop
+  DBGFOCUSLOG("evFs_close");
+  return 0; // ok
+}
+
+static SemaphoreHandle_t evFsSemaphore = NULL;
+
+
+esp_err_t evFs_start_select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds, esp_vfs_select_sem_t sem, void **end_select_args)
+{
+  // remember the semaphore we need to trigger
+  DBGFOCUSLOG("evFs_start_select");
+  evFsSemaphore = sem.sem;
+  if (foreignTaskTimersWaiting) {
+    // new timers were waiting before select has started -> immediately terminate select()
+    foreignTaskTimersWaiting = false;
+    DBGFOCUSLOG("evFs_start_select with foreignTaskTimersPending immediately frees evFsSemaphore");
+    xSemaphoreGive(evFsSemaphore);
+  }
+  *end_select_args = NULL;
+  return ESP_OK;
+}
+
+
+static esp_err_t evFs_end_select(void *end_select_args)
+{
+  DBGFOCUSLOG("evFs_end_select");
+  evFsSemaphore = NULL; // forget semaphore again
+  return ESP_OK;
+}
+
+
+static esp_vfs_t evFs = {
+  .flags = ESP_VFS_FLAG_DEFAULT,
+  .open = &evFs_open,
+  .close = &evFs_close,
+  .start_select = &evFs_start_select,
+  .end_select = &evFs_end_select,
+};
+
+
+#endif // ESP_PLATFORM
+
 
 MainLoop::MainLoop() :
 	terminated(false),
@@ -342,6 +410,30 @@ MainLoop::MainLoop() :
   ticketNo(0),
   timersChanged(false)
 {
+  #ifdef ESP_PLATFORM
+  FOCUSLOG("mainloop: ESP32 specific initialisation of mainloop@%p", this);
+  // capture the task handle
+  mTaskHandle = xTaskGetCurrentTaskHandle();
+  // create locked semaphore to protect from untimely calls to executeNowFromForeignTask
+  mTimersLock = xSemaphoreCreateBinary();
+  evFsFD = -1;
+  if (!evFsInstalled) {
+    DBGFOCUSLOG("- installing pseudo VFS");
+    // create a pseudo VFS driver for the only purpose to be able to post a event that interrupts a select()
+    ErrorPtr err = EspError::err(esp_vfs_register(P44UTILS_MAINLOOP_EVFS_PATH, &evFs, NULL));
+    if (Error::notOK(err)) {
+      FOCUSLOG("mainloop: esp_vfs_register failed: %s", err->text());
+    }
+    evFsInstalled = true;
+    // now open a FD we can later use in handleIoPoll with select()
+    DBGFOCUSLOG("- opening select trigger event pseudo file");
+    evFsFD = open(P44UTILS_MAINLOOP_EVFS_PATH, O_RDONLY);
+    if (evFsFD<0) {
+      FOCUSLOG("mainloop: cannot open " P44UTILS_MAINLOOP_EVFS_PATH);
+    }
+    DBGFOCUSLOG("- select trigger event pseudo file, FD=%d", evFsFD);
+  }
+  #endif
   // default configuration
   maxSleep = MAINLOOP_DEFAULT_MAXSLEEP;
   maxRun = MAINLOOP_DEFAULT_MAXRUN;
@@ -395,6 +487,32 @@ void MainLoop::executeNow(TimerCB aTimerCallback)
 {
   executeOnce(aTimerCallback, 0, 0);
 }
+
+
+#ifdef ESP_PLATFORM
+
+void MainLoop::executeNowFromForeignTask(TimerCB aTimerCallback)
+{
+  // - safely insert in timer queue
+  DBGFOCUSLOG("executeNowFromForeignTask: evFsFD=%d in mainloop@%p", evFsFD, this);
+  xSemaphoreTake(mTimersLock, portMAX_DELAY);
+  DBGFOCUSLOG("- executeNowFromForeignTask lock taken in mainloop@%p", this);
+  executeNow(aTimerCallback);
+  if (evFsFD>=0) {
+    // signal select to exit immediately when not yet running
+    foreignTaskTimersWaiting = true;
+    // make select() exit if already running
+    if (evFsSemaphore) {
+      // we are currently in select, release it
+      DBGFOCUSLOG("- executeNowFromForeignTask frees evFsSemaphore");
+      xSemaphoreGive(evFsSemaphore);
+    }
+  }
+  xSemaphoreGive(mTimersLock);
+}
+
+#endif
+
 
 
 void MainLoop::scheduleTimer(MLTimer &aTimer)
@@ -846,7 +964,7 @@ bool MainLoop::handleIOPoll(MLMicroSeconds aTimeout)
   // Create bitmap for select call
   int numFDsToTest = 0; // number of file descriptors to test (max+1 of all used FDs)
   IOPollHandlerMap::iterator pos = ioPollHandlers.begin();
-  if (pos!=ioPollHandlers.end()) {
+  if (pos!=ioPollHandlers.end() || evFsFD>=0) {
     FD_ZERO(&readfs);
     FD_ZERO(&writefs);
     FD_ZERO(&errorfs);
@@ -859,8 +977,16 @@ bool MainLoop::handleIOPoll(MLMicroSeconds aTimeout)
       if (h.pollFlags & (POLLERR+POLLHUP)) FD_SET(h.monitoredFD, &errorfs);
       ++pos;
     }
+    if (evFsFD>=0) {
+      // Only on application's first mainloop: always add the special evFsFD which allows other tasks to trigger exiting select
+      numFDsToTest = MAX(evFsFD+1, numFDsToTest);
+      FD_SET(evFsFD, &errorfs); // evFs does not check flags, anyway, only exits select() when something happens
+    }
   }
   // block until input becomes available or timeout
+  // Note: while we wait or poll for external events is the ONLY time while we allow external task to queue timer events
+  DBGFOCUSLOG("opening mTimersLock");
+  xSemaphoreGive(mTimersLock); // give others the opportunity to insert timer events
   int numReadyFDs = 0;
   if (numFDsToTest>0) {
     // actual FDs to test
@@ -868,16 +994,30 @@ bool MainLoop::handleIOPoll(MLMicroSeconds aTimeout)
     tv.tv_sec = aTimeout / 1000000;
     tv.tv_usec = aTimeout % 1000000;
     numReadyFDs = select(numFDsToTest, &readfs, &writefs, &errorfs, &tv);
-  }
+    DBGFOCUSLOG("select returns %d", numReadyFDs);
+ }
   else {
     // nothing to test, just await timeout
-    if (aTimeout>0) {
-      usleep((useconds_t)aTimeout);
+    static const MLMicroSeconds tickInterval = portTICK_PERIOD_MS*MilliSecond;
+    if (aTimeout>=tickInterval) {
+      // only sleep if it's actually more than a tick, rounded down (better getting control back too soon than too late!)
+      // Note: usleep would waste rest of time in a busy loop, so we'd rather spend it looping around here than there ;-)
+      vTaskDelay(aTimeout/tickInterval);
     }
   }
+  DBGFOCUSLOG("closing mTimersLock");
+  xSemaphoreTake(mTimersLock, portMAX_DELAY); // running again, lock timer list
+  DBGFOCUSLOG("closed mTimersLock");
+  foreignTaskTimersWaiting = false; // not waiting, timers will be checked ASAP
   if (numReadyFDs>0) {
     // check the descriptor sets and call handlers when needed
     for (int i = 0; i<numFDsToTest; i++) {
+      if (i==evFsFD) {
+        if (FD_ISSET(i, &errorfs)) {
+          DBGFOCUSLOG("evFsFD triggered");
+        }
+        continue; // there is no ioPollHandler for this, just ignore (only purpose is to exit select())
+      }
       int pollflags = 0;
       if (FD_ISSET(i, &readfs)) pollflags |= POLLIN;
       if (FD_ISSET(i, &writefs)) pollflags |= POLLOUT;

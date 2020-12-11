@@ -260,6 +260,12 @@ namespace p44 {
     MLMicroSeconds maxCoalescing; ///< how much to shift timer execution points maximally (always within limits given by timer's tolerance) to coalesce executions
     MLMicroSeconds waitCheckInterval; ///< max interval between checks for termination of running child processes
 
+    #ifdef ESP_PLATFORM
+    TaskHandle_t mTaskHandle; ///< task handle of task that started this mainloop
+    SemaphoreHandle_t mTimersLock; ///< semaphore for timers list
+    int evFsFD; ///< the filedescriptor that is signalled when another task posts timer events
+    #endif
+
   protected:
 
     bool hasStarted;
@@ -376,6 +382,12 @@ namespace p44 {
     ///   it immediately gets destroyed *before* the mainloop executes the callback, but probability is low.
     /// @param aTimerCallback the functor to be called from mainloop
     void executeNow(TimerCB aTimerCallback);
+
+    #ifdef ESP_PLATFORM
+    /// execute something on this mainloop without delay initiated by another task (thread not maintained by p44utils, like callbacks in ESP32)
+    /// @param aTimerCallback the functor to be called from this mainloop (rather than the caller's)
+    void executeNowFromForeignTask(TimerCB aTimerCallback);
+    #endif
 
     /// cancel pending execution by ticket number
     /// @param aTicket ticket of pending execution to cancel. Will be reset on return
