@@ -44,7 +44,7 @@ Application *Application::sharedApplication()
 bool Application::isRunning()
 {
   if (sharedApplicationP) {
-    return sharedApplicationP->mainLoop.isRunning();
+    return sharedApplicationP->mMainLoop.isRunning();
   }
   return false; // no app -> not running
 }
@@ -53,7 +53,7 @@ bool Application::isRunning()
 bool Application::isTerminated()
 {
   if (sharedApplicationP) {
-    return sharedApplicationP->mainLoop.isTerminated();
+    return sharedApplicationP->mMainLoop.isTerminated();
   }
   return true; // no app -> consider terminated as well
 }
@@ -61,14 +61,14 @@ bool Application::isTerminated()
 
 
 Application::Application(MainLoop &aMainLoop) :
-  mainLoop(aMainLoop)
+  mMainLoop(aMainLoop)
 {
   initializeInternal();
 }
 
 
 Application::Application() :
-  mainLoop(MainLoop::currentMainLoop())
+  mMainLoop(MainLoop::currentMainLoop())
 {
   initializeInternal();
 }
@@ -164,11 +164,11 @@ void Application::cleanup(int aExitCode)
 int Application::run()
 {
 	// schedule the initialize() method as first mainloop method
-	mainLoop.executeNow(boost::bind(&Application::initialize, this));
+	mMainLoop.executeNow(boost::bind(&Application::initialize, this));
 	// run the mainloop
-	int exitCode = mainLoop.run();
+	int exitCode = mMainLoop.run();
   // show the statistic
-  LOG(LOG_INFO, "Terminated: %s", mainLoop.description().c_str());
+  LOG(LOG_INFO, "Terminated: %s", mMainLoop.description().c_str());
   // clean up
   cleanup(exitCode);
   // done
@@ -179,7 +179,7 @@ int Application::run()
 void Application::terminateApp(int aExitCode)
 {
   // have mainloop terminate with given exit code and exit run()
-  mainLoop.terminate(aExitCode);
+  mMainLoop.terminate(aExitCode);
 }
 
 
@@ -187,7 +187,7 @@ void Application::terminateApp(int aExitCode)
 void Application::terminateAppWith(ErrorPtr aError)
 {
   if (Error::isOK(aError)) {
-    mainLoop.terminate(EXIT_SUCCESS);
+    mMainLoop.terminate(EXIT_SUCCESS);
   }
   else {
     if (!LOGENABLED(LOG_ERR)) {
@@ -199,7 +199,7 @@ void Application::terminateAppWith(ErrorPtr aError)
     else {
       LOG(LOG_ERR, "Terminating because of error: %s", aError->text());
     }
-    mainLoop.terminate(EXIT_FAILURE);
+    mMainLoop.terminate(EXIT_FAILURE);
   }
 }
 

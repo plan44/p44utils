@@ -45,7 +45,7 @@ namespace p44 {
   {
     typedef P44Obj inherited;
 
-    MainLoop &mainLoop;
+    MainLoop &mMainLoop;
 
   protected:
 
@@ -69,6 +69,9 @@ namespace p44 {
 
     /// get shared instance (singleton)
     static Application *sharedApplication();
+
+    /// get mainloop of the app main thread (the thread the application was started from)
+    MainLoop& mainLoop() { return mMainLoop; }
 
     /// @return returns true only when application is running in its mainloop
     /// @note can be used to make sure object tree is not in end-of-app destruction, e.g. when referencing objects from individual
