@@ -23,8 +23,12 @@
 #define __p44utils__minimal__
 
 #ifdef HAVE_CONFIG_H
-#include "config.h"
+  #include "config.h"
 #endif
+#ifdef ESP_PLATFORM
+  #include "sdkconfig.h"
+#endif
+
 
 #if __cplusplus >= 201103L
   // we have C++ 11

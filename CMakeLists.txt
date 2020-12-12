@@ -60,6 +60,7 @@ idf_component_register(SRCS "${srcs}"
 
 target_compile_options(${COMPONENT_LIB} PRIVATE
   -Wno-reorder
+  -Wno-missing-field-initializers
   -frtti
   -isystem /Volumes/CaseSens/openwrt/build_dir/target-mipsel_24kc_musl/boost_1_71_0)
 
