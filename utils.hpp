@@ -229,6 +229,7 @@ namespace p44 {
   /// hex string to binary string conversion
   /// @param aHexString bytes string in hex notation, byte-separating dashes and colons allowed
   /// @param aSpacesAllowed if true, spaces may be used between bytes, and single digits can be used for bytes with value 0..F
+  /// @param aMaxBytes if>0, this is the max number of output bytes produced reading from aHexString
   /// @return binary string
   string hexToBinaryString(const char *aHexString, bool aSpacesAllowed = false, size_t aMaxBytes = 0);
 
