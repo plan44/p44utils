@@ -34,20 +34,20 @@ static const char* TAG = "ws281x";
 #define DURATION	12.5 /* minimum time of a single RMT duration
 				in nanoseconds based on clock */
 
-#define PULSE_T0H	   350
-#define PULSE_T1H	   900
-#define PULSE_T0L	   900
-#define PULSE_T1L	   350
+#define PULSE_T0H	   375
+#define PULSE_T0L	   875
+#define PULSE_T1H	   750
+#define PULSE_T1L	   500
 #define PULSE_TRS	300000
 
 #define PULSE_TO_RMTDELAY(t) ((uint16_t)((double)t/(DURATION*DIVIDER)))
 
 #define MAX_PULSES_RELOAD_TIME_US (MAX_PULSES*(PULSE_T0H+PULSE_T1H)/1000)
 
-#define TIMING_DEBUG 1
+#define TIMING_DEBUG 0 // if set, console shows some statistics about reload delay (IRQ response), retries and errors
+#define GPIO_LOGICANALYZER_OUTPUT 0 // if set, GPIO 21 and 22 output additional signals to catch reload timing and slow IRQs with a logic analyzer
 
-
-#define MEM_BLOCKS_PER_CHANNEL 1 // how many mem blocks to use
+#define MEM_BLOCKS_PER_CHANNEL 1 // how many mem blocks to use. Can be set to max 8 when no other RMT unit is in use
 
 #define MAX_PULSES	(32*MEM_BLOCKS_PER_CHANNEL) // number of pulses per half-block
 
@@ -70,10 +70,10 @@ static intr_handle_t rmt_intr_handle = NULL;
 static rmtPulsePair ws281x_bits[2];
 
 
-static int64_t timeOfLastLoad = 0;
-#define MAX_RESEND_RETRIES 0 // number of retries in case of timing fail, 0=none
+#define MAX_RESEND_RETRIES 3 // number of retries in case of timing fail, 0=none
 static int retries = 0;
 #if TIMING_DEBUG
+static int64_t timeOfLastLoad = 0;
 static int64_t minReloadTime = 1000000; // should be below one second
 static int64_t maxReloadTime = 0;
 static int totalRetries = 0;
@@ -104,10 +104,10 @@ void ws281x_initRMTChannel(int rmtChannel)
 }
 
 
-/// copy half the RMT transmit buffer (MAX_PULSES number of pulses)
-/// each of the 8 RMT channel has a buffer for 512/8 = 64 pulses, so half normally is 32 pulses @ MEM_BLOCKS_PER_CHANNEL==1
-/// @param aReload if set, it is assumed the call is for on-the-fly reloading from IRQ (enables safety stop)
-void ws281x_copy(bool aReload)
+// copy half the RMT transmit buffer (MAX_PULSES number of pulses)
+// each of the 8 RMT channel has a buffer for 512/8 = 64 pulses, so half normally is 32 pulses @ MEM_BLOCKS_PER_CHANNEL==1
+// in addition, a safety stop (for when IRQ is delayed too long) is placed in the first pulse of the *other* half buffer
+void ws281x_copy()
 {
   unsigned int i, j, offset, len, ledbyte;
 
@@ -142,25 +142,20 @@ void ws281x_copy(bool aReload)
     RMTMEM.chan[RMTCHANNEL].data32[i + offset].val = 0; // TX end marker
   }
   ws281x_pos += len; // update pointer
-
-  if (aReload) {
-    // Now assuming (quite safely, as IRQ response time<2uS is impossible) that the first pulse of
-    // the other (now running) block half is already out by now, overwrite it with a
-    // reset-length 0 and a stopper.
-    // In case the next IRQ is late and has NOT been able to re-fill that block, output will
-    // stop without sending wrong byte data and causing visual glitches.
-    // However if IRQ is in time, it will overwrite that stopper with more valid data.
-    RMTMEM.chan[RMTCHANNEL].data32[ws281x_half*MAX_PULSES].val = PULSE_TO_RMTDELAY(PULSE_TRS); // <<16; // first a 0 with reset length, then stop
-    #if TIMING_DEBUG
-    if (ws281x_pos<ws281x_len) {
-      // still sending, update timing stats
-      int64_t reloadTime = now-timeOfLastLoad;
-      if (reloadTime>maxReloadTime) maxReloadTime = reloadTime;
-      if (reloadTime<minReloadTime) minReloadTime = reloadTime;
-    }
-    #endif
-  }
+  // Now assuming (quite safely, as IRQ response time<2uS is impossible) that the first pulse of
+  // the other (now running) block half is already out by now, overwrite it with a
+  // reset-length 0 and a stopper.
+  // In case the next IRQ is late and has NOT been able to re-fill that block, output will
+  // stop without sending wrong byte data and causing visual glitches.
+  // However if IRQ is in time, it will overwrite that stopper with more valid data.
+  RMTMEM.chan[RMTCHANNEL].data32[ws281x_half*MAX_PULSES].val = PULSE_TO_RMTDELAY(PULSE_TRS); // <<16; // first a 0 with reset length, then stop
   #if TIMING_DEBUG
+  if (timeOfLastLoad>0 && ws281x_pos<ws281x_len) {
+    // still sending, update timing stats
+    int64_t reloadTime = now-timeOfLastLoad;
+    if (reloadTime>maxReloadTime) maxReloadTime = reloadTime;
+    if (reloadTime<minReloadTime) minReloadTime = reloadTime;
+  }
   timeOfLastLoad = now;
   #endif
   return;
@@ -169,17 +164,32 @@ void ws281x_copy(bool aReload)
 
 void start_transfer()
 {
-  // - init buffer pointers
+  #if GPIO_LOGICANALYZER_OUTPUT
+  gpio_set_level(22, 1);
+  gpio_set_level(21, 1);
+  #endif
+  #if TIMING_DEBUG
+  timeOfLastLoad = 0;
+  #endif
+  // init buffer pointers
   ws281x_pos = 0;
   ws281x_half = 0;
-  // - copy at least one half of data
-  ws281x_copy(false);
-  // - if still data for the second half, fill that, too
-  if (ws281x_pos < ws281x_len)
-    ws281x_copy(false);
-  // start
+  // copy at least one half of data
+  ws281x_copy(); // include a stopper (in case ws281x_len is exactly one half)
+  // start RMT now
+  // - note we must disable IRQs on this core completely to avoid starting RMT and then copying next data
+  //   is not *delayed* by a long duration IRQ routine. Note that this blocking is *not* because of
+  //   access to shared data (for which single core IRQ block would not help)!
+  portDISABLE_INTERRUPTS();
   RMT.conf_ch[RMTCHANNEL].conf1.mem_rd_rst = 1;
   RMT.conf_ch[RMTCHANNEL].conf1.tx_start = 1;
+  // - safely assuming RMT engine will have sent the first pulse long before we are done filling the second half
+  //   fill the second half ALSO including a stopper overwriting the first pulse of the first half.
+  //   This way, if the first THR-IRQ is too late, data will stop after two halves, avoiding send
+  //   of old data in the first half a second time.
+  //   If THR-IRQ is in time, it will overwrite the stopper with new data before RMT runs into it
+  ws281x_copy(); // include a stopper
+  portENABLE_INTERRUPTS();
 }
 
 
@@ -191,6 +201,9 @@ void ws281x_handleInterrupt(void *arg)
   if (RMT.int_st.ch0_tx_end) {
     // end of transmission, transmitter entered idle state
     if (ws281x_pos<ws281x_len) {
+      #if GPIO_LOGICANALYZER_OUTPUT
+      gpio_set_level(22, 0);
+      #endif
       // stop has occurred (because of IRQ delay) before all data was out
       if (retries<MAX_RESEND_RETRIES) {
         // restart transmission
@@ -209,6 +222,9 @@ void ws281x_handleInterrupt(void *arg)
         #endif
       }
     }
+    #if GPIO_LOGICANALYZER_OUTPUT
+    gpio_set_level(21, 0);
+    #endif
     // - get rid of old memory buffer
     free(ws281x_buffer);
     // - unlock ws281x_setColors() again
@@ -219,7 +235,7 @@ void ws281x_handleInterrupt(void *arg)
   else if (RMT.int_st.ch0_tx_thr_event) {
     // sent until middle of buffer (tx threshold)
     RMT.int_clr.ch0_tx_thr_event = 1; // ack IRQ
-    ws281x_copy(true); // copy new data into now-free part of buffer
+    ws281x_copy(); // copy new data into now-free part of buffer
   }
   return;
 }
@@ -227,6 +243,15 @@ void ws281x_handleInterrupt(void *arg)
 
 void ws281x_init(int gpioNum)
 {
+  #if GPIO_LOGICANALYZER_OUTPUT
+  gpio_pad_select_gpio(22);
+  gpio_set_direction(22, GPIO_MODE_DEF_OUTPUT);
+  gpio_set_level(22, 0);
+  gpio_pad_select_gpio(21);
+  gpio_set_direction(21, GPIO_MODE_DEF_OUTPUT);
+  gpio_set_level(21, 0);
+  #endif
+
 
   // semaphore for locking buffer
   ws281x_sem = xSemaphoreCreateBinary(); // semaphore is created taken...
@@ -276,7 +301,6 @@ void ws281x_setColors(unsigned int length, rgbVal *array)
     minReloadTime = 1000000; // should be below one second
     maxReloadTime = 0;
     #endif
-    timeOfLastLoad = 0;
     retries = 0;
 
     // ready for new data
