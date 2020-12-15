@@ -22,41 +22,51 @@ set(incl
   "." "../../main" "thirdparty")
 
 if(CONFIG_P44UTILS_ENABLE_P44SCRIPT)
-    list(APPEND srcs
-      "p44script.cpp")
+  list(APPEND srcs
+    "p44script.cpp")
 endif()
 
 if(CONFIG_P44UTILS_ENABLE_LEDCHAIN)
+  list(APPEND srcs
+    "ledchaincomm.cpp")
+  list(APPEND incl
+    "../../components/p44lrgraphics")
+  if(CONFIG_P44UTILS_DIGITAL_LED_LIB)
     list(APPEND srcs
-      "ledchaincomm.cpp"
+      "thirdparty/esp32_digital_led_lib/esp32_digital_led_lib.cpp")
+    list(APPEND incl
+      "thirdparty/esp32_digital_led_lib")
+  else()
+    list(APPEND srcs
       "thirdparty/esp32_ws281x/esp32_ws281x.c")
     list(APPEND incl
-      "thirdparty/esp32_ws281x"
-      "../../components/p44lrgraphics")
+      "thirdparty/esp32_ws281x")
+  endif()
 endif()
 
 if(CONFIG_P44UTILS_ENABLE_JSON)
-    list(APPEND srcs
-      "jsonobject.cpp"
-      "jsonobject.cpp"
-      "jsoncomm.cpp"
-      "jsonrpccomm.cpp"
-      "thirdparty/json-c/arraylist.c"
-      "thirdparty/json-c/debug.c"
-      "thirdparty/json-c/json_c_version.c"
-      "thirdparty/json-c/json_object.c"
-      "thirdparty/json-c/json_object_iterator.c"
-      "thirdparty/json-c/json_tokener.c"
-      "thirdparty/json-c/json_util.c"
-      "thirdparty/json-c/linkhash.c"
-      "thirdparty/json-c/printbuf.c"
-      "thirdparty/json-c/random_seed.c")
-    list(APPEND incl
-      "thirdparty/json-c")
+  list(APPEND srcs
+    "jsonobject.cpp"
+    "jsonobject.cpp"
+    "jsoncomm.cpp"
+    "jsonrpccomm.cpp"
+    "thirdparty/json-c/arraylist.c"
+    "thirdparty/json-c/debug.c"
+    "thirdparty/json-c/json_c_version.c"
+    "thirdparty/json-c/json_object.c"
+    "thirdparty/json-c/json_object_iterator.c"
+    "thirdparty/json-c/json_tokener.c"
+    "thirdparty/json-c/json_util.c"
+    "thirdparty/json-c/linkhash.c"
+    "thirdparty/json-c/printbuf.c"
+    "thirdparty/json-c/random_seed.c")
+  list(APPEND incl
+    "thirdparty/json-c")
 endif()
 
-idf_component_register(SRCS "${srcs}"
-                    INCLUDE_DIRS "${incl}")
+idf_component_register(
+  SRCS "${srcs}"
+  INCLUDE_DIRS "${incl}")
 
 target_compile_options(${COMPONENT_LIB} PRIVATE
   -Wno-reorder

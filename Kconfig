@@ -5,6 +5,12 @@ config P44UTILS_ENABLE_LEDCHAIN
     help
         This enables the LedChain support in p44utils.
 
+config P44UTILS_DIGITAL_LED_LIB
+    bool "Use esp32_digital_led_lib instead of esp32_ws281x"
+    depends on P44UTILS_ENABLE_LEDCHAIN
+    help
+        Use the newer but more complex esp32_digital_led_lib
+
 config P44UTILS_ENABLE_JSON
     bool "Enable JSON support"
     help
