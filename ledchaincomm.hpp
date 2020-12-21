@@ -39,14 +39,10 @@
 
 #ifdef ESP_PLATFORM
 
-#if CONFIG_P44UTILS_DIGITAL_LED_LIB
-  #include "esp32_digital_led_lib.h"
-#else
 // we use the esp32_ws281x code using RMT peripheral to generate correct timing
 extern "C" {
   #include "esp32_ws281x.h"
 }
-#endif
 
 #elif ENABLE_RPIWS281X
 
@@ -78,6 +74,7 @@ namespace p44 {
       ledtype_p9823,   // RGB (with RGB subpixel order)
       ledtype_sk6812,  // RGBW (with RGBW subpixel order)
       ledtype_ws2812,  // RGB (with GRB subpixel order), shorter reset time
+      ledtype_ws2815_rgb,  // RGB (with RGB subpixel order)
     } LedType;
 
   private:
@@ -103,13 +100,9 @@ namespace p44 {
     LEDChainCommPtr chainDriver; // the LED chain used for outputting LED values. Usually: myself, but if this instance just maps a second part of another chain, this will point to the other chain
 
     #ifdef ESP_PLATFORM
-    #if CONFIG_P44UTILS_DIGITAL_LED_LIB
     int gpioNo; // the GPIO to be used
-    strand_t mStrand; // the definition for the chain (strand), including pixels
-    #else
-    int gpioNo; // the GPIO to be used
-    rgbVal *pixels; // the pixel buffer
-    #endif
+    Esp_ws281x_LedChain* espLedChain; // handle for the chain
+    Esp_ws281x_pixel* pixels; // the pixel buffer
     #elif ENABLE_RPIWS281X
     ws2811_t ledstring; // the descriptor for the rpi_ws2811 library
     #else
@@ -165,7 +158,9 @@ namespace p44 {
     bool isHardwareDriver() { return chainDriver==NULL; };
 
     /// begin using the driver
-    bool begin();
+    /// @param aHintAtTotalChains if not 0, this is a hint to the total number of total chains, which the driver can use
+    ///   for efficiently allocating internal resources (e.g. ESP32 driver can use more RMT memory when less channels are in use)
+    bool begin(size_t aHintAtTotalChains = 0);
 
     /// end using the driver
     void end();

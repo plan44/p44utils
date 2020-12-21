@@ -28,20 +28,11 @@ endif()
 
 if(CONFIG_P44UTILS_ENABLE_LEDCHAIN)
   list(APPEND srcs
-    "ledchaincomm.cpp")
+    "ledchaincomm.cpp"
+    "thirdparty/esp32_ws281x/esp32_ws281x.c")
   list(APPEND incl
-    "../../components/p44lrgraphics")
-  if(CONFIG_P44UTILS_DIGITAL_LED_LIB)
-    list(APPEND srcs
-      "thirdparty/esp32_digital_led_lib/esp32_digital_led_lib.cpp")
-    list(APPEND incl
-      "thirdparty/esp32_digital_led_lib")
-  else()
-    list(APPEND srcs
-      "thirdparty/esp32_ws281x/esp32_ws281x.c")
-    list(APPEND incl
-      "thirdparty/esp32_ws281x")
-  endif()
+    "../../components/p44lrgraphics"
+    "thirdparty/esp32_ws281x")
 endif()
 
 if(CONFIG_P44UTILS_ENABLE_JSON)
