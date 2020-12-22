@@ -73,7 +73,7 @@ namespace p44 {
 
 
   /// Wrapper for General Purpose I/O pin as accessed via
-  /// generic Linux kernel SysFS support for GPIOs (
+  /// generic Linux kernel SysFS support for GPIOs, or ESP32-IDF GPIO routines
   class GpioPin : public IOPin
   {
     typedef IOPin inherited;

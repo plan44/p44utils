@@ -55,16 +55,16 @@ GpioPin::GpioPin(int aGpioNo, bool aOutput, bool aInitialState, Tristate aPull) 
   // make sure pin is set to GPIO
   ret = gpio_reset_pin(gpioNo);
   if (ret==ESP_OK) {
-    // set initial state
-    ret = gpio_set_level(gpioNo, pinState ? 1 : 0);
-  }
-  if (ret==ESP_OK) {
     // set pullup/down
     ret = gpio_set_pull_mode(gpioNo, aPull==yes ? GPIO_PULLUP_ONLY : (aPull==no ? GPIO_PULLUP_PULLDOWN : GPIO_FLOATING));
   }
   if (ret==ESP_OK) {
     // set direction
     ret = gpio_set_direction(gpioNo, output ? GPIO_MODE_OUTPUT : GPIO_MODE_INPUT);
+    if (output && ret==ESP_OK) {
+      // set initial state
+      ret = gpio_set_level(gpioNo, pinState ? 1 : 0);
+    }
   }
   if (ret!=ESP_OK) {
     LOG(LOG_ERR,"GPIO init error: %s", esp_err_to_name(ret));

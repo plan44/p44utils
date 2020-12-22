@@ -99,7 +99,7 @@ DigitalIo::DigitalIo(const char* aPinSpec, bool aOutput, bool aInitialState) :
   DBGLOG(LOG_DEBUG, "DigitalIo: bus name = '%s'", busName.c_str());
   #if !defined(__APPLE__) && !DISABLE_GPIO
   if (busName=="gpio") {
-    // Linux generic GPIO
+    // Linux or ESP32 generic GPIO
     // gpio.<gpionumber>
     int pinNumber = atoi(pinName.c_str());
     ioPin = IOPinPtr(new GpioPin(pinNumber, output, initialPinState, pull));
