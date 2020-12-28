@@ -993,7 +993,7 @@ bool MainLoop::handleIOPoll(MLMicroSeconds aTimeout)
     struct timeval tv;
     tv.tv_sec = aTimeout / 1000000;
     tv.tv_usec = aTimeout % 1000000;
-    numReadyFDs = select(numFDsToTest, &readfs, &writefs, &errorfs, &tv);
+    numReadyFDs = select(numFDsToTest, &readfs, &writefs, &errorfs, aTimeout!=Infinite ? &tv : NULL);
     DBGFOCUSLOG("select returns %d", numReadyFDs);
  }
   else {
