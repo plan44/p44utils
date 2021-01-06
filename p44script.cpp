@@ -3597,7 +3597,7 @@ bool CompiledCode::argumentInfo(size_t aIndex, ArgumentDescriptor& aArgDesc) con
   }
   aArgDesc = arguments[idx];
   if (aArgDesc.typeInfo & multiple) {
-    aArgDesc.name = string_format("%s%lu", arguments[idx].name.c_str(), aIndex+1);
+    aArgDesc.name = string_format("%s%zu", arguments[idx].name.c_str(), aIndex+1);
   }
   return true;
 }
@@ -3682,7 +3682,7 @@ void CompiledTrigger::triggerEvaluation(EvaluationFlags aEvalMode)
 
 void CompiledTrigger::triggerDidEvaluate(EvaluationFlags aEvalMode, ScriptObjPtr aResult)
 {
-  OLOG(aEvalMode&initial ? LOG_INFO : LOG_DEBUG, "evaluated trigger: %s in evalmode=0x%lx\n- with result: %s%s", cursor.displaycode(90).c_str(), aEvalMode, mOneShotEvent ? "(ONESHOT) " : "", ScriptObj::describe(aResult).c_str());
+  OLOG(aEvalMode&initial ? LOG_INFO : LOG_DEBUG, "evaluated trigger: %s in evalmode=0x%x\n- with result: %s%s", cursor.displaycode(90).c_str(), aEvalMode, mOneShotEvent ? "(ONESHOT) " : "", ScriptObj::describe(aResult).c_str());
   bool doTrigger = false;
   Tristate newState = aResult->defined() ? (aResult->boolValue() ? p44::yes : p44::no) : p44::undefined;
   if (mTriggerMode==onEvaluation) {
@@ -4918,7 +4918,7 @@ static void find_func(BuiltinFunctionContextPtr f)
 
 // format(formatstring, value [, value...])
 // only % + - 0..9 . d, x, and f supported
-static const BuiltInArgDesc format_args[] = { { text }, { any+null+error|multiple } };
+static const BuiltInArgDesc format_args[] = { { text }, { any|null|error|multiple } };
 static const size_t format_numargs = sizeof(format_args)/sizeof(BuiltInArgDesc);
 static void format_func(BuiltinFunctionContextPtr f)
 {
@@ -5085,7 +5085,7 @@ static void eval_func(BuiltinFunctionContextPtr f)
     if (ctx) {
       // pass args, if any
       for (size_t i = 1; i<f->numArgs(); i++) {
-        ctx->setMemberAtIndex(i-1, f->arg(i), string_format("arg%lu", i));
+        ctx->setMemberAtIndex(i-1, f->arg(i), string_format("arg%zu", i));
       }
       // evaluate, end all threads when main thread ends
       // Note: must have keepvars because these are the arguments!
@@ -5656,7 +5656,9 @@ static const BuiltinMemberDescriptor standardFunctions[] = {
   { "number", executable|numeric, number_numargs, number_args, &number_func },
   { "describe", executable|text, describe_numargs, describe_args, &describe_func },
   { "json", executable|json, json_numargs, json_args, &json_func },
+  #if ENABLE_JSON_APPLICATION
   { "jsonresource", executable|json|error, jsonresource_numargs, jsonresource_args, &jsonresource_func },
+  #endif
   { "elements", executable|numeric|null, elements_numargs, elements_args, &elements_func },
   { "lastarg", executable|any, lastarg_numargs, lastarg_args, &lastarg_func },
   { "strlen", executable|numeric|null, strlen_numargs, strlen_args, &strlen_func },

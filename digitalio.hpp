@@ -50,7 +50,7 @@ namespace p44 {
     ///   Note: aInitialState is logic state (pin state is inverse if aPinSpec is slash-prefixed)
     /// @note possible pin specifications are
     ///   "missing" : dummy (non-connected) pin
-    ///   "gpio.N" or just "N": standard Linux GPIO number N
+    ///   "gpio.N" or just "N": standard Linux or ESP32 GPIO number N
     ///   "led.N": standard Linux LED number N
     ///   "gpioNS9XXXX.NAME" : DigiESP Linux GPIO named NAME
     ///   "i2cN.DEVICE@i2caddr.pinNumber" : numbered pin of DEVICE at i2caddr on i2c bus N

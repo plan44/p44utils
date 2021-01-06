@@ -180,7 +180,7 @@ JsonObjectPtr JsonObject::objFromText(const char *aJsonText, ssize_t aMaxChars, 
         if (aErrorP) {
           *aErrorP = ErrorPtr(new JsonError(json_tokener_get_error(tokener)));
           countLines(lineCnt, charOffs, ll, seg+tokener->char_offset); // count lines from beginning of segment to error position
-          (*aErrorP)->prefixMessage("in line %d at char %lu: ", lineCnt+1, charOffs+1);
+          (*aErrorP)->prefixMessage("in line %d at char %zu: ", lineCnt+1, charOffs+1);
         }
         break;
       }
@@ -231,7 +231,7 @@ JsonObjectPtr JsonObject::objFromFile(const char *aJsonFilePath, ErrorPtr *aErro
             if (aErrorP) {
               *aErrorP = ErrorPtr(new JsonError(jerr));
               countLines(lineCnt, charOffs, ll, seg+tokener->char_offset); // count lines from beginning of segment to error position
-              (*aErrorP)->prefixMessage("in line %d at char %lu: ", lineCnt+1, charOffs+1);
+              (*aErrorP)->prefixMessage("in line %d at char %zu: ", lineCnt+1, charOffs+1);
             }
             json_tokener_reset(tokener);
             goto done;

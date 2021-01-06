@@ -46,7 +46,7 @@ namespace p44 {
     /// @param aInitialValue initial value (to set for output, to expect without triggering change for input)
     /// @note possible pin types are
     /// - "missing" : dummy (non-connected) pin
-    /// - "pwmchipN.channelNo.pwmPeriod" : numbered Linux PWM output on channelNo of chip N with overall period (in nS) of pwmPeriod
+    /// - "pwmchipN.channelNo.pwmPeriod" : numbered Linux/ESP32 PWM output on channelNo of chip/gpio N with overall period (in nS) of pwmPeriod
     /// - "i2cN.DEVICE[-options]@i2caddr.pinNumber" : numbered pin of DEVICE at i2caddr on i2c bus N
     ///     (DEVICE is name of chip, such as PCA9685)
     ///     (no bus-level options for i2c, options are device specific, such as I and O in PCA9685 for inverted and opendrain operation)

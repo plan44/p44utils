@@ -27,6 +27,7 @@
 
 using namespace p44;
 
+#ifndef ESP_PLATFORM
 
 ErrorPtr p44::string_fromfile(const string aFilePath, string &aData)
 {
@@ -56,3 +57,5 @@ ErrorPtr p44::string_tofile(const string aFilePath, const string &aData)
   }
   return err;
 }
+
+#endif // !ESP_PLATFORM

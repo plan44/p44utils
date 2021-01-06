@@ -37,19 +37,22 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 
-#if ENABLE_RPIWS281X
+#ifdef ESP_PLATFORM
+
+// we use the esp32_ws281x code using RMT peripheral to generate correct timing
+extern "C" {
+  #include "esp32_ws281x.h"
+}
+
+#elif ENABLE_RPIWS281X
 
 // we use the rpi_ws281x library to communicate with the LED chains on RaspberryPi
-
 extern "C" {
-
-#include "clk.h"
-#include "gpio.h"
-#include "dma.h"
-#include "pwm.h"
-
-#include "ws2811.h"
-
+  #include "clk.h"
+  #include "gpio.h"
+  #include "dma.h"
+  #include "pwm.h"
+  #include "ws2811.h"
 }
 
 #endif // ENABLE_RPIWS281X
@@ -69,7 +72,9 @@ namespace p44 {
     typedef enum {
       ledtype_ws281x,  // RGB (with GRB subpixel order)
       ledtype_p9823,   // RGB (with RGB subpixel order)
-      ledtype_sk6812   // RGBW (with RGBW subpixel order)
+      ledtype_sk6812,  // RGBW (with RGBW subpixel order)
+      ledtype_ws2812,  // RGB (with GRB subpixel order), shorter reset time
+      ledtype_ws2815_rgb,  // RGB (with RGB subpixel order)
     } LedType;
 
   private:
@@ -94,7 +99,11 @@ namespace p44 {
 
     LEDChainCommPtr chainDriver; // the LED chain used for outputting LED values. Usually: myself, but if this instance just maps a second part of another chain, this will point to the other chain
 
-    #if ENABLE_RPIWS281X
+    #ifdef ESP_PLATFORM
+    int gpioNo; // the GPIO to be used
+    Esp_ws281x_LedChain* espLedChain; // handle for the chain
+    Esp_ws281x_pixel* pixels; // the pixel buffer
+    #elif ENABLE_RPIWS281X
     ws2811_t ledstring; // the descriptor for the rpi_ws2811 library
     #else
     int ledFd; // the file descriptor for the LED device
@@ -105,6 +114,9 @@ namespace p44 {
     /// create driver for a WS2812 LED chain
     /// @param aLedType type of LEDs
     /// @param aDeviceName the name of the LED chain device (if any, depends on platform)
+    /// - ledchain device: full path like /dev/ledchain1
+    /// - ESP32: name must be "gpioX" with X being the output pin to be used
+    /// - RPi library (ENABLE_RPIWS281X): unused
     /// @param aNumLeds number of LEDs in the chain (physically)
     /// @param aLedsPerRow number of consecutive LEDs in the WS2812 chain that build a row (active LEDs, not counting ainactiveBetweenLeds)
     ///   (usually x direction, y if swapXY was set). Set to 0 for single line of LEDs
@@ -146,7 +158,9 @@ namespace p44 {
     bool isHardwareDriver() { return chainDriver==NULL; };
 
     /// begin using the driver
-    bool begin();
+    /// @param aHintAtTotalChains if not 0, this is a hint to the total number of total chains, which the driver can use
+    ///   for efficiently allocating internal resources (e.g. ESP32 driver can use more RMT memory when less channels are in use)
+    bool begin(size_t aHintAtTotalChains = 0);
 
     /// end using the driver
     void end();
@@ -312,6 +326,11 @@ namespace p44 {
     /// stop LED chains and auto updates
     void end();
 
+    /// Factory helper to create ledchain arrangement with one or multiple led chains from --ledchain command line options
+    /// @param aLedChainArrangement if not set, new arrangement will be created, otherwise existing one is used
+    /// @param aChainSpec string describing the LED chain parameters and the coverage in the arrangement
+    static void addLEDChain(LEDChainArrangementPtr &aLedChainArrangement, const string &aChainSpec);
+
     #if ENABLE_APPLICATION_SUPPORT
 
     /// - option to construct LEDChainArrangement from command line
@@ -328,11 +347,6 @@ namespace p44 {
                                      "If power would exceed limit, all LEDs are dimmed to stay below limit." \
                                      "Standby/off power of LED chains is not included in the calculation. Defaults to 0=no limit" }, \
       { 0,   "ledrefresh",    true,  "update_ms;minimal number of milliseconds between LED chain updates. Defaults to 15ms." }
-
-    /// Factory helper to create ledchain arrangement with one or multiple led chains from --ledchain command line options
-    /// @param aLedChainArrangement if not set, new arrangement will be created, otherwise existing one is used
-    /// @param aChainSpec string describing the LED chain parameters and the coverage in the arrangement
-    static void addLEDChain(LEDChainArrangementPtr &aLedChainArrangement, const string &aChainSpec);
 
     /// process ledchain arrangement specific command line options
     void processCmdlineOptions();

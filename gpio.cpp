@@ -22,20 +22,136 @@
 #include "gpio.hpp"
 
 #include <errno.h>
-#include <fcntl.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/ioctl.h>
-#include <unistd.h>
-
-#include "gpio.h" // NS9XXX GPIO header, included in project
+#ifdef ESP_PLATFORM
+  #include "driver/gpio.h"
+#else
+  #include <fcntl.h>
+  #include <stdio.h>
+  #include <sys/ioctl.h>
+  #include <unistd.h>
+  #include "gpio.h" // NS9XXX GPIO header, included in project
+#endif
 
 #include "logger.hpp"
 #include "mainloop.hpp"
 
 using namespace p44;
 
+#ifdef ESP_PLATFORM
+
+// MARK: - GPIO via ESP32 gpio
+
+GpioPin::GpioPin(int aGpioNo, bool aOutput, bool aInitialState, Tristate aPull) :
+  gpioNo((gpio_num_t)aGpioNo),
+  output(aOutput),
+  pinState(aInitialState)
+  #ifndef ESP_PLATFORM
+  ,gpioFD(-1)
+  #endif
+{
+  esp_err_t ret;
+  // make sure pin is set to GPIO
+  ret = gpio_reset_pin(gpioNo);
+  if (ret==ESP_OK) {
+    // set pullup/down
+    ret = gpio_set_pull_mode(gpioNo, aPull==yes ? GPIO_PULLUP_ONLY : (aPull==no ? GPIO_PULLUP_PULLDOWN : GPIO_FLOATING));
+  }
+  if (ret==ESP_OK) {
+    // set direction
+    ret = gpio_set_direction(gpioNo, output ? GPIO_MODE_OUTPUT : GPIO_MODE_INPUT);
+    if (output && ret==ESP_OK) {
+      // set initial state
+      ret = gpio_set_level(gpioNo, pinState ? 1 : 0);
+    }
+  }
+  if (ret!=ESP_OK) {
+    LOG(LOG_ERR,"GPIO init error: %s", esp_err_to_name(ret));
+    gpio_reset_pin(gpioNo);
+    gpioNo = GPIO_NUM_NC; // signal "not connected"
+  }
+}
+
+
+GpioPin::~GpioPin()
+{
+  // reset to default (disabled) state
+  gpio_reset_pin(gpioNo);
+}
+
+
+
+bool GpioPin::getState()
+{
+  if (output) {
+    return pinState; // just return last set state
+  }
+  else {
+    // is input
+    if (gpioNo!=GPIO_NUM_NC) {
+      return gpio_get_level(gpioNo);
+    }
+  }
+  return false; // non-working pins always return false
+}
+
+
+bool GpioPin::setInputChangedHandler(InputChangedCB aInputChangedCB, bool aInverted, bool aInitialState, MLMicroSeconds aDebounceTime, MLMicroSeconds aPollInterval)
+{
+  // TODO: implement interrupts
+  // for now use poll-based input change detection
+  return inherited::setInputChangedHandler(aInputChangedCB, aInverted, aInitialState, aDebounceTime, aPollInterval);
+  /*
+  if (aInputChangedCB==NULL) {
+    // release handler
+    MainLoop::currentMainLoop().unregisterPollHandler(gpioFD);
+    return inherited::setInputChangedHandler(aInputChangedCB, aInverted, aInitialState, aDebounceTime, aPollInterval);
+  }
+  // anyway, save parameters for base class
+  inputChangedCB = aInputChangedCB;
+  invertedReporting = aInverted;
+  currentState = aInitialState;
+  debounceTime = aDebounceTime;
+  // try to open "edge" to configure interrupt
+  string edgePath = string_format("%s/gpio%d/edge", GPIO_SYS_CLASS_PATH, gpioNo);
+  int edgeFd = open(edgePath.c_str(), O_RDWR);
+  if (edgeFd<0) {
+    LOG(LOG_DEBUG, "GPIO edge file does not exist -> GPIO %d has no edge interrupt capability", gpioNo);
+    // use poll-based input change detection
+    return inherited::setInputChangedHandler(aInputChangedCB, aInverted, aInitialState, aDebounceTime, aPollInterval);
+  }
+  // enable triggering on both edges
+  string s = "both";
+  ssize_t ret = write(edgeFd, s.c_str(), s.length());
+  if (ret<0) { LOG(LOG_ERR, "Cannot write to GPIO edge file %s", strerror(errno)); return false; }
+  close(edgeFd);
+  // establish a IO poll
+  MainLoop::currentMainLoop().registerPollHandler(gpioFD, POLLPRI, boost::bind(&GpioPin::stateChanged, this, _2));
+  return true;
+  */
+}
+
+
+bool GpioPin::stateChanged(int aPollFlags)
+{
+  bool newState = getState();
+  //LOG(LOG_DEBUG, "GPIO %d edge detected (poll() returned POLLPRI for value file) : new state = %d", gpioNo, newState);
+  inputHasChangedTo(newState);
+  return true; // handled
+}
+
+
+void GpioPin::setState(bool aState)
+{
+  if (!output) return; // non-outputs cannot be set
+  if (gpioNo==GPIO_NUM_NC) return; // non-existing pins cannot be set
+  pinState = aState;
+  // - set value
+  gpio_set_level(gpioNo, pinState ? 1 : 0);
+}
+
+#else
 
 // MARK: - LEDs via modern kernel support
 
@@ -473,3 +589,5 @@ void GpioNS9XXXPin::setState(bool aState)
   DBGLOG(LOG_ERR, "ioctl(gpioFD, GPIO_WRITE_PIN_VAL, %d)", setval);
   #endif
 }
+
+#endif // !ESP_PLATFORM

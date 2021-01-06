@@ -184,7 +184,7 @@ void SimPin::setState(bool aState)
 
 // MARK: - digital output via system command
 
-#if !DISABLE_SYSTEMCMDIO
+#if !DISABLE_SYSTEMCMDIO && !defined(ESP_PLATFORM)
 
 SysCommandPin::SysCommandPin(const char *aConfig, bool aOutput, bool aInitialState) :
   pinState(aInitialState),
@@ -253,7 +253,7 @@ void SysCommandPin::stateUpdated(ErrorPtr aError, const string &aOutputString)
   }
 }
 
-#endif // !DISABLE_SYSTEMCMDIO
+#endif // !DISABLE_SYSTEMCMDIO && !defined(ESP_PLATFORM)
 
 
 // MARK: - analog I/O simulation
@@ -298,7 +298,7 @@ void AnalogSimPin::setValue(double aValue)
 // MARK: - analog output via system command
 
 
-#if !DISABLE_SYSTEMCMDIO
+#if !DISABLE_SYSTEMCMDIO && !defined(ESP_PLATFORM)
 
 AnalogSysCommandPin::AnalogSysCommandPin(const char *aConfig, bool aOutput, double aInitialValue) :
   pinValue(aInitialValue),
@@ -375,7 +375,7 @@ void AnalogSysCommandPin::valueUpdated(ErrorPtr aError, const string &aOutputStr
   }
 }
 
-#endif // !DISABLE_SYSTEMCMDIO
+#endif // !DISABLE_SYSTEMCMDIO && !defined(ESP_PLATFORM)
 
 // MARK: - analog I/O simulation from fd
 

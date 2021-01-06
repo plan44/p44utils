@@ -114,7 +114,13 @@ void p44::getSunParams(time_t aTime, const GeoLocation &aGeoLocation, SunParams 
   double tz, y, m, day, h, d, lambda, obliq, alpha, delta, LL, equation, ha, hb;
 
   localtime_r(&aTime, &p);
+  #ifndef ESP_PLATFORM
   tz = (double)p.tm_gmtoff/3600.0; // hours east of GMT
+  #else
+  // TODO: add TZ support for ESP32
+  #warning "no TZ support in ESP32 at this time, assuming UTC"
+  tz = 0;
+  #endif
   y = p.tm_year;
   y += 1900;
   m = p.tm_mon + 1;

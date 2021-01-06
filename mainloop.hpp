@@ -41,8 +41,12 @@ unsigned long _p44_millis();
 
 #include "p44utils_common.hpp"
 
-#include <poll.h>
-#include <pthread.h>
+#ifdef ESP_PLATFORM
+  #include <sys/poll.h>
+#else
+  #include <poll.h>
+  #include <pthread.h>
+#endif
 
 // if set to non-zero, mainloop will have some code to record statistics
 #define MAINLOOP_STATISTICS 1
@@ -256,6 +260,12 @@ namespace p44 {
     MLMicroSeconds maxCoalescing; ///< how much to shift timer execution points maximally (always within limits given by timer's tolerance) to coalesce executions
     MLMicroSeconds waitCheckInterval; ///< max interval between checks for termination of running child processes
 
+    #ifdef ESP_PLATFORM
+    TaskHandle_t mTaskHandle; ///< task handle of task that started this mainloop
+    SemaphoreHandle_t mTimersLock; ///< semaphore for timers list
+    int evFsFD; ///< the filedescriptor that is signalled when another task posts timer events
+    #endif
+
   protected:
 
     bool hasStarted;
@@ -373,6 +383,12 @@ namespace p44 {
     /// @param aTimerCallback the functor to be called from mainloop
     void executeNow(TimerCB aTimerCallback);
 
+    #ifdef ESP_PLATFORM
+    /// execute something on this mainloop without delay initiated by another task (thread not maintained by p44utils, like callbacks in ESP32)
+    /// @param aTimerCallback the functor to be called from this mainloop (rather than the caller's)
+    void executeNowFromForeignTask(TimerCB aTimerCallback);
+    #endif
+
     /// cancel pending execution by ticket number
     /// @param aTicket ticket of pending execution to cancel. Will be reset on return
     void cancelExecutionTicket(MLTicket &aTicket); // use ticket.cancel() instead
@@ -429,6 +445,7 @@ namespace p44 {
     /// @}
 
 
+    #ifndef ESP_PLATFORM
     /// @name start subprocesses and register handlers for returning subprocess status
     /// @{
 
@@ -459,6 +476,7 @@ namespace p44 {
     void waitForPid(WaitCB aCallback, pid_t aPid);
 
     /// @}
+    #endif // !ESP_PLATFORM
 
 
     /// @name register handlers for I/O events
@@ -479,7 +497,7 @@ namespace p44 {
     /// unregister poll handlers for this file descriptor
     /// @param aFD the file descriptor
     void unregisterPollHandler(int aFD);
-    
+
     /// @}
 
 
@@ -554,12 +572,15 @@ namespace p44 {
 
     MLMicroSeconds checkTimers(MLMicroSeconds aTimeout);
     void scheduleTimer(MLTimer &aTimer);
-    bool checkWait();
-    bool handleIOPoll(MLMicroSeconds aTimeout);
 
+    bool handleIOPoll(MLMicroSeconds aTimeout);
+    void IOPollHandlerForFd(int aFD, IOPollHandler &h);
+
+    #ifndef ESP_PLATFORM
+    bool checkWait();
     void execChildTerminated(ExecCB aCallback, FdStringCollectorPtr aAnswerCollector, pid_t aPid, int aStatus);
     void childAnswerCollected(ExecCB aCallback, FdStringCollectorPtr aAnswerCollector, ErrorPtr aError);
-    void IOPollHandlerForFd(int aFD, IOPollHandler &h);
+    #endif // !ESP_PLATFORM
 
   };
 

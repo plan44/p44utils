@@ -173,12 +173,10 @@ const char *SysError::domain()
 }
 
 
-
 const char *SysError::getErrorDomain() const
 {
   return SysError::domain();
 }
-
 
 
 SysError::SysError(const char *aContextMessage) :
@@ -186,13 +184,10 @@ SysError::SysError(const char *aContextMessage) :
 {
 }
 
-
-
 SysError::SysError(int aErrNo, const char *aContextMessage) :
   Error(aErrNo, string(nonNullCStr(aContextMessage)).append(nonNullCStr(strerror(errno))))
 {
 }
-
 
 
 ErrorPtr SysError::errNo(const char *aContextMessage)
@@ -202,14 +197,44 @@ ErrorPtr SysError::errNo(const char *aContextMessage)
   return ErrorPtr(new SysError(aContextMessage));
 }
 
-
-
 ErrorPtr SysError::err(int aErrNo, const char *aContextMessage)
 {
   if (aErrNo==0)
     return ErrorPtr(); // empty, no error
   return ErrorPtr(new SysError(aErrNo, aContextMessage));
 }
+
+
+#ifdef ESP_PLATFORM
+
+// MARK: - ESP IDF error
+
+const char *EspError::domain()
+{
+  return "ESP32";
+}
+
+
+const char *EspError::getErrorDomain() const
+{
+  return SysError::domain();
+}
+
+
+EspError::EspError(esp_err_t aEspError, const char *aContextMessage) :
+  Error(aEspError, string(nonNullCStr(aContextMessage)).append(nonNullCStr(esp_err_to_name(aEspError))))
+{
+}
+
+
+ErrorPtr EspError::err(esp_err_t aEspError, const char *aContextMessage)
+{
+  if (aEspError==ESP_OK)
+    return ErrorPtr(); // empty, no error
+  return ErrorPtr(new EspError(aEspError, aContextMessage));
+}
+
+#endif // ESP_PLATFORM
 
 
 // MARK: - web error

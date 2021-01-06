@@ -102,7 +102,7 @@ bool Operation::canInitiate(MLMicroSeconds aLastInitiation)
 {
   MLMicroSeconds now = MainLoop::now();
   if (initiationDelay>0) {
-    DBGFOCUSLOG("Operation 0x%pX: requesting initiation delay of %lld uS", this, initiationDelay);
+    DBGFOCUSLOG("Operation %p: requesting initiation delay of %lld uS", this, initiationDelay);
     if (initiatesNotBefore==0) {
       // first time queried, start delay now
       initiatesNotBefore = (fromLastInitiation ? aLastInitiation : now)+initiationDelay;

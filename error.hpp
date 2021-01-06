@@ -28,9 +28,17 @@
 #include <stdint.h>
 #include <stdarg.h>
 #include "p44obj.hpp"
+#ifdef ESP_PLATFORM
+  #include "esp_err.h"
+#endif
 
 #ifndef __printflike
-#define __printflike(...)
+  #define __printflike(...)
+#endif
+#if defined(ESP_PLATFORM) || defined(P44_BUILD_WIN)
+  #define __printflike_template(...)
+#else
+  #define __printflike_template(...) __printflike(__VA_ARGS__)
 #endif
 
 using namespace std;
@@ -82,10 +90,7 @@ namespace p44 {
     /// create a Error subclass object with printf-style formatted error
     /// @param aErrorCode error code. aErrorCode==0 from any domain means OK.
     /// @param aFmt ... error message format string and arguments
-    template<typename T> static ErrorPtr err(ErrorCode aErrorCode, const char *aFmt, ...)
-    #if !P44_BUILD_WIN
-    __printflike(2,3)
-    #endif
+    template<typename T> static ErrorPtr err(ErrorCode aErrorCode, const char *aFmt, ...) __printflike_template(2,3)
     {
       Error *errP = new T(static_cast<typename T::ErrorCodes>(aErrorCode));
       va_list args;
@@ -196,10 +201,6 @@ namespace p44 {
   };
 
 
-  /// macro to create convenient factory method
-
-
-
   /// C errno based system error
   class SysError : public Error
   {
@@ -222,6 +223,28 @@ namespace p44 {
     /// or a SysError (if aErrNo indicates error)
     static ErrorPtr err(int aErrNo, const char *aContextMessage = NULL);
   };
+
+
+  #ifdef ESP_PLATFORM
+  /// ESP platform error
+  class EspError : public Error
+  {
+  public:
+    static const char *domain();
+    virtual const char *getErrorDomain() const P44_OVERRIDE;
+
+    /// create system error from passed ESP error and set message to strerror() text
+    /// @param aEspError a ESP error number
+    /// @param aContextMessage if set, this message will be used to prefix the error message
+    EspError(esp_err_t aEspError, const char *aContextMessage = NULL);
+
+    /// factory function to create a ErrorPtr either containing NULL (if aEspError indicates OK)
+    /// or a EspError (if aEspError indicates error)
+    /// @param aEspError a ESP error number
+    /// @param aContextMessage if set, this message will be used to prefix the error message
+    static ErrorPtr err(esp_err_t aEspError, const char *aContextMessage = NULL);
+  };
+  #endif // ESP_PLATFORM
 
 
   /// Web/HTTP error code based error

@@ -108,7 +108,7 @@ AnalogIo::AnalogIo(const char* aPinSpec, bool aOutput, double aInitialValue)
   }
   else
   #endif
-  #if !DISABLE_SYSCMDIO
+  #if !DISABLE_SYSCMDIO && !defined(ESP_PLATFORM)
   if (busName=="syscmd") {
     // analog I/O calling system command to set value
     ioPin = AnalogIOPinPtr(new AnalogSysCommandPin(pinName.c_str(), output, aInitialValue));
@@ -118,10 +118,12 @@ AnalogIo::AnalogIo(const char* aPinSpec, bool aOutput, double aInitialValue)
   #if !DISABLE_PWM
   if (busName.substr(0,7)=="pwmchip") {
     // Linux generic PWM output
-    // pwmchip<chipno>.<channelno>[.<period>]
+    //   pwmchip<chipno>.<channelno>[.<period>]
+    // or ESP32 ledc PWM output
+    //   pwmchip<gpiono>.<channelno>[.<period>]
     int chipNumber = atoi(busName.c_str()+7);
     int channelNumber;
-    uint32_t periodNs = 40000; // default to 25kHz = 40000nS
+    uint32_t periodNs = 0; // default
     if (deviceName.empty()) {
       channelNumber = atoi(pinName.c_str());
     }

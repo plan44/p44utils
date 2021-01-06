@@ -39,11 +39,11 @@ using namespace p44;
 // MARK: - LedChainComm
 
 #if ENABLE_RPIWS281X
-#define TARGET_FREQ WS2811_TARGET_FREQ // in Hz, default is 800kHz
-#define GPIO_PIN 18 // P1 Pin 12, GPIO 18 (PCM_CLK)
-#define GPIO_INVERT 0 // set to 1 if there is an inverting driver between GPIO 18 and the WS281x LEDs
-#define DMA 5 // don't change unless you know why
-#define MAX_BRIGHTNESS 255 // full brightness range
+  #define TARGET_FREQ WS2811_TARGET_FREQ // in Hz, default is 800kHz
+  #define GPIO_PIN 18 // P1 Pin 12, GPIO 18 (PCM_CLK)
+  #define GPIO_INVERT 0 // set to 1 if there is an inverting driver between GPIO 18 and the WS281x LEDs
+  #define DMA 5 // don't change unless you know why
+  #define MAX_BRIGHTNESS 255 // full brightness range
 #endif
 
 
@@ -62,7 +62,10 @@ LEDChainComm::LEDChainComm(
   uint16_t aInactiveEndLeds
 ) :
   initialized(false)
-  #if ENABLE_RPIWS281X
+  #ifdef ESP_PLATFORM
+  ,gpioNo(18) // sensible default
+  ,pixels(NULL)
+  #elif ENABLE_RPIWS281X
   #else
   ,ledFd(-1)
   ,ledbuffer(NULL)
@@ -108,8 +111,17 @@ void LEDChainComm::setChainDriver(LEDChainCommPtr aLedChainComm)
 
 // MARK: - LEDChainComm physical LED chain driver
 
+#ifdef ESP_PLATFORM
 
-bool LEDChainComm::begin()
+static bool gEsp32_ws281x_initialized = false;
+
+#define ESP32_LEDCHAIN_MAX_RETRIES 3
+
+#endif // CONFIG_P44UTILS_DIGITAL_LED_LIB
+
+
+
+bool LEDChainComm::begin(size_t aHintAtTotalChains)
 {
   if (!initialized) {
     if (chainDriver) {
@@ -117,7 +129,40 @@ bool LEDChainComm::begin()
       initialized = chainDriver->begin();
     }
     else {
-      #if ENABLE_RPIWS281X
+      #ifdef ESP_PLATFORM
+      if (deviceName.substr(0,4)=="gpio") {
+        sscanf(deviceName.c_str()+4, "%d", &gpioNo);
+      }
+      // make sure library is initialized
+      if (!gEsp32_ws281x_initialized) {
+        esp_ws281x_init(aHintAtTotalChains);
+        gEsp32_ws281x_initialized = true;
+      }
+      // add this chain
+      Esp_ws281x_LedType elt;
+      switch (ledType) {
+        case ledtype_ws2812 : elt = esp_ledtype_ws2812; break;
+        case ledtype_sk6812 : elt = esp_ledtype_sk6812; break;
+        case ledtype_p9823 : elt = esp_ledtype_p9823; break;
+        case ledtype_ws2815_rgb : elt = esp_ledtype_ws2815_rgb; break;
+        case ledtype_ws281x :
+        default: elt = esp_ledtype_ws2813; break; // most common
+      }
+      espLedChain = esp_ws281x_newChain(elt, gpioNo, ESP32_LEDCHAIN_MAX_RETRIES);
+      if (espLedChain) {
+        // prepare buffer
+        if (pixels) {
+          delete[] pixels;
+          pixels = NULL;
+        }
+        pixels = new Esp_ws281x_pixel[numLeds];
+        initialized = true;
+        clear();
+      }
+      else {
+        return false; // cannot have more than 8 strands
+      }
+      #elif ENABLE_RPIWS281X
       // prepare hardware related stuff
       memset(&ledstring, 0, sizeof(ledstring));
       // initialize the led string structure
@@ -185,7 +230,9 @@ void LEDChainComm::clear()
   }
   else {
     // this is the master driver, clear the entire buffer
-    #if ENABLE_RPIWS281X
+    #ifdef ESP_PLATFORM
+    for (uint16_t i=0; i<numLeds; i++) pixels[i].num = 0;
+    #elif ENABLE_RPIWS281X
     for (uint16_t i=0; i<numLeds; i++) ledstring.channel[0].leds[i] = 0;
     #else
     memset(ledbuffer, 0, numColorComponents*numLeds);
@@ -198,7 +245,14 @@ void LEDChainComm::end()
 {
   if (initialized) {
     if (!chainDriver) {
-      #if ENABLE_RPIWS281X
+      #ifdef ESP_PLATFORM
+      if (pixels) {
+        delete[] pixels;
+        pixels = NULL;
+      }
+      esp_ws281x_freeChain(espLedChain);
+      espLedChain = NULL;
+      #elif ENABLE_RPIWS281X
       // deinitialize library
       ws2811_fini(&ledstring);
       #else
@@ -222,8 +276,9 @@ void LEDChainComm::show()
   if (!chainDriver) {
     // Note: no operation if this is only a secondary mapping - primary driver will update the hardware
     if (!initialized) return;
-
-    #if ENABLE_RPIWS281X
+    #ifdef ESP_PLATFORM
+    esp_ws281x_setColors(espLedChain, numLeds, pixels);
+    #elif ENABLE_RPIWS281X
     ws2811_render(&ledstring);
     #else
     write(ledFd, ledbuffer, numLeds*numColorComponents);
@@ -245,8 +300,10 @@ void LEDChainComm::setColorAtLedIndex(uint16_t aLedIndex, uint8_t aRed, uint8_t 
     uint8_t r = pwmtable[aRed];
     uint8_t g = pwmtable[aGreen];
     uint8_t b = pwmtable[aBlue];
-    uint8_t w = pwmtable[aBlue];
-    #if ENABLE_RPIWS281X
+    uint8_t w = pwmtable[aWhite];
+    #ifdef ESP_PLATFORM
+    pixels[aLedIndex] = esp_ws281x_makeRGBVal(r, g, b, w);
+    #elif ENABLE_RPIWS281X
     ws2811_led_t pixel =
       ((uint32_t)r << 16) |
       ((uint32_t)g << 8) |
@@ -275,7 +332,13 @@ void LEDChainComm::getColorAtLedIndex(uint16_t aLedIndex, uint8_t &aRed, uint8_t
   }
   else {
     if (aLedIndex>=numLeds) return;
-    #if ENABLE_RPIWS281X
+    #ifdef ESP_PLATFORM
+    Esp_ws281x_pixel &pixel = pixels[aLedIndex];
+    aRed = brightnesstable[pixel.r];
+    aGreen = brightnesstable[pixel.g];
+    aBlue = brightnesstable[pixel.b];
+    aWhite = brightnesstable[pixel.w];
+    #elif ENABLE_RPIWS281X
     ws2811_led_t pixel = ledstring.channel[0].leds[aLedIndex];
     aRed = brightnesstable[(pixel>>16) & 0xFF];
     aGreen = brightnesstable[(pixel>>8) & 0xFF];
@@ -451,8 +514,6 @@ void LEDChainArrangement::setRootView(P44ViewPtr aRootView)
 }
 
 
-#if ENABLE_APPLICATION_SUPPORT
-
 #if ENABLE_P44LRGRAPHICS
 #include "viewfactory.hpp"
 #endif
@@ -473,6 +534,8 @@ void LEDChainArrangement::addLEDChain(LEDChainArrangementPtr &aLedChainArrangeme
   aLedChainArrangement->addLEDChain(aChainSpec);
 }
 
+
+#if ENABLE_APPLICATION_SUPPORT
 
 void LEDChainArrangement::processCmdlineOptions()
 {
@@ -527,6 +590,9 @@ void LEDChainArrangement::addLEDChain(const string &aChainSpec)
           }
           else if (part=="P9823") {
             ledType = LEDChainComm::ledtype_p9823;
+          }
+          else if (part=="WS2815_RGB") {
+            ledType = LEDChainComm::ledtype_ws2815_rgb;
           }
           txtcnt++;
         }
@@ -649,7 +715,7 @@ void LEDChainArrangement::setPowerLimit(int aMilliWatts)
 }
 
 
-static const Row3 LEDwhite = { 0.333, 0.333, 0.333 };
+static const Row3 LEDwhite = { 0.666, 0.666, 0.666 }; // Asume double white LED power compared with one of R,G,B
 
 MLMicroSeconds LEDChainArrangement::updateDisplay()
 {
@@ -695,8 +761,8 @@ MLMicroSeconds LEDChainArrangement::updateDisplay()
                   // if available, transfer common white from RGB to white channel
                   if (hasWhite) {
                     double r = (double)pix.r/255;
-                    double g = (double)pix.r/255;
-                    double b = (double)pix.r/255;
+                    double g = (double)pix.g/255;
+                    double b = (double)pix.b/255;
                     w = p44::transferToColor(LEDwhite, r, g, b)*255;
                   }
                   // accumulate power consumption
@@ -760,7 +826,7 @@ MLMicroSeconds LEDChainArrangement::updateDisplay()
 void LEDChainArrangement::begin(bool aAutoStep)
 {
   for(LedChainVector::iterator pos = ledChains.begin(); pos!=ledChains.end(); ++pos) {
-    pos->ledChain->begin();
+    pos->ledChain->begin(ledChains.size());
     pos->ledChain->clear();
     pos->ledChain->show();
   }

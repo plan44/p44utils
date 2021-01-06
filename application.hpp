@@ -30,7 +30,10 @@
   #define ENABLE_APPLICATION_SUPPORT 1 // projects which include application.hpp can include support for it in other files
 #endif
 
+#ifdef ESP_PLATFORM
+#else
 #include <signal.h>
+#endif
 
 using namespace std;
 
@@ -42,7 +45,7 @@ namespace p44 {
   {
     typedef P44Obj inherited;
 
-    MainLoop &mainLoop;
+    MainLoop &mMainLoop;
 
   protected:
 
@@ -51,7 +54,7 @@ namespace p44 {
 
   public:
     /// construct application with specific mainloop
-    Application(MainLoop &aMainLoop = MainLoop::currentMainLoop());
+    Application(MainLoop &aMainLoop);
 
     /// construct application using current thread's mainloop
     Application();
@@ -66,6 +69,9 @@ namespace p44 {
 
     /// get shared instance (singleton)
     static Application *sharedApplication();
+
+    /// get mainloop of the app main thread (the thread the application was started from)
+    MainLoop& mainLoop() { return mMainLoop; }
 
     /// @return returns true only when application is running in its mainloop
     /// @note can be used to make sure object tree is not in end-of-app destruction, e.g. when referencing objects from individual
@@ -153,9 +159,11 @@ namespace p44 {
     /// called when mainloop terminates
     virtual void cleanup(int aExitCode);
 
+    #ifndef ESP_PLATFORM
     /// called when a signal occurs
     /// @note only SIGHUP,SIGINT,SIGKILL and SIGTERM are handled here
     virtual void signalOccurred(int aSignal, siginfo_t *aSiginfo);
+    #endif
 
     /// set the resource path
     /// @param aResourcePath path to resource directory, with or without path delimiter at end
@@ -168,11 +176,16 @@ namespace p44 {
   private:
 
     void initializeInternal();    
+
+    #ifndef ESP_PLATFORM
     void handleSignal(int aSignal);
     static void sigaction_handler(int aSignal, siginfo_t *aSiginfo, void *aUap);
+    #endif
 
   };
 
+
+  #ifndef ESP_PLATFORM
 
   /// standard option texts, can be used as part of setCommandDescriptors() string
 
@@ -340,6 +353,7 @@ namespace p44 {
 
   };
 
+  #endif // !ESP_PLATFORM
 
 } // namespace p44
 

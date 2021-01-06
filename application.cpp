@@ -44,7 +44,7 @@ Application *Application::sharedApplication()
 bool Application::isRunning()
 {
   if (sharedApplicationP) {
-    return sharedApplicationP->mainLoop.isRunning();
+    return sharedApplicationP->mMainLoop.isRunning();
   }
   return false; // no app -> not running
 }
@@ -53,7 +53,7 @@ bool Application::isRunning()
 bool Application::isTerminated()
 {
   if (sharedApplicationP) {
-    return sharedApplicationP->mainLoop.isTerminated();
+    return sharedApplicationP->mMainLoop.isTerminated();
   }
   return true; // no app -> consider terminated as well
 }
@@ -61,14 +61,14 @@ bool Application::isTerminated()
 
 
 Application::Application(MainLoop &aMainLoop) :
-  mainLoop(aMainLoop)
+  mMainLoop(aMainLoop)
 {
   initializeInternal();
 }
 
 
 Application::Application() :
-  mainLoop(MainLoop::currentMainLoop())
+  mMainLoop(MainLoop::currentMainLoop())
 {
   initializeInternal();
 }
@@ -88,6 +88,7 @@ void Application::initializeInternal()
   srand((unsigned)(MainLoop::now()>>32 ^ MainLoop::now()));
   // "publish" singleton
   sharedApplicationP = this;
+  #ifndef ESP_PLATFORM
   // register signal handlers
   handleSignal(SIGHUP);
   handleSignal(SIGINT);
@@ -99,8 +100,11 @@ void Application::initializeInternal()
   //   does not restore SIGCHLD to SIG_DFL and execs us, we could be in SIG_IGN
   //   state now - that's why we set it now!
   signal(SIGCHLD, SIG_DFL);
+  #endif
 }
 
+
+#ifndef ESP_PLATFORM
 
 void Application::sigaction_handler(int aSignal, siginfo_t *aSiginfo, void *aUap)
 {
@@ -119,6 +123,23 @@ void Application::handleSignal(int aSignal)
   act.sa_flags = SA_SIGINFO;
   sigaction (aSignal, &act, NULL);
 }
+
+
+void Application::signalOccurred(int aSignal, siginfo_t *aSiginfo)
+{
+  if (aSignal==SIGUSR1) {
+    // default for SIGUSR1 is showing mainloop statistics
+    LOG(LOG_NOTICE, "SIGUSR1 requests %s", mainLoop.description().c_str());
+    mainLoop.statistics_reset();
+    return;
+  }
+  // default action for all other signals is terminating the program
+  LOG(LOG_ERR, "Terminating because pid %d sent signal %d", aSiginfo->si_pid, aSignal);
+  mainLoop.terminate(EXIT_FAILURE);
+}
+
+#endif
+
 
 
 int Application::main(int argc, char **argv)
@@ -140,28 +161,14 @@ void Application::cleanup(int aExitCode)
 }
 
 
-void Application::signalOccurred(int aSignal, siginfo_t *aSiginfo)
-{
-  if (aSignal==SIGUSR1) {
-    // default for SIGUSR1 is showing mainloop statistics
-    LOG(LOG_NOTICE, "SIGUSR1 requests %s", mainLoop.description().c_str());
-    mainLoop.statistics_reset();
-    return;
-  }
-  // default action for all other signals is terminating the program
-  LOG(LOG_ERR, "Terminating because pid %d sent signal %d", aSiginfo->si_pid, aSignal);
-  mainLoop.terminate(EXIT_FAILURE);
-}
-
-
 int Application::run()
 {
 	// schedule the initialize() method as first mainloop method
-	mainLoop.executeNow(boost::bind(&Application::initialize, this));
+	mMainLoop.executeNow(boost::bind(&Application::initialize, this));
 	// run the mainloop
-	int exitCode = mainLoop.run();
+	int exitCode = mMainLoop.run();
   // show the statistic
-  LOG(LOG_INFO, "Terminated: %s", mainLoop.description().c_str());
+  LOG(LOG_INFO, "Terminated: %s", mMainLoop.description().c_str());
   // clean up
   cleanup(exitCode);
   // done
@@ -172,7 +179,7 @@ int Application::run()
 void Application::terminateApp(int aExitCode)
 {
   // have mainloop terminate with given exit code and exit run()
-  mainLoop.terminate(aExitCode);
+  mMainLoop.terminate(aExitCode);
 }
 
 
@@ -180,7 +187,7 @@ void Application::terminateApp(int aExitCode)
 void Application::terminateAppWith(ErrorPtr aError)
 {
   if (Error::isOK(aError)) {
-    mainLoop.terminate(EXIT_SUCCESS);
+    mMainLoop.terminate(EXIT_SUCCESS);
   }
   else {
     if (!LOGENABLED(LOG_ERR)) {
@@ -192,7 +199,7 @@ void Application::terminateAppWith(ErrorPtr aError)
     else {
       LOG(LOG_ERR, "Terminating because of error: %s", aError->text());
     }
-    mainLoop.terminate(EXIT_FAILURE);
+    mMainLoop.terminate(EXIT_FAILURE);
   }
 }
 
@@ -356,7 +363,11 @@ void Application::daemonize()
 }
 
 
-// MARK: - CmdLineApp command line application
+
+#ifndef ESP_PLATFORM
+
+// MARK: ===== CmdLineApp command line application
+
 
 /// constructor
 CmdLineApp::CmdLineApp(MainLoop &aMainLoop) :
@@ -792,4 +803,6 @@ void CmdLineApp::processStandardLogOptions(bool aForDaemon, int aDefaultErrLevel
   }
   SETDELTATIME(getOption("deltatstamps"));
 }
+
+#endif // !ESP_PLATFORM
 

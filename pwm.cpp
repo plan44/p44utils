@@ -26,14 +26,100 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/ioctl.h>
-#include <unistd.h>
-
+#ifndef ESP_PLATFORM
+  #include <sys/ioctl.h>
+  #include <unistd.h>
+#endif
 #include "logger.hpp"
 #include "mainloop.hpp"
 
 using namespace p44;
 
+
+#ifdef ESP_PLATFORM
+
+// MARK: - PWM via ESP32 LEDC PWM controller
+
+PWMPin::PWMPin(int aPwmChip, int aPwmChannel, bool aInverted, double aInitialValue, uint32_t aPeriodInNs) :
+  gpioNo((gpio_num_t)aPwmChip),
+  ledcChannel((ledc_channel_t)aPwmChannel),
+  inverted(aInverted),
+  activeNs(0),
+  periodNs(aPeriodInNs)
+{
+  esp_err_t ret;
+
+  if (periodNs==0) periodNs = 200000; // 5kHz
+  // timer params
+  ledc_timer_config_t ledc_timer = {
+    .speed_mode = LEDC_HIGH_SPEED_MODE,   // timer mode
+    .duty_resolution = LEDC_TIMER_13_BIT, // resolution of PWM duty, 13bit is max for 5000 hz
+    .timer_num = LEDC_TIMER_0,            // timer index
+    .freq_hz = 5000,                      // frequency of PWM signal
+    .clk_cfg = LEDC_AUTO_CLK              // Auto select the source clock
+  };
+  ledc_timer.freq_hz = 1e9/periodNs;
+  // channel params
+  ledc_channel_config_t ledc_channel = {
+    .gpio_num   = GPIO_NUM_NC,
+    .speed_mode = LEDC_HIGH_SPEED_MODE,
+    .channel    = LEDC_CHANNEL_0,
+    .intr_type  = LEDC_INTR_DISABLE,
+    .timer_sel  = LEDC_TIMER_0,
+    .duty       = 0,
+    .hpoint     = 0
+  };
+  ledc_channel.gpio_num = gpioNo;
+  ledc_channel.channel = ledcChannel;
+  ledc_channel.duty = aInitialValue/100*((1<<13)-1);
+  // Set configuration of timer0 for high speed channels
+  ret = ledc_timer_config(&ledc_timer);
+  if (ret==ESP_OK) {
+    ret = ledc_channel_config(&ledc_channel);
+  }
+  if (ret!=ESP_OK) {
+    LOG(LOG_ERR,"LEDC PWM init error: %s", esp_err_to_name(ret));
+    gpioNo = GPIO_NUM_NC; // signal "not connected"
+  }
+}
+
+
+PWMPin::~PWMPin()
+{
+  if (gpioNo!=GPIO_NUM_NC) {
+    ledc_stop(LEDC_HIGH_SPEED_MODE, ledcChannel, inverted);
+  }
+}
+
+
+void PWMPin::setValue(double aValue)
+{
+  if (gpioNo==GPIO_NUM_NC) return; // non-existing pins cannot be set
+  if (aValue<0) aValue = 0; // limit to min
+  else if (aValue>100) aValue = 100; // limit to max
+  if (inverted) aValue = 100-aValue; // inverted output: invert duty cycle
+  ledc_set_duty(LEDC_HIGH_SPEED_MODE, ledcChannel, aValue/100*((1<<13)-1));
+  ledc_update_duty(LEDC_HIGH_SPEED_MODE, ledcChannel);
+}
+
+
+double PWMPin::getValue()
+{
+  if (periodNs==0) return 0;
+  return (double)activeNs/(double)periodNs*100;
+}
+
+
+bool PWMPin::getRange(double &aMin, double &aMax, double &aResolution)
+{
+  aMin = 0;
+  aMax = 100;
+  aResolution = periodNs>0 ? 1/periodNs : 1;
+  return true;
+}
+
+
+#else
 
 // MARK: - PWM via modern kernel support
 
@@ -50,6 +136,7 @@ PWMPin::PWMPin(int aPwmChip, int aPwmChannel, bool aInverted, double aInitialVal
 {
   int tempFd;
   string name;
+  if (periodNs==0) periodNs = 20000; // 50kHz
   string s = string_format("%d", pwmChannel);
   // have the kernel export the pwm channel
   name = string_format("%s/pwmchip%d/export", PWM_SYS_CLASS_PATH, pwmChip);
@@ -71,7 +158,7 @@ PWMPin::PWMPin(int aPwmChip, int aPwmChannel, bool aInverted, double aInitialVal
   name = basePath + "/period";
   tempFd = open(name.c_str(), O_RDWR);
   if (tempFd<0) { LOG(LOG_ERR, "Cannot open PWM period file %s: %s", name.c_str(), strerror(errno)); return; }
-  s = string_format("%u", aPeriodInNs);
+  s = string_format("%u", periodNs);
   write(tempFd, s.c_str(), s.length());
   close(tempFd);
   // now keep the duty cycle FD open
@@ -170,3 +257,5 @@ bool PWMPin::getRange(double &aMin, double &aMax, double &aResolution)
 //
 //  - 0 - disabled
 //  - 1 - enabled
+
+#endif // !ESP_PLATFORM
