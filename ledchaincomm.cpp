@@ -480,11 +480,20 @@ LEDChainArrangement::LEDChainArrangement() :
   covers(zeroRect),
   maxOutValue(255),
   powerLimit(0),
+  mRequestedLightPower(0),
   powerLimited(false),
   lastUpdate(Never),
   minUpdateInterval(DEFAULT_MIN_UPDATE_INTERVAL),
   maxPriorityInterval(DEFAULT_MAX_PRIORITY_INTERVAL)
 {
+  #if ENABLE_P44SCRIPT && ENABLE_P44LRGRAPHICS && ENABLE_VIEWCONFIG
+  // install p44script lookup providing "ledchain" global
+  // Note: assuming only ONE ledchain arrangement per application.
+  // TODO: Nothing currently prevents instantiating multiple, but makes no sense
+  p44::P44Script::StandardScriptingDomain::sharedDomain().registerMemberLookup(
+    new P44Script::LEDChainLookup(*this)
+  );
+  #endif // ENABLE_P44SCRIPT
 }
 
 
@@ -563,6 +572,7 @@ void LEDChainArrangement::addLEDChain(const string &aChainSpec)
   bool alternating = false;
   bool swapXY = false;
   bool yReversed = false;
+  PixelColor ledWhite = { 0xAA, 0xAA, 0xAA, 0xFF }; // Asume double white LED power compared with one of R,G,B
   uint16_t inactiveStartLeds = 0;
   uint16_t inactiveBetweenLeds = 0;
   uint16_t remainingInactive = 0;
@@ -573,7 +583,7 @@ void LEDChainArrangement::addLEDChain(const string &aChainSpec)
   newCover.dy = 1;
   PixelPoint offsets = { 0, 0 };
   // parse chain specification
-  // Syntax: [chaintype:[leddevicename:]]numberOfLeds:[x:dx:y:dy:firstoffset:betweenoffset][XYSA]
+  // Syntax: [chaintype:[leddevicename:]]numberOfLeds:[x:dx:y:dy:firstoffset:betweenoffset][XYSA][W#whitecolor]
   string part;
   const char *p = aChainSpec.c_str();
   int nmbrcnt = 0;
@@ -604,12 +614,16 @@ void LEDChainArrangement::addLEDChain(const string &aChainSpec)
       }
       else {
         // text after first number are options
-        for (int i=0; i<part.size(); i++) {
+        for (size_t i=0; i<part.size(); i++) {
           switch (part[i]) {
             case 'X': xReversed = true; break;
             case 'Y': yReversed = true; break;
             case 'S': swapXY = true; break;
             case 'A': alternating = true; break;
+            case 'W':
+              ledWhite = webColorToPixel(part.substr(i+1));
+              i = part.size(); // W#whitecol ends the part (more options could follow after another colon
+              break;
           }
         }
       }
@@ -650,6 +664,9 @@ void LEDChainArrangement::addLEDChain(const string &aChainSpec)
     inactiveBetweenLeds,
     remainingInactive
   ));
+  ledChain->mLEDWhite[0] = (double)ledWhite.r/255;
+  ledChain->mLEDWhite[1] = (double)ledWhite.g/255;
+  ledChain->mLEDWhite[2] = (double)ledWhite.b/255;
   LOG(LOG_INFO,
     "Installed ledchain covering area: x=%d, dx=%d, y=%d, dy=%d on device '%s'. %d LEDs inactive at start, %d at end.",
     newCover.x, newCover.dx, newCover.y, newCover.dy, ledChain->getDeviceName().c_str(),
@@ -678,6 +695,17 @@ void LEDChainArrangement::addLEDChain(LEDChainCommPtr aLedChain, PixelRect aCove
     "- enclosing rectangle of all covered areas: x=%d, dx=%d, y=%d, dy=%d",
     covers.x, covers.dx, covers.y, covers.dy
   );
+}
+
+
+void LEDChainArrangement::removeAllChains()
+{
+  clear(); // all LEDs off
+  for(LedChainVector::iterator pos = ledChains.begin(); pos!=ledChains.end(); ++pos) {
+    pos->ledChain->end(); // end updates
+  }
+  ledChains.clear(); // remove all chains
+  covers = zeroRect; // nothing covered right now
 }
 
 
@@ -715,7 +743,12 @@ void LEDChainArrangement::setPowerLimit(int aMilliWatts)
 }
 
 
-static const Row3 LEDwhite = { 0.666, 0.666, 0.666 }; // Asume double white LED power compared with one of R,G,B
+int LEDChainArrangement::getNeededPower()
+{
+  // internal measurement is in PWM units
+  return mRequestedLightPower*MILLIWATTS_PER_LED/255;
+}
+
 
 MLMicroSeconds LEDChainArrangement::updateDisplay()
 {
@@ -732,10 +765,11 @@ MLMicroSeconds LEDChainArrangement::updateDisplay()
       else {
         // update now
         lastUpdate = now;
+        uint32_t lightPower = 0;
         if (dirty) {
           uint8_t powerDim = 0; // undefined
           while (true) {
-            uint32_t lightPower = 0;
+            lightPower = 0;
             // update LED chain content buffers from view hierarchy
             for(LedChainVector::iterator pos = ledChains.begin(); pos!=ledChains.end(); ++pos) {
               LEDChainFixture& l = *pos;
@@ -751,19 +785,13 @@ MLMicroSeconds LEDChainArrangement::updateDisplay()
                   #if DEBUG
                   //if (x==0 && y==0) pix={ 255,0,0,255 };
                   #endif
-                  // limit to max output value
-                  if (maxOutValue<255) {
-                    if (pix.r>maxOutValue) pix.r = maxOutValue;
-                    if (pix.g>maxOutValue) pix.g = maxOutValue;
-                    if (pix.b>maxOutValue) pix.b = maxOutValue;
-                  }
                   PixelColorComponent w = 0;
                   // if available, transfer common white from RGB to white channel
                   if (hasWhite) {
                     double r = (double)pix.r/255;
                     double g = (double)pix.g/255;
                     double b = (double)pix.b/255;
-                    w = p44::transferToColor(LEDwhite, r, g, b)*255;
+                    w = p44::transferToColor(l.ledChain->mLEDWhite, r, g, b)*255;
                   }
                   // accumulate power consumption
                   if (powerDim) {
@@ -774,9 +802,16 @@ MLMicroSeconds LEDChainArrangement::updateDisplay()
                       lightPower += pwmtable[pix.r]+pwmtable[pix.g]+pwmtable[pix.b]+pwmtable[w];
                     }
                   }
-                  else if (powerLimit) {
+                  else {
                     // measure
                     lightPower += pwmtable[pix.r]+pwmtable[pix.g]+pwmtable[pix.b]+pwmtable[w];
+                  }
+                  // limit to max output value
+                  if (maxOutValue<255) {
+                    if (pix.r>maxOutValue) pix.r = maxOutValue;
+                    if (pix.g>maxOutValue) pix.g = maxOutValue;
+                    if (pix.b>maxOutValue) pix.b = maxOutValue;
+                    if (w>maxOutValue) w = maxOutValue;
                   }
                   // set pixel in chain
                   l.ledChain->setColorXY(
@@ -788,16 +823,16 @@ MLMicroSeconds LEDChainArrangement::updateDisplay()
               }
             }
             // check if we need power limiting
-            if (lightPower>powerLimit && powerDim==0) {
+            if (powerLimit && lightPower>powerLimit && powerDim==0) {
               powerDim = brightnesstable[(uint32_t)255*powerLimit/lightPower];
               if (!powerLimited) {
                 powerLimited = true;
-                LOG(LOG_INFO, "!!! LED power (%d) exceeds limit (%d) -> re-run dimmed", lightPower, powerLimit);
+                LOG(LOG_INFO, "!!! LED power (%d) exceeds limit (%d) -> re-run dimmed to (%d%%)", lightPower, powerLimit, powerDim*100/255);
               }
-              continue; // run again with reduced power
+              if (powerDim!=0) continue; // run again with reduced power (but prevent endless loop in case reduction results in zero)
             }
             else if (powerDim) {
-              DBGFOCUSLOG("--- reduced power is %d now (limit %d), dim=%d", lightPower, powerLimit, powerDim);
+              DBGFOCUSLOG("--- requested power is %d, reduced power is %d now (limit %d), dim=%d", mRequestedLightPower, lightPower, powerLimit, powerDim);
             }
             else {
               if (powerLimited) {
@@ -807,6 +842,7 @@ MLMicroSeconds LEDChainArrangement::updateDisplay()
             }
             break;
           }
+          if (powerDim==0) mRequestedLightPower = lightPower; // remeber requested power
           rootView->updated();
         }
         // update hardware (refresh actual LEDs, cleans away possible glitches
@@ -823,13 +859,21 @@ MLMicroSeconds LEDChainArrangement::updateDisplay()
 }
 
 
-void LEDChainArrangement::begin(bool aAutoStep)
+void LEDChainArrangement::startChains()
 {
   for(LedChainVector::iterator pos = ledChains.begin(); pos!=ledChains.end(); ++pos) {
-    pos->ledChain->begin(ledChains.size());
-    pos->ledChain->clear();
-    pos->ledChain->show();
+    if (!pos->ledChain->initialized) {
+      pos->ledChain->begin(ledChains.size());
+      pos->ledChain->clear();
+      pos->ledChain->show();
+    }
   }
+}
+
+
+void LEDChainArrangement::begin(bool aAutoStep)
+{
+  startChains();
   if (aAutoStep) {
     autoStepTicket.executeOnce(boost::bind(&LEDChainArrangement::autoStep, this, _1));
   }
@@ -905,6 +949,86 @@ void LEDChainArrangement::end()
     pos->ledChain->end();
   }
 }
+
+
+// MARK: - script support
+
+#if ENABLE_P44SCRIPT
+
+using namespace P44Script;
+
+// addledchain(ledchainconfigstring)
+static const BuiltInArgDesc addledchain_args[] = { { text } };
+static const size_t addledchain_numargs = sizeof(addledchain_args)/sizeof(BuiltInArgDesc);
+static void addledchain_func(BuiltinFunctionContextPtr f)
+{
+  LEDChainLookup* l = dynamic_cast<LEDChainLookup*>(f->funcObj()->getMemberLookup());
+  l->ledChainArrangement().addLEDChain(f->arg(0)->stringValue());
+  l->ledChainArrangement().startChains(); // start chains that are not yet operating
+  f->finish();
+}
+
+
+// removeledchains()
+static void removeledchains_func(BuiltinFunctionContextPtr f)
+{
+  LEDChainLookup* l = dynamic_cast<LEDChainLookup*>(f->funcObj()->getMemberLookup());
+  l->ledChainArrangement().removeAllChains();
+  f->finish();
+}
+
+
+// neededledpower()
+static void neededledpower_func(BuiltinFunctionContextPtr f)
+{
+  LEDChainLookup* l = dynamic_cast<LEDChainLookup*>(f->funcObj()->getMemberLookup());
+  f->finish(new NumericValue(l->ledChainArrangement().getNeededPower()));
+}
+
+
+// setmaxledpower()
+static void setmaxledpower_func(BuiltinFunctionContextPtr f)
+{
+  LEDChainLookup* l = dynamic_cast<LEDChainLookup*>(f->funcObj()->getMemberLookup());
+  l->ledChainArrangement().setPowerLimit(f->arg(0)->intValue());
+  f->finish();
+}
+
+
+// ledchaincover()
+static void ledchaincover_func(BuiltinFunctionContextPtr f)
+{
+  LEDChainLookup* l = dynamic_cast<LEDChainLookup*>(f->funcObj()->getMemberLookup());
+  PixelRect crect = l->ledChainArrangement().totalCover();
+  JsonObjectPtr cover = JsonObject::newObj();
+  cover->add("x", JsonObject::newInt32(crect.x));
+  cover->add("y", JsonObject::newInt32(crect.y));
+  cover->add("dx", JsonObject::newInt32(crect.dx));
+  cover->add("dy", JsonObject::newInt32(crect.dy));
+  f->finish(new JsonValue(cover));
+}
+
+
+
+static const BuiltInArgDesc setmaxledpower_args[] = { { numeric } };
+static const size_t setmaxledpower_numargs = sizeof(setmaxledpower_args)/sizeof(BuiltInArgDesc);
+static const BuiltinMemberDescriptor ledChainArrangementGlobals[] = {
+  { "addledchain", executable, addledchain_numargs, addledchain_args, &addledchain_func },
+  { "removeledchains", executable, 0, NULL, &removeledchains_func },
+  { "ledchaincover", executable|json|object, 0, NULL, &ledchaincover_func },
+  { "neededledpower", executable|numeric, 0, NULL, &neededledpower_func },
+  { "setmaxledpower", executable, setmaxledpower_numargs, setmaxledpower_args, &setmaxledpower_func },
+  { NULL } // terminator
+};
+
+
+LEDChainLookup::LEDChainLookup(LEDChainArrangement& aLedChainArrangement) :
+  inherited(ledChainArrangementGlobals),
+  mLedChainArrangement(aLedChainArrangement)
+{
+}
+
+#endif // ENABLE_P44SCRIPT
 
 
 

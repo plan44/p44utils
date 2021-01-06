@@ -129,13 +129,13 @@ void Application::signalOccurred(int aSignal, siginfo_t *aSiginfo)
 {
   if (aSignal==SIGUSR1) {
     // default for SIGUSR1 is showing mainloop statistics
-    LOG(LOG_NOTICE, "SIGUSR1 requests %s", mainLoop.description().c_str());
-    mainLoop.statistics_reset();
+    LOG(LOG_NOTICE, "SIGUSR1 requests %s", mMainLoop.description().c_str());
+    mMainLoop.statistics_reset();
     return;
   }
   // default action for all other signals is terminating the program
   LOG(LOG_ERR, "Terminating because pid %d sent signal %d", aSiginfo->si_pid, aSignal);
-  mainLoop.terminate(EXIT_FAILURE);
+  mMainLoop.terminate(EXIT_FAILURE);
 }
 
 #endif

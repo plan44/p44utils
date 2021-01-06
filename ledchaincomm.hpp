@@ -67,6 +67,8 @@ namespace p44 {
 
   class LEDChainComm : public P44Obj
   {
+    friend class LEDChainArrangement;
+    
   public:
 
     typedef enum {
@@ -109,6 +111,11 @@ namespace p44 {
     int ledFd; // the file descriptor for the LED device
     uint8_t *ledbuffer; // the raw bytes to be sent to the WS2812 device
     #endif
+
+    #if ENABLE_P44LRGRAPHICS
+    Row3 mLEDWhite; ///< the color and intensity of the white channel LED (if any). @note this is used only in LEDChainArrangement
+    #endif
+
 
   public:
     /// create driver for a WS2812 LED chain
@@ -240,7 +247,6 @@ namespace p44 {
 
   class LEDChainArrangement : public P44Obj
   {
-
     class LEDChainFixture {
     public:
       LEDChainFixture(LEDChainCommPtr aLedChain, PixelRect aCovers, PixelPoint aOffset) : ledChain(aLedChain), covers(aCovers), offset(aOffset) {};
@@ -259,6 +265,7 @@ namespace p44 {
     MLTicket autoStepTicket;
     uint8_t maxOutValue;
     uint32_t powerLimit; // max power (accumulated PWM values of all LEDs)
+    uint32_t mRequestedLightPower; // light power currently requested (but possibly not actually output if >powerLimit)
     bool powerLimited; // set while power is limited
 
   public:
@@ -297,6 +304,9 @@ namespace p44 {
     ///   - XYSA are optional flags for X,Y reversal, x<>y Swap, Alternating chain direction
     void addLEDChain(const string &aChainSpec);
 
+    /// remove all LED chains
+    void removeAllChains();
+
     /// returns the enclosing rectangle over all LED chains
     PixelRect totalCover() { return covers; }
 
@@ -311,12 +321,19 @@ namespace p44 {
     uint8_t getMaxOutValue() { return maxOutValue; }
 
     /// limit total power, dim LED chain output accordingly
-    /// @param aMilliWatts how many milliwatts (approximatively) the total chain may use, 0=no limit
+    /// @param aMilliWatts how many milliwatts (approximatively) the total arrangement chains may use, 0=no limit
     void setPowerLimit(int aMilliWatts);
+
+    /// Return the power it *would* need to display the current state (altough power limiting might actually reducing it)
+    /// @return how many milliwatts (approximatively) the total chain may use, 0=no limit
+    int getNeededPower();
 
     /// start LED chains
     /// @param aAutoStep if true, step() will be called automatically as demanded by the view hierarchy
     void begin(bool aAutoStep);
+
+    /// start chains only recently added (after first call to begin()
+    void startChains();
 
     /// request re-rendering now
     /// @note this should be called when views have been changed from the outside
@@ -335,12 +352,13 @@ namespace p44 {
 
     /// - option to construct LEDChainArrangement from command line
     #define CMDLINE_LEDCHAIN_OPTIONS \
-      { 0,   "ledchain",      true,  "[chaintype:[leddevicename:]]numberOfLeds:[x:dx:y:dy:firstoffs:betweenoffs][XYSA];" \
+      { 0,   "ledchain",      true,  "[chaintype:[leddevicename:]]numberOfLeds:[x:dx:y:dy:firstoffs:betweenoffs][XYSA][W#whitecolor];" \
                                      "enable support for LED chains forming one or multiple RGB lights" \
                                      "\n- chaintype can be WS2812 (GRB, default), SK6812 (RGBW), P9823 (RGB)" \
                                      "\n- leddevicename can be a device name when chain is driven by a kernel module" \
                                      "\n- x,dx,y,dy,firstoffs,betweenoffs specify how the chain is mapped to the display space" \
                                      "\n- XYSA are flags: X or Y: x or y reversed, S: x/y swapped, A: alternating (zigzag)" \
+                                     "\n- #whitecolor is a web color specification for the white channel of RGBW chains" \
                                      "\nNote: this option can be used multiple times to combine ledchains" }, \
       { 0,   "ledchainmax",   true,  "max;max output value (0..255) sent to LED. Defaults to 255." }, \
       { 0,   "ledpowerlimit", true,  "max_mW;maximal power in milliwatts the entire LED arrangement is allowed to consume (approximately)." \
@@ -368,9 +386,26 @@ namespace p44 {
 
     void rootViewRequestsUpdate();
 
-
   };
 
+
+  #if ENABLE_P44SCRIPT
+
+  namespace P44Script {
+
+    /// represents the (singular) LED chain arrangement in this setup
+    class LEDChainLookup : public BuiltInMemberLookup
+    {
+      typedef BuiltInMemberLookup inherited;
+      LEDChainArrangement& mLedChainArrangement;
+    public:
+      LEDChainLookup(LEDChainArrangement& aLedChainArrangement);
+      LEDChainArrangement& ledChainArrangement() { return mLedChainArrangement; }
+    };
+
+  } // namespace P44Script
+
+  #endif // ENABLE_P44SCRIPT
 
   #endif // ENABLE_P44LRGRAPHICS
 

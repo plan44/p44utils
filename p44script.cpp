@@ -1384,7 +1384,7 @@ ScriptObjPtr BuiltInMemberLookup::memberByNameFrom(ScriptObjPtr aThisObj, const 
     }
     else {
       // is a function, return a executable that can be function-called with arguments
-      m = ScriptObjPtr(new BuiltinFunctionObj(pos->second, aThisObj));
+      m = ScriptObjPtr(new BuiltinFunctionObj(pos->second, aThisObj, this));
     }
   }
   return m;

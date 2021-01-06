@@ -2127,12 +2127,17 @@ namespace p44 { namespace P44Script {
 
     const BuiltinMemberDescriptor *descriptor; ///< function signature, name and pointer to actual implementation function
     ScriptObjPtr thisObj; ///< the object this function is a method of (if it's not a plain function)
+    const BuiltInMemberLookup* mMemberLookupP; ///< where the function was found (might be needed as context for executing it later)
 
   public:
 
     virtual string getAnnotation() const P44_OVERRIDE { return "built-in function"; };
 
-    BuiltinFunctionObj(const BuiltinMemberDescriptor *aDescriptor, ScriptObjPtr aThisObj) : descriptor(aDescriptor), thisObj(aThisObj) {};
+    BuiltinFunctionObj(const BuiltinMemberDescriptor *aDescriptor, ScriptObjPtr aThisObj, const BuiltInMemberLookup* aMemberLookupP) :
+      descriptor(aDescriptor), thisObj(aThisObj), mMemberLookupP(aMemberLookupP) {};
+
+    /// get the lookup object
+    BuiltInMemberLookup* getMemberLookup() { return const_cast<BuiltInMemberLookup*>(mMemberLookupP); }
 
     /// Get description of arguments required to call this internal function
     virtual bool argumentInfo(size_t aIndex, ArgumentDescriptor& aArgDesc) const P44_OVERRIDE;
