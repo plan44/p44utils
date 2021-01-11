@@ -1195,7 +1195,7 @@ void ScriptCodeContext::execute(ScriptObjPtr aToExecute, EvaluationFlags aEvalFl
     return;
   }
   // must be compiled code at this point
-  CompiledCodePtr code = dynamic_pointer_cast<CompiledCode>(aToExecute);
+  CompiledCodePtr code = boost::dynamic_pointer_cast<CompiledCode>(aToExecute);
   if (!code) {
     if (aEvaluationCB) aEvaluationCB(new ErrorValue(ScriptError::Internal, "Object to be run must be compiled code!"));
     return;
@@ -1435,7 +1435,7 @@ void BuiltinFunctionContext::execute(ScriptObjPtr aToExecute, EvaluationFlags aE
     if (aEvaluationCB) aEvaluationCB(new AnnotatedNullValue("undefined argument caused undefined function result"));
     return;
   }
-  func = dynamic_pointer_cast<BuiltinFunctionObj>(aToExecute);
+  func = boost::dynamic_pointer_cast<BuiltinFunctionObj>(aToExecute);
   if (!func || !func->descriptor) {
     func.reset();
     aEvaluationCB(new ErrorValue(ScriptError::Internal, "builtin function call inconsistency"));
@@ -2262,7 +2262,7 @@ void SourceProcessor::throwOrComplete(ErrorValuePtr aError)
 
 ScriptObjPtr SourceProcessor::captureCode(ScriptObjPtr aCodeContainer)
 {
-  CompiledCodePtr code = dynamic_pointer_cast<CompiledCode>(aCodeContainer);
+  CompiledCodePtr code = boost::dynamic_pointer_cast<CompiledCode>(aCodeContainer);
   if (!code) {
     return new ErrorPosValue(src, ScriptError::Internal, "no compiled code");
   }
@@ -3746,7 +3746,7 @@ void CompiledTrigger::triggerDidEvaluate(EvaluationFlags aEvalMode, ScriptObjPtr
       fpos = mFrozenResults.erase(fpos);
       #else
       FrozenResultsMap::iterator dpos = fpos++;
-      frozenResults.erase(dpos);
+      mFrozenResults.erase(dpos);
       #endif
       continue;
     }
@@ -3783,7 +3783,7 @@ void CompiledTrigger::scheduleNextEval()
   if (mNextEvaluation!=Never) {
     OLOG(LOG_INFO, "Trigger re-evaluation scheduled for %s: '%s'", MainLoop::string_mltime(mNextEvaluation, 3).c_str(), cursor.displaycode(70).c_str());
     mReEvaluationTicket.executeOnceAt(
-      boost::bind(&CompiledTrigger::triggerEvaluation, this, timed),
+      boost::bind(&CompiledTrigger::triggerEvaluation, this, (EvaluationFlags)timed),
       mNextEvaluation
     );
     mNextEvaluation = Never; // prevent re-triggering without calling updateNextEval()
@@ -3890,7 +3890,7 @@ bool CompiledTrigger::unfreeze(SourceCursor::UniquePos aFreezeId)
 
 void CompiledHandler::installAndInitializeTrigger(ScriptObjPtr aTrigger)
 {
-  trigger = dynamic_pointer_cast<CompiledTrigger>(aTrigger);
+  trigger = boost::dynamic_pointer_cast<CompiledTrigger>(aTrigger);
   // link trigger with my handler action
   if (trigger) {
     trigger->setTriggerCB(boost::bind(&CompiledHandler::triggered, this, _1));
@@ -4243,7 +4243,7 @@ bool TriggerSource::setTriggerHoldoff(MLMicroSeconds aHoldOffTime, bool aAutoIni
 
 ScriptObjPtr TriggerSource::compileAndInit()
 {
-  CompiledTriggerPtr trigger = dynamic_pointer_cast<CompiledTrigger>(getExecutable());
+  CompiledTriggerPtr trigger = boost::dynamic_pointer_cast<CompiledTrigger>(getExecutable());
   if (!trigger) return  new ErrorValue(ScriptError::Internal, "is not a trigger");
   trigger->setTriggerMode(mTriggerMode, mHoldOffTime);
   trigger->setTriggerCB(mTriggerCB);
@@ -4254,7 +4254,7 @@ ScriptObjPtr TriggerSource::compileAndInit()
 
 bool TriggerSource::evaluate(EvaluationFlags aRunMode)
 {
-  CompiledTriggerPtr trigger = dynamic_pointer_cast<CompiledTrigger>(getExecutable());
+  CompiledTriggerPtr trigger = boost::dynamic_pointer_cast<CompiledTrigger>(getExecutable());
   if (trigger) {
     if (!trigger->isActive()) {
       compileAndInit();
@@ -4270,7 +4270,7 @@ bool TriggerSource::evaluate(EvaluationFlags aRunMode)
 
 void TriggerSource::nextEvaluationNotLaterThan(MLMicroSeconds aLatestEval)
 {
-  CompiledTriggerPtr trigger = dynamic_pointer_cast<CompiledTrigger>(getExecutable());
+  CompiledTriggerPtr trigger = boost::dynamic_pointer_cast<CompiledTrigger>(getExecutable());
   if (trigger) {
     trigger->scheduleEvalNotLaterThan(aLatestEval);
   }
@@ -4320,7 +4320,7 @@ void ScriptingDomain::clearFloatingGlobs()
 
 ScriptObjPtr ScriptingDomain::registerHandler(ScriptObjPtr aHandler)
 {
-  CompiledHandlerPtr handler = dynamic_pointer_cast<CompiledHandler>(aHandler);
+  CompiledHandlerPtr handler = boost::dynamic_pointer_cast<CompiledHandler>(aHandler);
   if (!handler) {
     return new ErrorValue(ScriptError::Internal, "is not a handler");
   }
@@ -4478,7 +4478,7 @@ void ScriptCodeThread::stepLoop()
 
 void ScriptCodeThread::checkAndResume()
 {
-  ErrorValuePtr e = dynamic_pointer_cast<ErrorValue>(result);
+  ErrorValuePtr e = boost::dynamic_pointer_cast<ErrorValue>(result);
   if (e) {
     if (!e->wasThrown()) {
       // need to throw, adding pos if not yet included
