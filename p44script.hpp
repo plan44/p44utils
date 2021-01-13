@@ -66,8 +66,11 @@ namespace p44 { namespace P44Script {
   typedef boost::intrusive_ptr<CompiledScript> CompiledScriptPtr;
   class CompiledTrigger;
   typedef boost::intrusive_ptr<CompiledTrigger> CompiledTriggerPtr;
+
+  #if P44SCRIPT_FULL_SUPPORT
   class CompiledHandler;
   typedef boost::intrusive_ptr<CompiledHandler> CompiledHandlerPtr;
+  #endif // P44SCRIPT_FULL_SUPPORT
 
   class ExecutionContext;
   typedef boost::intrusive_ptr<ExecutionContext> ExecutionContextPtr;
@@ -173,9 +176,11 @@ namespace p44 { namespace P44Script {
     // scope modifiers
     scopeMask = 0xF00,
     expression = 0x100, ///< evaluate as an expression (no flow control, variable assignments, blocks etc.)
+    #if P44SCRIPT_FULL_SUPPORT
     scriptbody = 0x200, ///< evaluate as script body (no function or handler definitions)
     sourcecode = 0x400, ///< evaluate as script (include parsing functions and handlers)
     block = 0x800, ///< evaluate as a block (complete when reaching end of block)
+    #endif // P44SCRIPT_FULL_SUPPORT
     // execution modifiers
     execModifierMask = 0xFF000,
     synchronously = 0x1000, ///< evaluate synchronously, error out on async code
@@ -1311,8 +1316,10 @@ namespace p44 { namespace P44Script {
     GeoLocation *geoLocationP;
     MLMicroSeconds maxBlockTime;
 
+    #if P44SCRIPT_FULL_SUPPORT
     typedef std::list<CompiledHandlerPtr> HandlerList;
     HandlerList handlers;
+    #endif // P44SCRIPT_FULL_SUPPORT
 
   public:
 
@@ -1345,10 +1352,12 @@ namespace p44 { namespace P44Script {
     ///   plain functions (static methods) and other members.
     ScriptMainContextPtr newContext(ScriptObjPtr aInstanceObj = ScriptObjPtr());
 
+    #if P44SCRIPT_FULL_SUPPORT
     /// register a domain-global handler
     /// @param aHandler the handler to register
     /// @return Ok or error
     ScriptObjPtr registerHandler(ScriptObjPtr aHandler);
+    #endif // P44SCRIPT_FULL_SUPPORT
 
   };
 
@@ -1449,9 +1458,21 @@ namespace p44 { namespace P44Script {
     /// check if member can issue event that should be connected to trigger
     virtual void memberEventCheck();
 
+    #if P44SCRIPT_FULL_SUPPORT
+
     /// fork executing a block at the current position, if identifier is not empty, store a new ThreadValue.
     /// @note MUST NOT call resume() directly. This call will return when the new thread yields execution the first time.
     virtual void startBlockThreadAndStoreInIdentifier();
+
+    /// must store result as a compiled function in the scripting domain
+    /// @note must cause calling resume()
+    virtual void storeFunction();
+
+    /// must store result as a event handler (trigger+action script) in the scripting domain
+    /// @note must cause calling resume()
+    virtual void storeHandler();
+
+    #endif // P44SCRIPT_FULL_SUPPORT
 
     /// must set a new funcCallContext suitable to execute result as a function
     /// @note must set result to an ErrorValue if no context can be created
@@ -1466,14 +1487,6 @@ namespace p44 { namespace P44Script {
     /// @note embeddedGlobs determines if code is embedded into the code container (and lives on with it) or
     ///   just references source code (so it will get deleted when source code goes away)
     ScriptObjPtr captureCode(ScriptObjPtr aCodeContainer);
-
-    /// must store result as a compiled function in the scripting domain
-    /// @note must cause calling resume()
-    virtual void storeFunction();
-
-    /// must store result as a event handler (trigger+action script) in the scripting domain
-    /// @note must cause calling resume()
-    virtual void storeHandler();
 
     /// indicates start of script body (at current src.pos)
     /// @note must cause calling resume()
@@ -1620,6 +1633,7 @@ namespace p44 { namespace P44Script {
     void s_assignLvalue(); ///< assign to lvalue
     void s_unsetMember(); ///< unset the current result
 
+    #if P44SCRIPT_FULL_SUPPORT
     // Script Body
     void s_block(); ///< within a block, exits when '}' is encountered, but skips ';'
     void s_noStatement(); ///< no more statements can follow, but an extra separator MAY follow
@@ -1641,6 +1655,7 @@ namespace p44 { namespace P44Script {
     void s_defineFunction(); ///< store the defined function
     void s_defineTrigger(); ///< store the trigger expression of a on(...) {...} statement
     void s_defineHandler(); ///< store the handler script of a of a on(...) {...} statement
+    #endif // P44SCRIPT_FULL_SUPPORT
 
     // Generic
     void s_result(); ///< result of an expression or term available as ScriptObj. May need makeValid() if not already valid() here.
@@ -1852,6 +1867,7 @@ namespace p44 { namespace P44Script {
   };
 
 
+  #if P44SCRIPT_FULL_SUPPORT
 
   /// compiled handler (script with an embedded trigger)
   class CompiledHandler : public CompiledScript
@@ -1874,6 +1890,8 @@ namespace p44 { namespace P44Script {
     void actionExecuted(ScriptObjPtr aActionResult);
 
   };
+
+  #endif // P44SCRIPT_FULL_SUPPORT
 
 
   // MARK: - ScriptCompiler
@@ -1898,6 +1916,8 @@ namespace p44 { namespace P44Script {
     /// @return an executable object or error (syntax, other fatal problems)
     ScriptObjPtr compile(SourceContainerPtr aSource, CompiledCodePtr aIntoCodeObj, EvaluationFlags aParsingMode, ScriptMainContextPtr aMainContext);
 
+    #if P44SCRIPT_FULL_SUPPORT
+
     /// must store result as a compiled function in the scripting domain
     /// @note must cause calling resume()
     virtual void storeFunction() P44_OVERRIDE;
@@ -1905,6 +1925,8 @@ namespace p44 { namespace P44Script {
     /// must store result as a event handler (trigger+action script) in the scripting domain
     /// @note must cause calling resume()
     virtual void storeHandler() P44_OVERRIDE;
+
+    #endif // P44SCRIPT_FULL_SUPPORT
 
     /// indicates end of declarations
     /// @note must cause calling resume()
@@ -2016,9 +2038,13 @@ namespace p44 { namespace P44Script {
     /// @note must cause calling resume() when result contains the member (or NULL if not found)
     virtual void memberByIndex(size_t aIndex, TypeInfo aMemberAccessFlags) P44_OVERRIDE;
 
+    #if P44SCRIPT_FULL_SUPPORT
+
     /// fork executing a block at the current position, if identifier is not empty, store a new ThreadValue.
     /// @note MUST NOT call resume() directly. This call will return when the new thread yields execution the first time.
     virtual void startBlockThreadAndStoreInIdentifier() P44_OVERRIDE;
+
+    #endif // P44SCRIPT_FULL_SUPPORT
 
     /// must set a new funcCallContext suitable to execute result as a function
     /// @note must set result to an ErrorValue if no context can be created

@@ -519,6 +519,7 @@ ErrorPosValue::ErrorPosValue(const SourceCursor &aCursor, ScriptError::ErrorCode
 }
 
 
+#if P44SCRIPT_FULL_SUPPORT
 // MARK: - ThreadValue
 
 ThreadValue::ThreadValue(ScriptCodeThreadPtr aThread) : mThread(aThread)
@@ -561,6 +562,7 @@ EventSource* ThreadValue::eventSource() const
   return static_cast<EventSource*>(mThread.get());
 }
 
+#endif // P44SCRIPT_FULL_SUPPORT
 
 
 // MARK: Conversions
@@ -1204,8 +1206,10 @@ void ScriptCodeContext::execute(ScriptObjPtr aToExecute, EvaluationFlags aEvalFl
     clearVars();
   }
   // code can be executed
+  #if P44SCRIPT_FULL_SUPPORT
   // - we do not run source code, only script bodies
   if (aEvalFlags & sourcecode) aEvalFlags = (aEvalFlags & ~sourcecode) | scriptbody;
+  #endif // P44SCRIPT_FULL_SUPPORT
   // - now run
   ScriptCodeThreadPtr thread = newThreadFrom(code, code->cursor, aEvalFlags, aEvaluationCB, aMaxRunTime);
   if (thread) {
@@ -1986,12 +1990,14 @@ void SourceProcessor::start()
   // scope to start in
   if (evaluationFlags & expression)
     setState(&SourceProcessor::s_expression);
+  #if P44SCRIPT_FULL_SUPPORT
   else if (evaluationFlags & scriptbody)
     setState(&SourceProcessor::s_body);
   else if (evaluationFlags & sourcecode)
     setState(&SourceProcessor::s_declarations);
   else if (evaluationFlags & block)
     setState(&SourceProcessor::s_block);
+  #endif // P44SCRIPT_FULL_SUPPORT
   else
     complete(new ErrorValue(ScriptError::Internal, "no processing scope defined"));
   push(&SourceProcessor::s_complete);
@@ -2250,7 +2256,10 @@ void SourceProcessor::throwOrComplete(ErrorValuePtr aError)
     return;
   }
   else if (!skipping) {
-    if (!skipUntilReaching(&SourceProcessor::s_tryStatement, aError)) {
+    #if P44SCRIPT_FULL_SUPPORT
+    if (!skipUntilReaching(&SourceProcessor::s_tryStatement, aError))
+    #endif
+    {
       complete(aError);
       return;
     }
@@ -2833,6 +2842,8 @@ void SourceProcessor::s_exprRightSide()
   resumeAt(&SourceProcessor::s_exprLeftSide); // back to leftside, more chained operators might follow
 }
 
+#if P44SCRIPT_FULL_SUPPORT
+
 // MARK: Declarations
 
 void SourceProcessor::s_declarations()
@@ -3027,8 +3038,6 @@ void SourceProcessor::s_defineHandler()
   handler->installAndInitializeTrigger(olderResult);
   storeHandler();
 }
-
-
 
 // MARK: Statements
 
@@ -3449,6 +3458,9 @@ void SourceProcessor::s_tryStatement()
   }
 }
 
+#endif // P44SCRIPT_FULL_SUPPORT
+
+
 // MARK: Generic states
 
 void SourceProcessor::s_result()
@@ -3514,6 +3526,7 @@ void SourceProcessor::newFunctionCallContext()
   checkAndResume();
 }
 
+#if P44SCRIPT_FULL_SUPPORT
 
 void SourceProcessor::startBlockThreadAndStoreInIdentifier()
 {
@@ -3521,7 +3534,7 @@ void SourceProcessor::startBlockThreadAndStoreInIdentifier()
   checkAndResume();
 }
 
-void SourceProcessor::pushFunctionArgument(ScriptObjPtr aArgument)
+void SourceProcessor::storeHandler()
 {
   checkAndResume(); // NOP on the base class level
 }
@@ -3531,7 +3544,9 @@ void SourceProcessor::storeFunction()
   checkAndResume(); // NOP on the base class level
 }
 
-void SourceProcessor::storeHandler()
+#endif // P44SCRIPT_FULL_SUPPORT
+
+void SourceProcessor::pushFunctionArgument(ScriptObjPtr aArgument)
 {
   checkAndResume(); // NOP on the base class level
 }
@@ -3886,6 +3901,8 @@ bool CompiledTrigger::unfreeze(SourceCursor::UniquePos aFreezeId)
 
 
 
+#if P44SCRIPT_FULL_SUPPORT
+
 // MARK: - CompiledHandler
 
 void CompiledHandler::installAndInitializeTrigger(ScriptObjPtr aTrigger)
@@ -3923,6 +3940,7 @@ void CompiledHandler::actionExecuted(ScriptObjPtr aActionResult)
   SPLOG(mainContext->domain(), LOG_INFO, "%s executed: result =  %s", name.c_str(), ScriptObj::describe(aActionResult).c_str());
 }
 
+#endif // P44SCRIPT_FULL_SUPPORT
 
 // MARK: - ScriptCompiler
 
@@ -3933,6 +3951,7 @@ ScriptObjPtr ScriptCompiler::compile(SourceContainerPtr aSource, CompiledCodePtr
 {
   if (!aSource) return new ErrorValue(ScriptError::Internal, "No source code");
   // set up starting point
+  #if P44SCRIPT_FULL_SUPPORT
   if ((aParsingMode & (sourcecode|checking))==0) {
     // Shortcut for non-checked expression and scriptbody: no need to "compile"
     bodyRef = aSource->getCursor();
@@ -3955,6 +3974,10 @@ ScriptObjPtr ScriptCompiler::compile(SourceContainerPtr aSource, CompiledCodePtr
       return result;
     }
   }
+  #else
+  // we only know expressions, no declarations
+  bodyRef = aSource->getCursor();
+  #endif
   if (aIntoCodeObj) {
     aIntoCodeObj->setCursor(bodyRef);
   }
@@ -3974,19 +3997,6 @@ void ScriptCompiler::startOfBodyCode()
 }
 
 
-void ScriptCompiler::storeFunction()
-{
-  if (!result->isErr()) {
-    // functions are always global
-    ErrorPtr err = domain->setMemberByName(result->getIdentifier(), result);
-    if (Error::notOK(err)) {
-      result = new ErrorPosValue(src, err);
-    }
-  }
-  checkAndResume();
-}
-
-
 void ScriptCompiler::memberByIdentifier(TypeInfo aMemberAccessFlags, bool aNoNotFoundError)
 {
   // global members are available at compile time
@@ -4003,6 +4013,19 @@ void ScriptCompiler::memberByIdentifier(TypeInfo aMemberAccessFlags, bool aNoNot
 }
 
 
+#if P44SCRIPT_FULL_SUPPORT
+
+void ScriptCompiler::storeFunction()
+{
+  if (!result->isErr()) {
+    // functions are always global
+    ErrorPtr err = domain->setMemberByName(result->getIdentifier(), result);
+    if (Error::notOK(err)) {
+      result = new ErrorPosValue(src, err);
+    }
+  }
+  checkAndResume();
+}
 
 void ScriptCompiler::storeHandler()
 {
@@ -4013,6 +4036,7 @@ void ScriptCompiler::storeHandler()
   checkAndResume();
 }
 
+#endif // P44SCRIPT_FULL_SUPPORT
 
 
 // MARK: - SourceContainer
@@ -4289,6 +4313,7 @@ ScriptMainContextPtr ScriptingDomain::newContext(ScriptObjPtr aInstanceObj)
 void ScriptingDomain::releaseObjsFromSource(SourceContainerPtr aSource)
 {
   // handlers
+  #if P44SCRIPT_FULL_SUPPORT
   HandlerList::iterator pos = handlers.begin();
   while (pos!=handlers.end()) {
     if ((*pos)->originatesFrom(aSource)) {
@@ -4298,12 +4323,14 @@ void ScriptingDomain::releaseObjsFromSource(SourceContainerPtr aSource)
       ++pos;
     }
   }
+  #endif // P44SCRIPT_FULL_SUPPORT
   inherited::releaseObjsFromSource(aSource);
 }
 
 
 void ScriptingDomain::clearFloatingGlobs()
 {
+  #if P44SCRIPT_FULL_SUPPORT
   HandlerList::iterator pos = handlers.begin();
   while (pos!=handlers.end()) {
     if ((*pos)->floating()) {
@@ -4313,10 +4340,12 @@ void ScriptingDomain::clearFloatingGlobs()
       ++pos;
     }
   }
+  #endif // P44SCRIPT_FULL_SUPPORT
   inherited::clearFloatingGlobs();
 }
 
 
+#if P44SCRIPT_FULL_SUPPORT
 
 ScriptObjPtr ScriptingDomain::registerHandler(ScriptObjPtr aHandler)
 {
@@ -4327,6 +4356,8 @@ ScriptObjPtr ScriptingDomain::registerHandler(ScriptObjPtr aHandler)
   handlers.push_back(handler);
   return handler;
 }
+
+#endif // P44SCRIPT_FULL_SUPPORT
 
 
 // MARK: - ScriptCodeThread
@@ -4552,6 +4583,7 @@ void ScriptCodeThread::newFunctionCallContext()
   checkAndResume();
 }
 
+#if P44SCRIPT_FULL_SUPPORT
 
 void ScriptCodeThread::startBlockThreadAndStoreInIdentifier()
 {
@@ -4575,6 +4607,8 @@ void ScriptCodeThread::startBlockThreadAndStoreInIdentifier()
   }
   checkAndResume();
 }
+
+#endif // P44SCRIPT_FULL_SUPPORT
 
 
 /// apply the specified argument to the current result
@@ -4863,6 +4897,7 @@ static void strlen_func(BuiltinFunctionContextPtr f)
   f->finish(new NumericValue((double)f->arg(0)->stringValue().size())); // length of string
 }
 
+#if SCRIPTING_JSON_SUPPORT
 // elements(array)
 static const BuiltInArgDesc elements_args[] = { { any|undefres } };
 static const size_t elements_numargs = sizeof(elements_args)/sizeof(BuiltInArgDesc);
@@ -4874,7 +4909,7 @@ static void elements_func(BuiltinFunctionContextPtr f)
   }
   f->finish(new AnnotatedNullValue("not an array"));
 }
-
+#endif // SCRIPTING_JSON_SUPPORT
 
 // substr(string, from)
 // substr(string, from, count)
@@ -4915,6 +4950,8 @@ static void find_func(BuiltinFunctionContextPtr f)
     f->finish(new AnnotatedNullValue("no such substring")); // not found
 }
 
+
+#if P44SCRIPT_FULL_SUPPORT
 
 // format(formatstring, value [, value...])
 // only % + - 0..9 . d, x, and f supported
@@ -5182,6 +5219,23 @@ static void abort_func(BuiltinFunctionContextPtr f)
 }
 
 
+// delay(seconds)
+static void delay_abort(TicketObjPtr aTicket)
+{
+  aTicket->ticket.cancel();
+}
+static const BuiltInArgDesc delay_args[] = { { numeric } };
+static const size_t delay_numargs = sizeof(delay_args)/sizeof(BuiltInArgDesc);
+static void delay_func(BuiltinFunctionContextPtr f)
+{
+  MLMicroSeconds delay = f->arg(0)->doubleValue()*Second;
+  TicketObjPtr delayTicket = TicketObjPtr(new TicketObj);
+  delayTicket->ticket.executeOnce(boost::bind(&BuiltinFunctionContext::finish, f, new AnnotatedNullValue("delayed")), delay);
+  f->setAbortCallback(boost::bind(&delay_abort, delayTicket));
+}
+
+
+
 // undeclare()    undeclare functions and handlers - only works in embeddedGlobs threads
 static void undeclare_func(BuiltinFunctionContextPtr f)
 {
@@ -5243,6 +5297,8 @@ static void logleveloffset_func(BuiltinFunctionContextPtr f)
   }
   f->finish(new NumericValue(oldOffset));
 }
+
+#endif // P44SCRIPT_FULL_SUPPORT
 
 
 // is_weekday(w,w,w,...)
@@ -5622,22 +5678,6 @@ static void yearday_func(BuiltinFunctionContextPtr f)
 }
 
 
-// delay(seconds)
-static void delay_abort(TicketObjPtr aTicket)
-{
-  aTicket->ticket.cancel();
-}
-static const BuiltInArgDesc delay_args[] = { { numeric } };
-static const size_t delay_numargs = sizeof(delay_args)/sizeof(BuiltInArgDesc);
-static void delay_func(BuiltinFunctionContextPtr f)
-{
-  MLMicroSeconds delay = f->arg(0)->doubleValue()*Second;
-  TicketObjPtr delayTicket = TicketObjPtr(new TicketObj);
-  delayTicket->ticket.executeOnce(boost::bind(&BuiltinFunctionContext::finish, f, new AnnotatedNullValue("delayed")), delay);
-  f->setAbortCallback(boost::bind(&delay_abort, delayTicket));
-}
-
-
 // The standard function descriptor table
 static const BuiltinMemberDescriptor standardFunctions[] = {
   { "ifvalid", executable|any, ifvalid_numargs, ifvalid_args, &ifvalid_func },
@@ -5655,15 +5695,20 @@ static const BuiltinMemberDescriptor standardFunctions[] = {
   { "string", executable|text, string_numargs, string_args, &string_func },
   { "number", executable|numeric, number_numargs, number_args, &number_func },
   { "describe", executable|text, describe_numargs, describe_args, &describe_func },
+  #if SCRIPTING_JSON_SUPPORT
   { "json", executable|json, json_numargs, json_args, &json_func },
   #if ENABLE_JSON_APPLICATION
   { "jsonresource", executable|json|error, jsonresource_numargs, jsonresource_args, &jsonresource_func },
-  #endif
+  #endif // ENABLE_JSON_APPLICATION
+  #endif // SCRIPTING_JSON_SUPPORT
+  #if P44SCRIPT_FULL_SUPPORT
   { "elements", executable|numeric|null, elements_numargs, elements_args, &elements_func },
+  #endif // P44SCRIPT_FULL_SUPPORT
   { "lastarg", executable|any, lastarg_numargs, lastarg_args, &lastarg_func },
   { "strlen", executable|numeric|null, strlen_numargs, strlen_args, &strlen_func },
   { "substr", executable|text|null, substr_numargs, substr_args, &substr_func },
   { "find", executable|numeric|null, find_numargs, find_args, &find_func },
+  #if P44SCRIPT_FULL_SUPPORT
   { "format", executable|text, format_numargs, format_args, &format_func },
   { "formattime", executable|text, formattime_numargs, formattime_args, &formattime_func },
   { "throw", executable|any, throw_numargs, throw_args, &throw_func },
@@ -5676,6 +5721,7 @@ static const BuiltinMemberDescriptor standardFunctions[] = {
   { "log", executable|text, log_numargs, log_args, &log_func },
   { "loglevel", executable|numeric, loglevel_numargs, loglevel_args, &loglevel_func },
   { "logleveloffset", executable|numeric, logleveloffset_numargs, logleveloffset_args, &logleveloffset_func },
+  #endif // P44SCRIPT_FULL_SUPPORT
   { "is_weekday", executable|any, is_weekday_numargs, is_weekday_args, &is_weekday_func },
   { "after_time", executable|numeric, after_time_numargs, after_time_args, &after_time_func },
   { "is_time", executable|numeric, is_time_numargs, is_time_args, &is_time_func },
@@ -5699,9 +5745,11 @@ static const BuiltinMemberDescriptor standardFunctions[] = {
   { "weekday", executable|numeric, timegetter_numargs, timegetter_args, &weekday_func },
   { "yearday", executable|numeric, timegetter_numargs, timegetter_args, &yearday_func },
   // Async
+  #if P44SCRIPT_FULL_SUPPORT
   { "await", executable|async|any, await_numargs, await_args, &await_func },
   { "delay", executable|async|null, delay_numargs, delay_args, &delay_func },
   { "eval", executable|async|any, eval_numargs, eval_args, &eval_func },
+  #endif // P44SCRIPT_FULL_SUPPORT
   { NULL } // terminator
 };
 
