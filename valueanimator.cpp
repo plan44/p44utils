@@ -38,7 +38,7 @@ using namespace p44;
 ValueAnimator::ValueAnimator(ValueSetterCB aValueSetter, bool aSelfTiming, MLMicroSeconds aDefaultMinStepTime) :
   valueSetter(aValueSetter),
   selfTiming(aSelfTiming),
-  defaultMinStepTime(aDefaultMinStepTime>0 ? ANIMATION_MIN_STEP_TIME : aDefaultMinStepTime),
+  defaultMinStepTime(aDefaultMinStepTime>0 ? aDefaultMinStepTime : ANIMATION_MIN_STEP_TIME),
   animationFunction(NULL),
   animationParam(3),
   startValue(0),
