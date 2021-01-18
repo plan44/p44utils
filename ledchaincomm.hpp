@@ -257,16 +257,16 @@ namespace p44 {
 
     typedef vector<LEDChainFixture> LedChainVector;
 
-    LedChainVector ledChains;
-    P44ViewPtr rootView;
-    PixelRect covers;
+    LedChainVector mLedChains;
+    P44ViewPtr mRootView;
+    PixelRect mCovers;
 
-    MLMicroSeconds lastUpdate;
-    MLTicket autoStepTicket;
-    uint8_t maxOutValue;
-    uint32_t powerLimit; // max power (accumulated PWM values of all LEDs)
+    MLMicroSeconds mLastUpdate;
+    MLTicket mAutoStepTicket;
+    uint8_t mMaxOutValue;
+    uint32_t mPowerLimit; // max power (accumulated PWM values of all LEDs)
     uint32_t mRequestedLightPower; // light power currently requested (but possibly not actually output if >powerLimit)
-    bool powerLimited; // set while power is limited
+    bool mPowerLimited; // set while power is limited
 
   public:
 
@@ -288,7 +288,7 @@ namespace p44 {
     void setRootView(P44ViewPtr aRootView);
 
     /// @return return current root view
-    P44ViewPtr getRootView() { return rootView; }
+    P44ViewPtr getRootView() { return mRootView; }
 
     /// add a LED chain to the arrangement
     /// @param aLedChain the LED chain
@@ -308,25 +308,33 @@ namespace p44 {
     void removeAllChains();
 
     /// returns the enclosing rectangle over all LED chains
-    PixelRect totalCover() { return covers; }
+    PixelRect totalCover() { return mCovers; }
 
     /// get minimal color intensity that does not completely switch off the color channel of the LED
     /// @return minimum r,g,b value
     uint8_t getMinVisibleColorIntensity();
 
     /// set max output value (0..255) to be sent to the LED chains
-    void setMaxOutValue(uint8_t aMaxOutValue) { maxOutValue = aMaxOutValue; }
+    void setMaxOutValue(uint8_t aMaxOutValue) { mMaxOutValue = aMaxOutValue; }
 
     /// get max output value (0..255) to be sent to the LED chains
-    uint8_t getMaxOutValue() { return maxOutValue; }
+    uint8_t getMaxOutValue() { return mMaxOutValue; }
 
     /// limit total power, dim LED chain output accordingly
     /// @param aMilliWatts how many milliwatts (approximatively) the total arrangement chains may use, 0=no limit
     void setPowerLimit(int aMilliWatts);
 
+    /// get current power limit
+    /// @return currently set power limit in milliwatts, 0=no limit
+    int getPowerLimit();
+
     /// Return the power it *would* need to display the current state (altough power limiting might actually reducing it)
-    /// @return how many milliwatts (approximatively) the total chain may use, 0=no limit
+    /// @return how many milliwatts (approximatively) the total of all chains would use if not limited
     int getNeededPower();
+
+    /// Return the current power (possibly limited)
+    /// @return how many milliwatts (approximatively) all chains currently consume
+    int getCurrentPower();
 
     /// start LED chains
     /// @param aAutoStep if true, step() will be called automatically as demanded by the view hierarchy
