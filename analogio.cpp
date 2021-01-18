@@ -176,3 +176,196 @@ ValueSetterCB AnalogIo::getValueSetter(double& aCurrentValue)
   aCurrentValue = value();
   return boost::bind(&AnalogIo::setValue, this, _1);
 }
+
+
+// MARK: - AnalogColorOutput
+
+AnalogColorOutput::AnalogColorOutput(AnalogIoPtr aRedOutput, AnalogIoPtr aGreenOutput, AnalogIoPtr aBlueOutput, AnalogIoPtr aWhiteOutput, AnalogIoPtr aAmberOutput) :
+  mMaxMilliWatts(0), // no power limit
+  mRequestedMilliWatts(0)
+{
+  mRGBWAOutputs[0] = aRedOutput;
+  mRGBWAOutputs[1] = aGreenOutput;
+  mRGBWAOutputs[2] = aBlueOutput;
+  mRGBWAOutputs[3] = aWhiteOutput;
+  mRGBWAOutputs[4] = aAmberOutput;
+  mHSV[0] = 0;
+  mHSV[1] = 0;
+  mHSV[2] = 0;
+  // default white assumed to contribute equally to R,G,B with 35% each
+  whiteRGB[0] = 0.35; whiteRGB[1] = 0.35; whiteRGB[2] = 0.35;
+  // default amber assumed to be AMBER web color #FFBE00 = 100%, 75%, 0% contributing 50% intensity
+  amberRGB[0] = 0.5; amberRGB[1] = 0.375; amberRGB[2] = 0;
+  // assume same consumption on all channels, one Watt each
+  for (int i=0; i<5; i++) mOutputMilliWatts[i] = 1;
+}
+
+
+
+void AnalogColorOutput::setHSV(const Row3 &aHSV)
+{
+  mHSV[0] = aHSV[0];
+  mHSV[1] = aHSV[1];
+  mHSV[2] = aHSV[2];
+  outputHSV();
+}
+
+
+void AnalogColorOutput::setColor(double aHue, double aSaturation)
+{
+  mHSV[0] = aHue;
+  mHSV[1] = aSaturation;
+  outputHSV();
+}
+
+
+void AnalogColorOutput::setBrightness(double aBrightness)
+{
+  mHSV[2] = aBrightness;
+  outputHSV();
+}
+
+
+void AnalogColorOutput::setPowerLimit(int aMilliWatts)
+{
+  if (aMilliWatts!=mMaxMilliWatts) {
+    mMaxMilliWatts = aMilliWatts;
+    outputRGB(); // re-output with new limit applied
+  }
+}
+
+
+int AnalogColorOutput::getPowerLimit()
+{
+  return mMaxMilliWatts;
+}
+
+
+int AnalogColorOutput::getNeededPower()
+{
+  return mRequestedMilliWatts;
+}
+
+
+int AnalogColorOutput::getCurrentPower()
+{
+  if (mMaxMilliWatts<=0 || mRequestedMilliWatts<mMaxMilliWatts)
+    return mRequestedMilliWatts;
+  return mMaxMilliWatts; // at the limit
+}
+
+
+
+inline static void setOutputIntensity(AnalogIoPtr &aOutput, double aIntensity)
+{
+  if (!aOutput) return;
+  double min,max,res;
+  if (!aOutput->getRange(min, max, res)) max = 100; // assume 0..100 when output does not provide a range
+  aOutput->setValue(max*aIntensity);
+}
+
+
+void AnalogColorOutput::setRGB(const Row3 &aRGB)
+{
+  mRGB[0] = aRGB[0];
+  mRGB[1] = aRGB[1];
+  mRGB[2] = aRGB[2];
+  outputRGB();
+}
+
+
+
+void AnalogColorOutput::outputHSV()
+{
+  HSVtoRGB(mHSV, mRGB);
+  outputRGB();
+}
+
+
+void AnalogColorOutput::outputRGB()
+{
+  double r = mRGB[0];
+  double g = mRGB[1];
+  double b = mRGB[2];
+  double w = 0;
+  double a = 0;
+  mRequestedMilliWatts = 0;
+  if (mRGBWAOutputs[3]) {
+    // there is a white channel
+    double w = transferToColor(whiteRGB, r, g, b);
+    if (w<0) w=0; else if (w>1) w=1;
+    mRequestedMilliWatts += w*mOutputMilliWatts[3];
+    if (mRGBWAOutputs[4]) {
+      // there is a amber channel
+      double a = transferToColor(amberRGB, r, g, b);
+      if (a<0) a=0; else if (a>1) a=1;
+      mRequestedMilliWatts += a*mOutputMilliWatts[3];
+    }
+  }
+  if (r<0) r=0; else if (r>1) r=1;
+  if (g<0) g=0; else if (g>1) g=1;
+  if (b<0) b=0; else if (b>1) b=1;
+  mRequestedMilliWatts += r*mOutputMilliWatts[0];
+  mRequestedMilliWatts += g*mOutputMilliWatts[1];
+  mRequestedMilliWatts += b*mOutputMilliWatts[2];
+  double factor = 1;
+  if (mMaxMilliWatts>0 && mRequestedMilliWatts>mMaxMilliWatts) {
+    factor = (double)mMaxMilliWatts/mRequestedMilliWatts; // reduce
+  }
+  // apply to channels
+  setOutputIntensity(mRGBWAOutputs[0], factor*r);
+  setOutputIntensity(mRGBWAOutputs[1], factor*g);
+  setOutputIntensity(mRGBWAOutputs[2], factor*b);
+  setOutputIntensity(mRGBWAOutputs[3], factor*w);
+  setOutputIntensity(mRGBWAOutputs[4], factor*a);
+}
+
+
+ValueSetterCB AnalogColorOutput::getColorComponentSetter(const string aComponent, double &aCurrentValue)
+{
+  if (aComponent=="hue") {
+    return getHsvComponentSetter(mHSV[0], aCurrentValue);
+  }
+  else if (aComponent=="saturation") {
+    return getHsvComponentSetter(mHSV[1], aCurrentValue);
+  }
+  else if (aComponent=="brightness") {
+    return getHsvComponentSetter(mHSV[2], aCurrentValue);
+  }
+  else if (aComponent=="r") {
+    return getRgbComponentSetter(mRGB[0], aCurrentValue);
+  }
+  else if (aComponent=="g") {
+    return getRgbComponentSetter(mRGB[1], aCurrentValue);
+  }
+  else if (aComponent=="b") {
+    return getRgbComponentSetter(mRGB[2], aCurrentValue);
+  }
+  return NULL;
+}
+
+
+ValueSetterCB AnalogColorOutput::getHsvComponentSetter(double &aColorComponent, double &aCurrentValue)
+{
+  aCurrentValue = aColorComponent;
+  return boost::bind(&AnalogColorOutput::hsvComponentSetter, this, &aColorComponent, _1);
+}
+
+void AnalogColorOutput::hsvComponentSetter(double* aColorComponentP, double aNewValue)
+{
+  *aColorComponentP = aNewValue;
+  outputHSV();
+}
+
+
+ValueSetterCB AnalogColorOutput::getRgbComponentSetter(double &aColorComponent, double &aCurrentValue)
+{
+  aCurrentValue = aColorComponent;
+  return boost::bind(&AnalogColorOutput::rgbComponentSetter, this, &aColorComponent, _1);
+}
+
+void AnalogColorOutput::rgbComponentSetter(double* aColorComponentP, double aNewValue)
+{
+  *aColorComponentP = aNewValue;
+  outputRGB();
+}

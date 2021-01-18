@@ -23,6 +23,7 @@
 #define __p44utils__analogio__
 
 #include "p44utils_common.hpp"
+#include "colorutils.hpp"
 
 #include "iopin.hpp"
 #include "valueanimator.hpp"
@@ -90,6 +91,73 @@ namespace p44 {
 
   };
   typedef boost::intrusive_ptr<AnalogIo> AnalogIoPtr;
+
+
+  /// Analog color output (RGB, RGBW, RGBWA)
+  class AnalogColorOutput : public P44Obj
+  {
+    AnalogIoPtr mRGBWAOutputs[5]; ///< actual ouput channels
+    int mMaxMilliWatts; ///< max milliwatts allowed
+    int mRequestedMilliWatts; ///< currently requested milliwatts
+
+    Row3 mHSV; ///< current HSV values
+    Row3 mRGB; ///< current RGB values
+
+  public:
+    Row3 whiteRGB; ///< R,G,B relative intensities that can be replaced by a extra (cold)white channel
+    Row3 amberRGB; ///< R,G,B relative intensities that can be replaced by a extra amber (warm white) channel
+    int mOutputMilliWatts[5]; ///< milliwatts per channel @ 100%
+
+    AnalogColorOutput(AnalogIoPtr aRedOutput, AnalogIoPtr aGreenOutput, AnalogIoPtr aBlueOutput, AnalogIoPtr aWhiteOutput = NULL, AnalogIoPtr aAmberOutput = NULL);
+
+    /// set color as HSV
+    /// @param aHSV color in HSV (hue: 0..360, saturation: 0..1, brightness 0..1)
+    void setHSV(const Row3& aHSV);
+
+    /// set color as RGB
+    /// @param aRGB color in RGB (all channels 0..1)
+    void setRGB(const Row3& aRGB);
+
+    /// set color
+    /// @param aHue hue (0..360)
+    /// @param aSaturation saturation (0..1)
+    void setColor(double aHue, double aSaturation);
+
+    /// set brightness
+    /// @param aBrightness brightness (0..1)
+    void setBrightness(double aBrightness);
+
+    /// limit total power, dim LED chain output accordingly
+    /// @param aMilliWatts how many milliwatts (approximatively) the total RGB(WA) light may use, 0=no limit
+    void setPowerLimit(int aMilliWatts);
+
+    /// get current power limit
+    /// @return currently set power limit in milliwatts, 0=no limit
+    int getPowerLimit();
+
+    /// Return the power it *would* need to display the current state (altough power limiting might actually reducing it)
+    /// @return how many milliwatts (approximatively) the color light would use if not limited
+    int getNeededPower();
+
+    /// Return the current power (possibly limited)
+    /// @return how many milliwatts (approximatively) the color light currently consumes
+    int getCurrentPower();
+
+    /// get value setter for animations
+    /// @param aComponent name of the color component: "r", "g", "b", "hue", "saturation", "brightness"
+    ValueSetterCB getColorComponentSetter(const string aComponent, double& aCurrentValue);
+
+  private:
+
+    void outputHSV();
+    void outputRGB();
+    ValueSetterCB getHsvComponentSetter(double &aColorComponent, double &aCurrentValue);
+    void hsvComponentSetter(double* aColorComponentP, double aNewValue);
+    ValueSetterCB getRgbComponentSetter(double &aColorComponent, double &aCurrentValue);
+    void rgbComponentSetter(double* aColorComponentP, double aNewValue);
+
+  };
+  typedef boost::intrusive_ptr<AnalogColorOutput> AnalogColorOutputPtr;
 
   
 } // namespace p44
