@@ -577,7 +577,7 @@ void LEDChainArrangement::addLEDChain(const string &aChainSpec)
   PixelColor ledWhite = { 0xAA, 0xAA, 0xAA, 0xFF }; // Asume double white LED power compared with one of R,G,B
   uint16_t inactiveStartLeds = 0;
   uint16_t inactiveBetweenLeds = 0;
-  uint16_t remainingInactive = 0;
+  int remainingInactive = 0;
   PixelRect newCover;
   newCover.x = 0;
   newCover.y = 0;

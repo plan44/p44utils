@@ -1468,7 +1468,7 @@ SourceCursor::UniquePos BuiltinFunctionContext::argId(size_t aArgIndex) const
 
 ScriptObjPtr BuiltinFunctionContext::arg(size_t aArgIndex)
 {
-  if (aArgIndex<0 || aArgIndex>=numIndexedMembers()) {
+  if (aArgIndex>=numIndexedMembers()) {
     // no such argument, return a null as the argument might be optional
     return new AnnotatedNullValue("optional function argument");
   }
@@ -2633,7 +2633,6 @@ void SourceProcessor::s_subExpression()
 void SourceProcessor::processExpression()
 {
   // at start of an (sub)expression
-  SourcePos epos = src.pos; // remember start of any expression, even if it's only a precedence terminated subexpression
   // - check for optional unary op
   pendingOperation = src.parseOperator(); // store for later
   if (pendingOperation!=op_none && pendingOperation!=op_subtract && pendingOperation!=op_add && pendingOperation!=op_not) {
@@ -3273,7 +3272,6 @@ void SourceProcessor::processVarDefs(TypeInfo aVarFlags, bool aAllowInitializer,
   push(currentState); // return to current state when var definion statement finishes
   if (aDeclaration) skipping = false; // must enable processing now for actually assigning globals.
   src.skipNonCode();
-  SourcePos memPos = src.pos;
   ScriptOperator op = src.parseOperator();
   // with initializer ?
   if (op==op_assign || op==op_assignOrEq) {

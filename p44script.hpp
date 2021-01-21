@@ -2245,7 +2245,7 @@ namespace p44 { namespace P44Script {
     ScriptCodeThreadPtr thread() { return mThread; }
 
     /// @return the evaluation flags of the current evaluation
-    EvaluationFlags evalFlags() { return mThread ? mThread->evaluationFlags : regular; }
+    EvaluationFlags evalFlags() { return mThread ? mThread->evaluationFlags : (EvaluationFlags)regular; }
 
     /// @return the trigger object if this function is executing as part of a trigger expression
     CompiledTrigger* trigger() { return mThread ? dynamic_cast<CompiledTrigger *>(mThread->codeObj.get()) : NULL; }
