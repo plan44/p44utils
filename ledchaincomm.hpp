@@ -392,7 +392,7 @@ namespace p44 {
 
     void autoStep(MLTimer &aTimer);
 
-    void rootViewRequestsUpdate();
+    void externalUpdateRequest();
 
   };
 

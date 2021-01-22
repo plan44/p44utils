@@ -521,7 +521,7 @@ void LEDChainArrangement::setRootView(P44ViewPtr aRootView)
   }
   mRootView = aRootView;
   mRootView->setDefaultLabel("rootview");
-  mRootView->setNeedUpdateCB(boost::bind(&LEDChainArrangement::rootViewRequestsUpdate, this), minUpdateInterval);
+  mRootView->setNeedUpdateCB(boost::bind(&LEDChainArrangement::externalUpdateRequest, this), minUpdateInterval);
 }
 
 
@@ -742,6 +742,8 @@ void LEDChainArrangement::setPowerLimit(int aMilliWatts)
 {
   // internal limit is in PWM units
   mPowerLimit = aMilliWatts*255/MILLIWATTS_PER_LED;
+  // make sure it gets applied immediately
+  if (mRootView) mRootView->makeDirtyAndUpdate();
 }
 
 
@@ -940,15 +942,16 @@ void LEDChainArrangement::render()
 }
 
 
-void LEDChainArrangement::rootViewRequestsUpdate()
+void LEDChainArrangement::externalUpdateRequest()
 {
-  DBGFOCUSLOG("######## rootViewRequestsUpdate()");
+  DBGFOCUSLOG("######## externalUpdateRequest()");
   if (mRootView) {
     if (mAutoStepTicket) {
       // interrupt autostepping timer
       mAutoStepTicket.cancel();
-      // update display if dirty
-      updateDisplay();
+// FIXME: delete these lines, autoStep -> step already includes calling updateDisplay(), without loosing updateDisplay()'s return value!
+//      // update display if dirty
+//      updateDisplay();
       // start new with immediate step call
       mAutoStepTicket.executeOnce(boost::bind(&LEDChainArrangement::autoStep, this, _1));
     }
@@ -1004,6 +1007,14 @@ static void neededledpower_func(BuiltinFunctionContextPtr f)
 }
 
 
+// currentledpower()
+static void currentledpower_func(BuiltinFunctionContextPtr f)
+{
+  LEDChainLookup* l = dynamic_cast<LEDChainLookup*>(f->funcObj()->getMemberLookup());
+  f->finish(new NumericValue(l->ledChainArrangement().getCurrentPower()));
+}
+
+
 // setmaxledpower()
 static void setmaxledpower_func(BuiltinFunctionContextPtr f)
 {
@@ -1035,6 +1046,7 @@ static const BuiltinMemberDescriptor ledChainArrangementGlobals[] = {
   { "removeledchains", executable, 0, NULL, &removeledchains_func },
   { "ledchaincover", executable|json|object, 0, NULL, &ledchaincover_func },
   { "neededledpower", executable|numeric, 0, NULL, &neededledpower_func },
+  { "currentledpower", executable|numeric, 0, NULL, &currentledpower_func },
   { "setmaxledpower", executable, setmaxledpower_numargs, setmaxledpower_args, &setmaxledpower_func },
   { NULL } // terminator
 };
