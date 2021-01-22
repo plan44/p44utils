@@ -279,8 +279,9 @@ static IRAM_ATTR void ws281x_handleInterrupt(void *arg)
   portBASE_TYPE taskAwoken = 0;
 
   // same interrupt handler for all RMT interrupts, must process all RMT channels
-  for (unsigned int rmtChannel=0; rmtChannel<maxChains; rmtChannel += channelspacing) {
+  for (unsigned int rmtChannel=0; rmtChannel<NUM_RMT_CHANNELS; rmtChannel += channelspacing) {
     Esp_ws281x_LedChain* chainP = channelLEDChains[rmtChannel];
+    if (!chainP) continue;
     // must check stop event first, in case we missed the tx threshold IRQ
     if (RMT.int_st.val & (1<<(3*rmtChannel))) { // TX_END (bits 0,3,6,9... for channels 0,1,2,3...)
       // end of transmission, transmitter entered idle state
@@ -363,8 +364,7 @@ struct Esp_ws281x_LedChain* esp_ws281x_newChain(Esp_ws281x_LedType aLedType, uns
 {
   if (aLedType<0 || aLedType>=esp_num_ledtypes) return NULL; // invalid LED type
   // find free channel
-  // - determine the channel spacing (fewer channels -> channel can use more buffer space)
-  for (unsigned int rmtChannel=0; rmtChannel<maxChains; rmtChannel += channelspacing) {
+  for (unsigned int rmtChannel=0; rmtChannel<NUM_RMT_CHANNELS; rmtChannel += channelspacing) {
     if (channelLEDChains[rmtChannel]==NULL) {
       // free channel found, use it
       Esp_ws281x_LedChain* newChain = malloc(sizeof(Esp_ws281x_LedChain));
