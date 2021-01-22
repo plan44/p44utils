@@ -135,6 +135,7 @@ bool LEDChainComm::begin(size_t aHintAtTotalChains)
       }
       // make sure library is initialized
       if (!gEsp32_ws281x_initialized) {
+        FOCUSLOG("calling esp_ws281x_init for %d chains", aHintAtTotalChains);
         esp_ws281x_init(aHintAtTotalChains);
         gEsp32_ws281x_initialized = true;
       }
@@ -160,7 +161,8 @@ bool LEDChainComm::begin(size_t aHintAtTotalChains)
         clear();
       }
       else {
-        return false; // cannot have more than 8 strands
+        LOG(LOG_ERR, "Error: esp_ws281x_newChain failed");
+        return false; // cannot initialize LED chain
       }
       #elif ENABLE_RPIWS281X
       // prepare hardware related stuff
@@ -483,6 +485,7 @@ LEDChainArrangement::LEDChainArrangement() :
   mMaxOutValue(255),
   mPowerLimit(0),
   mRequestedLightPower(0),
+  mActualLightPower(0),
   mPowerLimited(false),
   mLastUpdate(Never),
   minUpdateInterval(DEFAULT_MIN_UPDATE_INTERVAL),
@@ -763,9 +766,8 @@ int LEDChainArrangement::getNeededPower()
 
 int LEDChainArrangement::getCurrentPower()
 {
-  if (mPowerLimit==0 || mRequestedLightPower<mPowerLimit)
-    return mRequestedLightPower*MILLIWATTS_PER_LED/255;
-  return mPowerLimit*MILLIWATTS_PER_LED/255;
+  // internal measurement is in PWM units
+  return mActualLightPower*MILLIWATTS_PER_LED/255;
 }
 
 
@@ -817,15 +819,9 @@ MLMicroSeconds LEDChainArrangement::updateDisplay()
                   if (powerDim) {
                     // limit
                     dimPixel(pix, powerDim);
-                    if (DEBUGLOGGING && FOCUSLOGENABLED) {
-                      // re-calculate dimmed result for debug display
-                      lightPower += pwmtable[pix.r]+pwmtable[pix.g]+pwmtable[pix.b]+pwmtable[w];
-                    }
                   }
-                  else {
-                    // measure
-                    lightPower += pwmtable[pix.r]+pwmtable[pix.g]+pwmtable[pix.b]+pwmtable[w];
-                  }
+                  // measure
+                  lightPower += pwmtable[pix.r]+pwmtable[pix.g]+pwmtable[pix.b]+pwmtable[w];
                   // limit to max output value
                   if (mMaxOutValue<255) {
                     if (pix.r>mMaxOutValue) pix.r = mMaxOutValue;
@@ -841,6 +837,11 @@ MLMicroSeconds LEDChainArrangement::updateDisplay()
                   );
                 }
               }
+            }
+            // update stats
+            mActualLightPower = lightPower; // what we measured in this pass
+            if (powerDim==0) {
+              mRequestedLightPower = lightPower; // what we measure without dim is the requested amount
             }
             // check if we need power limiting
             if (mPowerLimit && lightPower>mPowerLimit && powerDim==0) {
@@ -862,7 +863,6 @@ MLMicroSeconds LEDChainArrangement::updateDisplay()
             }
             break;
           }
-          if (powerDim==0) mRequestedLightPower = lightPower; // remember requested power
           mRootView->updated();
         }
         // update hardware (refresh actual LEDs, cleans away possible glitches

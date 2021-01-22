@@ -266,6 +266,7 @@ namespace p44 {
     uint8_t mMaxOutValue;
     uint32_t mPowerLimit; // max power (accumulated PWM values of all LEDs)
     uint32_t mRequestedLightPower; // light power currently requested (but possibly not actually output if >powerLimit)
+    uint32_t mActualLightPower; // light power actually used after dimming down because of limit
     bool mPowerLimited; // set while power is limited
 
   public:
