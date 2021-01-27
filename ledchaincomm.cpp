@@ -808,17 +808,24 @@ MLMicroSeconds LEDChainArrangement::updateDisplay()
                   //if (x==0 && y==0) pix={ 255,0,0,255 };
                   #endif
                   PixelColorComponent w = 0;
-                  // if available, transfer common white from RGB to white channel
                   if (hasWhite) {
+                    // transfer common white from RGB to white channel
                     double r = (double)pix.r/255;
                     double g = (double)pix.g/255;
                     double b = (double)pix.b/255;
-                    w = p44::transferToColor(l.ledChain->mLEDWhite, r, g, b)*255;
+                    // we can integrate powerdim while scaling up from 0..1 to 0..255
+                    int f = powerDim>0 ? powerDim : 255;
+                    w = p44::transferToColor(l.ledChain->mLEDWhite, r, g, b)*f;
+                    pix.r = r*f;
+                    pix.g = g*f;
+                    pix.b = b*f;
                   }
-                  // accumulate power consumption
-                  if (powerDim) {
-                    // limit
-                    dimPixel(pix, powerDim);
+                  else {
+                    // just RGB pixel, dim down if power limit is active
+                    if (powerDim) {
+                      // limit
+                      dimPixel(pix, powerDim);
+                    }
                   }
                   // measure
                   lightPower += pwmtable[pix.r]+pwmtable[pix.g]+pwmtable[pix.b]+pwmtable[w];
