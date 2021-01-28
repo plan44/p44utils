@@ -4949,6 +4949,15 @@ static void find_func(BuiltinFunctionContextPtr f)
 }
 
 
+// shellquote(shellargument)
+static const BuiltInArgDesc shellquote_args[] = { { any } };
+static const size_t shellquote_numargs = sizeof(shellquote_args)/sizeof(BuiltInArgDesc);
+static void shellquote_func(BuiltinFunctionContextPtr f)
+{
+  f->finish(new StringValue(shellQuote(f->arg(0)->stringValue())));
+}
+
+
 #if P44SCRIPT_FULL_SUPPORT
 
 // format(formatstring, value [, value...])
@@ -5739,6 +5748,7 @@ static const BuiltinMemberDescriptor standardFunctions[] = {
   { "strlen", executable|numeric|null, strlen_numargs, strlen_args, &strlen_func },
   { "substr", executable|text|null, substr_numargs, substr_args, &substr_func },
   { "find", executable|numeric|null, find_numargs, find_args, &find_func },
+  { "shellquote", executable|text, shellquote_numargs, shellquote_args, &shellquote_func },
   #if P44SCRIPT_FULL_SUPPORT
   { "format", executable|text, format_numargs, format_args, &format_func },
   { "formattime", executable|text, formattime_numargs, formattime_args, &formattime_func },
