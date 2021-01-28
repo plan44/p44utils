@@ -119,6 +119,7 @@ namespace p44 { namespace P44Script {
       Immutable, ///< object/field exists but is immutable and cannot be assigned
       NotCallable, ///< object cannot be called as a function
       NotLvalue, ///< object is not an LValue and can't be assigned to
+      NoPrivilege, ///< no privilege for requested action
       Busy, ///< currently running
       // Fatal errors, cannot be catched
       FatalErrors,
@@ -149,6 +150,7 @@ namespace p44 { namespace P44Script {
       "Immutable",
       "NotCallable",
       "NotLvalue",
+      "NoPrivilege",
       "Busy",
       "Syntax",
       "Aborted",

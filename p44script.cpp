@@ -5132,6 +5132,39 @@ static void eval_func(BuiltinFunctionContextPtr f)
 }
 
 
+#if ENABLE_APPLICATION_SUPPORT && !ESP_PLATFORM
+// system(command_line)    execute given command line via system() in a shell and return the output
+static void system_abort(pid_t aPid)
+{
+  // terminate the external command
+  kill(aPid, SIGTERM);
+}
+static void system_done(BuiltinFunctionContextPtr f, ErrorPtr aError, const string &aOutputString)
+{
+  if (Error::isOK(aError)) {
+    f->finish(new StringValue(aOutputString));
+  }
+  else {
+    f->finish(new ErrorValue(aError));
+  }
+}
+static const BuiltInArgDesc system_args[] = { { text } };
+static const size_t system_numargs = sizeof(system_args)/sizeof(BuiltInArgDesc);
+static void system_func(BuiltinFunctionContextPtr f)
+{
+  if (Application::sharedApplication()->userLevel()<2) {
+    f->finish(new ErrorValue(ScriptError::NoPrivilege, "system() can only be used with userlevel>=2"));
+    return;
+  }
+  pid_t pid = MainLoop::currentMainLoop().fork_and_system(boost::bind(&system_done, f, _1, _2), f->arg(0)->stringValue().c_str());
+  if (pid>=0) {
+    f->setAbortCallback(boost::bind(&system_abort, pid));
+  }
+}
+#endif // ENABLE_APPLICATION_SUPPORT && !ESP_PLATFORM
+
+
+
 // await(event [, event...] [,timeout])    wait for an event (or one of serveral)
 class AwaitEventSink : public EventSink
 {
@@ -5748,6 +5781,9 @@ static const BuiltinMemberDescriptor standardFunctions[] = {
   { "delay", executable|async|null, delay_numargs, delay_args, &delay_func },
   { "eval", executable|async|any, eval_numargs, eval_args, &eval_func },
   #endif // P44SCRIPT_FULL_SUPPORT
+  #if ENABLE_APPLICATION_SUPPORT && !ESP_PLATFORM
+  { "system", executable|async|text, system_numargs, system_args, &system_func },
+  #endif
   { NULL } // terminator
 };
 
