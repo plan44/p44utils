@@ -44,6 +44,10 @@
 
 #include "logger.hpp"
 #include "mainloop.hpp"
+#if ENABLE_APPLICATION_SUPPORT && !DISABLE_SYSTEMCMDIO && !defined(ESP_PLATFORM)
+#include "application.hpp" // we need it for user level, syscmd is only allowed with userlevel>=2
+#endif
+
 
 using namespace p44;
 
@@ -139,8 +143,8 @@ DigitalIo::DigitalIo(const char* aPinSpec, bool aOutput, bool aInitialState) :
   }
   else
   #endif
-  #if !DISABLE_SYSTEMCMDIO && !defined(ESP_PLATFORM)
-  if (busName=="syscmd") {
+  #if ENABLE_APPLICATION_SUPPORT && !DISABLE_SYSTEMCMDIO && !defined(ESP_PLATFORM)
+  if (busName=="syscmd" && Application::sharedApplication()->userLevel()>=2) {
     // digital I/O calling system command to turn on/off
     ioPin = IOPinPtr(new SysCommandPin(pinName.c_str(), output, initialPinState));
   }

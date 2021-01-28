@@ -45,6 +45,10 @@
 
 #include "logger.hpp"
 #include "mainloop.hpp"
+#if ENABLE_APPLICATION_SUPPORT && !DISABLE_SYSTEMCMDIO && !defined(ESP_PLATFORM)
+#include "application.hpp" // we need it for user level, syscmd is only allowed with userlevel>=2
+#endif
+
 
 using namespace p44;
 
@@ -108,8 +112,8 @@ AnalogIo::AnalogIo(const char* aPinSpec, bool aOutput, double aInitialValue)
   }
   else
   #endif
-  #if !DISABLE_SYSCMDIO && !defined(ESP_PLATFORM)
-  if (busName=="syscmd") {
+  #if ENABLE_APPLICATION_SUPPORT && !DISABLE_SYSCMDIO && !defined(ESP_PLATFORM)
+  if (busName=="syscmd" && Application::sharedApplication()->userLevel()>=2) {
     // analog I/O calling system command to set value
     ioPin = AnalogIOPinPtr(new AnalogSysCommandPin(pinName.c_str(), output, aInitialValue));
   }
