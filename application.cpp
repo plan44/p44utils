@@ -68,7 +68,8 @@ Application::Application(MainLoop &aMainLoop) :
 
 
 Application::Application() :
-  mMainLoop(MainLoop::currentMainLoop())
+  mMainLoop(MainLoop::currentMainLoop()),
+  mUserLevel(0)
 {
   initializeInternal();
 }
@@ -82,8 +83,8 @@ Application::~Application()
 
 void Application::initializeInternal()
 {
-  resourcepath = "."; // current directory by default
-  datapath = TEMP_DIR_PATH; // tmp by default
+  mResourcepath = "."; // current directory by default
+  mDatapath = TEMP_DIR_PATH; // tmp by default
   // make random a bit "random" (not really, but ok for games)
   srand((unsigned)(MainLoop::now()>>32 ^ MainLoop::now()));
   // "publish" singleton
@@ -207,19 +208,19 @@ void Application::terminateAppWith(ErrorPtr aError)
 string Application::resourcePath(const string aResource)
 {
   if (aResource.empty())
-    return resourcepath; // just return resource path
+    return mResourcepath; // just return resource path
   if (aResource[0]=='/')
     return aResource; // argument is absolute path, use it as-is
   // relative to resource directory
-  return resourcepath + "/" + aResource;
+  return mResourcepath + "/" + aResource;
 }
 
 
 void Application::setResourcePath(const char *aResourcePath)
 {
-  resourcepath = aResourcePath;
-  if (resourcepath.size()>1 && resourcepath[resourcepath.size()-1]=='/') {
-    resourcepath.erase(resourcepath.size()-1);
+  mResourcepath = aResourcePath;
+  if (mResourcepath.size()>1 && mResourcepath[mResourcepath.size()-1]=='/') {
+    mResourcepath.erase(mResourcepath.size()-1);
   }
 }
 
@@ -227,19 +228,19 @@ void Application::setResourcePath(const char *aResourcePath)
 string Application::dataPath(const string aDataFile)
 {
   if (aDataFile.empty())
-    return datapath; // just return data path
+    return mDatapath; // just return data path
   if (aDataFile[0]=='/')
     return aDataFile; // argument is absolute path, use it as-is
   // relative to data directory
-  return datapath + "/" + aDataFile;
+  return mDatapath + "/" + aDataFile;
 }
 
 
 void Application::setDataPath(const char *aDataPath)
 {
-  datapath = aDataPath;
-  if (datapath.size()>1 && datapath[datapath.size()-1]=='/') {
-    datapath.erase(datapath.size()-1);
+  mDatapath = aDataPath;
+  if (mDatapath.size()>1 && mDatapath[mDatapath.size()-1]=='/') {
+    mDatapath.erase(mDatapath.size()-1);
   }
 }
 
@@ -669,7 +670,13 @@ bool CmdLineApp::processOption(const CmdLineOptionDescriptor &aOptionDescriptor,
   else if (aOptionDescriptor.withArgument && strucmp(aOptionDescriptor.longOptionName,"datapath")==0) {
     setDataPath(aOptionValue);
   }
-  return false; // not processed
+  else if (aOptionDescriptor.withArgument && strucmp(aOptionDescriptor.longOptionName,"userlevel")==0) {
+    mUserLevel = atoi(aOptionValue);
+  }
+  else {
+    return false; // not processed
+  }
+  return true; // option already processed
 }
 
 

@@ -49,8 +49,9 @@ namespace p44 {
 
   protected:
 
-    string resourcepath; ///< path to resources directory for this application
-    string datapath; ///< path to (usually persistent) r/w data for this application
+    string mResourcepath; ///< path to resources directory for this application
+    string mDatapath; ///< path to (usually persistent) r/w data for this application
+    int mUserLevel; ///< the "user (expert) level" - 0=regular, 1=diy/beta, 2=privileged (e.g. shell calling I/O pins, script functions)
 
   public:
     /// construct application with specific mainloop
@@ -111,6 +112,9 @@ namespace p44 {
     /// @return if aTempFile is empty, result is the application's temp directory (no separator at end)
     ///   Otherwise, it is the absolute path to the temp file specified with aTempFile
     string tempPath(const string aTempFile = "");
+
+    /// @return user (expert) level, 0=regular, 1=diy/expert
+    int userLevel() { return mUserLevel; }
 
     #if ENABLE_JSON_APPLICATION
 
@@ -203,7 +207,8 @@ namespace p44 {
   /// - standard options every CmdLineApp understands
   #define CMDLINE_APPLICATION_STDOPTIONS \
     { 'V', "version",         false, "show version" }, \
-    { 'h', "help",            false, "show this text" }
+    { 'h', "help",            false, "show this text" }, \
+    { 0  , "userlevel",      true,  "level;set user level (default 0=regular, 1=diy/expert, 2=privileged)" }
   #define CMDLINE_APPLICATION_PATHOPTIONS \
     { 'r', "resourcepath",   true,  "path;path to application resources" }, \
     { 'd', "datapath",       true,  "path;path to the r/w persistent data" }
@@ -270,7 +275,7 @@ namespace p44 {
     /// @param aOptionValue the value of the option, empty string if option has no value
     /// @return true if option has been processed; false if option should be stored for later reference via getOption()
     /// @note will be called from parseCommandLine()
-    /// @note base class will process "help" option by showing usage and terminating the app with EXIT_SUCCESS exit code
+    /// @note base class will process some options (see CMDLINE_APPLICATION_STDOPTIONS and CMDLINE_APPLICATION_PATHOPTIONS)
     virtual bool processOption(const CmdLineOptionDescriptor &aOptionDescriptor, const char *aOptionValue);
 
     /// process a non-option command line argument
