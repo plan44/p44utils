@@ -23,6 +23,7 @@
 
 #include <string.h>
 #include <stdio.h>
+#include <fcntl.h>
 #include <sys/types.h> // for ssize_t, size_t etc.
 
 using namespace p44;
@@ -194,6 +195,47 @@ bool p44::string_fgetfile(FILE *aFile, string &aData)
     }
   }
   return true;
+}
+
+
+bool p44::string_fgetfile(const string aFileName, string &aData)
+{
+  FILE *file = fopen(aFileName.c_str(), "r");
+  bool readFile = false;
+  if (file) {
+    readFile = string_fgetfile(file, aData);
+    fclose(file);
+  }
+  return readFile;
+}
+
+
+bool p44::string_fgetfirstline(const string aFileName, string &aLine)
+{
+  string line;
+  FILE *file = fopen(aFileName.c_str(), "r");
+  bool readLine = false;
+  if (file) {
+    // file opened
+    if (string_fgetline(file, line)) {
+      aLine = trimWhiteSpace(line, true, true);
+      readLine = true;
+    }
+    fclose(file);
+  }
+  return readLine;
+}
+
+
+bool p44::string_fwritefile(const string aFileName, const string &aData)
+{
+  FILE *file = fopen(aFileName.c_str(), "w");
+  if (file) {
+    fwrite(aData.c_str(), aData.size(), 1, file);
+    fclose(file);
+    return true;
+  }
+  return false;
 }
 
 
