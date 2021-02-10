@@ -667,7 +667,7 @@ void MainLoop::waitForPid(WaitCB aCallback, pid_t aPid)
 extern char **environ;
 
 
-pid_t MainLoop::fork_and_execve(ExecCB aCallback, const char *aPath, char *const aArgv[], char *const aEnvp[], bool aPipeBackStdOut, int* aPipeBackFdP)
+pid_t MainLoop::fork_and_execve(ExecCB aCallback, const char *aPath, char *const aArgv[], char *const aEnvp[], bool aPipeBackStdOut, int* aPipeBackFdP, int aStdErrFd, int aStdInFd)
 {
   LOG(LOG_DEBUG, "fork_and_execve: preparing to fork for executing '%s' now", aPath);
   pid_t child_pid;
@@ -697,6 +697,16 @@ pid_t MainLoop::fork_and_execve(ExecCB aCallback, const char *aPath, char *const
         dup2(answerPipe[1],STDOUT_FILENO); // replace STDOUT by writing end of pipe
         close(answerPipe[1]); // release the original descriptor (does NOT really close the file)
         close(answerPipe[0]); // close child's reading end of pipe (parent uses it!)
+      }
+      if (aStdErrFd>=0) {
+        if (aStdErrFd==0) aStdErrFd = open("/dev/null", O_WRONLY);
+        dup2(aStdErrFd, STDERR_FILENO); // replace STDERR by provided fd
+        close(aStdErrFd);
+      }
+      if (aStdInFd>=0) {
+        if (aStdInFd==0) aStdErrFd = open("/dev/null", O_RDONLY);
+        dup2(aStdInFd, STDIN_FILENO); // replace STDIN by provided fd
+        close(aStdInFd);
       }
       // close all non-std file descriptors
       int fd = getdtablesize();
@@ -739,14 +749,14 @@ pid_t MainLoop::fork_and_execve(ExecCB aCallback, const char *aPath, char *const
 }
 
 
-pid_t MainLoop::fork_and_system(ExecCB aCallback, const char *aCommandLine, bool aPipeBackStdOut, int* aPipeBackFdP)
+pid_t MainLoop::fork_and_system(ExecCB aCallback, const char *aCommandLine, bool aPipeBackStdOut, int* aPipeBackFdP, int aStdErrFd, int aStdInFd)
 {
   char * args[4];
   args[0] = (char *)"sh";
   args[1] = (char *)"-c";
   args[2] = (char *)aCommandLine;
   args[3] = NULL;
-  return fork_and_execve(aCallback, "/bin/sh", args, NULL, aPipeBackStdOut, aPipeBackFdP);
+  return fork_and_execve(aCallback, "/bin/sh", args, NULL, aPipeBackStdOut, aPipeBackFdP, aStdErrFd, aStdInFd);
 }
 
 

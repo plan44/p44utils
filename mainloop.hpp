@@ -456,9 +456,11 @@ namespace p44 {
     /// @param aEnvp a NULL terminated array of environment variables, or NULL to let child inherit parent's environment
     /// @param aPipeBackStdOut if true, stdout of the child is collected via a pipe by the parent and passed back in aCallBack (or can be read using aPipeBackFdP)
     /// @param aPipeBackFdP if not NULL, and aPipeBackStdOut is set, this will be set to the file descriptor of the pipe,
+    /// @param aStdErrFd if >0, stderr of the child process is set to it; if 0, stderr of the child is redirected to /dev/null
+    /// @param aStdInFd if >0, stdin of the child process is set to it;  if 0, stderr of the child is redirected to /dev/null
     ///   so caller can handle output data of the process. The caller is responsible for closing the fd.
     /// @return the child's PID (can be used to send signals to it), or -1 if fork fails
-    pid_t fork_and_execve(ExecCB aCallback, const char *aPath, char *const aArgv[], char *const aEnvp[] = NULL, bool aPipeBackStdOut = false, int* aPipeBackFdP = NULL);
+    pid_t fork_and_execve(ExecCB aCallback, const char *aPath, char *const aArgv[], char *const aEnvp[] = NULL, bool aPipeBackStdOut = false, int* aPipeBackFdP = NULL, int aaStdErrFd = -1, int aStdInFd = -1);
 
     /// execute command line in external shell
     /// @param aCallback the functor to be called when execution is done (failed to start or completed)
@@ -466,8 +468,10 @@ namespace p44 {
     /// @param aPipeBackStdOut if true, stdout of the child is collected via a pipe by the parent and passed back in aCallBack
     /// @param aStdOutFdP if not NULL, and aPipeBackStdOut is set, this will be set to the file descriptor of the pipe,
     ///   so caller can handle output data of the process. The caller is responsible for closing the fd.
+    /// @param aStdErrFd if >0, stderr of the child process is set to it; if 0, stderr of the child is redirected to /dev/null
+    /// @param aStdInFd if >0, stdin of the child process is set to it;  if 0, stderr of the child is redirected to /dev/null
     /// @return the child's PID (can be used to send signals to it), or -1 if fork fails
-    pid_t fork_and_system(ExecCB aCallback, const char *aCommandLine, bool aPipeBackStdOut = false, int* aStdOutFdP = NULL);
+    pid_t fork_and_system(ExecCB aCallback, const char *aCommandLine, bool aPipeBackStdOut = false, int* aStdOutFdP = NULL, int aaStdErrFd = -1, int aStdInFd = -1);
 
 
     /// have handler called when a specific process delivers a state change
