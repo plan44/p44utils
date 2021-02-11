@@ -264,8 +264,10 @@ namespace p44 {
     /// @param aArgc argument count as passed to C-level main() entry point
     /// @param aArgv argument pointer array as passed to C-level main() entry point
     /// @note setOptionDescriptors() must be called before using this method
-    /// @note this method might call terminateApp() in case of command line syntax errors
-    void parseCommandLine(int aArgc, char **aArgv);
+    /// @note this method might call terminateApp() in case of command line syntax errors or standard application
+    ///   options such as help or version.
+    /// @return false when app got terminated due to syntax errors or standard application options, true otherwise
+    bool parseCommandLine(int aArgc, char **aArgv);
 
     /// reset internal argument lists (to save memory when arguments are all processed)
     void resetCommandLine();

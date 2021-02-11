@@ -546,7 +546,7 @@ void CmdLineApp::showUsage()
 }
 
 
-void CmdLineApp::parseCommandLine(int aArgc, char **aArgv)
+bool CmdLineApp::parseCommandLine(int aArgc, char **aArgv)
 {
   if (aArgc>0) {
     invocationName = aArgv[0];
@@ -598,6 +598,7 @@ void CmdLineApp::parseCommandLine(int aArgc, char **aArgv)
                 fprintf(stderr, "Option '%s' does not expect an argument\n", optName.c_str());
                 showUsage();
                 terminateApp(EXIT_FAILURE);
+                return false; // terminated
               }
             }
             else {
@@ -614,10 +615,15 @@ void CmdLineApp::parseCommandLine(int aArgc, char **aArgv)
                 fprintf(stderr, "Option '%s' requires an argument\n", optName.c_str());
                 showUsage();
                 terminateApp(EXIT_FAILURE);
+                return false; // terminated
               }
             }
             // now have option processed by subclass
-            if (!processOption(*optionDescP, optArg.c_str())) {
+            if (processOption(*optionDescP, optArg.c_str())) {
+              // option processed, check if it has terminated the app
+              if (isTerminated()) return false;
+            }
+            else {
               // not processed, store instead
               if (optionDescP->longOptionName)
                 optName = optionDescP->longOptionName;
@@ -636,6 +642,7 @@ void CmdLineApp::parseCommandLine(int aArgc, char **aArgv)
           fprintf(stderr, "Unknown Option '%s'\n", optName.c_str());
           showUsage();
           terminateApp(EXIT_FAILURE);
+          return false;  // terminated
         }
       }
       else {
@@ -650,6 +657,7 @@ void CmdLineApp::parseCommandLine(int aArgc, char **aArgv)
       rawArgIndex++;
     }
   }
+  return true; // parsed, not terminated
 }
 
 
