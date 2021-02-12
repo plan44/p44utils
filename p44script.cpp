@@ -5790,10 +5790,10 @@ static const BuiltinMemberDescriptor standardFunctions[] = {
   { "await", executable|async|any, await_numargs, await_args, &await_func },
   { "delay", executable|async|null, delay_numargs, delay_args, &delay_func },
   { "eval", executable|async|any, eval_numargs, eval_args, &eval_func },
-  #endif // P44SCRIPT_FULL_SUPPORT
   #if ENABLE_APPLICATION_SUPPORT && !ESP_PLATFORM
   { "system", executable|async|text, system_numargs, system_args, &system_func },
-  #endif
+  #endif // ENABLE_APPLICATION_SUPPORT && !ESP_PLATFORM
+  #endif // P44SCRIPT_FULL_SUPPORT
   { NULL } // terminator
 };
 
