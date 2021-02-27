@@ -165,12 +165,13 @@ JsonObjectPtr JsonObject::objFromText(const char *aJsonText, ssize_t aMaxChars, 
   size_t charOffs = 0;
   const char *beg = aJsonText; // for parsed length calculation
   const char *ll = aJsonText;
+  struct json_object *o = NULL;
   while ((seg = nextParsableSegment(aJsonText, aMaxChars, segLen, aAllowCComments, inComment))) {
     if (aErrorP) countLines(lineCnt, charOffs, ll, seg); // count lines from beginning of text to beginning of segment
-    struct json_object *o = json_tokener_parse_ex(tokener, seg, (int)segLen);
+    o = json_tokener_parse_ex(tokener, seg, (int)segLen);
     if (o) {
       obj = JsonObject::newObj(o);
-      break;
+      goto done;
     }
     else {
       // error (or incomplete JSON, which is fine)
@@ -182,11 +183,17 @@ JsonObjectPtr JsonObject::objFromText(const char *aJsonText, ssize_t aMaxChars, 
           countLines(lineCnt, charOffs, ll, seg+tokener->char_offset); // count lines from beginning of segment to error position
           (*aErrorP)->prefixMessage("in line %d at char %zu: ", lineCnt+1, charOffs+1);
         }
-        break;
+        goto done;
       }
       if (aErrorP) countLines(lineCnt, charOffs, ll, seg+segLen); // count lines in parsed segment
     }
   }
+  // let tokener run into a line end in all cases, so values get terminated even if no whitespace of any kind follows in input
+  o = json_tokener_parse_ex(tokener, "\n", 1);
+  if (o) {
+    obj = JsonObject::newObj(o);
+  }
+done:
   if (aParsedCharsP) {
     *aParsedCharsP = seg+tokener->char_offset-beg;
   }
@@ -220,9 +227,10 @@ JsonObjectPtr JsonObject::objFromFile(const char *aJsonFilePath, ErrorPtr *aErro
       const char *seg;
       size_t segLen;
       const char *ll = jsontext;
+      struct json_object *o = NULL;
       while ((seg = nextParsableSegment(jsontext, n, segLen, aAllowCComments, inComment))) {
         if (aErrorP) countLines(lineCnt, charOffs, ll, seg); // count lines from beginning of text to beginning of segment
-        struct json_object *o = json_tokener_parse_ex(tokener, seg, (int)segLen);
+        o = json_tokener_parse_ex(tokener, seg, (int)segLen);
         if (o==NULL) {
           // error (or incomplete JSON, which is fine)
           JsonError::ErrorCodes jerr = json_tokener_get_error(tokener);
@@ -244,6 +252,11 @@ JsonObjectPtr JsonObject::objFromFile(const char *aJsonFilePath, ErrorPtr *aErro
         }
         if (aErrorP) countLines(lineCnt, charOffs, ll, seg+segLen); // count lines in parsed segment
       } // segments to parse
+      // let tokener run into a line end in all cases, so values get terminated even if no whitespace of any kind follows in input
+      o = json_tokener_parse_ex(tokener, "\n", 1);
+      if (o) {
+        obj = JsonObject::newObj(o);
+      }
     } // data in file
   done:
     delete[] jsonbuf;
