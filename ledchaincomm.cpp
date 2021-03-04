@@ -1031,6 +1031,22 @@ static void setmaxledpower_func(BuiltinFunctionContextPtr f)
 }
 
 
+// setrootview(view)
+static const BuiltInArgDesc setrootview_args[] = { { object } };
+static const size_t setrootview_numargs = sizeof(setrootview_args)/sizeof(BuiltInArgDesc);
+static void setrootview_func(BuiltinFunctionContextPtr f)
+{
+  LEDChainLookup* l = dynamic_cast<LEDChainLookup*>(f->funcObj()->getMemberLookup());
+  P44lrgViewObj* rootview = dynamic_cast<P44lrgViewObj*>(f->arg(0).get());
+  if (!rootview) {
+    f->finish(new ErrorValue(ScriptError::Invalid, "argument must be a view"));
+    return;
+  }
+  l->ledChainArrangement().setRootView(rootview->view());
+  f->finish();
+}
+
+
 // ledchaincover()
 static void ledchaincover_func(BuiltinFunctionContextPtr f)
 {
@@ -1055,6 +1071,7 @@ static const BuiltinMemberDescriptor ledChainArrangementGlobals[] = {
   { "neededledpower", executable|numeric, 0, NULL, &neededledpower_func },
   { "currentledpower", executable|numeric, 0, NULL, &currentledpower_func },
   { "setmaxledpower", executable, setmaxledpower_numargs, setmaxledpower_args, &setmaxledpower_func },
+  { "setrootview", executable, setrootview_numargs, setrootview_args, &setrootview_func },
   { NULL } // terminator
 };
 
