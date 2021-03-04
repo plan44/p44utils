@@ -514,6 +514,10 @@ namespace p44 { namespace P44Script {
     /// @note this is needed to remove objects such as functions and handlers when their source changes or is deleted
     virtual bool originatesFrom(SourceContainerPtr aSource) const { return false; }
 
+    /// make ready for deletion, break links that might be parts of retain loops
+    /// @note this is used before freeing a object which originatesFrom() a given source
+    virtual void deactivate() {};
+
     /// @return true if this object's definition/declaration is floating, i.e. when it carries its own source code
     ///    that is no longer connected with the originating source code (and thus can't get removed/replaced by
     ///    changing source code)
@@ -574,6 +578,7 @@ namespace p44 { namespace P44Script {
   public:
     virtual TypeInfo getTypeInfo() const P44_OVERRIDE { return lvalue; };
     virtual string getAnnotation() const P44_OVERRIDE { return "lvalue"; };
+    virtual void deactivate() P44_OVERRIDE { mCurrentValue.reset(); inherited::deactivate(); }
 
     /// @return true when the object's value is available. Might be false when this object is an lvalue or another type of proxy
     /// @note call makeValid() to get a valid version from this object
@@ -608,6 +613,8 @@ namespace p44 { namespace P44Script {
     StandardLValue(ScriptObjPtr aContainer, const string aMemberName, ScriptObjPtr aCurrentValue);
     /// create a lvalue for a container which has setMemberAtIndex()
     StandardLValue(ScriptObjPtr aContainer, size_t aMemberIndex, ScriptObjPtr aCurrentValue);
+
+    virtual void deactivate() P44_OVERRIDE { mContainer.reset(); inherited::deactivate(); }
 
     /// Assign a new value to a lvalue
     /// @param aNewValue the value to assign, NULL to remove the lvalue from its container
@@ -685,7 +692,7 @@ namespace p44 { namespace P44Script {
     ThreadValue(ScriptCodeThreadPtr aThread);
     virtual string getAnnotation() const P44_OVERRIDE { return "thread"; };
     virtual TypeInfo getTypeInfo() const P44_OVERRIDE { return threadref+keeporiginal; };
-
+    virtual void deactivate() P44_OVERRIDE { threadExitValue.reset(); mThread.reset(); inherited::deactivate(); }
     virtual ScriptObjPtr calculationValue() P44_OVERRIDE; /// < ThreadValue calculates to NULL as long as running or to the thread's exit value
     virtual EventSource *eventSource() const P44_OVERRIDE; ///< ThreadValue is an event source, event is the exit value of a thread terminating
     bool running(); ///< @return true if still running
@@ -799,6 +806,8 @@ namespace p44 { namespace P44Script {
     // access to (sub)objects in the installed lookups
     virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aTypeRequirements) P44_OVERRIDE;
 
+    virtual void deactivate() P44_OVERRIDE { lookups.clear(); inherited::deactivate(); }
+
     /// register an additional lookup
     /// @param aMemberLookup a lookup object.
     /// @note if same lookup object is registered more than once, only the first registration counts, others are ignored
@@ -853,6 +862,8 @@ namespace p44 { namespace P44Script {
     bool undefinedResult; ///< special shortcut to make a execution return a "undefined" result w/o actually executing
 
   public:
+
+    virtual void deactivate() P44_OVERRIDE { clearVars(); mainContext.reset(); inherited::deactivate(); }
 
     /// clear local variables (indexed arguments)
     virtual void clearVars();
@@ -934,6 +945,8 @@ namespace p44 { namespace P44Script {
 
     virtual void releaseObjsFromSource(SourceContainerPtr aSource) P44_OVERRIDE;
 
+    virtual void deactivate() P44_OVERRIDE { abort(); inherited::deactivate(); }
+
     /// clear local variables (named members)
     virtual void clearVars() P44_OVERRIDE;
 
@@ -990,6 +1003,8 @@ namespace p44 { namespace P44Script {
     ScriptMainContext(ScriptingDomainPtr aDomain, ScriptObjPtr aThis);
 
   public:
+
+    virtual void deactivate() P44_OVERRIDE { domainObj.reset(); thisObj.reset(); inherited::deactivate(); }
 
     // access to objects in the context hierarchy of a local execution
     // (local objects, parent context objects, global objects)
@@ -1786,6 +1801,8 @@ namespace p44 { namespace P44Script {
 
     virtual string getAnnotation() const P44_OVERRIDE { return "trigger"; };
 
+    virtual void deactivate() P44_OVERRIDE;
+
     /// set the callback to fire on every trigger event
     /// @note callback will get the trigger expression result
     void setTriggerCB(EvaluationCB aTriggerCB) { mTriggerCB = aTriggerCB; }
@@ -1885,6 +1902,7 @@ namespace p44 { namespace P44Script {
     void installAndInitializeTrigger(ScriptObjPtr aTrigger);
     virtual bool originatesFrom(SourceContainerPtr aSource) const P44_OVERRIDE
       { return inherited::originatesFrom(aSource) || (trigger && trigger->originatesFrom(aSource)); };
+    virtual void deactivate() P44_OVERRIDE;
     virtual bool floating() const P44_OVERRIDE { return inherited::floating() || (trigger && trigger->floating()); }
 
   private:

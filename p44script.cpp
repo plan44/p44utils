@@ -1056,6 +1056,7 @@ void ScriptCodeContext::releaseObjsFromSource(SourceContainerPtr aSource)
   NamedVarMap::iterator pos = namedVars.begin();
   while (pos!=namedVars.end()) {
     if (pos->second->originatesFrom(aSource)) {
+      pos->second->deactivate(); // pre-deletion, breaks retain cycles
       #if P44_CPP11_FEATURE
       pos = namedVars.erase(pos); // source is gone -> remove
       #else
@@ -3646,6 +3647,16 @@ CompiledTrigger::CompiledTrigger(const string aName, ScriptMainContextPtr aMainC
 }
 
 
+void CompiledTrigger::deactivate()
+{
+  // reset everything that could be part of a retain cycle
+  setTriggerCB(NULL);
+  mReEvaluationTicket.cancel();
+  clearSources();
+  inherited::deactivate();
+}
+
+
 ScriptObjPtr CompiledTrigger::initializeTrigger()
 {
   // initialize it
@@ -3937,6 +3948,17 @@ void CompiledHandler::actionExecuted(ScriptObjPtr aActionResult)
 {
   SPLOG(mainContext->domain(), LOG_INFO, "%s executed: result =  %s", name.c_str(), ScriptObj::describe(aActionResult).c_str());
 }
+
+
+void CompiledHandler::deactivate()
+{
+  if (trigger) {
+    trigger->deactivate();
+    trigger.reset();
+  }
+  inherited::deactivate();
+}
+
 
 #endif // P44SCRIPT_FULL_SUPPORT
 
@@ -4315,6 +4337,7 @@ void ScriptingDomain::releaseObjsFromSource(SourceContainerPtr aSource)
   HandlerList::iterator pos = handlers.begin();
   while (pos!=handlers.end()) {
     if ((*pos)->originatesFrom(aSource)) {
+      (*pos)->deactivate(); // pre-deletion, breaks retain cycles
       pos = handlers.erase(pos); // source is gone -> remove
     }
     else {
