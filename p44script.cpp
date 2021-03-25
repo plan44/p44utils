@@ -3919,7 +3919,7 @@ void CompiledHandler::triggered(ScriptObjPtr aTriggerResult)
 {
   // execute the handler script now
   if (mainContext) {
-    SPLOG(mainContext->domain(), LOG_INFO, "%s triggered: '%s' with result = %s", name.c_str(), cursor.displaycode(50).c_str(), ScriptObj::describe(aTriggerResult).c_str());
+    POLOG(mainContext->domain(), LOG_INFO, "%s triggered: '%s' with result = %s", name.c_str(), cursor.displaycode(50).c_str(), ScriptObj::describe(aTriggerResult).c_str());
     ExecutionContextPtr ctx = contextForCallingFrom(mainContext->domain(), NULL);
     if (ctx) {
       if (!trigger->mResultVarName.empty()) {
@@ -3929,13 +3929,13 @@ void CompiledHandler::triggered(ScriptObjPtr aTriggerResult)
       return;
     }
   }
-  SPLOG(mainContext->domain(), LOG_ERR, "%s action cannot execute - no context", name.c_str());
+  POLOG(mainContext->domain(), LOG_ERR, "%s action cannot execute - no context", name.c_str());
 }
 
 
 void CompiledHandler::actionExecuted(ScriptObjPtr aActionResult)
 {
-  SPLOG(mainContext->domain(), LOG_INFO, "%s executed: result =  %s", name.c_str(), ScriptObj::describe(aActionResult).c_str());
+  POLOG(mainContext->domain(), LOG_INFO, "%s executed: result =  %s", name.c_str(), ScriptObj::describe(aActionResult).c_str());
 }
 
 #endif // P44SCRIPT_FULL_SUPPORT
