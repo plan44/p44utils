@@ -88,6 +88,8 @@
 #define DBGLOG(lvl,...) LOG(lvl,##__VA_ARGS__)
 #define DBGFOCUSLOG FOCUSLOG
 #define DBGFOCUSOLOG FOCUSOLOG
+#define DBGFOCUSSOLOG FOCUSSOLOG
+#define DBGFOCUSPOLOG FOCUSPOLOG
 #define DBGOLOGENABLED(lvl) OLOGENABLED(lvl)
 #define DBGOLOG(lvl,...) OLOG(lvl,##__VA_ARGS__)
 #define DBGSOLOGENABLED(obj,lvl) SOLOGENABLED(obj,lvl)
@@ -99,6 +101,8 @@
 #define DBGLOG(lvl,...)
 #define DBGFOCUSLOG(...)
 #define DBGFOCUSOLOG(...)
+#define DBGFOCUSSOLOG(...)
+#define DBGFOCUSPOLOG(...)
 #define DBGOLOGENABLED(lvl) false
 #define DBGOLOG(lvl,...)
 #define DBGSOLOGENABLED(obj,lvl) false
@@ -111,9 +115,12 @@
 #if FOCUSLOGLEVEL
 #define FOCUSLOG(...) LOG(FOCUSLOGLEVEL,##__VA_ARGS__)
 #define FOCUSOLOG(...) OLOG(FOCUSLOGLEVEL,##__VA_ARGS__)
+#define FOCUSSOLOG(obj,...) SOLOG(obj,FOCUSLOGLEVEL,##__VA_ARGS__)
+#define FOCUSPOLOG(obj,...) POLOG(obj,FOCUSLOGLEVEL,##__VA_ARGS__)
 #define FOCUSLOGGING 1
 #define FOCUSLOGENABLED LOGENABLED(FOCUSLOGLEVEL)
 #define FOCUSOLOGENABLED OLOGENABLED(FOCUSLOGLEVEL)
+#define FOCUSPLOGENABLED PLOGENABLED(FOCUSLOGLEVEL)
 #if !(defined(DEBUG) || ALWAYS_DEBUG || FOCUSLOGLEVEL>=7)
 #warning "**** FOCUSLOGLEVEL<7 enabled in non-DEBUG build ****"
 #endif
@@ -121,8 +128,11 @@
 #define FOCUSLOGGING 0
 #define FOCUSLOG(...)
 #define FOCUSOLOG(...)
+#define FOCUSSOLOG(obj,...)
+#define FOCUSPOLOG(obj,...)
 #define FOCUSLOGENABLED false
 #define FOCUSOLOGENABLED false
+#define FOCUSPLOGENABLED false
 #endif
 
 
@@ -256,9 +266,9 @@ namespace p44 {
     /// @return always locally stored offset, even when getLogLevelOffset() returns something else
     int getLocalLogLevelOffset() { return logLevelOffset; }
 
-    /// set the log level offset on this addressable or a (not directly addressable) subitem of it
+    /// set the log level offset on this logging object (and possibly contained sub-objects)
     /// @param aLogLevelOffset the new log level offset
-    void setLogLevelOffset(int aLogLevelOffset);
+    virtual void setLogLevelOffset(int aLogLevelOffset);
 
   };
 
