@@ -245,7 +245,7 @@ namespace p44 {
   class LEDChainArrangement;
   typedef boost::intrusive_ptr<LEDChainArrangement> LEDChainArrangementPtr;
 
-  class LEDChainArrangement : public P44Obj
+  class LEDChainArrangement : public P44LoggingObj
   {
     class LEDChainFixture {
     public:
@@ -280,6 +280,9 @@ namespace p44 {
 
     LEDChainArrangement();
     virtual ~LEDChainArrangement();
+
+    /// @return the prefix to be used for logging from this object
+    virtual string logContextPrefix() P44_OVERRIDE;
 
     /// clear all LEDs to off
     void clear();

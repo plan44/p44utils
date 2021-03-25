@@ -508,6 +508,12 @@ LEDChainArrangement::~LEDChainArrangement()
 }
 
 
+string LEDChainArrangement::logContextPrefix()
+{
+  return "LEDchains";
+}
+
+
 void LEDChainArrangement::clear()
 {
   for(LedChainVector::iterator pos = mLedChains.begin(); pos!=mLedChains.end(); ++pos) {
@@ -652,7 +658,7 @@ void LEDChainArrangement::addLEDChain(const string &aChainSpec)
   // calculate remaining inactive LEDs at end of chain
   remainingInactive = numleds-inactiveStartLeds-newCover.dx*newCover.dy-((swapXY ? newCover.dx : newCover.dy)-1)*inactiveBetweenLeds;
   if (remainingInactive<0) {
-    LOG(LOG_WARNING, "Specified area needs %d more LEDs than actually are available", -remainingInactive);
+    OLOG(LOG_WARNING, "Specified area needs %d more LEDs than actually are available", -remainingInactive);
     remainingInactive = 0; // overflow, nothing remains
   }
   // now instantiate chain
@@ -672,8 +678,8 @@ void LEDChainArrangement::addLEDChain(const string &aChainSpec)
   ledChain->mLEDWhite[0] = (double)ledWhite.r/255;
   ledChain->mLEDWhite[1] = (double)ledWhite.g/255;
   ledChain->mLEDWhite[2] = (double)ledWhite.b/255;
-  LOG(LOG_INFO,
-    "Installed ledchain covering area: x=%d, dx=%d, y=%d, dy=%d on device '%s'. %d LEDs inactive at start, %d at end.",
+  OLOG(LOG_INFO,
+    "installed chain covering area: x=%d, dx=%d, y=%d, dy=%d on device '%s'. %d LEDs inactive at start, %d at end.",
     newCover.x, newCover.dx, newCover.y, newCover.dy, ledChain->getDeviceName().c_str(),
     inactiveStartLeds, remainingInactive
   );
@@ -683,7 +689,7 @@ void LEDChainArrangement::addLEDChain(const string &aChainSpec)
     if (l.ledChain && l.ledChain->getDeviceName()==deviceName && l.ledChain->isHardwareDriver()) {
       // chain with same driver name already exists, install this chain as a secondary mapping only
       ledChain->setChainDriver(l.ledChain); // use found chain as actual output
-      LOG(LOG_INFO, "- ledchain is a secondary mapping for device '%s'", l.ledChain->getDeviceName().c_str());
+      OLOG(LOG_INFO, "- chain is a secondary mapping for device '%s'", l.ledChain->getDeviceName().c_str());
       break;
     }
   }
@@ -696,7 +702,7 @@ void LEDChainArrangement::addLEDChain(LEDChainCommPtr aLedChain, PixelRect aCove
   if (!aLedChain) return; // no chain
   mLedChains.push_back(LEDChainFixture(aLedChain, aCover, aOffset));
   recalculateCover();
-  LOG(LOG_INFO,
+  OLOG(LOG_INFO,
     "- enclosing rectangle of all covered areas: x=%d, dx=%d, y=%d, dy=%d",
       mCovers.x, mCovers.dx, mCovers.y, mCovers.dy
   );
@@ -781,7 +787,7 @@ MLMicroSeconds LEDChainArrangement::updateDisplay()
       // needs update
       if (now<mLastUpdate+minUpdateInterval) {
         // cannot update now, but return the time when we can update next time
-        DBGFOCUSLOG("updateDisplay update postponed by %lld, mRootView.dirty=%d", lastUpdate+minUpdateInterval-now, dirty);
+        DBGFOCUSOLOG("updateDisplay update postponed by %lld, mRootView.dirty=%d", lastUpdate+minUpdateInterval-now, dirty);
         return mLastUpdate+minUpdateInterval;
       }
       else {
@@ -855,17 +861,17 @@ MLMicroSeconds LEDChainArrangement::updateDisplay()
               powerDim = brightnesstable[(uint32_t)255*mPowerLimit/lightPower];
               if (!mPowerLimited) {
                 mPowerLimited = true;
-                LOG(LOG_INFO, "!!! LED power (%d) exceeds limit (%d) -> re-run dimmed to (%d%%)", lightPower, mPowerLimit, powerDim*100/255);
+                OLOG(LOG_INFO, "!!! LED power (%d) exceeds limit (%d) -> re-run dimmed to (%d%%)", lightPower, mPowerLimit, powerDim*100/255);
               }
               if (powerDim!=0) continue; // run again with reduced power (but prevent endless loop in case reduction results in zero)
             }
             else if (powerDim) {
-              DBGFOCUSLOG("--- requested power is %d, reduced power is %d now (limit %d), dim=%d", mRequestedLightPower, lightPower, powerLimit, powerDim);
+              DBGFOCUSOLOG("--- requested power is %d, reduced power is %d now (limit %d), dim=%d", mRequestedLightPower, lightPower, powerLimit, powerDim);
             }
             else {
               if (mPowerLimited) {
                 mPowerLimited = false;
-                LOG(LOG_INFO, "!!! LED power (%d) back below limit (%d) -> no dimm-down active", lightPower, mPowerLimit);
+                OLOG(LOG_INFO, "!!! LED power (%d) back below limit (%d) -> no dimm-down active", lightPower, mPowerLimit);
               }
             }
             break;
@@ -873,11 +879,11 @@ MLMicroSeconds LEDChainArrangement::updateDisplay()
           mRootView->updated();
         }
         // update hardware (refresh actual LEDs, cleans away possible glitches
-        DBGFOCUSLOG("######## calling show(), dirty=%d", dirty);
+        DBGFOCUSOLOG("######## calling show(), dirty=%d", dirty);
         for(LedChainVector::iterator pos = mLedChains.begin(); pos!=mLedChains.end(); ++pos) {
           pos->ledChain->show();
         }
-        DBGFOCUSLOG("######## show() called");
+        DBGFOCUSOLOG("######## show() called");
       }
     }
   }
@@ -935,7 +941,7 @@ MLMicroSeconds LEDChainArrangement::step()
 
 void LEDChainArrangement::autoStep(MLTimer &aTimer)
 {
-  DBGFOCUSLOG("######## autostep() called");
+  DBGFOCUSOLOG("######## autostep() called");
   MLMicroSeconds nextCall = step();
   MainLoop::currentMainLoop().retriggerTimer(aTimer, nextCall, 0, MainLoop::absolute);
 }
@@ -943,7 +949,7 @@ void LEDChainArrangement::autoStep(MLTimer &aTimer)
 
 void LEDChainArrangement::render()
 {
-  DBGFOCUSLOG("######## render() called");
+  DBGFOCUSOLOG("######## render() called");
   MLMicroSeconds nextCall = step();
   mAutoStepTicket.executeOnceAt(boost::bind(&LEDChainArrangement::autoStep, this, _1), nextCall);
 }
@@ -951,7 +957,7 @@ void LEDChainArrangement::render()
 
 void LEDChainArrangement::externalUpdateRequest()
 {
-  DBGFOCUSLOG("######## externalUpdateRequest()");
+  DBGFOCUSOLOG("######## externalUpdateRequest()");
   if (mRootView) {
     if (mAutoStepTicket) {
       // interrupt autostepping timer
