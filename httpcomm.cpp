@@ -458,7 +458,7 @@ using namespace P44Script;
 
 static void httpFuncDone(BuiltinFunctionContextPtr f, HttpCommPtr aHttpAction, const string &aResponse, ErrorPtr aError)
 {
-  SPLOG(f, LOG_INFO, "http action returns '%s', error = %s", aResponse.c_str(), Error::text(aError));
+  POLOG(f, LOG_INFO, "http action returns '%s', error = %s", aResponse.c_str(), Error::text(aError));
   if (Error::isOK(aError)) {
     f->finish(new StringValue(aResponse));
   }
@@ -494,7 +494,7 @@ static void httpFuncImpl(BuiltinFunctionContextPtr f, string aMethod)
   splitURL(url.c_str(), NULL, NULL, NULL, &user, &password);
   httpAction->setHttpAuthCredentials(user, password);
   if (timeout!=Never) httpAction->setTimeout(timeout);
-  SPLOG(f, LOG_INFO, "issuing %s to %s %s", aMethod.c_str(), url.c_str(), data.c_str());
+  POLOG(f, LOG_INFO, "issuing %s to %s %s", aMethod.c_str(), url.c_str(), data.c_str());
   f->setAbortCallback(boost::bind(&HttpComm::cancelRequest, httpAction));
 //  httpAction->cancelRequest(); // abort any previous request
   if (!httpAction->httpRequest(
