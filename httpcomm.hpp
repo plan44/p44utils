@@ -31,13 +31,12 @@
 #endif
 
 
-#if (ENABLE_EXPRESSIONS || ENABLE_P44SCRIPT) && !defined(ENABLE_HTTP_SCRIPT_FUNCS)
+#if ENABLE_P44SCRIPT && !defined(ENABLE_HTTP_SCRIPT_FUNCS)
   #define ENABLE_HTTP_SCRIPT_FUNCS 1
 #endif
 
 #if ENABLE_HTTP_SCRIPT_FUNCS
 #include "p44script.hpp"
-#include "expressions.hpp"
 #endif
 
 using namespace std;
@@ -202,15 +201,6 @@ namespace p44 {
     // Utilities
     static string urlEncode(const string &aString, bool aFormURLEncoded);
     static void appendFormValue(string &aDataString, const string &aFieldname, const string &aValue);
-
-    #if ENABLE_HTTP_SCRIPT_FUNCS && ENABLE_EXPRESSIONS
-    /// This function implements geturl/puturl/posturl http utility functions, and is intended to get called
-    /// from a EvaluationContext's evaluateAsyncFunctions() method to provide http functionality
-    /// @param aHttpCommP can be used to pass a pre-existing http context, but ONLY IF evaluateAsyncHttpFunctions() is not called again before evaluation has completed!
-    static bool evaluateAsyncHttpFunctions(EvaluationContext* aEvalContext, const string &aFunc, const FunctionArguments &aArgs, bool &aNotYielded, HttpCommPtr* aHttpCommP = NULL);
-
-    static void httpFunctionDone(EvaluationContext* aEvalContext, const string &aResponse, ErrorPtr aError);
-    #endif // ENABLE_HTTP_SCRIPT_FUNCS
 
   protected:
     virtual const char *defaultContentType() { return "text/html; charset=UTF-8"; };
