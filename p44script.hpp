@@ -784,7 +784,7 @@ namespace p44 { namespace P44Script {
   #endif // SCRIPTING_JSON_SUPPORT
 
 
-  // MARK: - Extendable class member lookup
+  // MARK: - Structured objects
 
   /// structured object base class
   class StructuredObject : public ScriptObj
@@ -794,6 +794,37 @@ namespace p44 { namespace P44Script {
     virtual string getAnnotation() const P44_OVERRIDE { return "object"; };
     virtual TypeInfo getTypeInfo() const P44_OVERRIDE { return object; }
   };
+
+
+  /// simple variable container
+  class SimpleVarContainer : public StructuredObject
+  {
+    typedef StructuredObject inherited;
+
+    typedef std::map<string, ScriptObjPtr, lessStrucmp> NamedVarMap;
+    NamedVarMap namedVars; ///< the named local variables/objects of this context
+
+  public:
+
+    /// clear local variables (named members)
+    void clearVars();
+
+    /// clear floating globals (only called as inherited from domain)
+    void clearFloatingGlobs();
+
+    /// release all objects stored in this container and other known containers which were defined by aSource
+    void releaseObjsFromSource(SourceContainerPtr aSource);
+
+    /// access to local variables by name
+    virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aMemberAccessFlags) P44_OVERRIDE;
+
+    // internal for StandardLValue
+    virtual ErrorPtr setMemberByName(const string aName, const ScriptObjPtr aMember) P44_OVERRIDE;
+
+  };
+
+
+  // MARK: - Extendable class member lookup
 
   /// structured object with the ability to register member lookups
   class StructuredLookupObject : public StructuredObject
@@ -930,8 +961,7 @@ namespace p44 { namespace P44Script {
     friend class ScriptMainContext;
     friend class CompiledCode;
 
-    typedef std::map<string, ScriptObjPtr, lessStrucmp> NamedVarMap;
-    NamedVarMap namedVars; ///< the named local variables/objects of this context
+    SimpleVarContainer localVars;
 
     typedef std::list<ScriptCodeThreadPtr> ThreadList;
     ThreadList threads; ///< the running "threads" in this context. First is the main thread of the evaluation.

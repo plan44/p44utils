@@ -827,7 +827,104 @@ ErrorPtr JsonValue::setMemberAtIndex(size_t aIndex, const ScriptObjPtr aMember, 
 
 #endif // SCRIPTING_JSON_SUPPORT
 
-// MARK: - StructuredObject
+
+// MARK: - SimpleVarContainer
+
+void SimpleVarContainer::clearVars()
+{
+  namedVars.clear();
+}
+
+void SimpleVarContainer::releaseObjsFromSource(SourceContainerPtr aSource)
+{
+  NamedVarMap::iterator pos = namedVars.begin();
+  while (pos!=namedVars.end()) {
+    if (pos->second->originatesFrom(aSource)) {
+      pos->second->deactivate(); // pre-deletion, breaks retain cycles
+      #if P44_CPP11_FEATURE
+      pos = namedVars.erase(pos); // source is gone -> remove
+      #else
+      NamedVarMap::iterator dpos = pos++; // pre-C++ 11
+      namedVars.erase(dpos); // source is gone -> remove
+      #endif
+    }
+    else {
+      ++pos;
+    }
+  }
+}
+
+
+void SimpleVarContainer::clearFloatingGlobs()
+{
+  NamedVarMap::iterator pos = namedVars.begin();
+  while (pos!=namedVars.end()) {
+    if (pos->second->floating()) {
+      #if P44_CPP11_FEATURE
+      pos = namedVars.erase(pos); // source is gone -> remove
+      #else
+      NamedVarMap::iterator dpos = pos++; // pre-C++ 11
+      namedVars.erase(dpos); // source is gone -> remove
+      #endif
+    }
+    else {
+      ++pos;
+    }
+  }
+}
+
+
+
+const ScriptObjPtr SimpleVarContainer::memberByName(const string aName, TypeInfo aMemberAccessFlags)
+{
+  ScriptObjPtr m;
+  NamedVarMap::const_iterator pos = namedVars.find(aName);
+  if (pos!=namedVars.end()) {
+    // we have that member
+    m = pos->second;
+    if (m->meetsRequirement(aMemberAccessFlags, typeMask)) {
+      if ((aMemberAccessFlags & lvalue) && (aMemberAccessFlags & onlycreate)==0) {
+        return new StandardLValue(this, aName, m); // it is allowed to overwrite this value
+      }
+      return m;
+    }
+    m.reset(); // does not meet requirements
+  }
+  else {
+    // no such member yet
+    if ((aMemberAccessFlags & lvalue) && (aMemberAccessFlags & create)) {
+      // creation allowed, return lvalue to create object
+      return new StandardLValue(this, aName, ScriptObjPtr()); // it is allowed to create a new value
+    }
+  }
+  // nothing found
+  return m;
+}
+
+
+ErrorPtr SimpleVarContainer::setMemberByName(const string aName, const ScriptObjPtr aMember)
+{
+  NamedVarMap::iterator pos = namedVars.find(aName);
+  if (pos!=namedVars.end()) {
+    // exists in local vars
+    if (aMember) {
+      // assign new value
+      pos->second = aMember;
+    }
+    else {
+      // delete
+      namedVars.erase(pos);
+    }
+  }
+  else if (aMember) {
+    // create it, but only if we have a member (not a delete attempt)
+    namedVars[aName] = aMember;
+  }
+  return ErrorPtr();
+}
+
+
+// MARK: - StructuredLookupObject
 
 const ScriptObjPtr StructuredLookupObject::memberByName(const string aName, TypeInfo aMemberAccessFlags)
 {
@@ -1045,6 +1142,7 @@ ScriptObjPtr ExecutionContext::executeSynchronously(ScriptObjPtr aToExecute, Eva
 ScriptCodeContext::ScriptCodeContext(ScriptMainContextPtr aMainContext) :
   inherited(aMainContext)
 {
+  localVars.isMemberVariable();
 }
 
 
@@ -1052,49 +1150,21 @@ ScriptCodeContext::ScriptCodeContext(ScriptMainContextPtr aMainContext) :
 
 void ScriptCodeContext::releaseObjsFromSource(SourceContainerPtr aSource)
 {
-  // global members
-  NamedVarMap::iterator pos = namedVars.begin();
-  while (pos!=namedVars.end()) {
-    if (pos->second->originatesFrom(aSource)) {
-      pos->second->deactivate(); // pre-deletion, breaks retain cycles
-      #if P44_CPP11_FEATURE
-      pos = namedVars.erase(pos); // source is gone -> remove
-      #else
-      NamedVarMap::iterator dpos = pos++; // pre-C++ 11
-      namedVars.erase(dpos); // source is gone -> remove
-      #endif
-    }
-    else {
-      ++pos;
-    }
-  }
+  localVars.releaseObjsFromSource(aSource);
   inherited::releaseObjsFromSource(aSource);
 }
 
 
 void ScriptCodeContext::clearFloatingGlobs()
 {
-  NamedVarMap::iterator pos = namedVars.begin();
-  while (pos!=namedVars.end()) {
-    if (pos->second->floating()) {
-      #if P44_CPP11_FEATURE
-      pos = namedVars.erase(pos); // source is gone -> remove
-      #else
-      NamedVarMap::iterator dpos = pos++; // pre-C++ 11
-      namedVars.erase(dpos); // source is gone -> remove
-      #endif
-    }
-    else {
-      ++pos;
-    }
-  }
+  localVars.clearFloatingGlobs();
 }
 
 
 
 void ScriptCodeContext::clearVars()
 {
-  namedVars.clear();
+  localVars.clearVars();
   inherited::clearVars();
 }
 
@@ -1105,24 +1175,8 @@ const ScriptObjPtr ScriptCodeContext::memberByName(const string aName, TypeInfo 
   ScriptObjPtr m;
   // 1) local variables/objects
   if ((aMemberAccessFlags & (classscope+objscope))==0) {
-    NamedVarMap::const_iterator pos = namedVars.find(aName);
-    if (pos!=namedVars.end()) {
-      // we have that member
-      m = pos->second;
-      if (m->meetsRequirement(aMemberAccessFlags, typeMask)) {
-        if ((aMemberAccessFlags & lvalue) && (aMemberAccessFlags & onlycreate)==0) {
-          return new StandardLValue(this, aName, m); // it is allowed to overwrite this value
-        }
-        return m;
-      }
-      m.reset(); // does not meet requirements
-    }
-    else {
-      // no such member yet
-      if ((aMemberAccessFlags & lvalue) && (aMemberAccessFlags & create)) {
-        // creation allowed, return lvalue to create object
-        return new StandardLValue(this, aName, ScriptObjPtr()); // it is allowed to create a new value
-      }
+    if ((m = localVars.memberByName(aName, aMemberAccessFlags))) {
+      return m;
     }
   }
   // 2) access to ANY members of the _instance_ itself if running in a object context
@@ -1139,23 +1193,7 @@ const ScriptObjPtr ScriptCodeContext::memberByName(const string aName, TypeInfo 
 ErrorPtr ScriptCodeContext::setMemberByName(const string aName, const ScriptObjPtr aMember)
 {
   FOCUSLOGSTORE(domain() ? "named vars" : "global vars");
-  NamedVarMap::iterator pos = namedVars.find(aName);
-  if (pos!=namedVars.end()) {
-    // exists in local vars
-    if (aMember) {
-      // assign new value
-      pos->second = aMember;
-    }
-    else {
-      // delete
-      namedVars.erase(pos);
-    }
-  }
-  else if (aMember) {
-    // create it, but only if we have a member (not a delete attempt)
-    namedVars[aName] = aMember;
-  }
-  return ErrorPtr();
+  return localVars.setMemberByName(aName, aMember);
 }
 
 
