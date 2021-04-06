@@ -187,9 +187,9 @@ namespace p44 { namespace P44Script {
     execModifierMask = 0xFF000,
     synchronously = 0x1000, ///< evaluate synchronously, error out on async code
     stoprunning = 0x2000, ///< abort running execution in the same context before starting a new one
-    queue = 0x4000, ///< queue for execution if other executions are still running/pending
+    queue = 0x4000, ///< queue for execution (with concurrently also set, thread will start when all previously queued threads are done, but possibly concurrently with other threads)
     stopall = stoprunning+queue, ///< stop everything
-    concurrently = 0x10000, ///< run concurrently with already executing code
+    concurrently = 0x10000, ///< run concurrently with already executing code (when whith queued, thread is started when all previously queued threads are done)
     keepvars = 0x20000, ///< keep the local variables already set in the context
     mainthread = 0x40000, ///< if a thread with this flag set terminates, it also terminates all of its siblings
     // compilation modifiers

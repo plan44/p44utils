@@ -1238,9 +1238,22 @@ ScriptCodeThreadPtr ScriptCodeContext::newThreadFrom(CompiledCodePtr aCodeObj, S
       // ...then start new
     }
     else if (aEvalFlags & queue) {
-      // queue for later
-      queuedThreads.push_back(newThread);
-      return ScriptCodeThreadPtr(); // no thread to start now, but ok because it was queued
+      if (aEvalFlags & concurrently) {
+        // queue+concurrently means queue if another non-concurrent thread is already running, otherwise just run
+        for (ThreadList::iterator pos=threads.begin(); pos!=threads.end(); ++pos) {
+          if (((*pos)->evaluationFlags & concurrently)==0) {
+            // at least one non-concurrently marked thread is running, must queue
+            queuedThreads.push_back(newThread);
+            return ScriptCodeThreadPtr(); // no thread to start now, but ok because it was queued
+          }
+        }
+        // ...can start now, because no other non-concurrent thread is running
+      }
+      else {
+        // just queue for later
+        queuedThreads.push_back(newThread);
+        return ScriptCodeThreadPtr(); // no thread to start now, but ok because it was queued
+      }
     }
     else if ((aEvalFlags & concurrently)==0) {
       // none of the multithread modes and already running: just report busy
@@ -1258,6 +1271,7 @@ void ScriptCodeContext::threadTerminated(ScriptCodeThreadPtr aThread, Evaluation
 {
   // a thread has ended, remove it from the list
   ThreadList::iterator pos=threads.begin();
+  bool anyFromQueue = false;
   while (pos!=threads.end()) {
     if (pos->get()==aThread.get()) {
       #if P44_CPP11_FEATURE
@@ -1267,7 +1281,11 @@ void ScriptCodeContext::threadTerminated(ScriptCodeThreadPtr aThread, Evaluation
       threads.erase(dpos);
       #endif
       // thread object should get disposed now, along with its SourceRef
-      break;
+      if (anyFromQueue) break; // optimization: no need to continue loop
+      continue;
+    }
+    if ((*pos)->evaluationFlags & queue) {
+      anyFromQueue = true;
     }
     ++pos;
   }
@@ -1276,13 +1294,16 @@ void ScriptCodeContext::threadTerminated(ScriptCodeThreadPtr aThread, Evaluation
     abort(stoprunning);
   }
   // check for queued executions to start now
-  if (threads.empty() && !queuedThreads.empty()) {
-    // get next thread from the queue
+  if (!anyFromQueue && !queuedThreads.empty() ) {
+    // check next thread from the queue
     ScriptCodeThreadPtr nextThread = queuedThreads.front();
-    queuedThreads.pop_front();
-    // and start it
-    threads.push_back(nextThread);
-    nextThread->run();
+    // next queued thread may run concurrently with not-from-queue threads if it is also marked concurrently
+    if (threads.empty() || (nextThread->evaluationFlags & concurrently)!=0) {
+      queuedThreads.pop_front();
+      // and start it
+      threads.push_back(nextThread);
+      nextThread->run();
+    }
   }
 }
 
