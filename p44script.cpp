@@ -1016,13 +1016,13 @@ static void syncExecDone(ScriptObjPtr* aResultStorageP, bool* aFinishedP, Script
   *aFinishedP = true;
 }
 
-ScriptObjPtr ExecutionContext::executeSynchronously(ScriptObjPtr aToExecute, EvaluationFlags aEvalFlags, MLMicroSeconds aMaxRunTime)
+ScriptObjPtr ExecutionContext::executeSynchronously(ScriptObjPtr aToExecute, EvaluationFlags aEvalFlags, ScriptObjPtr aThreadLocals, MLMicroSeconds aMaxRunTime)
 {
   ScriptObjPtr syncResult;
 
   bool finished = false;
   aEvalFlags |= synchronously;
-  execute(aToExecute, aEvalFlags, boost::bind(&syncExecDone, &syncResult, &finished, _1), aMaxRunTime);
+  execute(aToExecute, aEvalFlags, boost::bind(&syncExecDone, &syncResult, &finished, _1), aThreadLocals, aMaxRunTime);
   if (!finished) {
     // despite having requested synchronous execution, evaluation is not finished by now
     finished = true;
@@ -1189,7 +1189,7 @@ void ScriptCodeContext::abort(EvaluationFlags aAbortFlags, ScriptObjPtr aAbortRe
 }
 
 
-void ScriptCodeContext::execute(ScriptObjPtr aToExecute, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB, MLMicroSeconds aMaxRunTime)
+void ScriptCodeContext::execute(ScriptObjPtr aToExecute, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB, ScriptObjPtr aThreadLocals, MLMicroSeconds aMaxRunTime)
 {
   if (undefinedResult) {
     // just return undefined w/o even trying to execute
@@ -1212,7 +1212,7 @@ void ScriptCodeContext::execute(ScriptObjPtr aToExecute, EvaluationFlags aEvalFl
   if (aEvalFlags & sourcecode) aEvalFlags = (aEvalFlags & ~sourcecode) | scriptbody;
   #endif // P44SCRIPT_FULL_SUPPORT
   // - now run
-  ScriptCodeThreadPtr thread = newThreadFrom(code, code->cursor, aEvalFlags, aEvaluationCB, aMaxRunTime);
+  ScriptCodeThreadPtr thread = newThreadFrom(code, code->cursor, aEvalFlags, aEvaluationCB, aThreadLocals, aMaxRunTime);
   if (thread) {
     thread->run();
     return;
@@ -1221,12 +1221,12 @@ void ScriptCodeContext::execute(ScriptObjPtr aToExecute, EvaluationFlags aEvalFl
 }
 
 
-ScriptCodeThreadPtr ScriptCodeContext::newThreadFrom(CompiledCodePtr aCodeObj, SourceCursor &aFromCursor, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB, MLMicroSeconds aMaxRunTime)
+ScriptCodeThreadPtr ScriptCodeContext::newThreadFrom(CompiledCodePtr aCodeObj, SourceCursor &aFromCursor, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB, ScriptObjPtr aThreadLocals, MLMicroSeconds aMaxRunTime)
 {
   // prepare a thread for executing now or later
   // Note: thread gets an owning Ptr back to this, so this context cannot be destructed before all
   //   threads have ended.
-  ScriptCodeThreadPtr newThread = ScriptCodeThreadPtr(new ScriptCodeThread(this, aCodeObj, aFromCursor));
+  ScriptCodeThreadPtr newThread = ScriptCodeThreadPtr(new ScriptCodeThread(this, aCodeObj, aFromCursor, aThreadLocals));
   MLMicroSeconds maxBlockTime = aEvalFlags&synchronously ? aMaxRunTime : domain()->getMaxBlockTime();
   newThread->prepareRun(aEvaluationCB, aEvalFlags, maxBlockTime, aMaxRunTime);
   // now check how and when to run it
@@ -1453,7 +1453,7 @@ void BuiltinFunctionContext::setAbortCallback(SimpleCB aAbortCB)
 }
 
 
-void BuiltinFunctionContext::execute(ScriptObjPtr aToExecute, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB, MLMicroSeconds aMaxRunTime)
+void BuiltinFunctionContext::execute(ScriptObjPtr aToExecute, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB, ScriptObjPtr aThreadLocals, MLMicroSeconds aMaxRunTime)
 {
   if (undefinedResult) {
     // just return undefined w/o even trying to execute
@@ -3692,9 +3692,9 @@ ScriptObjPtr CompiledTrigger::initializeTrigger()
   OLOG(LOG_INFO, "initial trigger evaluation: %s", cursor.displaycode(130).c_str());
   if (mEvalFlags & synchronously) {
     #if DEBUGLOGGING
-    ScriptObjPtr res = ctx->executeSynchronously(this, initFlags, Infinite);
+    ScriptObjPtr res = ctx->executeSynchronously(this, initFlags, ScriptObjPtr(), Infinite);
     #else
-    ScriptObjPtr res = ctx->executeSynchronously(this, initFlags, 2*Second);
+    ScriptObjPtr res = ctx->executeSynchronously(this, initFlags, ScriptObjPtr(), 2*Second);
     #endif
     triggerDidEvaluate(initFlags, res);
     return res;
@@ -3721,7 +3721,7 @@ void CompiledTrigger::triggerEvaluation(EvaluationFlags aEvalMode)
   mNextEvaluation = Never; // reset
   ExecutionContextPtr ctx = contextForCallingFrom(NULL, NULL);
   EvaluationFlags runFlags = (aEvalMode&~runModeMask) ? aEvalMode : (mEvalFlags&~runModeMask)|aEvalMode; // use only runmode from aEvalMode if nothing else is set
-  ctx->execute(ScriptObjPtr(this), runFlags, boost::bind(&CompiledTrigger::triggerDidEvaluate, this, runFlags, _1), 30*Second);
+  ctx->execute(ScriptObjPtr(this), runFlags, boost::bind(&CompiledTrigger::triggerDidEvaluate, this, runFlags, _1), ScriptObjPtr(), 30*Second);
 }
 
 
@@ -4236,7 +4236,7 @@ ScriptObjPtr ScriptSource::syntaxcheck()
 }
 
 
-ScriptObjPtr ScriptSource::run(EvaluationFlags aRunFlags, EvaluationCB aEvaluationCB, MLMicroSeconds aMaxRunTime)
+ScriptObjPtr ScriptSource::run(EvaluationFlags aRunFlags, EvaluationCB aEvaluationCB, ScriptObjPtr aThreadLocals, MLMicroSeconds aMaxRunTime)
 {
   EvaluationFlags flags = defaultFlags; // default to compile flags
   if (aRunFlags & runModeMask) {
@@ -4257,10 +4257,10 @@ ScriptObjPtr ScriptSource::run(EvaluationFlags aRunFlags, EvaluationCB aEvaluati
       ExecutionContextPtr ctx = code->contextForCallingFrom(domain(), NULL);
       if (ctx) {
         if (flags & synchronously) {
-          result = ctx->executeSynchronously(code, flags, aMaxRunTime);
+          result = ctx->executeSynchronously(code, flags, aThreadLocals, aMaxRunTime);
         }
         else {
-          ctx->execute(code, flags, aEvaluationCB, aMaxRunTime);
+          ctx->execute(code, flags, aEvaluationCB, aThreadLocals, aMaxRunTime);
           return result; // null, callback will deliver result
         }
       }
@@ -4404,9 +4404,10 @@ ScriptObjPtr ScriptingDomain::registerHandler(ScriptObjPtr aHandler)
 
 // MARK: - ScriptCodeThread
 
-ScriptCodeThread::ScriptCodeThread(ScriptCodeContextPtr aOwner, CompiledCodePtr aCode, const SourceCursor& aStartCursor) :
+ScriptCodeThread::ScriptCodeThread(ScriptCodeContextPtr aOwner, CompiledCodePtr aCode, const SourceCursor& aStartCursor, ScriptObjPtr aThreadLocals) :
   mOwner(aOwner),
   codeObj(aCode),
+  mThreadLocals(aThreadLocals),
   maxBlockTime(0),
   maxRunTime(Infinite),
   runningSince(Never)
@@ -4419,7 +4420,6 @@ ScriptCodeThread::~ScriptCodeThread()
 {
   FOCUSLOG("\n%04x END          thread deleted : %s", (uint32_t)((intptr_t)static_cast<SourceProcessor *>(this)) & 0xFFFF, src.displaycode(130).c_str());
 }
-
 
 
 P44LoggingObj* ScriptCodeThread::loggingContext()
@@ -4447,10 +4447,6 @@ string ScriptCodeThread::logContextPrefix()
   }
   return prefix;
 }
-
-
-
-
 
 
 void ScriptCodeThread::prepareRun(
@@ -4569,14 +4565,19 @@ void ScriptCodeThread::checkAndResume()
 void ScriptCodeThread::memberByIdentifier(TypeInfo aMemberAccessFlags, bool aNoNotFoundError)
 {
   if (result) {
-    // look up member of the result itself
+    // explicit context is the result: look up member *only* here
     result = result->memberByName(identifier, aMemberAccessFlags);
   }
   else {
-    // context level
+    // implicit context
+    // - try owner context
     result = mOwner->memberByName(identifier, aMemberAccessFlags);
+    if (!result && mThreadLocals) {
+      // - try thread-level "this" context object
+      result = mThreadLocals->memberByName(identifier, aMemberAccessFlags);
+    }
     if (!result) {
-      // on context level, if nothing else was found, check overrideable convenience constants
+      // on implicit context level, if nothing else was found, check overrideable convenience constants
       static const char * const weekdayNames[7] = { "sun", "mon", "tue", "wed", "thu", "fri", "sat" };
       if (identifier.size()==3) {
         // Optimisation, all weekdays have 3 chars

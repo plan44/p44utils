@@ -880,7 +880,9 @@ namespace p44 { namespace P44Script {
     /// @param aToExecute the object to be executed in this context
     /// @param aEvalFlags evaluation control flags
     /// @param aEvaluationCB will be called to deliver the result of the execution
-    virtual void execute(ScriptObjPtr aToExecute, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB, MLMicroSeconds aMaxRunTime = Infinite) = 0;
+    /// @param aThreadLocals optionally, the (structured) object that provides thread local members
+    /// @param aMaxRunTime optionally, maximum time the thread may run before it is aborted by timeout
+    virtual void execute(ScriptObjPtr aToExecute, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB, ScriptObjPtr aThreadLocals = ScriptObjPtr(), MLMicroSeconds aMaxRunTime = Infinite) = 0;
 
     /// abort evaluation (of all threads if context has more than one)
     /// @param aAbortFlags set stoprunning to abort currently running threads, queue to empty the queued threads
@@ -888,7 +890,7 @@ namespace p44 { namespace P44Script {
     virtual void abort(EvaluationFlags aAbortFlags = stoprunning+queue, ScriptObjPtr aAbortResult = ScriptObjPtr(), ScriptCodeThreadPtr aExceptThread = ScriptCodeThreadPtr()) = 0;
 
     /// synchronously evaluate the object, abort if async executables are encountered
-    ScriptObjPtr executeSynchronously(ScriptObjPtr aToExecute, EvaluationFlags aEvalFlags, MLMicroSeconds aMaxRunTime = Infinite);
+    ScriptObjPtr executeSynchronously(ScriptObjPtr aToExecute, EvaluationFlags aEvalFlags, ScriptObjPtr aThreadLocals = ScriptObjPtr(), MLMicroSeconds aMaxRunTime = Infinite);
 
     /// check argument against signature and add to context if ok
     /// @param aArgument the object to be passed as argument. Pass NULL to check if aCallee has more non-optional arguments
@@ -961,16 +963,18 @@ namespace p44 { namespace P44Script {
     /// @param aToExecute the object to be evaluated
     /// @param aEvalFlags evaluation mode/flags. Script thread can evaluate...
     /// @param aEvaluationCB will be called to deliver the result of the evaluation
-    /// @param aMaxRunTime maximum time the execution may run before it is aborted by timeout
-    virtual void execute(ScriptObjPtr aToExecute, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB, MLMicroSeconds aMaxRunTime = Infinite) P44_OVERRIDE;
+    /// @param aThreadLocals optionally, the (structured) object that provides thread local members
+    /// @param aMaxRunTime optionally, maximum time the thread may run before it is aborted by timeout
+    virtual void execute(ScriptObjPtr aToExecute, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB, ScriptObjPtr aThreadLocals = ScriptObjPtr(), MLMicroSeconds aMaxRunTime = Infinite) P44_OVERRIDE;
 
     /// Start a new thread (usually, a block, concurrently) from a given cursor
     /// @param aCodeObj the code object this thread runs (maybe only a part of)
     /// @param aFromCursor where to start executing
     /// @param aEvalFlags how to initiate the thread and what syntax level to evaluate
     /// @param aEvaluationCB callback when thread has evaluated (ends)
-    /// @param aMaxRunTime maximum time the thread may run before it is aborted by timeout
-    ScriptCodeThreadPtr newThreadFrom(CompiledCodePtr aCodeObj, SourceCursor &aFromCursor, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB, MLMicroSeconds aMaxRunTime = Infinite);
+    /// @param aThreadLocals optionally, the (structured) object that provides thread local members
+    /// @param aMaxRunTime optionally, maximum time the thread may run before it is aborted by timeout
+    ScriptCodeThreadPtr newThreadFrom(CompiledCodePtr aCodeObj, SourceCursor &aFromCursor, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB, ScriptObjPtr aThreadLocals = ScriptObjPtr(), MLMicroSeconds aMaxRunTime = Infinite);
 
     /// abort evaluation of all threads
     /// @param aAbortFlags set stoprunning to abort currently running threads, queue to empty the queued threads
@@ -1258,12 +1262,13 @@ namespace p44 { namespace P44Script {
     ///          - if a run mode flag is set, all run mode flags are used from aRunFlags
     ///          - execution modfier flags from aRunFlags are ADDED to those already set with setSource()
     /// @param aEvaluationCB will be called with the result
-    /// @param aMaxRunTime the maximum run time
-    ScriptObjPtr run(EvaluationFlags aRunFlags, EvaluationCB aEvaluationCB = NULL, MLMicroSeconds aMaxRunTime = Infinite);
+    /// @param aThreadLocals optionally, the (structured) object that provides thread local members
+    /// @param aMaxRunTime optionally, maximum time the thread may run before it is aborted by timeout
+    ScriptObjPtr run(EvaluationFlags aRunFlags, EvaluationCB aEvaluationCB = NULL, ScriptObjPtr aThreadLocals = ScriptObjPtr(), MLMicroSeconds aMaxRunTime = Infinite);
 
     /// for single-line tests
     ScriptObjPtr test(EvaluationFlags aEvalFlags, const string aSource)
-      { setSource(aSource, aEvalFlags); return run(aEvalFlags|regular|synchronously, NULL, Infinite); }
+      { setSource(aSource, aEvalFlags); return run(aEvalFlags|regular|synchronously, NULL, ScriptObjPtr(), Infinite); }
 
   };
 
@@ -1979,6 +1984,7 @@ namespace p44 { namespace P44Script {
     friend class BuiltinFunctionContext;
 
     ScriptCodeContextPtr mOwner; ///< the execution context which owns (has started) this thread
+    ScriptObjPtr mThreadLocals; ///< the implicit "this" on the thread level, which is queried when context does not provide a member
     CompiledCodePtr codeObj; ///< the code object this thread is running
     MLMicroSeconds maxBlockTime; ///< how long the thread is allowed to block in evaluate()
     MLMicroSeconds maxRunTime; ///< how long the thread is allowed to run overall
@@ -1992,7 +1998,8 @@ namespace p44 { namespace P44Script {
     /// @param aOwner the context which owns this thread and will be notified when it ends
     /// @param aCode the code object that is running in this context
     /// @param aStartCursor the start point for the script
-    ScriptCodeThread(ScriptCodeContextPtr aOwner, CompiledCodePtr aCode, const SourceCursor& aStartCursor);
+    /// @param aThreadLocals the (structured) object that provides thread local members (can be NULL)
+    ScriptCodeThread(ScriptCodeContextPtr aOwner, CompiledCodePtr aCode, const SourceCursor& aStartCursor, ScriptObjPtr aThreadLocals);
 
     virtual ~ScriptCodeThread();
 
@@ -2218,7 +2225,7 @@ namespace p44 { namespace P44Script {
     BuiltinFunctionContext(ScriptMainContextPtr aMainContext, ScriptCodeThreadPtr aThread);
 
     /// evaluate built-in function
-    virtual void execute(ScriptObjPtr aToExecute, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB, MLMicroSeconds aMaxRunTime = Infinite) P44_OVERRIDE;
+    virtual void execute(ScriptObjPtr aToExecute, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB, ScriptObjPtr aThreadLocals = ScriptObjPtr(), MLMicroSeconds aMaxRunTime = Infinite) P44_OVERRIDE;
 
     /// abort (async) built-in function
     /// @param aAbortFlags set stoprunning to abort currently running threads, queue to empty the queued threads
