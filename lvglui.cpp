@@ -1454,12 +1454,10 @@ void LvGLUi::queueEventScript(lv_event_t aEvent, LVGLUiElementPtr aElement, P44S
 {
   LOG(LOG_INFO, "--- Starting/queuing action script for LVGLUiElement '%s'", aElement ? aElement->getName().c_str() : "<none>");
   aScriptCode.setSharedMainContext(mScriptMainContext);
-  LVGLUiElementObj* eventThreadObj = NULL;
-  if (aElement) {
-    eventThreadObj = new LVGLUiElementObj(aElement);
-    eventThreadObj->currentEvent = aEvent;
-  }
-  aScriptCode.run(regular|queue|concurrently, boost::bind(&LvGLUi::scriptDone, this, aElement), eventThreadObj, Infinite);
+  // pass the event as a thread-local variable
+  SimpleVarContainer* eventThreadLocals = new SimpleVarContainer();
+  eventThreadLocals->setMemberByName("event", new NumericValue(aEvent));
+  aScriptCode.run(regular|queue|concurrently, boost::bind(&LvGLUi::scriptDone, this, aElement), eventThreadLocals, Infinite);
 }
 
 void LvGLUi::scriptDone(LVGLUiElementPtr aElement)
@@ -1620,19 +1618,16 @@ static void configure_func(BuiltinFunctionContextPtr f)
 }
 
 
-#if LVGLUI_LEGCACY_FUNCTIONS
-
-// event()
-static void event_func(BuiltinFunctionContextPtr f)
+static ScriptObjPtr event_accessor(BuiltInMemberLookup& aMemberLookup, ScriptObjPtr aParentObj, ScriptObjPtr aObjToWrite)
 {
-  LVGLUiElementObj* o = dynamic_cast<LVGLUiElementObj*>(f->thisObj().get());
-  assert(o);
-  // TODO: implement
-  #warning "%%% tdb: get and return event threadvar"
-  f->finish();
+  %%% implement
+  LvGLUiLookup* l = dynamic_cast<LvGLUiLookup*>(&aMemberLookup);
+  LVGLUiElement* root = l->lvglui();
+  if (!root) return new AnnotatedNullValue("no lvgl");
+  return new LVGLUiElementObj(root);
 }
 
-#endif
+
 
 
 static const BuiltinMemberDescriptor lvglobjFunctions[] = {
@@ -1645,9 +1640,7 @@ static const BuiltinMemberDescriptor lvglobjFunctions[] = {
   { "showscreen", executable|null, showscreen_numargs, showscreen_args, &showscreen_func },
   { "set", executable|null, set_numargs, set_args, &set_func },
   { "configure", executable|null, configure_numargs, configure_args, &configure_func },
-  #if LVGLUI_LEGCACY_FUNCTIONS
-  { "event", executable|text, 0, NULL, &event_func },
-  #endif
+  { "event", builtinmember, 0, NULL, (BuiltinFunctionImplementation)&event_accessor }, // Note: correct '.accessor=&lrg_accessor' form does not work with OpenWrt g++, so need ugly cast here
   { NULL } // terminator
 };
 
@@ -1689,7 +1682,6 @@ static ScriptObjPtr lvgl_accessor(BuiltInMemberLookup& aMemberLookup, ScriptObjP
 static const BuiltinMemberDescriptor lvgluiGlobals[] = {
   #if LVGLUI_LEGCACY_FUNCTIONS
   // deprecated, backwards compatibility
-  { "event", executable|text, lgcy_event_numargs, lgcy_event_args, &lgcy_event_func },
   { "value", executable|numeric, lgcy_value_numargs, lgcy_value_args, &lgcy_value_func },
   { "setvalue", executable|null, lgcy_setvalue_numargs, lgcy_setvalue_args, &lgcy_setvalue_func },
   { "settext", executable|null, lgcy_settext_numargs, lgcy_settext_args, &lgcy_settext_func },
