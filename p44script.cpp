@@ -955,6 +955,16 @@ void StructuredLookupObject::registerMemberLookup(MemberLookupPtr aMemberLookup)
 }
 
 
+void StructuredLookupObject::registerSharedLookup(BuiltInMemberLookup*& aSingletonLookupP, const struct BuiltinMemberDescriptor* aMemberDescriptors)
+{
+  if (aSingletonLookupP==NULL) {
+    aSingletonLookupP = new BuiltInMemberLookup(aMemberDescriptors);
+    aSingletonLookupP->isMemberVariable(); // disable refcounting
+  }
+  registerMemberLookup(aSingletonLookupP);
+}
+
+
 void StructuredLookupObject::registerMember(const string aName, ScriptObjPtr aMember)
 {
   if (!mSingleMembers) {

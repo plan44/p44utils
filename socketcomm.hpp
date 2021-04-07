@@ -286,9 +286,9 @@ namespace p44 {
 
     /// represents a socket
     /// Note: is an event source, but does not expose it directly, only via SocketMessageObjs
-    class SocketObj : public P44Script::StructuredLookupObject, public P44Script::EventSource
+    class SocketObj : public StructuredLookupObject, public EventSource
     {
-      typedef P44Script::StructuredLookupObject inherited;
+      typedef StructuredLookupObject inherited;
       SocketCommPtr mSocket;
     public:
       string lastDatagram;

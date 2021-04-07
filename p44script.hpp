@@ -827,6 +827,8 @@ namespace p44 { namespace P44Script {
 
   // MARK: - Extendable class member lookup
 
+  class BuiltInMemberLookup;
+
   /// structured object with the ability to register member lookups
   class StructuredLookupObject : public StructuredObject
   {
@@ -850,6 +852,11 @@ namespace p44 { namespace P44Script {
     /// @param aName the name for the member
     /// @param aMember the object corresponding to aName
     void registerMember(const string aName, ScriptObjPtr aMember);
+
+    /// register a shared lookup (singleton) for built-in members
+    /// @param aSingletonLookupP pointer to the (usually static global) variable holding the shared lookup
+    /// @param aMemberDescriptors pointer to the builtin member description table to use for constructing the lookup if not yet existing
+    void registerSharedLookup(BuiltInMemberLookup*& aSingletonLookupP, const struct BuiltinMemberDescriptor* aMemberDescriptors);
   };
 
 
@@ -2184,7 +2191,7 @@ namespace p44 { namespace P44Script {
   /// @return if aObjToWrite==NULL, accessor must return the current value. Otherwise, the return value is ignored
   typedef ScriptObjPtr (*BuiltinMemberAccessor)(BuiltInMemberLookup& aMemberLookup, ScriptObjPtr aParentObj, ScriptObjPtr aObjToWrite);
 
-  typedef struct {
+  typedef struct BuiltinMemberDescriptor {
     const char* name; ///< name of the function / member
     TypeInfo returnTypeInfo; ///< possible return types (for functions, this must have set "executable", but also contains the type(s) the functions might return. Members must have "lvalue" set to become assignable.
     size_t numArgs; ///< for functions: number of arguemnts, can be 0

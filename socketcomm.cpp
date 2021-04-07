@@ -982,11 +982,7 @@ static BuiltInMemberLookup* sharedSocketFunctionLookupP = NULL;
 SocketObj::SocketObj(SocketCommPtr aSocket) :
   mSocket(aSocket)
 {
-  if (sharedSocketFunctionLookupP==NULL) {
-    sharedSocketFunctionLookupP = new BuiltInMemberLookup(socketFunctions);
-    sharedSocketFunctionLookupP->isMemberVariable(); // disable refcounting
-  }
-  registerMemberLookup(sharedSocketFunctionLookupP);
+  registerSharedLookup(sharedSocketFunctionLookupP, socketFunctions);
   // handle incoming data
   mSocket->setReceiveHandler(boost::bind(&SocketObj::gotData, this, _1));
 }
