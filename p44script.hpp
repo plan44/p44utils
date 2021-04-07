@@ -232,13 +232,14 @@ namespace p44 { namespace P44Script {
     nooverride = 0x80000, ///< do not override existing globals by creating a local var
     unset = 0x100000, ///< set to unset/delete member
     global = 0x200000, ///< set to store in global context
-    constant = 0x400000, ///< set to select only constant  (in the sense of: not settable by scripts) members
-    objscope = 0x800000, ///< set to select only object scope members
-    classscope = 0x1000000, ///< set to select only class scope members
-    allscopes = classscope+objscope+global,
-    builtinmember = 0x2000000, ///< special flag for use in built-in member descriptions to differentiate members from functions
-    keeporiginal = 0x4000000, ///< special flag for values that should NOT be replaced by their actualValue()
-    oneshot = 0x8000000, ///< special flag for values that occur only once, such as event messages. Relevant for triggers, which will auto-reset when oneshot values are involved
+    threadlocal = 0x400000, ///< set to store as thread local
+    constant = 0x800000, ///< set to select only constant  (in the sense of: not settable by scripts) members
+    objscope = 0x1000000, ///< set to select only object scope members
+    classscope = 0x2000000, ///< set to select only class scope members
+    allscopes = classscope+objscope+global+threadlocal,
+    builtinmember = 0x4000000, ///< special flag for use in built-in member descriptions to differentiate members from functions
+    keeporiginal = 0x8000000, ///< special flag for values that should NOT be replaced by their actualValue()
+    oneshot = 0x10000000, ///< special flag for values that occur only once, such as event messages. Relevant for triggers, which will auto-reset when oneshot values are involved
   };
   typedef uint32_t TypeInfo;
 
@@ -2014,7 +2015,7 @@ namespace p44 { namespace P44Script {
     friend class BuiltinFunctionContext;
 
     ScriptCodeContextPtr mOwner; ///< the execution context which owns (has started) this thread
-    ScriptObjPtr mThreadLocals; ///< the implicit "this" on the thread level, which is queried when context does not provide a member
+    ScriptObjPtr mThreadLocals; ///< the thread locals (might be set at thread creation already, or gets created on demand as SimpleVarContainer later)
     CompiledCodePtr codeObj; ///< the code object this thread is running
     MLMicroSeconds maxBlockTime; ///< how long the thread is allowed to block in evaluate()
     MLMicroSeconds maxRunTime; ///< how long the thread is allowed to run overall

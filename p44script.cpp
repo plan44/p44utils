@@ -877,6 +877,7 @@ void SimpleVarContainer::clearFloatingGlobs()
 
 const ScriptObjPtr SimpleVarContainer::memberByName(const string aName, TypeInfo aMemberAccessFlags)
 {
+  FOCUSLOGLOOKUP("SimpleVarContainer");
   ScriptObjPtr m;
   NamedVarMap::const_iterator pos = namedVars.find(aName);
   if (pos!=namedVars.end()) {
@@ -924,11 +925,11 @@ ErrorPtr SimpleVarContainer::setMemberByName(const string aName, const ScriptObj
 }
 
 
-// MARK: - StructuredLookupObject
+// MARK: - Extendable class member lookup
 
 const ScriptObjPtr StructuredLookupObject::memberByName(const string aName, TypeInfo aMemberAccessFlags)
 {
-  FOCUSLOGLOOKUP("StructuredObject");
+  FOCUSLOGLOOKUP("StructuredLookupObject");
   ScriptObjPtr m;
   LookupList::const_iterator pos = lookups.begin();
   while (pos!=lookups.end()) {
@@ -3290,6 +3291,10 @@ void SourceProcessor::processStatement()
       processVarDefs(lvalue+create, true);
       return;
     }
+    if (uequals(identifier, "threadvar")) {
+      processVarDefs(lvalue+create+threadlocal, true);
+      return;
+    }
     if (uequals(identifier, "glob") || uequals(identifier, "global")) {
       processVarDefs(lvalue+create+onlycreate+global, false);
       return;
@@ -3503,7 +3508,7 @@ void SourceProcessor::s_tryStatement()
         push(&SourceProcessor::s_assignOlder); // push the error value
         setState(&SourceProcessor::s_nothrowResult);
         result.reset(); // create error variable on scope level
-        memberByIdentifier(lvalue+create);
+        memberByIdentifier(lvalue+create+threadlocal);
         return;
       }
     }
@@ -3992,10 +3997,12 @@ void CompiledHandler::triggered(ScriptObjPtr aTriggerResult)
     POLOG(mainContext->domain(), LOG_INFO, "%s triggered: '%s' with result = %s", name.c_str(), cursor.displaycode(50).c_str(), ScriptObj::describe(aTriggerResult).c_str());
     ExecutionContextPtr ctx = contextForCallingFrom(mainContext->domain(), NULL);
     if (ctx) {
+      SimpleVarContainer* handlerThreadLocals = NULL;
       if (!trigger->mResultVarName.empty()) {
-        ctx->setMemberByName(trigger->mResultVarName, aTriggerResult);
+        handlerThreadLocals = new SimpleVarContainer();
+        handlerThreadLocals->setMemberByName(trigger->mResultVarName, aTriggerResult);
       }
-      ctx->execute(this, scriptbody|keepvars|concurrently, boost::bind(&CompiledHandler::actionExecuted, this, _1));
+      ctx->execute(this, scriptbody|keepvars|concurrently, boost::bind(&CompiledHandler::actionExecuted, this, _1), handlerThreadLocals);
       return;
     }
   }
@@ -4608,11 +4615,20 @@ void ScriptCodeThread::memberByIdentifier(TypeInfo aMemberAccessFlags, bool aNoN
   }
   else {
     // implicit context
-    // - try owner context
-    result = mOwner->memberByName(identifier, aMemberAccessFlags);
-    if (!result && mThreadLocals) {
+    if (!mThreadLocals && (aMemberAccessFlags&create) && (aMemberAccessFlags&&threadlocal)) {
+      // create thread locals on demand if none already set at thread preparation
+      mThreadLocals = ScriptObjPtr(new SimpleVarContainer);
+    }
+    if (mThreadLocals) {
       // - try thread-level "this" context object
-      result = mThreadLocals->memberByName(identifier, aMemberAccessFlags);
+      TypeInfo fl = aMemberAccessFlags;
+      if ((fl&threadlocal)==0) fl &= ~create; // do not create thread vars if not explicitly selected
+      fl &= ~threadlocal; // do not pass on threadlocal flag
+      result = mThreadLocals->memberByName(identifier, fl);
+    }
+    if (!result) {
+      // - try owner context
+      result = mOwner->memberByName(identifier, aMemberAccessFlags);
     }
     if (!result) {
       // on implicit context level, if nothing else was found, check overrideable convenience constants
@@ -4716,9 +4732,9 @@ void ScriptCodeThread::executeResult()
     }
     else {
       childContext = funcCallContext; // as long as this executes, the function context becomes the child context of this thread
-      // NO LONGER: execute function as main thread, which means all subthreads it might spawn will be killed when function itself completes
       // Note: must have keepvars because these are the arguments!
-      funcCallContext->execute(result, evaluationFlags|keepvars/*|mainthread*/, boost::bind(&ScriptCodeThread::executedResult, this, _1));
+      // Note: must pass on threadvars. Custom functions technically run in a separate "thread", but that should be the same from a user's perspective
+      funcCallContext->execute(result, evaluationFlags|keepvars, boost::bind(&ScriptCodeThread::executedResult, this, _1), mThreadLocals);
     }
     // function call completion will call resume
     return;
