@@ -188,6 +188,7 @@ namespace p44 {
     /// run event script
     #if ENABLE_LVGLUI_SCRIPT_FUNCS
     void runEventScript(lv_event_t aEvent, P44Script::ScriptSource& aScriptCode);
+    void scriptDone();
     #endif
 
   protected:
@@ -361,53 +362,11 @@ namespace p44 {
   };
 
 
-
-  // MARK: - LvGLUiScriptContext
-
-  #warning "%%% delete"
-  /*
-  class LvGLUiScriptContext : public ScriptExecutionContext
-  {
-    typedef ScriptExecutionContext inherited;
-    friend class LvGLUi;
-
-    LvGLUi& lvglui;
-    int currentEvent; // -1 means none
-    LVGLUiElementPtr currentElement; // the element that triggered the current script
-
-  public:
-
-    LvGLUiScriptContext(LvGLUi& aLvGLUI) : lvglui(aLvGLUI), currentEvent(-1) {};
-
-    /// script context specific functions
-    virtual bool evaluateFunction(const string &aFunc, const FunctionArguments &aArgs, ExpressionValue &aResult) P44_OVERRIDE;
-  };
-  */
-
   // MARK: - LvGLUi
-
 
   class LvGLUi : public LvGLUiContainer
   {
     typedef LvGLUiContainer inherited;
-
-    /* %%%
-    class LvGLUiScriptRequest
-    {
-      %%%
-      friend class LvGLUi;
-
-      LvGLUiScriptRequest(lv_event_t aEvent, LVGLUiElementPtr aElement, const string &aScriptCode, P44ObjPtr aCallerContext) :
-      event(aEvent), element(aElement), scriptCode(aScriptCode), callerContext(aCallerContext) {};
-      lv_event_t event;
-      LVGLUiElementPtr element;
-      string scriptCode;
-      P44ObjPtr callerContext;
-    };
-
-    typedef std::list<LvGLUiScriptRequest> ScriptRequestList;
-    ScriptRequestList scriptRequests;
-    */
 
     lv_disp_t *display; ///< the display this gui appears on
 
@@ -417,6 +376,7 @@ namespace p44 {
 
     #if ENABLE_LVGLUI_SCRIPT_FUNCS
     P44Script::ScriptMainContextPtr mScriptMainContext;
+    P44Script::ScriptObjPtr mRepresentingObj;
     #endif
 
   protected:
@@ -428,10 +388,19 @@ namespace p44 {
     LvGLUi();
 
     #if ENABLE_LVGLUI_SCRIPT_FUNCS
+
     /// set main context for all lvgl object level script executions in
     /// @param aScriptMainContext main context to execute lvgl object level scripts (sequentially among each other)
     void setScriptMainContext(P44Script::ScriptMainContextPtr aScriptMainContext);
-    #endif
+
+    /// get the main script context (or create it on demand if not set by setScriptMainContext()
+    /// @return the context that runs all lvgl ui event handlers (queued, one by one)
+    P44Script::ScriptMainContextPtr getScriptMainContext();
+
+    /// @return a singleton script object, representing this modbus slave, which can be registered as named member in a scripting domain
+    P44Script::ScriptObjPtr representingScriptObj();
+
+    #endif // ENABLE_LVGLUI_SCRIPT_FUNCS
 
     /// initialize for use with a specified display
     /// @param aDisplay the display to use
@@ -484,20 +453,6 @@ namespace p44 {
     /// @param aScreenName the name of the screen to load
     void loadScreen(const string aScreenName);
 
-    #if ENABLE_LVGLUI_SCRIPT_FUNCS
-
-    /// queue event script to run (when others scripts are done)
-    /// @param aEvent the LittevGL event that causes the script to execute
-    /// @param aScriptCode the script code string to execute
-    /// @param aCallerContext optional context object for the execution (can be used by custom function implementations)
-    void queueEventScript(lv_event_t aEvent, LVGLUiElementPtr aElement, P44Script::ScriptSource& aScriptCode, P44ObjPtr aCallerContext = NULL);
-
-  private:
-
-    void scriptDone(LVGLUiElementPtr aElement);
-
-    #endif // ENABLE_P44SCRIPT
-
   };
 
 
@@ -505,20 +460,21 @@ namespace p44 {
   namespace P44Script {
 
     /// represents a object of a LvGLUI object hierarchy
-    class LVGLUiElementObj : public P44Script::StructuredLookupObject
+    class LVGLUiElementObj : public StructuredLookupObject
     {
       friend class p44::LvGLUi;
 
       typedef P44Script::StructuredLookupObject inherited;
       LVGLUiElementPtr mElement;
-      int currentEvent; // -1 means none
     public:
       LVGLUiElementObj(LVGLUiElementPtr aElement);
       virtual string getAnnotation() const P44_OVERRIDE { return "lvglObj"; };
       LVGLUiElementPtr element() { return mElement; }
     };
 
-    /// represents the global objects related to http
+
+    #if LVGLUI_LEGCACY_FUNCTIONS
+    /// represents the global objects related to lvglui
     class LvGLUiLookup : public BuiltInMemberLookup
     {
       typedef BuiltInMemberLookup inherited;
@@ -527,10 +483,10 @@ namespace p44 {
       LvGLUi* lvglui() { return &mLvGLUi; };
       LvGLUiLookup(LvGLUi &aLvGLUi);
     };
+    #endif // LVGLUI_LEGCACY_FUNCTIONS
 
   }
-  #endif
-
+  #endif // ENABLE_LVGLUI_SCRIPT_FUNCS
 
 } // namespace p44
 
