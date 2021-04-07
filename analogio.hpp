@@ -23,7 +23,13 @@
 #define __p44utils__analogio__
 
 #include "p44utils_common.hpp"
-#include "colorutils.hpp"
+
+#ifndef ENABLE_ANALOGIO_COLOR_SUPPORT
+  #define ENABLE_ANALOGIO_COLOR_SUPPORT 1
+#endif
+#if ENABLE_ANALOGIO_COLOR_SUPPORT
+  #include "colorutils.hpp"
+#endif
 
 #include "iopin.hpp"
 #include "valueanimator.hpp"
@@ -93,6 +99,8 @@ namespace p44 {
   typedef boost::intrusive_ptr<AnalogIo> AnalogIoPtr;
 
 
+  #if ENABLE_ANALOGIO_COLOR_SUPPORT
+
   /// Analog color output (RGB, RGBW, RGBWA)
   class AnalogColorOutput : public P44Obj
   {
@@ -159,7 +167,8 @@ namespace p44 {
   };
   typedef boost::intrusive_ptr<AnalogColorOutput> AnalogColorOutputPtr;
 
-  
+  #endif // ENABLE_ANALOGIO_COLOR_SUPPORT
+
 } // namespace p44
 
 #endif /* defined(__p44utils__analogio__) */

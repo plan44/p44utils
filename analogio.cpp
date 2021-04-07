@@ -31,22 +31,22 @@
 
 #include "iopin.hpp"
 #if !DISABLE_GPIO
-#include "gpio.hpp"
+  #include "gpio.hpp"
 #endif
 #if !DISABLE_PWM
-#include "pwm.hpp"
+  #include "pwm.hpp"
 #endif
 #if !DISABLE_I2C
-#include "i2c.hpp"
+  #include "i2c.hpp"
 #endif
 #if !DISABLE_SPI
-#include "spi.hpp"
+  #include "spi.hpp"
 #endif
 
 #include "logger.hpp"
 #include "mainloop.hpp"
 #if ENABLE_APPLICATION_SUPPORT && !DISABLE_SYSTEMCMDIO && !defined(ESP_PLATFORM)
-#include "application.hpp" // we need it for user level, syscmd is only allowed with userlevel>=2
+  #include "application.hpp" // we need it for user level, syscmd is only allowed with userlevel>=2
 #endif
 
 
@@ -181,6 +181,8 @@ ValueSetterCB AnalogIo::getValueSetter(double& aCurrentValue)
   return boost::bind(&AnalogIo::setValue, this, _1);
 }
 
+
+#if ENABLE_ANALOGIO_COLOR_SUPPORT
 
 // MARK: - AnalogColorOutput
 
@@ -373,3 +375,6 @@ void AnalogColorOutput::rgbComponentSetter(double* aColorComponentP, double aNew
   *aColorComponentP = aNewValue;
   outputRGB();
 }
+
+#endif // ENABLE_ANALOGIO_COLOR_SUPPORT
+
