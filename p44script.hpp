@@ -893,7 +893,7 @@ namespace p44 { namespace P44Script {
     typedef std::map<string, ScriptObjPtr, lessStrucmp> NamedVarMap;
     NamedVarMap members; ///< predefined scriptobjs (immutable)
 
-    virtual ScriptObjPtr memberByNameFrom(ScriptObjPtr aThisObj, const string aName, TypeInfo aTypeRequirements) const;
+    virtual ScriptObjPtr memberByNameFrom(ScriptObjPtr aThisObj, const string aName, TypeInfo aTypeRequirements) const P44_OVERRIDE;
     virtual void registerMember(const string aName, ScriptObjPtr aMember) P44_OVERRIDE;
   };
 

@@ -614,11 +614,11 @@ JsonObjectPtr StringValue::jsonValue() const
 
 ScriptObjPtr JsonValue::calculationValue()
 {
-  if (!jsonval) return new AnnotatedNullValue("json null");
-  if (jsonval->isType(json_type_boolean)) return new NumericValue(jsonval->boolValue());
-  if (jsonval->isType(json_type_int)) return new NumericValue(jsonval->int64Value());
-  if (jsonval->isType(json_type_double)) return new NumericValue(jsonval->doubleValue());
-  if (jsonval->isType(json_type_string)) return new StringValue(jsonval->stringValue());
+  if (!jsonValue()) return new AnnotatedNullValue("json null");
+  if (jsonValue()->isType(json_type_boolean)) return new NumericValue(jsonValue()->boolValue());
+  if (jsonValue()->isType(json_type_int)) return new NumericValue(jsonValue()->int64Value());
+  if (jsonValue()->isType(json_type_double)) return new NumericValue(jsonValue()->doubleValue());
+  if (jsonValue()->isType(json_type_string)) return new StringValue(jsonValue()->stringValue());
   return inherited::calculationValue();
 }
 
@@ -628,9 +628,9 @@ ScriptObjPtr JsonValue::assignmentValue()
   // break down to standard value or copied json, unless this is a derived object such as a JSON API request that indicates to be kept as-is
   if (!hasType(keeporiginal)) {
     // avoid creating new json values for simple types
-    if (jsonval && (jsonval->isType(json_type_array) || jsonval->isType(json_type_object))) {
+    if (jsonValue() && (jsonValue()->isType(json_type_array) || jsonValue()->isType(json_type_object))) {
       // must copy the contained json object
-      return new JsonValue(JsonObjectPtr(new JsonObject(*jsonval)));
+      return new JsonValue(JsonObjectPtr(new JsonObject(*jsonValue())));
     }
     return calculationValue();
   }
@@ -640,32 +640,32 @@ ScriptObjPtr JsonValue::assignmentValue()
 
 string JsonValue::stringValue() const
 {
-  if (!jsonval) return ScriptObj::stringValue(); // undefined
-  if (jsonval->isType(json_type_string)) return jsonval->stringValue(); // string leaf fields as strings w/o quotes!
-  return jsonval->json_str(); // other types in their native json representation
+  if (!jsonValue()) return ScriptObj::stringValue(); // undefined
+  if (jsonValue()->isType(json_type_string)) return jsonValue()->stringValue(); // string leaf fields as strings w/o quotes!
+  return jsonValue()->json_str(); // other types in their native json representation
 }
 
 
 double JsonValue::doubleValue() const
 {
-  if (!jsonval) return ScriptObj::doubleValue(); // undefined
-  return jsonval->doubleValue();
+  if (!jsonValue()) return ScriptObj::doubleValue(); // undefined
+  return jsonValue()->doubleValue();
 }
 
 
 bool JsonValue::boolValue() const
 {
-  if (!jsonval) return ScriptObj::boolValue(); // undefined
-  return jsonval->boolValue();
+  if (!jsonValue()) return ScriptObj::boolValue(); // undefined
+  return jsonValue()->boolValue();
 }
 
 
 TypeInfo JsonValue::getTypeInfo() const
 {
-  if (!jsonval || jsonval->isType(json_type_null)) return null;
-  if (jsonval->isType(json_type_object)) return json+object;
-  if (jsonval->isType(json_type_array)) return json+array;
-  if (jsonval->isType(json_type_string)) return json+text;
+  if (!jsonValue() || jsonValue()->isType(json_type_null)) return null;
+  if (jsonValue()->isType(json_type_object)) return json+object;
+  if (jsonValue()->isType(json_type_array)) return json+array;
+  if (jsonValue()->isType(json_type_string)) return json+text;
   return json+numeric; // everything else is numeric
 }
 
@@ -676,9 +676,9 @@ bool JsonValue::operator==(const ScriptObj& aRightSide) const
   if (aRightSide.undefined()) return undefined(); // both undefined is equal
   if (aRightSide.hasType(json)) {
     // compare JSON with JSON
-    if (jsonval.get()==aRightSide.jsonValue().get()) return true; // json object identity (or both NULL)
-    if (!jsonval || !aRightSide.jsonValue()) return false;
-    if (strcmp(jsonval->c_strValue(),aRightSide.jsonValue()->c_strValue())==0) return true; // same stringified value
+    if (jsonValue().get()==aRightSide.jsonValue().get()) return true; // json object identity (or both NULL)
+    if (!jsonValue() || !aRightSide.jsonValue()) return false;
+    if (strcmp(jsonValue()->c_strValue(),aRightSide.jsonValue()->c_strValue())==0) return true; // same stringified value
   }
   else {
     // compare JSON to non-JSON
@@ -704,7 +704,7 @@ ScriptObjPtr JsonValue::operator+(const ScriptObj& aRightSide) const
   JsonObjectPtr r = aRightSide.jsonValue();
   if (r && r->isType(json_type_array)) {
     // if I am an array, too -> append elements
-    if (jsonval && jsonval->isType(json_type_array)) {
+    if (jsonValue() && jsonValue()->isType(json_type_array)) {
       JsonObjectPtr j = const_cast<JsonValue*>(this)->assignmentValue()->jsonValue();
       for (int i = 0; i<r->arrayLength(); i++) {
         j->arrayAppend(r->arrayGet(i));
@@ -714,7 +714,7 @@ ScriptObjPtr JsonValue::operator+(const ScriptObj& aRightSide) const
   }
   else if (r && r->isType(json_type_object)) {
     // if I am an object, too -> merge fields
-    if (jsonval && jsonval->isType(json_type_object)) {
+    if (jsonValue() && jsonValue()->isType(json_type_object)) {
       JsonObjectPtr j = const_cast<JsonValue*>(this)->assignmentValue()->jsonValue();
       r->resetKeyIteration();
       string k;
@@ -736,9 +736,9 @@ const ScriptObjPtr JsonValue::memberByName(const string aName, TypeInfo aMemberA
 {
   FOCUSLOGLOOKUP("JsonValue");
   ScriptObjPtr m;
-  if (jsonval && typeRequirementMet(json, aMemberAccessFlags, typeMask)) {
+  if (jsonValue() && typeRequirementMet(json, aMemberAccessFlags, typeMask)) {
     // we cannot meet any other type requirement but json
-    JsonObjectPtr j = jsonval->get(aName.c_str());
+    JsonObjectPtr j = jsonValue()->get(aName.c_str());
     if (j) {
       // we have that member
       m = ScriptObjPtr(new JsonValue(j));
@@ -760,7 +760,7 @@ const ScriptObjPtr JsonValue::memberByName(const string aName, TypeInfo aMemberA
 
 size_t JsonValue::numIndexedMembers() const
 {
-  if (jsonval) return jsonval->arrayLength();
+  if (jsonValue()) return jsonValue()->arrayLength();
   return 0;
 }
 
@@ -768,11 +768,11 @@ size_t JsonValue::numIndexedMembers() const
 const ScriptObjPtr JsonValue::memberAtIndex(size_t aIndex, TypeInfo aMemberAccessFlags)
 {
   ScriptObjPtr m;
-  if (jsonval && typeRequirementMet(json, aMemberAccessFlags, typeMask)) {
+  if (jsonValue() && typeRequirementMet(json, aMemberAccessFlags, typeMask)) {
     // we cannot meet any other type requirement but json
     if (aIndex<numIndexedMembers()) {
       // we have that member
-      m = ScriptObjPtr(new JsonValue(jsonval->arrayGet((int)aIndex)));
+      m = ScriptObjPtr(new JsonValue(jsonValue()->arrayGet((int)aIndex)));
       if ((aMemberAccessFlags & lvalue) && (aMemberAccessFlags & onlycreate)==0) {
         m = new StandardLValue(this, aIndex, m); // it is allowed to overwrite this value
       }
