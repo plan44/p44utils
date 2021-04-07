@@ -955,6 +955,32 @@ void StructuredLookupObject::registerMemberLookup(MemberLookupPtr aMemberLookup)
 }
 
 
+void StructuredLookupObject::registerMember(const string aName, ScriptObjPtr aMember)
+{
+  if (!mSingleMembers) {
+    // add a lookup for single members
+    mSingleMembers = MemberLookupPtr(new PredefinedMemberLookup);
+    lookups.push_front(mSingleMembers);
+  }
+  mSingleMembers->registerMember(aName, aMember);
+}
+
+
+
+ScriptObjPtr PredefinedMemberLookup::memberByNameFrom(ScriptObjPtr aThisObj, const string aName, TypeInfo aTypeRequirements) const
+{
+  NamedVarMap::const_iterator pos = members.find(aName);
+  if (pos!=members.end()) return pos->second;
+  return ScriptObjPtr();
+}
+
+
+void PredefinedMemberLookup::registerMember(const string aName, ScriptObjPtr aMember)
+{
+  members[aName] = aMember;
+}
+
+
 // MARK: - ExecutionContext
 
 ExecutionContext::ExecutionContext(ScriptMainContextPtr aMainContext) :

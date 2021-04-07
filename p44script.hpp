@@ -833,17 +833,23 @@ namespace p44 { namespace P44Script {
     typedef StructuredObject inherited;
     typedef std::list<MemberLookupPtr> LookupList;
     LookupList lookups;
+    MemberLookupPtr mSingleMembers;
   public:
 
     // access to (sub)objects in the installed lookups
     virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aTypeRequirements) P44_OVERRIDE;
 
-    virtual void deactivate() P44_OVERRIDE { lookups.clear(); inherited::deactivate(); }
+    virtual void deactivate() P44_OVERRIDE { mSingleMembers.reset(); lookups.clear(); inherited::deactivate(); }
 
     /// register an additional lookup
     /// @param aMemberLookup a lookup object.
     /// @note if same lookup object is registered more than once, only the first registration counts, others are ignored
     void registerMemberLookup(MemberLookupPtr aMemberLookup);
+
+    /// register a single member
+    /// @param aName the name for the member
+    /// @param aMember the object corresponding to aName
+    void registerMember(const string aName, ScriptObjPtr aMember);
   };
 
 
@@ -865,6 +871,23 @@ namespace p44 { namespace P44Script {
     /// @return ScriptObj representing the member, or NULL if none
     virtual ScriptObjPtr memberByNameFrom(ScriptObjPtr aThisObj, const string aName, TypeInfo aTypeRequirements) const = 0;
 
+    /// register a single member
+    /// @param aName the name for the member
+    /// @param aMember the object corresponding to aName
+    virtual void registerMember(const string aName, ScriptObjPtr aMember) { /* NOP in base class */ }
+  };
+
+
+  /// a simple lookup for predefined ScriptObj members
+  class PredefinedMemberLookup : public MemberLookup
+  {
+    typedef MemberLookup inherited;
+
+    typedef std::map<string, ScriptObjPtr, lessStrucmp> NamedVarMap;
+    NamedVarMap members; ///< predefined scriptobjs (immutable)
+
+    virtual ScriptObjPtr memberByNameFrom(ScriptObjPtr aThisObj, const string aName, TypeInfo aTypeRequirements) const;
+    virtual void registerMember(const string aName, ScriptObjPtr aMember) P44_OVERRIDE;
   };
 
 
