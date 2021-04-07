@@ -44,6 +44,20 @@
   #include <modbus/modbus.h>
 #endif
 
+#if ENABLE_P44SCRIPT && !defined(ENABLE_MODBUS_SCRIPT_FUNCS)
+  #define ENABLE_MODBUS_SCRIPT_FUNCS 1
+#endif
+#if ENABLE_MODBUS_SCRIPT_FUNCS && !ENABLE_P44SCRIPT
+  #error "ENABLE_P44SCRIPT required when ENABLE_MODBUS_SCRIPT_FUNCS is set"
+#endif
+
+#if ENABLE_MODBUS_SCRIPT_FUNCS
+  #include "p44script.hpp"
+#endif
+
+
+
+
 using namespace std;
 
 namespace p44 {
@@ -600,13 +614,20 @@ namespace p44 {
   /// Raw modbus request handler
   typedef boost::function<bool (sft_t &sft, int offset, const ModBusPDU& req, int req_length, ModBusPDU& rsp, int &rsp_length)> ModbusReqCB;
 
+  #if ENABLE_MODBUS_SCRIPT_FUNCS
+  namespace P44Script {
+    class ModbusSlaveObj;
+    typedef boost::intrusive_ptr<ModbusSlaveObj> ModbusSlaveObjPtr;
+  }
+  #endif
+
   class ModbusSlave : public ModbusConnection
   {
     typedef ModbusConnection inherited;
 
     string slaveId;
     modbus_mapping_t* registerModel;
-    ModbusValueAccessCB valueAccessHandler;
+    ModbusValueAccessCB mValueAccessHandler;
     ModbusReqCB rawRequestHandler;
 
     modbus_rcv_t *modbusRcv;
@@ -619,6 +640,10 @@ namespace p44 {
 
     typedef std::list<ModbusFileHandlerPtr> FileHandlersList;
     FileHandlersList fileHandlers;
+
+    #if ENABLE_MODBUS_SCRIPT_FUNCS
+    P44Script::ModbusSlaveObjPtr mRepresentingObj; ///< the (singleton) ScriptObj representing this modbus slave
+    #endif
 
   public:
 
@@ -654,6 +679,11 @@ namespace p44 {
     /// @param aValueAccessCB is called whenever a register or bit is accessed
     /// @note this is called for every single bit or register access once, even if multiple registers are read/written in the same transaction
     void setValueAccessHandler(ModbusValueAccessCB aValueAccessCB);
+
+    #if ENABLE_MODBUS_SCRIPT_FUNCS
+    /// @return a singleton script object, representing this modbus slave, which can be registered as named member in a scripting domain
+    P44Script::ModbusSlaveObjPtr representingScriptObj();
+    #endif
 
     /// @name register model accessors
     /// @{
@@ -746,6 +776,59 @@ namespace p44 {
     int modbus_slave_function_handler(modbus_t* ctx, sft_t *sft, int offset, const uint8_t *req, int req_length, uint8_t *rsp, void *user_ctx);
     const char *modbus_access_handler(modbus_t* ctx, modbus_mapping_t* mappings, modbus_data_access_t access, int addr, int cnt, modbus_data_t dataP, void *user_ctx);
   }
+
+
+  #if ENABLE_MODBUS_SCRIPT_FUNCS
+  namespace P44Script {
+
+    class ModbusSlaveObj;
+
+    /// represents a modbus slave access from master
+    class ModbusSlaveAccessObj : public JsonValue
+    {
+      typedef JsonValue inherited;
+      ModbusSlaveObj* mModbusSlaveObj;
+    public:
+      ModbusSlaveAccessObj(ModbusSlaveObj* aModbusSlaveObj);
+      virtual string getAnnotation() const P44_OVERRIDE;
+      virtual TypeInfo getTypeInfo() const P44_OVERRIDE;
+      virtual EventSource *eventSource() const P44_OVERRIDE;
+      virtual JsonObjectPtr jsonValue() const P44_OVERRIDE;
+    };
+
+  
+    /// represents a modbus slave
+    class ModbusSlaveObj : public StructuredLookupObject, public EventSource
+    {
+      typedef StructuredLookupObject inherited;
+      friend class p44::ModbusSlave;
+
+      ModbusSlavePtr mModbus;
+    public:
+      JsonObjectPtr lastAccess; ///< data about last access
+      ModbusSlaveObj(ModbusSlavePtr aModbus);
+      virtual ~ModbusSlaveObj();
+      virtual string getAnnotation() const P44_OVERRIDE { return "modbus slave"; };
+      ModbusSlavePtr modbus() { return mModbus; }
+    private:
+      ErrorPtr gotAccessed(int aAddress, bool aBit, bool aInput, bool aWrite);
+    };
+
+    /// represents a modbus slave
+    class ModbusMasterObj : public StructuredLookupObject
+    {
+      typedef StructuredLookupObject inherited;
+      friend class ModbusMaster;
+
+      ModbusMasterPtr mModbus;
+    public:
+      ModbusMasterObj(ModbusMasterPtr aModbus);
+      virtual string getAnnotation() const P44_OVERRIDE { return "modbus master"; };
+      ModbusMasterObj modbus() { return mModbus; }
+    };
+
+  }
+  #endif // ENABLE_MODBUS_SCRIPT_FUNCS
 
 
 } // namespace p44

@@ -37,6 +37,9 @@
 
 using namespace p44;
 
+#if ENABLE_MODBUS_SCRIPT_FUNCS
+using namespace P44Script;
+#endif
 
 // MARK: - ModbusConnection
 
@@ -1164,7 +1167,7 @@ int ModbusSlave::handleRawRequest(sft_t &aSft, int aOffset, const ModBusPDU& aRe
     if (registerModel) {
       modbus_mapping_ex_t map;
       map.mappings = registerModel;
-      if (valueAccessHandler) {
+      if (mValueAccessHandler || mRepresentingObj) {
         map.access_handler = modbus_access_handler;
         map.access_handler_user_ctx = this;
       }
@@ -1188,27 +1191,28 @@ int ModbusSlave::handleRawRequest(sft_t &aSft, int aOffset, const ModBusPDU& aRe
 const char* ModbusSlave::accessHandler(modbus_data_access_t access, int addr, int cnt, modbus_data_t dataP)
 {
   ErrorPtr err;
-  if (valueAccessHandler && registerModel) {
+  if (registerModel) {
     for (int i=0; i<cnt; i++) {
+      int reg;
+      bool bit;
+      bool input;
+      bool write;
       switch (access) {
-        case read_bit :
-          err = valueAccessHandler(addr+registerModel->start_bits+i, true, false, false);
-          break;
-        case write_bit :
-          err = valueAccessHandler(addr+registerModel->start_bits+i, true, false, true);
-          break;
-        case read_input_bit :
-          err = valueAccessHandler(addr+registerModel->start_input_bits+i, true, true, false);
-          break;
-        case read_reg :
-          err = valueAccessHandler(addr+registerModel->start_registers+i, false, false, false);
-          break;
-        case write_reg :
-          err = valueAccessHandler(addr+registerModel->start_registers+i, false, false, true);
-          break;
-        case read_input_reg :
-          err = valueAccessHandler(addr+registerModel->start_input_registers+i, false, true, false);
-          break;
+        case read_bit : reg = addr+registerModel->start_bits+i; bit = true; input = false; write = false; break;
+        case write_bit : reg = addr+registerModel->start_bits+i; bit = true; input = false; write = true; break;
+        case read_input_bit : reg = addr+registerModel->start_input_bits+i; bit = true; input = true; write = false; break;
+        case read_reg : reg = addr+registerModel->start_registers+i; bit = false; input = false; write = false; break;
+        case write_reg : reg = addr+registerModel->start_registers+i; bit = false; input = false; write = true; break;
+        case read_input_reg : reg = addr+registerModel->start_input_registers+i; bit = false; input = true; write = false; break;
+        default: err = TextError::err("unknown modbus access type"); break;
+      }
+      if (Error::isOK(err)) {
+        if (mRepresentingObj) {
+          mRepresentingObj->gotAccessed(reg, bit, input, write);
+        }
+        if (mValueAccessHandler) {
+          err = mValueAccessHandler(reg, bit, input, write);
+        }
       }
     }
   }
@@ -1241,7 +1245,7 @@ ErrorPtr ModbusSlave::setRegisterModel(
 
 void ModbusSlave::setValueAccessHandler(ModbusValueAccessCB aValueAccessCB)
 {
-  valueAccessHandler = aValueAccessCB;
+  mValueAccessHandler = aValueAccessCB;
 }
 
 
@@ -2025,7 +2029,142 @@ bool ModbusFileHandler::fileIntegrityOK()
     localCRC32==remoteCRC32;
 }
 
+#if ENABLE_MODBUS_SCRIPT_FUNCS
 
+ModbusSlaveObjPtr ModbusSlave::representingScriptObj()
+{
+  if (!mRepresentingObj) {
+    mRepresentingObj = new ModbusSlaveObj(this);
+  }
+  return mRepresentingObj;
+}
+
+
+ModbusSlaveAccessObj::ModbusSlaveAccessObj(ModbusSlaveObj* aModbusSlaveObj) :
+  mModbusSlaveObj(aModbusSlaveObj),
+  inherited(JsonObjectPtr())
+{
+}
+
+
+string ModbusSlaveAccessObj::getAnnotation() const
+{
+  return "modbus slave access";
+}
+
+
+TypeInfo ModbusSlaveAccessObj::getTypeInfo() const
+{
+  return inherited::getTypeInfo()|oneshot|keeporiginal; // returns the request only once, must keep the original
+}
+
+
+EventSource* ModbusSlaveAccessObj::eventSource() const
+{
+  return static_cast<EventSource*>(mModbusSlaveObj);
+}
+
+
+JsonObjectPtr ModbusSlaveAccessObj::jsonValue() const
+{
+  return mModbusSlaveObj ? mModbusSlaveObj->lastAccess : JsonObjectPtr();
+}
+
+
+// setreg(regaddr, value [,input])
+// setbit(bitaddr, value [,input])
+static const BuiltInArgDesc set_args[] = { { numeric }, { numeric }, { numeric|optionalarg } };
+static const size_t set_numargs = sizeof(set_args)/sizeof(BuiltInArgDesc);
+static void setreg_func(BuiltinFunctionContextPtr f)
+{
+  ModbusSlaveObj* o = dynamic_cast<ModbusSlaveObj*>(f->thisObj().get());
+  assert(o);
+  o->modbus()->setReg(f->arg(0)->intValue(), f->arg(1)->intValue(), f->arg(2)->boolValue());
+  f->finish(o); // return myself for chaining calls
+}
+static void setbit_func(BuiltinFunctionContextPtr f)
+{
+  ModbusSlaveObj* o = dynamic_cast<ModbusSlaveObj*>(f->thisObj().get());
+  assert(o);
+  o->modbus()->setBit(f->arg(0)->intValue(), f->arg(1)->boolValue(), f->arg(2)->boolValue());
+  f->finish(o); // return myself for chaining calls
+}
+
+
+// getreg(regaddr [,input])
+// getsreg(regaddr [,input]) // signed interpretation of 16-bit value
+// getbit(bitaddr [,input])
+static const BuiltInArgDesc get_args[] = { { numeric }, { numeric|optionalarg } };
+static const size_t get_numargs = sizeof(get_args)/sizeof(BuiltInArgDesc);
+static void getreg_func(BuiltinFunctionContextPtr f)
+{
+  ModbusSlaveObj* o = dynamic_cast<ModbusSlaveObj*>(f->thisObj().get());
+  assert(o);
+  f->finish(new NumericValue((uint16_t)(o->modbus()->getReg(f->arg(0)->intValue(), f->arg(1)->boolValue()))));
+}
+static void getsreg_func(BuiltinFunctionContextPtr f)
+{
+  ModbusSlaveObj* o = dynamic_cast<ModbusSlaveObj*>(f->thisObj().get());
+  assert(o);
+  f->finish(new NumericValue((int16_t)(o->modbus()->getReg(f->arg(0)->intValue(), f->arg(1)->boolValue()))));
+}
+static void getbit_func(BuiltinFunctionContextPtr f)
+{
+  ModbusSlaveObj* o = dynamic_cast<ModbusSlaveObj*>(f->thisObj().get());
+  assert(o);
+  f->finish(new NumericValue(o->modbus()->getBit(f->arg(0)->intValue(), f->arg(1)->boolValue())));
+}
+
+
+// access()
+static void access_func(BuiltinFunctionContextPtr f)
+{
+  ModbusSlaveObj* o = dynamic_cast<ModbusSlaveObj*>(f->thisObj().get());
+  assert(o);
+  // return latest message
+  f->finish(new ModbusSlaveAccessObj(o));
+}
+
+
+static const BuiltinMemberDescriptor modbusSlaveMembers[] = {
+  { "setreg", executable|null, set_numargs, set_args, &setreg_func },
+  { "setbit", executable|null, set_numargs, set_args, &setbit_func },
+  { "getreg", executable|null, get_numargs, get_args, &getreg_func },
+  { "getsreg", executable|null, get_numargs, get_args, &getsreg_func },
+  { "getbit", executable|null, get_numargs, get_args, &getbit_func },
+  { "access", executable|text|null, 0, NULL, &access_func },
+  { NULL } // terminator
+};
+
+static BuiltInMemberLookup* sharedModbusSlaveFunctionLookupP = NULL;
+
+ModbusSlaveObj::ModbusSlaveObj(ModbusSlavePtr aModbus) :
+  mModbus(aModbus)
+{
+  registerSharedLookup(sharedModbusSlaveFunctionLookupP, modbusSlaveMembers);
+}
+
+
+ModbusSlaveObj::~ModbusSlaveObj()
+{
+  mModbus->setValueAccessHandler(NULL);
+}
+
+
+ErrorPtr ModbusSlaveObj::gotAccessed(int aAddress, bool aBit, bool aInput, bool aWrite)
+{
+  lastAccess = JsonObject::newObj();
+  lastAccess->add("reg", aBit ? JsonObject::newNull() : JsonObject::newInt32(aAddress));
+  lastAccess->add("bit", aBit ? JsonObject::newInt32(aAddress) : JsonObject::newNull());
+  lastAccess->add("addr", JsonObject::newInt32(aAddress));
+  lastAccess->add("input", JsonObject::newBool(aInput));
+  lastAccess->add("write", JsonObject::newBool(aWrite));
+  sendEvent(new ModbusSlaveAccessObj(this));
+  return ErrorPtr();
+}
+
+
+#endif // ENABLE_MODBUS_SCRIPT_FUNCS
 
 #endif // ENABLE_MODBUS
 
