@@ -1314,10 +1314,10 @@ ScriptCodeThreadPtr ScriptCodeContext::newThreadFrom(CompiledCodePtr aCodeObj, S
     }
     else if (aEvalFlags & queue) {
       if (aEvalFlags & concurrently) {
-        // queue+concurrently means queue if another non-concurrent thread is already running, otherwise just run
+        // queue+concurrently means queue if another queued thread is already running, otherwise just run
         for (ThreadList::iterator pos=threads.begin(); pos!=threads.end(); ++pos) {
-          if (((*pos)->evaluationFlags & concurrently)==0) {
-            // at least one non-concurrently marked thread is running, must queue
+          if (((*pos)->evaluationFlags & queue)!=0) {
+            // at least one thread marked queued is running, must queue this one
             queuedThreads.push_back(newThread);
             return ScriptCodeThreadPtr(); // no thread to start now, but ok because it was queued
           }
