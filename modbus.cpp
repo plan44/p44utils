@@ -2079,14 +2079,14 @@ static void setreg_func(BuiltinFunctionContextPtr f)
 {
   ModbusSlaveObj* o = dynamic_cast<ModbusSlaveObj*>(f->thisObj().get());
   assert(o);
-  o->modbus()->setReg(f->arg(0)->intValue(), f->arg(1)->intValue(), f->arg(2)->boolValue());
+  o->modbus()->setReg(f->arg(0)->intValue(), f->arg(2)->boolValue(), f->arg(1)->intValue());
   f->finish(o); // return myself for chaining calls
 }
 static void setbit_func(BuiltinFunctionContextPtr f)
 {
   ModbusSlaveObj* o = dynamic_cast<ModbusSlaveObj*>(f->thisObj().get());
   assert(o);
-  o->modbus()->setBit(f->arg(0)->intValue(), f->arg(1)->boolValue(), f->arg(2)->boolValue());
+  o->modbus()->setBit(f->arg(0)->intValue(), f->arg(2)->boolValue(), f->arg(1)->boolValue());
   f->finish(o); // return myself for chaining calls
 }
 
