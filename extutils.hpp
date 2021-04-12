@@ -26,7 +26,8 @@
 
 using namespace std;
 
-/// Extended utilities that have dependencies on other p44utils classes
+/// Extended utilities that have dependencies on other p44utils classes (such as p44::Error)
+/// @note utilities that DO NOT depends on other p44utils classes are in "utils"
 
 namespace p44 {
 

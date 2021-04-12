@@ -34,10 +34,12 @@ ErrorPtr p44::string_fromfile(const string aFilePath, string &aData)
   ErrorPtr err;
   FILE* f = fopen(aFilePath.c_str(), "r");
   if (f==NULL) {
-    return SysError::errNo();
+    err = SysError::errNo();
   }
   else {
-    string_fgetfile(f, aData);
+    if (!string_fgetfile(f, aData)) {
+      err = SysError::errNo();
+    }
     fclose(f);
   }
   return err;
@@ -49,10 +51,12 @@ ErrorPtr p44::string_tofile(const string aFilePath, const string &aData)
   ErrorPtr err;
   FILE* f = fopen(aFilePath.c_str(), "w");
   if (f==NULL) {
-    return SysError::errNo();
+    err = SysError::errNo();
   }
   else {
-    fwrite(aData.c_str(), aData.size(), 1, f);
+    if (fwrite(aData.c_str(), aData.size(), 1, f)<1) {
+      err = SysError::errNo();
+    }
     fclose(f);
   }
   return err;

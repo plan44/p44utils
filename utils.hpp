@@ -36,6 +36,7 @@
 using namespace std;
 
 /// Basic utilities that DO NOT HAVE DEPENDENCIES on other p44utils classes
+/// @note utilities that depends on p44::Error or other p44utils classes are in "extutils"
 
 namespace p44 {
 
@@ -98,23 +99,11 @@ namespace p44 {
   /// @return true if file could be read, false otherwise
   bool string_fgetfile(FILE *aFile, string &aData);
 
-  /// get entire file into string
-  /// @param aFile file open for read
-  /// @param aData string to store data
-  /// @return true if file could be read, false otherwise
-  bool string_fgetfile(const string aFileName, string &aData);
-
   /// get whitespace-trimmed first line of file into string
   /// @param aFileName filename/path to read from
   /// @param aLine string to store first line, whitespace trimmed front and end
   /// @return true if file could be read, false otherwise
   bool string_fgetfirstline(const string aFileName, string &aLine);
-
-  /// get entire file into string
-  /// @param aFileName filename/path to write to
-  /// @param aData string to write to file
-  /// @return true if file could be read, false otherwise
-  bool string_fwritefile(const string aFileName, const string &aData);
 
 	/// always return a valid C String, if NULL is passed, an empty string is returned
 	/// @param aNULLOrCStr NULL or C-String
