@@ -1234,10 +1234,26 @@ static LvGLUi* gLvgluiP = NULL;
 
 LvGLUi::LvGLUi() :
   inherited(*this, NULL, NULL)
+  #if ENABLE_LVGLUI_SCRIPT_FUNCS
+  ,activityTimeoutScript(scriptbody+regular, "activityTimeout")
+  ,activationScript(scriptbody+regular, "activation")
+  #endif
 {
   name = "LvGLUi";
   gLvgluiP = this;
 }
+
+
+void LvGLUi::uiActivation(bool aActivated)
+{
+  if (aActivated) {
+    runEventScript(LV_EVENT_REFRESH, activationScript);
+  }
+  else {
+    runEventScript(LV_EVENT_REFRESH, activityTimeoutScript);
+  }
+}
+
 
 
 void LvGLUi::clear()
@@ -1396,6 +1412,13 @@ ErrorPtr LvGLUi::configure(JsonObjectPtr aConfig)
   // check for start screen to load
   if (aConfig->get("startscreen", o)) {
     loadScreen(o->stringValue());
+  }
+  // check for activation/deactivation scripts
+  if (aConfig->get("activitytimeoutscript", o)) {
+    activityTimeoutScript.setSource(o->stringValue());
+  }
+  if (aConfig->get("activationscript", o)) {
+    activationScript.setSource(o->stringValue());
   }
   // simulate activity
   lv_disp_trig_activity(NULL);
@@ -1591,7 +1614,7 @@ static void set_func(BuiltinFunctionContextPtr f)
 
 
 // configure(<filename|json|key=value>)
-static const BuiltInArgDesc configure_args[] = { { text|json } };
+static const BuiltInArgDesc configure_args[] = { { text|json|object } };
 static const size_t configure_numargs = sizeof(configure_args)/sizeof(BuiltInArgDesc);
 static void configure_func(BuiltinFunctionContextPtr f)
 {

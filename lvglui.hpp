@@ -377,6 +377,8 @@ namespace p44 {
     #if ENABLE_LVGLUI_SCRIPT_FUNCS
     P44Script::ScriptMainContextPtr mScriptMainContext;
     P44Script::ScriptObjPtr mRepresentingObj;
+    P44Script::ScriptSource activityTimeoutScript;
+    P44Script::ScriptSource activationScript;
     #endif
 
   protected:
@@ -397,8 +399,15 @@ namespace p44 {
     /// @return the context that runs all lvgl ui event handlers (queued, one by one)
     P44Script::ScriptMainContextPtr getScriptMainContext();
 
-    /// @return a singleton script object, representing this modbus slave, which can be registered as named member in a scripting domain
+    /// @return a singleton script object, representing this lvgl ui instance
     P44Script::ScriptObjPtr representingScriptObj();
+
+    /// report activation / timeout of UI
+    /// @note actual mechanism to detect UI usage or inactivity must be implemented on app level
+    ///    This method is only to call respective scripts
+    /// @param aActivated if set, this is an UI activation, otherwise a UI timeout
+    void uiActivation(bool aActivated);
+
 
     #endif // ENABLE_LVGLUI_SCRIPT_FUNCS
 
