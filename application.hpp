@@ -29,6 +29,9 @@
 #ifndef ENABLE_APPLICATION_SUPPORT
   #define ENABLE_APPLICATION_SUPPORT 1 // projects which include application.hpp can include support for it in other files
 #endif
+#ifndef APPLICATION_DEFAULT_USERLEVEL
+  #define APPLICATION_DEFAULT_USERLEVEL 0
+#endif
 
 #ifdef ESP_PLATFORM
 #else
@@ -192,23 +195,25 @@ namespace p44 {
   #ifndef ESP_PLATFORM
 
   /// standard option texts, can be used as part of setCommandDescriptors() string
+  #define STRINGIZE(s) #s
+
 
   /// - logging options matching processStandardLogOptions()
   /// - for all apps
   #define CMDLINE_APPLICATION_LOGOPTIONS \
-    { 'l', "loglevel",        true,  "level;set max level of log message detail to show on stderr" }, \
-    { 0  , "deltatstamps",    false, "show timestamp delta between log lines" }
+    { 'l', "loglevel",       true,  "level;set max level of log message detail to show on stderr" }, \
+    { 0  , "deltatstamps",   false, "show timestamp delta between log lines" }
   /// - for daemon apps
   #define DAEMON_APPLICATION_LOGOPTIONS \
     CMDLINE_APPLICATION_LOGOPTIONS, \
-    { 0  , "errlevel",      true,  "level;set max level for log messages to go to stderr as well" }, \
-    { 0  , "dontlogerrors", false, "don't duplicate error messages (see --errlevel) on stdout" }
+    { 0  , "errlevel",       true,  "level;set max level for log messages to go to stderr as well" }, \
+    { 0  , "dontlogerrors",  false, "don't duplicate error messages (see --errlevel) on stdout" }
 
   /// - standard options every CmdLineApp understands
   #define CMDLINE_APPLICATION_STDOPTIONS \
-    { 'V', "version",         false, "show version" }, \
-    { 'h', "help",            false, "show this text" }, \
-    { 0  , "userlevel",      true,  "level;set user level (default 0=regular, 1=diy/expert, 2=privileged)" }
+    { 'V', "version",        false, "show version" }, \
+    { 'h', "help",           false, "show this text" }, \
+    { 0  , "userlevel",      true,  "level;set user level (0=regular, 1=diy/expert, 2=privileged; default=" STRINGIZE(APPLICATION_DEFAULT_USERLEVEL) ")" }
   #define CMDLINE_APPLICATION_PATHOPTIONS \
     { 'r', "resourcepath",   true,  "path;path to application resources" }, \
     { 'd', "datapath",       true,  "path;path to the r/w persistent data" }

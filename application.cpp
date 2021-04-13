@@ -69,7 +69,7 @@ Application::Application(MainLoop &aMainLoop) :
 
 Application::Application() :
   mMainLoop(MainLoop::currentMainLoop()),
-  mUserLevel(0)
+  mUserLevel(APPLICATION_DEFAULT_USERLEVEL)
 {
   initializeInternal();
 }
