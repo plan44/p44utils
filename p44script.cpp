@@ -32,8 +32,18 @@
 
 #include "math.h"
 
-#if ENABLE_JSON_APPLICATION && SCRIPTING_JSON_SUPPORT
+#if ENABLE_JSON_APPLICATION && SCRIPTING_JSON_SUPPORT || ENABLE_APPLICATION_SUPPORT
   #include "application.hpp"
+  #include <sys/stat.h> // for mkdir
+#endif
+#ifndef ALWAYS_ALLOW_SYSTEM_FUNC
+  #define ALWAYS_ALLOW_SYSTEM_FUNC 0
+#endif
+#ifndef ALWAYS_ALLOW_ALL_FILES
+  #define ALWAYS_ALLOW_ALL_FILES 0
+#endif
+#ifndef P44SCRIPT_SUBDIR
+  #define P44SCRIPT_DATA_SUBDIR "p44script"
 #endif
 
 
@@ -5013,7 +5023,17 @@ static const size_t jsonresource_numargs = sizeof(jsonresource_args)/sizeof(Buil
 static void jsonresource_func(BuiltinFunctionContextPtr f)
 {
   ErrorPtr err;
-  JsonObjectPtr j = Application::jsonResource(f->arg(0)->stringValue(), &err);
+  string fn = f->arg(0)->stringValue();
+  #if !ALWAYS_ALLOW_ALL_FILES
+  if (
+    (fn.find("/")!=string::npos || fn.find("..")!=string::npos) &&
+    Application::sharedApplication()->userLevel()<1 // user level 1 is allowed to read everywhere
+  ) {
+    f->finish(new ErrorValue(ScriptError::NoPrivilege, "no path reading privileges"));
+    return;
+  }
+  #endif
+  JsonObjectPtr j = Application::jsonResource(fn, &err);
   if (Error::isOK(err))
     f->finish(new JsonValue(j));
   else
@@ -5288,7 +5308,8 @@ static void eval_func(BuiltinFunctionContextPtr f)
 }
 
 
-#if ENABLE_APPLICATION_SUPPORT && !ESP_PLATFORM
+#if !ESP_PLATFORM
+
 // system(command_line)    execute given command line via system() in a shell and return the output
 static void system_abort(pid_t aPid)
 {
@@ -5308,16 +5329,91 @@ static const BuiltInArgDesc system_args[] = { { text } };
 static const size_t system_numargs = sizeof(system_args)/sizeof(BuiltInArgDesc);
 static void system_func(BuiltinFunctionContextPtr f)
 {
-  if (Application::sharedApplication()->userLevel()<2) {
-    f->finish(new ErrorValue(ScriptError::NoPrivilege, "system() can only be used with userlevel>=2"));
+  #if !ALWAYS_ALLOW_SYSTEM_FUNC
+  #if ENABLE_APPLICATION_SUPPORT
+  if (Application::sharedApplication()->userLevel()<2)
+  #endif
+  {
+    f->finish(new ErrorValue(ScriptError::NoPrivilege, "no privileges to use system() function"));
     return;
   }
+  #endif // ALWAYS_ALLOW_SYSTEM_FUNC
   pid_t pid = MainLoop::currentMainLoop().fork_and_system(boost::bind(&system_done, f, _1, _2), f->arg(0)->stringValue().c_str());
   if (pid>=0) {
     f->setAbortCallback(boost::bind(&system_abort, pid));
   }
 }
-#endif // ENABLE_APPLICATION_SUPPORT && !ESP_PLATFORM
+
+#if ENABLE_APPLICATION_SUPPORT
+
+// writefile(filename, data)
+static const BuiltInArgDesc writefile_args[] = { { text }, { any|null } };
+static const size_t writefile_numargs = sizeof(writefile_args)/sizeof(BuiltInArgDesc);
+static void writefile_func(BuiltinFunctionContextPtr f)
+{
+  string fn = f->arg(0)->stringValue();
+  if (fn.empty()) {
+    f->finish(new ErrorValue(ScriptError::Invalid, "no filename"));
+    return;
+  }
+  #if !ALWAYS_ALLOW_ALL_FILES
+  if (
+    (fn.find("/")!=string::npos || fn.find("..")!=string::npos) &&
+    Application::sharedApplication()->userLevel()<2 // only user level 2 is allowed to write everywhere
+  ) {
+    f->finish(new ErrorValue(ScriptError::NoPrivilege, "no path writing privileges"));
+    return;
+  }
+  #endif
+  fn = Application::sharedApplication()->dataPath(fn, "/" P44SCRIPT_DATA_SUBDIR, true);
+  ErrorPtr err;
+  if (f->arg(1)->defined()) {
+    // write
+    err = string_tofile(fn, f->arg(1)->stringValue());
+    if (err) err->prefixMessage("Cannot write file: ");
+  }
+  else {
+    // delete
+    if (unlink(fn.c_str())<0) err = SysError::errNo()->withPrefix("Cannot delete file: ");
+  }
+  if (Error::notOK(err)) {
+    f->finish(new ErrorValue(err));
+    return;
+  }
+  f->finish();
+}
+
+
+// readfile(filename, data)
+static const BuiltInArgDesc readfile_args[] = { { text } };
+static const size_t readfile_numargs = sizeof(readfile_args)/sizeof(BuiltInArgDesc);
+static void readfile_func(BuiltinFunctionContextPtr f)
+{
+  string fn = f->arg(0)->stringValue();
+  if (fn.empty()) {
+    f->finish(new ErrorValue(ScriptError::Invalid, "no filename"));
+    return;
+  }
+  #if !ALWAYS_ALLOW_ALL_FILES
+  if (
+    (fn.find("/")!=string::npos || fn.find("..")!=string::npos) &&
+    Application::sharedApplication()->userLevel()<1 // user level 1 is allowed to read everywhere
+  ) {
+    f->finish(new ErrorValue(ScriptError::NoPrivilege, "no path reading privileges"));
+    return;
+  }
+  #endif
+  string data;
+  ErrorPtr err = string_fromfile(Application::sharedApplication()->dataPath(fn, "/" P44SCRIPT_DATA_SUBDIR, false), data);
+  if (Error::notOK(err)) {
+    f->finish(new ErrorValue(err));
+    return;
+  }
+  f->finish(new StringValue(data));
+}
+
+#endif // ENABLE_APPLICATION_SUPPORT
+#endif // !ESP_PLATFORM
 
 
 
@@ -5937,9 +6033,13 @@ static const BuiltinMemberDescriptor standardFunctions[] = {
   { "await", executable|async|any, await_numargs, await_args, &await_func },
   { "delay", executable|async|null, delay_numargs, delay_args, &delay_func },
   { "eval", executable|async|any, eval_numargs, eval_args, &eval_func },
-  #if ENABLE_APPLICATION_SUPPORT && !ESP_PLATFORM
+  #if !ESP_PLATFORM
   { "system", executable|async|text, system_numargs, system_args, &system_func },
-  #endif // ENABLE_APPLICATION_SUPPORT && !ESP_PLATFORM
+  #if ENABLE_APPLICATION_SUPPORT
+  { "readfile", executable|error|text, readfile_numargs, readfile_args, &readfile_func },
+  { "writefile", executable|error|null, writefile_numargs, writefile_args, &writefile_func },
+  #endif // ENABLE_APPLICATION_SUPPORT
+  #endif // !ESP_PLATFORM
   #endif // P44SCRIPT_FULL_SUPPORT
   { NULL } // terminator
 };
