@@ -5338,7 +5338,7 @@ static void system_func(BuiltinFunctionContextPtr f)
     return;
   }
   #endif // ALWAYS_ALLOW_SYSTEM_FUNC
-  pid_t pid = MainLoop::currentMainLoop().fork_and_system(boost::bind(&system_done, f, _1, _2), f->arg(0)->stringValue().c_str());
+  pid_t pid = MainLoop::currentMainLoop().fork_and_system(boost::bind(&system_done, f, _1, _2), f->arg(0)->stringValue().c_str(), true);
   if (pid>=0) {
     f->setAbortCallback(boost::bind(&system_abort, pid));
   }
