@@ -456,6 +456,9 @@ namespace p44 {
     ModbusMaster();
     virtual ~ModbusMaster();
 
+    /// same as connect(), but also checks that a slave address is set
+    ErrorPtr connectAsMaster();
+
     #if ENABLE_MODBUS_SCRIPT_FUNCS
     /// @return a singleton script object, representing this modbus slave, which can be registered as named member in a scripting domain
     P44Script::ModbusMasterObjPtr representingScriptObj();

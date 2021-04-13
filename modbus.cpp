@@ -392,11 +392,23 @@ ModbusMaster::~ModbusMaster()
 }
 
 
+ErrorPtr ModbusMaster::connectAsMaster()
+{
+  ErrorPtr err = connect();
+  if (Error::isOK(err) && !isTcp) {
+    if (slaveAddress<0) {
+      err = Error::err<ModBusError>(ModBusError::InvalidSlaveAddr, "no slave address set");
+    }
+  }
+  return err;
+}
+
+
 ErrorPtr ModbusMaster::readSlaveInfo(string& aId, bool& aRunIndicator)
 {
   ErrorPtr err;
   bool wasConnected = isConnected();
-  if (!wasConnected) err = connect();
+  if (!wasConnected) err = connectAsMaster();
   if (Error::isOK(err)) {
     ModBusPDU slaveid;
     int bytes = modbus_report_slave_id(modbus, MODBUS_MAX_PDU_LENGTH, slaveid);
@@ -477,7 +489,7 @@ ErrorPtr ModbusMaster::readRegisters(int aRegAddr, int aNumRegs, uint16_t *aRegs
 {
   ErrorPtr err;
   bool wasConnected = isConnected();
-  if (!wasConnected) err = connect();
+  if (!wasConnected) err = connectAsMaster();
   if (Error::isOK(err)) {
     int ret;
     if (aInput) {
@@ -515,7 +527,7 @@ ErrorPtr ModbusMaster::writeRegisters(int aRegAddr, int aNumRegs, const uint16_t
 {
   ErrorPtr err;
   bool wasConnected = isConnected();
-  if (!wasConnected) err = connect();
+  if (!wasConnected) err = connectAsMaster();
   if (Error::isOK(err)) {
     if (modbus_write_registers(modbus, aRegAddr, aNumRegs, aRegsP)<0) {
       err = ModBusError::err<ModBusError>(errno);
@@ -539,7 +551,7 @@ ErrorPtr ModbusMaster::readBits(int aBitAddr, int aNumBits, uint8_t *aBitsP, boo
 {
   ErrorPtr err;
   bool wasConnected = isConnected();
-  if (!wasConnected) err = connect();
+  if (!wasConnected) err = connectAsMaster();
   if (Error::isOK(err)) {
     int ret;
     if (aInput) {
@@ -568,7 +580,7 @@ ErrorPtr ModbusMaster::writeBits(int aBitAddr, int aNumBits, const uint8_t *aBit
 {
   ErrorPtr err;
   bool wasConnected = isConnected();
-  if (!wasConnected) err = connect();
+  if (!wasConnected) err = connectAsMaster();
   if (Error::isOK(err)) {
     if (modbus_write_bits(modbus, aBitAddr, aNumBits, aBitsP)<0) {
       err = ModBusError::err<ModBusError>(errno);
@@ -2290,6 +2302,23 @@ static void readinfo_func(BuiltinFunctionContextPtr f)
 }
 
 
+// findslaves(idmatch, from, to)
+static const BuiltInArgDesc findslaves_args[] = { { text }, { numeric }, { numeric } };
+static const size_t findslaves_numargs = sizeof(findslaves_args)/sizeof(BuiltInArgDesc);
+static void findslaves_func(BuiltinFunctionContextPtr f)
+{
+  ModbusMasterObj* o = dynamic_cast<ModbusMasterObj*>(f->thisObj().get());
+  assert(o);
+  p44::ModbusMaster::SlaveAddrList slaves;
+  ErrorPtr err = o->modbus()->findSlaves(slaves, f->arg(0)->stringValue(), f->arg(1)->intValue(), f->arg(2)->intValue());
+  JsonObjectPtr res = JsonObject::newArray();
+  for(p44::ModbusMaster::SlaveAddrList::iterator pos = slaves.begin(); pos!=slaves.end(); ++pos) {
+    res->arrayAppend(JsonObject::newInt32(*pos));
+  }
+  f->finish(new JsonValue(res));
+}
+
+
 // master()
 static void master_master_func(BuiltinFunctionContextPtr f)
 {
@@ -2300,6 +2329,7 @@ static void master_master_func(BuiltinFunctionContextPtr f)
 static const BuiltinMemberDescriptor modbusMasterMembers[] = {
   { "master", executable|numeric, 0, NULL, &master_master_func },
   { "slave", executable|object, slave_numargs, slave_args, &slave_func },
+  { "findslaves", executable|object, findslaves_numargs, findslaves_args, &findslaves_func },
   { "writereg", executable|error|null, write_numargs, write_args, &writereg_func },
   { "writebit", executable|error|null, write_numargs, write_args, &writebit_func },
   { "readreg", executable|error|numeric, read_numargs, read_args, &readreg_func },
