@@ -98,16 +98,23 @@ namespace p44 {
     /// get resource path. Resources are usually readonly files
     /// @param aResource if not empty, and it is an absolute path, the the result will be just this path
     ///   if it is a relative path, the application's resource path will be prepended.
+    /// @param aPrefix prefix possibly used on resource path when aResource does not begin with "./".
+    ///   Note that aPrefix is appended as-is, so must contain a path separator if it is meant as a subdirectory
     /// @return if aRelativePath is empty, result is the application's resource directory (no separator at end)
     ///   Otherwise, it is the absolute path to the resource specified with aResource
-    string resourcePath(const string aResource = "");
+    string resourcePath(const string aResource = "", const string aPrefix = "");
 
     /// get data path. Data are usually persistent read/write files
     /// @param aDataFile if not empty, and it is an absolute path, the the result will be just this path
     ///   if it is a relative path, the application's data path will be prepended.
+    /// @param aPrefix if not empty, and aDatafile is NOT an absolute path, the prefix will be appended
+    ///   to the datapath.
+    ///   Note that aPrefix is appended as-is, so must contain a path separator if it is meant as a subdirectory.
+    ///   Also note that the prefix is always used (no "./" checking as in rsourcepath()).
+    /// @param aCreatePrefix if true, the subriectory consisting of datapath + prefix is created (only subdir, datapath itself must exist)
     /// @return if aDataFile is empty, result is the application's data directory (no separator at end)
     ///   Otherwise, it is the absolute path to the data file specified with aDataFile
-    string dataPath(const string aDataFile = "");
+    string dataPath(const string aDataFile = "", const string aPrefix = "", bool aCreatePrefix = false);
 
     /// get temp path. Temp data are usually non-persistent read/write files located in a ram disk
     /// @param aTempFile if not empty, and it is an absolute path, the the result will be just this path

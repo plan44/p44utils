@@ -205,14 +205,17 @@ void Application::terminateAppWith(ErrorPtr aError)
 }
 
 
-string Application::resourcePath(const string aResource)
+string Application::resourcePath(const string aResource, const string aPrefix)
 {
-  if (aResource.empty())
+  if (aResource.empty() && aPrefix.empty())
     return mResourcepath; // just return resource path
   if (aResource[0]=='/')
     return aResource; // argument is absolute path, use it as-is
   // relative to resource directory
-  return mResourcepath + "/" + aResource;
+  if (aResource.substr(0,2)=="./")
+    return mResourcepath + "/" + aResource.substr(2); // omit prefix
+  else
+    return mResourcepath + aPrefix + "/" + aResource; // resource path with prefix
 }
 
 
@@ -225,14 +228,21 @@ void Application::setResourcePath(const char *aResourcePath)
 }
 
 
-string Application::dataPath(const string aDataFile)
+string Application::dataPath(const string aDataFile, const string aPrefix, bool aCreatePrefix)
 {
-  if (aDataFile.empty())
+  if (aDataFile.empty() && aPrefix.empty())
     return mDatapath; // just return data path
   if (aDataFile[0]=='/')
     return aDataFile; // argument is absolute path, use it as-is
   // relative to data directory
-  return mDatapath + "/" + aDataFile;
+  string p = mDatapath;
+  if (!aPrefix.empty()) {
+    p += aPrefix;
+    if (aCreatePrefix) {
+      mkdir(p.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
+    }
+  }
+  return p + "/" + aDataFile;
 }
 
 
@@ -267,7 +277,7 @@ JsonObjectPtr Application::jsonObjOrResource(const string &aText, ErrorPtr *aErr
   }
   else {
     // pass as a simple string, will try to load resource file
-    obj = jsonObjOrResource(JsonObject::newString(aText), aErrorP, aPrefix);
+    obj = jsonResource(aText, aErrorP, aPrefix);
   }
   return obj;
 }
@@ -277,11 +287,7 @@ JsonObjectPtr Application::jsonResource(string aResourceName, ErrorPtr *aErrorP,
 {
   JsonObjectPtr r;
   ErrorPtr err;
-  if (aResourceName.substr(0,2)=="./")
-    aResourceName.erase(0,2);
-  else
-    aResourceName.insert(0, aPrefix);
-  string fn = Application::sharedApplication()->resourcePath(aResourceName);
+  string fn = Application::sharedApplication()->resourcePath(aResourceName, aPrefix);
   r = JsonObject::objFromFile(fn.c_str(), &err, true);
   if (aErrorP) *aErrorP = err;
   return r;
