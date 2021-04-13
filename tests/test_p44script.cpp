@@ -555,7 +555,7 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "expressions", "[scripting]") {
     // divs
     REQUIRE(s.test(expression, "eval('333*777')")->isErr() == true); // eval is async, s.test is synchronous!
     // error handling
-    REQUIRE(s.test(expression, "error('testerror')")->stringValue() == string_format("testerror (ScriptError::User[%d])", ScriptError::User));
+    REQUIRE(s.test(expression, "error('testerror')")->stringValue().find(string_format("testerror (ScriptError::User[%d])", ScriptError::User)) != string::npos); // also includes origin info
     REQUIRE(s.test(expression, "errordomain(error('testerror'))")->stringValue() == "ScriptError");
     REQUIRE(s.test(expression, "errorcode(error('testerror'))")->doubleValue() == ScriptError::User);
     REQUIRE(s.test(expression, "errormessage(error('testerror'))")->stringValue() == "testerror");
