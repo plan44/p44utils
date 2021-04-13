@@ -1666,12 +1666,12 @@ static const BuiltinMemberDescriptor lvglobjFunctions[] = {
   { "name", executable|text, 0, NULL, &name_func },
   { "parent", executable|object, 0, NULL, &parent_func },
   { "value", executable|numeric, 0, NULL, &value_func },
-  { "setvalue", executable|null, setvalue_numargs, setvalue_args, &setvalue_func },
-  { "settext", executable|null, settext_numargs, settext_args, &settext_func },
-  { "refresh", executable|null, 0, NULL, &refresh_func },
+  { "setvalue", executable|object, setvalue_numargs, setvalue_args, &setvalue_func },
+  { "settext", executable|object, settext_numargs, settext_args, &settext_func },
+  { "refresh", executable|object, 0, NULL, &refresh_func },
   { "showscreen", executable|null, showscreen_numargs, showscreen_args, &showscreen_func },
-  { "set", executable|null, set_numargs, set_args, &set_func },
-  { "configure", executable|null, configure_numargs, configure_args, &configure_func },
+  { "set", executable|object, set_numargs, set_args, &set_func },
+  { "configure", executable|object, configure_numargs, configure_args, &configure_func },
   { NULL } // terminator
 };
 
