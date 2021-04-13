@@ -1223,6 +1223,7 @@ namespace p44 { namespace P44Script {
     ErrorPosValue(const SourceCursor &aCursor, ErrorValuePtr aErrValue) : inherited(aErrValue), sourceCursor(aCursor) {};
     void setErrorCursor(const SourceCursor &aCursor) { sourceCursor = aCursor; };
     virtual SourceCursor* cursor() P44_OVERRIDE { return &sourceCursor; } // has a position
+    virtual string stringValue() const P44_OVERRIDE;
   };
 
 

@@ -247,7 +247,7 @@ string ScriptObj::describe(ScriptObjPtr aObj)
   string v;
   if (calcObj) {
     v = calcObj->stringValue();
-    if (calcObj->hasType(text)) v = shellQuote(v);
+    if (calcObj->hasType(text)) v = cstringQuote(v);
   }
   else {
     v = "<no value>";
@@ -516,6 +516,18 @@ ErrorPosValue::ErrorPosValue(const SourceCursor &aCursor, ScriptError::ErrorCode
   va_start(args, aFmt);
   err->setFormattedMessage(aFmt, args);
   va_end(args);
+}
+
+
+string ErrorPosValue::stringValue() const
+{
+  return string_format(
+    "(%s:%zu,%zu): %s",
+    sourceCursor.originLabel(),
+    sourceCursor.lineno(),
+    sourceCursor.charpos(),
+    Error::text(err)
+  );
 }
 
 
@@ -5211,7 +5223,7 @@ static const size_t errordomain_numargs = sizeof(errordomain_args)/sizeof(BuiltI
 static void errordomain_func(BuiltinFunctionContextPtr f)
 {
   ErrorPtr err = f->arg(0)->errorValue();
-  if (Error::isOK(err)) f->finish(new AnnotatedNullValue("not error")); // no error, no domain
+  if (Error::isOK(err)) f->finish(new AnnotatedNullValue("no error")); // no error, no domain
   f->finish(new StringValue(err->getErrorDomain()));
 }
 
@@ -5222,7 +5234,7 @@ static const size_t errorcode_numargs = sizeof(errorcode_args)/sizeof(BuiltInArg
 static void errorcode_func(BuiltinFunctionContextPtr f)
 {
   ErrorPtr err = f->arg(0)->errorValue();
-  if (Error::isOK(err)) f->finish(new AnnotatedNullValue("not error")); // no error, no code
+  if (Error::isOK(err)) f->finish(new AnnotatedNullValue("no error")); // no error, no code
   f->finish(new NumericValue((double)err->getErrorCode()));
 }
 
@@ -5233,7 +5245,7 @@ static const size_t errormessage_numargs = sizeof(errormessage_args)/sizeof(Buil
 static void errormessage_func(BuiltinFunctionContextPtr f)
 {
   ErrorPtr err = f->arg(0)->errorValue();
-  if (Error::isOK(err)) f->finish(new AnnotatedNullValue("not error")); // no error, no message
+  if (Error::isOK(err)) f->finish(new AnnotatedNullValue("no error")); // no error, no message
   f->finish(new StringValue(err->getErrorMessage()));
 }
 
