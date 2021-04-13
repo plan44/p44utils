@@ -141,11 +141,18 @@ namespace p44 {
   /// @return lowercase (char by char tolower())
   string lowerCase(const string &aString);
 
-  /// return string quoted such that it works as a single shell argument
+  /// return string quoted such that it safely works as a single shell argument with no variable expansion
   /// @param aString a string
-  /// @return quoted string
+  /// @return (single) quoted shell argument string, if original contains single quotes these are represented as '"'"'
   string shellQuote(const char *aString);
   string shellQuote(const string &aString);
+
+  /// return string quoted such that it works as a C string literal
+  /// @param aString a string
+  /// @return (double) quoted C string
+  string cstringQuote(const char *aString);
+  string cstringQuote(const string &aString);
+
 
   /// return string with trailimg and/or leading spaces removed
   /// @param aString a string

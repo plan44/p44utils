@@ -321,15 +321,14 @@ string p44::singleLine(const char *aString, bool aCompactWSRuns, size_t aEllipsi
 }
 
 
-
 string p44::shellQuote(const char *aString)
 {
-  string s = "\"";
+  string s = "'";
   while (char c=*aString++) {
-    if (c=='"' || c=='\\') s += '\\'; // escape double quotes and backslashes
+    if (c=='\'') s += "\"'\"'"; // must exit single quoted string to include quote
     s += c;
   }
-  s += '"';
+  s += '\'';
   return s;
 }
 
@@ -337,6 +336,28 @@ string p44::shellQuote(const char *aString)
 string p44::shellQuote(const string &aString)
 {
   return shellQuote(aString.c_str());
+}
+
+
+string p44::cstringQuote(const char *aString)
+{
+  string s = "\"";
+  while (char c=*aString++) {
+    if (c=='"' || c=='\\') s += '\\'; // escape double quotes and backslashes
+    else if (c=='\n') { s += "\\n"; continue; }
+    else if (c=='\r') { s += "\\r"; continue; }
+    else if (c=='\t') { s += "\\t"; continue; }
+    else if (c<0x20) { string_format_append(s,"\\x%02x",(uint8_t)c); continue; }
+    s += c;
+  }
+  s += '\'';
+  return s;
+}
+
+
+string p44::cstringQuote(const string &aString)
+{
+  return cstringQuote(aString.c_str());
 }
 
 
