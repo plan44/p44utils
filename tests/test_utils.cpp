@@ -41,9 +41,11 @@ TEST_CASE( "lowercase", "[utils]" ) {
   REQUIRE( p44::lowerCase("UPPER And lower and more", 15) == "upper and lower" );
 }
 
-TEST_CASE( "shell quoting", "[utils]" ) {
-  REQUIRE( p44::shellQuote("some words") == "\"some words\"" );
-  REQUIRE( p44::shellQuote("some special chars: \\ \" '") == "\"some special chars: \\\\ \\\" '\"" );
+TEST_CASE( "quoting", "[utils]" ) {
+  REQUIRE( p44::shellQuote("some words") == "'some words'" );
+  REQUIRE( p44::shellQuote("some special chars: \\ \" ' \n \t \r \x0c") == "'some special chars: \\ \" '\"'\"' \n \t \r \x0c'" );
+  REQUIRE( p44::cstringQuote("some words") == "\"some words\"" );
+  REQUIRE( p44::cstringQuote("some special chars: \\ \" ' \n \t \r \x0c") == "\"some special chars: \\\\ \\\" ' \\n \\t \\r \\x0c\"" );
 }
 
 TEST_CASE( "GTIN digit checking", "[utils]" ) {

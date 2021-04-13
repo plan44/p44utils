@@ -325,7 +325,7 @@ string p44::shellQuote(const char *aString)
 {
   string s = "'";
   while (char c=*aString++) {
-    if (c=='\'') s += "\"'\"'"; // must exit single quoted string to include quote
+    if (c=='\'') s += "'\"'\""; // must exit single quoted string to include quote
     s += c;
   }
   s += '\'';
@@ -350,7 +350,7 @@ string p44::cstringQuote(const char *aString)
     else if (c<0x20) { string_format_append(s,"\\x%02x",(uint8_t)c); continue; }
     s += c;
   }
-  s += '\'';
+  s += '"';
   return s;
 }
 
