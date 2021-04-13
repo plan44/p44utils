@@ -434,9 +434,20 @@ namespace p44 {
   };
 
 
+  #if ENABLE_MODBUS_SCRIPT_FUNCS
+  namespace P44Script {
+    class ModbusMasterObj;
+    typedef boost::intrusive_ptr<ModbusMasterObj> ModbusMasterObjPtr;
+  }
+  #endif
+
   class ModbusMaster : public ModbusConnection
   {
     typedef ModbusConnection inherited;
+
+    #if ENABLE_MODBUS_SCRIPT_FUNCS
+    P44Script::ModbusMasterObjPtr mRepresentingObj; ///< the (singleton) ScriptObj representing this modbus slave
+    #endif
 
   public:
 
@@ -444,6 +455,11 @@ namespace p44 {
 
     ModbusMaster();
     virtual ~ModbusMaster();
+
+    #if ENABLE_MODBUS_SCRIPT_FUNCS
+    /// @return a singleton script object, representing this modbus slave, which can be registered as named member in a scripting domain
+    P44Script::ModbusMasterObjPtr representingScriptObj();
+    #endif
 
     /// read single register
     /// @param aRegAddr the register address
@@ -824,7 +840,7 @@ namespace p44 {
     public:
       ModbusMasterObj(ModbusMasterPtr aModbus);
       virtual string getAnnotation() const P44_OVERRIDE { return "modbus master"; };
-      ModbusMasterObj modbus() { return mModbus; }
+      ModbusMasterPtr modbus() { return mModbus; }
     };
 
   }

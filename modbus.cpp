@@ -1167,7 +1167,12 @@ int ModbusSlave::handleRawRequest(sft_t &aSft, int aOffset, const ModBusPDU& aRe
     if (registerModel) {
       modbus_mapping_ex_t map;
       map.mappings = registerModel;
-      if (mValueAccessHandler || mRepresentingObj) {
+      if (
+        mValueAccessHandler
+        #if ENABLE_MODBUS_SCRIPT_FUNCS
+        || mRepresentingObj
+        #endif
+      ) {
         map.access_handler = modbus_access_handler;
         map.access_handler_user_ctx = this;
       }
@@ -1207,9 +1212,11 @@ const char* ModbusSlave::accessHandler(modbus_data_access_t access, int addr, in
         default: err = TextError::err("unknown modbus access type"); break;
       }
       if (Error::isOK(err)) {
+        #if ENABLE_MODBUS_SCRIPT_FUNCS
         if (mRepresentingObj) {
           mRepresentingObj->gotAccessed(reg, bit, input, write);
         }
+        #endif
         if (mValueAccessHandler) {
           err = mValueAccessHandler(reg, bit, input, write);
         }
@@ -2031,6 +2038,8 @@ bool ModbusFileHandler::fileIntegrityOK()
 
 #if ENABLE_MODBUS_SCRIPT_FUNCS
 
+// MARK: - modbus slave scripting
+
 ModbusSlaveObjPtr ModbusSlave::representingScriptObj()
 {
   if (!mRepresentingObj) {
@@ -2126,7 +2135,15 @@ static void access_func(BuiltinFunctionContextPtr f)
 }
 
 
+// master()
+static void slave_master_func(BuiltinFunctionContextPtr f)
+{
+  f->finish(new NumericValue(false));
+}
+
+
 static const BuiltinMemberDescriptor modbusSlaveMembers[] = {
+  { "master", executable|numeric, 0, NULL, &slave_master_func },
   { "setreg", executable|null, set_numargs, set_args, &setreg_func },
   { "setbit", executable|null, set_numargs, set_args, &setbit_func },
   { "getreg", executable|null, get_numargs, get_args, &getreg_func },
@@ -2162,6 +2179,145 @@ ErrorPtr ModbusSlaveObj::gotAccessed(int aAddress, bool aBit, bool aInput, bool 
   sendEvent(new ModbusSlaveAccessObj(this));
   return ErrorPtr();
 }
+
+
+// MARK: - modbus master scripting
+
+ModbusMasterObjPtr ModbusMaster::representingScriptObj()
+{
+  if (!mRepresentingObj) {
+    mRepresentingObj = new ModbusMasterObj(this);
+  }
+  return mRepresentingObj;
+}
+
+
+// slave(slaveaddress)
+static const BuiltInArgDesc slave_args[] = { { numeric } };
+static const size_t slave_numargs = sizeof(slave_args)/sizeof(BuiltInArgDesc);
+static void slave_func(BuiltinFunctionContextPtr f)
+{
+  ModbusMasterObj* o = dynamic_cast<ModbusMasterObj*>(f->thisObj().get());
+  assert(o);
+  o->modbus()->setSlaveAddress(f->arg(0)->intValue());
+  f->finish(o); // return myself for chaining calls
+}
+
+
+// writereg(regaddr, value)
+// writebit(bitaddr, value)
+static const BuiltInArgDesc write_args[] = { { numeric }, { numeric } };
+static const size_t write_numargs = sizeof(write_args)/sizeof(BuiltInArgDesc);
+static void writereg_func(BuiltinFunctionContextPtr f)
+{
+  ModbusMasterObj* o = dynamic_cast<ModbusMasterObj*>(f->thisObj().get());
+  assert(o);
+  ErrorPtr err = o->modbus()->writeRegister(f->arg(0)->intValue(), f->arg(1)->intValue());
+  if (Error::notOK(err)) {
+    f->finish(new ErrorValue(err->withPrefix("writing register: ")));
+    return;
+  }
+  f->finish(); // return myself for chaining calls
+}
+static void writebit_func(BuiltinFunctionContextPtr f)
+{
+  ModbusMasterObj* o = dynamic_cast<ModbusMasterObj*>(f->thisObj().get());
+  assert(o);
+  ErrorPtr err = o->modbus()->writeRegister(f->arg(0)->intValue(), f->arg(1)->boolValue());
+  if (Error::notOK(err)) {
+    f->finish(new ErrorValue(err->withPrefix("writing bit: ")));
+    return;
+  }
+  f->finish(); // return myself for chaining calls
+}
+
+
+// readreg(regaddr [,input])
+// readsreg(regaddr [,input]) // signed interpretation of 16-bit value
+// readbit(bitaddr [,input])
+static const BuiltInArgDesc read_args[] = { { numeric }, { numeric|optionalarg } };
+static const size_t read_numargs = sizeof(read_args)/sizeof(BuiltInArgDesc);
+static void readreg_func(BuiltinFunctionContextPtr f)
+{
+  ModbusMasterObj* o = dynamic_cast<ModbusMasterObj*>(f->thisObj().get());
+  assert(o);
+  uint16_t v;
+  ErrorPtr err = o->modbus()->readRegister(f->arg(0)->intValue(), v, f->arg(1)->boolValue());
+  if (Error::notOK(err)) {
+    f->finish(new ErrorValue(err->withPrefix("reading register: ")));
+    return;
+  }
+  f->finish(new NumericValue(v));
+}
+static void readsreg_func(BuiltinFunctionContextPtr f)
+{
+  ModbusMasterObj* o = dynamic_cast<ModbusMasterObj*>(f->thisObj().get());
+  assert(o);
+  uint16_t v;
+  ErrorPtr err = o->modbus()->readRegister(f->arg(0)->intValue(), v, f->arg(1)->boolValue());
+  if (Error::notOK(err)) {
+    f->finish(new ErrorValue(err->withPrefix("reading register: ")));
+    return;
+  }
+  f->finish(new NumericValue((int16_t)v));
+}
+static void readbit_func(BuiltinFunctionContextPtr f)
+{
+  ModbusMasterObj* o = dynamic_cast<ModbusMasterObj*>(f->thisObj().get());
+  assert(o);
+  bool b;
+  ErrorPtr err = o->modbus()->readBit(f->arg(0)->intValue(), b, f->arg(1)->boolValue());
+  if (Error::notOK(err)) {
+    f->finish(new ErrorValue(err->withPrefix("reading bit: ")));
+    return;
+  }
+  f->finish(new NumericValue(b));
+}
+
+// readinfo()
+static void readinfo_func(BuiltinFunctionContextPtr f)
+{
+  ModbusMasterObj* o = dynamic_cast<ModbusMasterObj*>(f->thisObj().get());
+  assert(o);
+  string id;
+  bool runIndicator;
+  ErrorPtr err = o->modbus()->readSlaveInfo(id, runIndicator);
+  if (Error::notOK(err)) {
+    f->finish(new ErrorValue(err->withPrefix("reading info: ")));
+    return;
+  }
+  f->finish(new StringValue(id));
+}
+
+
+// master()
+static void master_master_func(BuiltinFunctionContextPtr f)
+{
+  f->finish(new NumericValue(true));
+}
+
+
+static const BuiltinMemberDescriptor modbusMasterMembers[] = {
+  { "master", executable|numeric, 0, NULL, &master_master_func },
+  { "slave", executable|object, slave_numargs, slave_args, &slave_func },
+  { "writereg", executable|error|null, write_numargs, write_args, &writereg_func },
+  { "writebit", executable|error|null, write_numargs, write_args, &writebit_func },
+  { "readreg", executable|error|numeric, read_numargs, read_args, &readreg_func },
+  { "readsreg", executable|error|numeric, read_numargs, read_args, &readsreg_func },
+  { "readbit", executable|error|numeric, read_numargs, read_args, &readbit_func },
+  { "readinfo", executable|error|text, 0, NULL, &readinfo_func },
+  { NULL } // terminator
+};
+
+static BuiltInMemberLookup* sharedModbusMasterFunctionLookupP = NULL;
+
+ModbusMasterObj::ModbusMasterObj(ModbusMasterPtr aModbus) :
+  mModbus(aModbus)
+{
+  registerSharedLookup(sharedModbusMasterFunctionLookupP, modbusMasterMembers);
+}
+
+
 
 
 #endif // ENABLE_MODBUS_SCRIPT_FUNCS
