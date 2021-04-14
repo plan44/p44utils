@@ -374,6 +374,9 @@ namespace p44 {
     StyleList adhocStyles; ///< keeps ad hoc styles
     ThemeMap themes; ///< initialized themes (basic theme + hue + font)
 
+    bool mDataPathResources; ///< look for resources also in data path
+    string mResourcePrefix; ///< prefix for resource loading
+
     #if ENABLE_LVGLUI_SCRIPT_FUNCS
     P44Script::ScriptMainContextPtr mScriptMainContext;
     P44Script::ScriptObjPtr mRepresentingObj;
@@ -461,6 +464,12 @@ namespace p44 {
     /// load named screen and call its onrefreshscript
     /// @param aScreenName the name of the screen to load
     void loadScreen(const string aScreenName);
+
+    /// set resource loading options
+    /// @param aFromDataPath if set, non-absolute resource (image) file names are first looked up in datapath
+    /// @param aPrefix if not empty and image spec does not start with "./", this is prepended to the image spec
+    ///    in both data and resource paths
+    void setResourceLoadOptions(bool aFromDataPath, const string aPrefix);
 
   };
 

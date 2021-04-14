@@ -1233,7 +1233,8 @@ void LvGLUiSlider::handleEvent(lv_event_t aEvent)
 static LvGLUi* gLvgluiP = NULL;
 
 LvGLUi::LvGLUi() :
-  inherited(*this, NULL, NULL)
+  inherited(*this, NULL, NULL),
+  mDataPathResources(false)
   #if ENABLE_LVGLUI_SCRIPT_FUNCS
   ,activityTimeoutScript(scriptbody+regular, "activityTimeout")
   ,activationScript(scriptbody+regular, "activation")
@@ -1413,6 +1414,12 @@ ErrorPtr LvGLUi::configure(JsonObjectPtr aConfig)
   if (aConfig->get("startscreen", o)) {
     loadScreen(o->stringValue());
   }
+  if (aConfig->get("resourceprefix", o)) {
+    mResourcePrefix = o->stringValue();
+  }
+  if (aConfig->get("dataresources", o)) {
+    mDataPathResources = o->boolValue();
+  }
   // check for activation/deactivation scripts
   if (aConfig->get("activitytimeoutscript", o)) {
     activityTimeoutScript.setSource(o->stringValue());
@@ -1428,11 +1435,21 @@ ErrorPtr LvGLUi::configure(JsonObjectPtr aConfig)
 
 string LvGLUi::imagePath(const string aImageSpec)
 {
-  string f = Application::sharedApplication()->dataPath(aImageSpec);
-  if (access(f.c_str(), R_OK)>=0) return f;
-  f = Application::sharedApplication()->resourcePath(aImageSpec);
+  string f;
+  if (mDataPathResources) {
+    f = Application::sharedApplication()->dataPath(aImageSpec, mResourcePrefix);
+    if (access(f.c_str(), R_OK)>=0) return f;
+  }
+  f = Application::sharedApplication()->resourcePath(aImageSpec, mResourcePrefix);
   if (access(f.c_str(), R_OK)>=0) return f;
   return "";
+}
+
+
+void LvGLUi::setResourceLoadOptions(bool aFromDataPath, const string aPrefix)
+{
+  mDataPathResources = aFromDataPath;
+  mResourcePrefix = aPrefix;
 }
 
 
