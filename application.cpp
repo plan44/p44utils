@@ -239,7 +239,9 @@ string Application::dataPath(const string aDataFile, const string aPrefix, bool 
   if (!aPrefix.empty()) {
     p += aPrefix;
     if (aCreatePrefix) {
-      mkdir(p.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
+      if (access(p.c_str(), F_OK)<0) {
+        mkdir(p.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
+      }
     }
   }
   return p + "/" + aDataFile;
