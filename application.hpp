@@ -202,9 +202,6 @@ namespace p44 {
   #ifndef ESP_PLATFORM
 
   /// standard option texts, can be used as part of setCommandDescriptors() string
-  #define STRINGIZE(s) #s
-
-
   /// - logging options matching processStandardLogOptions()
   /// - for all apps
   #define CMDLINE_APPLICATION_LOGOPTIONS \
@@ -220,7 +217,7 @@ namespace p44 {
   #define CMDLINE_APPLICATION_STDOPTIONS \
     { 'V', "version",        false, "show version" }, \
     { 'h', "help",           false, "show this text" }, \
-    { 0  , "userlevel",      true,  "level;set user level (0=regular, 1=diy/expert, 2=privileged; default=" STRINGIZE(APPLICATION_DEFAULT_USERLEVEL) ")" }
+    { 0  , "userlevel",      true,  "level;set user level (0=regular, 1=diy/expert, 2=privileged)" }
   #define CMDLINE_APPLICATION_PATHOPTIONS \
     { 'r', "resourcepath",   true,  "path;path to application resources" }, \
     { 'd', "datapath",       true,  "path;path to the r/w persistent data" }
