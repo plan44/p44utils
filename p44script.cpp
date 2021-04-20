@@ -5416,6 +5416,47 @@ static void readfile_func(BuiltinFunctionContextPtr f)
 #endif // !ESP_PLATFORM
 
 
+// signal() create a signal object, that can be sent()t and await()ed
+
+class SignalObj : public NumericValue, public EventSource
+{
+  typedef NumericValue inherited;
+public:
+  SignalObj() : inherited(1) { }
+  void send() { sendEvent(this); }
+  virtual string getAnnotation() const P44_OVERRIDE { return "Signal"; }
+  virtual TypeInfo getTypeInfo() const P44_OVERRIDE {
+    return inherited::getTypeInfo()|oneshot|keeporiginal; // returns the request only once, must keep the original
+  }
+  virtual EventSource *eventSource() const P44_OVERRIDE {
+    return const_cast<EventSource *>(static_cast<const EventSource *>(this));
+  }
+  virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aMemberAccessFlags = none) P44_OVERRIDE;
+};
+
+// send() send the signal
+static void send_func(BuiltinFunctionContextPtr f)
+{
+  SignalObj* sig = dynamic_cast<SignalObj *>(f->thisObj().get());
+  sig->send();
+  f->finish();
+}
+static const BuiltinMemberDescriptor answer_desc =
+  { "send", executable|any, 0, NULL, &send_func };
+
+const ScriptObjPtr SignalObj::memberByName(const string aName, TypeInfo aMemberAccessFlags)
+{
+  if (uequals(aName, "send")) {
+    return new BuiltinFunctionObj(&answer_desc, this, NULL);
+  }
+  return inherited::memberByName(aName, aMemberAccessFlags);
+}
+
+static void signal_func(BuiltinFunctionContextPtr f)
+{
+  f->finish(new SignalObj());
+}
+
 
 // await(event [, event...] [,timeout])    wait for an event (or one of serveral)
 class AwaitEventSink : public EventSink
@@ -6030,6 +6071,7 @@ static const BuiltinMemberDescriptor standardFunctions[] = {
   { "yearday", executable|numeric, timegetter_numargs, timegetter_args, &yearday_func },
   // Async
   #if P44SCRIPT_FULL_SUPPORT
+  { "signal", executable|async|any, 0, NULL, &signal_func },
   { "await", executable|async|any, await_numargs, await_args, &await_func },
   { "delay", executable|async|null, delay_numargs, delay_args, &delay_func },
   { "eval", executable|async|any, eval_numargs, eval_args, &eval_func },
