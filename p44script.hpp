@@ -244,13 +244,13 @@ namespace p44 { namespace P44Script {
   typedef uint32_t TypeInfo;
 
 
-  /// trigger modes
+  /// trigger modes (note: enum values exposed in some API properties, do not change!)
   typedef enum {
-    inactive, ///< trigger is inactive
-    onGettingTrue, ///< trigger is fired when evaluation result is getting true
-    onChangingBool, ///< trigger is fired when evaluation result changes boolean value, including getting invalid
-    onChange, ///< trigger is fired when evaluation result changes (operator== with last result does not return true)
-    onEvaluation ///< trigger is fired whenever it gets evaluated
+    inactive = 0, ///< trigger is inactive
+    onGettingTrue = 1, ///< trigger is fired when evaluation result is getting true
+    onChangingBool = 2, ///< trigger is fired when evaluation result changes boolean value, including getting invalid
+    onChange = 3, ///< trigger is fired when evaluation result changes (operator== with last result does not return true)
+    onEvaluation = 4 ///< trigger is fired whenever it gets evaluated
   } TriggerMode;
 
 
@@ -1358,7 +1358,7 @@ namespace p44 { namespace P44Script {
     /// @return true if changed.
     bool setTriggerSource(const string aSource, bool aAutoInit = false);
 
-    /// set new trigger holdoff time
+    /// set new trigger mode
     /// @param aHoldOffTime the new holdoff time
     /// @param aAutoInit if set, and holdoff time has actually changed, compileAndInit() will be called
     /// @return true if changed.
@@ -1366,6 +1366,15 @@ namespace p44 { namespace P44Script {
 
     /// @return current holdoff time
     MLMicroSeconds getTriggerHoldoff() { return mHoldOffTime; }
+
+    /// set new trigger holdoff time
+    /// @param aTriggerMode the new trigger mode
+    /// @param aAutoInit if set, and mode has actually changed, compileAndInit() will be called
+    /// @return true if changed.
+    bool setTriggerMode(TriggerMode aTriggerMode, bool aAutoInit = false);
+
+    /// @return current trigger mode
+    TriggerMode getTriggerMode() { return mTriggerMode; }
 
     /// re-initialize the trigger
     /// @return the result of the initialisation run

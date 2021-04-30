@@ -4409,6 +4409,20 @@ bool TriggerSource::setTriggerHoldoff(MLMicroSeconds aHoldOffTime, bool aAutoIni
 }
 
 
+bool TriggerSource::setTriggerMode(TriggerMode aTriggerMode, bool aAutoInit)
+{
+  if (aTriggerMode!=mTriggerMode) {
+    mTriggerMode = aTriggerMode;
+    if (aAutoInit) {
+      compileAndInit();
+    }
+    return true;
+  }
+  return false;
+}
+
+
+
 ScriptObjPtr TriggerSource::compileAndInit()
 {
   CompiledTriggerPtr trigger = boost::dynamic_pointer_cast<CompiledTrigger>(getExecutable());
