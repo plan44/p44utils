@@ -47,9 +47,27 @@ using namespace p44;
 #endif
 
 
+static const char* ledChipNames[LEDChainComm::num_ledchips] = {
+  "none",
+  "WS2811",
+  "WS2812",
+  "WS2813",
+  "WS2815",
+  "P9823",
+  "SK6812"
+};
+
+static const char* ledLayoutNames[LEDChainComm::num_ledlayouts] = {
+  "none",
+  "RGB",
+  "GRB",
+  "RGBW",
+  "GRBW"
+};
+
 
 LEDChainComm::LEDChainComm(
-  LedType aLedType,
+  const string aLedType,
   const string aDeviceName,
   uint16_t aNumLeds,
   uint16_t aLedsPerRow,
@@ -68,13 +86,64 @@ LEDChainComm::LEDChainComm(
   #elif ENABLE_RPIWS281X
   #else
   ,ledFd(-1)
-  ,ledbuffer(NULL)
+  ,rawBuffer(NULL)
+  ,ledBuffer(NULL)
+  ,rawBytes(0)
   #endif
 {
-  // type and device
-  ledType = aLedType;
+  // set defaults
+  ledChip = ledchip_none; // none defined yet
+  ledLayout = ledlayout_none; // none defined yet
+  tMaxPassive_uS = 0;
+  maxRetries = 0;
+  numColorComponents = 3;
+  // Parse led type string
+  // - check legacy type names
+  if (aLedType=="SK6812") {
+    ledChip = ledchip_sk6812;
+    ledLayout = ledlayout_grbw;
+  }
+  else if (aLedType=="P9823") {
+    ledChip = ledchip_p9823;
+    ledLayout = ledlayout_rgb;
+  }
+  else if (aLedType=="WS2815_RGB") {
+    ledChip = ledchip_ws2815;
+    ledLayout = ledlayout_rgb;
+  }
+  else if (aLedType=="WS2812") {
+    ledChip = ledchip_ws2812;
+    ledLayout = ledlayout_grb;
+  }
+  else if (aLedType=="WS2813") {
+    ledChip = ledchip_ws2813;
+    ledLayout = ledlayout_grb;
+  }
+  else {
+    // Modern led definitions
+    // <chip>.<layout>[.<TMaxPassive_uS>[.<maxRetries>]]
+    const char* cP = aLedType.c_str();
+    string part;
+    if (nextPart(cP, part, '.')) {
+      // chip
+      for (int i=0; i<num_ledchips; i++) { if (strucmp(part.c_str(), ledChipNames[i])==0) { ledChip = (LedChip)i; break; } };
+    }
+    if (nextPart(cP, part, '.')) {
+      // layout
+      for (int i=0; i<num_ledlayouts; i++) { if (strucmp(part.c_str(), ledLayoutNames[i])==0) { ledLayout = (LedLayout)i; break; } };
+    }
+    if (nextPart(cP, part, '.')) {
+      // custom TPassive_max_nS
+      tMaxPassive_uS = atoi(part.c_str());
+    }
+    if (nextPart(cP, part, '.')) {
+      // custom maxrepeat
+      maxRetries = atoi(part.c_str());
+    }
+  }
+  // device name/channel
   deviceName = aDeviceName;
-  numColorComponents = ledType==ledtype_sk6812 ? 4 : 3;
+  numColorComponents = ledLayout==ledlayout_grbw || ledLayout==ledlayout_rgbw ? 4 : 3;
   inactiveStartLeds = aInactiveStartLeds;
   inactiveBetweenLeds = aInactiveBetweenLeds;
   inactiveEndLeds = aInactiveEndLeds;
@@ -140,14 +209,27 @@ bool LEDChainComm::begin(size_t aHintAtTotalChains)
         gEsp32_ws281x_initialized = true;
       }
       // add this chain
+      // TODO: refactor low level driver to use separate chip/layout params, too
       Esp_ws281x_LedType elt;
-      switch (ledType) {
-        case ledtype_ws2812 : elt = esp_ledtype_ws2812; break;
-        case ledtype_sk6812 : elt = esp_ledtype_sk6812; break;
-        case ledtype_p9823 : elt = esp_ledtype_p9823; break;
-        case ledtype_ws2815_rgb : elt = esp_ledtype_ws2815_rgb; break;
-        case ledtype_ws281x :
-        default: elt = esp_ledtype_ws2813; break; // most common
+      switch (ledChip) {
+        case ledchip_ws2811:
+        case ledchip_ws2812:
+          elt = esp_ledtype_ws2812;
+          break;
+        case ledchip_sk6812:
+          elt = esp_ledtype_sk6812;
+          break;
+        case ledchip_p9823:
+          elt = esp_ledtype_p9823;
+          break;
+        case ledchip_ws2815:
+          if (ledLayout==ledlayout_rgb) elt = esp_ledtype_ws2815_rgb;
+          else elt = esp_ledtype_ws2813;
+          break;
+        case ledchip_ws2813:
+        default:
+          elt = esp_ledtype_ws2813;
+          break;
       }
       espLedChain = esp_ws281x_newChain(elt, gpioNo, ESP32_LEDCHAIN_MAX_RETRIES);
       if (espLedChain) {
@@ -176,12 +258,12 @@ bool LEDChainComm::begin(size_t aHintAtTotalChains)
       ledstring.channel[0].count = numLeds;
       ledstring.channel[0].invert = GPIO_INVERT;
       ledstring.channel[0].brightness = MAX_BRIGHTNESS;
-      switch (ledType) {
-        case ledtype_sk6812: ledstring.channel[0].strip_type = SK6812_STRIP_RGBW; break; // our SK6812 means RGBW
-        case ledtype_p9823: ledstring.channel[0].strip_type = WS2811_STRIP_RGB; break; // some WS2811 might also use RGB order
-        default: ledstring.channel[0].strip_type = WS2812_STRIP; break; // most common order, such as in WS2812,12B,13
+      // TODO: map more chips/layouts
+      switch (ledChip) {
+        case ledchip_sk6812: ledstring.channel[0].strip_type = ledLayout==ledlayout_rgbw ? SK6812_STRIP_RGBW : SK6812_STRIP_GRBW; break;
+        case ledchip_p9823: ledstring.channel[0].strip_type = WS2811_STRIP_RGB; break; // some WS2811 might also use RGB order
+        default: ledstring.channel[0].strip_type = ledLayout==ledlayout_rgb ? WS2811_STRIP_RGB : WS2811_STRIP_GRB; break;
       }
-      ledstring.channel[0].strip_type = ledType==ledtype_sk6812 ? SK6812_STRIP_RGBW : WS2812_STRIP;
       ledstring.channel[0].leds = NULL; // will be allocated by the library
       // channel 1 - unused
       ledstring.channel[1].gpionum = 0;
@@ -200,12 +282,32 @@ bool LEDChainComm::begin(size_t aHintAtTotalChains)
       }
       #else
       // Allocate led buffer
-      if (ledbuffer) {
-        delete[] ledbuffer;
-        ledbuffer = NULL;
+      if (rawBuffer) {
+        delete[] rawBuffer;
+        rawBuffer = NULL;
+        ledBuffer = NULL;
+        rawBytes = 0;
       }
-      ledbuffer = new uint8_t[numColorComponents*numLeds];
-      memset(ledbuffer, 0, numColorComponents*numLeds);
+      if (ledChip!=ledchip_none) {
+        const int hdrsize = 5; // v6 header size
+        rawBytes = numColorComponents*numLeds+1+hdrsize;
+        rawBuffer = new uint8_t[rawBytes];
+        ledBuffer = rawBuffer+1+hdrsize; // led data starts here
+        // prepare header for p44-ledchain v6 and later compatible drivers
+        rawBuffer[0] = hdrsize; // driver v6 header size
+        rawBuffer[1] = ledLayout;
+        rawBuffer[2] = ledChip;
+        rawBuffer[3] = (tMaxPassive_uS>>8) & 0xFF;
+        rawBuffer[4] = (tMaxPassive_uS) & 0xFF;
+        rawBuffer[5] = maxRetries;
+      }
+      else {
+        // chip not known here: must be legacy driver w/o header
+        rawBytes = numColorComponents*numLeds;
+        rawBuffer = new uint8_t[rawBytes];
+        ledBuffer = rawBuffer;
+      }
+      memset(ledBuffer, 0, numColorComponents*numLeds);
       ledFd = open(deviceName.c_str(), O_RDWR);
       if (ledFd>=0) {
         initialized = true;
@@ -237,7 +339,7 @@ void LEDChainComm::clear()
     #elif ENABLE_RPIWS281X
     for (uint16_t i=0; i<numLeds; i++) ledstring.channel[0].leds[i] = 0;
     #else
-    memset(ledbuffer, 0, numColorComponents*numLeds);
+    memset(ledBuffer, 0, numColorComponents*numLeds);
     #endif
   }
 }
@@ -258,9 +360,11 @@ void LEDChainComm::end()
       // deinitialize library
       ws2811_fini(&ledstring);
       #else
-      if (ledbuffer) {
-        delete[] ledbuffer;
-        ledbuffer = NULL;
+      if (rawBuffer) {
+        delete[] rawBuffer;
+        rawBuffer = NULL;
+        ledBuffer = NULL;
+        rawBytes = 0;
       }
       if (ledFd>=0) {
         close(ledFd);
@@ -283,7 +387,7 @@ void LEDChainComm::show()
     #elif ENABLE_RPIWS281X
     ws2811_render(&ledstring);
     #else
-    write(ledFd, ledbuffer, numLeds*numColorComponents);
+    write(ledFd, rawBuffer, rawBytes); // with header
     #endif
   }
 }
@@ -316,11 +420,11 @@ void LEDChainComm::setColorAtLedIndex(uint16_t aLedIndex, uint8_t aRed, uint8_t 
     }
     ledstring.channel[0].leds[aLedIndex] = pixel;
     #else
-    ledbuffer[numColorComponents*aLedIndex] = r;
-    ledbuffer[numColorComponents*aLedIndex+1] = g;
-    ledbuffer[numColorComponents*aLedIndex+2] = b;
+    ledBuffer[numColorComponents*aLedIndex] = r;
+    ledBuffer[numColorComponents*aLedIndex+1] = g;
+    ledBuffer[numColorComponents*aLedIndex+2] = b;
     if (numColorComponents>3) {
-      ledbuffer[numColorComponents*aLedIndex+3] = w;
+      ledBuffer[numColorComponents*aLedIndex+3] = w;
     }
     #endif
   }
@@ -354,11 +458,11 @@ void LEDChainComm::getColorAtLedIndex(uint16_t aLedIndex, uint8_t &aRed, uint8_t
       aWhite = 0;
     }
     #else
-    aRed = brightnesstable[ledbuffer[numColorComponents*aLedIndex]];
-    aGreen = brightnesstable[ledbuffer[numColorComponents*aLedIndex+1]];
-    aBlue = brightnesstable[ledbuffer[numColorComponents*aLedIndex+2]];
+    aRed = brightnesstable[ledBuffer[numColorComponents*aLedIndex]];
+    aGreen = brightnesstable[ledBuffer[numColorComponents*aLedIndex+1]];
+    aBlue = brightnesstable[ledBuffer[numColorComponents*aLedIndex+2]];
     if (numColorComponents>3) {
-      aWhite = brightnesstable[ledbuffer[numColorComponents*aLedIndex+3]];
+      aWhite = brightnesstable[ledBuffer[numColorComponents*aLedIndex+3]];
     }
     else {
       aWhite = 0;
@@ -576,7 +680,7 @@ void LEDChainArrangement::processCmdlineOptions()
 
 void LEDChainArrangement::addLEDChain(const string &aChainSpec)
 {
-  LEDChainComm::LedType ledType = LEDChainComm::ledtype_ws281x; // assume WS2812/13
+  string ledType = "WS2813.GRB"; // assume WS2812/13
   string deviceName;
   int numleds = 200;
   bool xReversed = false;
@@ -594,7 +698,12 @@ void LEDChainArrangement::addLEDChain(const string &aChainSpec)
   newCover.dy = 1;
   PixelPoint offsets = { 0, 0 };
   // parse chain specification
-  // Syntax: [chaintype:[leddevicename:]]numberOfLeds:[x:dx:y:dy:firstoffset:betweenoffset][XYSA][W#whitecolor]
+  // Syntax: [ledstype:[leddevicename:]]numberOfLeds:[x:dx:y:dy:firstoffset:betweenoffset][XYSA][W#whitecolor]
+  // where:
+  // - ledstype is either a single word for old-style drivers (p44-ledchain before v6) or of the form
+  //   <chip>.<layout>[.<TMaxPassive_uS>] for drivers that allow controlling type directly (p44-ledchain from v6 onwards)
+  //   Usually supported chips are: WS2811, WS2812, WS2813, WS2815, SK6812, P9823
+  //   Uusually supported layouts are: RGB, GRB, RGBW, GRBW
   string part;
   const char *p = aChainSpec.c_str();
   int nmbrcnt = 0;
@@ -605,16 +714,8 @@ void LEDChainArrangement::addLEDChain(const string &aChainSpec)
       if (nmbrcnt==0) {
         // texts before first number
         if (txtcnt==0) {
-          // chain type
-          if (part=="SK6812") {
-            ledType = LEDChainComm::ledtype_sk6812;
-          }
-          else if (part=="P9823") {
-            ledType = LEDChainComm::ledtype_p9823;
-          }
-          else if (part=="WS2815_RGB") {
-            ledType = LEDChainComm::ledtype_ws2815_rgb;
-          }
+          // LEDs type
+          ledType = part;
           txtcnt++;
         }
         else if (txtcnt==1) {

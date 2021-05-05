@@ -72,18 +72,33 @@ namespace p44 {
   public:
 
     typedef enum {
-      ledtype_ws281x,  // RGB (with GRB subpixel order)
-      ledtype_p9823,   // RGB (with RGB subpixel order)
-      ledtype_sk6812,  // RGBW (with RGBW subpixel order)
-      ledtype_ws2812,  // RGB (with GRB subpixel order), shorter reset time
-      ledtype_ws2815_rgb,  // RGB (with RGB subpixel order)
-    } LedType;
+      ledlayout_none, ///< if MSB of LEDCHAIN_PARAM_LEDTYPE is set to this, MSB=layout, LSB=chip
+      ledlayout_rgb,
+      ledlayout_grb,
+      ledlayout_rgbw,
+      ledlayout_grbw,
+      num_ledlayouts
+    } LedLayout;
+
+    typedef enum {
+      ledchip_none,
+      ledchip_ws2811,
+      ledchip_ws2812,
+      ledchip_ws2813,
+      ledchip_ws2815,
+      ledchip_p9823,
+      ledchip_sk6812,
+      num_ledchips
+    } LedChip;
 
   private:
 
     typedef P44Obj inherited;
 
-    LedType ledType; // type of LED in the chain
+    LedChip ledChip; // type of LED chips in the chain
+    LedLayout ledLayout; // color layout in the LED chips
+    uint16_t tMaxPassive_uS; // max passive bit time in uS
+    uint8_t maxRetries; // max number of update retries (for some low level drivers that may need to retry when IRQ hits at the wrong time)
     string deviceName; // the LED device name
     uint16_t inactiveStartLeds; // number of inactive LEDs at the start of the chain
     uint16_t inactiveBetweenLeds; // number of inactive LEDs between physical rows
@@ -109,7 +124,9 @@ namespace p44 {
     ws2811_t ledstring; // the descriptor for the rpi_ws2811 library
     #else
     int ledFd; // the file descriptor for the LED device
-    uint8_t *ledbuffer; // the raw bytes to be sent to the WS2812 device
+    uint8_t *rawBuffer; // the raw bytes to be sent to the WS2812 device
+    size_t rawBytes; // number of bytes to send from ledbuffer, including header
+    uint8_t *ledBuffer; // the first led in the raw buffer (in case there is a header)
     #endif
 
     #if ENABLE_P44LRGRAPHICS
@@ -119,7 +136,7 @@ namespace p44 {
 
   public:
     /// create driver for a WS2812 LED chain
-    /// @param aLedType type of LEDs
+    /// @param aLedType type of LED chips in "<chip>.<layout>[.<TMaxPassive_uS>]" form or just "<ledtypename>"
     /// @param aDeviceName the name of the LED chain device (if any, depends on platform)
     /// - ledchain device: full path like /dev/ledchain1
     /// - ESP32: name must be "gpioX" with X being the output pin to be used
@@ -135,7 +152,7 @@ namespace p44 {
     /// @param aInactiveBetweenLeds number of extra LEDs between rows that are not active
     /// @param aInactiveEndLeds number of LEDs at the end of the chain that are not mapped by this instance (but might be in use by other instances which use this one with setChainDriver())
     LEDChainComm(
-      LedType aLedType,
+      const string aLedType,
       const string aDeviceName,
       uint16_t aNumLeds,
       uint16_t aLedsPerRow=0,
@@ -364,14 +381,16 @@ namespace p44 {
 
     /// - option to construct LEDChainArrangement from command line
     #define CMDLINE_LEDCHAIN_OPTIONS \
-      { 0,   "ledchain",      true,  "[chaintype:[leddevicename:]]numberOfLeds:[x:dx:y:dy:firstoffs:betweenoffs][XYSA][W#whitecolor];" \
-                                     "enable support for LED chains forming one or multiple RGB lights" \
-                                     "\n- chaintype can be WS2812 (GRB, default), SK6812 (RGBW), P9823 (RGB)" \
-                                     "\n- leddevicename can be a device name when chain is driven by a kernel module" \
-                                     "\n- x,dx,y,dy,firstoffs,betweenoffs specify how the chain is mapped to the display space" \
-                                     "\n- XYSA are flags: X or Y: x or y reversed, S: x/y swapped, A: alternating (zigzag)" \
-                                     "\n- #whitecolor is a web color specification for the white channel of RGBW chains" \
-                                     "\nNote: this option can be used multiple times to combine ledchains" }, \
+      { 0,   "ledchain",      true,  "[ledtype:[leddevicename:]]numberOfLeds:[x:dx:y:dy:firstoffs:betweenoffs][XYSA][W#whitecolor];" \
+                                     " enable support for adressable LED chains forming RGB(W) pixel display areas:" \
+                                     "\n- ledtype is of <chip>.<layout> form, or one of WS2812, WS2813, SK6812, P9823 standard types." \
+                                     "\n  Chips: WS2811,WS2812,WS2813,WS2815,SK6812,P9823,none" \
+                                     "\n  Layouts: RGB,GRB,RGBW,GRBW" \
+                                     "\n- leddevicename specifies the hardware output (usually LED device path)" \
+                                     "\n- x,dx,y,dy,firstoffs,betweenoffs specify how the chain is mapped to the display space." \
+                                     "\n- XYSA are flags: X or Y: x or y reversed, S: x/y swapped, A: alternating (zigzag)." \
+                                     "\n- #whitecolor is a web color specification for the white channel of RGBW chains." \
+                                     "\nNote: this option can be used multiple times to combine ledchains." }, \
       { 0,   "ledchainmax",   true,  "max;max output value (0..255) sent to LED. Defaults to 255." }, \
       { 0,   "ledpowerlimit", true,  "max_mW;maximal power in milliwatts the entire LED arrangement is allowed to consume (approximately)." \
                                      "If power would exceed limit, all LEDs are dimmed to stay below limit." \
