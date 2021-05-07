@@ -1138,6 +1138,20 @@ static void setmaxledpower_func(BuiltinFunctionContextPtr f)
 }
 
 
+// setledrefresh(minUpdateInterval, [maxpriorityinterval])
+static const BuiltInArgDesc setledrefresh_args[] = { { numeric }, { numeric|optionalarg } };
+static const size_t setledrefresh_numargs = sizeof(setledrefresh_args)/sizeof(BuiltInArgDesc);
+static void setledrefresh_func(BuiltinFunctionContextPtr f)
+{
+  LEDChainLookup* l = dynamic_cast<LEDChainLookup*>(f->funcObj()->getMemberLookup());
+  l->ledChainArrangement().minUpdateInterval = f->arg(0)->doubleValue()*Second;
+  if (f->arg(1)->defined()) {
+    l->ledChainArrangement().maxPriorityInterval = f->arg(1)->doubleValue()*Second;
+  }
+  f->finish();
+}
+
+
 // setrootview(view)
 static const BuiltInArgDesc setrootview_args[] = { { object } };
 static const size_t setrootview_numargs = sizeof(setrootview_args)/sizeof(BuiltInArgDesc);
@@ -1179,6 +1193,7 @@ static const BuiltinMemberDescriptor ledChainArrangementGlobals[] = {
   { "currentledpower", executable|numeric, 0, NULL, &currentledpower_func },
   { "setmaxledpower", executable, setmaxledpower_numargs, setmaxledpower_args, &setmaxledpower_func },
   { "setrootview", executable, setrootview_numargs, setrootview_args, &setrootview_func },
+  { "setledrefresh", executable, setledrefresh_numargs, setledrefresh_args, &setledrefresh_func },
   { NULL } // terminator
 };
 
