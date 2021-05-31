@@ -60,6 +60,7 @@ using namespace p44;
 
 AnalogIo::AnalogIo(const char* aPinSpec, bool aOutput, double aInitialValue)
 {
+  mLastValue = aInitialValue;
   // save params
   output = aOutput;
   // check for inverting and pullup prefixes
@@ -169,8 +170,53 @@ AnalogIo::~AnalogIo()
 
 double AnalogIo::value()
 {
-  return ioPin->getValue();
+  mLastValue = ioPin->getValue();
+  if (mWindowEvaluator) {
+    mWindowEvaluator->addValue(mLastValue);
+  }
+  return mLastValue;
 }
+
+
+double AnalogIo::lastValue()
+{
+  return mLastValue;
+}
+
+
+double AnalogIo::processedValue()
+{
+  if (!mAutoPollTicket) value(); // not autopolling: update value (and add it to processor if enabled)
+  if (mWindowEvaluator) return mWindowEvaluator->evaluate(); // processed value
+  return mLastValue; // just last raw value
+}
+
+
+void AnalogIo::setFilter(EvaluationType aEvalType, MLMicroSeconds aWindowTime, MLMicroSeconds aDataPointCollTime)
+{
+  mWindowEvaluator.reset();
+  if (aEvalType==eval_none) return;
+  mWindowEvaluator = WindowEvaluatorPtr(new WindowEvaluator(aWindowTime, aDataPointCollTime, aEvalType));
+  value(); // cause initialisation
+}
+
+
+void AnalogIo::setAutopoll(MLMicroSeconds aPollInterval, MLMicroSeconds aTolerance, SimpleCB aPollCB)
+{
+  mAutoPollTicket.cancel();
+  if (aPollInterval<=0) return; // disable polling
+  mAutoPollTicket.executeOnce(boost::bind(&AnalogIo::pollhandler, this, aPollInterval, aTolerance, _1));
+}
+
+
+void AnalogIo::pollhandler(MLMicroSeconds aPollInterval, MLMicroSeconds aTolerance, MLTimer &aTimer)
+{
+  value(); // get (and possibly process) new value
+  if (mPollCB) mPollCB();
+  MainLoop::currentMainLoop().retriggerTimer(aTimer, aPollInterval, aTolerance);
+}
+
+
 
 
 void AnalogIo::setValue(double aValue)
@@ -191,6 +237,16 @@ ValueSetterCB AnalogIo::getValueSetter(double& aCurrentValue)
   aCurrentValue = value();
   return boost::bind(&AnalogIo::setValue, this, _1);
 }
+
+
+ValueAnimatorPtr AnalogIo::animator()
+{
+  double startValue;
+  ValueSetterCB valueSetter = getValueSetter(startValue);
+  ValueAnimatorPtr animator = ValueAnimatorPtr(new ValueAnimator(valueSetter, true)); // self-timed
+  return animator->from(startValue);
+}
+
 
 
 #if ENABLE_ANALOGIO_COLOR_SUPPORT
@@ -387,5 +443,365 @@ void AnalogColorOutput::rgbComponentSetter(double* aColorComponentP, double aNew
   outputRGB();
 }
 
+
+ValueAnimatorPtr AnalogColorOutput::animatorFor(const string aComponent)
+{
+  double startValue;
+  ValueSetterCB valueSetter = getColorComponentSetter(aComponent, startValue);
+  ValueAnimatorPtr animator = ValueAnimatorPtr(new ValueAnimator(valueSetter, true)); // self-timed
+  return animator->from(startValue);
+}
+
+
 #endif // ENABLE_ANALOGIO_COLOR_SUPPORT
 
+// MARK: - script support
+
+#if ENABLE_ANALOGIO_SCRIPT_FUNCS  && ENABLE_P44SCRIPT
+
+using namespace P44Script;
+
+AnalogInputEventObj::AnalogInputEventObj(AnalogIoObj* aAnalogIoObj) :
+  inherited(0),
+  mAnalogIoObj(aAnalogIoObj)
+{
+}
+
+
+string AnalogInputEventObj::getAnnotation() const
+{
+  return "analog input value";
+}
+
+
+TypeInfo AnalogInputEventObj::getTypeInfo() const
+{
+  return inherited::getTypeInfo()|oneshot|keeporiginal; // returns the request only once, must keep the original
+}
+
+
+EventSource* AnalogInputEventObj::eventSource() const
+{
+  return static_cast<EventSource*>(mAnalogIoObj);
+}
+
+
+double AnalogInputEventObj::doubleValue() const
+{
+  return mAnalogIoObj && mAnalogIoObj->analogIo()->processedValue();
+}
+
+
+
+
+// range()
+static void range_func(BuiltinFunctionContextPtr f)
+{
+  AnalogIoObj* a = dynamic_cast<AnalogIoObj*>(f->thisObj().get());
+  assert(a);
+  // return range
+  double min;
+  double max;
+  double res;
+  a->analogIo()->getRange(min, max, res);
+  JsonObjectPtr j = JsonObject::newObj();
+  j->add("min", JsonObject::newDouble(min));
+  j->add("max", JsonObject::newDouble(max));
+  j->add("resolution", JsonObject::newDouble(res));
+  f->finish(new JsonValue(j));
+}
+
+
+// animator()
+static void animator_func(BuiltinFunctionContextPtr f)
+{
+  AnalogIoObj* a = dynamic_cast<AnalogIoObj*>(f->thisObj().get());
+  assert(a);
+  f->finish(new ValueAnimatorObj(a->analogIo()->animator()));
+}
+
+
+
+// value() // get value
+// value(val) // set value
+static const BuiltInArgDesc value_args[] = { { numeric|optionalarg } };
+static const size_t value_numargs = sizeof(value_args)/sizeof(BuiltInArgDesc);
+static void value_func(BuiltinFunctionContextPtr f)
+{
+  AnalogIoObj* a = dynamic_cast<AnalogIoObj*>(f->thisObj().get());
+  assert(a);
+  if (f->numArgs()>0) {
+    // set new analog value
+    a->analogIo()->setValue(f->arg(0)->doubleValue());
+    f->finish();
+  }
+  else {
+    // return current value as triggerable event
+    f->finish(new AnalogInputEventObj(a));
+  }
+}
+
+
+// poll(interval [, tolerance])
+// poll()
+static const BuiltInArgDesc poll_args[] = { { numeric|optionalarg }, { numeric|optionalarg } };
+static const size_t poll_numargs = sizeof(poll_args)/sizeof(BuiltInArgDesc);
+static void poll_func(BuiltinFunctionContextPtr f)
+{
+  AnalogIoObj* a = dynamic_cast<AnalogIoObj*>(f->thisObj().get());
+  assert(a);
+  if (f->arg(0)->doubleValue()<=0) {
+    // null, undefined, <=0 cancels polling
+    a->analogIo()->setAutopoll(0);
+  }
+  else {
+    MLMicroSeconds interval = f->arg(0)->doubleValue()*Second;
+    MLMicroSeconds tolerance = 0;
+    if (f->numArgs()>=1) tolerance = f->arg(0)->doubleValue()*Second;
+    a->analogIo()->setAutopoll(interval, tolerance, boost::bind(&AnalogIoObj::valueUpdated, a));
+  }
+  f->finish();
+}
+
+void AnalogIoObj::valueUpdated()
+{
+  if (hasSinks()) {
+    // Note: we do not actually read the value here, this will happen only when value() is called
+    //   as a consequence of this event being sent
+    sendEvent(new AnalogInputEventObj(this));
+  }
+}
+
+
+// filter(type, [interval [, colltime]])
+static const BuiltInArgDesc filter_args[] = { { text }, { numeric|optionalarg }, { numeric|optionalarg } };
+static const size_t filter_numargs = sizeof(filter_args)/sizeof(BuiltInArgDesc);
+static void filter_func(BuiltinFunctionContextPtr f)
+{
+  AnalogIoObj* a = dynamic_cast<AnalogIoObj*>(f->thisObj().get());
+  assert(a);
+  string ty = f->arg(0)->stringValue();
+  EvaluationType ety = eval_none;
+  if (uequals(ty,"average")) ety = eval_timeweighted_average;
+  else if (uequals(ty,"simpleaverage")) ety = eval_average;
+  else if (uequals(ty,"min")) ety = eval_min;
+  else if (uequals(ty,"max")) ety = eval_max;
+  MLMicroSeconds windowtime = 10*Second; // default to 10 second processing window
+  if (f->arg(1)->defined()) windowtime = f->arg(1)->doubleValue()*Second;
+  MLMicroSeconds colltime = windowtime/20; // default to 1/20 of the processing window
+  if (f->arg(2)->defined()) colltime = f->arg(2)->doubleValue()*Second;
+  a->analogIo()->setFilter(ety, windowtime, colltime);
+  f->finish();
+}
+
+
+static const BuiltinMemberDescriptor analogioFunctions[] = {
+  { "value", executable|numeric, value_numargs, value_args, &value_func },
+  { "range", executable|object, 0, NULL, &range_func },
+  { "animator", executable|object, 0, NULL, &animator_func },
+  { "poll", executable|null, poll_numargs, poll_args, &poll_func },
+  { "filter", executable|null, filter_numargs, filter_args, &filter_func },
+  { NULL } // terminator
+};
+
+static BuiltInMemberLookup* sharedAnalogIoFunctionLookupP = NULL;
+
+AnalogIoObj::AnalogIoObj(AnalogIoPtr aAnalogIo) :
+  mAnalogIo(aAnalogIo)
+{
+  registerSharedLookup(sharedAnalogIoFunctionLookupP, analogioFunctions);
+}
+
+
+// analogio(pinspec, isOutput [, initialValue])
+static const BuiltInArgDesc analogio_args[] = { { text }, { numeric }, { numeric|optionalarg } };
+static const size_t analogio_numargs = sizeof(analogio_args)/sizeof(BuiltInArgDesc);
+static void analogio_func(BuiltinFunctionContextPtr f)
+{
+  bool out = f->arg(1)->boolValue();
+  double v = 0;
+  if (f->arg(2)->defined()) v = f->arg(2)->doubleValue();
+  AnalogIoPtr analogio = new AnalogIo(f->arg(0)->stringValue().c_str(), out, v);
+  f->finish(new AnalogIoObj(analogio));
+}
+
+#if ENABLE_ANALOGIO_COLOR_SUPPORT
+
+// animator(property)
+static const BuiltInArgDesc animatorfor_args[] = { { text } };
+static const size_t animatorfor_numargs = sizeof(animatorfor_args)/sizeof(BuiltInArgDesc);
+static void animatorfor_func(BuiltinFunctionContextPtr f)
+{
+  AnalogColorOutputObj* c = dynamic_cast<AnalogColorOutputObj*>(f->thisObj().get());
+  assert(c);
+  f->finish(new ValueAnimatorObj(c->colorOutput()->animatorFor(f->arg(0)->stringValue())));
+}
+
+
+// setcolor(hue, saturation)
+// setcolor(webcolor)
+static const BuiltInArgDesc setcolor_args[] = { { text|numeric }, { numeric|optionalarg } };
+static const size_t setcolor_numargs = sizeof(setcolor_args)/sizeof(BuiltInArgDesc);
+static void setcolor_func(BuiltinFunctionContextPtr f)
+{
+  AnalogColorOutputObj* c = dynamic_cast<AnalogColorOutputObj*>(f->thisObj().get());
+  assert(c);
+  if (f->numArgs()<2) {
+    // set color via web color
+    PixelColor col = webColorToPixel(f->arg(0)->stringValue());
+    Row3 rgb;
+    pixelToRGB(col, rgb);
+    c->colorOutput()->setRGB(rgb);
+  }
+  else {
+    c->colorOutput()->setColor(f->arg(0)->doubleValue(), f->arg(1)->doubleValue());
+  }
+  f->finish();
+}
+
+
+// setbrightness(brightness)
+static const BuiltInArgDesc setbrightness_args[] = { { numeric } };
+static const size_t setbrightness_numargs = sizeof(setbrightness_args)/sizeof(BuiltInArgDesc);
+static void setbrightness_func(BuiltinFunctionContextPtr f)
+{
+  AnalogColorOutputObj* c = dynamic_cast<AnalogColorOutputObj*>(f->thisObj().get());
+  assert(c);
+  c->colorOutput()->setBrightness(f->arg(0)->doubleValue());
+  f->finish();
+}
+
+
+// powerlimit(brightness)
+static const BuiltInArgDesc powerlimit_args[] = { { numeric|optionalarg } };
+static const size_t powerlimit_numargs = sizeof(powerlimit_args)/sizeof(BuiltInArgDesc);
+static void powerlimit_func(BuiltinFunctionContextPtr f)
+{
+  AnalogColorOutputObj* c = dynamic_cast<AnalogColorOutputObj*>(f->thisObj().get());
+  assert(c);
+  if (f->numArgs()==0) {
+    f->finish(new NumericValue(c->colorOutput()->getPowerLimit()));
+  }
+  else {
+    c->colorOutput()->setPowerLimit(f->arg(0)->intValue());
+    f->finish();
+  }
+}
+
+
+// neededpower()
+static void neededpower_func(BuiltinFunctionContextPtr f)
+{
+  AnalogColorOutputObj* c = dynamic_cast<AnalogColorOutputObj*>(f->thisObj().get());
+  assert(c);
+  f->finish(new NumericValue(c->colorOutput()->getNeededPower()));
+}
+
+
+// currentpower()
+static void currentpower_func(BuiltinFunctionContextPtr f)
+{
+  AnalogColorOutputObj* c = dynamic_cast<AnalogColorOutputObj*>(f->thisObj().get());
+  assert(c);
+  f->finish(new NumericValue(c->colorOutput()->getCurrentPower()));
+}
+
+
+// whitecolor(pixelcolor)
+// ambercolor(pixelcolor)
+static const BuiltInArgDesc chcolor_args[] = { { text } };
+static const size_t chcolor_numargs = sizeof(chcolor_args)/sizeof(BuiltInArgDesc);
+static void whitecolor_func(BuiltinFunctionContextPtr f)
+{
+  AnalogColorOutputObj* c = dynamic_cast<AnalogColorOutputObj*>(f->thisObj().get());
+  assert(c);
+  PixelColor col = webColorToPixel(f->arg(0)->stringValue());
+  pixelToRGB(col, c->colorOutput()->whiteRGB);
+  f->finish();
+}
+static void ambercolor_func(BuiltinFunctionContextPtr f)
+{
+  AnalogColorOutputObj* c = dynamic_cast<AnalogColorOutputObj*>(f->thisObj().get());
+  assert(c);
+  PixelColor col = webColorToPixel(f->arg(0)->stringValue());
+  pixelToRGB(col, c->colorOutput()->amberRGB);
+  f->finish();
+}
+
+
+// setoutputchannelpower(milliwatt) // for all channels
+// setoutputchannelpower(r,g,b [,w [,a]]) // separately
+static const BuiltInArgDesc setoutputchannelpower_args[] = { { numeric }, { numeric|optionalarg }, { numeric|optionalarg }, { numeric|optionalarg }, { numeric|optionalarg }};
+static const size_t setoutputchannelpower_numargs = sizeof(setoutputchannelpower_args)/sizeof(BuiltInArgDesc);
+static void setoutputchannelpower_func(BuiltinFunctionContextPtr f)
+{
+  AnalogColorOutputObj* c = dynamic_cast<AnalogColorOutputObj*>(f->thisObj().get());
+  assert(c);
+  if (f->numArgs()==1) {
+    for (int i=0; i<5; i++) c->colorOutput()->mOutputMilliWatts[i] = f->arg(0)->intValue();
+  }
+  else {
+    for (int i=0; i<f->numArgs(); i++) {
+      c->colorOutput()->mOutputMilliWatts[i] = f->arg(i)->intValue();
+    }
+  }
+  f->finish();
+}
+
+
+static const BuiltinMemberDescriptor coloroutputFunctions[] = {
+  { "animator", executable|object, animatorfor_numargs, animatorfor_args, &animatorfor_func },
+  { "setcolor", executable|null, setcolor_numargs, setcolor_args, &setcolor_func },
+  { "setbrightness", executable|null, setbrightness_numargs, setbrightness_args, &setbrightness_func },
+  { "powerlimit", executable|numeric|null, powerlimit_numargs, powerlimit_args, &powerlimit_func },
+  { "neededpower", executable|numeric, NULL, 0, &neededpower_func },
+  { "currentpower", executable|numeric, NULL, 0, &currentpower_func },
+  { "whitecolor", executable|null, chcolor_numargs, chcolor_args, &whitecolor_func },
+  { "ambercolor", executable|null, chcolor_numargs, chcolor_args, &ambercolor_func },
+  { "setoutputchannelpower", executable|null, setoutputchannelpower_numargs, setoutputchannelpower_args, &setoutputchannelpower_func },
+  { NULL } // terminator
+};
+
+static BuiltInMemberLookup* sharedColorOutputFunctionLookupP = NULL;
+
+AnalogColorOutputObj::AnalogColorOutputObj(AnalogColorOutputPtr aColorOutput) :
+  mColorOutput(aColorOutput)
+{
+  registerSharedLookup(sharedColorOutputFunctionLookupP, coloroutputFunctions);
+}
+
+
+// analogcoloroutput(redpinspec, greenpinspec, bluepinspec [[, whitepinspec [, amberpinspec])
+static const BuiltInArgDesc coloroutput_args[] = { { text }, { text }, { text }, { text|optionalarg }, { text|optionalarg } };
+static const size_t coloroutput_numargs = sizeof(coloroutput_args)/sizeof(BuiltInArgDesc);
+static void coloroutput_func(BuiltinFunctionContextPtr f)
+{
+  AnalogIoPtr red = new AnalogIo(f->arg(0)->stringValue().c_str(), true, 0);
+  AnalogIoPtr green = new AnalogIo(f->arg(1)->stringValue().c_str(), true, 0);
+  AnalogIoPtr blue = new AnalogIo(f->arg(2)->stringValue().c_str(), true, 0);
+  AnalogIoPtr white;
+  AnalogIoPtr amber;
+  if (f->arg(3)->defined()) white = new AnalogIo(f->arg(3)->stringValue().c_str(), true, 0);
+  if (f->arg(4)->defined()) amber = new AnalogIo(f->arg(3)->stringValue().c_str(), true, 0);
+  AnalogColorOutputPtr colorOutput = new AnalogColorOutput(red, green, blue, white, amber);
+  f->finish(new AnalogColorOutputObj(colorOutput));
+}
+
+#endif // ENABLE_ANALOGIO_COLOR_SUPPORT
+
+
+
+static const BuiltinMemberDescriptor analogioGlobals[] = {
+  { "analogio", executable|null, analogio_numargs, analogio_args, &analogio_func },
+  #if ENABLE_ANALOGIO_COLOR_SUPPORT
+  { "analogcoloroutput", executable|null, coloroutput_numargs, coloroutput_args, &coloroutput_func },
+  #endif
+  { NULL } // terminator
+};
+
+AnalogIoLookup::AnalogIoLookup() :
+  inherited(analogioGlobals)
+{
+}
+
+#endif // ENABLE_ANALOGIO_SCRIPT_FUNCS  && ENABLE_P44SCRIPT
