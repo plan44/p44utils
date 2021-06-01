@@ -22,8 +22,224 @@
 #include <math.h>
 
 #include "colorutils.hpp"
+#include "utils.hpp"
 
 using namespace p44;
+
+// MARK: - pixel color utilities
+
+PixelColorComponent p44::dimVal(PixelColorComponent aVal, uint16_t aDim)
+{
+  uint32_t d = (aDim+1)*aVal;
+  if (d>0xFFFF) return 0xFF;
+  return d>>8;
+}
+
+
+void p44::dimPixel(PixelColor &aPix, uint16_t aDim)
+{
+  if (aDim==255) return; // 100% -> NOP
+  aPix.r = dimVal(aPix.r, aDim);
+  aPix.g = dimVal(aPix.g, aDim);
+  aPix.b = dimVal(aPix.b, aDim);
+}
+
+
+PixelColor p44::dimmedPixel(const PixelColor aPix, uint16_t aDim)
+{
+  PixelColor pix = aPix;
+  dimPixel(pix, aDim);
+  return pix;
+}
+
+
+void p44::alpahDimPixel(PixelColor &aPix)
+{
+  if (aPix.a!=255) {
+    dimPixel(aPix, aPix.a);
+  }
+}
+
+
+void p44::reduce(uint8_t &aByte, uint8_t aAmount, uint8_t aMin)
+{
+  int r = aByte-aAmount;
+  if (r<aMin)
+    aByte = aMin;
+  else
+    aByte = (uint8_t)r;
+}
+
+
+void p44::increase(uint8_t &aByte, uint8_t aAmount, uint8_t aMax)
+{
+  int r = aByte+aAmount;
+  if (r>aMax)
+    aByte = aMax;
+  else
+    aByte = (uint8_t)r;
+}
+
+
+void p44::overlayPixel(PixelColor &aPixel, PixelColor aOverlay)
+{
+  if (aOverlay.a==255) {
+    aPixel = aOverlay;
+  }
+  else {
+    // mix in
+    // - reduce original by alpha of overlay
+    aPixel = dimmedPixel(aPixel, 255-aOverlay.a);
+    // - reduce overlay by its own alpha
+    aOverlay = dimmedPixel(aOverlay, aOverlay.a);
+    // - add in
+    addToPixel(aPixel, aOverlay);
+  }
+  aPixel.a = 255; // result is never transparent
+}
+
+
+void p44::mixinPixel(PixelColor &aMainPixel, PixelColor aOutsidePixel, PixelColorComponent aAmountOutside)
+{
+  if (aAmountOutside>0) {
+    if (aMainPixel.a!=255 || aOutsidePixel.a!=255) {
+      // mixed transparency
+      PixelColorComponent alpha = dimVal(aMainPixel.a, pwmToBrightness(255-aAmountOutside)) + dimVal(aOutsidePixel.a, pwmToBrightness(aAmountOutside));
+      if (alpha>0) {
+        // calculation only needed for non-transparent result
+        // - alpha boost compensates for energy
+        uint16_t ab = 65025/alpha;
+        // Note: aAmountOutside is on the energy scale, not brightness, so need to add in PWM scale!
+        uint16_t r_e = ( (((uint16_t)brightnessToPwm(dimVal(aMainPixel.r, aMainPixel.a))+1)*(255-aAmountOutside)) + (((uint16_t)brightnessToPwm(dimVal(aOutsidePixel.r, aOutsidePixel.a))+1)*(aAmountOutside)) )>>8;
+        uint16_t g_e = ( (((uint16_t)brightnessToPwm(dimVal(aMainPixel.g, aMainPixel.a))+1)*(255-aAmountOutside)) + (((uint16_t)brightnessToPwm(dimVal(aOutsidePixel.g, aOutsidePixel.a))+1)*(aAmountOutside)) )>>8;
+        uint16_t b_e = ( (((uint16_t)brightnessToPwm(dimVal(aMainPixel.b, aMainPixel.a))+1)*(255-aAmountOutside)) + (((uint16_t)brightnessToPwm(dimVal(aOutsidePixel.b, aOutsidePixel.a))+1)*(aAmountOutside)) )>>8;
+        // - back to brightness, add alpha boost
+        uint16_t r = (((uint16_t)pwmToBrightness(r_e)+1)*ab)>>8;
+        uint16_t g = (((uint16_t)pwmToBrightness(g_e)+1)*ab)>>8;
+        uint16_t b = (((uint16_t)pwmToBrightness(b_e)+1)*ab)>>8;
+        // - check max brightness
+        uint16_t m = r; if (g>m) m = g; if (b>m) m = b;
+        if (m>255) {
+          // more brightness requested than we have
+          // - scale down to make max=255
+          uint16_t cr = 65025/m;
+          r = (r*cr)>>8;
+          g = (g*cr)>>8;
+          b = (b*cr)>>8;
+          // - increase alpha by reduction of components
+          alpha = (((uint16_t)alpha+1)*m)>>8;
+          aMainPixel.r = r>255 ? 255 : r;
+          aMainPixel.g = g>255 ? 255 : g;
+          aMainPixel.b = b>255 ? 255 : b;
+          aMainPixel.a = alpha;
+        }
+        else {
+          // brightness below max, just convert back
+          aMainPixel.r = r;
+          aMainPixel.g = g;
+          aMainPixel.b = b;
+          aMainPixel.a = alpha;
+        }
+      }
+      else {
+        // resulting alpha is 0, fully transparent pixel
+        aMainPixel = transparent;
+      }
+    }
+    else {
+      // no transparency on either side, simplified case
+      uint16_t r_e = ( (((uint16_t)brightnessToPwm(aMainPixel.r)+1)*(255-aAmountOutside)) + (((uint16_t)brightnessToPwm(aOutsidePixel.r)+1)*(aAmountOutside)) )>>8;
+      uint16_t g_e = ( (((uint16_t)brightnessToPwm(aMainPixel.g)+1)*(255-aAmountOutside)) + (((uint16_t)brightnessToPwm(aOutsidePixel.g)+1)*(aAmountOutside)) )>>8;
+      uint16_t b_e = ( (((uint16_t)brightnessToPwm(aMainPixel.b)+1)*(255-aAmountOutside)) + (((uint16_t)brightnessToPwm(aOutsidePixel.b)+1)*(aAmountOutside)) )>>8;
+      aMainPixel.r = r_e>255 ? 255 : pwmToBrightness(r_e);
+      aMainPixel.g = g_e>255 ? 255 : pwmToBrightness(g_e);
+      aMainPixel.b = b_e>255 ? 255 : pwmToBrightness(b_e);
+      aMainPixel.a = 255;
+    }
+  }
+}
+
+
+void p44::addToPixel(PixelColor &aPixel, PixelColor aPixelToAdd)
+{
+  increase(aPixel.r, aPixelToAdd.r);
+  increase(aPixel.g, aPixelToAdd.g);
+  increase(aPixel.b, aPixelToAdd.b);
+}
+
+
+PixelColor p44::hsbToPixel(double aHue, double aSaturation, double aBrightness, bool aBrightnessAsAlpha)
+{
+  PixelColor p;
+  Row3 RGB, HSV = { aHue, aSaturation, aBrightnessAsAlpha ? 1.0 : aBrightness };
+  HSVtoRGB(HSV, RGB);
+  p.r = RGB[0]*255;
+  p.g = RGB[1]*255;
+  p.b = RGB[2]*255;
+  p.a = aBrightnessAsAlpha ? aBrightness*255: 255;
+  return p;
+}
+
+
+void p44::pixelToHsb(PixelColor aPixelColor, double &aHue, double &aSaturation, double &aBrightness, bool aIncludeAlphaIntoBrightness)
+{
+  Row3 HSV, RGB = { (double)aPixelColor.r/255, (double)aPixelColor.g/255, (double)aPixelColor.b/255 };
+  RGBtoHSV(RGB, HSV);
+  aHue = HSV[0];
+  aSaturation = HSV[1];
+  if (aIncludeAlphaIntoBrightness)
+    aBrightness = HSV[2]*aPixelColor.a/255;
+  else
+    aBrightness = HSV[2];
+}
+
+
+PixelColor p44::webColorToPixel(const string aWebColor)
+{
+  PixelColor res = transparent;
+  size_t i = 0;
+  size_t n = aWebColor.size();
+  if (n>0 && aWebColor[0]=='#') { i++; n--; } // skip optional #
+  uint32_t h;
+  if (sscanf(aWebColor.c_str()+i, "%x", &h)==1) {
+    if (n<=4) {
+      // short form RGB or ARGB
+      res.a = 255;
+      if (n==4) { res.a = (h>>12)&0xF; res.a |= res.a<<4; }
+      res.r = (h>>8)&0xF; res.r |= res.r<<4;
+      res.g = (h>>4)&0xF; res.g |= res.g<<4;
+      res.b = (h>>0)&0xF; res.b |= res.b<<4;
+    }
+    else {
+      // long form RRGGBB or AARRGGBB
+      res.a = 255;
+      if (n==8) { res.a = (h>>24)&0xFF; }
+      res.r = (h>>16)&0xFF;
+      res.g = (h>>8)&0xFF;
+      res.b = (h>>0)&0xFF;
+    }
+  }
+  return res;
+}
+
+
+string p44::pixelToWebColor(const PixelColor aPixelColor)
+{
+  string w;
+  if (aPixelColor.a!=255) string_format_append(w, "%02X", aPixelColor.a);
+  string_format_append(w, "%02X%02X%02X", aPixelColor.r, aPixelColor.g, aPixelColor.b);
+  return w;
+}
+
+
+void p44::pixelToRGB(PixelColor aPixelColor, Row3 &aRGB)
+{
+  aRGB[0] = ((double)aPixelColor.r * aPixelColor.a)/255/255;
+  aRGB[1] = ((double)aPixelColor.g * aPixelColor.a)/255/255;
+  aRGB[2] = ((double)aPixelColor.b * aPixelColor.a)/255/255;
+}
+
+
 
 // MARK: - color space conversions
 
