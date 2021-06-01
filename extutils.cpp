@@ -63,3 +63,125 @@ ErrorPtr p44::string_tofile(const string aFilePath, const string &aData)
 }
 
 #endif // !ESP_PLATFORM
+
+
+// MARK: - WindowEvaluator
+
+
+WindowEvaluator::WindowEvaluator(MLMicroSeconds aWindowTime, MLMicroSeconds aDataPointCollTime, EvaluationType aEvalType) :
+  windowTime(aWindowTime),
+  dataPointCollTime(aDataPointCollTime),
+  evalType(aEvalType)
+{
+}
+
+
+
+
+void WindowEvaluator::addValue(double aValue, MLMicroSeconds aTimeStamp)
+{
+  if (aTimeStamp==Never) aTimeStamp = MainLoop::now();
+  // clean away outdated datapoints
+  while (!dataPoints.empty()) {
+    if (dataPoints.front().timestamp<aTimeStamp-windowTime) {
+      // this one is outdated (lies more than windowTime in the past), remove it
+      dataPoints.pop_front();
+    }
+    else {
+      break;
+    }
+  }
+  // add new value
+  if (!dataPoints.empty()) {
+    // check if we should collect into last existing datapoint
+    DataPoint &last = dataPoints.back();
+    if (collStart+dataPointCollTime>aTimeStamp) {
+      // still in collection time window (from start of datapoint collection
+      switch (evalType) {
+        case eval_max: {
+          if (aValue>last.value) last.value = aValue;
+          break;
+        }
+        case eval_min: {
+          if (aValue<last.value) last.value = aValue;
+          break;
+        }
+        case eval_timeweighted_average: {
+          MLMicroSeconds timeWeight = aTimeStamp-last.timestamp; // between last subdatapoint collected into this datapoint and new timestamp
+          if (collDivisor<=0 || timeWeight<=0) { // 0 or negative timeweight should not happen, safety only!
+            // first section
+            last.value = (last.value + aValue)/2;
+            collDivisor = timeWeight;
+          }
+          else {
+            double v = (last.value*collDivisor + aValue*timeWeight);
+            collDivisor += timeWeight;
+            last.value = v/collDivisor;
+          }
+          break;
+        }
+        case eval_average:
+        default: {
+          if (collDivisor<=0) collDivisor = 1;
+          double v = (last.value*collDivisor+aValue);
+          collDivisor++;
+          last.value = v/collDivisor;
+          break;
+        }
+      }
+      last.timestamp = aTimeStamp; // timestamp represents most recent sample in datapoint
+      return; // done
+    }
+  }
+  // accumulation of value in previous datapoint complete (or none available at all)
+  // -> start new datapoint
+  DataPoint dp;
+  dp.value = aValue;
+  dp.timestamp = aTimeStamp;
+  dataPoints.push_back(dp);
+  collStart = aTimeStamp;
+  collDivisor = 0;
+}
+
+
+double WindowEvaluator::evaluate()
+{
+  double result = 0;
+  double divisor = 0;
+  int count = 0;
+  MLMicroSeconds lastTs = Never;
+  for (DataPointsList::iterator pos = dataPoints.begin(); pos != dataPoints.end(); ++pos) {
+    switch (evalType) {
+      case eval_max: {
+        if (count==0 || pos->value>result) result = pos->value;
+        divisor = 1;
+        break;
+      }
+      case eval_min: {
+        if (count==0 || pos->value<result) result = pos->value;
+        divisor = 1;
+        break;
+      }
+      case eval_timeweighted_average: {
+        if (count==0) {
+          // the first datapoint's time weight reaches back to beginning of window
+          lastTs = dataPoints.back().timestamp-windowTime;
+        }
+        MLMicroSeconds timeWeight = pos->timestamp-lastTs;
+        result += pos->value*timeWeight;
+        divisor += timeWeight;
+        // next datapoint's time weight will reach back to this datapoint's time
+        lastTs = pos->timestamp;
+        break;
+      }
+      case eval_average:
+      default: {
+        result += pos->value;
+        divisor++;
+        break;
+      }
+    }
+    count++;
+  }
+  return divisor ? result/divisor : 0;
+}
