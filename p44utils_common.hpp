@@ -47,6 +47,7 @@
   #define __printflike_template(...) __printflike(__VA_ARGS__)
 #endif
 
+#include "p44utils_defs.hpp"
 #include "p44obj.hpp"
 #include "logger.hpp"
 #include "utils.hpp"

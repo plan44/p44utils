@@ -23,6 +23,7 @@
 #define __p44utils__utils__
 
 #include "p44utils_minimal.hpp"
+#include "p44utils_defs.hpp"
 
 #include <string>
 #include <stdarg.h>
@@ -39,14 +40,6 @@ using namespace std;
 /// @note utilities that depends on p44::Error or other p44utils classes are in "extutils"
 
 namespace p44 {
-
-  /// tristate type
-  typedef enum {
-    yes = 1,
-    no = 0,
-    undefined = -1
-  } Tristate;
-
 
   /// printf-style format into std::string
   /// @param aFormat printf-style format string

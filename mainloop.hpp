@@ -61,18 +61,6 @@ namespace p44 {
   typedef boost::intrusive_ptr<MainLoop> MainLoopPtr;
   typedef boost::intrusive_ptr<ChildThreadWrapper> ChildThreadWrapperPtr;
 
-  // Mainloop timing unit
-  typedef long long MLMicroSeconds; ///< Mainloop time in microseconds
-  const MLMicroSeconds Never = 0;
-  const MLMicroSeconds Infinite = -1;
-  const MLMicroSeconds MicroSecond = 1;
-  const MLMicroSeconds MilliSecond = 1000;
-  const MLMicroSeconds Second = 1000*MilliSecond;
-  const MLMicroSeconds Minute = 60*Second;
-  const MLMicroSeconds Hour = 60*Minute;
-  const MLMicroSeconds Day = 24*Hour;
-
-
   /// subthread/maintthread communication signals (sent via pipe)
   enum {
     threadSignalNone,
