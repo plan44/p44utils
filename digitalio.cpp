@@ -375,3 +375,236 @@ void IndicatorOutput::timer(MLTimer &aTimer)
     MainLoop::currentMainLoop().retriggerTimer(aTimer, nextTimedState ? blinkOffTime : blinkOnTime);
   }
 }
+
+
+// MARK: - script support
+
+#if ENABLE_DIGITALIO_SCRIPT_FUNCS  && ENABLE_P44SCRIPT
+
+using namespace P44Script;
+
+DigitalInputEventObj::DigitalInputEventObj(DigitalIoObj* aDigitalIoObj) :
+  inherited(false),
+  mDigitalIoObj(aDigitalIoObj)
+{
+}
+
+
+string DigitalInputEventObj::getAnnotation() const
+{
+  return "input event";
+}
+
+
+TypeInfo DigitalInputEventObj::getTypeInfo() const
+{
+  return inherited::getTypeInfo()|oneshot|keeporiginal; // returns the request only once, must keep the original
+}
+
+
+EventSource* DigitalInputEventObj::eventSource() const
+{
+  return static_cast<EventSource*>(mDigitalIoObj);
+}
+
+
+double DigitalInputEventObj::doubleValue() const
+{
+  return mDigitalIoObj && mDigitalIoObj->digitalIo()->isSet() ? 1 : 0;
+}
+
+
+
+// detectchanges([debouncetime [, pollinterval]])
+// detectchanges(null)
+static const BuiltInArgDesc detectchanges_args[] = { { numeric|optionalarg }, { numeric|optionalarg } };
+static const size_t detectchanges_numargs = sizeof(detectchanges_args)/sizeof(BuiltInArgDesc);
+static void detectchanges_func(BuiltinFunctionContextPtr f)
+{
+  DigitalIoObj* d = dynamic_cast<DigitalIoObj*>(f->thisObj().get());
+  assert(d);
+  MLMicroSeconds debounce = 0; // no debouncing by default
+  MLMicroSeconds pollinterval = 0; // default polling interval (or no polling if pin has edge detection)
+  if (f->numArgs()==1 && f->arg(0)->undefined()) {
+    // stop polling
+    d->digitalIo()->setInputChangedHandler(NULL,0,0);
+    f->finish();
+  }
+  else {
+    // start polling and debouncing
+    if (f->arg(0)->defined()) debounce = f->arg(0)->doubleValue()*Second;
+    if (f->arg(1)->defined()) pollinterval = f->arg(0)->doubleValue()*Second;
+    bool works = d->digitalIo()->setInputChangedHandler(boost::bind(&DigitalIoObj::inputChanged, d, _1), debounce, pollinterval);
+    f->finish(new NumericValue(works));
+  }
+}
+
+void DigitalIoObj::inputChanged(bool aNewState)
+{
+  if (hasSinks()) sendEvent(new DigitalInputEventObj(this));
+}
+
+
+// toggle()
+static void toggle_func(BuiltinFunctionContextPtr f)
+{
+  DigitalIoObj* d = dynamic_cast<DigitalIoObj*>(f->thisObj().get());
+  assert(d);
+  d->digitalIo()->toggle();
+  f->finish();
+}
+
+
+// state() // get state (has event source)
+// state(newstate) // set state
+static const BuiltInArgDesc state_args[] = { { numeric|optionalarg } };
+static const size_t state_numargs = sizeof(state_args)/sizeof(BuiltInArgDesc);
+static void state_func(BuiltinFunctionContextPtr f)
+{
+  DigitalIoObj* d = dynamic_cast<DigitalIoObj*>(f->thisObj().get());
+  assert(d);
+  if (f->numArgs()>0) {
+    // set new state
+    d->digitalIo()->set(f->arg(0)->boolValue());
+    f->finish();
+  }
+  else {
+    // return current state as triggerable event
+    f->finish(new DigitalInputEventObj(d));
+  }
+}
+
+
+static const BuiltinMemberDescriptor digitalioFunctions[] = {
+  { "state", executable|numeric, state_numargs, state_args, &state_func },
+  { "toggle", executable|numeric, 0, NULL, &toggle_func },
+  { "detectchanges", executable|numeric, detectchanges_numargs, detectchanges_args, &detectchanges_func },
+  { NULL } // terminator
+};
+
+static BuiltInMemberLookup* sharedDigitalIoFunctionLookupP = NULL;
+
+DigitalIoObj::DigitalIoObj(DigitalIoPtr aDigitalIo) :
+  mDigitalIo(aDigitalIo)
+{
+  registerSharedLookup(sharedDigitalIoFunctionLookupP, digitalioFunctions);
+}
+
+
+// blink([period [, onpercent [, timeout]]])
+static const BuiltInArgDesc blink_args[] = { { numeric|optionalarg }, { numeric|optionalarg }, { numeric|optionalarg } };
+static const size_t blink_numargs = sizeof(blink_args)/sizeof(BuiltInArgDesc);
+static void blink_func(BuiltinFunctionContextPtr f)
+{
+  IndicatorObj* i = dynamic_cast<IndicatorObj*>(f->thisObj().get());
+  assert(i);
+  MLMicroSeconds howlong = p44::Infinite;
+  MLMicroSeconds period = 600*MilliSecond;
+  int onpercent = 50;
+  if (f->arg(0)->defined()) period = f->arg(0)->doubleValue()*Second;
+  if (f->arg(1)->defined()) onpercent = f->arg(1)->intValue();
+  if (f->arg(2)->defined()) howlong = f->arg(2)->doubleValue()*Second;
+  i->indicator()->blinkFor(howlong, period, onpercent);
+  f->finish();
+}
+
+
+// on() // just turn on
+// on(timeout) // on for a certain time
+static const BuiltInArgDesc on_args[] = { { numeric|optionalarg } };
+static const size_t on_numargs = sizeof(on_args)/sizeof(BuiltInArgDesc);
+static void on_func(BuiltinFunctionContextPtr f)
+{
+  IndicatorObj* i = dynamic_cast<IndicatorObj*>(f->thisObj().get());
+  assert(i);
+  if (f->numArgs()>0) {
+    // timed on
+    i->indicator()->onFor(f->arg(0)->doubleValue()*Second);
+  }
+  else {
+    i->indicator()->steadyOn();
+  }
+  f->finish();
+}
+
+
+// off()
+static void off_func(BuiltinFunctionContextPtr f)
+{
+  IndicatorObj* i = dynamic_cast<IndicatorObj*>(f->thisObj().get());
+  assert(i);
+  i->indicator()->steadyOff();
+  f->finish();
+}
+
+
+// stop()
+static void stop_func(BuiltinFunctionContextPtr f)
+{
+  IndicatorObj* i = dynamic_cast<IndicatorObj*>(f->thisObj().get());
+  assert(i);
+  i->indicator()->stop();
+  f->finish();
+}
+
+
+
+static const BuiltinMemberDescriptor indicatorFunctions[] = {
+  { "blink", executable|numeric, blink_numargs, blink_args, &blink_func },
+  { "on", executable|numeric, on_numargs, on_args, &on_func },
+  { "off", executable|numeric, 0, NULL, &off_func },
+  { "stop", executable|numeric, 0, NULL, &stop_func },
+  { NULL } // terminator
+};
+
+static BuiltInMemberLookup* sharedIndicatorFunctionLookupP = NULL;
+
+IndicatorObj::IndicatorObj(IndicatorOutputPtr aIndicator) :
+  mIndicator(aIndicator)
+{
+  registerSharedLookup(sharedIndicatorFunctionLookupP, indicatorFunctions);
+}
+
+
+
+
+
+
+// digitalio(pinspec, isOutput [, initialValue])
+static const BuiltInArgDesc digitalio_args[] = { { text }, { numeric }, { numeric|optionalarg } };
+static const size_t digitalio_numargs = sizeof(digitalio_args)/sizeof(BuiltInArgDesc);
+static void digitalio_func(BuiltinFunctionContextPtr f)
+{
+  bool out = f->arg(1)->boolValue();
+  bool v = false;
+  if (f->arg(2)->defined()) v = f->arg(2)->boolValue();
+  DigitalIoPtr digitalio = new DigitalIo(f->arg(0)->stringValue().c_str(), out, v);
+  f->finish(new DigitalIoObj(digitalio));
+}
+
+
+// indicator(pinspec [, initialValue])
+static const BuiltInArgDesc indicator_args[] = { { text }, { numeric|optionalarg } };
+static const size_t indicator_numargs = sizeof(indicator_args)/sizeof(BuiltInArgDesc);
+static void indicator_func(BuiltinFunctionContextPtr f)
+{
+  bool v = false;
+  if (f->arg(1)->defined()) v = f->arg(2)->boolValue();
+  IndicatorOutputPtr indicator = new IndicatorOutput(f->arg(0)->stringValue().c_str(), v);
+  f->finish(new IndicatorObj(indicator));
+}
+
+
+static const BuiltinMemberDescriptor digitalioGlobals[] = {
+  { "digitalio", executable|null, digitalio_numargs, digitalio_args, &digitalio_func },
+  { "indicator", executable|null, indicator_numargs, indicator_args, &indicator_func },
+  { NULL } // terminator
+};
+
+DigitalIoLookup::DigitalIoLookup() :
+  inherited(digitalioGlobals)
+{
+}
+
+
+#endif // ENABLE_DIGITALIO_SCRIPT_FUNCS  && ENABLE_P44SCRIPT

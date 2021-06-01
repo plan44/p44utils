@@ -2314,7 +2314,8 @@ namespace p44 { namespace P44Script {
     /// @note essentially is just a convenience wrapper for memberAtIndex()
     /// @note built-in functions should be called with a context that matches their signature
     ///   so implementation wants to just access the arguments it expects to be there by index w/o checking.
-    ///   To avoid crashes in case a builtin function is evaluated w/o proper signature checking
+    ///   To avoid crashes in case a builtin function is evaluated w/o proper signature checking,
+    ///   accessing non-existing arguments return a annotated ("optional function argument") null.
     ScriptObjPtr arg(size_t aArgIndex);
 
     /// @return unique (opaque) id for re-identifying this argument's definition for this call in the source code

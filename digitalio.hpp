@@ -26,6 +26,16 @@
 
 #include "iopin.hpp"
 
+#if ENABLE_P44SCRIPT && !defined(ENABLE_DIGITALIO_SCRIPT_FUNCS)
+  #define ENABLE_DIGITALIO_SCRIPT_FUNCS 1
+#endif
+
+#if ENABLE_DIGITALIO_SCRIPT_FUNCS
+  #include "p44script.hpp"
+#endif
+
+
+
 using namespace std;
 
 namespace p44 {
@@ -99,8 +109,8 @@ namespace p44 {
     /// @param aPollInterval if <0 (Infinite), the state change detector only works if the input pin supports state change
     ///   detection without polling (e.g. with GPIO edge trigger). If aPollInterval is >=0, and the
     ///   input pin does not support edge detection, the state detection will be implemented via polling
-    ///   on the current mainloop - if pollInterval==0 then polling will be done in a mainloop idle handler, otherwise in
-    ///   a timed handler according to the specified interval
+    ///   on the current mainloop - if pollInterval==0 then polling will be done with a default interval, otherwise in
+    ///   the specified interval
     /// @return true if input supports the type of state change detection requested
     virtual bool setInputChangedHandler(InputChangedCB aInputChangedCB, MLMicroSeconds aDebounceTime, MLMicroSeconds aPollInterval);
 
@@ -199,11 +209,65 @@ namespace p44 {
     /// stop blinking/timed activation immediately and turn indicator on
     void steadyOn();
 
-
   };
   typedef boost::intrusive_ptr<IndicatorOutput> IndicatorOutputPtr;
 
 
+  #if ENABLE_DIGITALIO_SCRIPT_FUNCS  && ENABLE_P44SCRIPT
+
+  namespace P44Script {
+
+    class DigitalIoObj;
+
+    /// represents a state change from a digital input
+    class DigitalInputEventObj : public NumericValue
+    {
+      typedef NumericValue inherited;
+      DigitalIoObj* mDigitalIoObj;
+    public:
+      DigitalInputEventObj(DigitalIoObj* aDigitalIoObj);
+      virtual string getAnnotation() const P44_OVERRIDE;
+      virtual TypeInfo getTypeInfo() const P44_OVERRIDE;
+      virtual EventSource *eventSource() const P44_OVERRIDE;
+      virtual double doubleValue() const P44_OVERRIDE;
+    };
+
+    /// represents a analog I/O
+    /// @note is an event source, but does not expose it directly, only via DigitalInputEventObjs
+    class DigitalIoObj : public StructuredLookupObject, public EventSource
+    {
+      typedef StructuredLookupObject inherited;
+      DigitalIoPtr mDigitalIo;
+    public:
+      DigitalIoObj(DigitalIoPtr aDigitalIo);
+      virtual string getAnnotation() const P44_OVERRIDE { return "digitalIO"; };
+      DigitalIoPtr digitalIo() { return mDigitalIo; }
+      void inputChanged(bool aNewState);
+    };
+
+
+    /// represents a indicator light
+    class IndicatorObj : public StructuredLookupObject
+    {
+      typedef StructuredLookupObject inherited;
+      IndicatorOutputPtr mIndicator;
+    public:
+      IndicatorObj(IndicatorOutputPtr aIndicator);
+      virtual string getAnnotation() const P44_OVERRIDE { return "indicator"; };
+      IndicatorOutputPtr indicator() { return mIndicator; }
+    };
+
+    /// represents the global objects related to Digitalio
+    class DigitalIoLookup : public BuiltInMemberLookup
+    {
+      typedef BuiltInMemberLookup inherited;
+    public:
+      DigitalIoLookup();
+    };
+
+  }
+
+  #endif // ENABLE_DIGITALIO_SCRIPT_FUNCS  && ENABLE_P44SCRIPT
 
 } // namespace p44
 
