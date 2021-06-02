@@ -613,6 +613,21 @@ AnalogIoObj::AnalogIoObj(AnalogIoPtr aAnalogIo) :
 }
 
 
+AnalogIoPtr AnalogIoObj::analogIoFromArg(ScriptObjPtr aArg, bool aOutput, double aInitialValue)
+{
+  AnalogIoPtr aio;
+  AnalogIoObj* a = dynamic_cast<AnalogIoObj*>(aArg.get());
+  if (a) {
+    aio = a->analogIo();
+  }
+  else if (aArg->hasType(text)) {
+    aio = AnalogIoPtr(new AnalogIo(aArg->stringValue().c_str(), aOutput, aInitialValue));
+  }
+  return aio;
+}
+
+
+
 // analogio(pinspec, isOutput [, initialValue])
 static const BuiltInArgDesc analogio_args[] = { { text }, { numeric }, { numeric|optionalarg } };
 static const size_t analogio_numargs = sizeof(analogio_args)/sizeof(BuiltInArgDesc);
@@ -624,6 +639,7 @@ static void analogio_func(BuiltinFunctionContextPtr f)
   AnalogIoPtr analogio = new AnalogIo(f->arg(0)->stringValue().c_str(), out, v);
   f->finish(new AnalogIoObj(analogio));
 }
+
 
 #if ENABLE_ANALOGIO_COLOR_SUPPORT
 
@@ -771,18 +787,18 @@ AnalogColorOutputObj::AnalogColorOutputObj(AnalogColorOutputPtr aColorOutput) :
 }
 
 
-// analogcoloroutput(redpinspec, greenpinspec, bluepinspec [[, whitepinspec [, amberpinspec])
+// analogcoloroutput(red, green, blue [[, white [, amber]) // AnalogIOObjs or pin specs
 static const BuiltInArgDesc coloroutput_args[] = { { text }, { text }, { text }, { text|optionalarg }, { text|optionalarg } };
 static const size_t coloroutput_numargs = sizeof(coloroutput_args)/sizeof(BuiltInArgDesc);
 static void coloroutput_func(BuiltinFunctionContextPtr f)
 {
-  AnalogIoPtr red = new AnalogIo(f->arg(0)->stringValue().c_str(), true, 0);
-  AnalogIoPtr green = new AnalogIo(f->arg(1)->stringValue().c_str(), true, 0);
-  AnalogIoPtr blue = new AnalogIo(f->arg(2)->stringValue().c_str(), true, 0);
+  AnalogIoPtr red = AnalogIoObj::analogIoFromArg(f->arg(0), true, 0);
+  AnalogIoPtr green = AnalogIoObj::analogIoFromArg(f->arg(1), true, 0);
+  AnalogIoPtr blue = AnalogIoObj::analogIoFromArg(f->arg(2), true, 0);
   AnalogIoPtr white;
   AnalogIoPtr amber;
-  if (f->arg(3)->defined()) white = new AnalogIo(f->arg(3)->stringValue().c_str(), true, 0);
-  if (f->arg(4)->defined()) amber = new AnalogIo(f->arg(3)->stringValue().c_str(), true, 0);
+  if (f->arg(3)->defined()) white = AnalogIoObj::analogIoFromArg(f->arg(3), true, 0);
+  if (f->arg(4)->defined()) amber = AnalogIoObj::analogIoFromArg(f->arg(4), true, 0);
   AnalogColorOutputPtr colorOutput = new AnalogColorOutput(red, green, blue, white, amber);
   f->finish(new AnalogColorOutputObj(colorOutput));
 }

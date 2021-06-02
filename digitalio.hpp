@@ -243,6 +243,9 @@ namespace p44 {
       virtual string getAnnotation() const P44_OVERRIDE { return "digitalIO"; };
       DigitalIoPtr digitalIo() { return mDigitalIo; }
       void inputChanged(bool aNewState);
+      /// factory method to get an AnalogIo either by creating it from pinspec
+      /// string or by using existing AnalogIoObj passed
+      static DigitalIoPtr digitalIoFromArg(ScriptObjPtr aArg, bool aOutput, bool aInitialState);
     };
 
 

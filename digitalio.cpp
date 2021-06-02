@@ -491,6 +491,20 @@ DigitalIoObj::DigitalIoObj(DigitalIoPtr aDigitalIo) :
 }
 
 
+DigitalIoPtr DigitalIoObj::digitalIoFromArg(ScriptObjPtr aArg, bool aOutput, bool aInitialState)
+{
+  DigitalIoPtr dio;
+  DigitalIoObj* d = dynamic_cast<DigitalIoObj*>(aArg.get());
+  if (d) {
+    dio = d->digitalIo();
+  }
+  else if (aArg->hasType(text)) {
+    dio = DigitalIoPtr(new DigitalIo(aArg->stringValue().c_str(), aOutput, aInitialState));
+  }
+  return dio;
+}
+
+
 // blink([period [, onpercent [, timeout]]])
 static const BuiltInArgDesc blink_args[] = { { numeric|optionalarg }, { numeric|optionalarg }, { numeric|optionalarg } };
 static const size_t blink_numargs = sizeof(blink_args)/sizeof(BuiltInArgDesc);
@@ -548,7 +562,6 @@ static void stop_func(BuiltinFunctionContextPtr f)
 }
 
 
-
 static const BuiltinMemberDescriptor indicatorFunctions[] = {
   { "blink", executable|numeric, blink_numargs, blink_args, &blink_func },
   { "on", executable|numeric, on_numargs, on_args, &on_func },
@@ -564,10 +577,6 @@ IndicatorObj::IndicatorObj(IndicatorOutputPtr aIndicator) :
 {
   registerSharedLookup(sharedIndicatorFunctionLookupP, indicatorFunctions);
 }
-
-
-
-
 
 
 // digitalio(pinspec, isOutput [, initialValue])

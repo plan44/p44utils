@@ -246,6 +246,10 @@ namespace p44 {
       AnalogIoObj(AnalogIoPtr aAnalogIo);
       virtual string getAnnotation() const P44_OVERRIDE { return "analogIO"; };
       AnalogIoPtr analogIo() { return mAnalogIo; }
+
+      /// factory method to get an AnalogIo either by creating it from pinspec
+      /// string or by using existing AnalogIoObj passed
+      static AnalogIoPtr analogIoFromArg(ScriptObjPtr aArg, bool aOutput, double aInitialValue);
       // polling
       void valueUpdated();
     };
