@@ -290,5 +290,104 @@ void DcMotorDriver::sequenceStepDone(SequenceStepList aSteps, DCMotorStatusCB aS
 
 
 
+// MARK: - script support
+
+#if ENABLE_DCMOTOR_SCRIPT_FUNCS  && ENABLE_P44SCRIPT
+
+using namespace P44Script;
+
+DcMotorEventObj::DcMotorEventObj(DcMotorObj* aDcMotorObj) :
+  inherited(false),
+  mDcMotorObj(aDcMotorObj)
+{
+}
 
 
+string DcMotorEventObj::getAnnotation() const
+{
+  return "DC motor event";
+}
+
+
+TypeInfo DcMotorEventObj::getTypeInfo() const
+{
+  return inherited::getTypeInfo()|oneshot|keeporiginal; // returns the request only once, must keep the original
+}
+
+
+EventSource* DcMotorEventObj::eventSource() const
+{
+  return static_cast<EventSource*>(mDcMotorObj);
+}
+
+
+//double DcMotorEventObj::doubleValue() const
+//{
+//  return mDcMotorObj && mDcMotorObj->digitalIo()->isSet() ? 1 : 0;
+//}
+
+
+
+// %%% toggle()
+static void toggle_func(BuiltinFunctionContextPtr f)
+{
+  DcMotorObj* dc = dynamic_cast<DcMotorObj*>(f->thisObj().get());
+  assert(dc);
+  f->finish();
+}
+
+
+// %%% state() // get state (has event source)
+// state(newstate) // set state
+static const BuiltInArgDesc state_args[] = { { numeric|optionalarg } };
+static const size_t state_numargs = sizeof(state_args)/sizeof(BuiltInArgDesc);
+static void state_func(BuiltinFunctionContextPtr f)
+{
+  DcMotorObj* dc = dynamic_cast<DcMotorObj*>(f->thisObj().get());
+  assert(dc);
+  f->finish();
+}
+
+
+static const BuiltinMemberDescriptor dcmotorFunctions[] = {
+  { "state", executable|numeric, state_numargs, state_args, &state_func },
+  { "toggle", executable|numeric, 0, NULL, &toggle_func },
+  { NULL } // terminator
+};
+
+static BuiltInMemberLookup* sharedDCMotorFunctionLookupP = NULL;
+
+DcMotorObj::DcMotorObj(DcMotorDriverPtr aDCMotor) :
+  mDCMotor(aDCMotor)
+{
+  registerSharedLookup(sharedDCMotorFunctionLookupP, dcmotorFunctions);
+}
+
+
+
+
+// dcmotor(output [, CWdirection [, CCWdirection]])
+static const BuiltInArgDesc dcmotor_args[] = { { text|object }, { text|object|optionalarg }, { text|object|optionalarg } };
+static const size_t dcmotor_numargs = sizeof(dcmotor_args)/sizeof(BuiltInArgDesc);
+static void dcmotor_func(BuiltinFunctionContextPtr f)
+{
+  AnalogIoPtr power = AnalogIoObj::analogIoFromArg(f->arg(0), true, 0);
+  DigitalIoPtr cwd = DigitalIoObj::digitalIoFromArg(f->arg(1), true, false);
+  DigitalIoPtr ccwd = DigitalIoObj::digitalIoFromArg(f->arg(2), true, false);
+  DcMotorDriverPtr dcmotor = new DcMotorDriver(power, cwd, ccwd);
+  f->finish(new DcMotorObj(dcmotor));
+}
+
+
+static const BuiltinMemberDescriptor dcmotorGlobals[] = {
+  { "dcmotor", executable|null, dcmotor_numargs, dcmotor_args, &dcmotor_func },
+  { NULL } // terminator
+};
+
+DcMotorLookup::DcMotorLookup() :
+  inherited(dcmotorGlobals)
+{
+}
+
+
+#endif // ENABLE_DCMOTOR_SCRIPT_FUNCS  && ENABLE_P44SCRIPT

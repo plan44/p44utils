@@ -172,6 +172,49 @@ namespace p44 {
 
   };
 
+  #if ENABLE_DCMOTOR_SCRIPT_FUNCS  && ENABLE_P44SCRIPT
+
+  namespace P44Script {
+
+    class DcMotorObj;
+
+    /// represents a DC motor state
+    class DcMotorEventObj : public NumericValue
+    {
+      typedef NumericValue inherited;
+      DcMotorObj* mDcMotorObj;
+    public:
+      DcMotorEventObj(DcMotorObj* aDcMotorObj);
+      virtual string getAnnotation() const P44_OVERRIDE;
+      virtual TypeInfo getTypeInfo() const P44_OVERRIDE;
+      virtual EventSource *eventSource() const P44_OVERRIDE;
+      virtual double doubleValue() const P44_OVERRIDE;
+    };
+
+    /// represents a DC motor
+    /// @note is an event source, but does not expose it directly, only via DcMotorEventObjs
+    class DcMotorObj : public StructuredLookupObject, public EventSource
+    {
+      typedef StructuredLookupObject inherited;
+      DcMotorDriverPtr mDCMotor;
+    public:
+      DcMotorObj(DcMotorDriverPtr aDCMotor);
+      virtual string getAnnotation() const P44_OVERRIDE { return "DC motor"; };
+      DcMotorDriverPtr dcMotor() { return mDCMotor; }
+    };
+
+
+    /// represents the global objects related to DC motors
+    class DcMotorLookup : public BuiltInMemberLookup
+    {
+      typedef BuiltInMemberLookup inherited;
+    public:
+      DcMotorLookup();
+    };
+
+  }
+
+  #endif // ENABLE_DCMOTOR_SCRIPT_FUNCS  && ENABLE_P44SCRIPT
 
 
 } // namespace p44
