@@ -133,7 +133,7 @@ namespace p44 {
     /// @param aEvalType the type of filtering to perform
     /// @param aWindowTime width (timespan) of evaluation window
     /// @param aDataPointCollTime within that timespan, new values reported will be collected into a single datapoint
-    void setFilter(EvaluationType aEvalType, MLMicroSeconds aWindowTime, MLMicroSeconds aDataPointCollTime);
+    void setFilter(WinEvalMode aEvalType, MLMicroSeconds aWindowTime, MLMicroSeconds aDataPointCollTime);
 
   private:
 

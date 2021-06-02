@@ -68,10 +68,10 @@ ErrorPtr p44::string_tofile(const string aFilePath, const string &aData)
 // MARK: - WindowEvaluator
 
 
-WindowEvaluator::WindowEvaluator(MLMicroSeconds aWindowTime, MLMicroSeconds aDataPointCollTime, EvaluationType aEvalType) :
-  windowTime(aWindowTime),
-  dataPointCollTime(aDataPointCollTime),
-  evalType(aEvalType)
+WindowEvaluator::WindowEvaluator(MLMicroSeconds aWindowTime, MLMicroSeconds aDataPointCollTime, WinEvalMode aEvalMode) :
+  mWindowTime(aWindowTime),
+  mDataPointCollTime(aDataPointCollTime),
+  mWinEvalMode(aEvalMode)
 {
 }
 
@@ -81,23 +81,27 @@ WindowEvaluator::WindowEvaluator(MLMicroSeconds aWindowTime, MLMicroSeconds aDat
 void WindowEvaluator::addValue(double aValue, MLMicroSeconds aTimeStamp)
 {
   if (aTimeStamp==Never) aTimeStamp = MainLoop::now();
+  // process options
+  if (mWinEvalMode & eval_option_abs) {
+    aValue = fabs(aValue);
+  }
   // clean away outdated datapoints
-  while (!dataPoints.empty()) {
-    if (dataPoints.front().timestamp<aTimeStamp-windowTime) {
+  while (!mDataPoints.empty()) {
+    if (mDataPoints.front().timestamp<aTimeStamp-mWindowTime) {
       // this one is outdated (lies more than windowTime in the past), remove it
-      dataPoints.pop_front();
+      mDataPoints.pop_front();
     }
     else {
       break;
     }
   }
   // add new value
-  if (!dataPoints.empty()) {
+  if (!mDataPoints.empty()) {
     // check if we should collect into last existing datapoint
-    DataPoint &last = dataPoints.back();
-    if (collStart+dataPointCollTime>aTimeStamp) {
+    DataPoint &last = mDataPoints.back();
+    if (mCollStart+mDataPointCollTime>aTimeStamp) {
       // still in collection time window (from start of datapoint collection
-      switch (evalType) {
+      switch (mWinEvalMode & eval_type_mask) {
         case eval_max: {
           if (aValue>last.value) last.value = aValue;
           break;
@@ -108,24 +112,24 @@ void WindowEvaluator::addValue(double aValue, MLMicroSeconds aTimeStamp)
         }
         case eval_timeweighted_average: {
           MLMicroSeconds timeWeight = aTimeStamp-last.timestamp; // between last subdatapoint collected into this datapoint and new timestamp
-          if (collDivisor<=0 || timeWeight<=0) { // 0 or negative timeweight should not happen, safety only!
+          if (mCollDivisor<=0 || timeWeight<=0) { // 0 or negative timeweight should not happen, safety only!
             // first section
             last.value = (last.value + aValue)/2;
-            collDivisor = timeWeight;
+            mCollDivisor = timeWeight;
           }
           else {
-            double v = (last.value*collDivisor + aValue*timeWeight);
-            collDivisor += timeWeight;
-            last.value = v/collDivisor;
+            double v = (last.value*mCollDivisor + aValue*timeWeight);
+            mCollDivisor += timeWeight;
+            last.value = v/mCollDivisor;
           }
           break;
         }
         case eval_average:
         default: {
-          if (collDivisor<=0) collDivisor = 1;
-          double v = (last.value*collDivisor+aValue);
-          collDivisor++;
-          last.value = v/collDivisor;
+          if (mCollDivisor<=0) mCollDivisor = 1;
+          double v = (last.value*mCollDivisor+aValue);
+          mCollDivisor++;
+          last.value = v/mCollDivisor;
           break;
         }
       }
@@ -138,9 +142,9 @@ void WindowEvaluator::addValue(double aValue, MLMicroSeconds aTimeStamp)
   DataPoint dp;
   dp.value = aValue;
   dp.timestamp = aTimeStamp;
-  dataPoints.push_back(dp);
-  collStart = aTimeStamp;
-  collDivisor = 0;
+  mDataPoints.push_back(dp);
+  mCollStart = aTimeStamp;
+  mCollDivisor = 0;
 }
 
 
@@ -150,8 +154,8 @@ double WindowEvaluator::evaluate()
   double divisor = 0;
   int count = 0;
   MLMicroSeconds lastTs = Never;
-  for (DataPointsList::iterator pos = dataPoints.begin(); pos != dataPoints.end(); ++pos) {
-    switch (evalType) {
+  for (DataPointsList::iterator pos = mDataPoints.begin(); pos != mDataPoints.end(); ++pos) {
+    switch (mWinEvalMode & eval_type_mask) {
       case eval_max: {
         if (count==0 || pos->value>result) result = pos->value;
         divisor = 1;
@@ -165,7 +169,7 @@ double WindowEvaluator::evaluate()
       case eval_timeweighted_average: {
         if (count==0) {
           // the first datapoint's time weight reaches back to beginning of window
-          lastTs = dataPoints.back().timestamp-windowTime;
+          lastTs = mDataPoints.back().timestamp-mWindowTime;
         }
         MLMicroSeconds timeWeight = pos->timestamp-lastTs;
         result += pos->value*timeWeight;

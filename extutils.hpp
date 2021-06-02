@@ -48,13 +48,16 @@ namespace p44 {
   #endif
 
 
-  typedef enum {
+  enum {
     eval_none, ///< no evaluation, disabled
     eval_average, ///< average over data points added within window time
     eval_timeweighted_average, ///< average over data points, but weighting them by the time passed since last data point (assuming datapoints are averages over past time anyway)
     eval_max, ///< maximum within the window time
-    eval_min ///< minimum within the window time
-  } EvaluationType;
+    eval_min, ///< minimum within the window time
+    eval_type_mask = 0x00FF,
+    eval_option_abs = 0x0100 ///< take absolute values only
+  };
+  typedef uint16_t WinEvalMode;
 
   // Sliding window data evaluator.
   // Features:
@@ -70,22 +73,22 @@ namespace p44 {
     typedef std::list<DataPoint> DataPointsList;
 
     // state
-    DataPointsList dataPoints;
-    MLMicroSeconds collStart; ///< start of current datapoint collection
-    double collDivisor; ///< divisor for collection of current datapoint
+    DataPointsList mDataPoints;
+    MLMicroSeconds mCollStart; ///< start of current datapoint collection
+    double mCollDivisor; ///< divisor for collection of current datapoint
 
   public:
 
     // settings
-    MLMicroSeconds windowTime;
-    MLMicroSeconds dataPointCollTime;
-    EvaluationType evalType;
+    MLMicroSeconds mWindowTime;
+    MLMicroSeconds mDataPointCollTime;
+    WinEvalMode mWinEvalMode;
 
     /// create a sliding window evaluator
     /// @param aWindowTime width (timespan) of evaluation window
     /// @param aDataPointCollTime within that timespan, new values reported will be collected into a single datapoint
-    /// @param aEvalType the type of evaluation to perform
-    WindowEvaluator(MLMicroSeconds aWindowTime, MLMicroSeconds aDataPointCollTime, EvaluationType aEvalType);
+    /// @param aEvalMode the type of evaluation to perform
+    WindowEvaluator(MLMicroSeconds aWindowTime, MLMicroSeconds aDataPointCollTime, WinEvalMode aEvalMode);
 
     /// Add a new value to the evaluator.
     /// @param aValue the value to add

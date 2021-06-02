@@ -192,7 +192,7 @@ double AnalogIo::processedValue()
 }
 
 
-void AnalogIo::setFilter(EvaluationType aEvalType, MLMicroSeconds aWindowTime, MLMicroSeconds aDataPointCollTime)
+void AnalogIo::setFilter(WinEvalMode aEvalType, MLMicroSeconds aWindowTime, MLMicroSeconds aDataPointCollTime)
 {
   mWindowEvaluator.reset();
   if (aEvalType==eval_none) return;
@@ -581,11 +581,14 @@ static void filter_func(BuiltinFunctionContextPtr f)
   AnalogIoObj* a = dynamic_cast<AnalogIoObj*>(f->thisObj().get());
   assert(a);
   string ty = f->arg(0)->stringValue();
-  EvaluationType ety = eval_none;
-  if (uequals(ty,"average")) ety = eval_timeweighted_average;
-  else if (uequals(ty,"simpleaverage")) ety = eval_average;
-  else if (uequals(ty,"min")) ety = eval_min;
-  else if (uequals(ty,"max")) ety = eval_max;
+  WinEvalMode ety = eval_none;
+  if (strucmp(ty.c_str(), "abs-", 4)==0) {
+    ety |= eval_option_abs;
+  }
+  if (uequals(ty,"average")) ety |= eval_timeweighted_average;
+  else if (uequals(ty,"simpleaverage")) ety |= eval_average;
+  else if (uequals(ty,"min")) ety |= eval_min;
+  else if (uequals(ty,"max")) ety |= eval_max;
   MLMicroSeconds windowtime = 10*Second; // default to 10 second processing window
   if (f->arg(1)->defined()) windowtime = f->arg(1)->doubleValue()*Second;
   MLMicroSeconds colltime = windowtime/20; // default to 1/20 of the processing window
