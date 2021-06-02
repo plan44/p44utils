@@ -110,7 +110,9 @@ namespace p44 {
     virtual ~DcMotorDriver();
 
     /// set stop callback
-    /// @param aStopCB this will be called when the motor stops. The Error code indicates the exact reason for the stop.
+    /// @param aStopCB this will be called whenever the motor stops by itself.
+    ///   If no error is passed, the stop is just because a ramp/sequence has completed
+    ///   An error indicates a unexpeced stop (end switch or current limit)
     void setStopCallback(DCMotorStatusCB aStoppedCB);
 
     /// Enable current monitoring for stopping at mechanical endpoints and/or obstacles (prevent motor overload)
@@ -118,7 +120,6 @@ namespace p44 {
     ///    The current limiter will use the processedValue() of the analog input, so averaged current can be used to eliminate spikes
     /// @param aStopCurrent sensor value that will stop the motor
     /// @param aSampleInterval the sample interval for the current
-    /// @param aStoppedCB called when current limiter stops motor
     void setCurrentLimiter(AnalogIoPtr aCurrentSensor, double aStopCurrent, MLMicroSeconds aSampleInterval);
 
     /// Enable monitoring for end switches

@@ -321,10 +321,11 @@ EventSource* DcMotorEventObj::eventSource() const
 }
 
 
-//double DcMotorEventObj::doubleValue() const
-//{
-//  return mDcMotorObj && mDcMotorObj->digitalIo()->isSet() ? 1 : 0;
-//}
+double DcMotorEventObj::doubleValue() const
+{
+  %%%
+  return mDcMotorObj && mDcMotorObj->digitalIo()->isSet() ? 1 : 0;
+}
 
 
 
@@ -333,6 +334,7 @@ static void toggle_func(BuiltinFunctionContextPtr f)
 {
   DcMotorObj* dc = dynamic_cast<DcMotorObj*>(f->thisObj().get());
   assert(dc);
+  %%%
   f->finish();
 }
 
@@ -345,13 +347,16 @@ static void state_func(BuiltinFunctionContextPtr f)
 {
   DcMotorObj* dc = dynamic_cast<DcMotorObj*>(f->thisObj().get());
   assert(dc);
+  %%%
   f->finish();
 }
 
 
 static const BuiltinMemberDescriptor dcmotorFunctions[] = {
-  { "state", executable|numeric, state_numargs, state_args, &state_func },
-  { "toggle", executable|numeric, 0, NULL, &toggle_func },
+  { "endswitches", executable|numeric, endswitches_numargs, endswitches_args, &endswitches_func },
+  { "currentlimiter", executable|numeric, currentlimiter_numargs, currentlimiter_args, &currentlimiter_func },
+  { "rampto", executable|numeric, rampto_numargs, rampto_args, &rampto_func },
+  { "stop", executable|numeric, 0, NULL, &stop_func },
   { NULL } // terminator
 };
 
