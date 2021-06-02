@@ -6124,6 +6124,9 @@ ScriptingDomain& StandardScriptingDomain::sharedDomain()
 #include "fdcomm.hpp"
 #include "httpcomm.hpp"
 #include "socketcomm.hpp"
+#include "analogio.hpp"
+#include "digitalio.hpp"
+#include "dcmotor.hpp"
 
 class SimpleREPLApp : public CmdLineApp
 {
@@ -6165,6 +6168,15 @@ public:
     #endif
     #if ENABLE_SOCKET_SCRIPT_FUNCS
     source.domain()->registerMemberLookup(new SocketLookup);
+    #endif
+    #if ENABLE_ANALOGIO_SCRIPT_FUNCS
+    source.domain()->registerMemberLookup(new AnalogIoLookup);
+    #endif
+    #if ENABLE_DIGITALIO_SCRIPT_FUNCS
+    source.domain()->registerMemberLookup(new DigitalIoLookup);
+    #endif
+    #if ENABLE_DCMOTOR_SCRIPT_FUNCS
+    source.domain()->registerMemberLookup(new DcMotorLookup);
     #endif
     // get context
     replContext = source.domain()->newContext();
