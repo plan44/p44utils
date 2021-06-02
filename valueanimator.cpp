@@ -46,6 +46,7 @@ ValueAnimator::ValueAnimator(ValueSetterCB aValueSetter, bool aSelfTiming, MLMic
   mCurrentValue(0),
   mStartedAt(Never),
   mCycles(0),
+  mRepeat(1),
   mAutoreverse(false),
   mAwaitingTrigger(false),
   mStartTimeOrDelay(0),
@@ -112,11 +113,11 @@ ValueAnimatorPtr ValueAnimator::from(double aFrom)
 }
 
 
-ValueAnimatorPtr ValueAnimator::repeat(bool aAutoReverse, int aCycles)
+ValueAnimatorPtr ValueAnimator::repeat(bool aAutoReverse, int aRepeat)
 {
   internalStop(true, false); // abort previous animation, if any
   mAutoreverse = aAutoReverse;
-  mCycles = aCycles<=0 ? -1 : aCycles;
+  mRepeat = aRepeat<=0 ? -1 : aRepeat;
   return this;
 }
 
@@ -202,11 +203,7 @@ MLMicroSeconds ValueAnimator::animate(double aTo, MLMicroSeconds aDuration, Anim
   mDistance = aTo-mStartValue;
   if (!mAnimationFunction) mAnimationFunction = &linear; // default to linear
   mStepTime = aMinStepTime>0 ? aMinStepTime : mDefaultMinStepTime; // default to not-too-small steps
-  if (mCycles==0) {
-    // not yet set by repeat() -> default operation
-    mCycles = 1;
-    mAutoreverse = false;
-  }
+  mCycles = mRepeat;
   // calculate steps
   int steps = (int)(mDuration/mStepTime);
   if (aStepSize>0) {

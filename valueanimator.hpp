@@ -75,7 +75,8 @@ namespace p44 {
     bool mSelfTiming;
     MLTicket mAnimationTimer;
     bool mAutoreverse;
-    int mCycles;
+    int mRepeat; ///< the number of repetitions to run, -1 = forever
+    int mCycles; ///< remaining cycles in current run
     AnimatorList mTriggerAnimations; ///< the animations to trigger when this one ends
     bool mAwaitingTrigger; ///< set when animation awaits a trigger from another animation
     bool mAbsoluteStartTime; ///< true when startTimeOrDelay is absolute, false when start is relative to the time the animation is triggered
@@ -103,11 +104,14 @@ namespace p44 {
     /// @return Infinite if there is no need to call step (animation has no steps or needs trigger first), otherwise mainloop time of when to call again
     MLMicroSeconds animate(double aTo, MLMicroSeconds aDuration, AnimationDoneCB aDoneCB = NULL, MLMicroSeconds aMinStepTime = 0, double aStepSize = 0);
 
+    /// Set speed for ramp type animations, where
+
+
     /// set repetition parameters
     /// @param aAutoReverse if set, animation direction is reversed after each cycle
-    /// @param aCycles number of cycles (running forth and back with autoreverse counts as 2 cycles), 0 for endless repeat
+    /// @param aRepeat number of repeating cycles (running forth and back with autoreverse counts as 2 cycles), <=0 for endless repeat
     /// @return the animator to allow chaining
-    ValueAnimatorPtr repeat(bool aAutoReverse, int aCycles);
+    ValueAnimatorPtr repeat(bool aAutoReverse, int aRepeat);
 
     /// set animation function
     /// @param aAnimationFunction the animation function to use
