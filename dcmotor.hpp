@@ -24,23 +24,57 @@
 
 #include "p44utils_common.hpp"
 
+#if ENABLE_P44SCRIPT && !defined(ENABLE_DCMOTOR_SCRIPT_FUNCS)
+  #define ENABLE_DCMOTOR_SCRIPT_FUNCS 1
+#endif
+
+#if ENABLE_DCMOTOR_SCRIPT_FUNCS
+  #include "p44script.hpp"
+#endif
+
 #include "serialcomm.hpp"
 #include "digitalio.hpp"
 #include "analogio.hpp"
+
 
 using namespace std;
 
 namespace p44 {
 
+  class DcMotorDriverError : public Error
+  {
+  public:
+    enum {
+      OK,
+      overcurrentStop,
+      endswitchStop,
+      timedStop,
+      numErrorCodes
+    };
+    typedef uint16_t ErrorCodes;
+
+    static const char *domain() { return "DCMotorDriver"; }
+    virtual const char *getErrorDomain() const P44_OVERRIDE { return DcMotorDriverError::domain(); };
+    DcMotorDriverError(ErrorCodes aError) : Error(ErrorCode(aError)) {};
+    #if ENABLE_NAMED_ERRORS
+  protected:
+    virtual const char* errorName() const P44_OVERRIDE { return errNames[getErrorCode()]; };
+  private:
+    static constexpr const char* const errNames[numErrorCodes] = {
+      "OK",
+      "overcurrentStop",
+      "endswitchStop",
+      "timedStop",
+    };
+    #endif // ENABLE_NAMED_ERRORS
+  };
 
   class DcMotorDriver;
 
-
   typedef boost::function<void (double aCurrentPower, int aDirection, ErrorPtr aError)> DCMotorStatusCB;
 
-
   typedef boost::intrusive_ptr<DcMotorDriver> DcMotorDriverPtr;
-  class DcMotorDriver : public P44Obj
+  class DcMotorDriver : public P44LoggingObj
   {
     typedef P44Obj inherited;
 
@@ -50,15 +84,17 @@ namespace p44 {
 
     int currentDirection;
     double currentPower;
+    DCMotorStatusCB mRampDoneCB; ///< called when ramp is done or motor was stopped by endswitch/overcurrent
 
     MLTicket sequenceTicket;
 
     AnalogIoPtr currentSensor;
     double stopCurrent;
-    double lastCurrent;
     MLMicroSeconds sampleInterval;
-    MLTicket sampleTicket;
-    SimpleCB stoppedCB;
+    DCMotorStatusCB stoppedCB; ///< called when motor was stopped by endswitch/overcurrent
+
+    DigitalIoPtr mPositiveEndInput;
+    DigitalIoPtr mNegativeEndInput;
 
   public:
 
@@ -70,15 +106,26 @@ namespace p44 {
     /// @param aCCWDirectionOutput a digital output enabling counter clockwise motor operation.
     ///   If this is set, CW and CCW are assumed to each control one of the half bridges,
     ///   so using CCW!=CW will drive the motor, and CCW==CW will brake it
-    DcMotorDriver(const char *aPWMOutput, const char *aCWDirectionOutput = NULL, const char *aCCWDirectionOutput = NULL);
+    DcMotorDriver(AnalogIoPtr aPWMOutput, DigitalIoPtr aCWDirectionOutput = NULL, DigitalIoPtr aCCWDirectionOutput = NULL);
     virtual ~DcMotorDriver();
 
+    /// set stop callback
+    /// @param aStopCB this will be called when the motor stops. The Error code indicates the exact reason for the stop.
+    void setStopCallback(DCMotorStatusCB aStoppedCB);
+
     /// Enable current monitoring for stopping at mechanical endpoints and/or obstacles (prevent motor overload)
-    /// @param aCurrentSensor a analog input sensing the current used by the motor to allow
+    /// @param aCurrentSensor a analog input sensing the current used by the motor to allow stopping on overcurrent.
+    ///    The current limiter will use the processedValue() of the analog input, so averaged current can be used to eliminate spikes
     /// @param aStopCurrent sensor value that will stop the motor
     /// @param aSampleInterval the sample interval for the current
     /// @param aStoppedCB called when current limiter stops motor
-    void setCurrentLimiter(const char *aCurrentSensor, double aStopCurrent, MLMicroSeconds aSampleInterval, SimpleCB aStoppedCB = NULL);
+    void setCurrentLimiter(AnalogIoPtr aCurrentSensor, double aStopCurrent, MLMicroSeconds aSampleInterval);
+
+    /// Enable monitoring for end switches
+    /// @param aPositiveEnd a digital input which signals motor at the positive end of its movement
+    /// @param aNegativeEnd a digital input which signals motor at the negative end of its movement
+    /// @param aPollInterval interval for polling the input (only if needed, that is when HW does not have edge detection anyway). 0 = default poll strategy
+    void setEndSwitches(DigitalIoPtr aPositiveEnd, DigitalIoPtr aNegativeEnd = NULL, MLMicroSeconds aPollInterval = 0);
 
     /// ramp motor from current power to another power
     /// @param aPower 0..100 new brake or drive power to apply
@@ -117,9 +164,11 @@ namespace p44 {
 
     void setPower(double aPower, int aDirection);
     void setDirection(int aDirection);
-    void rampStep(double aStartPower, double aTargetPower, int aNumSteps, int aStepNo , double aRampExp, DCMotorStatusCB aRampDoneCB);
+    void rampStep(double aStartPower, double aTargetPower, int aNumSteps, int aStepNo , double aRampExp);
     void sequenceStepDone(SequenceStepList aSteps, DCMotorStatusCB aSequenceDoneCB, ErrorPtr aError);
-    void checkCurrent(MLTimer &aTimer);
+    void checkCurrent();
+    void endSwitch(bool aPositiveEnd);
+    void autoStopped(double aPower, int aDirection);
 
   };
 
