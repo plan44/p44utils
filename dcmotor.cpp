@@ -32,13 +32,13 @@ using namespace p44;
 // MARK: - DCMotorDriver
 
 DcMotorDriver::DcMotorDriver(AnalogIoPtr aPWMOutput, DigitalIoPtr aCWDirectionOutput, DigitalIoPtr aCCWDirectionOutput) :
-  currentPower(0),
-  currentDirection(0)
+  mCurrentPower(0),
+  mCurrentDirection(0)
 {
-  pwmOutput = aPWMOutput;
+  mPwmOutput = aPWMOutput;
   // - direction control
-  cwDirectionOutput = aCWDirectionOutput;
-  ccwDirectionOutput = aCCWDirectionOutput;
+  mCWdirectionOutput = aCWDirectionOutput;
+  mCCWdirectionOutput = aCCWDirectionOutput;
   setPower(0, 0);
 }
 
@@ -53,7 +53,7 @@ DcMotorDriver::~DcMotorDriver()
 
 void DcMotorDriver::setStopCallback(DCMotorStatusCB aStoppedCB)
 {
-  stoppedCB = aStoppedCB;
+  mStoppedCB = aStoppedCB;
 }
 
 
@@ -70,8 +70,8 @@ void DcMotorDriver::setEndSwitches(DigitalIoPtr aPositiveEnd, DigitalIoPtr aNega
 void DcMotorDriver::endSwitch(bool aPositiveEnd)
 {
   // save direction and power as known BEFORE stopping
-  double pwr = currentPower;
-  int dir = currentDirection;
+  double pwr = mCurrentPower;
+  int dir = mCurrentDirection;
   stop();
   LOG(LOG_INFO, "stopped with power=%.2f, direction=%d because %s end switch reached", pwr, dir, aPositiveEnd ? "positive" : "negative");
   autoStopped(pwr, dir);
@@ -81,9 +81,9 @@ void DcMotorDriver::endSwitch(bool aPositiveEnd)
 
 void DcMotorDriver::autoStopped(double aPower, int aDirection)
 {
-  if (stoppedCB) {
+  if (mStoppedCB) {
     // stop callback does not reset
-    stoppedCB(aPower, aDirection, new DcMotorDriverError(DcMotorDriverError::endswitchStop));
+    mStoppedCB(aPower, aDirection, new DcMotorDriverError(DcMotorDriverError::endswitchStop));
   }
   if (mRampDoneCB) {
     // ramp done CB must be set for every ramp separately
@@ -96,23 +96,23 @@ void DcMotorDriver::autoStopped(double aPower, int aDirection)
 void DcMotorDriver::setCurrentLimiter(AnalogIoPtr aCurrentSensor, double aStopCurrent, MLMicroSeconds aSampleInterval)
 {
   // - current sensor
-  currentSensor = aCurrentSensor;
-  stopCurrent = aStopCurrent;
-  sampleInterval = aSampleInterval;
+  mCurrentSensor = aCurrentSensor;
+  mStopCurrent = aStopCurrent;
+  mSampleInterval = aSampleInterval;
 }
 
 
 void DcMotorDriver::setDirection(int aDirection)
 {
-  if (cwDirectionOutput) {
-    cwDirectionOutput->set(aDirection>0);
-    if (ccwDirectionOutput) {
-      ccwDirectionOutput->set(aDirection<0);
+  if (mCWdirectionOutput) {
+    mCWdirectionOutput->set(aDirection>0);
+    if (mCCWdirectionOutput) {
+      mCCWdirectionOutput->set(aDirection<0);
     }
   }
-  if (aDirection!=currentDirection) {
+  if (aDirection!=mCurrentDirection) {
     OLOG(LOG_INFO, "Direction changed to %d", aDirection);
-    currentDirection = aDirection;
+    mCurrentDirection = aDirection;
   }
 }
 
@@ -123,17 +123,17 @@ void DcMotorDriver::setPower(double aPower, int aDirection)
   if (aPower<=0) {
     // no power
     // - disable PWM
-    pwmOutput->setValue(0);
+    mPwmOutput->setValue(0);
     // - off (= hold/brake with no power)
     setDirection(0);
     // disable current sampling
-    if (currentSensor) currentSensor->setAutopoll(0);
+    if (mCurrentSensor) mCurrentSensor->setAutopoll(0);
   }
   else {
     // determine current direction
-    if (currentDirection!=0 && aDirection!=0 && aDirection!=currentDirection) {
+    if (mCurrentDirection!=0 && aDirection!=0 && aDirection!=mCurrentDirection) {
       // avoid reversing direction with power on
-      pwmOutput->setValue(0);
+      mPwmOutput->setValue(0);
       setDirection(0);
     }
     // check end switch, do not allow setting power towards already active end switch
@@ -148,28 +148,28 @@ void DcMotorDriver::setPower(double aPower, int aDirection)
     }
     // now set desired direction and power
     setDirection(aDirection);
-    pwmOutput->setValue(aPower);
+    mPwmOutput->setValue(aPower);
     // start current sampling
-    if (currentSensor) {
-      currentSensor->setAutopoll(sampleInterval, sampleInterval/4, boost::bind(&DcMotorDriver::checkCurrent, this));
+    if (mCurrentSensor) {
+      mCurrentSensor->setAutopoll(mSampleInterval, mSampleInterval/4, boost::bind(&DcMotorDriver::checkCurrent, this));
     }
   }
-  if (aPower!=currentPower) {
+  if (aPower!=mCurrentPower) {
     OLOG(LOG_DEBUG, "Power changed to %.2f%%", aPower);
-    currentPower = aPower;
+    mCurrentPower = aPower;
   }
 }
 
 
 void DcMotorDriver::checkCurrent()
 {
-  double v = fabs(currentSensor->processedValue()); // takes abs, in case we're not using processing that already takes abs values
-  OLOG(LOG_DEBUG, "checkCurrent: processed: %.3f, last raw value: %.3f", v, currentSensor->lastValue());
-  if (v>=stopCurrent) {
-    double pwr = currentPower;
-    int dir = currentDirection;
+  double v = fabs(mCurrentSensor->processedValue()); // takes abs, in case we're not using processing that already takes abs values
+  OLOG(LOG_DEBUG, "checkCurrent: processed: %.3f, last raw value: %.3f", v, mCurrentSensor->lastValue());
+  if (v>=mStopCurrent) {
+    double pwr = mCurrentPower;
+    int dir = mCurrentDirection;
     stop();
-    OLOG(LOG_INFO, "stopped because processed current (%.3f) exceeds max (%.3f) - last raw sample = %.3f", v, stopCurrent, currentSensor->lastValue());
+    OLOG(LOG_INFO, "stopped because processed current (%.3f) exceeds max (%.3f) - last raw sample = %.3f", v, mStopCurrent, mCurrentSensor->lastValue());
     autoStopped(pwr, dir);
   }
 }
@@ -188,22 +188,22 @@ void DcMotorDriver::stop()
 
 void DcMotorDriver::stopSequences()
 {
-  sequenceTicket.cancel();
+  mSequenceTicket.cancel();
 }
 
 
 
 void DcMotorDriver::rampToPower(double aPower, int aDirection, double aRampTime, double aRampExp, DCMotorStatusCB aRampDoneCB)
 {
-  OLOG(LOG_INFO, "+++ new ramp: power: %.2f%%..%.2f%%, direction:%d..%d with ramp time %.3f Seconds, exp=%.2f", currentPower, aPower, currentDirection, aDirection, aRampTime, aRampExp);
+  OLOG(LOG_INFO, "+++ new ramp: power: %.2f%%..%.2f%%, direction:%d..%d with ramp time %.3f Seconds, exp=%.2f", mCurrentPower, aPower, mCurrentDirection, aDirection, aRampTime, aRampExp);
   mRampDoneCB = aRampDoneCB;
-  MainLoop::currentMainLoop().cancelExecutionTicket(sequenceTicket);
-  if (aDirection!=currentDirection) {
-    if (currentPower!=0) {
+  MainLoop::currentMainLoop().cancelExecutionTicket(mSequenceTicket);
+  if (aDirection!=mCurrentDirection) {
+    if (mCurrentPower!=0) {
       // ramp to zero first, then ramp up to new direction
       OLOG(LOG_INFO, "Ramp trough different direction modes -> first ramp power down, then up again");
       if (aRampTime>0) aRampTime /= 2; // for absolute ramp time specificiation, just use half of the time for ramp up or down, resp. 
-      rampToPower(0, currentDirection, aRampTime, aRampExp, boost::bind(&DcMotorDriver::rampToPower, this, aPower, aDirection, aRampTime, aRampExp, aRampDoneCB));
+      rampToPower(0, mCurrentDirection, aRampTime, aRampExp, boost::bind(&DcMotorDriver::rampToPower, this, aPower, aDirection, aRampTime, aRampExp, aRampDoneCB));
       return;
     }
     // set new direction
@@ -213,7 +213,7 @@ void DcMotorDriver::rampToPower(double aPower, int aDirection, double aRampTime,
   if (aPower>100) aPower=100;
   else if (aPower<0) aPower=0;
   // ramp to new value
-  double rampRange = aPower-currentPower;
+  double rampRange = aPower-mCurrentPower;
   MLMicroSeconds totalRampTime;
   if (aRampTime<0) {
     // specification is 0..100 ramp time, scale according to power difference
@@ -224,9 +224,9 @@ void DcMotorDriver::rampToPower(double aPower, int aDirection, double aRampTime,
     totalRampTime = aRampTime*Second;
   }
   int numSteps = (int)(totalRampTime/RAMP_STEP_TIME)+1;
-  OLOG(LOG_INFO, "Ramp power from %.2f%% to %.2f%% in %lld uS (%d steps)", currentPower, aPower, totalRampTime, numSteps);
+  OLOG(LOG_INFO, "Ramp power from %.2f%% to %.2f%% in %lld uS (%d steps)", mCurrentPower, aPower, totalRampTime, numSteps);
   // now execute the ramp
-  rampStep(currentPower, aPower, numSteps, 0, aRampExp);
+  rampStep(mCurrentPower, aPower, numSteps, 0, aRampExp);
 }
 
 
@@ -236,10 +236,10 @@ void DcMotorDriver::rampStep(double aStartPower, double aTargetPower, int aNumSt
   OLOG(LOG_DEBUG, "ramp step #%d/%d, %d%% of ramp", aStepNo, aNumSteps, aStepNo*100/aNumSteps);
   if (aStepNo++>=aNumSteps) {
     // finalize
-    setPower(aTargetPower, currentDirection);
+    setPower(aTargetPower, mCurrentDirection);
     OLOG(LOG_INFO, "--- end of ramp");
     // call back
-    if (mRampDoneCB) mRampDoneCB(currentPower, currentDirection, ErrorPtr());
+    if (mRampDoneCB) mRampDoneCB(mCurrentPower, mCurrentDirection, ErrorPtr());
   }
   else {
     // set power for this step
@@ -250,9 +250,9 @@ void DcMotorDriver::rampStep(double aStartPower, double aTargetPower, int aNumSt
     // - scale the power
     double pwr = aStartPower + (aTargetPower-aStartPower)*f;
     OLOG(LOG_DEBUG, "- f=%.3f, pwr=%.2f", f, pwr);
-    setPower(pwr, currentDirection);
+    setPower(pwr, mCurrentDirection);
     // schedule next step
-    sequenceTicket.executeOnce(boost::bind(
+    mSequenceTicket.executeOnce(boost::bind(
       &DcMotorDriver::rampStep, this, aStartPower, aTargetPower, aNumSteps, aStepNo, aRampExp),
       RAMP_STEP_TIME
     );
@@ -265,7 +265,7 @@ void DcMotorDriver::runSequence(SequenceStepList aSteps, DCMotorStatusCB aSequen
   stopSequences();
   if (aSteps.size()==0) {
     // done
-    if (aSequenceDoneCB) aSequenceDoneCB(currentPower, currentDirection, ErrorPtr());
+    if (aSequenceDoneCB) aSequenceDoneCB(mCurrentPower, mCurrentDirection, ErrorPtr());
   }
   // next step
   SequenceStep step = aSteps.front();
@@ -277,13 +277,13 @@ void DcMotorDriver::sequenceStepDone(SequenceStepList aSteps, DCMotorStatusCB aS
 {
   if (!Error::isOK(aError)) {
     // error, abort sequence
-    if (aSequenceDoneCB) aSequenceDoneCB(currentPower, currentDirection, aError);
+    if (aSequenceDoneCB) aSequenceDoneCB(mCurrentPower, mCurrentDirection, aError);
     return;
   }
   // launch next step after given run time
   SequenceStep step = aSteps.front();
   aSteps.pop_front();
-  MainLoop::currentMainLoop().executeTicketOnce(sequenceTicket, boost::bind(&DcMotorDriver::runSequence, this, aSteps, aSequenceDoneCB), step.runTime*Second);
+  MainLoop::currentMainLoop().executeTicketOnce(mSequenceTicket, boost::bind(&DcMotorDriver::runSequence, this, aSteps, aSequenceDoneCB), step.runTime*Second);
 }
 
 

@@ -78,20 +78,20 @@ namespace p44 {
   {
     typedef P44Obj inherited;
 
-    AnalogIoPtr pwmOutput;
-    DigitalIoPtr cwDirectionOutput;
-    DigitalIoPtr ccwDirectionOutput;
+    AnalogIoPtr mPwmOutput;
+    DigitalIoPtr mCWdirectionOutput;
+    DigitalIoPtr mCCWdirectionOutput;
 
-    int currentDirection;
-    double currentPower;
+    int mCurrentDirection;
+    double mCurrentPower;
     DCMotorStatusCB mRampDoneCB; ///< called when ramp is done or motor was stopped by endswitch/overcurrent
 
-    MLTicket sequenceTicket;
+    MLTicket mSequenceTicket;
 
-    AnalogIoPtr currentSensor;
-    double stopCurrent;
-    MLMicroSeconds sampleInterval;
-    DCMotorStatusCB stoppedCB; ///< called when motor was stopped by endswitch/overcurrent
+    AnalogIoPtr mCurrentSensor;
+    double mStopCurrent;
+    MLMicroSeconds mSampleInterval;
+    DCMotorStatusCB mStoppedCB; ///< called when motor was stopped by endswitch/overcurrent
 
     DigitalIoPtr mPositiveEndInput;
     DigitalIoPtr mNegativeEndInput;
