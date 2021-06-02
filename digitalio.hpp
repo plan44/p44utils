@@ -232,7 +232,7 @@ namespace p44 {
       virtual double doubleValue() const P44_OVERRIDE;
     };
 
-    /// represents a analog I/O
+    /// represents a digital I/O
     /// @note is an event source, but does not expose it directly, only via DigitalInputEventObjs
     class DigitalIoObj : public StructuredLookupObject, public EventSource
     {
@@ -243,8 +243,8 @@ namespace p44 {
       virtual string getAnnotation() const P44_OVERRIDE { return "digitalIO"; };
       DigitalIoPtr digitalIo() { return mDigitalIo; }
       void inputChanged(bool aNewState);
-      /// factory method to get an AnalogIo either by creating it from pinspec
-      /// string or by using existing AnalogIoObj passed
+      /// factory method to get a DigitalIo either by creating it from pinspec
+      /// string or by using existing DigitalIoObj passed
       static DigitalIoPtr digitalIoFromArg(ScriptObjPtr aArg, bool aOutput, bool aInitialState);
     };
 

@@ -791,7 +791,7 @@ AnalogColorOutputObj::AnalogColorOutputObj(AnalogColorOutputPtr aColorOutput) :
 
 
 // analogcoloroutput(red, green, blue [[, white [, amber]) // AnalogIOObjs or pin specs
-static const BuiltInArgDesc coloroutput_args[] = { { text }, { text }, { text }, { text|optionalarg }, { text|optionalarg } };
+static const BuiltInArgDesc coloroutput_args[] = { { text|object }, { text|object }, { text|object }, { text|optionalarg }, { text|optionalarg } };
 static const size_t coloroutput_numargs = sizeof(coloroutput_args)/sizeof(BuiltInArgDesc);
 static void coloroutput_func(BuiltinFunctionContextPtr f)
 {

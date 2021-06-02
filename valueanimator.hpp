@@ -29,7 +29,7 @@
 #endif
 
 #if ENABLE_ANIMATOR_SCRIPT_FUNCS
-#include "p44script.hpp"
+  #include "p44script.hpp"
 #endif
 
 
