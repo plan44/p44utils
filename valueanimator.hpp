@@ -61,25 +61,25 @@ namespace p44 {
   {
     typedef std::list<ValueAnimatorPtr> AnimatorList;
 
-    ValueSetterCB valueSetter;
-    AnimationDoneCB doneCB;
-    MLMicroSeconds startedAt; // if Never -> not running
-    MLMicroSeconds defaultMinStepTime;
-    MLMicroSeconds stepTime;
-    MLMicroSeconds duration;
-    double startValue;
-    double currentValue;
-    double distance;
-    AnimationFunction animationFunction;
-    double animationParam;
-    bool selfTiming;
-    MLTicket animationTimer;
-    bool autoreverse;
-    int cycles;
-    AnimatorList triggerAnimations; ///< the animations to trigger when this one ends
-    bool awaitingTrigger; ///< set when animation awaits a trigger from another animation
-    bool absoluteStartTime; ///< true when startTimeOrDelay is absolute, false when start is relative to the time the animation is triggered
-    MLMicroSeconds startTimeOrDelay; ///< starting time (when relativeStartTime==false) or start delay (when relativeStartTime==true)
+    ValueSetterCB mValueSetter;
+    AnimationDoneCB mDoneCB;
+    MLMicroSeconds mStartedAt; // if Never -> not running
+    MLMicroSeconds mDefaultMinStepTime;
+    MLMicroSeconds mStepTime;
+    MLMicroSeconds mDuration;
+    double mStartValue;
+    double mCurrentValue;
+    double mDistance;
+    AnimationFunction mAnimationFunction;
+    double mAnimationParam;
+    bool mSelfTiming;
+    MLTicket mAnimationTimer;
+    bool mAutoreverse;
+    int mCycles;
+    AnimatorList mTriggerAnimations; ///< the animations to trigger when this one ends
+    bool mAwaitingTrigger; ///< set when animation awaits a trigger from another animation
+    bool mAbsoluteStartTime; ///< true when startTimeOrDelay is absolute, false when start is relative to the time the animation is triggered
+    MLMicroSeconds mStartTimeOrDelay; ///< starting time (when relativeStartTime==false) or start delay (when relativeStartTime==true)
 
   public:
 
@@ -166,7 +166,7 @@ namespace p44 {
     bool valid();
 
     /// @return current value
-    double current() { return currentValue; }
+    double current() { return mCurrentValue; }
 
 
     /// Animation functions
