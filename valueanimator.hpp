@@ -64,8 +64,10 @@ namespace p44 {
     ValueSetterCB mValueSetter;
     AnimationDoneCB mDoneCB;
     MLMicroSeconds mStartedAt; // if Never -> not running
-    MLMicroSeconds mDefaultMinStepTime;
-    MLMicroSeconds mStepTime;
+    MLMicroSeconds mDefaultMinStepTime; ///< default minimum step time (usually set by creator of animator based on HW constraints)
+    MLMicroSeconds mMinStepTime; ///< minimum step time for this animation as set via stepParams()
+    MLMicroSeconds mStepTime; ///< actual step time used for this animation, might be larger when a minimal step size specified
+    MLMicroSeconds mStepSize; ///< step size wanted for this animation, 0 if step size should be calculated from step time
     MLMicroSeconds mDuration;
     double mStartValue;
     double mCurrentValue;
@@ -91,21 +93,24 @@ namespace p44 {
     ValueAnimator(ValueSetterCB aValueSetter, bool aSelfTiming = false, MLMicroSeconds aDefaultMinStepTime = 0);
     virtual ~ValueAnimator();
 
+    /// Reset to default parameters
+    void reset();
+
     /// Start animation
     /// @note start value and repeat parameters must be set before
     /// @param aTo ending value
     /// @param aDuration overall duration of of the animation
     /// @param aDoneCB called when the animation completes or is stopped with reporting enabled
+    /// @note if animator was created with aSelfTiming==true, step() is called by an internal timer an MUST NOT be called directly!
+    /// @return Infinite if there is no need to call step (animation has no steps or needs trigger first), otherwise mainloop time of when to call again
+    MLMicroSeconds animate(double aTo, MLMicroSeconds aDuration, AnimationDoneCB aDoneCB = NULL);
+
+    /// set stepping params
     /// @param aMinStepTime the minimum time between steps. If 0, ANIMATION_MIN_STEP_TIME is used
     /// @param aStepSize the desired step size. If 0, step size is determined by aMinStepTime (or its default)
     /// @note stepsize and steptime is only used when autostepping and for the recommended call-again time returned by step()
     ///   Actual stepping is done whenever step() is called, relative to the start time
-    /// @note if animator was created with aSelfTiming==true, step() is called by an internal timer an MUST NOT be called directly!
-    /// @return Infinite if there is no need to call step (animation has no steps or needs trigger first), otherwise mainloop time of when to call again
-    MLMicroSeconds animate(double aTo, MLMicroSeconds aDuration, AnimationDoneCB aDoneCB = NULL, MLMicroSeconds aMinStepTime = 0, double aStepSize = 0);
-
-    /// Set speed for ramp type animations, where
-
+    ValueAnimatorPtr stepParams(MLMicroSeconds aMinStepTime = 0, double aStepSize = 0);
 
     /// set repetition parameters
     /// @param aAutoReverse if set, animation direction is reversed after each cycle

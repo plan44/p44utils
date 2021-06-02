@@ -39,20 +39,28 @@ ValueAnimator::ValueAnimator(ValueSetterCB aValueSetter, bool aSelfTiming, MLMic
   mValueSetter(aValueSetter),
   mSelfTiming(aSelfTiming),
   mDefaultMinStepTime(aDefaultMinStepTime>0 ? aDefaultMinStepTime : ANIMATION_MIN_STEP_TIME),
-  mAnimationFunction(NULL),
-  mAnimationParam(3),
   mStartValue(0),
   mDistance(0),
   mCurrentValue(0),
   mStartedAt(Never),
   mCycles(0),
-  mRepeat(1),
-  mAutoreverse(false),
   mAwaitingTrigger(false),
   mStartTimeOrDelay(0),
   mAbsoluteStartTime(false)
 {
+  reset();
 }
+
+
+void ValueAnimator::reset()
+{
+  mMinStepTime = mDefaultMinStepTime;
+  mRepeat = 1;
+  mAutoreverse = false;
+  mAnimationFunction = NULL;
+  mAnimationParam = 3;
+}
+
 
 
 ValueAnimator::~ValueAnimator()
@@ -109,6 +117,14 @@ ValueAnimatorPtr ValueAnimator::from(double aFrom)
 {
   internalStop(true, false); // abort previous animation, if any
   mStartValue = aFrom;
+  return this;
+}
+
+
+ValueAnimatorPtr ValueAnimator::stepParams(MLMicroSeconds aMinStepTime, double aStepSize)
+{
+  if (aMinStepTime>0) mMinStepTime = aMinStepTime;
+  mStepSize = aStepSize;
   return this;
 }
 
@@ -188,7 +204,7 @@ ValueAnimatorPtr ValueAnimator::runAfter(ValueAnimatorPtr aPreceedingAnimation)
 }
 
 
-MLMicroSeconds ValueAnimator::animate(double aTo, MLMicroSeconds aDuration, AnimationDoneCB aDoneCB, MLMicroSeconds aMinStepTime, double aStepSize)
+MLMicroSeconds ValueAnimator::animate(double aTo, MLMicroSeconds aDuration, AnimationDoneCB aDoneCB)
 {
   internalStop(true, false); // abort previous animation, if any
   mCurrentValue = mStartValue;
@@ -202,12 +218,12 @@ MLMicroSeconds ValueAnimator::animate(double aTo, MLMicroSeconds aDuration, Anim
   // precalculate operating params
   mDistance = aTo-mStartValue;
   if (!mAnimationFunction) mAnimationFunction = &linear; // default to linear
-  mStepTime = aMinStepTime>0 ? aMinStepTime : mDefaultMinStepTime; // default to not-too-small steps
+  mStepTime = mMinStepTime;
   mCycles = mRepeat;
   // calculate steps
   int steps = (int)(mDuration/mStepTime);
-  if (aStepSize>0) {
-    int sizedsteps = mDistance/aStepSize;
+  if (mStepSize>0) {
+    int sizedsteps = mDistance/mStepSize;
     if (sizedsteps<steps) {
       // given step size allows less frequent steps
       steps = sizedsteps;
@@ -392,6 +408,7 @@ static void delay_func(BuiltinFunctionContextPtr f)
   f->finish(a); // return myself for chaining calls
 }
 
+
 // .runafter(animator)
 static const BuiltInArgDesc runafter_args[] = { { any } };
 static const size_t runafter_numargs = sizeof(runafter_args)/sizeof(BuiltInArgDesc);
@@ -408,6 +425,7 @@ static void runafter_func(BuiltinFunctionContextPtr f)
   f->finish(a); // return myself for chaining calls
 }
 
+
 // .repeat(repetitions [,autoreverse])
 static const BuiltInArgDesc repeat_args[] = { { numeric }, { numeric|optionalarg } };
 static const size_t repeat_numargs = sizeof(repeat_args)/sizeof(BuiltInArgDesc);
@@ -418,6 +436,7 @@ static void repeat_func(BuiltinFunctionContextPtr f)
   a->animator()->repeat(f->arg(1)->boolValue(), f->arg(0)->doubleValue());
   f->finish(a); // return myself for chaining calls
 }
+
 
 // .function(animationfunctionname [, animationfunctionparam])
 static const BuiltInArgDesc function_args[] = { { text }, { numeric|optionalarg } };
@@ -433,6 +452,7 @@ static void function_func(BuiltinFunctionContextPtr f)
   f->finish(a); // return myself for chaining calls
 }
 
+
 // .from(initialvalue)
 static const BuiltInArgDesc from_args[] = { { numeric } };
 static const size_t from_numargs = sizeof(from_args)/sizeof(BuiltInArgDesc);
@@ -444,7 +464,21 @@ static void from_func(BuiltinFunctionContextPtr f)
   f->finish(a); // return myself for chaining calls
 }
 
-// .runto(endvalue, intime [, minsteptime])    actually start animation
+
+// .step(minsteptime [, stepsize])
+static const BuiltInArgDesc step_args[] = { { numeric }, { numeric|optionalarg }  };
+static const size_t step_numargs = sizeof(step_args)/sizeof(BuiltInArgDesc);
+static void step_func(BuiltinFunctionContextPtr f)
+{
+  ValueAnimatorObj* a = dynamic_cast<ValueAnimatorObj*>(f->thisObj().get());
+  assert(a);
+  // undefined arg returns 0 which means default for stepParams()
+  a->animator()->stepParams(f->arg(0)->doubleValue()*Second, f->arg(1)->doubleValue());
+  f->finish(a); // return myself for chaining calls
+}
+
+
+// .runto(endvalue, intime [, minsteptime [, stepsize]])    actually start animation
 static void animation_complete(ValueAnimatorObjPtr aAnimationObj, double aReachedValue, bool aCompleted)
 {
   aAnimationObj->sendEvent(new NumericValue(aCompleted));
@@ -455,9 +489,10 @@ static void runto_func(BuiltinFunctionContextPtr f)
 {
   ValueAnimatorObjPtr a = boost::dynamic_pointer_cast<ValueAnimatorObj>(f->thisObj());
   assert(a);
-  MLMicroSeconds minStepTime = 0;
-  if (f->numArgs()>2) minStepTime = f->arg(2)->doubleValue()*Second;
-  a->animator()->animate(f->arg(0)->doubleValue(), f->arg(1)->doubleValue()*Second, boost::bind(&animation_complete, a, _1, _2), minStepTime);
+  if (f->numArgs()>2) {
+    a->animator()->stepParams(f->arg(2)->doubleValue()*Second, f->arg(3)->doubleValue());
+  }
+  a->animator()->animate(f->arg(0)->doubleValue(), f->arg(1)->doubleValue()*Second, boost::bind(&animation_complete, a, _1, _2));
   f->finish(); // no return value
 }
 
