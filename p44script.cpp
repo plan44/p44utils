@@ -3976,7 +3976,7 @@ void CompiledTrigger::triggerDidEvaluate(EvaluationFlags aEvalMode, ScriptObjPtr
       }
     }
   }
-  mCurrentResult = aResult;
+  mCurrentResult = aResult->assignmentValue();
   // take unfreeze time of frozen results into account for next evaluation
   FrozenResultsMap::iterator fpos = mFrozenResults.begin();
   MLMicroSeconds now = MainLoop::now();
