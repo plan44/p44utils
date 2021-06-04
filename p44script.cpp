@@ -1434,6 +1434,58 @@ ScriptMainContext::ScriptMainContext(ScriptingDomainPtr aDomain, ScriptObjPtr aT
 }
 
 
+#if P44SCRIPT_FULL_SUPPORT
+
+
+void ScriptMainContext::releaseObjsFromSource(SourceContainerPtr aSource)
+{
+  // handlers
+  HandlerList::iterator pos = handlers.begin();
+  while (pos!=handlers.end()) {
+    if ((*pos)->originatesFrom(aSource)) {
+      (*pos)->deactivate(); // pre-deletion, breaks retain cycles
+      pos = handlers.erase(pos); // source is gone -> remove
+    }
+    else {
+      ++pos;
+    }
+  }
+  inherited::releaseObjsFromSource(aSource);
+}
+
+
+ScriptObjPtr ScriptMainContext::registerHandler(ScriptObjPtr aHandler)
+{
+  CompiledHandlerPtr handler = boost::dynamic_pointer_cast<CompiledHandler>(aHandler);
+  if (!handler) {
+    return new ErrorValue(ScriptError::Internal, "is not a handler");
+  }
+  // prevent duplicating handlers
+  // - when source is changed, all handlers are erased before
+  // - so only re-running a on()-statement which is outside declaration could possibly be run twice
+  // - this can be detected by comparing source start locations
+  for (HandlerList::iterator pos = handlers.begin(); pos!=handlers.end(); pos++) {
+    if ((*pos)->codeFromSameSourceAs(*handler)) {
+      // replace this handler by the new one
+      OLOG(LOG_WARNING, "Handler definition re-executed -> usually not a good idea");
+      CompiledHandlerPtr h = handler;
+      pos->swap(h);
+      h.reset(); // kill the previous instance
+      // return the active instance
+      return handler;
+    }
+  }
+  // install the handler
+  handlers.push_back(handler);
+  return handler;
+}
+
+#endif // P44SCRIPT_FULL_SUPPORT
+
+
+
+
+
 const ScriptObjPtr ScriptMainContext::memberByName(const string aName, TypeInfo aMemberAccessFlags)
 {
   FOCUSLOGLOOKUP((domain() ? "main scope" : "global scope"));
@@ -3050,15 +3102,8 @@ void SourceProcessor::s_declarations()
       return;
     } // function
     if (uequals(identifier, "on")) {
-      // on (triggerexpression) [toggling|changing|evaluating] { code }
-      src.skipNonCode();
-      if (!src.nextIf('(')) {
-        exitWithSyntaxError("'(' expected");
-        return;
-      }
-      push(&SourceProcessor::s_defineTrigger);
-      skipping = true;
-      resumeAt(&SourceProcessor::s_expression);
+      // Note: on handlers can be in declaration part OR in running script code
+      processOnHandler();
       return;
     } // handler
   } // identifier
@@ -3082,6 +3127,21 @@ void SourceProcessor::s_defineFunction()
 }
 
 
+void SourceProcessor::processOnHandler()
+{
+  // on (triggerexpression) [toggling|changing|evaluating] { code }
+  push(currentState); // return to current state when handler definition completes
+  src.skipNonCode();
+  if (!src.nextIf('(')) {
+    exitWithSyntaxError("'(' expected");
+    return;
+  }
+  push(&SourceProcessor::s_defineTrigger);
+  skipping = true;
+  resumeAt(&SourceProcessor::s_expression);
+}
+
+
 void SourceProcessor::s_defineTrigger()
 {
   FOCUSLOGSTATE
@@ -3093,7 +3153,7 @@ void SourceProcessor::s_defineTrigger()
     exitWithSyntaxError("')' as end of trigger expression expected");
     return;
   }
-  CompiledTriggerPtr trigger = new CompiledTrigger("trigger", getCompilerMainContext());
+  CompiledTriggerPtr trigger = new CompiledTrigger("trigger", getTriggerAndHandlerMainContext());
   result = captureCode(trigger);
   src.next(); // skip ')'
   src.skipNonCode();
@@ -3172,11 +3232,12 @@ void SourceProcessor::s_defineHandler()
   // - poppedPos points to the opening '{' of the body
   // - src.pos is after the closing '}' of the body
   // - olderResult is the trigger, mode already set
-  setState(&SourceProcessor::s_declarations); // back to declarations
-  CompiledHandlerPtr handler = new CompiledHandler("handler", getCompilerMainContext());
+  CompiledHandlerPtr handler = new CompiledHandler("handler", getTriggerAndHandlerMainContext());
   result = captureCode(handler); // get the code first, so we can execute it in the trigger init
   handler->installAndInitializeTrigger(olderResult);
   storeHandler();
+  // back to where we were before
+  pop();
 }
 
 // MARK: Statements
@@ -3387,13 +3448,19 @@ void SourceProcessor::processStatement()
       processVarDefs(lvalue+unset, false);
       return;
     }
+    // check handler definition within script code (needed when trigger expression wants to refer to run-time created objects)
+    if (uequals(identifier, "on")) {
+      // Note: on handlers can be in declaration part OR in running script code
+      processOnHandler();
+      return;
+    }
     // just check to give sensible error message
     if (uequals(identifier, "else")) {
       exitWithSyntaxError("'else' without preceeding 'if'");
       return;
     }
-    if (uequals(identifier, "on") || uequals(identifier, "function")) {
-      exitWithSyntaxError("declarations must be made before first script statement");
+    if (uequals(identifier, "function")) {
+      exitWithSyntaxError("function declarations must be made before first script statement");
       return;
     }
     // identifier we've parsed above is not a keyword, rewind cursor
@@ -3724,6 +3791,12 @@ void CompiledCode::setCursor(const SourceCursor& aCursor)
 }
 
 
+bool CompiledCode::codeFromSameSourceAs(const CompiledCode &aCode) const
+{
+  return cursor.refersTo(aCode.cursor.source) && cursor.posId()==aCode.cursor.posId();
+}
+
+
 CompiledCode::~CompiledCode()
 {
   FOCUSLOG("Released code named '%s' @ 0x%p", name.c_str(), this);
@@ -3766,6 +3839,7 @@ ExecutionContextPtr CompiledScript::contextForCallingFrom(ScriptMainContextPtr a
   // compiled script bodies get their execution context assigned at compile time, just return it
   // - but maincontext passed should be the domain of our saved mainContext, so check that if aMainContext is passed
   if (aMainContext) {
+    // Normal case during script execution
     if (mainContext->domain().get()!=aMainContext.get()) {
       LOG(LOG_ERR, "internal error: script domain mismatch");
       return NULL; // mismatch, cannot use that context!
@@ -4196,7 +4270,7 @@ void ScriptCompiler::storeFunction()
 void ScriptCompiler::storeHandler()
 {
   if (!result->isErr()) {
-    // handlers are always global
+    // handlers in declaration part (processed at compiling) are always global
     result = domain->registerHandler(result);
   }
   checkAndResume();
@@ -4289,8 +4363,9 @@ bool ScriptSource::setSource(const string aSource, EvaluationFlags aEvaluationFl
   if (cachedExecutable) {
     cachedExecutable.reset(); // release cached executable (will release SourceCursor holding our source)
   }
-  if (sourceContainer && scriptingDomain) {
-    scriptingDomain->releaseObjsFromSource(sourceContainer); // release all global objects from this source
+  if (sourceContainer) {
+    if (scriptingDomain) scriptingDomain->releaseObjsFromSource(sourceContainer); // release all global objects from this source
+    if (sharedMainContext) sharedMainContext->releaseObjsFromSource(sourceContainer); // release all main context objects from this source
     sourceContainer.reset(); // release it myself
   }
   // create new source container
@@ -4490,25 +4565,6 @@ ScriptMainContextPtr ScriptingDomain::newContext(ScriptObjPtr aInstanceObj)
 }
 
 
-void ScriptingDomain::releaseObjsFromSource(SourceContainerPtr aSource)
-{
-  // handlers
-  #if P44SCRIPT_FULL_SUPPORT
-  HandlerList::iterator pos = handlers.begin();
-  while (pos!=handlers.end()) {
-    if ((*pos)->originatesFrom(aSource)) {
-      (*pos)->deactivate(); // pre-deletion, breaks retain cycles
-      pos = handlers.erase(pos); // source is gone -> remove
-    }
-    else {
-      ++pos;
-    }
-  }
-  #endif // P44SCRIPT_FULL_SUPPORT
-  inherited::releaseObjsFromSource(aSource);
-}
-
-
 void ScriptingDomain::clearFloatingGlobs()
 {
   #if P44SCRIPT_FULL_SUPPORT
@@ -4524,21 +4580,6 @@ void ScriptingDomain::clearFloatingGlobs()
   #endif // P44SCRIPT_FULL_SUPPORT
   inherited::clearFloatingGlobs();
 }
-
-
-#if P44SCRIPT_FULL_SUPPORT
-
-ScriptObjPtr ScriptingDomain::registerHandler(ScriptObjPtr aHandler)
-{
-  CompiledHandlerPtr handler = boost::dynamic_pointer_cast<CompiledHandler>(aHandler);
-  if (!handler) {
-    return new ErrorValue(ScriptError::Internal, "is not a handler");
-  }
-  handlers.push_back(handler);
-  return handler;
-}
-
-#endif // P44SCRIPT_FULL_SUPPORT
 
 
 // MARK: - ScriptCodeThread
@@ -4709,7 +4750,7 @@ void ScriptCodeThread::memberByIdentifier(TypeInfo aMemberAccessFlags, bool aNoN
   }
   else {
     // implicit context
-    if (!mThreadLocals && (aMemberAccessFlags&create) && (aMemberAccessFlags&&threadlocal)) {
+    if (!mThreadLocals && (aMemberAccessFlags&create) && (aMemberAccessFlags&threadlocal)) {
       // create thread locals on demand if none already set at thread preparation
       mThreadLocals = ScriptObjPtr(new SimpleVarContainer);
     }
@@ -4797,6 +4838,16 @@ void ScriptCodeThread::startBlockThreadAndStoreInIdentifier()
       thread->run();
       checkAndResume();
     }
+  }
+  checkAndResume();
+}
+
+
+void ScriptCodeThread::storeHandler()
+{
+  if (!result->isErr()) {
+    // handlers processed at script run time will run in that script's main context
+    result = owner()->scriptmain()->registerHandler(result);
   }
   checkAndResume();
 }

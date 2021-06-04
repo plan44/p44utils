@@ -991,6 +991,7 @@ namespace p44 { namespace P44Script {
     friend class ScriptCodeThread;
     friend class ScriptMainContext;
     friend class CompiledCode;
+    friend class CompiledScript;
 
     SimpleVarContainer localVars;
 
@@ -1061,6 +1062,11 @@ namespace p44 { namespace P44Script {
     ScriptingDomainPtr domainObj; ///< the scripting domain (unless it's myself to avoid locking)
     ScriptObjPtr thisObj; ///< the object _instance_ scope of this execution context (if any)
 
+    #if P44SCRIPT_FULL_SUPPORT
+    typedef std::list<CompiledHandlerPtr> HandlerList;
+    HandlerList handlers;
+    #endif // P44SCRIPT_FULL_SUPPORT
+
     /// private constructor, only ScriptingDomain should use it
     /// @param aDomain owning link to domain - as long as context exists, domain may not get deleted.
     /// @param aThis can be NULL if there's no object instance scope for this script. This object is
@@ -1069,7 +1075,7 @@ namespace p44 { namespace P44Script {
 
   public:
 
-    virtual void deactivate() P44_OVERRIDE { domainObj.reset(); thisObj.reset(); inherited::deactivate(); }
+    virtual void deactivate() P44_OVERRIDE { handlers.clear(); domainObj.reset(); thisObj.reset(); inherited::deactivate(); }
 
     // access to objects in the context hierarchy of a local execution
     // (local objects, parent context objects, global objects)
@@ -1079,6 +1085,17 @@ namespace p44 { namespace P44Script {
     virtual ScriptObjPtr instance() const P44_OVERRIDE { return thisObj; }
     virtual ScriptingDomainPtr domain() const P44_OVERRIDE { return domainObj; }
     virtual ScriptMainContextPtr scriptmain() const P44_OVERRIDE { return ScriptMainContextPtr(const_cast<ScriptMainContext*>(this)); }
+
+    #if P44SCRIPT_FULL_SUPPORT
+
+    virtual void releaseObjsFromSource(SourceContainerPtr aSource) P44_OVERRIDE;
+
+    /// register a handler in this main context
+    /// @param aHandler the handler to register
+    /// @return Ok or error
+    ScriptObjPtr registerHandler(ScriptObjPtr aHandler);
+
+    #endif // P44SCRIPT_FULL_SUPPORT
 
   };
 
@@ -1409,16 +1426,9 @@ namespace p44 { namespace P44Script {
     GeoLocation *geoLocationP;
     MLMicroSeconds maxBlockTime;
 
-    #if P44SCRIPT_FULL_SUPPORT
-    typedef std::list<CompiledHandlerPtr> HandlerList;
-    HandlerList handlers;
-    #endif // P44SCRIPT_FULL_SUPPORT
-
   public:
 
     ScriptingDomain() : inherited(ScriptingDomainPtr(), ScriptObjPtr()), geoLocationP(NULL), maxBlockTime(DEFAULT_MAX_BLOCK_TIME) {};
-
-    virtual void releaseObjsFromSource(SourceContainerPtr aSource) P44_OVERRIDE;
 
     /// clear global functions and handlers that have embedded source (i.e. not linked to a still accessible source)
     void clearFloatingGlobs();
@@ -1444,13 +1454,6 @@ namespace p44 { namespace P44Script {
     ///   The class scope can also bring in aInstanceObj related member functions (methods), but also
     ///   plain functions (static methods) and other members.
     ScriptMainContextPtr newContext(ScriptObjPtr aInstanceObj = ScriptObjPtr());
-
-    #if P44SCRIPT_FULL_SUPPORT
-    /// register a domain-global handler
-    /// @param aHandler the handler to register
-    /// @return Ok or error
-    ScriptObjPtr registerHandler(ScriptObjPtr aHandler);
-    #endif // P44SCRIPT_FULL_SUPPORT
 
   };
 
@@ -1585,9 +1588,9 @@ namespace p44 { namespace P44Script {
     /// @note must cause calling resume()
     virtual void startOfBodyCode();
 
-    /// @return the main context passed to the compiler. This is used to associate scripts defined as part of a
+    /// @return the main context for running triggers and handlers. This is used to associate scripts defined as part of a
     /// source (e.g. "on"-handlers) with a execution context to call them later
-    virtual ScriptMainContextPtr getCompilerMainContext() { return ScriptMainContextPtr(); } // none in base class
+    virtual ScriptMainContextPtr getTriggerAndHandlerMainContext() { return ScriptMainContextPtr(); } // none in base class
 
     /// @}
 
@@ -1746,6 +1749,7 @@ namespace p44 { namespace P44Script {
     // Declarations
     void s_declarations(); ///< declarations (functions and handlers)
     void s_defineFunction(); ///< store the defined function
+    void processOnHandler(); ///< common processing for "on" handlers, which can be in declaration or code
     void s_defineTrigger(); ///< store the trigger expression of a on(...) {...} statement
     void s_defineHandler(); ///< store the handler script of a of a on(...) {...} statement
     #endif // P44SCRIPT_FULL_SUPPORT
@@ -1788,6 +1792,7 @@ namespace p44 { namespace P44Script {
     CompiledCode(const string aName, const SourceCursor& aCursor) : name(aName), cursor(aCursor) {};
     virtual ~CompiledCode();
     void setCursor(const SourceCursor& aCursor);
+    bool codeFromSameSourceAs(const CompiledCode &aCode) const; ///< return true if both compiled codes are from the same source position
     virtual bool originatesFrom(SourceContainerPtr aSource) const P44_OVERRIDE { return cursor.refersTo(aSource); };
     virtual bool floating() const P44_OVERRIDE { return cursor.source->floating(); }
     virtual P44LoggingObj* loggingContext() const P44_OVERRIDE { return cursor.source ? cursor.source->loggingContextP : NULL; };
@@ -2034,9 +2039,11 @@ namespace p44 { namespace P44Script {
     /// @note must cause calling resume() when result contains the member (or NULL if not found)
     void memberByIdentifier(TypeInfo aMemberAccessFlags, bool aNoNotFoundError) P44_OVERRIDE;
 
-    /// @return the main context passed to the compiler. This is used to associate scripts defined as part of a
+    /// @return the main context for running triggers and handlers. This is used to associate scripts defined as part of a
     /// source (e.g. "on"-handlers) with a execution context to call them later
-    virtual ScriptMainContextPtr getCompilerMainContext() P44_OVERRIDE { return compileForContext; }
+    /// Note: For triggers/handlers created in the declaration part of a script, this is the compiler's context
+    ///   (no script running yet), and thus usually the ScriptingDomain
+    virtual ScriptMainContextPtr getTriggerAndHandlerMainContext() P44_OVERRIDE { return compileForContext; }
 
   };
 
@@ -2136,11 +2143,21 @@ namespace p44 { namespace P44Script {
     /// @note must cause calling resume() when result contains the member (or NULL if not found)
     virtual void memberByIndex(size_t aIndex, TypeInfo aMemberAccessFlags) P44_OVERRIDE;
 
+    /// @return the main context for running triggers and handlers. This is used to associate scripts defined as part of a
+    /// source (e.g. "on"-handlers) with a execution context to call them later
+    /// Note: triggers/handlers created when running the script live in the main context of the running script
+    ///   such that it has access to context-level vars and functions
+    virtual ScriptMainContextPtr getTriggerAndHandlerMainContext() P44_OVERRIDE { return owner()->scriptmain(); }
+
     #if P44SCRIPT_FULL_SUPPORT
 
     /// fork executing a block at the current position, if identifier is not empty, store a new ThreadValue.
     /// @note MUST NOT call resume() directly. This call will return when the new thread yields execution the first time.
     virtual void startBlockThreadAndStoreInIdentifier() P44_OVERRIDE;
+
+    /// must store result as a event handler (trigger+action script) in the scripting domain
+    /// @note must cause calling resume()
+    virtual void storeHandler() P44_OVERRIDE;
 
     #endif // P44SCRIPT_FULL_SUPPORT
 
