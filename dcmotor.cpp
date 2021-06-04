@@ -58,40 +58,60 @@ void DcMotorDriver::setStopCallback(DCMotorStatusCB aStoppedCB)
 
 
 
-void DcMotorDriver::setEndSwitches(DigitalIoPtr aPositiveEnd, DigitalIoPtr aNegativeEnd, MLMicroSeconds aPollInterval)
+void DcMotorDriver::setEndSwitches(DigitalIoPtr aPositiveEnd, DigitalIoPtr aNegativeEnd, MLMicroSeconds aDebounceTime, MLMicroSeconds aPollInterval)
 {
   mPositiveEndInput = aPositiveEnd;
   mNegativeEndInput = aNegativeEnd;
-  if (mPositiveEndInput) mPositiveEndInput->setInputChangedHandler(boost::bind(&DcMotorDriver::endSwitch, this, true), 0, aPollInterval);
-  if (mNegativeEndInput) mNegativeEndInput->setInputChangedHandler(boost::bind(&DcMotorDriver::endSwitch, this, false), 0, aPollInterval);
+  if (mPositiveEndInput) mPositiveEndInput->setInputChangedHandler(boost::bind(&DcMotorDriver::endSwitch, this, true, _1), aDebounceTime, aPollInterval);
+  if (mNegativeEndInput) mNegativeEndInput->setInputChangedHandler(boost::bind(&DcMotorDriver::endSwitch, this, false, _1), aDebounceTime, aPollInterval);
 }
 
 
-void DcMotorDriver::endSwitch(bool aPositiveEnd)
+void DcMotorDriver::endSwitch(bool aPositiveEnd, bool aNewState)
 {
   // save direction and power as known BEFORE stopping
-  double pwr = mCurrentPower;
-  int dir = mCurrentDirection;
-  stop();
-  LOG(LOG_INFO, "stopped with power=%.2f, direction=%d because %s end switch reached", pwr, dir, aPositiveEnd ? "positive" : "negative");
-  autoStopped(pwr, dir);
-  return;
+  if (aNewState) {
+    double pwr = mCurrentPower;
+    int dir = mCurrentDirection;
+    stop();
+    LOG(LOG_INFO, "stopped with power=%.2f, direction=%d because %s end switch reached", pwr, dir, aPositiveEnd ? "positive" : "negative");
+    autoStopped(pwr, dir, new DcMotorDriverError(DcMotorDriverError::endswitchStop));
+  }
 }
 
 
-void DcMotorDriver::autoStopped(double aPower, int aDirection)
+void DcMotorDriver::autoStopped(double aPower, int aDirection, ErrorPtr aError)
 {
   if (mStoppedCB) {
     // stop callback does not reset
-    mStoppedCB(aPower, aDirection, new DcMotorDriverError(DcMotorDriverError::endswitchStop));
+    mStoppedCB(aPower, aDirection, aError);
   }
+  motorStatusUpdate(aError);
+}
+
+
+void DcMotorDriver::motorStatusUpdate(ErrorPtr aStopCause)
+{
+  mStopCause = aStopCause;
   if (mRampDoneCB) {
     // ramp done CB must be set for every ramp separately
     DCMotorStatusCB cb = mRampDoneCB;
     mRampDoneCB = NULL;
-    cb(aPower, aDirection, new DcMotorDriverError(DcMotorDriverError::endswitchStop));
+    cb(mCurrentPower, mCurrentDirection, mStopCause);
   }
+  #if ENABLE_DCMOTOR_SCRIPT_FUNCS  && ENABLE_P44SCRIPT
+  if (hasSinks()) {
+    sendEvent(getStatusObj());
+  }
+  #endif
 }
+
+#if ENABLE_DCMOTOR_SCRIPT_FUNCS  && ENABLE_P44SCRIPT
+P44Script::ScriptObjPtr DcMotorDriver::getStatusObj()
+{
+  return new P44Script::DcMotorStatusObj(this);
+}
+#endif
 
 void DcMotorDriver::setCurrentLimiter(AnalogIoPtr aCurrentSensor, double aStopCurrent, MLMicroSeconds aSampleInterval)
 {
@@ -142,8 +162,8 @@ void DcMotorDriver::setPower(double aPower, int aDirection)
       (aDirection>0 && mPositiveEndInput && mPositiveEndInput->isSet())
     ) {
       OLOG(LOG_INFO, "Cannot start in direction %d, endswitch is active", aDirection);
-      // count this as reaching end and cause callback to fire
-      endSwitch(aDirection>0);
+      // count this as running (again) into an end switch and cause callback to fire
+      endSwitch(aDirection>0, true);
       return;
     }
     // now set desired direction and power
@@ -170,14 +190,13 @@ void DcMotorDriver::checkCurrent()
     int dir = mCurrentDirection;
     stop();
     OLOG(LOG_INFO, "stopped because processed current (%.3f) exceeds max (%.3f) - last raw sample = %.3f", v, mStopCurrent, mCurrentSensor->lastValue());
-    autoStopped(pwr, dir);
+    autoStopped(pwr, dir, new DcMotorDriverError(DcMotorDriverError::overcurrentStop));
   }
 }
 
 
 
 #define RAMP_STEP_TIME (20*MilliSecond)
-
 
 void DcMotorDriver::stop()
 {
@@ -196,6 +215,7 @@ void DcMotorDriver::stopSequences()
 void DcMotorDriver::rampToPower(double aPower, int aDirection, double aRampTime, double aRampExp, DCMotorStatusCB aRampDoneCB)
 {
   OLOG(LOG_INFO, "+++ new ramp: power: %.2f%%..%.2f%%, direction:%d..%d with ramp time %.3f Seconds, exp=%.2f", mCurrentPower, aPower, mCurrentDirection, aDirection, aRampTime, aRampExp);
+  mStopCause.reset(); // clear status from previous run
   mRampDoneCB = aRampDoneCB;
   MainLoop::currentMainLoop().cancelExecutionTicket(mSequenceTicket);
   if (aDirection!=mCurrentDirection) {
@@ -238,8 +258,8 @@ void DcMotorDriver::rampStep(double aStartPower, double aTargetPower, int aNumSt
     // finalize
     setPower(aTargetPower, mCurrentDirection);
     OLOG(LOG_INFO, "--- end of ramp");
-    // call back
-    if (mRampDoneCB) mRampDoneCB(mCurrentPower, mCurrentDirection, ErrorPtr());
+    // update status + run callback
+    motorStatusUpdate(ErrorPtr());
   }
   else {
     // set power for this step
@@ -296,67 +316,143 @@ void DcMotorDriver::sequenceStepDone(SequenceStepList aSteps, DCMotorStatusCB aS
 
 using namespace P44Script;
 
-DcMotorEventObj::DcMotorEventObj(DcMotorObj* aDcMotorObj) :
-  inherited(false),
-  mDcMotorObj(aDcMotorObj)
+DcMotorStatusObj::DcMotorStatusObj(DcMotorDriverPtr aDcMotorDriver) :
+  inherited(JsonObjectPtr()),
+  mDcMotorDriver(aDcMotorDriver)
 {
 }
 
 
-string DcMotorEventObj::getAnnotation() const
+void DcMotorStatusObj::deactivate()
+{
+  mDcMotorDriver.reset();
+}
+
+
+string DcMotorStatusObj::getAnnotation() const
 {
   return "DC motor event";
 }
 
 
-TypeInfo DcMotorEventObj::getTypeInfo() const
+TypeInfo DcMotorStatusObj::getTypeInfo() const
 {
   return inherited::getTypeInfo()|oneshot|keeporiginal; // returns the request only once, must keep the original
 }
 
 
-EventSource* DcMotorEventObj::eventSource() const
+EventSource* DcMotorStatusObj::eventSource() const
 {
-  return static_cast<EventSource*>(mDcMotorObj);
+  return static_cast<EventSource*>(mDcMotorDriver.get());
 }
 
 
-double DcMotorEventObj::doubleValue() const
+JsonObjectPtr DcMotorStatusObj::jsonValue() const
 {
-  %%%
-  return mDcMotorObj && mDcMotorObj->digitalIo()->isSet() ? 1 : 0;
+  if (!mDcMotorDriver) return JsonObjectPtr();
+  JsonObjectPtr sta = JsonObject::newObj();
+  sta->add("power", JsonObject::newDouble(mDcMotorDriver->mCurrentPower));
+  sta->add("direction", JsonObject::newInt32(mDcMotorDriver->mCurrentDirection));
+  if (mDcMotorDriver->mStopCause) {
+    string cause;
+    if (mDcMotorDriver->mStopCause->isError(DcMotorDriverError::domain(), DcMotorDriverError::overcurrentStop)) cause = "overcurrent";
+    else if (mDcMotorDriver->mStopCause->isError(DcMotorDriverError::domain(), DcMotorDriverError::endswitchStop)) cause = "endswitch";
+    else cause = mDcMotorDriver->mStopCause->text();
+    sta->add("stoppedby", JsonObject::newString(cause));
+  }
+  if (mDcMotorDriver->mCurrentSensor) {
+    sta->add("current", JsonObject::newDouble(mDcMotorDriver->mCurrentSensor->lastValue()));
+  }
+  return sta;
 }
 
 
-
-// %%% toggle()
-static void toggle_func(BuiltinFunctionContextPtr f)
+// status()
+static void status_func(BuiltinFunctionContextPtr f)
 {
   DcMotorObj* dc = dynamic_cast<DcMotorObj*>(f->thisObj().get());
   assert(dc);
-  %%%
+  f->finish(new DcMotorStatusObj(dc->dcMotor()));
+}
+
+
+// stop()
+static void stop_func(BuiltinFunctionContextPtr f)
+{
+  DcMotorObj* dc = dynamic_cast<DcMotorObj*>(f->thisObj().get());
+  assert(dc);
+  dc->dcMotor()->stop();
   f->finish();
 }
 
 
-// %%% state() // get state (has event source)
-// state(newstate) // set state
-static const BuiltInArgDesc state_args[] = { { numeric|optionalarg } };
-static const size_t state_numargs = sizeof(state_args)/sizeof(BuiltInArgDesc);
-static void state_func(BuiltinFunctionContextPtr f)
+#define DEFAULT_CURRENT_POLL_INTERVAL (333*MilliSecond)
+
+// currentlimiter(sensor, limit [, sampleinterval])
+static const BuiltInArgDesc currentlimiter_args[] = { { text|object }, { numeric }, { numeric|optionalarg } };
+static const size_t currentlimiter_numargs = sizeof(currentlimiter_args)/sizeof(BuiltInArgDesc);
+static void currentlimiter_func(BuiltinFunctionContextPtr f)
 {
   DcMotorObj* dc = dynamic_cast<DcMotorObj*>(f->thisObj().get());
   assert(dc);
-  %%%
+  AnalogIoPtr sens = AnalogIoObj::analogIoFromArg(f->arg(0), false, 0);
+  double limit = f->arg(1)->doubleValue();
+  MLMicroSeconds interval = DEFAULT_CURRENT_POLL_INTERVAL; // sensible default
+  if (f->arg(2)->defined()) interval = f->arg(2)->doubleValue()*Second;
+  if (!sens) {
+    interval = 0; // no polling if we have no sensor
+  }
+  dc->dcMotor()->setCurrentLimiter(sens, limit, interval);
   f->finish();
 }
+
+
+#define DEFAULT_ENDSWITCH_DEBOUNCE_TIME (80*MilliSecond)
+
+// endswitches(positiveend, negativeend [, debouncetime [, pollinterval]])
+static const BuiltInArgDesc endswitches_args[] = { { text|object|null }, { text|object|optionalarg }, { numeric|optionalarg }, { numeric|optionalarg } };
+static const size_t endswitches_numargs = sizeof(endswitches_args)/sizeof(BuiltInArgDesc);
+static void endswitches_func(BuiltinFunctionContextPtr f)
+{
+  DcMotorObj* dc = dynamic_cast<DcMotorObj*>(f->thisObj().get());
+  assert(dc);
+  DigitalIoPtr pos = DigitalIoObj::digitalIoFromArg(f->arg(0), false, false);
+  DigitalIoPtr neg = DigitalIoObj::digitalIoFromArg(f->arg(1), false, false);
+  MLMicroSeconds interval = 0; // automatic
+  MLMicroSeconds debouncetime = DEFAULT_ENDSWITCH_DEBOUNCE_TIME; // usually, we need some debounce to avoid stopping while driving out of end switch
+  if (f->arg(2)->defined()) debouncetime = f->arg(2)->doubleValue()*Second;
+  if (f->arg(3)->defined()) interval = f->arg(2)->doubleValue()*Second;
+  dc->dcMotor()->setEndSwitches(pos, neg, debouncetime, interval);
+  f->finish();
+}
+
+
+// power(power [, direction [, ramptime [, rampexponent]]])
+static const BuiltInArgDesc power_args[] = { { numeric }, { numeric|optionalarg }, { numeric|optionalarg }, { numeric|optionalarg } };
+static const size_t power_numargs = sizeof(power_args)/sizeof(BuiltInArgDesc);
+static void power_func(BuiltinFunctionContextPtr f)
+{
+  DcMotorObj* dc = dynamic_cast<DcMotorObj*>(f->thisObj().get());
+  assert(dc);
+  double power = f->arg(0)->doubleValue();
+  int direction = 1; // default to forward (simplest case, just unidirectional DC motor)
+  double ramptime = -1; // default to 1 second full scale ramp. NOTE: THESE ARE SECONDS, not MLMicroSeconds!
+  double rampexponent = 1; // default to linear ramp
+  if (f->arg(1)->defined()) direction = f->arg(1)->intValue();
+  if (f->arg(2)->defined()) ramptime = f->arg(2)->doubleValue(); // NOTE: THESE ARE SECONDS, not MLMicroSeconds!
+  if (f->arg(3)->defined()) rampexponent = f->arg(3)->doubleValue();
+  dc->dcMotor()->rampToPower(power, direction, ramptime, rampexponent);
+  f->finish();
+}
+
 
 
 static const BuiltinMemberDescriptor dcmotorFunctions[] = {
-  { "endswitches", executable|numeric, endswitches_numargs, endswitches_args, &endswitches_func },
-  { "currentlimiter", executable|numeric, currentlimiter_numargs, currentlimiter_args, &currentlimiter_func },
-  { "rampto", executable|numeric, rampto_numargs, rampto_args, &rampto_func },
-  { "stop", executable|numeric, 0, NULL, &stop_func },
+  { "endswitches", executable|null, endswitches_numargs, endswitches_args, &endswitches_func },
+  { "currentlimiter", executable|null, currentlimiter_numargs, currentlimiter_args, &currentlimiter_func },
+  { "power", executable|null, power_numargs, power_args, &power_func },
+  { "status", executable|json, 0, NULL, &status_func },
+  { "stop", executable|null, 0, NULL, &stop_func },
   { NULL } // terminator
 };
 

@@ -70,13 +70,21 @@ namespace p44 {
   };
 
   class DcMotorDriver;
+  namespace P44Script { class DcMotorStatusObj; }
 
   typedef boost::function<void (double aCurrentPower, int aDirection, ErrorPtr aError)> DCMotorStatusCB;
 
   typedef boost::intrusive_ptr<DcMotorDriver> DcMotorDriverPtr;
-  class DcMotorDriver : public P44LoggingObj
+  class DcMotorDriver :
+    public P44LoggingObj
+    #if ENABLE_DCMOTOR_SCRIPT_FUNCS  && ENABLE_P44SCRIPT
+    , public P44Script::EventSource
+    #endif
   {
     typedef P44Obj inherited;
+    #if ENABLE_DCMOTOR_SCRIPT_FUNCS  && ENABLE_P44SCRIPT
+    friend class P44Script::DcMotorStatusObj;
+    #endif
 
     AnalogIoPtr mPwmOutput;
     DigitalIoPtr mCWdirectionOutput;
@@ -84,6 +92,7 @@ namespace p44 {
 
     int mCurrentDirection;
     double mCurrentPower;
+    ErrorPtr mStopCause;
     DCMotorStatusCB mRampDoneCB; ///< called when ramp is done or motor was stopped by endswitch/overcurrent
 
     MLTicket mSequenceTicket;
@@ -113,6 +122,8 @@ namespace p44 {
     /// @param aStopCB this will be called whenever the motor stops by itself.
     ///   If no error is passed, the stop is just because a ramp/sequence has completed
     ///   An error indicates a unexpeced stop (end switch or current limit)
+    /// @note the stop callback will receive the power and direction values present BEFORE the motor stopped;
+    ///   but actual power will be 0 (as we have stopped)
     void setStopCallback(DCMotorStatusCB aStoppedCB);
 
     /// Enable current monitoring for stopping at mechanical endpoints and/or obstacles (prevent motor overload)
@@ -126,7 +137,7 @@ namespace p44 {
     /// @param aPositiveEnd a digital input which signals motor at the positive end of its movement
     /// @param aNegativeEnd a digital input which signals motor at the negative end of its movement
     /// @param aPollInterval interval for polling the input (only if needed, that is when HW does not have edge detection anyway). 0 = default poll strategy
-    void setEndSwitches(DigitalIoPtr aPositiveEnd, DigitalIoPtr aNegativeEnd = NULL, MLMicroSeconds aPollInterval = 0);
+    void setEndSwitches(DigitalIoPtr aPositiveEnd, DigitalIoPtr aNegativeEnd = NULL, MLMicroSeconds aDebounceTime = 0, MLMicroSeconds aPollInterval = 0);
 
     /// ramp motor from current power to another power
     /// @param aPower 0..100 new brake or drive power to apply
@@ -137,6 +148,8 @@ namespace p44 {
     ///   Note that ramping from one aDirection to another will execute two separate ramps in sequence
     /// @param aRampExp ramp exponent (0=linear, + or - = logarithmic bulging up or down)
     /// @param aRampDoneCB will be called at end of ramp
+    /// @note aRampDoneCB callback will receive the current power and direction as active at the end of the ramp
+    ///    (if the motor runs into a stop condition during ramp, power and direction will be 0)
     void rampToPower(double aPower, int aDirection, double aRampTime = 0, double aRampExp = 0, DCMotorStatusCB aRampDoneCB = NULL);
 
     /// stop immediately, no braking
@@ -161,6 +174,11 @@ namespace p44 {
     /// @param aSequenceDoneCB will be called at end of ramp
     void runSequence(SequenceStepList aSteps, DCMotorStatusCB aSequenceDoneCB = NULL);
 
+    #if ENABLE_DCMOTOR_SCRIPT_FUNCS  && ENABLE_P44SCRIPT
+    /// get a motor status object. This is also what is sent to event sinks
+    P44Script::ScriptObjPtr getStatusObj();
+    #endif
+
   private:
 
     void setPower(double aPower, int aDirection);
@@ -168,8 +186,9 @@ namespace p44 {
     void rampStep(double aStartPower, double aTargetPower, int aNumSteps, int aStepNo , double aRampExp);
     void sequenceStepDone(SequenceStepList aSteps, DCMotorStatusCB aSequenceDoneCB, ErrorPtr aError);
     void checkCurrent();
-    void endSwitch(bool aPositiveEnd);
-    void autoStopped(double aPower, int aDirection);
+    void endSwitch(bool aPositiveEnd, bool aNewState);
+    void autoStopped(double aPower, int aDirection, ErrorPtr aError);
+    void motorStatusUpdate(ErrorPtr aStopCause);
 
   };
 
@@ -180,16 +199,17 @@ namespace p44 {
     class DcMotorObj;
 
     /// represents a DC motor state
-    class DcMotorEventObj : public NumericValue
+    class DcMotorStatusObj : public JsonValue
     {
-      typedef NumericValue inherited;
-      DcMotorObj* mDcMotorObj;
+      typedef JsonValue inherited;
+      DcMotorDriverPtr mDcMotorDriver;
     public:
-      DcMotorEventObj(DcMotorObj* aDcMotorObj);
+      DcMotorStatusObj(DcMotorDriverPtr aDcMotorDriver);
+      virtual void deactivate() P44_OVERRIDE;
       virtual string getAnnotation() const P44_OVERRIDE;
       virtual TypeInfo getTypeInfo() const P44_OVERRIDE;
       virtual EventSource *eventSource() const P44_OVERRIDE;
-      virtual double doubleValue() const P44_OVERRIDE;
+      virtual JsonObjectPtr jsonValue() const P44_OVERRIDE;
     };
 
     /// represents a DC motor
