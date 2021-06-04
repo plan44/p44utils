@@ -3811,7 +3811,7 @@ ScriptObjPtr CompiledTrigger::initializeTrigger()
   clearSources(); // forget all event sources
   ExecutionContextPtr ctx = contextForCallingFrom(NULL, NULL);
   if (!ctx) return  new ErrorValue(ScriptError::Internal, "no context for trigger");
-  EvaluationFlags initFlags = (mEvalFlags&~runModeMask)|initial;
+  EvaluationFlags initFlags = (mEvalFlags&~runModeMask)|initial|keepvars; // need to keep vars as trigger might refer to them
   OLOG(LOG_INFO, "initial trigger evaluation: %s", cursor.displaycode(130).c_str());
   if (mEvalFlags & synchronously) {
     #if DEBUGLOGGING
@@ -3843,7 +3843,7 @@ void CompiledTrigger::triggerEvaluation(EvaluationFlags aEvalMode)
   mReEvaluationTicket.cancel();
   mNextEvaluation = Never; // reset
   ExecutionContextPtr ctx = contextForCallingFrom(NULL, NULL);
-  EvaluationFlags runFlags = (aEvalMode&~runModeMask) ? aEvalMode : (mEvalFlags&~runModeMask)|aEvalMode; // use only runmode from aEvalMode if nothing else is set
+  EvaluationFlags runFlags = ((aEvalMode&~runModeMask) ? aEvalMode : (mEvalFlags&~runModeMask)|aEvalMode)|keepvars; // always keep vars, use only runmode from aEvalMode if nothing else is set
   ctx->execute(ScriptObjPtr(this), runFlags, boost::bind(&CompiledTrigger::triggerDidEvaluate, this, runFlags, _1), ScriptObjPtr(), 30*Second);
 }
 
