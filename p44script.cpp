@@ -149,10 +149,21 @@ void EventSource::copySinksFrom(EventSource* aOtherSource)
 
 // MARK: - ScriptObj
 
-#define FOCUSLOGLOOKUP(p) \
-  { string s = string_format("searching %s for '%s'", p, aName.c_str()); FOCUSLOG("%60s : requirements=0x%08x", s.c_str(), aMemberAccessFlags ); }
-#define FOCUSLOGSTORE(p) \
-  { string s = string_format("setting '%s' in %s", aName.c_str(), p); FOCUSLOG("%60s : value=%s", s.c_str(), ScriptObj::describe(aMember).c_str()); }
+#if FOCUSLOGGING
+  #define FOCUSLOGCLEAR(p) \
+    if (FOCUSLOGENABLED) { string s = string_format("CLEARING %s@%pX", p, this); FOCUSLOG("%60s", s.c_str() ); }
+  #define FOCUSLOGCALLER(p) \
+    if (FOCUSLOGENABLED) { string s = string_format("calling@%pX for %s", this, p); FOCUSLOG("%60s : calling...", s.c_str() ); }
+  #define FOCUSLOGLOOKUP(p) \
+    if (FOCUSLOGENABLED) { string s = string_format("searching %s@%pX for '%s'", p, this, aName.c_str()); FOCUSLOG("%60s : requirements=0x%08x", s.c_str(), aMemberAccessFlags ); }
+  #define FOCUSLOGSTORE(p) \
+    if (FOCUSLOGENABLED) { string s = string_format("setting '%s' in %s@%pX", aName.c_str(), p, this); FOCUSLOG("%60s : value = %s", s.c_str(), ScriptObj::describe(aMember).c_str()); }
+#else
+  #define FOCUSLOGCLEAR(p)
+  #define FOCUSLOGCALLER(p)
+  #define FOCUSLOGLOOKUP(p)
+  #define FOCUSLOGSTORE(p)
+#endif // FOCUSLOGGING
 
 
 ErrorPtr ScriptObj::setMemberByName(const string aName, const ScriptObjPtr aMember)
@@ -854,6 +865,7 @@ ErrorPtr JsonValue::setMemberAtIndex(size_t aIndex, const ScriptObjPtr aMember, 
 
 void SimpleVarContainer::clearVars()
 {
+  FOCUSLOGCLEAR("SimpleVarContainer");
   namedVars.clear();
 }
 
@@ -927,6 +939,7 @@ const ScriptObjPtr SimpleVarContainer::memberByName(const string aName, TypeInfo
 
 ErrorPtr SimpleVarContainer::setMemberByName(const string aName, const ScriptObjPtr aMember)
 {
+  FOCUSLOGSTORE("SimpleVarContainer");
   NamedVarMap::iterator pos = namedVars.find(aName);
   if (pos!=namedVars.end()) {
     // exists in local vars
@@ -1043,6 +1056,7 @@ GeoLocation* ExecutionContext::geoLocation()
 
 void ExecutionContext::clearVars()
 {
+  FOCUSLOGCLEAR("indexed Variables");
   indexedVars.clear();
 }
 
@@ -1223,6 +1237,7 @@ void ScriptCodeContext::clearFloatingGlobs()
 
 void ScriptCodeContext::clearVars()
 {
+  FOCUSLOGCLEAR(mainContext ? "local" : (domain() ? "main" : "global"));
   localVars.clearVars();
   inherited::clearVars();
 }
@@ -1230,17 +1245,20 @@ void ScriptCodeContext::clearVars()
 
 const ScriptObjPtr ScriptCodeContext::memberByName(const string aName, TypeInfo aMemberAccessFlags)
 {
-  FOCUSLOGLOOKUP(mainContext ? "local" : (domain() ? "main" : "global vars"));
+  FOCUSLOGLOOKUP(mainContext ? "local" : (domain() ? "main" : "global"));
   ScriptObjPtr m;
   // 1) local variables/objects
   if ((aMemberAccessFlags & (classscope+objscope))==0) {
+    FOCUSLOGCALLER("local variables");
     if ((m = localVars.memberByName(aName, aMemberAccessFlags))) {
       return m;
     }
   }
   // 2) access to ANY members of the _instance_ itself if running in a object context
+  FOCUSLOGCALLER("instance members");
   if (instance() && (m = instance()->memberByName(aName, aMemberAccessFlags) )) return m;
   // 3) functions from the main level (but no local objects/vars of main, these must be passed into functions as arguments)
+  FOCUSLOGCALLER("main functions");
   if (mainContext && (m = mainContext->memberByName(aName, aMemberAccessFlags|classscope|constant|objscope))) return m;
   // nothing found
   // Note: do NOT call inherited, altough there is a overridden memberByName in StructuredObject, but this
@@ -1424,6 +1442,7 @@ const ScriptObjPtr ScriptMainContext::memberByName(const string aName, TypeInfo 
   // member lookup during execution of a function or script body
   if ((aMemberAccessFlags & nooverride) && domain()) {
     // nooverride: first check if we have an EXISTING global (but do NOT create a global if not)
+    FOCUSLOGCALLER("existing globals");
     g = domain()->memberByName(aName, aMemberAccessFlags & ~create); // global by that name already exists, might use it unless local also exists
     // still check for local...
   }
@@ -1431,14 +1450,17 @@ const ScriptObjPtr ScriptMainContext::memberByName(const string aName, TypeInfo 
     // Only if not looking only for constant members (in the sense of: not settable by scripts) or globals (which are locals when we are the domain!)
     // 1) lookup local variables/arguments in this context...
     // 2) ...and members of the instance (if any)
+    FOCUSLOGCALLER("local variables");
     if ((m = inherited::memberByName(aName, aMemberAccessFlags & (g ? ~create : ~none)))) return m; // prevent creating local when we found a global already above
     if (g) return g; // existing global return
   }
   // 3) if not excplicitly global: members from registered lookups, which might or might not be instance related (depends on the lookup)
   if ((aMemberAccessFlags & global)==0) {
+    FOCUSLOGCALLER("local members");
     if ((m = StructuredLookupObject::memberByName(aName, aMemberAccessFlags))) return m;
   }
   // 4) lookup global members in the script domain (vars, functions, constants)
+  FOCUSLOGCALLER("globals");
   if (domain() && (m = domain()->memberByName(aName, aMemberAccessFlags&~(classscope|constant|objscope|global)))) return m;
   // nothing found (note that inherited was queried early above, already!)
   return m;
@@ -4696,10 +4718,12 @@ void ScriptCodeThread::memberByIdentifier(TypeInfo aMemberAccessFlags, bool aNoN
       TypeInfo fl = aMemberAccessFlags;
       if ((fl&threadlocal)==0) fl &= ~create; // do not create thread vars if not explicitly selected
       fl &= ~threadlocal; // do not pass on threadlocal flag
+      FOCUSLOGCALLER("threadlocals");
       result = mThreadLocals->memberByName(identifier, fl);
     }
     if (!result) {
       // - try owner context
+      FOCUSLOGCALLER("owner context");
       result = mOwner->memberByName(identifier, aMemberAccessFlags);
     }
     if (!result) {
