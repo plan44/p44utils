@@ -268,15 +268,33 @@ AnalogSimPin::AnalogSimPin(const char *aName, bool aOutput, double aInitialValue
   #if !DISABLE_CONSOLEKEY
   if (!aOutput) {
     if (!output) {
-      consoleKey = ConsoleKeyManager::sharedKeyManager()->newConsoleKey(
+      consoleKeyUp = ConsoleKeyManager::sharedKeyManager()->newConsoleKey(
         nextIoSimKey++,
-        name.c_str(),
+        "increase",
         false
       );
+      consoleKeyUp->setConsoleKeyHandler(boost::bind(&AnalogSimPin::simKeyPress, this, 1, _1));
+      consoleKeyDown = ConsoleKeyManager::sharedKeyManager()->newConsoleKey(
+        nextIoSimKey++,
+        "decrease",
+        false
+      );
+      consoleKeyDown->setConsoleKeyHandler(boost::bind(&AnalogSimPin::simKeyPress, this, -1, _1));
     }
   }
   #endif
 }
+
+
+#if !DISABLE_CONSOLEKEY
+void AnalogSimPin::simKeyPress(int aDir, bool aNewState)
+{
+  if (aNewState) {
+    pinValue += 0.1*aDir;
+    LOG(LOG_ALERT, ">>> AnalogSimPin \"%s\" manually changed to %.2f", name.c_str(), pinValue);
+  }
+}
+#endif
 
 
 double AnalogSimPin::getValue()
