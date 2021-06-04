@@ -203,6 +203,7 @@ void AnalogIo::setFilter(WinEvalMode aEvalType, MLMicroSeconds aWindowTime, MLMi
 
 void AnalogIo::setAutopoll(MLMicroSeconds aPollInterval, MLMicroSeconds aTolerance, SimpleCB aPollCB)
 {
+  mPollCB = aPollCB;
   mAutoPollTicket.cancel();
   if (aPollInterval<=0) return; // disable polling
   mAutoPollTicket.executeOnce(boost::bind(&AnalogIo::pollhandler, this, aPollInterval, aTolerance, _1));
@@ -474,9 +475,10 @@ string AnalogInputEventObj::getAnnotation() const
 }
 
 
-TypeInfo AnalogInputEventObj::getTypeInfo() const
+ScriptObjPtr AnalogInputEventObj::assignmentValue()
 {
-  return inherited::getTypeInfo()|oneshot|keeporiginal; // returns the request only once, must keep the original
+  // as this object is mutating (because it pulls live from analogio), we need a copy here
+  return new NumericValue(doubleValue());
 }
 
 
@@ -488,7 +490,8 @@ EventSource* AnalogInputEventObj::eventSource() const
 
 double AnalogInputEventObj::doubleValue() const
 {
-  return mAnalogIoObj && mAnalogIoObj->analogIo()->processedValue();
+  if (mAnalogIoObj) return mAnalogIoObj->analogIo()->processedValue();
+  return 0;
 }
 
 
@@ -503,12 +506,16 @@ static void range_func(BuiltinFunctionContextPtr f)
   double min;
   double max;
   double res;
-  a->analogIo()->getRange(min, max, res);
-  JsonObjectPtr j = JsonObject::newObj();
-  j->add("min", JsonObject::newDouble(min));
-  j->add("max", JsonObject::newDouble(max));
-  j->add("resolution", JsonObject::newDouble(res));
-  f->finish(new JsonValue(j));
+  if (a->analogIo()->getRange(min, max, res)) {
+    JsonObjectPtr j = JsonObject::newObj();
+    j->add("min", JsonObject::newDouble(min));
+    j->add("max", JsonObject::newDouble(max));
+    j->add("resolution", JsonObject::newDouble(res));
+    f->finish(new JsonValue(j));
+  }
+  else {
+    f->finish(new AnnotatedNullValue("no range info available"));
+  }
 }
 
 

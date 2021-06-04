@@ -231,7 +231,7 @@ namespace p44 {
     public:
       AnalogInputEventObj(AnalogIoObj* aAnalogIoObj);
       virtual string getAnnotation() const P44_OVERRIDE;
-      virtual TypeInfo getTypeInfo() const P44_OVERRIDE;
+      virtual ScriptObjPtr assignmentValue() P44_OVERRIDE;
       virtual EventSource *eventSource() const P44_OVERRIDE;
       virtual double doubleValue() const P44_OVERRIDE;
     };

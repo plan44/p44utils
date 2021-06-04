@@ -396,9 +396,10 @@ string DigitalInputEventObj::getAnnotation() const
 }
 
 
-TypeInfo DigitalInputEventObj::getTypeInfo() const
+ScriptObjPtr DigitalInputEventObj::assignmentValue()
 {
-  return inherited::getTypeInfo()|oneshot|keeporiginal; // returns the request only once, must keep the original
+  // as this object is mutating (because it pulls live from digitalio), we need a copy here
+  return new NumericValue(doubleValue());
 }
 
 
