@@ -336,13 +336,13 @@ bool ScriptObj::operator==(const ScriptObj& aRightSide) const
 bool NumericValue::operator==(const ScriptObj& aRightSide) const
 {
   if (aRightSide.undefined()) return false; // a number (especially: zero) is never equal with undefined
-  return num==aRightSide.doubleValue();
+  return doubleValue()==aRightSide.doubleValue();
 }
 
 bool StringValue::operator==(const ScriptObj& aRightSide) const
 {
   if (aRightSide.undefined()) return false; // a string (especially: empty) is never equal with undefined
-  return str==aRightSide.stringValue();
+  return stringValue()==aRightSide.stringValue();
 }
 
 bool ErrorValue::operator==(const ScriptObj& aRightSide) const
@@ -361,12 +361,12 @@ bool ScriptObj::operator<(const ScriptObj& aRightSide) const
 
 bool NumericValue::operator<(const ScriptObj& aRightSide) const
 {
-  return num<aRightSide.doubleValue();
+  return doubleValue()<aRightSide.doubleValue();
 }
 
 bool StringValue::operator<(const ScriptObj& aRightSide) const
 {
-  return str<aRightSide.stringValue();
+  return stringValue()<aRightSide.stringValue();
 }
 
 
@@ -398,24 +398,24 @@ bool ScriptObj::operator<=(const ScriptObj& aRightSide) const
 
 ScriptObjPtr NumericValue::operator+(const ScriptObj& aRightSide) const
 {
-  return new NumericValue(num + aRightSide.doubleValue());
+  return new NumericValue(doubleValue() + aRightSide.doubleValue());
 }
 
 
 ScriptObjPtr StringValue::operator+(const ScriptObj& aRightSide) const
 {
-  return new StringValue(str + aRightSide.stringValue());
+  return new StringValue(stringValue() + aRightSide.stringValue());
 }
 
 
 ScriptObjPtr NumericValue::operator-(const ScriptObj& aRightSide) const
 {
-  return new NumericValue(num - aRightSide.doubleValue());
+  return new NumericValue(doubleValue() - aRightSide.doubleValue());
 }
 
 ScriptObjPtr NumericValue::operator*(const ScriptObj& aRightSide) const
 {
-  return new NumericValue(num * aRightSide.doubleValue());
+  return new NumericValue(doubleValue() * aRightSide.doubleValue());
 }
 
 ScriptObjPtr NumericValue::operator/(const ScriptObj& aRightSide) const
@@ -424,7 +424,7 @@ ScriptObjPtr NumericValue::operator/(const ScriptObj& aRightSide) const
     return new ErrorValue(ScriptError::DivisionByZero, "division by zero");
   }
   else {
-    return new NumericValue(num / aRightSide.doubleValue());
+    return new NumericValue(doubleValue() / aRightSide.doubleValue());
   }
 }
 
@@ -641,7 +641,7 @@ JsonObjectPtr StringValue::jsonValue() const
 {
   // old version did parse strings for json, but that's ambiguous, so
   // we just return a json string now
-  return JsonObject::newString(str);
+  return JsonObject::newString(stringValue());
 }
 
 

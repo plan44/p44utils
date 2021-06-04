@@ -718,9 +718,9 @@ namespace p44 { namespace P44Script {
     virtual TypeInfo getTypeInfo() const P44_OVERRIDE { return numeric; };
     // value getters
     virtual double doubleValue() const P44_OVERRIDE { return num; }; // native
-    virtual string stringValue() const P44_OVERRIDE { return string_format("%lg", num); };
+    virtual string stringValue() const P44_OVERRIDE { return string_format("%lg", doubleValue()); };
     #if SCRIPTING_JSON_SUPPORT
-    virtual JsonObjectPtr jsonValue() const P44_OVERRIDE { return JsonObject::newDouble(num); };
+    virtual JsonObjectPtr jsonValue() const P44_OVERRIDE { return JsonObject::newDouble(doubleValue()); };
     #endif
     // operators
     virtual bool operator<(const ScriptObj& aRightSide) const P44_OVERRIDE;
