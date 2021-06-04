@@ -545,8 +545,8 @@ string ErrorPosValue::stringValue() const
   return string_format(
     "(%s:%zu,%zu): %s",
     sourceCursor.originLabel(),
-    sourceCursor.lineno(),
-    sourceCursor.charpos(),
+    sourceCursor.lineno()+1,
+    sourceCursor.charpos()+1,
     Error::text(err)
   );
 }
@@ -4608,7 +4608,7 @@ void ScriptCodeThread::run()
   OLOG(LOG_DEBUG,
     "starting %04d at (%s:%zu,%zu):  %s",
     threadId(),
-    src.originLabel(), src.lineno(), src.charpos(),
+    src.originLabel(), src.lineno()+1, src.charpos()+1,
     src.displaycode(90).c_str()
   );
   start();
@@ -4644,7 +4644,7 @@ void ScriptCodeThread::complete(ScriptObjPtr aFinalResult)
   OLOG(LOG_DEBUG,
     "complete %04d at (%s:%zu,%zu):  %s\n- with result: %s",
     threadId(),
-    src.originLabel(), src.lineno(), src.charpos(),
+    src.originLabel(), src.lineno()+1, src.charpos()+1,
     src.displaycode(90).c_str(),
     ScriptObj::describe(result).c_str()
   );
