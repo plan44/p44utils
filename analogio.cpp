@@ -631,7 +631,9 @@ AnalogIoPtr AnalogIoObj::analogIoFromArg(ScriptObjPtr aArg, bool aOutput, double
     aio = a->analogIo();
   }
   else if (aArg->hasType(text)) {
-    aio = AnalogIoPtr(new AnalogIo(aArg->stringValue().c_str(), aOutput, aInitialValue));
+    if (Application::sharedApplication()->userLevel()>=1) { // user level >=1 is needed for IO access
+      aio = AnalogIoPtr(new AnalogIo(aArg->stringValue().c_str(), aOutput, aInitialValue));
+    }
   }
   return aio;
 }
@@ -643,6 +645,9 @@ static const BuiltInArgDesc analogio_args[] = { { text }, { numeric }, { numeric
 static const size_t analogio_numargs = sizeof(analogio_args)/sizeof(BuiltInArgDesc);
 static void analogio_func(BuiltinFunctionContextPtr f)
 {
+  if (Application::sharedApplication()->userLevel()<1) { // user level >=1 is needed for IO access
+    f->finish(new ErrorValue(ScriptError::NoPrivilege, "no IO privileges"));
+  }
   bool out = f->arg(1)->boolValue();
   double v = 0;
   if (f->arg(2)->defined()) v = f->arg(2)->doubleValue();

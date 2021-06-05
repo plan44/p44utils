@@ -500,7 +500,9 @@ DigitalIoPtr DigitalIoObj::digitalIoFromArg(ScriptObjPtr aArg, bool aOutput, boo
     dio = d->digitalIo();
   }
   else if (aArg->hasType(text)) {
-    dio = DigitalIoPtr(new DigitalIo(aArg->stringValue().c_str(), aOutput, aInitialState));
+    if (Application::sharedApplication()->userLevel()>=1) { // user level >=1 is needed for IO access
+      dio = DigitalIoPtr(new DigitalIo(aArg->stringValue().c_str(), aOutput, aInitialState));
+    }
   }
   return dio;
 }
@@ -585,6 +587,9 @@ static const BuiltInArgDesc digitalio_args[] = { { text }, { numeric }, { numeri
 static const size_t digitalio_numargs = sizeof(digitalio_args)/sizeof(BuiltInArgDesc);
 static void digitalio_func(BuiltinFunctionContextPtr f)
 {
+  if (Application::sharedApplication()->userLevel()<1) { // user level >=1 is needed for IO access
+    f->finish(new ErrorValue(ScriptError::NoPrivilege, "no IO privileges"));
+  }
   bool out = f->arg(1)->boolValue();
   bool v = false;
   if (f->arg(2)->defined()) v = f->arg(2)->boolValue();
@@ -598,6 +603,9 @@ static const BuiltInArgDesc indicator_args[] = { { text }, { numeric|optionalarg
 static const size_t indicator_numargs = sizeof(indicator_args)/sizeof(BuiltInArgDesc);
 static void indicator_func(BuiltinFunctionContextPtr f)
 {
+  if (Application::sharedApplication()->userLevel()<1) { // user level >=1 is needed for IO access
+    f->finish(new ErrorValue(ScriptError::NoPrivilege, "no IO privileges"));
+  }
   bool v = false;
   if (f->arg(1)->defined()) v = f->arg(2)->boolValue();
   IndicatorOutputPtr indicator = new IndicatorOutput(f->arg(0)->stringValue().c_str(), v);

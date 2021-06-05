@@ -473,6 +473,10 @@ static const size_t dcmotor_numargs = sizeof(dcmotor_args)/sizeof(BuiltInArgDesc
 static void dcmotor_func(BuiltinFunctionContextPtr f)
 {
   AnalogIoPtr power = AnalogIoObj::analogIoFromArg(f->arg(0), true, 0);
+  if (!power) {
+    f->finish(new ErrorValue(ScriptError::Invalid, "missing analog output"));
+    return;
+  }
   DigitalIoPtr cwd = DigitalIoObj::digitalIoFromArg(f->arg(1), true, false);
   DigitalIoPtr ccwd = DigitalIoObj::digitalIoFromArg(f->arg(2), true, false);
   DcMotorDriverPtr dcmotor = new DcMotorDriver(power, cwd, ccwd);
