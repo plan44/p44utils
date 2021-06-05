@@ -24,6 +24,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <sys/types.h> // for ssize_t, size_t etc.
+#include <math.h> // for fabs
 
 using namespace p44;
 
