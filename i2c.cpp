@@ -785,9 +785,23 @@ PCA9685::PCA9685(uint8_t aDeviceAddress, I2CBus *aBusP, const char *aDeviceOptio
   // device options:
   // - 'I' : output invert (Low when active)
   // - 'O' : open drain (pull to low only, vs. totem pole)
+  // - 'Sxxxx' : PWM speed in Hz (max is 2kHz, min is 24Hz)
   bool inverted = strchr(aDeviceOptions, 'I');
   bool opendrain = strchr(aDeviceOptions, 'O');
-  // - control register 0 = MODE1: normal operation, auto-increment register address, no subadresses
+  // Internal OSC is 25Mhz, pre_scale = (25MHz/4096/PWMfreq)-1
+  uint8_t pre_scale = 30; // default reset value of PCA9685 PRE_SCALE register = 200Hz
+  const char *p = strchr(aDeviceOptions, 'S');
+  if (p) {
+    int speed = atoi(p+1);
+    if (speed<24) speed=24; // limit to >=24Hz
+    pre_scale = (int)6103/speed; // approx, no rounding but omitting -1 instead
+    if (pre_scale<3) pre_scale=3; // PRE_SCALE does not accept < 3
+  }
+  // - prepare for setting PRE_SCALE: control register 0 = MODE1: SLEEP=1
+  i2cbus->SMBusWriteByte(this, 0, 0x10);
+  // - set speed (can only be set when SLEEP=1)
+  i2cbus->SMBusWriteByte(this, 0xFE, pre_scale); // set PRE_SCALE register
+  // - control register 0 = MODE1: normal operation, SLEEP=0, auto-increment register address, no subadresses
   i2cbus->SMBusWriteByte(this, 0, 0x20);
   // - control register 1 = MODE2: when OE is 1, outputs are high impedance, plus invert and opendrain/totempole according to options
   i2cbus->SMBusWriteByte(this, 1, 0x03 + (inverted ? 0x10 : 0) + (opendrain ? 0 : 0x04));
