@@ -598,7 +598,7 @@ EventSource* ThreadValue::eventSource() const
 #endif // P44SCRIPT_FULL_SUPPORT
 
 
-// MARK: Conversions
+// MARK: - Conversions
 
 double StringValue::doubleValue() const
 {
@@ -622,7 +622,7 @@ bool StringValue::boolValue() const
 
 #if SCRIPTING_JSON_SUPPORT
 
-// MARK: JsonValue + conversions
+// MARK: - JsonRepresentedValue + conversions
 
 JsonObjectPtr ErrorValue::jsonValue() const
 {
@@ -645,7 +645,7 @@ JsonObjectPtr StringValue::jsonValue() const
 }
 
 
-ScriptObjPtr JsonValue::calculationValue()
+ScriptObjPtr JsonRepresentedValue::calculationValue()
 {
   if (!jsonValue()) return new AnnotatedNullValue("json null");
   if (jsonValue()->isType(json_type_boolean)) return new NumericValue(jsonValue()->boolValue());
@@ -656,22 +656,7 @@ ScriptObjPtr JsonValue::calculationValue()
 }
 
 
-ScriptObjPtr JsonValue::assignmentValue()
-{
-  // break down to standard value or copied json, unless this is a derived object such as a JSON API request that indicates to be kept as-is
-  if (!hasType(keeporiginal)) {
-    // avoid creating new json values for simple types
-    if (jsonValue() && (jsonValue()->isType(json_type_array) || jsonValue()->isType(json_type_object))) {
-      // must copy the contained json object
-      return new JsonValue(JsonObjectPtr(new JsonObject(*jsonValue())));
-    }
-    return calculationValue();
-  }
-  return inherited::assignmentValue();
-}
-
-
-string JsonValue::stringValue() const
+string JsonRepresentedValue::stringValue() const
 {
   if (!jsonValue()) return ScriptObj::stringValue(); // undefined
   if (jsonValue()->isType(json_type_string)) return jsonValue()->stringValue(); // string leaf fields as strings w/o quotes!
@@ -679,31 +664,21 @@ string JsonValue::stringValue() const
 }
 
 
-double JsonValue::doubleValue() const
+double JsonRepresentedValue::doubleValue() const
 {
   if (!jsonValue()) return ScriptObj::doubleValue(); // undefined
   return jsonValue()->doubleValue();
 }
 
 
-bool JsonValue::boolValue() const
+bool JsonRepresentedValue::boolValue() const
 {
   if (!jsonValue()) return ScriptObj::boolValue(); // undefined
   return jsonValue()->boolValue();
 }
 
 
-TypeInfo JsonValue::getTypeInfo() const
-{
-  if (!jsonValue() || jsonValue()->isType(json_type_null)) return null;
-  if (jsonValue()->isType(json_type_object)) return json+object;
-  if (jsonValue()->isType(json_type_array)) return json+array;
-  if (jsonValue()->isType(json_type_string)) return json+text;
-  return json+numeric; // everything else is numeric
-}
-
-
-bool JsonValue::operator==(const ScriptObj& aRightSide) const
+bool JsonRepresentedValue::operator==(const ScriptObj& aRightSide) const
 {
   if (inherited::operator==(aRightSide)) return true; // object identity
   if (aRightSide.undefined()) return undefined(); // both undefined is equal
@@ -715,13 +690,13 @@ bool JsonValue::operator==(const ScriptObj& aRightSide) const
   }
   else {
     // compare JSON to non-JSON
-    return const_cast<JsonValue *>(this)->calculationValue()->operator==(aRightSide);
+    return const_cast<JsonRepresentedValue *>(this)->calculationValue()->operator==(aRightSide);
   }
   return false; // everything else: not equal
 }
 
 
-bool JsonValue::operator<(const ScriptObj& aRightSide) const
+bool JsonRepresentedValue::operator<(const ScriptObj& aRightSide) const
 {
   if (!aRightSide.hasType(json)) {
     // compare JSON to non-JSON
@@ -732,13 +707,13 @@ bool JsonValue::operator<(const ScriptObj& aRightSide) const
 }
 
 
-ScriptObjPtr JsonValue::operator+(const ScriptObj& aRightSide) const
+ScriptObjPtr JsonRepresentedValue::operator+(const ScriptObj& aRightSide) const
 {
   JsonObjectPtr r = aRightSide.jsonValue();
   if (r && r->isType(json_type_array)) {
     // if I am an array, too -> append elements
     if (jsonValue() && jsonValue()->isType(json_type_array)) {
-      JsonObjectPtr j = const_cast<JsonValue*>(this)->assignmentValue()->jsonValue();
+      JsonObjectPtr j = const_cast<JsonRepresentedValue*>(this)->assignmentValue()->jsonValue();
       for (int i = 0; i<r->arrayLength(); i++) {
         j->arrayAppend(r->arrayGet(i));
       }
@@ -748,7 +723,7 @@ ScriptObjPtr JsonValue::operator+(const ScriptObj& aRightSide) const
   else if (r && r->isType(json_type_object)) {
     // if I am an object, too -> merge fields
     if (jsonValue() && jsonValue()->isType(json_type_object)) {
-      JsonObjectPtr j = const_cast<JsonValue*>(this)->assignmentValue()->jsonValue();
+      JsonObjectPtr j = const_cast<JsonRepresentedValue*>(this)->assignmentValue()->jsonValue();
       r->resetKeyIteration();
       string k;
       JsonObjectPtr o;
@@ -762,12 +737,9 @@ ScriptObjPtr JsonValue::operator+(const ScriptObj& aRightSide) const
 }
 
 
-
-
-
-const ScriptObjPtr JsonValue::memberByName(const string aName, TypeInfo aMemberAccessFlags)
+const ScriptObjPtr JsonRepresentedValue::memberByName(const string aName, TypeInfo aMemberAccessFlags)
 {
-  FOCUSLOGLOOKUP("JsonValue");
+  FOCUSLOGLOOKUP("JsonRepresentedValue");
   ScriptObjPtr m;
   if (jsonValue() && typeRequirementMet(json, aMemberAccessFlags, typeMask)) {
     // we cannot meet any other type requirement but json
@@ -791,14 +763,14 @@ const ScriptObjPtr JsonValue::memberByName(const string aName, TypeInfo aMemberA
 }
 
 
-size_t JsonValue::numIndexedMembers() const
+size_t JsonRepresentedValue::numIndexedMembers() const
 {
   if (jsonValue()) return jsonValue()->arrayLength();
   return 0;
 }
 
 
-const ScriptObjPtr JsonValue::memberAtIndex(size_t aIndex, TypeInfo aMemberAccessFlags)
+const ScriptObjPtr JsonRepresentedValue::memberAtIndex(size_t aIndex, TypeInfo aMemberAccessFlags)
 {
   ScriptObjPtr m;
   if (jsonValue() && typeRequirementMet(json, aMemberAccessFlags, typeMask)) {
@@ -819,6 +791,34 @@ const ScriptObjPtr JsonValue::memberAtIndex(size_t aIndex, TypeInfo aMemberAcces
     }
   }
   return m;
+}
+
+
+// MARK: - JsonValue
+
+
+TypeInfo JsonValue::getTypeInfo() const
+{
+  if (!jsonValue() || jsonValue()->isType(json_type_null)) return null;
+  if (jsonValue()->isType(json_type_object)) return json+object;
+  if (jsonValue()->isType(json_type_array)) return json+array;
+  if (jsonValue()->isType(json_type_string)) return json+text;
+  return json+numeric; // everything else is numeric
+}
+
+
+ScriptObjPtr JsonValue::assignmentValue()
+{
+  // break down to standard value or copied json, unless this is a derived object such as a JSON API request that indicates to be kept as-is
+  if (!hasType(keeporiginal)) {
+    // avoid creating new json values for simple types
+    if (jsonValue() && (jsonValue()->isType(json_type_array) || jsonValue()->isType(json_type_object))) {
+      // must copy the contained json object
+      return new JsonValue(JsonObjectPtr(new JsonObject(*jsonValue())));
+    }
+    return calculationValue();
+  }
+  return inherited::assignmentValue();
 }
 
 
@@ -960,7 +960,23 @@ ErrorPtr SimpleVarContainer::setMemberByName(const string aName, const ScriptObj
 }
 
 
-// MARK: - Extendable class member lookup
+#if SCRIPTING_JSON_SUPPORT
+
+JsonObjectPtr SimpleVarContainer::jsonValue() const
+{
+  JsonObjectPtr obj = JsonObject::newObj();
+  for(NamedVarMap::const_iterator pos = namedVars.begin(); pos!=namedVars.end(); ++pos) {
+    obj->add(pos->first.c_str(), pos->second->jsonValue());
+  }
+  return obj;
+}
+
+#endif // SCRIPTING_JSON_SUPPORT
+
+
+
+
+// MARK: - StructuredLookupObject
 
 const ScriptObjPtr StructuredLookupObject::memberByName(const string aName, TypeInfo aMemberAccessFlags)
 {
@@ -1010,7 +1026,22 @@ void StructuredLookupObject::registerMember(const string aName, ScriptObjPtr aMe
   mSingleMembers->registerMember(aName, aMember);
 }
 
+#if SCRIPTING_JSON_SUPPORT
 
+JsonObjectPtr StructuredLookupObject::jsonValue() const
+{
+  JsonObjectPtr obj = JsonObject::newObj();
+  for(LookupList::const_iterator pos = lookups.begin(); pos!=lookups.end(); ++pos) {
+    (*pos)->addJsonValues(obj);
+  }
+  return obj;
+}
+
+#endif // SCRIPTING_JSON_SUPPORT
+
+
+
+// MARK: - PredefinedMemberLookup
 
 ScriptObjPtr PredefinedMemberLookup::memberByNameFrom(ScriptObjPtr aThisObj, const string aName, TypeInfo aTypeRequirements) const
 {
@@ -1024,6 +1055,21 @@ void PredefinedMemberLookup::registerMember(const string aName, ScriptObjPtr aMe
 {
   members[aName] = aMember;
 }
+
+
+#if SCRIPTING_JSON_SUPPORT
+
+void PredefinedMemberLookup::addJsonValues(JsonObjectPtr &aObj) const
+{
+  JsonObjectPtr obj = JsonObject::newObj();
+  for(NamedVarMap::const_iterator pos = members.begin(); pos!=members.end(); ++pos) {
+    obj->add(pos->first.c_str(), pos->second->jsonValue());
+  }
+}
+
+#endif // SCRIPTING_JSON_SUPPORT
+
+
 
 
 // MARK: - ExecutionContext
@@ -1302,6 +1348,17 @@ void ScriptCodeContext::abort(EvaluationFlags aAbortFlags, ScriptObjPtr aAbortRe
     }
   }
 }
+
+
+#if SCRIPTING_JSON_SUPPORT
+
+JsonObjectPtr ScriptCodeContext::jsonValue() const
+{
+  return localVars.jsonValue();
+}
+
+#endif
+
 
 
 void ScriptCodeContext::execute(ScriptObjPtr aToExecute, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB, ScriptObjPtr aThreadLocals, MLMicroSeconds aMaxRunTime)
@@ -1586,6 +1643,22 @@ ScriptObjPtr BuiltInMemberLookup::memberByNameFrom(ScriptObjPtr aThisObj, const 
   }
   return m;
 }
+
+
+#if SCRIPTING_JSON_SUPPORT
+
+void BuiltInMemberLookup::addJsonValues(JsonObjectPtr &aObj) const
+{
+  JsonObjectPtr obj = JsonObject::newObj();
+  for(MemberMap::const_iterator pos = members.begin(); pos!=members.end(); ++pos) {
+    // FIXME: as long as we use JSON here, there's no way for now to add non-values like functions, so just return NULL
+    //   Only once we have P44Value hierarchy with iterators, we can do better
+    obj->add(pos->first.c_str(), JsonObject::newNull());
+  }
+}
+
+#endif // SCRIPTING_JSON_SUPPORT
+
 
 
 ExecutionContextPtr BuiltinFunctionObj::contextForCallingFrom(ScriptMainContextPtr aMainContext, ScriptCodeThreadPtr aThread) const
@@ -6091,6 +6164,22 @@ static void yearday_func(BuiltinFunctionContextPtr f)
 }
 
 
+static void globalvars_func(BuiltinFunctionContextPtr f)
+{
+  f->finish(f->thread()->owner()->domain());
+}
+
+static void contextvars_func(BuiltinFunctionContextPtr f)
+{
+  f->finish(f->thread()->owner()->scriptmain());
+}
+
+static void localvars_func(BuiltinFunctionContextPtr f)
+{
+  f->finish(f->thread()->owner());
+}
+
+
 // The standard function descriptor table
 static const BuiltinMemberDescriptor standardFunctions[] = {
   { "ifvalid", executable|any, ifvalid_numargs, ifvalid_args, &ifvalid_func },
@@ -6158,6 +6247,12 @@ static const BuiltinMemberDescriptor standardFunctions[] = {
   { "day", executable|numeric, timegetter_numargs, timegetter_args, &day_func },
   { "weekday", executable|numeric, timegetter_numargs, timegetter_args, &weekday_func },
   { "yearday", executable|numeric, timegetter_numargs, timegetter_args, &yearday_func },
+  // Introspection
+  #if SCRIPTING_JSON_SUPPORT
+  { "globalvars", executable|json, 0, NULL, &globalvars_func},
+  { "contextvars", executable|json, 0, NULL, &contextvars_func },
+  { "localvars", executable|json, 0, NULL, &localvars_func },
+  #endif
   // Async
   #if P44SCRIPT_FULL_SUPPORT
   { "signal", executable|async|any, 0, NULL, &signal_func },
