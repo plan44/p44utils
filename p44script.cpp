@@ -5506,6 +5506,26 @@ static void system_func(BuiltinFunctionContextPtr f)
   }
 }
 
+
+#if ENABLE_APPLICATION_SUPPORT
+
+static void restartapp_func(BuiltinFunctionContextPtr f)
+{
+  #if !ALWAYS_ALLOW_SYSTEM_FUNC
+  if (Application::sharedApplication()->userLevel()<1)
+  {
+    f->finish(new ErrorValue(ScriptError::NoPrivilege, "no privileges to use restart() function"));
+    return;
+  }
+  #endif // ALWAYS_ALLOW_SYSTEM_FUNC
+  LOG(LOG_WARNING, "Application will terminate because script called restartapp()");
+  Application::sharedApplication()->terminateApp(0); // regular termination
+  f->finish();
+}
+
+#endif
+
+
 #if ENABLE_APPLICATION_SUPPORT
 
 // writefile(filename, data)
@@ -6261,6 +6281,8 @@ static const BuiltinMemberDescriptor standardFunctions[] = {
   { "eval", executable|async|any, eval_numargs, eval_args, &eval_func },
   #if !ESP_PLATFORM
   { "system", executable|async|text, system_numargs, system_args, &system_func },
+  // Other system/app stuff
+  { "restartapp", executable|null, 0, NULL, &restartapp_func },
   #if ENABLE_APPLICATION_SUPPORT
   { "readfile", executable|error|text, readfile_numargs, readfile_args, &readfile_func },
   { "writefile", executable|error|null, writefile_numargs, writefile_args, &writefile_func },
