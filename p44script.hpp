@@ -806,7 +806,7 @@ namespace p44 { namespace P44Script {
     typedef JsonRepresentedValue inherited;
   public:
     virtual string getAnnotation() const P44_OVERRIDE { return "object"; };
-    virtual TypeInfo getTypeInfo() const P44_OVERRIDE { return object|json; } // can SOMEWHAT be represented as json
+    virtual TypeInfo getTypeInfo() const P44_OVERRIDE { return object; } // only object, although JSON representation exists
 
     #if SCRIPTING_JSON_SUPPORT
     /// FIXME: this is a simplistic partial solution to get at least some introspection for debugging purposes.

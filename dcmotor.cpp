@@ -435,8 +435,6 @@ static void currentlimit_func(BuiltinFunctionContextPtr f)
   f->finish();
 }
 
-
-
 #define DEFAULT_ENDSWITCH_DEBOUNCE_TIME (80*MilliSecond)
 
 // endswitches(positiveend, negativeend [, debouncetime [, pollinterval]])
