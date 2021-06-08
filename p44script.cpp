@@ -5163,18 +5163,27 @@ static void number_func(BuiltinFunctionContextPtr f)
 
 #if SCRIPTING_JSON_SUPPORT
 
-// json(string)     parse json from string
-static const BuiltInArgDesc json_args[] = { { text }, { numeric|optionalarg } };
+// json(anything [, allowcomments])     parse json from string, or get json representation of other objects that support it (=native JSON and JsonRepresentedValue)
+static const BuiltInArgDesc json_args[] = { { any }, { numeric|optionalarg } };
 static const size_t json_numargs = sizeof(json_args)/sizeof(BuiltInArgDesc);
 static void json_func(BuiltinFunctionContextPtr f)
 {
-  string jstr = f->arg(0)->stringValue();
-  ErrorPtr err;
-  JsonObjectPtr j = JsonObject::objFromText(jstr.c_str(), jstr.size(), &err, f->arg(1)->boolValue());
-  if (Error::isOK(err))
-    f->finish(new JsonValue(j));
-  else
-    f->finish(new ErrorValue(err));
+  JsonObjectPtr j;
+  if (f->arg(0)->hasType(text)) {
+    // parse from string
+    string jstr = f->arg(0)->stringValue();
+    ErrorPtr err;
+    j = JsonObject::objFromText(jstr.c_str(), jstr.size(), &err, f->arg(1)->boolValue());
+    if (Error::notOK(err)) {
+      f->finish(new ErrorValue(err));
+      return;
+    }
+  }
+  else {
+    // just the JSON representation of the object
+    j = f->arg(0)->jsonValue();
+  }
+  f->finish(new JsonValue(j));
 }
 
 
