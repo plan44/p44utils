@@ -113,13 +113,23 @@ P44Script::ScriptObjPtr DcMotorDriver::getStatusObj()
 }
 #endif
 
-void DcMotorDriver::setCurrentLimiter(AnalogIoPtr aCurrentSensor, double aStopCurrent, MLMicroSeconds aSampleInterval)
+void DcMotorDriver::setCurrentSensor(AnalogIoPtr aCurrentSensor, MLMicroSeconds aSampleInterval)
 {
   // - current sensor
   mCurrentSensor = aCurrentSensor;
-  mStopCurrent = aStopCurrent;
   mSampleInterval = aSampleInterval;
 }
+
+
+void DcMotorDriver::setCurrentLimits(double aStopCurrent, MLMicroSeconds aHoldOffTime, double aMaxStartCurrent)
+{
+  // - current sensor
+  mStopCurrent = aStopCurrent;
+  mCurrentLimiterHoldoffTime = aHoldOffTime;
+  mMaxStartCurrent = aMaxStartCurrent;
+}
+
+
 
 
 void DcMotorDriver::setDirection(int aDirection)
@@ -166,13 +176,14 @@ void DcMotorDriver::setPower(double aPower, int aDirection)
       endSwitch(aDirection>0, true);
       return;
     }
+    // start current sampling when starting to apply power
+    if (mCurrentSensor && mStopCurrent>0 && aDirection!=0 && mCurrentPower==0) {
+      mStartMonitoring = MainLoop::now()+mCurrentLimiterHoldoffTime;
+      mCurrentSensor->setAutopoll(mSampleInterval, mSampleInterval/4, boost::bind(&DcMotorDriver::checkCurrent, this));
+    }
     // now set desired direction and power
     setDirection(aDirection);
     mPwmOutput->setValue(aPower);
-    // start current sampling
-    if (mCurrentSensor) {
-      mCurrentSensor->setAutopoll(mSampleInterval, mSampleInterval/4, boost::bind(&DcMotorDriver::checkCurrent, this));
-    }
   }
   if (aPower!=mCurrentPower) {
     OLOG(LOG_DEBUG, "Power changed to %.2f%%", aPower);
@@ -185,7 +196,10 @@ void DcMotorDriver::checkCurrent()
 {
   double v = fabs(mCurrentSensor->processedValue()); // takes abs, in case we're not using processing that already takes abs values
   OLOG(LOG_DEBUG, "checkCurrent: processed: %.3f, last raw value: %.3f", v, mCurrentSensor->lastValue());
-  if (v>=mStopCurrent) {
+  if (
+    (v>=mStopCurrent && MainLoop::now()>=mStartMonitoring) || // normal limit
+    (mMaxStartCurrent>0 && v>=mMaxStartCurrent) // limit during startup
+  ) {
     double pwr = mCurrentPower;
     int dir = mCurrentDirection;
     stop();
@@ -388,23 +402,39 @@ static void stop_func(BuiltinFunctionContextPtr f)
 
 #define DEFAULT_CURRENT_POLL_INTERVAL (333*MilliSecond)
 
-// currentlimiter(sensor, limit [, sampleinterval])
-static const BuiltInArgDesc currentlimiter_args[] = { { text|object }, { numeric }, { numeric|optionalarg } };
-static const size_t currentlimiter_numargs = sizeof(currentlimiter_args)/sizeof(BuiltInArgDesc);
-static void currentlimiter_func(BuiltinFunctionContextPtr f)
+// currentsensor(sensor [, sampleinterval])
+static const BuiltInArgDesc currentsensor_args[] = { { text|object }, { numeric|optionalarg } };
+static const size_t currentsensor_numargs = sizeof(currentsensor_args)/sizeof(BuiltInArgDesc);
+static void currentsensor_func(BuiltinFunctionContextPtr f)
 {
   DcMotorObj* dc = dynamic_cast<DcMotorObj*>(f->thisObj().get());
   assert(dc);
   AnalogIoPtr sens = AnalogIoObj::analogIoFromArg(f->arg(0), false, 0);
-  double limit = f->arg(1)->doubleValue();
   MLMicroSeconds interval = DEFAULT_CURRENT_POLL_INTERVAL; // sensible default
-  if (f->arg(2)->defined()) interval = f->arg(2)->doubleValue()*Second;
+  if (f->arg(1)->defined()) interval = f->arg(1)->doubleValue()*Second;
   if (!sens) {
     interval = 0; // no polling if we have no sensor
   }
-  dc->dcMotor()->setCurrentLimiter(sens, limit, interval);
+  dc->dcMotor()->setCurrentSensor(sens, interval);
   f->finish();
 }
+
+// currentlimit(limit [, startuptime [, maxstartcurrent]])
+static const BuiltInArgDesc currentlimit_args[] = { { numeric }, { numeric|optionalarg }, { numeric|optionalarg } };
+static const size_t currentlimit_numargs = sizeof(currentlimit_args)/sizeof(BuiltInArgDesc);
+static void currentlimit_func(BuiltinFunctionContextPtr f)
+{
+  DcMotorObj* dc = dynamic_cast<DcMotorObj*>(f->thisObj().get());
+  assert(dc);
+  double limit = f->arg(0)->doubleValue();
+  MLMicroSeconds holdoff = 0;
+  if (f->arg(1)->defined()) holdoff = f->arg(1)->doubleValue()*Second;
+  double maxlimit = limit*2; // default to twice the normal limit
+  if (f->arg(2)->defined()) maxlimit = f->arg(2)->doubleValue();
+  dc->dcMotor()->setCurrentLimits(limit, holdoff, maxlimit);
+  f->finish();
+}
+
 
 
 #define DEFAULT_ENDSWITCH_DEBOUNCE_TIME (80*MilliSecond)
@@ -449,7 +479,8 @@ static void power_func(BuiltinFunctionContextPtr f)
 
 static const BuiltinMemberDescriptor dcmotorFunctions[] = {
   { "endswitches", executable|null, endswitches_numargs, endswitches_args, &endswitches_func },
-  { "currentlimiter", executable|null, currentlimiter_numargs, currentlimiter_args, &currentlimiter_func },
+  { "currentsensor", executable|null, currentsensor_numargs, currentsensor_args, &currentsensor_func },
+  { "currentlimit", executable|null, currentlimit_numargs, currentlimit_args, &currentlimit_func },
   { "power", executable|null, power_numargs, power_args, &power_func },
   { "status", executable|json, 0, NULL, &status_func },
   { "stop", executable|null, 0, NULL, &stop_func },

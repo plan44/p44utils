@@ -98,8 +98,11 @@ namespace p44 {
     MLTicket mSequenceTicket;
 
     AnalogIoPtr mCurrentSensor;
-    double mStopCurrent;
-    MLMicroSeconds mSampleInterval;
+    MLMicroSeconds mSampleInterval; ///< current sampling interval
+    double mStopCurrent; ///< current limit that will stop motor
+    MLMicroSeconds mCurrentLimiterHoldoffTime; ///< delay after applying power until current limiter kicks in (to allow surges at powerup)
+    double mMaxStartCurrent; ///< if >0, maximum allowd current during current limiter holdoff time
+    MLMicroSeconds mStartMonitoring;
     DCMotorStatusCB mStoppedCB; ///< called when motor was stopped by endswitch/overcurrent
 
     DigitalIoPtr mPositiveEndInput;
@@ -129,9 +132,13 @@ namespace p44 {
     /// Enable current monitoring for stopping at mechanical endpoints and/or obstacles (prevent motor overload)
     /// @param aCurrentSensor a analog input sensing the current used by the motor to allow stopping on overcurrent.
     ///    The current limiter will use the processedValue() of the analog input, so averaged current can be used to eliminate spikes
-    /// @param aStopCurrent sensor value that will stop the motor
     /// @param aSampleInterval the sample interval for the current
-    void setCurrentLimiter(AnalogIoPtr aCurrentSensor, double aStopCurrent, MLMicroSeconds aSampleInterval);
+    void setCurrentSensor(AnalogIoPtr aCurrentSensor, MLMicroSeconds aSampleInterval);
+
+    /// @param aStopCurrent sensor value that will stop the motor
+    /// @param aHoldOffTime how long to suspend current limiting after beginning a powerup ramp
+    /// @param aMaxStartCurrent max current allowed during aHoldOffTime, 0 = no limit
+    void setCurrentLimits(double aStopCurrent, MLMicroSeconds aHoldOffTime = 0, double aMaxStartCurrent = 0);
 
     /// Enable monitoring for end switches
     /// @param aPositiveEnd a digital input which signals motor at the positive end of its movement
