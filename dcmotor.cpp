@@ -39,6 +39,8 @@ DcMotorDriver::DcMotorDriver(AnalogIoPtr aPWMOutput, DigitalIoPtr aCWDirectionOu
   // - direction control
   mCWdirectionOutput = aCWDirectionOutput;
   mCCWdirectionOutput = aCCWDirectionOutput;
+  mPowerOffset = 0;
+  mPowerScaling = 1;
   setPower(0, 0);
 }
 
@@ -130,6 +132,13 @@ void DcMotorDriver::setCurrentLimits(double aStopCurrent, MLMicroSeconds aHoldOf
 }
 
 
+void DcMotorDriver::setOutputParams(double aPowerScaling, double aPowerOffset)
+{
+  mPowerScaling = aPowerScaling;
+  mPowerOffset = aPowerOffset;
+}
+
+
 
 
 void DcMotorDriver::setDirection(int aDirection)
@@ -152,7 +161,7 @@ void DcMotorDriver::setPower(double aPower, int aDirection)
 {
   if (aPower<=0) {
     // no power
-    // - disable PWM
+    // - disable power completely (0, even when there is a mPowerOffset)
     mPwmOutput->setValue(0);
     // - off (= hold/brake with no power)
     setDirection(0);
@@ -183,7 +192,7 @@ void DcMotorDriver::setPower(double aPower, int aDirection)
     }
     // now set desired direction and power
     setDirection(aDirection);
-    mPwmOutput->setValue(aPower);
+    mPwmOutput->setValue(mPowerOffset+aPower*mPowerScaling);
   }
   if (aPower!=mCurrentPower) {
     OLOG(LOG_DEBUG, "Power changed to %.2f%%", aPower);
@@ -455,6 +464,18 @@ static void endswitches_func(BuiltinFunctionContextPtr f)
 }
 
 
+// outputparams(scaling [, offset])
+static const BuiltInArgDesc outputparams_args[] = { { numeric }, { numeric|optionalarg } };
+static const size_t outputparams_numargs = sizeof(outputparams_args)/sizeof(BuiltInArgDesc);
+static void outputparams_func(BuiltinFunctionContextPtr f)
+{
+  DcMotorObj* dc = dynamic_cast<DcMotorObj*>(f->thisObj().get());
+  assert(dc);
+  dc->dcMotor()->setOutputParams(f->arg(0)->doubleValue(), f->arg(1)->doubleValue());
+  f->finish();
+}
+
+
 // power(power [, direction [, ramptime [, rampexponent]]])
 static const BuiltInArgDesc power_args[] = { { numeric }, { numeric|optionalarg }, { numeric|optionalarg }, { numeric|optionalarg } };
 static const size_t power_numargs = sizeof(power_args)/sizeof(BuiltInArgDesc);
@@ -474,8 +495,8 @@ static void power_func(BuiltinFunctionContextPtr f)
 }
 
 
-
 static const BuiltinMemberDescriptor dcmotorFunctions[] = {
+  { "outputparams", executable|null, outputparams_numargs, outputparams_args, &outputparams_func },
   { "endswitches", executable|null, endswitches_numargs, endswitches_args, &endswitches_func },
   { "currentsensor", executable|null, currentsensor_numargs, currentsensor_args, &currentsensor_func },
   { "currentlimit", executable|null, currentlimit_numargs, currentlimit_args, &currentlimit_func },

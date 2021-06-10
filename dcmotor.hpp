@@ -90,6 +90,8 @@ namespace p44 {
     DigitalIoPtr mCWdirectionOutput;
     DigitalIoPtr mCCWdirectionOutput;
 
+    double mPowerOffset; ///< value to add to power output value for any power>0
+    double mPowerScaling; ///< multiplicator to use on 0..100 power value to get output power
     int mCurrentDirection;
     double mCurrentPower;
     ErrorPtr mStopCause;
@@ -120,6 +122,11 @@ namespace p44 {
     ///   so using CCW!=CW will drive the motor, and CCW==CW will brake it
     DcMotorDriver(AnalogIoPtr aPWMOutput, DigitalIoPtr aCWDirectionOutput = NULL, DigitalIoPtr aCCWDirectionOutput = NULL);
     virtual ~DcMotorDriver();
+
+    /// Set output scaling and offset (in case it is not 0..100)
+    /// @param aPowerscaling the multiplicator to use on 0..100 power input requested by rampToPower()
+    /// @param aPowerOffset the offset to add to any non-zero power output value
+    void setOutputParams(double aPowerScaling, double aPowerOffset = 0);
 
     /// set stop callback
     /// @param aStopCB this will be called whenever the motor stops by itself.
