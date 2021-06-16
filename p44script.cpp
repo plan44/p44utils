@@ -24,7 +24,7 @@
 #define ALWAYS_DEBUG 0
 // - set FOCUSLOGLEVEL to non-zero log level (usually, 5,6, or 7==LOG_DEBUG) to get focus (extensive logging) for this file
 //   Note: must be before including "logger.hpp" (or anything that includes "logger.hpp")
-#define FOCUSLOGLEVEL 7
+#define FOCUSLOGLEVEL 0
 
 #include "p44script.hpp"
 
@@ -5537,6 +5537,7 @@ static void system_func(BuiltinFunctionContextPtr f)
 
 #if ENABLE_APPLICATION_SUPPORT
 
+// restartapp()
 static void restartapp_func(BuiltinFunctionContextPtr f)
 {
   #if !ALWAYS_ALLOW_SYSTEM_FUNC
@@ -5549,6 +5550,13 @@ static void restartapp_func(BuiltinFunctionContextPtr f)
   LOG(LOG_WARNING, "Application will terminate because script called restartapp()");
   Application::sharedApplication()->terminateApp(0); // regular termination
   f->finish();
+}
+
+
+// appversion()
+static void appversion_func(BuiltinFunctionContextPtr f)
+{
+  f->finish(new StringValue(Application::sharedApplication()->version()));
 }
 
 #endif
@@ -6322,6 +6330,7 @@ static const BuiltinMemberDescriptor standardFunctions[] = {
   { "system", executable|async|text, system_numargs, system_args, &system_func },
   // Other system/app stuff
   { "restartapp", executable|null, 0, NULL, &restartapp_func },
+  { "appversion", executable|null, 0, NULL, &appversion_func },
   #if ENABLE_APPLICATION_SUPPORT
   { "readfile", executable|error|text, readfile_numargs, readfile_args, &readfile_func },
   { "writefile", executable|error|null, writefile_numargs, writefile_args, &writefile_func },
