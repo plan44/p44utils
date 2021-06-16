@@ -1552,16 +1552,16 @@ const ScriptObjPtr ScriptMainContext::memberByName(const string aName, TypeInfo 
   if ((aMemberAccessFlags & nooverride) && domain()) {
     // nooverride: first check if we have an EXISTING global (but do NOT create a global if not)
     FOCUSLOGCALLER("existing globals");
-    g = domain()->memberByName(aName, aMemberAccessFlags & ~create); // global by that name already exists, might use it unless local also exists
+    g = domain()->memberByName(aName, aMemberAccessFlags & ~create); // might return main/global by that name that already exists
     // still check for local...
   }
   if ((aMemberAccessFlags & (constant|(domain() ? global : none)))==0) {
     // Only if not looking only for constant members (in the sense of: not settable by scripts) or globals (which are locals when we are the domain!)
     // 1) lookup local variables/arguments in this context...
     // 2) ...and members of the instance (if any)
-    FOCUSLOGCALLER("local variables");
-    if ((m = inherited::memberByName(aName, aMemberAccessFlags & (g ? ~create : ~none)))) return m; // prevent creating local when we found a global already above
-    if (g) return g; // existing global return
+    FOCUSLOGCALLER("inherited's variables");
+    if ((m = inherited::memberByName(aName, aMemberAccessFlags & (g ? ~create : ~none)))) return m; // use local when it already exists
+    if (g) return g; // if global by that name exists, return it
   }
   // 3) if not excplicitly global: members from registered lookups, which might or might not be instance related (depends on the lookup)
   if ((aMemberAccessFlags & global)==0) {
