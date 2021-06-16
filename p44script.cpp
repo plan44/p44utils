@@ -1292,20 +1292,33 @@ void ScriptCodeContext::clearVars()
 const ScriptObjPtr ScriptCodeContext::memberByName(const string aName, TypeInfo aMemberAccessFlags)
 {
   FOCUSLOGLOOKUP(mainContext ? "local" : (domain() ? "main" : "global"));
+  ScriptObjPtr c;
   ScriptObjPtr m;
+  // 0) first check if we have EXISTING var in main/global
+  if ((aMemberAccessFlags & nooverride) && mainContext) {
+    // nooverride: first check if we have an EXISTING main/global (but do NOT create a global if not)
+    FOCUSLOGCALLER("existing main/globals");
+    c = mainContext->memberByName(aName, aMemberAccessFlags & ~create); // might return main/global by that name that already exists
+    // still check for local...
+  }
   // 1) local variables/objects
   if ((aMemberAccessFlags & (classscope+objscope))==0) {
-    FOCUSLOGCALLER("local variables");
-    if ((m = localVars.memberByName(aName, aMemberAccessFlags))) {
-      return m;
+    FOCUSLOGCALLER("read context locals");
+    if ((m = localVars.memberByName(aName, aMemberAccessFlags & (c ? ~create : ~none)))) return m; // use local when it already exists
+    if (c) return c; // if main/global by that name exists, return it
+    if (aMemberAccessFlags & create) {
+      FOCUSLOGCALLER("create context locals");
+      if ((m = localVars.memberByName(aName, aMemberAccessFlags))) return m; // allow creating locally
     }
   }
   // 2) access to ANY members of the _instance_ itself if running in a object context
-  FOCUSLOGCALLER("instance members");
+  FOCUSLOGCALLER("existing instance members");
   if (instance() && (m = instance()->memberByName(aName, aMemberAccessFlags) )) return m;
-  // 3) functions from the main level (but no local objects/vars of main, these must be passed into functions as arguments)
-  FOCUSLOGCALLER("main functions");
-  if (mainContext && (m = mainContext->memberByName(aName, aMemberAccessFlags|classscope|constant|objscope))) return m;
+  // 3) main level (if not already checked above)
+  if ((aMemberAccessFlags & nooverride)==0 && mainContext) {
+    FOCUSLOGCALLER("main/globals");
+    if (mainContext && (m = mainContext->memberByName(aName, aMemberAccessFlags))) return m;
+  }
   // nothing found
   // Note: do NOT call inherited, altough there is a overridden memberByName in StructuredObject, but this
   //   is NOT a default lookup for ScriptCodeContext (but explicitly used from ScriptMainContext)
