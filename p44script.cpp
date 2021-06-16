@@ -24,7 +24,7 @@
 #define ALWAYS_DEBUG 0
 // - set FOCUSLOGLEVEL to non-zero log level (usually, 5,6, or 7==LOG_DEBUG) to get focus (extensive logging) for this file
 //   Note: must be before including "logger.hpp" (or anything that includes "logger.hpp")
-#define FOCUSLOGLEVEL 0
+#define FOCUSLOGLEVEL 7
 
 #include "p44script.hpp"
 
@@ -5298,16 +5298,13 @@ static void shellquote_func(BuiltinFunctionContextPtr f)
 
 #if P44SCRIPT_FULL_SUPPORT
 
-// format(formatstring, value [, value...])
-// only % + - 0..9 . d, x, and f supported
-static const BuiltInArgDesc format_args[] = { { text }, { any|null|error|multiple } };
-static const size_t format_numargs = sizeof(format_args)/sizeof(BuiltInArgDesc);
-static void format_func(BuiltinFunctionContextPtr f)
+// helper for log() and format()
+static ScriptObjPtr format_string(BuiltinFunctionContextPtr f, size_t aFmtArgIdx)
 {
-  string fmt = f->arg(0)->stringValue();
+  string fmt = f->arg(aFmtArgIdx)->stringValue();
   string res;
   const char* p = fmt.c_str();
-  size_t ai = 1;
+  size_t ai = aFmtArgIdx+1;
   while (*p) {
     const char *e = strchr(p, '%');
     if (!e) e = fmt.c_str()+fmt.size();
@@ -5345,14 +5342,23 @@ static void format_func(BuiltinFunctionContextPtr f)
           string_format_append(res, nfmt.c_str(), f->arg(ai++)->stringValue().c_str());
         }
         else {
-          f->finish(new ErrorValue(ScriptError::Syntax, "invalid format string, only basic %%duxXeEgGfs specs allowed"));
-          return;
+          return new ErrorValue(ScriptError::Syntax, "invalid format string, only basic %%duxXeEgGfs specs allowed");
         }
         p=e;
       }
     }
   }
-  f->finish(new StringValue(res));
+  return new StringValue(res);
+}
+
+
+// format(formatstring, value [, value...])
+// only % + - 0..9 . d, x, and f supported
+static const BuiltInArgDesc format_args[] = { { text }, { any|null|error|multiple } };
+static const size_t format_numargs = sizeof(format_args)/sizeof(BuiltInArgDesc);
+static void format_func(BuiltinFunctionContextPtr f)
+{
+  f->finish(format_string(f, 0));
 }
 
 
@@ -5764,25 +5770,33 @@ static void undeclare_func(BuiltinFunctionContextPtr f)
 
 
 
-// log (logmessage)
-// log (loglevel, logmessage)
-static const BuiltInArgDesc log_args[] = { { value }, { value|optionalarg } };
+// log (tobeloggedobj)
+// log (logformat, ...)
+// log (loglevel, tobeloggedobj)
+// log (loglevel, logformat, ...)
+static const BuiltInArgDesc log_args[] = { { any|null|error|multiple } };
 static const size_t log_numargs = sizeof(log_args)/sizeof(BuiltInArgDesc);
 static void log_func(BuiltinFunctionContextPtr f)
 {
   int loglevel = LOG_NOTICE;
   size_t ai = 0;
-  if (f->numArgs()>1) {
+  if (f->numArgs()>=2 && f->arg(0)->hasType(numeric)) {
     loglevel = f->arg(ai)->intValue();
     ai++;
   }
-  LOG(loglevel, "Script log: %s", f->arg(ai)->stringValue().c_str());
-  f->finish(f->arg(ai)); // also return the message logged
+  if (LOGENABLED(loglevel)) {
+    ScriptObjPtr msg = BuiltinFunctions::format_string(f, ai);
+    LOG(loglevel, "Script log: %s", msg->stringValue().c_str());
+    f->finish(msg); // also return the message logged
+  }
+  else {
+    f->finish(new AnnotatedNullValue("not logged, loglevel is disabled"));
+  }
 }
 
 
 // loglevel()
-// loglevel(newlevel)
+// loglevel(newlevel [, deltatime])
 static const BuiltInArgDesc loglevel_args[] = { { numeric|optionalarg } };
 static const size_t loglevel_numargs = sizeof(loglevel_args)/sizeof(BuiltInArgDesc);
 static void loglevel_func(BuiltinFunctionContextPtr f)
@@ -5793,6 +5807,9 @@ static void loglevel_func(BuiltinFunctionContextPtr f)
     if (newLevel>=0 && newLevel<=7) {
       SETLOGLEVEL(newLevel);
       LOG(newLevel, "\n\n========== script changed log level from %d to %d ===============", oldLevel, newLevel);
+    }
+    if (f->numArgs()>1) {
+      SETDELTATIME(f->arg(1)->boolValue());
     }
   }
   f->finish(new NumericValue(oldLevel));
