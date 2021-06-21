@@ -24,7 +24,7 @@
 #define ALWAYS_DEBUG 0
 // - set FOCUSLOGLEVEL to non-zero log level (usually, 5,6, or 7==LOG_DEBUG) to get focus (extensive logging) for this file
 //   Note: must be before including "logger.hpp" (or anything that includes "logger.hpp")
-#define FOCUSLOGLEVEL 0
+#define FOCUSLOGLEVEL 7
 
 #include "valueanimator.hpp"
 
@@ -498,7 +498,7 @@ static void runto_func(BuiltinFunctionContextPtr f)
     a->animator()->stepParams(f->arg(2)->doubleValue()*Second, f->arg(3)->doubleValue());
   }
   a->animator()->animate(f->arg(0)->doubleValue(), f->arg(1)->doubleValue()*Second, boost::bind(&animation_complete, a, _1, _2));
-  f->finish(); // no return value
+  f->finish(a); // return animator so we can for example wait for it, or assign it to a variable
 }
 
 
