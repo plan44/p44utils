@@ -67,7 +67,7 @@ namespace p44 {
     MLMicroSeconds mDefaultMinStepTime; ///< default minimum step time (usually set by creator of animator based on HW constraints)
     MLMicroSeconds mMinStepTime; ///< minimum step time for this animation as set via stepParams()
     MLMicroSeconds mStepTime; ///< actual step time used for this animation, might be larger when a minimal step size specified
-    MLMicroSeconds mStepSize; ///< step size wanted for this animation, 0 if step size should be calculated from step time
+    double mStepSize; ///< step size wanted for this animation, 0 if step size should be calculated from step time
     MLMicroSeconds mDuration;
     double mStartValue;
     double mCurrentValue;

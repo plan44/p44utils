@@ -231,6 +231,10 @@ MLMicroSeconds ValueAnimator::animate(double aTo, MLMicroSeconds aDuration, Anim
     }
   }
   if (steps==0) mStepTime = 0; // signals no steps for start()
+  FOCUSLOG(
+    "=== Set up Animation: current=%3.2f, distance=%3.2f, duration=%2.3f S, steps=%d, stepSize=%.3f, stepTime=%2.3f S",
+    mCurrentValue, mDistance, (double)mDuration/Second, steps, mStepSize, (double)mStepTime/Second
+  );
   // is startable now
   if (mAwaitingTrigger) return Infinite; // ..but needs to wait for trigger first
   // trigger right now
@@ -277,6 +281,7 @@ MLMicroSeconds ValueAnimator::start()
     return nextStep;
   }
   // immediately done (no steps)
+  FOCUSLOG("=== No steps, no Animation: setting end value=%3.2f", mCurrentValue);
   return cycleComplete(mStartedAt);
 }
 
