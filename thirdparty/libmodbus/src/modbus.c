@@ -623,7 +623,7 @@ int modbus_pre_check_confirmation(modbus_t *ctx, uint8_t *req,
                 _sleep_response_timeout(ctx);
                 modbus_flush(ctx);
             }
-            errno = EMBBADEXC;
+            // errno should be set by pre_check_confirmation()
             return -1;
         }
     }
@@ -676,7 +676,7 @@ int check_confirmation(modbus_t *ctx, uint8_t *req,
     int rsp_length_computed;
     int function;
 
-    if (rsp_length == 0) return 0; /* empty confirmation message (=none, in broadcast case) is ok */
+    if (rsp_length == 0 && ctx->slave == MODBUS_BROADCAST_ADDRESS) return 0; /* empty confirmation message (=none, in broadcast case) is ok */
 
     /* check basic confirmation format */
     int offset = modbus_pre_check_confirmation(ctx, req, rsp, rsp_length);
