@@ -5602,7 +5602,7 @@ static void writefile_func(BuiltinFunctionContextPtr f)
 }
 
 
-// readfile(filename, data)
+// readfile(filename)
 static const BuiltInArgDesc readfile_args[] = { { text } };
 static const size_t readfile_numargs = sizeof(readfile_args)/sizeof(BuiltInArgDesc);
 static void readfile_func(BuiltinFunctionContextPtr f)
@@ -5806,7 +5806,14 @@ static void log_func(BuiltinFunctionContextPtr f)
     ai++;
   }
   if (LOGENABLED(loglevel)) {
-    ScriptObjPtr msg = BuiltinFunctions::format_string(f, ai);
+    ScriptObjPtr msg;
+    if (f->numArgs()>ai+1) {
+      // only format if there are params beyond format string
+      msg = BuiltinFunctions::format_string(f, ai);
+    }
+    else {
+      msg = f->arg(ai);
+    }
     LOG(loglevel, "Script log: %s", msg->stringValue().c_str());
     f->finish(msg); // also return the message logged
   }
