@@ -488,15 +488,17 @@ static void httpFuncImpl(BuiltinFunctionContextPtr f, string aMethod)
   string user;
   string password;
   HttpCommPtr httpAction;
-//  if (aHttpCommP) httpAction = *aHttpCommP;
   if (!httpAction) httpAction = HttpCommPtr(new HttpComm(MainLoop::currentMainLoop()));
-//  if (aHttpCommP) *aHttpCommP = httpAction;
+  // force https w/o cert checking when URL begins with a "!"
+  if (*url.c_str()=='!') {
+    url.erase(0,1); // remove exclamation mark
+    httpAction->setServerCertVfyDir(""); // no checking
+  }
   splitURL(url.c_str(), NULL, NULL, NULL, &user, &password);
   httpAction->setHttpAuthCredentials(user, password);
   if (timeout!=Never) httpAction->setTimeout(timeout);
   POLOG(f, LOG_INFO, "issuing %s to %s %s", aMethod.c_str(), url.c_str(), data.c_str());
   f->setAbortCallback(boost::bind(&HttpComm::cancelRequest, httpAction));
-//  httpAction->cancelRequest(); // abort any previous request
   if (!httpAction->httpRequest(
     url.c_str(),
     boost::bind(&httpFuncDone, f, httpAction, _1, _2),
