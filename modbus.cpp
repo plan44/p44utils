@@ -101,7 +101,8 @@ ErrorPtr ModbusConnection::setConnectionSpecification(
   const char* aConnectionSpec, uint16_t aDefaultPort, const char *aDefaultCommParams,
   const char *aTransmitEnableSpec, MLMicroSeconds aTxDisableDelay,
   const char *aReceiveEnableSpec,
-  int aByteTimeNs
+  int aByteTimeNs,
+  modbus_error_recovery_mode aRecoveryMode
 )
 {
   ErrorPtr err;
@@ -179,6 +180,9 @@ ErrorPtr ModbusConnection::setConnectionSpecification(
             if (modbus_rtu_set_rts_delay(modbus, (int)aTxDisableDelay)<0) mberr = errno;
           }
         }
+        if (mberr==0) {
+          if (modbus_set_error_recovery(modbus, aRecoveryMode)) mberr = errno;
+        }
       }
     }
   }
@@ -236,7 +240,7 @@ void ModbusConnection::setSlaveAddress(int aSlaveAddress)
 }
 
 
-ErrorPtr ModbusConnection::connect()
+ErrorPtr ModbusConnection::connect(bool aAutoFlush)
 {
   ErrorPtr err;
   if (!modbus) {
@@ -261,6 +265,9 @@ ErrorPtr ModbusConnection::connect()
         }
       }
       if (Error::isOK(err)) {
+        if (aAutoFlush) {
+          flush(); // flush garbage possibly already in communication device buffers
+        }
         startServing(); // start serving in case this is a Modbus server
         connected = true;
       }
@@ -301,6 +308,7 @@ int ModbusConnection::flush()
   int flushed = 0;
   if (modbus) {
     flushed = modbus_flush(modbus);
+    FOCUSLOG("modbus flushed, %d bytes", flushed);
   }
   return flushed;
 }

@@ -133,6 +133,7 @@ namespace p44 {
     /// @param aTxDisableDelay if>0, time delay in uS before disabling Tx driver after sending
     /// @param aReceiveEnableSpec optional specification of a DigitalIo used to enable the RS485 receive input (to silence echos)
     /// @param aByteTimeNs if>0, byte time in nanoseconds, in case UART does not have precise baud rate
+    /// @param aRecoveryMode set modbus recovery mode
     /// @return error in case the connection context cannot be created from these parameters
     /// @note commParams syntax is: [baud rate][,[bits][,[parity][,[stopbits][,[H]]]]]
     ///   - parity can be O, E or N
@@ -141,7 +142,8 @@ namespace p44 {
       const char* aConnectionSpec, uint16_t aDefaultPort, const char *aDefaultCommParams,
       const char *aTransmitEnableSpec = NULL, MLMicroSeconds aTxDisableDelay = Never,
       const char *aReceiveEnableSpec = NULL,
-      int aByteTimeNs = 0
+      int aByteTimeNs = 0,
+      modbus_error_recovery_mode aRecoveryMode = MODBUS_ERROR_RECOVERY_NONE
     );
 
     /// set the slave address (when RTU endpoints are involved)
@@ -161,8 +163,9 @@ namespace p44 {
     void acceptConnections(bool aAccept) { doAcceptConnections = aAccept; };
 
     /// open the connection
+    /// @param aAutoFlush if set to false, no implicit flush after connect occurs, default = true
     /// @return error, if any
-    ErrorPtr connect();
+    ErrorPtr connect(bool aAutoFlush = true);
 
     /// close the modbus connection
     virtual void close();
