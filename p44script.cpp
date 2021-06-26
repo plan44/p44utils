@@ -5040,7 +5040,7 @@ static void isvalid_func(BuiltinFunctionContextPtr f)
 
 
 // if (c, a, b)    if c evaluates to true, return a, otherwise b
-static const BuiltInArgDesc if_args[] = { { value|null }, { any|null }, { any|null } };
+static const BuiltInArgDesc if_args[] = { { value|null }, { any|error|null }, { any|error|null } };
 static const size_t if_numargs = sizeof(if_args)/sizeof(BuiltInArgDesc);
 static void if_func(BuiltinFunctionContextPtr f)
 {
