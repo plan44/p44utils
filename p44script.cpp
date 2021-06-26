@@ -5130,6 +5130,29 @@ static void limited_func(BuiltinFunctionContextPtr f)
 }
 
 
+// maprange(x, a1, b1, a2, b2)    map the range a1..a2 onto the range a2..b2
+static const BuiltInArgDesc maprange_args[] = { { scalar|undefres }, { numeric }, { numeric }, { numeric }, { numeric } };
+static const size_t maprange_numargs = sizeof(maprange_args)/sizeof(BuiltInArgDesc);
+static void maprange_func(BuiltinFunctionContextPtr f)
+{
+  double x = f->arg(0)->doubleValue();
+  double a1 = f->arg(1)->doubleValue();
+  double b1 = f->arg(2)->doubleValue();
+  double a2 = f->arg(3)->doubleValue();
+  double b2 = f->arg(4)->doubleValue();
+  double res = 0;
+  if (x<a1) x = a1;
+  else if (x>b1) x = b1;
+  if (b1-a1==0) {
+    res = a2; // no range: always min of output range
+  }
+  else {
+    res = (x-a1)/(b1-a1)*(b2-a2)+a2;
+  }
+  f->finish(new NumericValue(res));
+}
+
+
 // cyclic (x, a, b)    return x with wraparound into range a..b (not including b because it means the same thing as a)
 static const BuiltInArgDesc cyclic_args[] = { { scalar|undefres }, { numeric }, { numeric } };
 static const size_t cyclic_numargs = sizeof(cyclic_args)/sizeof(BuiltInArgDesc);
@@ -6267,6 +6290,7 @@ static const BuiltinMemberDescriptor standardFunctions[] = {
   { "min", executable|numeric|null, min_numargs, min_args, &min_func },
   { "max", executable|numeric|null, max_numargs, max_args, &max_func },
   { "limited", executable|numeric|null, limited_numargs, limited_args, &limited_func },
+  { "maprange", executable|numeric|null, maprange_numargs, maprange_args, &maprange_func },
   { "cyclic", executable|numeric|null, cyclic_numargs, cyclic_args, &cyclic_func },
   { "string", executable|text, string_numargs, string_args, &string_func },
   { "number", executable|numeric, number_numargs, number_args, &number_func },
