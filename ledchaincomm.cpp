@@ -759,7 +759,7 @@ void LEDChainArrangement::addLEDChain(const string &aChainSpec)
   // calculate remaining inactive LEDs at end of chain
   remainingInactive = numleds-inactiveStartLeds-newCover.dx*newCover.dy-((swapXY ? newCover.dx : newCover.dy)-1)*inactiveBetweenLeds;
   if (remainingInactive<0) {
-    OLOG(LOG_WARNING, "Specified area needs %d more LEDs than actually are available", -remainingInactive);
+    OLOG(LOG_WARNING, "Specified area needs %d more LEDs than actually are available: %s", -remainingInactive, aChainSpec.c_str());
     remainingInactive = 0; // overflow, nothing remains
   }
   // now instantiate chain
