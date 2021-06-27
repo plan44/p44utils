@@ -35,6 +35,7 @@
 #if ENABLE_JSON_APPLICATION && SCRIPTING_JSON_SUPPORT || ENABLE_APPLICATION_SUPPORT
   #include "application.hpp"
   #include <sys/stat.h> // for mkdir
+  #include <stdio.h>
 #endif
 #ifndef ALWAYS_ALLOW_SYSTEM_FUNC
   #define ALWAYS_ALLOW_SYSTEM_FUNC 0
@@ -5587,8 +5588,8 @@ static void appversion_func(BuiltinFunctionContextPtr f)
 
 #if ENABLE_APPLICATION_SUPPORT
 
-// writefile(filename, data)
-static const BuiltInArgDesc writefile_args[] = { { text }, { any|null } };
+// writefile(filename, data [, append])
+static const BuiltInArgDesc writefile_args[] = { { text }, { any|null }, { numeric|optionalarg } };
 static const size_t writefile_numargs = sizeof(writefile_args)/sizeof(BuiltInArgDesc);
 static void writefile_func(BuiltinFunctionContextPtr f)
 {
@@ -5598,8 +5599,9 @@ static void writefile_func(BuiltinFunctionContextPtr f)
     return;
   }
   #if !ALWAYS_ALLOW_ALL_FILES
+  size_t psz = fn.substr(0,2)=="_/" ? 2 : 0; // allow _/ temp prefix
   if (
-    (fn.find("/")!=string::npos || fn.find("..")!=string::npos) &&
+    (fn.find("/", psz)!=string::npos || fn.find("..", psz)!=string::npos) &&
     Application::sharedApplication()->userLevel()<2 // only user level 2 is allowed to write everywhere
   ) {
     f->finish(new ErrorValue(ScriptError::NoPrivilege, "no path writing privileges"));
@@ -5609,8 +5611,19 @@ static void writefile_func(BuiltinFunctionContextPtr f)
   fn = Application::sharedApplication()->dataPath(fn, "/" P44SCRIPT_DATA_SUBDIR, true);
   ErrorPtr err;
   if (f->arg(1)->defined()) {
-    // write
-    err = string_tofile(fn, f->arg(1)->stringValue());
+    // write or append
+    ErrorPtr err;
+    FILE* file = fopen(fn.c_str(), f->arg(2)->boolValue() ? "a" : "w");
+    if (file==NULL) {
+      err = SysError::errNo();
+    }
+    else {
+      string s = f->arg(1)->stringValue();
+      if (fwrite(s.c_str(), s.size(), 1, file)<1) {
+        err = SysError::errNo();
+      }
+      fclose(file);
+    }
     if (err) err->prefixMessage("Cannot write file: ");
   }
   else {
@@ -5636,8 +5649,9 @@ static void readfile_func(BuiltinFunctionContextPtr f)
     return;
   }
   #if !ALWAYS_ALLOW_ALL_FILES
+  size_t psz = fn.substr(0,2)=="_/" ? 2 : 0; // allow _/ temp prefix
   if (
-    (fn.find("/")!=string::npos || fn.find("..")!=string::npos) &&
+    (fn.find("/", psz)!=string::npos || fn.find("..", psz)!=string::npos) &&
     Application::sharedApplication()->userLevel()<1 // user level 1 is allowed to read everywhere
   ) {
     f->finish(new ErrorValue(ScriptError::NoPrivilege, "no path reading privileges"));
