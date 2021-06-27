@@ -234,8 +234,16 @@ string Application::dataPath(const string aDataFile, const string aPrefix, bool 
     return mDatapath; // just return data path
   if (aDataFile[0]=='/')
     return aDataFile; // argument is absolute path, use it as-is
-  // relative to data directory
-  string p = mDatapath;
+  // relative to data directory (with the option to be relative to temp when prefixed with "_/")
+  string p;
+  string f = aDataFile;
+  if (f.substr(0,2)=="_/") {
+    f.erase(0,2);
+    p = tempPath();
+  }
+  else {
+    p = mDatapath;
+  }
   if (!aPrefix.empty()) {
     p += aPrefix;
     if (aCreatePrefix) {
@@ -244,7 +252,7 @@ string Application::dataPath(const string aDataFile, const string aPrefix, bool 
       }
     }
   }
-  return p + "/" + aDataFile;
+  return p + "/" + f;
 }
 
 

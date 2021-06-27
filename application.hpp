@@ -106,7 +106,8 @@ namespace p44 {
 
     /// get data path. Data are usually persistent read/write files
     /// @param aDataFile if not empty, and it is an absolute path, the the result will be just this path
-    ///   if it is a relative path, the application's data path will be prepended.
+    ///   if it is a relative path, the application's data path will be prepended. If it begins with "_/",
+    ///   the applications's temp file path will be prepended.
     /// @param aPrefix if not empty, and aDatafile is NOT an absolute path, the prefix will be appended
     ///   to the datapath.
     ///   Note that aPrefix is appended as-is, so must contain a path separator if it is meant as a subdirectory.
