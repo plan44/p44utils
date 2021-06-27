@@ -1941,9 +1941,13 @@ void SourceCursor::skipNonCode()
       else if (c(1)=='*') {
         // C style comment, lasts until '*/'
         advance(2);
-        while (c() && c()!='*') next();
-        if (c(1)=='/') {
-          advance(2);
+        while(c()) {
+          while (c() && c()!='*') next();
+          if (c(1)=='/') {
+            advance(2);
+            break;
+          }
+          next();
         }
         recheck = true;
       }

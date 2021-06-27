@@ -179,7 +179,9 @@ TEST_CASE("CodeCursor", "[scripting]" )
 
   SECTION("Identifiers") {
     // multi line + identifiers
-    SourceCursor cursor3("multiple words /*   on\nmore */ than // one\nline: one.a2-a3_a4");
+    //                    0         1         2   0         1         2  0         1
+    //                    0123456789012345678901  012345678901234567890  012345678901234567
+    SourceCursor cursor3("multiple words /*   on\n*more* */ than // one\nline: one.a2-a3_a4");
     string i;
     // "multiple"
     REQUIRE(cursor3.parseIdentifier(i) == true);
@@ -204,7 +206,7 @@ TEST_CASE("CodeCursor", "[scripting]" )
     // "than"
     REQUIRE(cursor3.checkForIdentifier("than") == true);
     REQUIRE(cursor3.lineno() == 1);
-    REQUIRE(cursor3.charpos() == 12);
+    REQUIRE(cursor3.charpos() == 14);
     // skip EOL comment
     cursor3.skipNonCode();
     REQUIRE(cursor3.lineno() == 2);
