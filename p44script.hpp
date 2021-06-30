@@ -1133,6 +1133,9 @@ namespace p44 { namespace P44Script {
     /// @return info about handlers
     JsonObjectPtr handlersInfo();
 
+    /// clear context-local variables and handlers (those that were created run-time, not declared)
+    virtual void clearVars() P44_OVERRIDE;
+
     // access to objects in the context hierarchy of a local execution
     // (local objects, parent context objects, global objects)
     virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aMemberAccessFlags) P44_OVERRIDE;

@@ -1571,6 +1571,18 @@ JsonObjectPtr ScriptMainContext::handlersInfo()
 }
 
 
+void ScriptMainContext::clearVars()
+{
+  HandlerList::iterator pos = handlers.begin();
+  while (pos!=handlers.end()) {
+    (*pos)->deactivate(); // pre-deletion, breaks retain cycles
+    pos = handlers.erase(pos); // source is gone -> remove
+  }
+  inherited::clearVars();
+}
+
+
+
 #endif // P44SCRIPT_FULL_SUPPORT
 
 
