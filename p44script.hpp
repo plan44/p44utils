@@ -996,7 +996,8 @@ namespace p44 { namespace P44Script {
     /// abort evaluation (of all threads if context has more than one)
     /// @param aAbortFlags set stoprunning to abort currently running threads, queue to empty the queued threads
     /// @param aAbortResult if set, this is what abort will report back
-    virtual void abort(EvaluationFlags aAbortFlags = stoprunning+queue, ScriptObjPtr aAbortResult = ScriptObjPtr(), ScriptCodeThreadPtr aExceptThread = ScriptCodeThreadPtr()) = 0;
+    /// @return true if any thread was aborted
+    virtual bool abort(EvaluationFlags aAbortFlags = stoprunning+queue, ScriptObjPtr aAbortResult = ScriptObjPtr(), ScriptCodeThreadPtr aExceptThread = ScriptCodeThreadPtr()) = 0;
 
     /// synchronously evaluate the object, abort if async executables are encountered
     ScriptObjPtr executeSynchronously(ScriptObjPtr aToExecute, EvaluationFlags aEvalFlags, ScriptObjPtr aThreadLocals = ScriptObjPtr(), MLMicroSeconds aMaxRunTime = Infinite);
@@ -1089,7 +1090,8 @@ namespace p44 { namespace P44Script {
     /// @param aAbortFlags set stoprunning to abort currently running threads, queue to empty the queued threads
     /// @param aAbortResult if set, this is what abort will report back
     /// @param aExceptThread if set, this thread is not aborted
-    virtual void abort(EvaluationFlags aAbortFlags = stopall, ScriptObjPtr aAbortResult = ScriptObjPtr(), ScriptCodeThreadPtr aExceptThread = ScriptCodeThreadPtr()) P44_OVERRIDE;
+    /// @return true if any thread was aborted
+    virtual bool abort(EvaluationFlags aAbortFlags = stopall, ScriptObjPtr aAbortResult = ScriptObjPtr(), ScriptCodeThreadPtr aExceptThread = ScriptCodeThreadPtr()) P44_OVERRIDE;
 
     #if SCRIPTING_JSON_SUPPORT
     /// FIXME: this is a simplistic partial solution to get at least some introspection for debugging purposes.
@@ -1838,6 +1840,7 @@ namespace p44 { namespace P44Script {
     typedef ImplementationObj inherited;
     friend class ScriptCodeContext;
     friend class SourceProcessor;
+    friend class ScriptMainContext;
 
     std::vector<ArgumentDescriptor> arguments;
 
@@ -2387,7 +2390,8 @@ namespace p44 { namespace P44Script {
     /// abort (async) built-in function
     /// @param aAbortFlags set stoprunning to abort currently running threads, queue to empty the queued threads
     /// @param aAbortResult if set, this is what abort will report back
-    virtual void abort(EvaluationFlags aAbortFlags = stoprunning+queue, ScriptObjPtr aAbortResult = ScriptObjPtr(), ScriptCodeThreadPtr aExceptThread = ScriptCodeThreadPtr()) P44_OVERRIDE;
+    /// @return true if aborted
+    virtual bool abort(EvaluationFlags aAbortFlags = stoprunning+queue, ScriptObjPtr aAbortResult = ScriptObjPtr(), ScriptCodeThreadPtr aExceptThread = ScriptCodeThreadPtr()) P44_OVERRIDE;
 
     /// @name builtin function implementation interface
     /// @{

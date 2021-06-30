@@ -1344,8 +1344,9 @@ ErrorPtr ScriptCodeContext::setMemberAtIndex(size_t aIndex, const ScriptObjPtr a
 }
 
 
-void ScriptCodeContext::abort(EvaluationFlags aAbortFlags, ScriptObjPtr aAbortResult, ScriptCodeThreadPtr aExceptThread)
+bool ScriptCodeContext::abort(EvaluationFlags aAbortFlags, ScriptObjPtr aAbortResult, ScriptCodeThreadPtr aExceptThread)
 {
+  bool anyAborted = false;
   if (aAbortFlags & queue) {
     // empty queue first to make sure no queued threads get started when last running thread is killed below
     while (!queuedThreads.empty()) {
@@ -1357,10 +1358,12 @@ void ScriptCodeContext::abort(EvaluationFlags aAbortFlags, ScriptObjPtr aAbortRe
     ThreadList tba = threads; // copy list as original get modified while aborting
     for (ThreadList::iterator pos = tba.begin(); pos!=tba.end(); ++pos) {
       if (!aExceptThread || aExceptThread!=(*pos)) {
+        anyAborted = true;
         (*pos)->abort(aAbortResult); // should cause threadTerminated to get called which will remove actually terminated thread from the list
       }
     }
   }
+  return anyAborted;
 }
 
 
@@ -1788,7 +1791,7 @@ ScriptObjPtr BuiltinFunctionContext::arg(size_t aArgIndex)
 }
 
 
-void BuiltinFunctionContext::abort(EvaluationFlags aAbortFlags, ScriptObjPtr aAbortResult, ScriptCodeThreadPtr aExceptThread)
+bool BuiltinFunctionContext::abort(EvaluationFlags aAbortFlags, ScriptObjPtr aAbortResult, ScriptCodeThreadPtr aExceptThread)
 {
   if (func) {
     if (abortCB) abortCB(); // stop external things the function call has started
@@ -1796,7 +1799,9 @@ void BuiltinFunctionContext::abort(EvaluationFlags aAbortFlags, ScriptObjPtr aAb
     if (!aAbortResult) aAbortResult = new ErrorValue(ScriptError::Aborted, "builtin function '%s' aborted", func->descriptor->name);
     func = NULL;
     finish(aAbortResult);
+    return true;
   }
+  return false;
 }
 
 
