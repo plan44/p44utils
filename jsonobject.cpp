@@ -166,6 +166,7 @@ JsonObjectPtr JsonObject::objFromText(const char *aJsonText, ssize_t aMaxChars, 
   const char *beg = aJsonText; // for parsed length calculation
   const char *ll = aJsonText;
   struct json_object *o = NULL;
+  JsonError::ErrorCodes jerr = json_tokener_success;
   while ((seg = nextParsableSegment(aJsonText, aMaxChars, segLen, aAllowCComments, inComment))) {
     if (aErrorP) countLines(lineCnt, charOffs, ll, seg); // count lines from beginning of text to beginning of segment
     o = json_tokener_parse_ex(tokener, seg, (int)segLen);
@@ -175,14 +176,9 @@ JsonObjectPtr JsonObject::objFromText(const char *aJsonText, ssize_t aMaxChars, 
     }
     else {
       // error (or incomplete JSON, which is fine)
-      JsonError::ErrorCodes jerr = json_tokener_get_error(tokener);
+      jerr = json_tokener_get_error(tokener);
       if (jerr!=json_tokener_continue) {
         // real error
-        if (aErrorP) {
-          *aErrorP = ErrorPtr(new JsonError(json_tokener_get_error(tokener)));
-          countLines(lineCnt, charOffs, ll, seg+tokener->char_offset); // count lines from beginning of segment to error position
-          (*aErrorP)->prefixMessage("in line %d at char %zu: ", lineCnt+1, charOffs+1);
-        }
         goto done;
       }
       if (aErrorP) countLines(lineCnt, charOffs, ll, seg+segLen); // count lines in parsed segment
@@ -193,7 +189,16 @@ JsonObjectPtr JsonObject::objFromText(const char *aJsonText, ssize_t aMaxChars, 
   if (o) {
     obj = JsonObject::newObj(o);
   }
+  else {
+    jerr = json_tokener_get_error(tokener);
+  }
 done:
+  if (!o && aErrorP) {
+    if (jerr==json_tokener_continue) jerr = json_tokener_error_parse_eof;
+    *aErrorP = ErrorPtr(new JsonError(jerr));
+    countLines(lineCnt, charOffs, ll, seg+tokener->char_offset); // count lines from beginning of segment to error position
+    (*aErrorP)->prefixMessage("in line %d at char %zu: ", lineCnt+1, charOffs+1);
+  }
   if (aParsedCharsP) {
     *aParsedCharsP = seg+tokener->char_offset-beg;
   }
