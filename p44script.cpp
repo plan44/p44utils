@@ -1551,6 +1551,26 @@ ScriptObjPtr ScriptMainContext::registerHandler(ScriptObjPtr aHandler)
   return handler;
 }
 
+
+JsonObjectPtr ScriptMainContext::handlersInfo()
+{
+  JsonObjectPtr hl = JsonObject::newArray();
+  for (HandlerList::iterator pos = handlers.begin(); pos!=handlers.end(); pos++) {
+    CompiledHandlerPtr h = *pos;
+    JsonObjectPtr hi = JsonObject::newObj();
+    hi->add("name", JsonObject::newString(h->name));
+    hi->add("origin", JsonObject::newString(h->cursor.originLabel()));
+    P44LoggingObj *l = h->cursor.source->loggingContext();
+    if (l) hi->add("logcontext", JsonObject::newString(l->logContextPrefix()));
+    hi->add("line", JsonObject::newInt64(h->cursor.lineno()+1));
+    hi->add("char", JsonObject::newInt64(h->cursor.charpos()+1));
+    hi->add("posid", JsonObject::newInt64((intptr_t)h->cursor.posId()));
+    hl->arrayAppend(hi);
+  }
+  return hl;
+}
+
+
 #endif // P44SCRIPT_FULL_SUPPORT
 
 
@@ -6279,6 +6299,20 @@ static void yearday_func(BuiltinFunctionContextPtr f)
 }
 
 
+
+static void globalhandlers_func(BuiltinFunctionContextPtr f)
+{
+  f->finish(new JsonValue(f->thread()->owner()->domain()->handlersInfo()));
+}
+
+
+static void contexthandlers_func(BuiltinFunctionContextPtr f)
+{
+  f->finish(new JsonValue(f->thread()->owner()->scriptmain()->handlersInfo()));
+}
+
+
+
 static void globalvars_func(BuiltinFunctionContextPtr f)
 {
   f->finish(f->thread()->owner()->domain());
@@ -6368,6 +6402,8 @@ static const BuiltinMemberDescriptor standardFunctions[] = {
   { "globalvars", executable|json, 0, NULL, &globalvars_func},
   { "contextvars", executable|json, 0, NULL, &contextvars_func },
   { "localvars", executable|json, 0, NULL, &localvars_func },
+  { "globalhandlers", executable|json, 0, NULL, &globalhandlers_func },
+  { "contexthandlers", executable|json, 0, NULL, &contexthandlers_func },
   #endif
   // Async
   #if P44SCRIPT_FULL_SUPPORT

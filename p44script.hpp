@@ -1130,6 +1130,9 @@ namespace p44 { namespace P44Script {
 
     virtual void deactivate() P44_OVERRIDE { handlers.clear(); domainObj.reset(); thisObj.reset(); inherited::deactivate(); }
 
+    /// @return info about handlers
+    JsonObjectPtr handlersInfo();
+
     // access to objects in the context hierarchy of a local execution
     // (local objects, parent context objects, global objects)
     virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aMemberAccessFlags) P44_OVERRIDE;
@@ -1322,6 +1325,10 @@ namespace p44 { namespace P44Script {
 
     /// @return true if this source is floating, i.e. not part of a still existing script
     bool floating() { return mFloating; }
+
+    /// return a logging context
+    P44LoggingObj *loggingContext() { return loggingContextP; };
+
   };
 
 
