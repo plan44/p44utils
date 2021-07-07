@@ -46,8 +46,8 @@ namespace p44 {
   ///   (which is NOT necessarily the interface that returns the IP address, unless specified by name!)
   /// @return true if MAC (optionally along with the IP of that MAC if any is set) was found, or,
   ///   when querying only IPv4, if a IPv4 address was found.
-  /// @note: On Linux, the first non-loopback interface's MAC will be used (as enumerated by ifr_ifindex 1..n)
-  /// @note: On OS X, the MAC address of the "en0" device will be used (every Mac has a en0, which is the
+  /// @note On Linux, the first non-loopback interface's MAC will be used (as enumerated by ifr_ifindex 1..n)
+  /// @note On OS X, the MAC address of the "en0" device will be used (every Mac has a en0, which is the
   ///   built-in network port of the machine; ethernet port for Macs that have one, WiFi port otherwise)
   bool getIfInfo(uint64_t *aMacAddressP, uint32_t *aIPv4AddressP, int *aIfIndexP, const char *aIfName = NULL);
 

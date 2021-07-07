@@ -366,7 +366,7 @@ namespace p44 {
 
 
     /// execute something on the mainloop without delay, usually to unwind call stack in long chains of operations
-    /// @note: this is the only call we allow to start w/o a ticket. It still can go wrong if the object which calls
+    /// @note this is the only call we allow to start w/o a ticket. It still can go wrong if the object which calls
     ///   it immediately gets destroyed *before* the mainloop executes the callback, but probability is low.
     /// @param aTimerCallback the functor to be called from mainloop
     void executeNow(TimerCB aTimerCallback);
