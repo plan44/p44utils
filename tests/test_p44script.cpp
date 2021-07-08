@@ -35,6 +35,27 @@ using namespace p44;
 using namespace p44::P44Script;
 
 
+// derived numeric that decides to be null (as some real derived NumericValues might do dynamically)
+class NullNumeric : public NumericValue
+{
+public:
+  NullNumeric(double aNumber) : NumericValue(aNumber) {};
+  virtual TypeInfo getTypeInfo() const P44_OVERRIDE { return null; };
+  virtual string getAnnotation() const P44_OVERRIDE { return "NullNumeric"; };
+};
+
+
+// derived string that decides to be null (as some real derived StringValues might do dynamically)
+class NullString : public StringValue
+{
+public:
+  NullString(string aString) : StringValue(aString) {};
+  virtual TypeInfo getTypeInfo() const P44_OVERRIDE { return null; };
+  virtual string getAnnotation() const P44_OVERRIDE { return "NullString"; };
+};
+
+
+
 class TestLookup : public MemberLookup
 {
 public:
@@ -46,6 +67,10 @@ public:
     if (strucmp(aName.c_str(),"ua")==0) result = new NumericValue(42);
     else if (strucmp(aName.c_str(),"almostua")==0) result = new NumericValue(42.7);
     else if (strucmp(aName.c_str(),"uatext")==0) result = new StringValue("fortyTwo");
+    else if (strucmp(aName.c_str(),"nullnumeric")==0) result = new NullNumeric(0);
+    else if (strucmp(aName.c_str(),"nullstring")==0) result = new NullString("");
+    else if (strucmp(aName.c_str(),"nullnumeric42")==0) result = new NullNumeric(42);
+    else if (strucmp(aName.c_str(),"nullstringXYZ")==0) result = new NullString("XYZ");
     return result;
   };
 };
@@ -281,7 +306,7 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "Debugging single case/assertion", "[DEBU
   SETLOGLEVEL(LOG_DEBUG);
   SETDELTATIME(true);
 
-//  REQUIRE(s.test(expression, "jstest.array[2]")->doubleValue() == 3);
+//  REQUIRE(s.test(expression, "nullnumeric==0")->boolValue() == false); // is null, not zero (and zero!=null)
 }
 */
 
@@ -389,7 +414,7 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "lookups", "[scripting]") {
 
 // MARK: - Expressions
 
-TEST_CASE_METHOD(ScriptingCodeFixture, "expressions", "[scripting]") {
+TEST_CASE_METHOD(ScriptingCodeFixture, "expressions", "[scripting],[FOCUS]") {
 
   SECTION("Operations") {
     REQUIRE(s.test(expression, "-42.42")->doubleValue() == -42.42); // unary minus
@@ -459,6 +484,20 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "expressions", "[scripting]") {
     REQUIRE(s.test(expression, "7!=7")->boolValue() == false);
     REQUIRE(s.test(expression, "7==8")->boolValue() == false);
     REQUIRE(s.test(expression, "7!=8")->boolValue() == true);
+    // Derived numerics and strings
+    REQUIRE(s.test(expression, "nullnumeric==0 | 2=1")->boolValue() == false); // original case that led to these derived numeric/string tests
+    REQUIRE(s.test(expression, "nullnumeric")->doubleValue() == 0); // the stored value (which could also be non-zero even in the null case)
+    REQUIRE(s.test(expression, "nullstring")->stringValue() == ""); // the stored value (which could also be non-emptystring even in the null case)
+    REQUIRE(s.test(expression, "nullnumeric42")->doubleValue() == 42); // the stored value (which is non-zero here in the null case)
+    REQUIRE(s.test(expression, "nullstringXYZ")->stringValue() == "XYZ"); // the stored value (which is non-emptystring here in the null case)
+    REQUIRE(s.test(expression, "nullnumeric==0")->boolValue() == false); // even if stored value IS zero, it must not be treated as such in comparisons, but as null
+    REQUIRE(s.test(expression, "nullstring==''")->boolValue() == false); // even if stored value IS empty string, it must not be treated as such in comparisons, but as null
+    REQUIRE(s.test(expression, "nullnumeric42==42")->boolValue() == false); // even if stored value IS 42, it must not be treated as such in comparisons, but as null
+    REQUIRE(s.test(expression, "nullstringXYZ=='xyz'")->boolValue() == false); // even if stored value IS 'XYZ' string, it must not be treated as such in comparisons, but as null
+    REQUIRE(s.test(expression, "nullnumeric==undefined")->boolValue() == true);
+    REQUIRE(s.test(expression, "nullstring==undefined")->boolValue() == true);
+    REQUIRE(s.test(expression, "nullnumeric+1")->defined() == false); // calculations must not be possible
+    REQUIRE(s.test(expression, "nullstring+'b'")->defined() == false); // appending must not be possible
     // String comparisons
     REQUIRE(s.test(expression, "\"ABC\" < \"abc\"")->boolValue() == true);
     REQUIRE(s.test(expression, "78==\"78\"")->boolValue() == true);
@@ -484,9 +523,12 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "expressions", "[scripting]") {
     REQUIRE(s.test(expression, "isvalid(0)")->boolValue() == true);
     REQUIRE(s.test(expression, "if(true, 'TRUE', 'FALSE')")->stringValue() == "TRUE");
     REQUIRE(s.test(expression, "if(false, 'TRUE', 'FALSE')")->stringValue() == "FALSE");
+    REQUIRE(s.test(expression, "isvalid(nullnumeric)")->boolValue() == false);
+    REQUIRE(s.test(expression, "isvalid(nullstring)")->boolValue() == false);
     // numbers
-    REQUIRE(s.test(expression, "number(undefined)")->doubleValue() == 0);
+    REQUIRE(s.test(expression, "number(undefined)")->doubleValue() == 0); // plain undefined has doubleValue 0
     REQUIRE(s.test(expression, "number(undefined)")->undefined() == false);
+    REQUIRE(s.test(expression, "number(nullnumeric42)")->doubleValue() == 42); // the only way to get the stored value within p44script
     REQUIRE(s.test(expression, "number(0)")->boolValue() == false);
     REQUIRE(s.test(expression, "abs(33)")->doubleValue() == 33);
     REQUIRE(s.test(expression, "abs(undefined)")->undefined() == true);
@@ -537,7 +579,8 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "expressions", "[scripting]") {
     REQUIRE(s.test(expression, "formattime()==formattime(epochtime())")->boolValue() == true);
     // strings
     REQUIRE(s.test(expression, "string(33)")->stringValue() == "33");
-    REQUIRE(s.test(expression, "string(undefined)")->stringValue() == "undefined");
+    REQUIRE(s.test(expression, "string(undefined)")->stringValue() == "undefined"); // this is the stringvalue which defaults to the annotation which is "undefined" for ScriptObj
+    REQUIRE(s.test(expression, "string(nullstringXYZ)")->stringValue() == "XYZ"); // the only way to get the stored value within p44script
     REQUIRE(s.test(expression, "strlen('gugus')")->doubleValue() == 5);
     REQUIRE(s.test(expression, "substr('gugus',3)")->stringValue() == "us");
     REQUIRE(s.test(expression, "substr('gugus',3,1)")->stringValue() == "u");
@@ -781,7 +824,7 @@ TEST_CASE_METHOD(AsyncScriptingFixture, "async", "[scripting]") {
 #define TEST_URL "plan44.ch/testing/httptest.php"
 #define DATA_IN_7SEC_TEST_URL "plan44.ch/testing/httptest.php?delay=7"
 
-TEST_CASE_METHOD(AsyncScriptingFixture, "http scripting", "[scripting],[FOCUS]") {
+TEST_CASE_METHOD(AsyncScriptingFixture, "http scripting", "[scripting]") {
 
   SECTION("geturl") {
     REQUIRE(scriptTest(sourcecode, "find(geturl('http://" TEST_URL "'), 'Document OK')")->intValue() > 0);
