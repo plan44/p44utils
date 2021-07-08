@@ -336,12 +336,14 @@ bool ScriptObj::operator==(const ScriptObj& aRightSide) const
 
 bool NumericValue::operator==(const ScriptObj& aRightSide) const
 {
+  if (undefined()) return inherited::operator==(aRightSide); // derived numerics might be null
   if (aRightSide.undefined()) return false; // a number (especially: zero) is never equal with undefined
   return doubleValue()==aRightSide.doubleValue();
 }
 
 bool StringValue::operator==(const ScriptObj& aRightSide) const
 {
+  if (undefined()) return inherited::operator==(aRightSide); // derived strings might be null
   if (aRightSide.undefined()) return false; // a string (especially: empty) is never equal with undefined
   return stringValue()==aRightSide.stringValue();
 }
@@ -362,11 +364,13 @@ bool ScriptObj::operator<(const ScriptObj& aRightSide) const
 
 bool NumericValue::operator<(const ScriptObj& aRightSide) const
 {
+  if (undefined()) return inherited::operator<(aRightSide); // derived numerics might be null
   return doubleValue()<aRightSide.doubleValue();
 }
 
 bool StringValue::operator<(const ScriptObj& aRightSide) const
 {
+  if (undefined()) return inherited::operator<(aRightSide); // derived strings might be null
   return stringValue()<aRightSide.stringValue();
 }
 
