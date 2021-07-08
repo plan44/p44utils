@@ -637,8 +637,8 @@ namespace p44 { namespace P44Script {
     string annotation;
   public:
     AnnotatedNullValue(string aAnnotation) : annotation(aAnnotation) {};
-    virtual string getAnnotation() const P44_OVERRIDE { return annotation; };
-    virtual string stringValue() const P44_OVERRIDE { return "undefined"; };
+    virtual string getAnnotation() const P44_OVERRIDE { return annotation; }; // specific annotation...
+    virtual string stringValue() const P44_OVERRIDE { return inherited::getAnnotation(); }; // ...but stringValue must return the default annotation!
   };
 
 

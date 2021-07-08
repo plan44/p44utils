@@ -71,6 +71,7 @@ public:
     else if (strucmp(aName.c_str(),"nullstring")==0) result = new NullString("");
     else if (strucmp(aName.c_str(),"nullnumeric42")==0) result = new NullNumeric(42);
     else if (strucmp(aName.c_str(),"nullstringXYZ")==0) result = new NullString("XYZ");
+    else if (strucmp(aName.c_str(),"annotatednull")==0) result = new AnnotatedNullValue("annotatednull");
     return result;
   };
 };
@@ -306,7 +307,7 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "Debugging single case/assertion", "[DEBU
   SETLOGLEVEL(LOG_DEBUG);
   SETDELTATIME(true);
 
-//  REQUIRE(s.test(expression, "nullnumeric==0")->boolValue() == false); // is null, not zero (and zero!=null)
+  REQUIRE(s.test(expression, "string(undefined)")->stringValue() == "undefined"); // this is the stringvalue which defaults to the annotation which is "undefined" for ScriptObj
 }
 */
 
@@ -580,6 +581,9 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "expressions", "[scripting],[FOCUS]") {
     // strings
     REQUIRE(s.test(expression, "string(33)")->stringValue() == "33");
     REQUIRE(s.test(expression, "string(undefined)")->stringValue() == "undefined"); // this is the stringvalue which defaults to the annotation which is "undefined" for ScriptObj
+    REQUIRE(s.test(expression, "string(annotatednull)")->stringValue() == "undefined"); // annotated nulls explicitly have the same stringvalue as plain nulls
+    REQUIRE(s.test(expression, "describe(undefined)")->stringValue() == "undefined [undefined]");
+    REQUIRE(s.test(expression, "describe(annotatednull)")->stringValue() == "undefined [undefined] // annotatednull");
     REQUIRE(s.test(expression, "string(nullstringXYZ)")->stringValue() == "XYZ"); // the only way to get the stored value within p44script
     REQUIRE(s.test(expression, "strlen('gugus')")->doubleValue() == 5);
     REQUIRE(s.test(expression, "substr('gugus',3)")->stringValue() == "us");
