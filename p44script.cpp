@@ -5218,10 +5218,9 @@ static const BuiltInArgDesc string_args[] = { { any|error|null } };
 static const size_t string_numargs = sizeof(string_args)/sizeof(BuiltInArgDesc);
 static void string_func(BuiltinFunctionContextPtr f)
 {
-  if (f->arg(0)->undefined())
-    f->finish(new StringValue("undefined")); // make it visible
-  else
-    f->finish(new StringValue(f->arg(0)->stringValue())); // force convert to string, including nulls and errors
+  // Note: This is the only way to get the stringValue() of a derived StringValue which
+  // signals "null" in its getTypeInfo().
+  f->finish(new StringValue(f->arg(0)->stringValue())); // force convert to string, including nulls and errors
 }
 
 
@@ -5240,6 +5239,8 @@ static const BuiltInArgDesc number_args[] = { { any|error|null } };
 static const size_t number_numargs = sizeof(number_args)/sizeof(BuiltInArgDesc);
 static void number_func(BuiltinFunctionContextPtr f)
 {
+  // Note: This is the only way to get the doubleValue() of a derived NumericValue which
+  // signals "null" in its getTypeInfo().
   f->finish(new NumericValue(f->arg(0)->doubleValue())); // force convert to numeric
 }
 
