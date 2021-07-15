@@ -184,8 +184,8 @@ JsonObjectPtr JsonObject::objFromText(const char *aJsonText, ssize_t aMaxChars, 
       if (aErrorP) countLines(lineCnt, charOffs, ll, seg+segLen); // count lines in parsed segment
     }
   }
-  // let tokener run into a line end in all cases, so values get terminated even if no whitespace of any kind follows in input
-  o = json_tokener_parse_ex(tokener, "\n", 1);
+  // pass a null char explicitly (see json-c docs) to indicate end of JSON, so "unexpected end" errors can actually occur
+  o = json_tokener_parse_ex(tokener, "", 1); // need to pass length of 0 char!
   if (o) {
     obj = JsonObject::newObj(o);
   }
@@ -194,7 +194,6 @@ JsonObjectPtr JsonObject::objFromText(const char *aJsonText, ssize_t aMaxChars, 
   }
 done:
   if (!o && aErrorP) {
-    if (jerr==json_tokener_continue) jerr = json_tokener_error_parse_eof;
     *aErrorP = ErrorPtr(new JsonError(jerr));
     countLines(lineCnt, charOffs, ll, seg+tokener->char_offset); // count lines from beginning of segment to error position
     (*aErrorP)->prefixMessage("in line %d at char %zu: ", lineCnt+1, charOffs+1);
@@ -227,26 +226,22 @@ JsonObjectPtr JsonObject::objFromFile(const char *aJsonFilePath, ErrorPtr *aErro
     ssize_t n;
     int lineCnt = 0;
     size_t charOffs = 0;
+    struct json_object *o = NULL;
+    JsonError::ErrorCodes jerr = json_tokener_success;
+    const char *ll = NULL;
+    const char *seg = NULL;
     while((n = read(fd, jsonbuf, bufSize))>0) {
       const char *jsontext = jsonbuf;
-      const char *seg;
       size_t segLen;
-      const char *ll = jsontext;
-      struct json_object *o = NULL;
+      ll = jsontext;
       while ((seg = nextParsableSegment(jsontext, n, segLen, aAllowCComments, inComment))) {
         if (aErrorP) countLines(lineCnt, charOffs, ll, seg); // count lines from beginning of text to beginning of segment
         o = json_tokener_parse_ex(tokener, seg, (int)segLen);
         if (o==NULL) {
           // error (or incomplete JSON, which is fine)
-          JsonError::ErrorCodes jerr = json_tokener_get_error(tokener);
+          jerr = json_tokener_get_error(tokener);
           if (jerr!=json_tokener_continue) {
             // real error
-            if (aErrorP) {
-              *aErrorP = ErrorPtr(new JsonError(jerr));
-              countLines(lineCnt, charOffs, ll, seg+tokener->char_offset); // count lines from beginning of segment to error position
-              (*aErrorP)->prefixMessage("in line %d at char %zu: ", lineCnt+1, charOffs+1);
-            }
-            json_tokener_reset(tokener);
             goto done;
           }
         }
@@ -257,13 +252,24 @@ JsonObjectPtr JsonObject::objFromFile(const char *aJsonFilePath, ErrorPtr *aErro
         }
         if (aErrorP) countLines(lineCnt, charOffs, ll, seg+segLen); // count lines in parsed segment
       } // segments to parse
-      // let tokener run into a line end in all cases, so values get terminated even if no whitespace of any kind follows in input
-      o = json_tokener_parse_ex(tokener, "\n", 1);
-      if (o) {
-        obj = JsonObject::newObj(o);
-      }
     } // data in file
+    // pass a null char explicitly (see json-c docs) to indicate end of JSON, so "unexpected end" errors can actually occur
+    o = json_tokener_parse_ex(tokener, "", 1); // need to pass length of 0 char!
+    if (o) {
+      obj = JsonObject::newObj(o);
+    }
+    else {
+      jerr = json_tokener_get_error(tokener);
+    }
   done:
+    if (!o && aErrorP) {
+      *aErrorP = ErrorPtr(new JsonError(jerr));
+      if (seg) {
+        countLines(lineCnt, charOffs, ll, seg+tokener->char_offset); // count lines from beginning of segment to error position
+        (*aErrorP)->prefixMessage("in line %d at char %zu: ", lineCnt+1, charOffs+1);
+      }
+    }
+    json_tokener_reset(tokener);
     delete[] jsonbuf;
     json_tokener_free(tokener);
     close(fd);
@@ -413,7 +419,7 @@ JsonObjectPtr JsonObject::arrayGet(int aAtIndex)
   json_object *weakObjRef = json_object_array_get_idx(json_obj, aAtIndex);
   if (weakObjRef) {
     // found object
-    // - claim ownership as json_object_object_get_ex does not do that automatically
+    // - claim ownership as json_object_array_get_idx does not do that automatically
     json_object_get(weakObjRef);
     // - return wrapper
     p = newObj(weakObjRef);
