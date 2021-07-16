@@ -99,7 +99,7 @@ void ValueAnimator::internalStop(bool aCallback, bool aCompleted)
     mAnimationTimer.cancel();
     if (!mTriggerAnimations.empty()) {
       // trigger next animations
-      FOCUSLOG("=== Animation triggers %d other animations", mTriggerAnimations.size());
+      FOCUSLOG("=== Animation triggers %lu other animations", mTriggerAnimations.size());
       for (AnimatorList::iterator pos=mTriggerAnimations.begin(); pos!=mTriggerAnimations.end(); ++pos) {
         (*pos)->trigger();
       }
