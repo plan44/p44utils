@@ -5247,6 +5247,27 @@ static void number_func(BuiltinFunctionContextPtr f)
   f->finish(new NumericValue(f->arg(0)->doubleValue())); // force convert to numeric
 }
 
+
+// ord(string)
+static const BuiltInArgDesc ord_args[] = { { text } };
+static const size_t ord_numargs = sizeof(ord_args)/sizeof(BuiltInArgDesc);
+static void ord_func(BuiltinFunctionContextPtr f)
+{
+  f->finish(new NumericValue((uint8_t)*f->arg(0)->stringValue().c_str()));
+}
+
+
+// chr(number)
+static const BuiltInArgDesc chr_args[] = { { numeric } };
+static const size_t chr_numargs = sizeof(chr_args)/sizeof(BuiltInArgDesc);
+static void chr_func(BuiltinFunctionContextPtr f)
+{
+  string s;
+  s.append(1, (char)(f->arg(0)->intValue() & 0xFF));
+  f->finish(new StringValue(s));
+}
+
+
 #if SCRIPTING_JSON_SUPPORT
 
 // json(anything [, allowcomments])     parse json from string, or get json representation of other objects that support it (=native JSON and JsonRepresentedValue)
@@ -6371,6 +6392,8 @@ static const BuiltinMemberDescriptor standardFunctions[] = {
   { "cyclic", executable|numeric|null, cyclic_numargs, cyclic_args, &cyclic_func },
   { "string", executable|text, string_numargs, string_args, &string_func },
   { "number", executable|numeric, number_numargs, number_args, &number_func },
+  { "ord", executable|numeric, ord_numargs, ord_args, &ord_func },
+  { "chr", executable|text, chr_numargs, chr_args, &chr_func },
   { "describe", executable|text, describe_numargs, describe_args, &describe_func },
   #if SCRIPTING_JSON_SUPPORT
   { "json", executable|json, json_numargs, json_args, &json_func },

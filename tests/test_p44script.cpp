@@ -572,6 +572,10 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "expressions", "[scripting],[FOCUS]") {
     REQUIRE(s.test(expression, "cyclic(-1.8,1,2)")->doubleValue() == Approx(1.2));
     REQUIRE(s.test(expression, "cyclic(2.2,1,2)")->doubleValue() == Approx(1.2));
     REQUIRE(s.test(expression, "cyclic(4.2,1,2)")->doubleValue() == Approx(1.2));
+    REQUIRE(s.test(expression, "maprange(30,0,100,1,0)")->doubleValue() == Approx(0.7));
+    REQUIRE(s.test(expression, "maprange(30,100,0,0,1)")->doubleValue() == Approx(0.7));
+    REQUIRE(s.test(expression, "maprange(-20,100,0,0,1)")->doubleValue() == Approx(1));
+    REQUIRE(s.test(expression, "maprange(120,100,0,0,1)")->doubleValue() == Approx(0));
     REQUIRE(s.test(expression, "epochdays()")->int64Value() == floor(MainLoop::unixtime()/Day));
     REQUIRE(s.test(expression, "epochtime()")->doubleValue() == Approx((double)MainLoop::unixtime()/Second));
     REQUIRE(s.test(expression, "hour(23:42)")->doubleValue() == 23);
@@ -600,6 +604,17 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "expressions", "[scripting],[FOCUS]") {
     REQUIRE(s.test(expression, "format('%15s', 'hello world')")->stringValue() == "    hello world");
     REQUIRE(s.test(expression, "format('%.5s', 'hello world')")->stringValue() == "hello");
     REQUIRE(s.test(expression, "format('full format with decimal %04d%% and float %.3f and string %s in one call', 42, 78.787878, 'UA')")->stringValue() == "full format with decimal 0042% and float 78.788 and string UA in one call");
+    // ord, chr, binary string manipulation
+    REQUIRE(s.test(expression, "chr(65)")->stringValue() == "A");
+    REQUIRE(s.test(expression, "ord('A')")->intValue() == 65);
+    REQUIRE(s.test(expression, "chr(0)==\"\\x00\"")->boolValue() == true);
+    REQUIRE(s.test(expression, "strlen(chr(0))")->intValue() == 1);
+    REQUIRE(s.test(expression, "ord(\"\\x00\")")->intValue() == 0);
+    REQUIRE(s.test(expression, "strlen(\"A\\x00B\")")->intValue() == 3);
+    REQUIRE(s.test(expression, "substr(\"A\\x00B\",2,1)")->stringValue() == "B");
+    REQUIRE(s.test(expression, "ord(substr(\"A\\x00B\",1,1))")->intValue() == 0);
+    REQUIRE(s.test(expression, "'A'+chr(0)+'B'==\"A\\x00B\"")->boolValue() == true);
+    REQUIRE(s.test(expression, "'A'+chr(0)+'C'==\"A\\x00B\"")->boolValue() == false);
 
     // divs
     REQUIRE(s.test(expression, "eval('333*777')")->isErr() == true); // eval is async, s.test is synchronous!
