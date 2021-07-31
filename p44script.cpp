@@ -5187,10 +5187,13 @@ static void maprange_func(BuiltinFunctionContextPtr f)
   double a2 = f->arg(3)->doubleValue();
   double b2 = f->arg(4)->doubleValue();
   double res = 0;
-  if (x<a1) x = a1;
-  else if (x>b1) x = b1;
+  double min1 = a1;
+  double max1 = b1;
+  if (a1>b1) { min1 = b1; max1 = a1; }
+  if (x<min1) x = min1;
+  else if (x>max1) x = max1;
   if (b1-a1==0) {
-    res = a2; // no range: always min of output range
+    res = a2; // no range: always start of output range
   }
   else {
     res = (x-a1)/(b1-a1)*(b2-a2)+a2;
