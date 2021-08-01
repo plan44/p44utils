@@ -64,6 +64,7 @@ ErrorPtr ScriptError::err(ErrorCodes aErrCode, const char *aFmt, ...)
   return ErrorPtr(errP);
 }
 
+
 // MARK: - EventSink
 
 EventSink::~EventSink()
@@ -80,6 +81,22 @@ void EventSink::clearSources()
     eventSources.erase(eventSources.begin());
     src->eventSinks.erase(this);
     src->sinksModified = true;
+  }
+}
+
+
+// MARK: - EventHandler
+
+void EventHandler::setHandler(EventHandlingCB aEventHandlingCB)
+{
+  mEventHandlingCB = aEventHandlingCB;
+}
+
+
+void EventHandler::processEvent(ScriptObjPtr aEvent, EventSource &aSource)
+{
+  if (mEventHandlingCB) {
+    mEventHandlingCB(aEvent, aSource);
   }
 }
 

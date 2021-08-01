@@ -291,6 +291,30 @@ namespace p44 { namespace P44Script {
 
   };
 
+  /// event handling callback
+  typedef boost::function<void (ScriptObjPtr aEvent, EventSource &aSource)> EventHandlingCB;
+
+  /// standalone event handler, delivering events via callback
+  class EventHandler : public EventSink
+  {
+    typedef EventSink inherited;
+
+    EventHandlingCB mEventHandlingCB;
+
+  public:
+
+    /// set handler to call when event arrives
+    /// @param aEventHandlingCB will be called when handler receives a event from a EventSource
+    void setHandler(EventHandlingCB aEventHandlingCB);
+
+    /// is called from sources to deliver an event
+    /// @param aEvent the event object, can be NULL for unspecific events
+    /// @param aSource the source sending the event
+    virtual void processEvent(ScriptObjPtr aEvent, EventSource &aSource) P44_OVERRIDE;
+
+  };
+
+
   /// Event Source
   class EventSource
   {
