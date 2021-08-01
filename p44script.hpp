@@ -332,12 +332,14 @@ namespace p44 { namespace P44Script {
     /// register an event sink to get events from this source
     /// @param aEventSink the event sink (receiver) to register for events (NULL allowed -> NOP)
     /// @note registering the same event sink multiple times is allowed, but will not duplicate events sent
-    void registerForEvents(EventSink *aEventSink);
+    void registerForEvents(EventSink* aEventSink);
+    void registerForEvents(EventSink& aEventSink);
 
     /// release an event sink from getting events from this source
     /// @param aEventSink the event sink (receiver) to unregister from receiving events (NULL allowed -> NOP)
     /// @note tring to unregister a event sink that is not registered is allowed -> NOP
-    void unregisterFromEvents(EventSink *aEventSink);
+    void unregisterFromEvents(EventSink* aEventSink);
+    void unregisterFromEvents(EventSink& aEventSink);
 
     /// @return number of event sinks (reveivers) this source currently has
     size_t numSinks() { return eventSinks.size(); }

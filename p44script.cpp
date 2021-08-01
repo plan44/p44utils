@@ -116,24 +116,37 @@ EventSource::~EventSource()
 }
 
 
-void EventSource::registerForEvents(EventSink *aEventSink)
+void EventSource::registerForEvents(EventSink* aEventSink)
 {
   if (aEventSink) {
-    sinksModified = true;
-    eventSinks.insert(aEventSink); // multiple registrations are possible, counted only once
-    aEventSink->eventSources.insert(this);
+    registerForEvents(*aEventSink);
   }
+}
+
+
+void EventSource::registerForEvents(EventSink& aEventSink)
+{
+  sinksModified = true;
+  eventSinks.insert(&aEventSink); // multiple registrations are possible, counted only once
+  aEventSink.eventSources.insert(this);
 }
 
 
 void EventSource::unregisterFromEvents(EventSink *aEventSink)
 {
   if (aEventSink) {
-    sinksModified = true;
-    eventSinks.erase(aEventSink);
-    aEventSink->eventSources.erase(this);
+    unregisterFromEvents(*aEventSink);
   }
 }
+
+
+void EventSource::unregisterFromEvents(EventSink& aEventSink)
+{
+  sinksModified = true;
+  eventSinks.erase(&aEventSink);
+  aEventSink.eventSources.erase(this);
+}
+
 
 
 void EventSource::sendEvent(ScriptObjPtr aEvent)
