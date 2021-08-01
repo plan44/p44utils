@@ -58,7 +58,8 @@
 
 using namespace p44;
 
-AnalogIo::AnalogIo(const char* aPinSpec, bool aOutput, double aInitialValue)
+AnalogIo::AnalogIo(const char* aPinSpec, bool aOutput, double aInitialValue) :
+  mUpdating(false)
 {
   mLastValue = aInitialValue;
   // save params
@@ -71,9 +72,9 @@ AnalogIo::AnalogIo(const char* aPinSpec, bool aOutput, double aInitialValue)
     ++aPinSpec; // processed prefix -> check next
   }
   // rest is pin specification
-  pinspec = aPinSpec;
+  pinSpec = aPinSpec;
   // check for missing pin (no pin, just silently keeping value)
-  if (pinspec=="missing") {
+  if (pinSpec=="missing") {
     ioPin = AnalogIOPinPtr(new AnalogMissingPin(aInitialValue));
     return;
   }
@@ -81,15 +82,15 @@ AnalogIo::AnalogIo(const char* aPinSpec, bool aOutput, double aInitialValue)
   string busName;
   string deviceName;
   string pinName;
-  size_t i = pinspec.find(".");
+  size_t i = pinSpec.find(".");
   if (i==string::npos) {
-    // no structured name, NOP
-    return;
+    // just a bus name, device and pin remain empty
+    busName = pinSpec;
   }
   else {
-    busName = pinspec.substr(0,i);
+    busName = pinSpec.substr(0,i);
     // rest is device + pinname or just pinname
-    pinName = pinspec.substr(i+1,string::npos);
+    pinName = pinSpec.substr(i+1,string::npos);
     i = pinName.find(".");
     if (i!=string::npos) {
       // separate device and pin names
@@ -158,7 +159,7 @@ AnalogIo::AnalogIo(const char* aPinSpec, bool aOutput, double aInitialValue)
   }
   else {
     // all other/unknown bus names, including "sim", default to simulated pin operated from console
-    ioPin = AnalogIOPinPtr(new AnalogSimPin(pinspec.c_str(), output, aInitialValue));
+    ioPin = AnalogIOPinPtr(new AnalogSimPin(pinSpec.c_str(), output, aInitialValue));
   }
 }
 

@@ -86,8 +86,8 @@ DigitalIo::DigitalIo(const char* aPinSpec, bool aOutput, bool aInitialState) :
   string pinName;
   size_t i = pinSpec.find(".");
   if (i==string::npos) {
-    // no structured name, assume GPIO
-    busName = "gpio";
+    // just a bus name, device and pin remain empty
+    busName = pinSpec;
   }
   else {
     busName = pinSpec.substr(0,i);

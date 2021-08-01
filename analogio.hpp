@@ -53,12 +53,12 @@ namespace p44 {
   class AnalogIo :
     public P44Obj
     #if ENABLE_ANALOGIO_SCRIPT_FUNCS  && ENABLE_P44SCRIPT
-  , public P44Script::EventSource
+    , public P44Script::EventSource
     #endif
   {
     AnalogIOPinPtr ioPin; ///< the actual hardware interface to the pin
 
-    string pinspec;
+    string pinSpec;
     bool output;
     double mLastValue;
     MLTicket mAutoPollTicket;
@@ -91,7 +91,7 @@ namespace p44 {
     virtual ~AnalogIo();
 
     /// get name
-    string getName() { return pinspec.c_str(); };
+    string getName() { return pinSpec.c_str(); };
 
     /// check for output
     bool isOutput() { return output; };
