@@ -118,8 +118,10 @@ P44Script::ScriptObjPtr DcMotorDriver::getStatusObj()
 void DcMotorDriver::setCurrentSensor(AnalogIoPtr aCurrentSensor, MLMicroSeconds aSampleInterval)
 {
   // - current sensor
+  if (mCurrentSensor) mCurrentSensor->unregisterFromEvents(this); // make sure previous sensor no longer sends events
   mCurrentSensor = aCurrentSensor;
   mSampleInterval = aSampleInterval;
+  if (mCurrentSensor) mCurrentSensor->registerForEvents(this); // we want to see events of the new sensor
 }
 
 
@@ -188,7 +190,7 @@ void DcMotorDriver::setPower(double aPower, int aDirection)
     // start current sampling when starting to apply power
     if (mCurrentSensor && mStopCurrent>0 && aDirection!=0 && mCurrentPower==0) {
       mStartMonitoring = MainLoop::now()+mCurrentLimiterHoldoffTime;
-      mCurrentSensor->setAutopoll(mSampleInterval, mSampleInterval/4, boost::bind(&DcMotorDriver::checkCurrent, this));
+      mCurrentSensor->setAutopoll(mSampleInterval, mSampleInterval/4);
     }
     // now set desired direction and power
     setDirection(aDirection);
@@ -200,23 +202,26 @@ void DcMotorDriver::setPower(double aPower, int aDirection)
   }
 }
 
-
-void DcMotorDriver::checkCurrent()
+void DcMotorDriver::processEvent(P44Script::ScriptObjPtr aEvent, EventSource &aSource)
 {
-  double v = fabs(mCurrentSensor->processedValue()); // takes abs, in case we're not using processing that already takes abs values
-  OLOG(LOG_DEBUG, "checkCurrent: processed: %.3f, last raw value: %.3f", v, mCurrentSensor->lastValue());
-  if (
-    (v>=mStopCurrent && MainLoop::now()>=mStartMonitoring) || // normal limit
-    (mMaxStartCurrent>0 && v>=mMaxStartCurrent) // limit during startup
-  ) {
-    double pwr = mCurrentPower;
-    int dir = mCurrentDirection;
-    stop();
-    OLOG(LOG_INFO, "stopped because processed current (%.3f) exceeds max (%.3f) - last raw sample = %.3f", v, mStopCurrent, mCurrentSensor->lastValue());
-    autoStopped(pwr, dir, new DcMotorDriverError(DcMotorDriverError::overcurrentStop));
+  if (&aSource==dynamic_cast<EventSource *>(mCurrentSensor.get()) && mStopCurrent>0) {
+    // event from current sensor, process value
+    double v = fabs(mCurrentSensor->processedValue()); // takes abs, in case we're not using processing that already takes abs values
+    OLOG(LOG_DEBUG, "checkCurrent: processed: %.3f, last raw value: %.3f", v, mCurrentSensor->lastValue());
+    if (
+      (v>=mStopCurrent && MainLoop::now()>=mStartMonitoring) || // normal limit
+      (mMaxStartCurrent>0 && v>=mMaxStartCurrent) // limit during startup
+    ) {
+      if (mCurrentPower>0) {
+        double pwr = mCurrentPower;
+        int dir = mCurrentDirection;
+        stop();
+        OLOG(LOG_INFO, "stopped because processed current (%.3f) exceeds max (%.3f) - last raw sample = %.3f", v, mStopCurrent, mCurrentSensor->lastValue());
+        autoStopped(pwr, dir, new DcMotorDriverError(DcMotorDriverError::overcurrentStop));
+      }
+    }
   }
 }
-
 
 
 #define RAMP_STEP_TIME (20*MilliSecond)

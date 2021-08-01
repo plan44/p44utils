@@ -50,7 +50,11 @@ using namespace std;
 namespace p44 {
 
   /// Generic analog I/O
-  class AnalogIo : public P44Obj
+  class AnalogIo :
+    public P44Obj
+    #if ENABLE_ANALOGIO_SCRIPT_FUNCS  && ENABLE_P44SCRIPT
+  , public P44Script::EventSource
+    #endif
   {
     AnalogIOPinPtr ioPin; ///< the actual hardware interface to the pin
 
@@ -59,7 +63,7 @@ namespace p44 {
     double mLastValue;
     MLTicket mAutoPollTicket;
     WindowEvaluatorPtr mWindowEvaluator;
-    SimpleCB mPollCB;
+    bool mUpdating;
 
   public:
     /// Create general purpose analog I/O, such as PWM or D/A output, or A/D input
@@ -126,14 +130,19 @@ namespace p44 {
     /// setup automatic polling
     /// @param aPollInterval if set to <=0, polling will stop
     /// @param aTolerance timing tolerance
-    /// @param aPollCB will be called after polling new value and processing it
-    void setAutopoll(MLMicroSeconds aPollInterval, MLMicroSeconds aTolerance = 0, SimpleCB aPollCB = NULL);
+    /// @note every poll cycle generates an event in the EventSource
+    void setAutopoll(MLMicroSeconds aPollInterval, MLMicroSeconds aTolerance = 0);
 
     /// setup value filtering
     /// @param aEvalType the type of filtering to perform
     /// @param aWindowTime width (timespan) of evaluation window
     /// @param aDataPointCollTime within that timespan, new values reported will be collected into a single datapoint
     void setFilter(WinEvalMode aEvalType, MLMicroSeconds aWindowTime, MLMicroSeconds aDataPointCollTime);
+
+    #if ENABLE_ANALOGIO_SCRIPT_FUNCS && ENABLE_P44SCRIPT
+    /// get a analog input value object. This is also what is sent to event sinks
+    P44Script::ScriptObjPtr getValueObj();
+    #endif
 
   private:
 
@@ -227,18 +236,17 @@ namespace p44 {
     class AnalogInputEventObj : public NumericValue
     {
       typedef NumericValue inherited;
-      AnalogIoObj* mAnalogIoObj;
+      AnalogIoPtr mAnalogIo;
     public:
-      AnalogInputEventObj(AnalogIoObj* aAnalogIoObj);
+      AnalogInputEventObj(AnalogIoPtr aAnalogIo);
+      virtual void deactivate() P44_OVERRIDE;
       virtual string getAnnotation() const P44_OVERRIDE;
-      virtual ScriptObjPtr assignmentValue() P44_OVERRIDE;
       virtual EventSource *eventSource() const P44_OVERRIDE;
-      virtual double doubleValue() const P44_OVERRIDE;
     };
 
 
     /// represents an analog I/O
-    class AnalogIoObj : public StructuredLookupObject, public EventSource
+    class AnalogIoObj : public StructuredLookupObject
     {
       typedef StructuredLookupObject inherited;
       AnalogIoPtr mAnalogIo;
@@ -250,8 +258,6 @@ namespace p44 {
       /// factory method to get an AnalogIo either by creating it from pinspec
       /// string or by using existing AnalogIoObj passed
       static AnalogIoPtr analogIoFromArg(ScriptObjPtr aArg, bool aOutput, double aInitialValue);
-      // polling
-      void valueUpdated();
     };
 
 

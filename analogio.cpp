@@ -170,12 +170,33 @@ AnalogIo::~AnalogIo()
 
 double AnalogIo::value()
 {
-  mLastValue = ioPin->getValue();
-  if (mWindowEvaluator) {
-    mWindowEvaluator->addValue(mLastValue);
+  if (!mUpdating) {
+    mUpdating = true; // prevent recursion through event requesting the value again (prevents unneeded HW reads, too)
+    mLastValue = ioPin->getValue();
+    if (mWindowEvaluator) {
+      mWindowEvaluator->addValue(mLastValue);
+    }
+    #if ENABLE_ANALOGIO_SCRIPT_FUNCS  && ENABLE_P44SCRIPT
+    if (hasSinks()) {
+      sendEvent(getValueObj());
+    }
+    #endif
+    mUpdating = false;
   }
   return mLastValue;
 }
+
+
+
+#if ENABLE_ANALOGIO_SCRIPT_FUNCS && ENABLE_P44SCRIPT
+/// get a analog input value object. This is also what is sent to event sinks
+P44Script::ScriptObjPtr AnalogIo::getValueObj()
+{
+  return new P44Script::AnalogInputEventObj(this);
+}
+#endif
+
+
 
 
 double AnalogIo::lastValue()
@@ -201,9 +222,8 @@ void AnalogIo::setFilter(WinEvalMode aEvalType, MLMicroSeconds aWindowTime, MLMi
 }
 
 
-void AnalogIo::setAutopoll(MLMicroSeconds aPollInterval, MLMicroSeconds aTolerance, SimpleCB aPollCB)
+void AnalogIo::setAutopoll(MLMicroSeconds aPollInterval, MLMicroSeconds aTolerance)
 {
-  mPollCB = aPollCB;
   mAutoPollTicket.cancel();
   if (aPollInterval<=0) return; // disable polling
   mAutoPollTicket.executeOnce(boost::bind(&AnalogIo::pollhandler, this, aPollInterval, aTolerance, _1));
@@ -213,11 +233,9 @@ void AnalogIo::setAutopoll(MLMicroSeconds aPollInterval, MLMicroSeconds aToleran
 void AnalogIo::pollhandler(MLMicroSeconds aPollInterval, MLMicroSeconds aTolerance, MLTimer &aTimer)
 {
   value(); // get (and possibly process) new value
-  if (mPollCB) mPollCB();
-  MainLoop::currentMainLoop().retriggerTimer(aTimer, aPollInterval, aTolerance);
+  // processing the value might stop polling, so check for ticket still active
+  if (mAutoPollTicket) MainLoop::currentMainLoop().retriggerTimer(aTimer, aPollInterval, aTolerance);
 }
-
-
 
 
 void AnalogIo::setValue(double aValue)
@@ -462,10 +480,18 @@ ValueAnimatorPtr AnalogColorOutput::animatorFor(const string aComponent)
 
 using namespace P44Script;
 
-AnalogInputEventObj::AnalogInputEventObj(AnalogIoObj* aAnalogIoObj) :
-  inherited(0),
-  mAnalogIoObj(aAnalogIoObj)
+AnalogInputEventObj::AnalogInputEventObj(AnalogIoPtr aAnalogIo) :
+  mAnalogIo(aAnalogIo),
+  inherited(0)
 {
+  // capture current value
+  if (mAnalogIo) num = mAnalogIo->processedValue();
+}
+
+
+void AnalogInputEventObj::deactivate()
+{
+  mAnalogIo.reset();
 }
 
 
@@ -475,26 +501,10 @@ string AnalogInputEventObj::getAnnotation() const
 }
 
 
-ScriptObjPtr AnalogInputEventObj::assignmentValue()
-{
-  // as this object is mutating (because it pulls live from analogio), we need a copy here
-  return new NumericValue(doubleValue());
-}
-
-
 EventSource* AnalogInputEventObj::eventSource() const
 {
-  return static_cast<EventSource*>(mAnalogIoObj);
+  return static_cast<EventSource*>(mAnalogIo.get());
 }
-
-
-double AnalogInputEventObj::doubleValue() const
-{
-  if (mAnalogIoObj) return mAnalogIoObj->analogIo()->processedValue();
-  return 0;
-}
-
-
 
 
 // range()
@@ -544,7 +554,7 @@ static void value_func(BuiltinFunctionContextPtr f)
   }
   else {
     // return current value as triggerable event
-    f->finish(new AnalogInputEventObj(a));
+    f->finish(new AnalogInputEventObj(a->analogIo()));
   }
 }
 
@@ -565,18 +575,9 @@ static void poll_func(BuiltinFunctionContextPtr f)
     MLMicroSeconds interval = f->arg(0)->doubleValue()*Second;
     MLMicroSeconds tolerance = 0;
     if (f->numArgs()>=1) tolerance = f->arg(0)->doubleValue()*Second;
-    a->analogIo()->setAutopoll(interval, tolerance, boost::bind(&AnalogIoObj::valueUpdated, a));
+    a->analogIo()->setAutopoll(interval, tolerance);
   }
   f->finish();
-}
-
-void AnalogIoObj::valueUpdated()
-{
-  if (hasSinks()) {
-    // Note: we do not actually read the value here, this will happen only when value() is called
-    //   as a consequence of this event being sent
-    sendEvent(new AnalogInputEventObj(this));
-  }
 }
 
 
