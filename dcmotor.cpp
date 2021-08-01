@@ -118,10 +118,10 @@ P44Script::ScriptObjPtr DcMotorDriver::getStatusObj()
 void DcMotorDriver::setCurrentSensor(AnalogIoPtr aCurrentSensor, MLMicroSeconds aSampleInterval)
 {
   // - current sensor
-  if (mCurrentSensor) mCurrentSensor->unregisterFromEvents(this); // make sure previous sensor no longer sends events
+  if (mCurrentSensor) mCurrentSensor->unregisterFromEvents(mCurrentHandler); // make sure previous sensor no longer sends events
   mCurrentSensor = aCurrentSensor;
   mSampleInterval = aSampleInterval;
-  if (mCurrentSensor) mCurrentSensor->registerForEvents(this); // we want to see events of the new sensor
+  if (mCurrentSensor) mCurrentSensor->registerForEvents(mCurrentHandler); // we want to see events of the new sensor
 }
 
 
@@ -191,6 +191,7 @@ void DcMotorDriver::setPower(double aPower, int aDirection)
     if (mCurrentSensor && mStopCurrent>0 && aDirection!=0 && mCurrentPower==0) {
       mStartMonitoring = MainLoop::now()+mCurrentLimiterHoldoffTime;
       mCurrentSensor->setAutopoll(mSampleInterval, mSampleInterval/4);
+      mCurrentHandler.setHandler(boost::bind(&DcMotorDriver::checkCurrent, this));
     }
     // now set desired direction and power
     setDirection(aDirection);
@@ -202,9 +203,10 @@ void DcMotorDriver::setPower(double aPower, int aDirection)
   }
 }
 
-void DcMotorDriver::processEvent(P44Script::ScriptObjPtr aEvent, EventSource &aSource)
+
+void DcMotorDriver::checkCurrent()
 {
-  if (&aSource==dynamic_cast<EventSource *>(mCurrentSensor.get()) && mStopCurrent>0) {
+  if (mStopCurrent>0) {
     // event from current sensor, process value
     double v = fabs(mCurrentSensor->processedValue()); // takes abs, in case we're not using processing that already takes abs values
     OLOG(LOG_DEBUG, "checkCurrent: processed: %.3f, last raw value: %.3f", v, mCurrentSensor->lastValue());

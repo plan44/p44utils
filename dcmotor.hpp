@@ -78,13 +78,14 @@ namespace p44 {
   class DcMotorDriver :
     public P44LoggingObj
     #if ENABLE_DCMOTOR_SCRIPT_FUNCS  && ENABLE_P44SCRIPT
-    , public P44Script::EventSource // for status
-    , public P44Script::EventSink // for current limiter
+    , public P44Script::EventSource
     #endif
   {
     typedef P44Obj inherited;
+
     #if ENABLE_DCMOTOR_SCRIPT_FUNCS  && ENABLE_P44SCRIPT
     friend class P44Script::DcMotorStatusObj;
+    P44Script::EventHandler mCurrentHandler;
     #endif
 
     AnalogIoPtr mPwmOutput;
@@ -192,11 +193,6 @@ namespace p44 {
     #if ENABLE_DCMOTOR_SCRIPT_FUNCS  && ENABLE_P44SCRIPT
     /// get a motor status object. This is also what is sent to event sinks
     P44Script::ScriptObjPtr getStatusObj();
-
-    /// is called from sources to deliver an event
-    /// @param aEvent the event object, can be NULL for unspecific events
-    /// @param aSource the source sending the event
-    virtual void processEvent(P44Script::ScriptObjPtr aEvent, EventSource &aSource) P44_OVERRIDE;
     #endif
 
   private:
@@ -205,6 +201,7 @@ namespace p44 {
     void setDirection(int aDirection);
     void rampStep(double aStartPower, double aTargetPower, int aNumSteps, int aStepNo , double aRampExp);
     void sequenceStepDone(SequenceStepList aSteps, DCMotorStatusCB aSequenceDoneCB, ErrorPtr aError);
+    void checkCurrent();
     void endSwitch(bool aPositiveEnd, bool aNewState);
     void autoStopped(double aPower, int aDirection, ErrorPtr aError);
     void motorStatusUpdate(ErrorPtr aStopCause);
