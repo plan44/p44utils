@@ -111,6 +111,7 @@ namespace p44 {
 
     DigitalIoPtr mPositiveEndInput;
     DigitalIoPtr mNegativeEndInput;
+    P44Script::EventHandler mEndSwitchHandler;
 
   public:
 
@@ -202,6 +203,7 @@ namespace p44 {
     void rampStep(double aStartPower, double aTargetPower, int aNumSteps, int aStepNo , double aRampExp);
     void sequenceStepDone(SequenceStepList aSteps, DCMotorStatusCB aSequenceDoneCB, ErrorPtr aError);
     void checkCurrent();
+    void endSwitchEvent(P44Script::ScriptObjPtr aEvent, P44Script::EventSource &aSource);
     void endSwitch(bool aPositiveEnd, bool aNewState);
     void autoStopped(double aPower, int aDirection, ErrorPtr aError);
     void motorStatusUpdate(ErrorPtr aStopCause);

@@ -64,8 +64,21 @@ void DcMotorDriver::setEndSwitches(DigitalIoPtr aPositiveEnd, DigitalIoPtr aNega
 {
   mPositiveEndInput = aPositiveEnd;
   mNegativeEndInput = aNegativeEnd;
-  if (mPositiveEndInput) mPositiveEndInput->setInputChangedHandler(boost::bind(&DcMotorDriver::endSwitch, this, true, _1), aDebounceTime, aPollInterval);
-  if (mNegativeEndInput) mNegativeEndInput->setInputChangedHandler(boost::bind(&DcMotorDriver::endSwitch, this, false, _1), aDebounceTime, aPollInterval);
+  if (mPositiveEndInput) {
+    mPositiveEndInput->setChangeDetection(aDebounceTime, aPollInterval);
+    mPositiveEndInput->registerForEvents(mEndSwitchHandler);
+  }
+  if (mNegativeEndInput) {
+    mNegativeEndInput->setChangeDetection(aDebounceTime, aPollInterval);
+    mNegativeEndInput->registerForEvents(mEndSwitchHandler);
+  }
+  mEndSwitchHandler.setHandler(boost::bind(&DcMotorDriver::endSwitchEvent, this, _1, _2));
+}
+
+
+void DcMotorDriver::endSwitchEvent(P44Script::ScriptObjPtr aEvent, P44Script::EventSource &aSource)
+{
+  endSwitch(&aSource == static_cast<EventSource*>(mPositiveEndInput.get()), aEvent->boolValue());
 }
 
 
