@@ -214,10 +214,43 @@ bool DigitalIo::toggle()
 }
 
 
+#if ENABLE_DIGITALIO_SCRIPT_FUNCS && ENABLE_P44SCRIPT
+/// get a analog input value object. This is also what is sent to event sinks
+P44Script::ScriptObjPtr DigitalIo::getStateObj()
+{
+  return new P44Script::DigitalInputEventObj(this);
+}
+#endif
+
+
+
 bool DigitalIo::setInputChangedHandler(InputChangedCB aInputChangedCB, MLMicroSeconds aDebounceTime, MLMicroSeconds aPollInterval)
 {
+  // enable or disable reporting changes via callback
   return ioPin->setInputChangedHandler(aInputChangedCB, inverted, ioPin->getState(), aDebounceTime, aPollInterval);
 }
+
+
+bool DigitalIo::setChangeDetection(MLMicroSeconds aDebounceTime, MLMicroSeconds aPollInterval)
+{
+  if (aDebounceTime<0) {
+    // disable
+    return ioPin->setInputChangedHandler(NULL, inverted, false, 0, 0);
+  }
+  else {
+    // enable
+    return ioPin->setInputChangedHandler(boost::bind(&DigitalIo::processChange, this, _1), inverted, ioPin->getState(), aDebounceTime, aPollInterval);
+  }
+}
+
+
+void DigitalIo::processChange(bool aNewState)
+{
+  if (hasSinks()) {
+    sendEvent(getStateObj());
+  }
+}
+
 
 
 // MARK: - Button input
@@ -383,10 +416,17 @@ void IndicatorOutput::timer(MLTimer &aTimer)
 
 using namespace P44Script;
 
-DigitalInputEventObj::DigitalInputEventObj(DigitalIoObj* aDigitalIoObj) :
+DigitalInputEventObj::DigitalInputEventObj(DigitalIoPtr aDigitalIo) :
   inherited(false),
-  mDigitalIoObj(aDigitalIoObj)
+  mDigitalIo(aDigitalIo)
 {
+  if (mDigitalIo) num = mDigitalIo->isSet() ? 1 : 0;
+}
+
+
+void DigitalInputEventObj::deactivate()
+{
+  mDigitalIo.reset();
 }
 
 
@@ -396,24 +436,10 @@ string DigitalInputEventObj::getAnnotation() const
 }
 
 
-ScriptObjPtr DigitalInputEventObj::assignmentValue()
-{
-  // as this object is mutating (because it pulls live from digitalio), we need a copy here
-  return new NumericValue(doubleValue());
-}
-
-
 EventSource* DigitalInputEventObj::eventSource() const
 {
-  return static_cast<EventSource*>(mDigitalIoObj);
+  return static_cast<EventSource*>(mDigitalIo.get());
 }
-
-
-double DigitalInputEventObj::doubleValue() const
-{
-  return mDigitalIoObj && mDigitalIoObj->digitalIo()->isSet() ? 1 : 0;
-}
-
 
 
 // detectchanges([debouncetime [, pollinterval]])
@@ -427,22 +453,17 @@ static void detectchanges_func(BuiltinFunctionContextPtr f)
   MLMicroSeconds debounce = 0; // no debouncing by default
   MLMicroSeconds pollinterval = 0; // default polling interval (or no polling if pin has edge detection)
   if (f->numArgs()==1 && f->arg(0)->undefined()) {
-    // stop polling
-    d->digitalIo()->setInputChangedHandler(NULL,0,0);
+    // stop change detection/polling
+    d->digitalIo()->setChangeDetection();
     f->finish();
   }
   else {
     // start polling and debouncing
     if (f->arg(0)->defined()) debounce = f->arg(0)->doubleValue()*Second;
     if (f->arg(1)->defined()) pollinterval = f->arg(0)->doubleValue()*Second;
-    bool works = d->digitalIo()->setInputChangedHandler(boost::bind(&DigitalIoObj::inputChanged, d, _1), debounce, pollinterval);
+    bool works = d->digitalIo()->setChangeDetection(debounce, pollinterval);
     f->finish(new NumericValue(works));
   }
-}
-
-void DigitalIoObj::inputChanged(bool aNewState)
-{
-  if (hasSinks()) sendEvent(new DigitalInputEventObj(this));
 }
 
 
@@ -471,7 +492,7 @@ static void state_func(BuiltinFunctionContextPtr f)
   }
   else {
     // return current state as triggerable event
-    f->finish(new DigitalInputEventObj(d));
+    f->finish(new DigitalInputEventObj(d->digitalIo()));
   }
 }
 

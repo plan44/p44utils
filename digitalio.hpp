@@ -41,7 +41,11 @@ using namespace std;
 namespace p44 {
 
   /// Generic digital I/O
-  class DigitalIo : public P44Obj
+  class DigitalIo :
+    public P44Obj
+    #if ENABLE_DIGITALIO_SCRIPT_FUNCS  && ENABLE_P44SCRIPT
+    , public P44Script::EventSource
+    #endif
   {
     IOPinPtr ioPin; ///< the actual hardware interface to the pin
 
@@ -103,7 +107,8 @@ namespace p44 {
     /// @return new state of output after toggling (for inputs, just returns state like isSet() does)
     bool toggle();
 
-    /// install state change detector
+    /// install state change detector callback
+    /// @note using this method of change detection will disable event delivery, as enabled by setChangeDetection()
     /// @param aInputChangedCB will be called when the input state changes. Passing NULL disables input state change reporting.
     /// @param aDebounceTime after a reported state change, next input sampling will take place only after specified interval
     /// @param aPollInterval if <0 (Infinite), the state change detector only works if the input pin supports state change
@@ -114,6 +119,28 @@ namespace p44 {
     /// @return true if input supports the type of state change detection requested
     virtual bool setInputChangedHandler(InputChangedCB aInputChangedCB, MLMicroSeconds aDebounceTime, MLMicroSeconds aPollInterval);
 
+    #if ENABLE_DIGITALIO_SCRIPT_FUNCS && ENABLE_P44SCRIPT
+
+    /// setup change detection with delivering changes to registered event sinks
+    /// @note using this method of change detection will disable change callback, as enabled by setInputChangedHandler()
+    /// @param aDebounceTime after a reported state change, next input sampling will take place only after specified interval.
+    ///   Passing aDebounceTime to <0 means disabling change detection
+    /// @param aPollInterval if <0 (Infinite), the state change detector only works if the input pin supports state change
+    ///   detection without polling (e.g. with GPIO edge trigger). If aPollInterval is >=0, and the
+    ///   input pin does not support edge detection, the state detection will be implemented via polling
+    ///   on the current mainloop - if pollInterval==0 then polling will be done with a default interval, otherwise in
+    ///   the specified interval
+    /// @return true if input supports the type of state change detection requested
+    bool setChangeDetection(MLMicroSeconds aDebounceTime=-1, MLMicroSeconds aPollInterval=0);
+
+    /// get a digital input state object. This is also what is sent to event sinks
+    P44Script::ScriptObjPtr getStateObj();
+
+  private:
+
+    void processChange(bool aNewState);
+
+    #endif
 
   };
   typedef boost::intrusive_ptr<DigitalIo> DigitalIoPtr;
@@ -223,18 +250,17 @@ namespace p44 {
     class DigitalInputEventObj : public NumericValue
     {
       typedef NumericValue inherited;
-      DigitalIoObj* mDigitalIoObj;
+      DigitalIoPtr mDigitalIo;
     public:
-      DigitalInputEventObj(DigitalIoObj* aDigitalIoObj);
+      DigitalInputEventObj(DigitalIoPtr aDigitalIo);
+      virtual void deactivate() P44_OVERRIDE;
       virtual string getAnnotation() const P44_OVERRIDE;
-      virtual ScriptObjPtr assignmentValue() P44_OVERRIDE;
       virtual EventSource *eventSource() const P44_OVERRIDE;
-      virtual double doubleValue() const P44_OVERRIDE;
     };
 
     /// represents a digital I/O
     /// @note is an event source, but does not expose it directly, only via DigitalInputEventObjs
-    class DigitalIoObj : public StructuredLookupObject, public EventSource
+    class DigitalIoObj : public StructuredLookupObject
     {
       typedef StructuredLookupObject inherited;
       DigitalIoPtr mDigitalIo;
