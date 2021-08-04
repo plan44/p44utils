@@ -21,6 +21,9 @@
 
 #include "httpcomm.hpp"
 
+#if ENABLE_APPLICATION_SUPPORT
+  #include "application.hpp" // we need it for paths
+#endif
 
 using namespace p44;
 
@@ -469,32 +472,103 @@ static void httpFuncDone(BuiltinFunctionContextPtr f, HttpCommPtr aHttpAction, c
 
 static void httpFuncImpl(BuiltinFunctionContextPtr f, string aMethod)
 {
-  // xxxurl("<url>"[,timeout][,"<data>"])
-  string url = f->arg(0)->stringValue();
+  string url;
   string data;
+  JsonObjectPtr params; // for httprequest full-feature function
+  JsonObjectPtr o;
   MLMicroSeconds timeout = Never;
-  int ai = 1;
-  if (f->numArgs()>ai) {
-    // could be timeout if it is numeric
-    if (f->arg(ai)->hasType(numeric)) {
-      timeout = f->arg(ai)->doubleValue()*Second;
-      ai++;
+  string contentType;
+  if (aMethod.empty()) {
+    // httprequest({
+    //   "url":"http...",
+    //   "method":"POST",
+    //   "data":...,
+    //   "timeout":20
+    //   "user":xxx,
+    //   "password":xxx,
+    //   "clientcert":xxx,
+    //   "servercert":xxx,
+    //   "headers": {
+    //      "Content-Type":"...", // custom content type
+    //      "header1":"value1",
+    //      ...
+    //   }
+    // } [, data])
+    params = f->arg(0)->jsonValue();
+    // url must be present
+    if (!params->get("url", o, true)) {
+      f->finish(new ErrorValue(TextError::err("request object must contain 'url' field")));
+      return;
     }
+    url = o->stringValue();
+    // method defaults to GET, but can be set
+    aMethod = "GET"; // default to GET
+    if (params->get("method", o)) aMethod = o->stringValue();
+    // data can be in the request object or (to allow binary strings), as second parameter
+    if (f->numArgs()>=2) {
+      if (f->arg(1)->hasType(json)) contentType = CONTENT_TYPE_JSON;
+      data = f->arg(1)->stringValue(); // could be a binary string
+    }
+    else if (params->get("data", o)) {
+      if (o->isType(json_type_object) || o->isType(json_type_array)) contentType = CONTENT_TYPE_JSON;
+      data = o->stringValue();
+    }
+    // timeout is optional
+    if (params->get("timeout", o)) timeout = o->doubleValue()*Second;
   }
-  if (aMethod!="GET") {
-    if (f->numArgs()>ai) data = f->arg(ai)->stringValue();
+  else {
+    // xxxurl("<url>"[,timeout][,"<data>"])
+    url = f->arg(0)->stringValue();
+    int ai = 1;
+    if (f->numArgs()>ai) {
+      // could be timeout if it is numeric
+      if (f->arg(ai)->hasType(numeric)) {
+        timeout = f->arg(ai)->doubleValue()*Second;
+        ai++;
+      }
+    }
+    if (aMethod!="GET") {
+      if (f->numArgs()>ai) {
+        if (f->arg(ai)->hasType(json)) contentType = CONTENT_TYPE_JSON;
+        data = f->arg(ai)->stringValue();
+      }
+    }
   }
   // extract from url
   string user;
   string password;
-  HttpCommPtr httpAction;
-  if (!httpAction) httpAction = HttpCommPtr(new HttpComm(MainLoop::currentMainLoop()));
+  HttpCommPtr httpAction = HttpCommPtr(new HttpComm(MainLoop::currentMainLoop()));
   // force https w/o cert checking when URL begins with a "!"
   if (*url.c_str()=='!') {
     url.erase(0,1); // remove exclamation mark
     httpAction->setServerCertVfyDir(""); // no checking
   }
+  // auth might be in URL
   splitURL(url.c_str(), NULL, NULL, NULL, &user, &password);
+  if (params) {
+    // auth can also be in request object
+    if (params->get("user", o)) user = o->stringValue();
+    if (params->get("password", o)) user = o->stringValue();
+    // explicit client or server certs
+    if (params->get("clientcert", o)) {
+      httpAction->setClientCertFile(Application::sharedApplication()->dataPath(o->stringValue(), "/" P44SCRIPT_DATA_SUBDIR, false));
+    }
+    if (params->get("servercert", o)) {
+      string p = o->stringValue();
+      if (p.empty()) httpAction->setServerCertVfyDir(p);
+      else httpAction->setServerCertVfyDir(Application::sharedApplication()->dataPath(p, "/" P44SCRIPT_DATA_SUBDIR, false));
+    }
+    // request object might contain extra headers
+    if (params->get("headers", o)) {
+      o->resetKeyIteration();
+      string hn;
+      JsonObjectPtr hv;
+      while (o->nextKeyValue(hn, hv)) {
+        if (hn=="Content-Type") contentType = hv->stringValue(); // special case, content type
+        else httpAction->addRequestHeader(hn, hv->stringValue()); // other headers
+      }
+    }
+  }
   httpAction->setHttpAuthCredentials(user, password);
   if (timeout!=Never) httpAction->setTimeout(timeout);
   POLOG(f, LOG_INFO, "issuing %s to %s %s", aMethod.c_str(), url.c_str(), data.c_str());
@@ -503,7 +577,8 @@ static void httpFuncImpl(BuiltinFunctionContextPtr f, string aMethod)
     url.c_str(),
     boost::bind(&httpFuncDone, f, httpAction, _1, _2),
     aMethod.c_str(),
-    data.c_str()
+    data.c_str(),
+    contentType.empty() ? NULL : contentType.c_str()
   )) {
     f->finish(new ErrorValue(TextError::err("could not issue http request")));
   }
@@ -533,10 +608,30 @@ static void puturl_func(BuiltinFunctionContextPtr f)
 }
 
 
+// httprequest(requestparams [,"<data>"])
+static const BuiltInArgDesc httprequest_args[] = { { json|object }, { text|optionalarg} };
+static const size_t httprequest_numargs = sizeof(httprequest_args)/sizeof(BuiltInArgDesc);
+static void httprequest_func(BuiltinFunctionContextPtr f)
+{
+  httpFuncImpl(f, "");
+}
+
+
+// urlencode(texttoencode [, x-www-form-urlencoded])
+static const BuiltInArgDesc urlencode_args[] = { { text } , { any|optionalarg }, { any|optionalarg } };
+static const size_t urlencode_numargs = sizeof(urlencode_args)/sizeof(BuiltInArgDesc);
+static void urlencode_func(BuiltinFunctionContextPtr f)
+{
+  f->finish(new StringValue(HttpComm::urlEncode(f->arg(0)->stringValue(), f->arg(1)->boolValue())));
+}
+
+
 static const BuiltinMemberDescriptor httpGlobals[] = {
   { "geturl", executable|async|text, geturl_numargs, geturl_args, &geturl_func },
   { "posturl", executable|async|text, postputurl_numargs, postputurl_args, &posturl_func },
   { "puturl", executable|async|text, postputurl_numargs, postputurl_args, &puturl_func },
+  { "httprequest", executable|async|text, httprequest_numargs, httprequest_args, &httprequest_func },
+  { "urlencode", executable|text, urlencode_numargs, urlencode_args, &urlencode_func },
   { NULL } // terminator
 };
 

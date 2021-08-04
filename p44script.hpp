@@ -41,6 +41,10 @@
   #include "jsonobject.hpp"
 #endif
 
+#ifndef P44SCRIPT_DATA_SUBDIR
+  #define P44SCRIPT_DATA_SUBDIR "p44script"
+#endif
+
 
 using namespace std;
 

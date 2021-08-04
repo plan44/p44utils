@@ -43,9 +43,6 @@
 #ifndef ALWAYS_ALLOW_ALL_FILES
   #define ALWAYS_ALLOW_ALL_FILES 0
 #endif
-#ifndef P44SCRIPT_SUBDIR
-  #define P44SCRIPT_DATA_SUBDIR "p44script"
-#endif
 
 
 using namespace p44;

@@ -25,9 +25,9 @@
 #include "p44utils_common.hpp"
 
 #if USE_LIBMONGOOSE
-#include "mongoose.h"
+  #include "mongoose.h"
 #else
-#include "civetweb.h"
+  #include "civetweb.h"
 #endif
 
 
@@ -36,8 +36,11 @@
 #endif
 
 #if ENABLE_HTTP_SCRIPT_FUNCS
-#include "p44script.hpp"
+  #include "p44script.hpp"
 #endif
+
+#define CONTENT_TYPE_HTML "text/html; charset=UTF-8"
+#define CONTENT_TYPE_JSON "application/json; charset=UTF-8"
 
 using namespace std;
 
@@ -203,7 +206,7 @@ namespace p44 {
     static void appendFormValue(string &aDataString, const string &aFieldname, const string &aValue);
 
   protected:
-    virtual const char *defaultContentType() { return "text/html; charset=UTF-8"; };
+    virtual const char *defaultContentType() { return CONTENT_TYPE_HTML; };
 
     virtual void requestThreadSignal(ChildThreadWrapper &aChildThread, ThreadSignals aSignalCode);
 
