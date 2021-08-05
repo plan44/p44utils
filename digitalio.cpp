@@ -73,10 +73,9 @@ DigitalIo::DigitalIo(const char* aPinSpec, bool aOutput, bool aInitialState) :
   }
   // rest is actual pin specification
   pinSpec = nonNullCStr(aPinSpec);
-  if (pinSpec.size()==0) pinSpec="missing";
   bool initialPinState = aInitialState!=inverted;
   // check for missing pin (no pin, just silently keeping state)
-  if (pinSpec=="missing") {
+  if (pinSpec.size()==0 || pinSpec=="missing") {
     ioPin = IOPinPtr(new MissingPin(initialPinState));
     return;
   }

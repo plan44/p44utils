@@ -72,9 +72,9 @@ AnalogIo::AnalogIo(const char* aPinSpec, bool aOutput, double aInitialValue) :
     ++aPinSpec; // processed prefix -> check next
   }
   // rest is pin specification
-  pinSpec = aPinSpec;
+  pinSpec = nonNullCStr(aPinSpec);
   // check for missing pin (no pin, just silently keeping value)
-  if (pinSpec=="missing") {
+  if (pinSpec.size()==0 || pinSpec=="missing") {
     ioPin = AnalogIOPinPtr(new AnalogMissingPin(aInitialValue));
     return;
   }
