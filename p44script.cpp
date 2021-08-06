@@ -2604,6 +2604,7 @@ void SourceProcessor::throwOrComplete(ErrorValuePtr aError)
   ErrorPtr err = aError->errorValue();
   if (err->isDomain(ScriptError::domain()) && err->getErrorCode()>=ScriptError::FatalErrors) {
     // just end the thread unconditionally
+    LOG(LOG_ERR, "Aborting script because of fatal error: %s", aError->stringValue().c_str());
     complete(aError);
     return;
   }
@@ -2612,6 +2613,7 @@ void SourceProcessor::throwOrComplete(ErrorValuePtr aError)
     if (!skipUntilReaching(&SourceProcessor::s_tryStatement, aError))
     #endif
     {
+      LOG(LOG_ERR, "Aborting script because of uncaught error: %s", aError->stringValue().c_str());
       complete(aError);
       return;
     }
@@ -4862,14 +4864,14 @@ void ScriptCodeThread::stepLoop()
     // Check maximum execution time
     if (maxRunTime!=Infinite && now-runningSince>maxRunTime) {
       // Note: not calling abort as we are WITHIN the call chain
-      complete(new ErrorPosValue(src, ScriptError::Timeout, "Aborted because of overall execution limit"));
+      complete(new ErrorPosValue(src, ScriptError::Timeout, "Aborted because of overall execution time limit"));
       return;
     }
     else if (maxBlockTime!=Infinite && now-loopingSince>maxBlockTime) {
       // time expired
       if (evaluationFlags & synchronously) {
         // Note: not calling abort as we are WITHIN the call chain
-        complete(new ErrorPosValue(src, ScriptError::Timeout, "Aborted because of synchronous execution limit"));
+        complete(new ErrorPosValue(src, ScriptError::Timeout, "Aborted because of synchronous execution time limit"));
         return;
       }
       // in an async script, just give mainloop time to do other things for a while (but do not change result)
@@ -4877,7 +4879,7 @@ void ScriptCodeThread::stepLoop()
       return;
     }
     // run next statemachine step
-    resumed = false; // start of a new
+    resumed = false; // start of a new step
     step(); // will cause resumed to be set when resume() is called in this call's chain
     // repeat as long as we are already resumed
   } while(resumed && !aborted);
