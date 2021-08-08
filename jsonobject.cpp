@@ -438,6 +438,15 @@ void JsonObject::arrayPut(int aAtIndex, JsonObjectPtr aObj)
 }
 
 
+void JsonObject::arrayDel(int aAtIndex, int aNumElements)
+{
+  if (type()==json_type_array) {
+    json_object_array_del_idx(json_obj, aAtIndex, aNumElements);
+  }
+}
+
+
+
 // MARK: - object key/value iteration
 
 
