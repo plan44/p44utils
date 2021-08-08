@@ -1240,6 +1240,7 @@ namespace p44 { namespace P44Script {
     op_or         = (15 << 3) + 2,
     // precedence 1 is reserved to mark non-assignable lvalue
     op_assign     = (16 << 3) + 0,
+    op_delete     = (17 << 3) + 0, // "unset" prefix "operator"
     opmask_precedence = 0x07
   } ScriptOperator;
 

@@ -885,7 +885,7 @@ ErrorPtr JsonValue::setMemberAtIndex(size_t aIndex, const ScriptObjPtr aMember, 
     jsonval->arrayPut((int)aIndex, aMember->jsonValue());
   }
   else {
-    return ScriptError::err(ScriptError::Invalid, "cannot delete from json arrays");
+    jsonval->arrayDel((int)aIndex, 1);
   }
   return ErrorPtr();
 }
@@ -2749,7 +2749,17 @@ void SourceProcessor::assignOrAccess(bool aAllowAssign)
   // Note: when skipping, we do NOT need to do complicated check for assignment.
   //   Syntactically, an assignment looks the same as a regular expression
   if (!skipping) {
-    if (aAllowAssign && precedence==0) {
+    if (pendingOperation==op_delete) {
+      // COULD be deleting the member
+      src.skipNonCode();
+      if (src.c()!='.' && src.c()!='[') {
+        // this is the leaf member to be deleted. We need to obtain an lvalue and unset it
+        setState(&SourceProcessor::s_unsetMember);
+        memberByIdentifier(lvalue);
+        return;
+      }
+    }
+    else if (aAllowAssign && precedence==0) {
       // COULD be an assignment
       src.skipNonCode();
       SourcePos opos = src.pos;
@@ -2852,7 +2862,16 @@ void SourceProcessor::s_subscriptArg()
     TypeInfo accessFlags = none; // subscript access is always local, no scope or assignment restrictions
     ScriptObjPtr subScript = result;
     result = olderResult; // object to access member from
-    if (precedence==0) {
+    if (pendingOperation==op_delete) {
+      // COULD be deleting the member
+      src.skipNonCode();
+      if (src.c()!='.' && src.c()!='[') {
+        // this is the leaf member to be deleted. We need to obtain an lvalue and unset it
+        setState(&SourceProcessor::s_unsetMember);
+        accessFlags |= lvalue; // we need an lvalue
+      }
+    }
+    else if (precedence==0) {
       // COULD be an assignment
       SourcePos opos = src.pos;
       ScriptOperator aop = src.parseOperator();
@@ -3111,7 +3130,7 @@ void SourceProcessor::s_unsetMember()
   if (!skipping) {
     olderResult = result;
     result.reset(); // no object means deleting
-    if (!olderResult) {
+    if (!olderResult || !olderResult->hasType(lvalue)) {
       result = new AnnotatedNullValue("nothing to unset");
       s_result();
       return;
@@ -3606,7 +3625,7 @@ void SourceProcessor::processStatement()
       return;
     }
     if (uequals(identifier, "unset")) {
-      processVarDefs(lvalue+unset, false);
+      processVarDefs(unset, false);
       return;
     }
     // check handler definition within script code (needed when trigger expression wants to refer to run-time created objects)
@@ -3642,7 +3661,14 @@ void SourceProcessor::processVarDefs(TypeInfo aVarFlags, bool aAllowInitializer,
     exitWithSyntaxError("missing variable name after '%s'", identifier.c_str());
     return;
   }
-  push(currentState); // return to current state when var definion statement finishes
+  push(currentState); // return to current state when var definion / unset statement finishes
+  if (aVarFlags & unset) {
+    // unset is special because it might address a subfield of a variable,
+    // so it is modelled like a prefix operator
+    pendingOperation = op_delete;
+    assignOrAccess(false);
+    return;
+  }
   if (aDeclaration) skipping = false; // must enable processing now for actually assigning globals.
   src.skipNonCode();
   ScriptOperator op = src.parseOperator();
@@ -3658,26 +3684,18 @@ void SourceProcessor::processVarDefs(TypeInfo aVarFlags, bool aAllowInitializer,
     return;
   }
   else if (op==op_none) {
-    if (aVarFlags & unset) {
-      // after accessing lvalue, delete it
-      setState(&SourceProcessor::s_unsetMember);
-      memberByIdentifier(aVarFlags, true); // lookup lvalue
-      return;
+    // just create and initialize with null (if not already existing)
+    if (aVarFlags & global) {
+      result = new EventPlaceholderNullValue("uninitialized global");
     }
     else {
-      // just create and initialize with null (if not already existing)
-      if (aVarFlags & global) {
-        result = new EventPlaceholderNullValue("uninitialized global");
-      }
-      else {
-        result = new AnnotatedNullValue("uninitialized variable");
-      }
-      push(&SourceProcessor::s_assignOlder);
-      setState(&SourceProcessor::s_nothrowResult);
-      result.reset(); // look up on context level
-      memberByIdentifier(aVarFlags); // lookup lvalue
-      return;
+      result = new AnnotatedNullValue("uninitialized variable");
     }
+    push(&SourceProcessor::s_assignOlder);
+    setState(&SourceProcessor::s_nothrowResult);
+    result.reset(); // look up on context level
+    memberByIdentifier(aVarFlags); // lookup lvalue
+    return;
   }
   else {
     exitWithSyntaxError("assignment or end of statement expected");

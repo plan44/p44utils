@@ -670,13 +670,24 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "statements", "[scripting]" )
     REQUIRE(s.test(scriptbody|keepvars, "k")->doubleValue() == 42); // must stay
     REQUIRE(s.test(scriptbody|keepvars, "var k = 43")->doubleValue() == 43); // hide global k with a local k
     REQUIRE(s.test(scriptbody|keepvars, "k")->doubleValue() == 43); // must stay
-    REQUIRE(s.test(scriptbody|keepvars, "unset k = 47")->isErr() == true); // unset cannot have an initializer
-    REQUIRE(s.test(scriptbody|keepvars, "k")->doubleValue() == 43); // global still shadowed
-    REQUIRE(s.test(scriptbody|keepvars, "unset k")->isErr() == false); // should work
+    REQUIRE(s.test(scriptbody|keepvars, "unset k")->isErr() == false); // should work, deleting local
     REQUIRE(s.test(scriptbody|keepvars, "k")->doubleValue() == 42); // again global
     REQUIRE(s.test(scriptbody|keepvars, "unset k")->isErr() == false); // should work, deleting global
     REQUIRE(s.test(scriptbody|keepvars, "k")->isErr() == true); // deleted
     REQUIRE(s.test(scriptbody|keepvars, "unset k")->isErr() == false); // unsetting nonexisting variable should still not throw an error
+    REQUIRE(s.test(scriptbody|keepvars, "var k = { 'this':42, 'that':43, 'another':44 }; k.this")->doubleValue() == 42);
+    REQUIRE(s.test(scriptbody|keepvars, "unset k.this")->isErr() == false); // delete field must work
+    REQUIRE(s.test(scriptbody|keepvars, "k.this")->isErr() == true); // deleted field must be gone
+    REQUIRE(s.test(scriptbody|keepvars, "unset k['another']")->isErr() == false); // delete field must work
+    REQUIRE(s.test(scriptbody|keepvars, "k.another")->isErr() == true); // deleted field must be gone
+    REQUIRE(s.test(scriptbody|keepvars, "k.that")->doubleValue() == 43); // remaining field must still exist
+    REQUIRE(s.test(scriptbody|keepvars, "unset none.of.these.exist")->isErr() == false); // unsetting any nonexisting var/member should still not throw an error
+    REQUIRE(s.test(scriptbody|keepvars, "unset k = 47")->isErr() == true); // unset cannot be followed by an initializer (however since 2021-08-08 the actual unset will take place)
+    REQUIRE(s.test(scriptbody|keepvars, "k")->isErr() == true); // deleted
+    REQUIRE(s.test(scriptbody|keepvars, "var k = [42, 43, 44]; k[1]")->doubleValue() == 43);
+    REQUIRE(s.test(scriptbody|keepvars, "unset k[1]")->isErr() == false); // delete field must work
+    REQUIRE(s.test(scriptbody|keepvars, "k[1]")->doubleValue() == 44); // formerly third value
+    REQUIRE(s.test(scriptbody|keepvars, "elements(k)")->doubleValue() == 2); // only 2 elements left
   }
 
   // "{\"array\":[\"first\",2,3,\"fourth\",6.6],\"obj\":{\"objA\":\"A\",\"objB\":42,\"objC\":{\"objD\":\"D\",\"objE\":45}},\"string\":\"abc\",\"number\":42,\"bool\":true}"
