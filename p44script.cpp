@@ -5059,8 +5059,9 @@ void ScriptCodeThread::executeResult()
     else {
       childContext = funcCallContext; // as long as this executes, the function context becomes the child context of this thread
       // Note: must have keepvars because these are the arguments!
+      // Note: functions must not inherit their caller's evalscope but be run as script bodies
       // Note: must pass on threadvars. Custom functions technically run in a separate "thread", but that should be the same from a user's perspective
-      funcCallContext->execute(result, evaluationFlags|keepvars, boost::bind(&ScriptCodeThread::executedResult, this, _1), mThreadLocals);
+      funcCallContext->execute(result, (evaluationFlags&~scopeMask)|scriptbody|keepvars, boost::bind(&ScriptCodeThread::executedResult, this, _1), mThreadLocals);
     }
     // function call completion will call resume
     return;
