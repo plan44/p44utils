@@ -608,9 +608,9 @@ ScriptObjPtr ThreadValue::calculationValue()
 }
 
 
-void ThreadValue::abort()
+void ThreadValue::abort(ScriptObjPtr aAbortResult)
 {
-  if (mThread) mThread->abort();
+  if (mThread) mThread->abort(aAbortResult);
 }
 
 
@@ -1396,6 +1396,16 @@ bool ScriptCodeContext::abort(EvaluationFlags aAbortFlags, ScriptObjPtr aAbortRe
   }
   return anyAborted;
 }
+
+
+bool ScriptCodeContext::isInExecutionChain(ScriptCodeThreadPtr aThread)
+{
+  for (ThreadList::iterator pos = threads.begin(); pos!=threads.end(); ++pos) {
+    if ((*pos)->isInExecutionChain(aThread)) return true;
+  }
+  return false;
+}
+
 
 
 #if SCRIPTING_JSON_SUPPORT
@@ -4765,11 +4775,11 @@ void ScriptingDomain::clearFloatingGlobs()
 
 ScriptCodeThread::ScriptCodeThread(ScriptCodeContextPtr aOwner, CompiledCodePtr aCode, const SourceCursor& aStartCursor, ScriptObjPtr aThreadLocals) :
   mOwner(aOwner),
-  codeObj(aCode),
+  mCodeObj(aCode),
   mThreadLocals(aThreadLocals),
-  maxBlockTime(0),
-  maxRunTime(Infinite),
-  runningSince(Never)
+  mMaxBlockTime(0),
+  mMaxRunTime(Infinite),
+  mRunningSince(Never)
 {
   setCursor(aStartCursor);
   FOCUSLOG("\n%04x START        thread created : %s", (uint32_t)((intptr_t)static_cast<SourceProcessor *>(this)) & 0xFFFF, src.displaycode(130).c_str());
@@ -4783,7 +4793,7 @@ ScriptCodeThread::~ScriptCodeThread()
 
 P44LoggingObj* ScriptCodeThread::loggingContext()
 {
-  return codeObj && codeObj->loggingContext() ? codeObj->loggingContext() : NULL;
+  return mCodeObj && mCodeObj->loggingContext() ? mCodeObj->loggingContext() : NULL;
 }
 
 
@@ -4817,14 +4827,14 @@ void ScriptCodeThread::prepareRun(
 {
   setCompletedCB(aTerminationCB);
   initProcessing(aEvalFlags);
-  maxBlockTime = aMaxBlockTime;
-  maxRunTime = aMaxRunTime;
+  mMaxBlockTime = aMaxBlockTime;
+  mMaxRunTime = aMaxRunTime;
 }
 
 
 void ScriptCodeThread::run()
 {
-  runningSince = MainLoop::now();
+  mRunningSince = MainLoop::now();
   OLOG(LOG_DEBUG,
     "starting %04d at (%s:%zu,%zu):  %s",
     threadId(),
@@ -4835,18 +4845,36 @@ void ScriptCodeThread::run()
 }
 
 
+bool ScriptCodeThread::isInExecutionChain(ScriptCodeThreadPtr aThread)
+{
+  if (aThread.get()==this) return true;
+  if (mChainedExecutionContext) return mChainedExecutionContext->isInExecutionChain(aThread);
+  return false;
+}
+
+
+
 void ScriptCodeThread::abort(ScriptObjPtr aAbortResult)
 {
   // Note: calling abort must execute the callback passed to this thread when starting it
   inherited::abort(aAbortResult); // set the result
-  if (childContext) {
-    // having a child context means that a function (built-in or scripted) is executing
-    childContext->abort(stopall, aAbortResult); // will call resume() via the callback of the thread we've started the child context for
+  if (mChainedExecutionContext) {
+    // having a chained context means that a function (built-in or scripted) is executing
+    mChainedExecutionContext->abort(stopall, aAbortResult); // will call resume() via the callback of the thread we've started the child context for
   }
   else {
     complete(aAbortResult); // complete now, will eventually invoke completion callback
   }
 }
+
+
+void ScriptCodeThread::abortOthers(EvaluationFlags aAbortFlags, ScriptObjPtr aAbortResult)
+{
+  if (mOwner) {
+    mOwner->abort(aAbortFlags, aAbortResult, this);
+  }
+}
+
 
 
 ScriptObjPtr ScriptCodeThread::finalResult()
@@ -4859,7 +4887,7 @@ ScriptObjPtr ScriptCodeThread::finalResult()
 
 void ScriptCodeThread::complete(ScriptObjPtr aFinalResult)
 {
-  autoResumeTicket.cancel();
+  mAutoResumeTicket.cancel();
   inherited::complete(aFinalResult);
   OLOG(LOG_DEBUG,
     "complete %04d at (%s:%zu,%zu):  %s\n- with result: %s",
@@ -4880,12 +4908,12 @@ void ScriptCodeThread::stepLoop()
     MLMicroSeconds now = MainLoop::now();
     // check for abort
     // Check maximum execution time
-    if (maxRunTime!=Infinite && now-runningSince>maxRunTime) {
+    if (mMaxRunTime!=Infinite && now-mRunningSince>mMaxRunTime) {
       // Note: not calling abort as we are WITHIN the call chain
       complete(new ErrorPosValue(src, ScriptError::Timeout, "Aborted because of overall execution time limit"));
       return;
     }
-    else if (maxBlockTime!=Infinite && now-loopingSince>maxBlockTime) {
+    else if (mMaxBlockTime!=Infinite && now-loopingSince>mMaxBlockTime) {
       // time expired
       if (evaluationFlags & synchronously) {
         // Note: not calling abort as we are WITHIN the call chain
@@ -4893,7 +4921,7 @@ void ScriptCodeThread::stepLoop()
         return;
       }
       // in an async script, just give mainloop time to do other things for a while (but do not change result)
-      autoResumeTicket.executeOnce(boost::bind(&selfKeepingResume, this, ScriptObjPtr()), 2*maxBlockTime);
+      mAutoResumeTicket.executeOnce(boost::bind(&selfKeepingResume, this, ScriptObjPtr()), 2*mMaxBlockTime);
       return;
     }
     // run next statemachine step
@@ -5000,7 +5028,7 @@ void ScriptCodeThread::newFunctionCallContext()
 
 void ScriptCodeThread::startBlockThreadAndStoreInIdentifier()
 {
-  ScriptCodeThreadPtr thread = mOwner->newThreadFrom(codeObj, src, concurrently|block, NULL);
+  ScriptCodeThreadPtr thread = mOwner->newThreadFrom(mCodeObj, src, concurrently|block, NULL);
   if (thread) {
     if (!identifier.empty()) {
       push(currentState); // skipping==true is pushed (as we're already skipping the concurrent block in the main thread)
@@ -5057,7 +5085,7 @@ void ScriptCodeThread::executeResult()
       checkAndResume();
     }
     else {
-      childContext = funcCallContext; // as long as this executes, the function context becomes the child context of this thread
+      mChainedExecutionContext = funcCallContext; // as long as this executes, the function context becomes the child context of this thread
       // Note: must have keepvars because these are the arguments!
       // Note: functions must not inherit their caller's evalscope but be run as script bodies
       // Note: must pass on threadvars. Custom functions technically run in a separate "thread", but that should be the same from a user's perspective
@@ -5076,7 +5104,7 @@ void ScriptCodeThread::executedResult(ScriptObjPtr aResult)
   if (!aResult) {
     aResult = new AnnotatedNullValue("no return value");
   }
-  childContext.reset(); // release the child context
+  mChainedExecutionContext.reset(); // release the child context
   resume(aResult);
 }
 
@@ -5089,7 +5117,7 @@ void ScriptCodeThread::memberEventCheck()
     EventSource* eventSource = result->eventSource();
     if (eventSource) {
       // register the code object (the trigger) as event sink with the source
-      EventSink* triggerEventSink = dynamic_cast<EventSink*>(codeObj.get());
+      EventSink* triggerEventSink = dynamic_cast<EventSink*>(mCodeObj.get());
       if (triggerEventSink) {
         eventSource->registerForEvents(triggerEventSink);
       }
@@ -5894,18 +5922,28 @@ static void await_func(BuiltinFunctionContextPtr f)
 }
 
 
-// abort(thread)    abort specified thread
-// abort()          abort all subthreads
-static const BuiltInArgDesc abort_args[] = { { threadref|exacttype|optionalarg } };
+// abort(thread [,exitvalue [, ownchain])   abort specified thread
+// abort()                                  abort all subthreads
+static const BuiltInArgDesc abort_args[] = { { threadref|exacttype|optionalarg }, { any|optionalarg }, { numeric|optionalarg } };
 static const size_t abort_numargs = sizeof(abort_args)/sizeof(BuiltInArgDesc);
 static void abort_func(BuiltinFunctionContextPtr f)
 {
-  if (f->numArgs()==1) {
+  if (f->numArgs()>0) {
     // single thread represented by arg0
     ThreadValue *t = dynamic_cast<ThreadValue *>(f->arg(0).get());
     if (t && t->running()) {
       // still running
-      t->abort();
+      if (!f->arg(2)->boolValue() && t->thread()->isInExecutionChain(f->thread())) {
+        // is in my chain of execution (apparent user thread)
+        f->finish(new AnnotatedNullValue("not aborting calling thread"));
+        return;
+      }
+      else {
+        // really abort
+        ScriptObjPtr exitValue;
+        if (f->arg(1)->defined()) exitValue = f->arg(1);
+        t->abort(exitValue);
+      }
     }
   }
   else {

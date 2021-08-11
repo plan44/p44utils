@@ -726,8 +726,9 @@ namespace p44 { namespace P44Script {
     virtual void deactivate() P44_OVERRIDE { threadExitValue.reset(); mThread.reset(); inherited::deactivate(); }
     virtual ScriptObjPtr calculationValue() P44_OVERRIDE; /// < ThreadValue calculates to NULL as long as running or to the thread's exit value
     virtual EventSource *eventSource() const P44_OVERRIDE; ///< ThreadValue is an event source, event is the exit value of a thread terminating
+    ScriptCodeThreadPtr thread() { return mThread; }; ///< @return the thread
     bool running(); ///< @return true if still running
-    void abort(); ///< abort the thread
+    void abort(ScriptObjPtr aAbortResult = ScriptObjPtr()); ///< abort the thread
   };
 
 
@@ -1029,6 +1030,11 @@ namespace p44 { namespace P44Script {
     /// @return true if any thread was aborted
     virtual bool abort(EvaluationFlags aAbortFlags = stoprunning+queue, ScriptObjPtr aAbortResult = ScriptObjPtr(), ScriptCodeThreadPtr aExceptThread = ScriptCodeThreadPtr()) = 0;
 
+    /// @return true if the passed thread is in a execution chain of one of my threads (chain of sequentially executing internal ScriptCodeThread(s))
+    /// @note a new ScriptCodeThread is started for every user defined function call, but the calling ScriptCodeThread waits
+    ///    for the chainedExecutionContext to complete so the execution is not parallel
+    virtual bool isInExecutionChain(ScriptCodeThreadPtr aThread) { return false; /* base class does not have any threads */ };
+
     /// synchronously evaluate the object, abort if async executables are encountered
     ScriptObjPtr executeSynchronously(ScriptObjPtr aToExecute, EvaluationFlags aEvalFlags, ScriptObjPtr aThreadLocals = ScriptObjPtr(), MLMicroSeconds aMaxRunTime = Infinite);
 
@@ -1122,6 +1128,11 @@ namespace p44 { namespace P44Script {
     /// @param aExceptThread if set, this thread is not aborted
     /// @return true if any thread was aborted
     virtual bool abort(EvaluationFlags aAbortFlags = stopall, ScriptObjPtr aAbortResult = ScriptObjPtr(), ScriptCodeThreadPtr aExceptThread = ScriptCodeThreadPtr()) P44_OVERRIDE;
+
+    /// @return true if the passed thread is in a execution chain of one of my threads (chain of sequentially executing internal ScriptCodeThread(s))
+    /// @note a new ScriptCodeThread is started for every user defined function call, but the calling ScriptCodeThread waits
+    ///    for the chainedExecutionContext to complete so the execution is not parallel
+    virtual bool isInExecutionChain(ScriptCodeThreadPtr aThread) P44_OVERRIDE;
 
     #if SCRIPTING_JSON_SUPPORT
     /// FIXME: this is a simplistic partial solution to get at least some introspection for debugging purposes.
@@ -2160,13 +2171,13 @@ namespace p44 { namespace P44Script {
 
     ScriptCodeContextPtr mOwner; ///< the execution context which owns (has started) this thread
     ScriptObjPtr mThreadLocals; ///< the thread locals (might be set at thread creation already, or gets created on demand as SimpleVarContainer later)
-    CompiledCodePtr codeObj; ///< the code object this thread is running
-    MLMicroSeconds maxBlockTime; ///< how long the thread is allowed to block in evaluate()
-    MLMicroSeconds maxRunTime; ///< how long the thread is allowed to run overall
+    CompiledCodePtr mCodeObj; ///< the code object this thread is running
+    MLMicroSeconds mMaxBlockTime; ///< how long the thread is allowed to block in evaluate()
+    MLMicroSeconds mMaxRunTime; ///< how long the thread is allowed to run overall
 
-    MLMicroSeconds runningSince; ///< time the thread was started
-    ExecutionContextPtr childContext; ///< set during calls to other contexts, e.g. to propagate abort()
-    MLTicket autoResumeTicket; ///< auto-resume ticket
+    MLMicroSeconds mRunningSince; ///< time the thread was started
+    ExecutionContextPtr mChainedExecutionContext; ///< set during calls to other contexts, e.g. to propagate abort()
+    MLTicket mAutoResumeTicket; ///< auto-resume ticket
 
   public:
 
@@ -2205,17 +2216,21 @@ namespace p44 { namespace P44Script {
     /// run the thread
     virtual void run();
 
+    /// @return true if the passed thread is in the same execution chain (chain sequentially executing internal ScriptCodeThread(s))
+    /// @note a new ScriptCodeThread is started for every user defined function call, but the calling ScriptCodeThread waits
+    ///    for the chainedExecutionContext to complete so the execution is not parallel
+    bool isInExecutionChain(ScriptCodeThreadPtr aThread);
+
     /// request aborting the current thread, including child context
     /// @param aAbortResult if set, this is what abort will report back
     virtual void abort(ScriptObjPtr aAbortResult = ScriptObjPtr()) P44_OVERRIDE;
 
-    /// @return NULL when the thread is still running, final result value otherwise
-    ScriptObjPtr finalResult();
-
     /// abort all threads in the same context execpt this one
     /// @param aAbortResult if set, this is what abort will report back
-    void abortOthers(EvaluationFlags aAbortFlags = stopall, ScriptObjPtr aAbortResult = ScriptObjPtr())
-      { if (mOwner) mOwner->abort(aAbortFlags, aAbortResult, this); }
+    void abortOthers(EvaluationFlags aAbortFlags = stopall, ScriptObjPtr aAbortResult = ScriptObjPtr());
+
+    /// @return NULL when the thread is still running, final result value otherwise
+    ScriptObjPtr finalResult();
 
     /// complete the current thread
     virtual void complete(ScriptObjPtr aFinalResult) P44_OVERRIDE;
@@ -2468,7 +2483,7 @@ namespace p44 { namespace P44Script {
     EvaluationFlags evalFlags() { return mThread ? mThread->evaluationFlags : (EvaluationFlags)regular; }
 
     /// @return the trigger object if this function is executing as part of a trigger expression
-    CompiledTrigger* trigger() { return mThread ? dynamic_cast<CompiledTrigger *>(mThread->codeObj.get()) : NULL; }
+    CompiledTrigger* trigger() { return mThread ? dynamic_cast<CompiledTrigger *>(mThread->mCodeObj.get()) : NULL; }
 
     /// @}
   };
