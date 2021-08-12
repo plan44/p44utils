@@ -460,22 +460,31 @@ bool JsonObject::resetKeyIteration()
 }
 
 
-bool JsonObject::nextKeyValue(string &aKey, JsonObjectPtr &aValue)
+// helper for nextKeyValue and keyValueByIndex
+static void keyValueFromEntry(struct lh_entry *aEntryP, string* aKeyP, JsonObjectPtr* aValueP)
 {
-  if (nextEntryP) {
-    // get key
-    aKey = (char*)nextEntryP->k;
-    // get value
-    json_object *weakObjRef = (struct json_object*)nextEntryP->v;
+  // get key
+  if (aKeyP) *aKeyP = (char*)aEntryP->k;
+  // get value
+  if (aValueP) {
+    json_object *weakObjRef = (struct json_object*)aEntryP->v;
     if (weakObjRef) {
       // claim ownership
       json_object_get(weakObjRef);
       // - return wrapper
-      aValue = newObj(weakObjRef);
+      *aValueP = JsonObject::newObj(weakObjRef);
     }
     else {
-      aValue = JsonObjectPtr(); // NULL
+      *aValueP = JsonObjectPtr(); // NULL
     }
+  }
+}
+
+
+bool JsonObject::nextKeyValue(string &aKey, JsonObjectPtr &aValue)
+{
+  if (nextEntryP) {
+    keyValueFromEntry(nextEntryP, aKey, aValue);
     // advance to next
     nextEntryP = nextEntryP->next;
     return true;
@@ -485,20 +494,39 @@ bool JsonObject::nextKeyValue(string &aKey, JsonObjectPtr &aValue)
 }
 
 
-JsonObjectPtr JsonObject::nextJsonObj()
+int JsonObject::numKeys()
 {
-  if (nextEntryP) {
-    json_object *weakObjRef = (struct json_object*)nextEntryP->v;
-    if (weakObjRef) {
-      json_object_get(weakObjRef);
-      JsonObjectPtr obj = newObj();
-      obj->add((const char*)nextEntryP->k, newObj(weakObjRef));
-      nextEntryP = nextEntryP->next;
-      return obj;
+  int nk = 0;
+  if (isType(json_type_object)) {
+    struct lh_entry *eP = json_object_get_object(json_obj)->head; ///< iterator pointer
+    while(eP) {
+      nk++;
+      eP = eP->next;
     }
   }
-  return JsonObjectPtr();
+  return nk;
 }
+
+
+bool JsonObject::keyValueByIndex(int aIndex, string &aKey, JsonObjectPtr* aValueP)
+{
+  if (isType(json_type_object)) {
+    int i = 0;
+    struct lh_entry *eP = json_object_get_object(json_obj)->head; ///< iterator pointer
+    while(eP) {
+      if (i==aIndex) {
+        keyValueFromEntry(eP, &aKey, aValueP);
+        return true;
+      }
+      // next
+      i++;
+      eP = eP->next;
+    }
+  }
+  // no such object
+  return false;
+}
+
 
 
 // MARK: - factories and value getters
