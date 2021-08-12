@@ -44,6 +44,10 @@
   #include "esp_vfs.h"
 #endif
 #include "fdcomm.hpp"
+#if LIBEV_SUPPORT
+  #include <ev.h>
+#endif
+
 
 // MARK: - MainLoop default parameters
 
@@ -409,6 +413,10 @@ MainLoop::MainLoop() :
   exitCode(EXIT_SUCCESS),
   ticketNo(0),
   timersChanged(false)
+  #if LIBEV_SUPPORT
+  , mLibEvLoop(NULL)
+//  , mLibEvTimer(NULL)
+  #endif
 {
   #ifdef ESP_PLATFORM
   FOCUSLOG("mainloop: ESP32 specific initialisation of mainloop@%p", this);
@@ -1151,10 +1159,36 @@ bool MainLoop::mainLoopCycle()
       if (cycleStarted+maxRun<MainLoop::now()) {
         return false; // run limit reached before we could sleep
       }
+      #if LIBEV_SUPPORT
+      if (mLibEvLoop) {
+        // process pending libev events, but do not wait
+        ev_run(mLibEvLoop, EVRUN_NOWAIT);
+        // limit cycle run time
+        if (cycleStarted+maxRun<MainLoop::now()) {
+          return false; // run limit reached before we could sleep
+        }
+      }
+      #endif
     }
     else {
       // nothing due before timeout
-      handleIOPoll(nextWake==Never ? Infinite : pollTimeout);
+      #if LIBEV_SUPPORT
+      // TODO: ugly and inefficient, when libev has stuff pending, we'll need to call both checks often
+      //   Solution would be using the ev_prepare & ev_check mechanims in libev, which would allow
+      //   registering our currently pending iopolls and a timer
+      #define LIBEV_MIN_POLL_INTERVAL (20*MilliSecond)
+      if (mLibEvLoop && ev_pending_count(mLibEvLoop)>0) {
+        ev_run(mLibEvLoop, EVRUN_ONCE);
+        handleIOPoll(pollTimeout<LIBEV_MIN_POLL_INTERVAL ? pollTimeout : LIBEV_MIN_POLL_INTERVAL);
+        if (cycleStarted+maxRun<MainLoop::now()) {
+          return false; // run limit reached before we could sleep
+        }
+      }
+      else
+      #endif
+      {
+        handleIOPoll(nextWake==Never ? Infinite : pollTimeout);
+      }
       return true; // we had the chance to sleep
     }
     // otherwise, continue processing
@@ -1199,6 +1233,26 @@ int MainLoop::run(bool aRestart)
 }
 
 
+#if LIBEV_SUPPORT
+
+//static void libev_sleep_timer_done(EV_P_ struct ev_timer *t, int revents)
+//{
+//}
+
+struct ev_loop* MainLoop::libevLoop()
+{
+  if (!mLibEvLoop) {
+    mLibEvLoop = EV_DEFAULT;
+//    // init timer we need when we allow libev to "sleep"
+//    ev_timer_init(mLibEvTimer, &libev_sleep_timer_done, 1, 0);
+  }
+  return mLibEvLoop;
+}
+
+#endif
+
+
+
 
 string MainLoop::description()
 {
@@ -1224,6 +1278,9 @@ string MainLoop::description()
     "  - max timers waiting at once  : %ld\n"
     "- throttling sleep inserted     : %ld times\n"
     #endif
+    #if LIBEV_SUPPORT
+    "- pending libev watchers        : %d %s\n"
+    #endif
     ,(long)ioPollHandlers.size()
     ,(long)waitHandlers.size()
     ,(long)timers.size()
@@ -1239,6 +1296,10 @@ string MainLoop::description()
     ,(long)timesTimersRanToLong
     ,(long)maxTimers
     ,(long)timesThrottlingApplied
+    #endif
+    #if LIBEV_SUPPORT
+    ,(mLibEvLoop ? ev_pending_count(mLibEvLoop) : 0)
+    ,(mLibEvLoop ? "" : "(NOT IN USE)")
     #endif
   );
 }

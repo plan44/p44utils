@@ -48,6 +48,11 @@ unsigned long _p44_millis();
   #include <pthread.h>
 #endif
 
+#if LIBEV_SUPPORT
+struct ev_loop;
+#endif
+
+
 // if set to non-zero, mainloop will have some code to record statistics
 #define MAINLOOP_STATISTICS 1
 
@@ -254,6 +259,11 @@ namespace p44 {
     int evFsFD; ///< the filedescriptor that is signalled when another task posts timer events
     #endif
 
+    #if LIBEV_SUPPORT
+    struct ev_loop *mLibEvLoop;
+//    ev_timer *mLibEvTimer;
+    #endif
+
   protected:
 
     bool hasStarted;
@@ -281,7 +291,6 @@ namespace p44 {
     /// returns or creates the current thread's mainloop
     /// @return the mainloop for this thread
     static MainLoop &currentMainLoop();
-
 
     /// @name time related static utility functions
     /// @{
@@ -553,6 +562,13 @@ namespace p44 {
 
     /// reset statistics
     void statistics_reset();
+
+
+    #if LIBEV_SUPPORT
+    /// calling this the first time will enable libev support and integrate libev main loop into this main loop
+    /// @return libev loop pointer to be used as "the mainloop" from code using libev mechanisms
+    struct ev_loop* libevLoop();
+    #endif
 
 
   private:
