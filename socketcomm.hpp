@@ -266,6 +266,8 @@ namespace p44 {
 
   #if ENABLE_SOCKET_SCRIPT_FUNCS && ENABLE_P44SCRIPT
 
+  // FIXME: refactor to have SocketComm as the event source
+
   namespace P44Script {
 
     class SocketObj;

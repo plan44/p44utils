@@ -1,6 +1,10 @@
 #define SOCKET_FLAGS_PRIV
 
-#include <sys/socket.h>
+#if __APPLE__
+  #include "../include/sys/socket.h"
+#else
+  #include <sys/socket.h>
+#endif
 
 #ifdef NEED_SOCKET_FLAGS
 

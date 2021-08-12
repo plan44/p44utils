@@ -29,6 +29,10 @@
 #include <stdbool.h>
 #include <inttypes.h>
 
+#ifdef __APPLE__
+  #include "compat_glue/include/sys/socket.h" // we need this wapper to support SOCK_NONBLOCK and SOCK_CLOEXEC
+#endif
+
 #include "config.h"
 
 #ifndef container_of

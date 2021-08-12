@@ -28,9 +28,14 @@
 #include <vector>
 #include <map>
 
+// derived definitions
 #ifdef ESP_PLATFORM
   #define BOOST_NO_EXCEPTIONS
   #include <boost/throw_exception.hpp>
+#endif
+#if ENABLE_UWSC
+  // libuwsc (websockets) needs libev support in main loop
+  #define LIBEV_SUPPORT 1
 #endif
 
 #include <boost/intrusive_ptr.hpp>

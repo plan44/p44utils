@@ -5,6 +5,10 @@
 
 #include_next <sys/socket.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #ifndef SA_LEN
 #define SA_LEN(X) \
 	(((struct sockaddr*)(X))->sa_family == AF_INET ? sizeof(struct sockaddr_in) : \
@@ -36,4 +40,8 @@ int _socketpair(int domain, int type, int protocol, int socket_vector[2]);
 
 #ifndef SOCK_CLOEXEC
 #define	SOCK_CLOEXEC		0x8000	/* set FD_CLOEXEC */
+#endif
+
+#ifdef __cplusplus
+}
 #endif

@@ -5442,7 +5442,7 @@ static void elements_func(BuiltinFunctionContextPtr f)
     f->finish(new NumericValue((int)f->arg(0)->numIndexedMembers()));
     return;
   }
-  f->finish(new AnnotatedNullValue("not an array"));
+  f->finish(new AnnotatedNullValue("not an array or object"));
 }
 #endif // SCRIPTING_JSON_SUPPORT
 
