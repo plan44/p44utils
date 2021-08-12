@@ -484,7 +484,7 @@ static void keyValueFromEntry(struct lh_entry *aEntryP, string* aKeyP, JsonObjec
 bool JsonObject::nextKeyValue(string &aKey, JsonObjectPtr &aValue)
 {
   if (nextEntryP) {
-    keyValueFromEntry(nextEntryP, aKey, aValue);
+    keyValueFromEntry(nextEntryP, &aKey, &aValue);
     // advance to next
     nextEntryP = nextEntryP->next;
     return true;

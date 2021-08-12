@@ -797,7 +797,11 @@ const ScriptObjPtr JsonRepresentedValue::memberByName(const string aName, TypeIn
 
 size_t JsonRepresentedValue::numIndexedMembers() const
 {
-  if (jsonValue()) return jsonValue()->arrayLength();
+  JsonObjectPtr j = jsonValue();
+  if (j) {
+    if (j->isType(json_type_object)) return j->numKeys(); // objects can be accessed as arrays to get the keys
+    return j->arrayLength();
+  }
   return 0;
 }
 
@@ -805,13 +809,24 @@ size_t JsonRepresentedValue::numIndexedMembers() const
 const ScriptObjPtr JsonRepresentedValue::memberAtIndex(size_t aIndex, TypeInfo aMemberAccessFlags)
 {
   ScriptObjPtr m;
-  if (jsonValue() && typeRequirementMet(json, aMemberAccessFlags, typeMask)) {
+  JsonObjectPtr j = jsonValue();
+  if (j && typeRequirementMet(json, aMemberAccessFlags, typeMask)) {
     // we cannot meet any other type requirement but json
     if (aIndex<numIndexedMembers()) {
       // we have that member
-      m = ScriptObjPtr(new JsonValue(jsonValue()->arrayGet((int)aIndex)));
-      if ((aMemberAccessFlags & lvalue) && (aMemberAccessFlags & onlycreate)==0) {
-        m = new StandardLValue(this, aIndex, m); // it is allowed to overwrite this value
+      if (j->isType(json_type_object)) {
+        // special case of accessing object's key as an array, read-only
+        string key;
+        if (j->keyValueByIndex((int)aIndex, key, NULL)) {
+          m = ScriptObjPtr(new StringValue(key));
+        }
+      }
+      else {
+        // must be array, elements can be written to
+        m = ScriptObjPtr(new JsonValue(j->arrayGet((int)aIndex)));
+        if ((aMemberAccessFlags & lvalue) && (aMemberAccessFlags & onlycreate)==0) {
+          m = new StandardLValue(this, aIndex, m); // it is allowed to overwrite this value
+        }
       }
     }
     else {
@@ -831,10 +846,11 @@ const ScriptObjPtr JsonRepresentedValue::memberAtIndex(size_t aIndex, TypeInfo a
 
 TypeInfo JsonValue::getTypeInfo() const
 {
-  if (!jsonValue() || jsonValue()->isType(json_type_null)) return null;
-  if (jsonValue()->isType(json_type_object)) return json+object;
-  if (jsonValue()->isType(json_type_array)) return json+array;
-  if (jsonValue()->isType(json_type_string)) return json+text;
+  JsonObject* j = jsonValue().get();
+  if (!j || j->isType(json_type_null)) return null;
+  if (j->isType(json_type_object)) return json+object;
+  if (j->isType(json_type_array)) return json+array;
+  if (j->isType(json_type_string)) return json+text;
   return json+numeric; // everything else is numeric
 }
 
@@ -5423,7 +5439,7 @@ static const size_t elements_numargs = sizeof(elements_args)/sizeof(BuiltInArgDe
 static void elements_func(BuiltinFunctionContextPtr f)
 {
   if (f->arg(0)->hasType(json)) {
-    f->finish(new NumericValue(f->arg(0)->jsonValue()->arrayLength()));
+    f->finish(new NumericValue((int)f->arg(0)->numIndexedMembers()));
     return;
   }
   f->finish(new AnnotatedNullValue("not an array"));
@@ -6025,7 +6041,14 @@ static void loglevel_func(BuiltinFunctionContextPtr f)
   int oldLevel = LOGLEVEL;
   if (f->numArgs()>0) {
     int newLevel = f->arg(0)->intValue();
-    if (newLevel>=0 && newLevel<=7) {
+    if (newLevel==8) {
+      // trigger statistics
+      LOG(LOG_NOTICE, "\n========== script requested mainloop statistics");
+      LOG(LOG_NOTICE, "\n%s", MainLoop::currentMainLoop().description().c_str());
+      MainLoop::currentMainLoop().statistics_reset();
+      LOG(LOG_NOTICE, "========== statistics shown\n");
+    }
+    else if (newLevel>=0 && newLevel<=7) {
       SETLOGLEVEL(newLevel);
       LOG(newLevel, "\n\n========== script changed log level from %d to %d ===============", oldLevel, newLevel);
     }

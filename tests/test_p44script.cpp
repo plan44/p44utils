@@ -383,10 +383,12 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "lookups", "[scripting]") {
 
   SECTION("Json") {
     // JSON access tests, see JSON_TEST_OBJ
+    // maybe: {"array":["first",2,3,"fourth",6.6],"obj":{"objA":"A","objB":42,"objC":{"objD":"D","objE":45}},"string":"abc","number":42,"bool":true, "bool2":false, "null":null }
     REQUIRE(s.test(expression, "jstest")->stringValue() == JSON_TEST_OBJ);
     REQUIRE(s.test(expression, "jstest.string")->stringValue() == "abc");
     REQUIRE(s.test(expression, "jstest.number")->doubleValue() == 42);
     REQUIRE(s.test(expression, "jstest.bool")->boolValue() == true);
+    REQUIRE(s.test(expression, "elements(jstest.array)")->intValue() == 5);
     REQUIRE(s.test(expression, "jstest.array[2]")->doubleValue() == 3);
     REQUIRE(s.test(expression, "jstest.array[0]")->stringValue() == "first");
     REQUIRE(s.test(expression, "jstest['array'][0]")->stringValue() == "first");
@@ -408,6 +410,10 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "lookups", "[scripting]") {
     REQUIRE(s.test(expression, "jstest.bool2")->boolValue() == false);
     REQUIRE(s.test(expression, "jstest.null")->boolValue() == false);
     REQUIRE(s.test(expression, "jstest.null")->defined() == false);
+    // Access keys of json object via numeric subscript
+    REQUIRE(s.test(expression, "elements(jstest)")->intValue() == 7);
+    REQUIRE(s.test(expression, "jstest[0]")->stringValue() == "array");
+    REQUIRE(s.test(expression, "jstest[4]")->stringValue() == "bool");
   }
 
 }
@@ -690,7 +696,7 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "statements", "[scripting]" )
     REQUIRE(s.test(scriptbody|keepvars, "elements(k)")->doubleValue() == 2); // only 2 elements left
   }
 
-  // "{\"array\":[\"first\",2,3,\"fourth\",6.6],\"obj\":{\"objA\":\"A\",\"objB\":42,\"objC\":{\"objD\":\"D\",\"objE\":45}},\"string\":\"abc\",\"number\":42,\"bool\":true}"
+  // {"array":["first",2,3,"fourth",6.6],"obj":{"objA":"A","objB":42,"objC":{"objD":"D","objE":45}},"string":"abc","number":42,"bool":true}
   SECTION("json manipulation") {
     REQUIRE(s.test(scriptbody, "var js = " JSON_TEST_OBJ "; js.obj.objF = 46; log(6,js); return js.obj.objF")->doubleValue() == 46);
     REQUIRE(s.test(scriptbody, "var js = " JSON_TEST_OBJ "; js.obj['objA'] = 'AA'; log(6,js); return js.obj.objA")->stringValue() == "AA");
