@@ -48,8 +48,8 @@ unsigned long _p44_millis();
   #include <pthread.h>
 #endif
 
-#if LIBEV_SUPPORT
-struct ev_loop;
+#if MAINLOOP_LIBEV_BASED
+  #include <ev.h>
 #endif
 
 
@@ -238,11 +238,24 @@ namespace p44 {
     WaitHandlerMap waitHandlers;
 
     // IO poll handlers
+    #if MAINLOOP_LIBEV_BASED
+    friend void libev_io_poll_handler(EV_P_ struct ev_io *, int);
+    friend void libev_sleep_timer_done(EV_P_ struct ev_timer *t, int revents);
+    class IOPollHandler P44_FINAL {
+    public:
+      struct ev_io iowatcher; // the actual IO watcher
+      IOPollCB pollHandler;
+      IOPollHandler();
+      ~IOPollHandler();
+    };
+    #else
     typedef struct {
       int monitoredFD;
       int pollFlags;
       IOPollCB pollHandler;
     } IOPollHandler;
+    #endif
+
     typedef std::map<int, IOPollHandler> IOPollHandlerMap;
     IOPollHandlerMap ioPollHandlers;
 
@@ -259,9 +272,9 @@ namespace p44 {
     int evFsFD; ///< the filedescriptor that is signalled when another task posts timer events
     #endif
 
-    #if LIBEV_SUPPORT
-    struct ev_loop *mLibEvLoop;
-//    ev_timer *mLibEvTimer;
+    #if MAINLOOP_LIBEV_BASED
+    struct ev_loop* mLibEvLoopP;
+    struct ev_timer mLibEvTimer;
     #endif
 
   protected:
@@ -457,7 +470,7 @@ namespace p44 {
     /// @param aStdInFd if >0, stdin of the child process is set to it;  if 0, stderr of the child is redirected to /dev/null
     ///   so caller can handle output data of the process. The caller is responsible for closing the fd.
     /// @return the child's PID (can be used to send signals to it), or -1 if fork fails
-    pid_t fork_and_execve(ExecCB aCallback, const char *aPath, char *const aArgv[], char *const aEnvp[] = NULL, bool aPipeBackStdOut = false, int* aPipeBackFdP = NULL, int aaStdErrFd = -1, int aStdInFd = -1);
+    pid_t fork_and_execve(ExecCB aCallback, const char *aPath, char *const aArgv[], char *const aEnvp[] = NULL, bool aPipeBackStdOut = false, int* aPipeBackFdP = NULL, int aStdErrFd = -1, int aStdInFd = -1);
 
     /// execute command line in external shell
     /// @param aCallback the functor to be called when execution is done (failed to start or completed)
@@ -468,7 +481,7 @@ namespace p44 {
     /// @param aStdErrFd if >0, stderr of the child process is set to it; if 0, stderr of the child is redirected to /dev/null
     /// @param aStdInFd if >0, stdin of the child process is set to it;  if 0, stderr of the child is redirected to /dev/null
     /// @return the child's PID (can be used to send signals to it), or -1 if fork fails
-    pid_t fork_and_system(ExecCB aCallback, const char *aCommandLine, bool aPipeBackStdOut = false, int* aStdOutFdP = NULL, int aaStdErrFd = -1, int aStdInFd = -1);
+    pid_t fork_and_system(ExecCB aCallback, const char *aCommandLine, bool aPipeBackStdOut = false, int* aStdOutFdP = NULL, int aStdErrFd = -1, int aStdInFd = -1);
 
 
     /// have handler called when a specific process delivers a state change
@@ -564,8 +577,9 @@ namespace p44 {
     void statistics_reset();
 
 
-    #if LIBEV_SUPPORT
-    /// calling this the first time will enable libev support and integrate libev main loop into this main loop
+    #if MAINLOOP_LIBEV_BASED
+    /// the underlying libev main loop. Depending on the implementation the libev main loop might only be created
+    /// when first queried via this method, or might exist as a base for p44utils mainloop all the time
     /// @return libev loop pointer to be used as "the mainloop" from code using libev mechanisms
     struct ev_loop* libevLoop();
     #endif
@@ -581,8 +595,7 @@ namespace p44 {
     MLMicroSeconds checkTimers(MLMicroSeconds aTimeout);
     void scheduleTimer(MLTimer &aTimer);
 
-    bool handleIOPoll(MLMicroSeconds aTimeout);
-    void IOPollHandlerForFd(int aFD, IOPollHandler &h);
+    void handleIOPoll(MLMicroSeconds aTimeout);
 
     #ifndef ESP_PLATFORM
     bool checkWait();

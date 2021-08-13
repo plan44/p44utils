@@ -34,8 +34,8 @@
   #include <boost/throw_exception.hpp>
 #endif
 #if ENABLE_UWSC
-  // libuwsc (websockets) needs libev support in main loop
-  #define LIBEV_SUPPORT 1
+  // libuwsc (websockets) needs libev based main loop
+  #define MAINLOOP_LIBEV_BASED 1
 #endif
 
 #include <boost/intrusive_ptr.hpp>
