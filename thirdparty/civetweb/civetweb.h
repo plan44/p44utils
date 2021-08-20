@@ -993,12 +993,29 @@ CIVETWEB_API int mg_send_http_redirect(struct mg_connection *conn,
                                        int redirect_code);
 
 
+
+/* Check path authorisation (default authorization, as used when no auth handler is installed)
+ *   Available as interface function for implementing auth handlers which only want to handle
+ *   some paths themselves, but leave the rest to the standard auth mechanisms
+ *   (.htpasswd, global_auth_file setting)
+ * Parameters:
+ *   conn: Current connection handle.
+ *   path: The path to check authorisation for
+ * Return:
+ *   1 if path is authorised,
+ *   0 if path is not authorised
+ *   < 0 on Error
+ */
+CIVETWEB_API int
+mg_check_path_authorization(struct mg_connection *conn, const char *path);
+
+
 /* Send HTTP digest access authentication request.
  * Browsers will send a user name and password in their next request, showing
  * an authentication dialog if the password is not stored.
  * Parameters:
  *   conn: Current connection handle.
- *   realm: Authentication realm. If NULL is supplied, the sever domain
+ *   realm: Authentication realm. If NULL is supplied, the server domain
  *          set in the authentication_domain configuration is used.
  * Return:
  *   < 0   Error
@@ -1638,6 +1655,9 @@ CIVETWEB_API int mg_start_domain2(struct mg_context *ctx,
                                   const char **configuration_options,
                                   struct mg_error_data *error);
 #endif
+
+CIVETWEB_API extern const char* nocache_headers;
+CIVETWEB_API const char* suggest_connection_header(const struct mg_connection *conn);
 
 #ifdef __cplusplus
 }
