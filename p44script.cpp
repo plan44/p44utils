@@ -5833,8 +5833,209 @@ static void readfile_func(BuiltinFunctionContextPtr f)
 #endif // !ESP_PLATFORM
 
 
-// signal() create a signal object, that can be sent()t and await()ed
 
+
+typedef boost::function<void (bool aEntered)> LockCB;
+
+// Lock Object for thread synchronisation, see lock()
+class LockObj : public NumericValue, public EventSource
+{
+  typedef NumericValue inherited;
+  ScriptCodeThreadPtr mCurrentThread;
+  int mLockCount;
+  class LockWaiter {
+  public:
+    LockWaiter() : threadP(NULL) {};
+    LockWaiter(const LockWaiter& aOther);
+    MLTicket timeoutTicket;
+    ScriptCodeThread* threadP;
+    LockCB lockCB;
+  };
+  typedef std::list<LockWaiter> WaitersList;
+  WaitersList mWaiters;
+
+  void locktimeout(LockWaiter &aWaiter);
+
+public:
+
+  LockObj() : inherited(1), mLockCount(0) { }
+  LockObj(ScriptCodeThread *aEnteredForThread) : inherited(1), mCurrentThread(aEnteredForThread), mLockCount(1) { }
+
+  virtual void deactivate() P44_OVERRIDE;
+  virtual string getAnnotation() const P44_OVERRIDE { return "Lock"; }
+  virtual TypeInfo getTypeInfo() const P44_OVERRIDE {
+    return inherited::getTypeInfo()|oneshot|keeporiginal;
+  }
+  virtual double doubleValue() const P44_OVERRIDE { return mLockCount; };
+  virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aMemberAccessFlags = none) P44_OVERRIDE;
+
+  /// try to enter the lock
+  /// @param aThread the thread that wants to enter
+  /// @return true if entered, false if locked by another thread
+  bool enter(ScriptCodeThreadPtr aThread);
+
+  /// register
+  void registerLockCB(ScriptCodeThread* aThreadP, LockCB aLockCB, MLMicroSeconds aTimeout);
+
+  /// leave the lock
+  /// @return true if thread actually had entered that lock before and could leave now
+  bool leave(ScriptCodeThreadPtr aThread);
+};
+typedef boost::intrusive_ptr<LockObj> LockObjPtr;
+
+LockObj::LockWaiter::LockWaiter(const LockWaiter& aOther)
+{
+  timeoutTicket = aOther.timeoutTicket;
+  const_cast<LockWaiter&>(aOther).timeoutTicket.defuse();
+  threadP = aOther.threadP;
+  lockCB = aOther.lockCB;
+}
+
+void LockObj::deactivate()
+{
+  mCurrentThread.reset();
+  // fail all pending entering attempts
+  while (!mWaiters.empty()) {
+    mWaiters.front().timeoutTicket.cancel();
+    LockCB cb = mWaiters.front().lockCB;
+    mWaiters.pop_front();
+    cb(false);
+  }
+}
+
+
+bool LockObj::enter(ScriptCodeThreadPtr aThread)
+{
+  if (mCurrentThread) {
+    // already locked, see if by same thread
+    if (!mCurrentThread->isInExecutionChain(aThread)) {
+      // not same logical thread, cannot enter
+      return false;
+    }
+    // same thread chain, can lock
+    mLockCount++;
+  }
+  else {
+    // not locked yet
+    mCurrentThread = aThread;
+    mLockCount = 1;
+  }
+  return true;
+}
+
+void LockObj::locktimeout(LockWaiter &aWaiter)
+{
+  // remove waiter
+  for (WaitersList::iterator pos = mWaiters.begin(); pos!=mWaiters.end(); ++pos) {
+    if (pos->threadP==aWaiter.threadP) {
+      mWaiters.erase(pos);
+      break;
+    }
+  }
+  // inform caller of timeout occurred
+  aWaiter.lockCB(false);
+}
+
+void LockObj::registerLockCB(ScriptCodeThread* aThreadP, LockCB aLockCB, MLMicroSeconds aTimeout)
+{
+  LockWaiter w;
+  w.threadP = aThreadP; // for comparison only, never dereferenced
+  w.lockCB = aLockCB;
+  if (aTimeout!=Infinite) {
+    w.timeoutTicket.executeOnce(boost::bind(&LockObj::locktimeout, this, w), aTimeout);
+  }
+  mWaiters.push_back(w);
+}
+
+bool LockObj::leave(ScriptCodeThreadPtr aThread)
+{
+  if (!mCurrentThread || !mCurrentThread->isInExecutionChain(aThread)) return false; // not locked by aThread, can't leave
+  assert(mLockCount>0);
+  if (mLockCount>1) {
+    mLockCount--;
+  }
+  else {
+    // this thread chain leaves the lock
+    if (mWaiters.empty()) {
+      // nobody waiting any more
+      mLockCount = 0;
+      mCurrentThread.reset();
+    }
+    else {
+      // pass the lock to the longest waiting thread (first in mWaiters list)
+      mWaiters.front().timeoutTicket.cancel();
+      LockCB cb = mWaiters.front().lockCB;
+      mCurrentThread = mWaiters.front().threadP; // pass lock to this thread
+      mWaiters.pop_front();
+      cb(true);
+    }
+  }
+  return true;
+}
+
+
+void endLockWait(BuiltinFunctionContextPtr f, bool aEntered)
+{
+  f->finish(new NumericValue(aEntered));
+}
+
+// enter([timeout])    wait until we can enter or timeout expires. returns true if entered, false on timeout
+static const BuiltInArgDesc enter_args[] = { { numeric|optionalarg } };
+static const size_t enter_numargs = sizeof(enter_args)/sizeof(BuiltInArgDesc);
+static void enter_func(BuiltinFunctionContextPtr f)
+{
+  LockObj* lock = dynamic_cast<LockObj *>(f->thisObj().get());
+  MLMicroSeconds timeout = Infinite;
+  if (f->numArgs()>=1) timeout = f->arg(0)->doubleValue()*Second;
+  bool entered = lock->enter(f->thread());
+  if (!entered && timeout!=0) {
+    // wait
+    lock->registerLockCB(f->thread().get(), boost::bind(&endLockWait, f, _1), timeout);
+    return;
+  }
+  // report right now
+  f->finish(new NumericValue(entered));
+}
+
+// leave()    leave (release) the lock for another thread to enter
+static void leave_func(BuiltinFunctionContextPtr f)
+{
+  LockObj* lock = dynamic_cast<LockObj *>(f->thisObj().get());
+  f->finish(new NumericValue(lock->leave(f->thread())));
+}
+
+
+static const BuiltinMemberDescriptor enter_desc =
+  { "enter", executable|numeric|async, enter_numargs, enter_args, &enter_func };
+static const BuiltinMemberDescriptor leave_desc =
+  { "leave", executable|numeric, 0, NULL, &leave_func };
+
+const ScriptObjPtr LockObj::memberByName(const string aName, TypeInfo aMemberAccessFlags)
+{
+  if (uequals(aName, "enter")) {
+    return new BuiltinFunctionObj(&enter_desc, this, NULL);
+  }
+  else if (uequals(aName, "leave")) {
+    return new BuiltinFunctionObj(&leave_desc, this, NULL);
+  }
+  return inherited::memberByName(aName, aMemberAccessFlags);
+}
+
+// lock([createentered]) create a lock object, that can be entered and left
+static const BuiltInArgDesc lock_args[] = { { numeric|optionalarg } };
+static const size_t lock_numargs = sizeof(lock_args)/sizeof(BuiltInArgDesc);
+static void lock_func(BuiltinFunctionContextPtr f)
+{
+  if (f->arg(0)->boolValue()) {
+    f->finish(new LockObj(f->thread().get()));
+  }
+  else {
+    f->finish(new LockObj());
+  }
+}
+
+
+// Signal Object for event passing, see signal()
 class SignalObj : public NumericValue, public EventSource
 {
   typedef NumericValue inherited;
@@ -5843,7 +6044,7 @@ public:
   void send() { sendEvent(this); }
   virtual string getAnnotation() const P44_OVERRIDE { return "Signal"; }
   virtual TypeInfo getTypeInfo() const P44_OVERRIDE {
-    return inherited::getTypeInfo()|oneshot|keeporiginal; // returns the request only once, must keep the original
+    return inherited::getTypeInfo()|oneshot|keeporiginal; // returns the signal only once, must keep the original
   }
   virtual EventSource *eventSource() const P44_OVERRIDE {
     return const_cast<EventSource *>(static_cast<const EventSource *>(this));
@@ -5869,6 +6070,7 @@ const ScriptObjPtr SignalObj::memberByName(const string aName, TypeInfo aMemberA
   return inherited::memberByName(aName, aMemberAccessFlags);
 }
 
+// signal() create a signal object, that can be sent()t and await()ed
 static void signal_func(BuiltinFunctionContextPtr f)
 {
   f->finish(new SignalObj());
@@ -6562,9 +6764,10 @@ static const BuiltinMemberDescriptor standardFunctions[] = {
   { "globalhandlers", executable|json, 0, NULL, &globalhandlers_func },
   { "contexthandlers", executable|json, 0, NULL, &contexthandlers_func },
   #endif
-  // Async
   #if P44SCRIPT_FULL_SUPPORT
-  { "signal", executable|async|any, 0, NULL, &signal_func },
+  { "lock", executable|any, lock_numargs, lock_args, &lock_func },
+  { "signal", executable|any, 0, NULL, &signal_func },
+  // Async
   { "await", executable|async|any, await_numargs, await_args, &await_func },
   { "delay", executable|async|null, delay_numargs, delay_args, &delay_func },
   { "eval", executable|async|any, eval_numargs, eval_args, &eval_func },

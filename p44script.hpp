@@ -2216,7 +2216,8 @@ namespace p44 { namespace P44Script {
     /// run the thread
     virtual void run();
 
-    /// @return true if the passed thread is in the same execution chain (chain sequentially executing internal ScriptCodeThread(s))
+    /// @return true if the passed thread is in my execution chain (chain of sequentially executing internal ScriptCodeThread(s)
+    ///   originating from this thread)
     /// @note a new ScriptCodeThread is started for every user defined function call, but the calling ScriptCodeThread waits
     ///    for the chainedExecutionContext to complete so the execution is not parallel
     bool isInExecutionChain(ScriptCodeThreadPtr aThread);
