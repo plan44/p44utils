@@ -1286,7 +1286,7 @@ ScriptObjPtr ExecutionContext::executeSynchronously(ScriptObjPtr aToExecute, Eva
 
   bool finished = false;
   aEvalFlags |= synchronously;
-  execute(aToExecute, aEvalFlags, boost::bind(&syncExecDone, &syncResult, &finished, _1), aThreadLocals, aMaxRunTime);
+  execute(aToExecute, aEvalFlags, boost::bind(&syncExecDone, &syncResult, &finished, _1), NULL, aThreadLocals, aMaxRunTime);
   if (!finished) {
     // despite having requested synchronous execution, evaluation is not finished by now
     finished = true;
@@ -1414,16 +1414,6 @@ bool ScriptCodeContext::abort(EvaluationFlags aAbortFlags, ScriptObjPtr aAbortRe
 }
 
 
-bool ScriptCodeContext::isInExecutionChain(ScriptCodeThreadPtr aThread)
-{
-  for (ThreadList::iterator pos = threads.begin(); pos!=threads.end(); ++pos) {
-    if ((*pos)->isInExecutionChain(aThread)) return true;
-  }
-  return false;
-}
-
-
-
 #if SCRIPTING_JSON_SUPPORT
 
 JsonObjectPtr ScriptCodeContext::jsonValue() const
@@ -1435,7 +1425,7 @@ JsonObjectPtr ScriptCodeContext::jsonValue() const
 
 
 
-void ScriptCodeContext::execute(ScriptObjPtr aToExecute, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB, ScriptObjPtr aThreadLocals, MLMicroSeconds aMaxRunTime)
+void ScriptCodeContext::execute(ScriptObjPtr aToExecute, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB, ScriptCodeThreadPtr aChainOriginThread, ScriptObjPtr aThreadLocals, MLMicroSeconds aMaxRunTime)
 {
   if (undefinedResult) {
     // just return undefined w/o even trying to execute
@@ -1458,7 +1448,7 @@ void ScriptCodeContext::execute(ScriptObjPtr aToExecute, EvaluationFlags aEvalFl
   if (aEvalFlags & sourcecode) aEvalFlags = (aEvalFlags & ~sourcecode) | scriptbody;
   #endif // P44SCRIPT_FULL_SUPPORT
   // - now run
-  ScriptCodeThreadPtr thread = newThreadFrom(code, code->cursor, aEvalFlags, aEvaluationCB, aThreadLocals, aMaxRunTime);
+  ScriptCodeThreadPtr thread = newThreadFrom(code, code->cursor, aEvalFlags, aEvaluationCB, aChainOriginThread, aThreadLocals, aMaxRunTime);
   if (thread) {
     thread->run();
     return;
@@ -1467,12 +1457,12 @@ void ScriptCodeContext::execute(ScriptObjPtr aToExecute, EvaluationFlags aEvalFl
 }
 
 
-ScriptCodeThreadPtr ScriptCodeContext::newThreadFrom(CompiledCodePtr aCodeObj, SourceCursor &aFromCursor, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB, ScriptObjPtr aThreadLocals, MLMicroSeconds aMaxRunTime)
+ScriptCodeThreadPtr ScriptCodeContext::newThreadFrom(CompiledCodePtr aCodeObj, SourceCursor &aFromCursor, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB, ScriptCodeThreadPtr aChainOriginThread, ScriptObjPtr aThreadLocals, MLMicroSeconds aMaxRunTime)
 {
   // prepare a thread for executing now or later
   // Note: thread gets an owning Ptr back to this, so this context cannot be destructed before all
   //   threads have ended.
-  ScriptCodeThreadPtr newThread = ScriptCodeThreadPtr(new ScriptCodeThread(this, aCodeObj, aFromCursor, aThreadLocals));
+  ScriptCodeThreadPtr newThread = ScriptCodeThreadPtr(new ScriptCodeThread(this, aCodeObj, aFromCursor, aThreadLocals, aChainOriginThread));
   MLMicroSeconds maxBlockTime = aEvalFlags&synchronously ? aMaxRunTime : domain()->getMaxBlockTime();
   newThread->prepareRun(aEvaluationCB, aEvalFlags, maxBlockTime, aMaxRunTime);
   // now check how and when to run it
@@ -1803,7 +1793,7 @@ void BuiltinFunctionContext::setAbortCallback(SimpleCB aAbortCB)
 }
 
 
-void BuiltinFunctionContext::execute(ScriptObjPtr aToExecute, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB, ScriptObjPtr aThreadLocals, MLMicroSeconds aMaxRunTime)
+void BuiltinFunctionContext::execute(ScriptObjPtr aToExecute, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB, ScriptCodeThreadPtr aChainOriginThread, ScriptObjPtr aThreadLocals, MLMicroSeconds aMaxRunTime)
 {
   if (undefinedResult) {
     // just return undefined w/o even trying to execute
@@ -4123,7 +4113,7 @@ void CompiledTrigger::triggerEvaluation(EvaluationFlags aEvalMode)
   mNextEvaluation = Never; // reset
   ExecutionContextPtr ctx = contextForCallingFrom(NULL, NULL);
   EvaluationFlags runFlags = ((aEvalMode&~runModeMask) ? aEvalMode : (mEvalFlags&~runModeMask)|aEvalMode)|keepvars; // always keep vars, use only runmode from aEvalMode if nothing else is set
-  ctx->execute(ScriptObjPtr(this), runFlags, boost::bind(&CompiledTrigger::triggerDidEvaluate, this, runFlags, _1), ScriptObjPtr(), 30*Second);
+  ctx->execute(ScriptObjPtr(this), runFlags, boost::bind(&CompiledTrigger::triggerDidEvaluate, this, runFlags, _1), NULL, ScriptObjPtr(), 30*Second);
 }
 
 
@@ -4361,7 +4351,7 @@ void CompiledHandler::triggered(ScriptObjPtr aTriggerResult)
         handlerThreadLocals = new SimpleVarContainer();
         handlerThreadLocals->setMemberByName(trigger->mResultVarName, aTriggerResult);
       }
-      ctx->execute(this, scriptbody|keepvars|concurrently, boost::bind(&CompiledHandler::actionExecuted, this, _1), handlerThreadLocals);
+      ctx->execute(this, scriptbody|keepvars|concurrently, boost::bind(&CompiledHandler::actionExecuted, this, _1), NULL, handlerThreadLocals);
       return;
     }
   }
@@ -4665,7 +4655,7 @@ ScriptObjPtr ScriptSource::run(EvaluationFlags aRunFlags, EvaluationCB aEvaluati
           result = ctx->executeSynchronously(code, flags, aThreadLocals, aMaxRunTime);
         }
         else {
-          ctx->execute(code, flags, aEvaluationCB, aThreadLocals, aMaxRunTime);
+          ctx->execute(code, flags, aEvaluationCB, NULL, aThreadLocals, aMaxRunTime);
           return result; // null, callback will deliver result
         }
       }
@@ -4789,10 +4779,11 @@ void ScriptingDomain::clearFloatingGlobs()
 
 // MARK: - ScriptCodeThread
 
-ScriptCodeThread::ScriptCodeThread(ScriptCodeContextPtr aOwner, CompiledCodePtr aCode, const SourceCursor& aStartCursor, ScriptObjPtr aThreadLocals) :
+ScriptCodeThread::ScriptCodeThread(ScriptCodeContextPtr aOwner, CompiledCodePtr aCode, const SourceCursor& aStartCursor, ScriptObjPtr aThreadLocals, ScriptCodeThreadPtr aChainOriginThread) :
   mOwner(aOwner),
   mCodeObj(aCode),
   mThreadLocals(aThreadLocals),
+  mChainOriginThread(aChainOriginThread),
   mMaxBlockTime(0),
   mMaxRunTime(Infinite),
   mRunningSince(Never)
@@ -4861,15 +4852,6 @@ void ScriptCodeThread::run()
 }
 
 
-bool ScriptCodeThread::isInExecutionChain(ScriptCodeThreadPtr aThread)
-{
-  if (aThread.get()==this) return true;
-  if (mChainedExecutionContext) return mChainedExecutionContext->isInExecutionChain(aThread);
-  return false;
-}
-
-
-
 void ScriptCodeThread::abort(ScriptObjPtr aAbortResult)
 {
   // Note: calling abort must execute the callback passed to this thread when starting it
@@ -4913,6 +4895,7 @@ void ScriptCodeThread::complete(ScriptObjPtr aFinalResult)
     ScriptObj::describe(result).c_str()
   );
   sendEvent(result); // send the final result as event to registered EventSinks
+  mChainOriginThread.reset();
   mOwner->threadTerminated(this, evaluationFlags);
 }
 
@@ -5044,7 +5027,7 @@ void ScriptCodeThread::newFunctionCallContext()
 
 void ScriptCodeThread::startBlockThreadAndStoreInIdentifier()
 {
-  ScriptCodeThreadPtr thread = mOwner->newThreadFrom(mCodeObj, src, concurrently|block, NULL);
+  ScriptCodeThreadPtr thread = mOwner->newThreadFrom(mCodeObj, src, concurrently|block, NULL, NULL);
   if (thread) {
     if (!identifier.empty()) {
       push(currentState); // skipping==true is pushed (as we're already skipping the concurrent block in the main thread)
@@ -5105,7 +5088,8 @@ void ScriptCodeThread::executeResult()
       // Note: must have keepvars because these are the arguments!
       // Note: functions must not inherit their caller's evalscope but be run as script bodies
       // Note: must pass on threadvars. Custom functions technically run in a separate "thread", but that should be the same from a user's perspective
-      funcCallContext->execute(result, (evaluationFlags&~scopeMask)|scriptbody|keepvars, boost::bind(&ScriptCodeThread::executedResult, this, _1), mThreadLocals);
+      // Note: must pass on chainOriginThread() so all nested function calls will have the same value for chainOriginThread()
+      funcCallContext->execute(result, (evaluationFlags&~scopeMask)|scriptbody|keepvars, boost::bind(&ScriptCodeThread::executedResult, this, _1), chainOriginThread(), mThreadLocals);
     }
     // function call completion will call resume
     return;
@@ -5676,7 +5660,7 @@ static void eval_func(BuiltinFunctionContextPtr f)
       }
       // evaluate, end all threads when main thread ends
       // Note: must have keepvars because these are the arguments!
-      ctx->execute(evalcode, scriptbody|mainthread|keepvars, boost::bind(&BuiltinFunctionContext::finish, f, _1));
+      ctx->execute(evalcode, scriptbody|mainthread|keepvars, boost::bind(&BuiltinFunctionContext::finish, f, _1), NULL);
       return;
     }
   }
@@ -5908,7 +5892,7 @@ bool LockObj::enter(ScriptCodeThreadPtr aThread)
 {
   if (mCurrentThread) {
     // already locked, see if by same thread
-    if (!mCurrentThread->isInExecutionChain(aThread)) {
+    if (mCurrentThread->chainOriginThread()!=aThread->chainOriginThread()) {
       // not same logical thread, cannot enter
       return false;
     }
@@ -5949,7 +5933,7 @@ void LockObj::registerLockCB(ScriptCodeThread* aThreadP, LockCB aLockCB, MLMicro
 
 bool LockObj::leave(ScriptCodeThreadPtr aThread)
 {
-  if (!mCurrentThread || !mCurrentThread->isInExecutionChain(aThread)) return false; // not locked by aThread, can't leave
+  if (!mCurrentThread || aThread->chainOriginThread()!=mCurrentThread->chainOriginThread()) return false; // not locked by aThread, can't leave
   assert(mLockCount>0);
   if (mLockCount>1) {
     mLockCount--;
@@ -6151,7 +6135,7 @@ static void abort_func(BuiltinFunctionContextPtr f)
     ThreadValue *t = dynamic_cast<ThreadValue *>(f->arg(0).get());
     if (t && t->running()) {
       // still running
-      if (!f->arg(2)->boolValue() && t->thread()->isInExecutionChain(f->thread())) {
+      if (!f->arg(2)->boolValue() && f->thread()->chainOriginThread()==t->thread()) {
         // is in my chain of execution (apparent user thread)
         f->finish(new AnnotatedNullValue("not aborting calling thread"));
         return;
