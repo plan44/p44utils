@@ -164,17 +164,22 @@ namespace p44 {
     MLTicket();
     ~MLTicket();
 
-    // conversion operator, get as MLTicket (number only)
+    /// reset the ticket number w/o cancelling the timer
+    /// @note this might be needed to pass MLTickets around
+    /// @return ticketNo present before defusing
+    MLTicketNo defuse();
+
+    /// conversion operator, get as MLTicketNo (number only)
     operator MLTicketNo() const;
 
-    // get as bool to check if ticket is running
+    /// get as bool to check if ticket is running
     operator bool() const;
 
-    // assign ticket number (cancels previous ticket, if any)
+    /// assign ticket number (cancels previous ticket, if any)
     MLTicketNo operator= (MLTicketNo aTicketNo);
 
-    // cancel current ticket
-    // @return true if actually cancelled a scheduled timer
+    /// cancel current ticket
+    /// @return true if actually cancelled a scheduled timer
     bool cancel();
 
     /// reschedule existing execution request

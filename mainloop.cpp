@@ -84,6 +84,14 @@ MLTicket::MLTicket(MLTicket &aTicket) : ticketNo(0)
 }
 
 
+MLTicketNo MLTicket::defuse()
+{
+  MLTicketNo tn = ticketNo;
+  ticketNo = 0; // cancel() or destruction will no longer end the timer
+  return tn;
+}
+
+
 
 MLTicket::~MLTicket()
 {
