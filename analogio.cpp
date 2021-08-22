@@ -493,6 +493,7 @@ AnalogInputEventObj::AnalogInputEventObj(AnalogIoPtr aAnalogIo) :
 void AnalogInputEventObj::deactivate()
 {
   mAnalogIo.reset();
+  inherited::deactivate();
 }
 
 

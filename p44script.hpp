@@ -606,6 +606,8 @@ namespace p44 { namespace P44Script {
   protected:
     ScriptObjPtr mCurrentValue;
     ScriptLValue(ScriptObjPtr aCurrentValue) : mCurrentValue(aCurrentValue) {};
+    virtual ~ScriptLValue() { deactivate(); } // even if deactivate() is usually called before dtor, make sure it happens even if not
+
   public:
     virtual TypeInfo getTypeInfo() const P44_OVERRIDE { return lvalue; };
     virtual string getAnnotation() const P44_OVERRIDE { return "lvalue"; };
@@ -644,6 +646,7 @@ namespace p44 { namespace P44Script {
     StandardLValue(ScriptObjPtr aContainer, const string aMemberName, ScriptObjPtr aCurrentValue);
     /// create a lvalue for a container which has setMemberAtIndex()
     StandardLValue(ScriptObjPtr aContainer, size_t aMemberIndex, ScriptObjPtr aCurrentValue);
+    virtual ~StandardLValue() { deactivate(); } // even if deactivate() is usually called before dtor, make sure it happens even if not
 
     virtual void deactivate() P44_OVERRIDE { mContainer.reset(); inherited::deactivate(); }
 
@@ -721,6 +724,7 @@ namespace p44 { namespace P44Script {
     ScriptObjPtr threadExitValue;
   public:
     ThreadValue(ScriptCodeThreadPtr aThread);
+    virtual ~ThreadValue() { deactivate(); } // even if deactivate() is usually called before dtor, make sure it happens even if not
     virtual string getAnnotation() const P44_OVERRIDE { return "thread"; };
     virtual TypeInfo getTypeInfo() const P44_OVERRIDE { return threadref+keeporiginal; };
     virtual void deactivate() P44_OVERRIDE { threadExitValue.reset(); mThread.reset(); inherited::deactivate(); }
@@ -897,6 +901,7 @@ namespace p44 { namespace P44Script {
 
     // access to (sub)objects in the installed lookups
     virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aTypeRequirements) P44_OVERRIDE;
+    virtual ~StructuredLookupObject() { deactivate(); } // even if deactivate() is usually called before dtor, make sure it happens even if not
 
     virtual void deactivate() P44_OVERRIDE { mSingleMembers.reset(); lookups.clear(); inherited::deactivate(); }
 
@@ -1003,6 +1008,7 @@ namespace p44 { namespace P44Script {
 
   public:
 
+    virtual ~ExecutionContext() { deactivate(); } // even if deactivate() is usually called before dtor, make sure it happens even if not
     virtual void deactivate() P44_OVERRIDE { clearVars(); mainContext.reset(); inherited::deactivate(); }
 
     /// clear local variables (indexed arguments)
@@ -1087,6 +1093,8 @@ namespace p44 { namespace P44Script {
 
   public:
 
+    virtual ~ScriptCodeContext() { deactivate(); } // even if deactivate() is usually called before dtor, make sure it happens even if not
+
     virtual void releaseObjsFromSource(SourceContainerPtr aSource) P44_OVERRIDE;
 
     virtual void deactivate() P44_OVERRIDE { abort(); inherited::deactivate(); }
@@ -1163,6 +1171,8 @@ namespace p44 { namespace P44Script {
     ScriptMainContext(ScriptingDomainPtr aDomain, ScriptObjPtr aThis);
 
   public:
+
+    virtual ~ScriptMainContext() { deactivate(); } // even if deactivate() is usually called before dtor, make sure it happens even if not
 
     virtual void deactivate() P44_OVERRIDE { handlers.clear(); domainObj.reset(); thisObj.reset(); inherited::deactivate(); }
 
@@ -1981,6 +1991,8 @@ namespace p44 { namespace P44Script {
 
     CompiledTrigger(const string aName, ScriptMainContextPtr aMainContext);
 
+    virtual ~CompiledTrigger() { deactivate(); } // even if deactivate() is usually called before dtor, make sure it happens even if not
+
     virtual string getAnnotation() const P44_OVERRIDE { return "trigger"; };
 
     virtual void deactivate() P44_OVERRIDE;
@@ -2078,6 +2090,7 @@ namespace p44 { namespace P44Script {
     CompiledTriggerPtr trigger; ///< the trigger
   public:
     CompiledHandler(const string aName, ScriptMainContextPtr aMainContext) : inherited(aName, aMainContext) {};
+    virtual ~CompiledHandler() { deactivate(); } // even if deactivate() is usually called before dtor, make sure it happens even if not
 
     virtual string getAnnotation() const P44_OVERRIDE { return "handler"; };
 

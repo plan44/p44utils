@@ -426,6 +426,7 @@ DigitalInputEventObj::DigitalInputEventObj(DigitalIoPtr aDigitalIo) :
 void DigitalInputEventObj::deactivate()
 {
   mDigitalIo.reset();
+  inherited::deactivate();
 }
 
 

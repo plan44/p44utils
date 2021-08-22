@@ -369,6 +369,7 @@ DcMotorStatusObj::DcMotorStatusObj(DcMotorDriverPtr aDcMotorDriver) :
 void DcMotorStatusObj::deactivate()
 {
   mDcMotorDriver.reset();
+  inherited::deactivate();
 }
 
 

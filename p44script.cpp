@@ -5885,6 +5885,7 @@ void LockObj::deactivate()
     mWaiters.pop_front();
     cb(false);
   }
+  inherited::deactivate();
 }
 
 
