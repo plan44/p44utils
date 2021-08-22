@@ -847,6 +847,68 @@ TEST_CASE_METHOD(AsyncScriptingFixture, "async", "[scripting]") {
     REQUIRE(scriptTest(scriptbody, "log(4, 'will take 1 sec'); glob th; th = 'noThread'; var th; var res=''; concurrent as th { delay(0.5); res = 'done' } abort(th); unset th; delay(1); th+res")->stringValue() == "noThread");
   }
 
+  SECTION("locks") {
+    REQUIRE(scriptTest(sourcecode,
+      "function sub2() "
+      "{ "
+      "  res=res+'T2 ' "
+      "  if (l.enter(20)) { "
+      "    res=res+'E2 ' "
+      "    delay(3) "
+      "    res=res+'L2 ' "
+      "    l.leave() "
+      "  } "
+      "  else { "
+      "    res=res+'TO2 ' "
+      "    log('timeout entering sub2') "
+      "  } "
+      "} "
+      " "
+      "var res = '' "
+      "var l = lock() "
+      "log(4, 'will take 11 secs') "
+      " "
+      "concurrent as thr1 { "
+      "  delay(2) "
+      "  res=res+'T1 ' "
+      "  if (l.enter(15)) { "
+      "    res=res+'E1 ' "
+      "    delay(3) "
+      "    res=res+'L1 ' "
+      "    l.leave() "
+      "  } "
+      "  else { "
+      "    res=res+'TO1 ' "
+      "    log('timeout entering sub1') "
+      "  } "
+      "} "
+      "concurrent as thr0 { "
+      "  delay(1) "
+      "  res=res+'T0 ' "
+      "  if (l.enter()) { "
+      "    res=res+'E0 ' "
+      "    sub2() "
+      "    delay(1) "
+      "    res=res+'L0 ' "
+      "    l.leave() "
+      "  } "
+      "} "
+      "res=res+'TM ' "
+      "if (l.enter(0)) { "
+      "  res=res+'EM ' "
+      "  delay(4) "
+      "  res=res+'LM ' "
+      "  l.leave() "
+      "} "
+      "res=res+'DM ' "
+      "await(thr0) "
+      "await(thr1) "
+      "res=res+'D*' "
+      "return res "
+      " ")->stringValue() == "TM EM T0 T1 LM E0 T2 E2 DM L2 L0 E1 L1 D*");
+    REQUIRE(runningTime() ==  Approx(11).epsilon(0.05));
+  }
+
   SECTION("event handlers") {
     // Note: might fail when execution is sluggish, because order of events might be affected then:  5/7  1  10/7  2  15/7  20/7  3  25/7  4  30/7   4.5  Seconds
     REQUIRE(scriptTest(sourcecode, "glob res='decl'; on(every(1) & !initial()) { res = res + 'Ping' } on(every(5/7) & !initial()) { res = res + 'Pong' } res='init'; log(4, 'will take 4.5 secs'); delay(4.5); res")->stringValue() == "initPongPingPongPingPongPongPingPongPingPong");
