@@ -148,6 +148,7 @@ void p44::string_ftime_append(std::string &aStringToAppendTo, const char *aForma
 
 bool p44::string_fgetline(FILE *aFile, string &aLine)
 {
+  if (!aFile) return false;
   const size_t bufLen = 1024;
   char buf[bufLen];
   aLine.clear();
@@ -179,6 +180,7 @@ bool p44::string_fgetline(FILE *aFile, string &aLine)
 
 bool p44::string_fgetfile(FILE *aFile, string &aData)
 {
+  if (!aFile) return false;
   const size_t bufLen = 1024;
   char buf[bufLen];
   aData.clear();
