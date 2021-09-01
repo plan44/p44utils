@@ -33,6 +33,8 @@
 
 #include "rfid.hpp"
 
+#if ENABLE_RFID
+
 using namespace p44;
 
 
@@ -696,3 +698,6 @@ void RFID522::halt()
 }
 
 */
+
+#endif // ENABLE_RFID
+

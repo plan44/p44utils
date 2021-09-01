@@ -30,6 +30,8 @@
 
 #include "p44utils_common.hpp"
 
+#if ENABLE_RFID
+
 #include <stdio.h>
 
 #include "digitalio.hpp"
@@ -179,5 +181,6 @@ namespace p44 {
 
 } // namespace p44
 
+#endif // ENABLE_RFID
 
 #endif /* rfid_hpp */
