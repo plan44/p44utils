@@ -251,6 +251,79 @@ void DigitalIo::processChange(bool aNewState)
 }
 
 
+// MARK: - DigitalIoBus
+
+DigitalIoBus::DigitalIoBus(const char* aBusPinSpecs, int aNumBits, bool aOutputs, bool aInitialStates) :
+  mOutputs(aOutputs)
+{
+  const char *p = aBusPinSpecs;
+  string prefix;
+  string spec;
+  while (nextPart(aBusPinSpecs, spec, ',') && mBusPins.size()<aNumBits) {
+    if (spec.empty()) {
+      spec="missing";
+    }
+    else if (spec[0]=='(') {
+      // (prefix) can be used to define multiple similar pins, such as "(gpio.)1,2,3,4,(i2c0.MCP23017@24.)6,7"
+      size_t e = spec.find(")", 1);
+      if (e!=string::npos) {
+        prefix = spec.substr(1,e-1);
+        spec.erase(0,e);
+      }
+    }
+    string pinspec = prefix+spec;
+    DigitalIoPtr newIO = DigitalIoPtr(new DigitalIo(pinspec.c_str(), mOutputs, aInitialStates));
+    mBusPins.insert(mBusPins.begin(), newIO);
+  }
+  // calculate initial value
+  mCurrentValue = 0;
+  for (int i=0; i<mBusPins.size(); i++) {
+    mCurrentValue = (mCurrentValue<<1)|(aInitialStates ? 1 : 0);
+  }
+}
+
+
+DigitalIoBus::~DigitalIoBus()
+{
+}
+
+
+uint32_t DigitalIoBus::getBusValue()
+{
+  mCurrentValue = 0;
+  if (!mOutputs) {
+    // actually read
+    for (BusPinVector::iterator pos=mBusPins.begin(); pos<mBusPins.end(); ++pos) {
+      mCurrentValue = (mCurrentValue<<1)|((*pos)->isSet() ? 1 : 0);
+    }
+  }
+  return mCurrentValue;
+}
+
+
+uint32_t DigitalIoBus::getMaxBusValue()
+{
+  return (1<<mBusPins.size())-1;
+}
+
+
+void DigitalIoBus::setBusValue(uint32_t aBusValue)
+{
+  if (aBusValue!=mCurrentValue) {
+    uint32_t m = 0x01;
+    for (BusPinVector::iterator pos=mBusPins.begin(); pos<mBusPins.end(); ++pos) {
+      bool sta = (aBusValue & m)!=0;
+      if (sta != ((mCurrentValue & m)!=0)) {
+        // bit has changed, apply
+        (*pos)->set(sta);
+      }
+      m <<= 1;
+    }
+    mCurrentValue = aBusValue;
+  }
+}
+
+
 
 // MARK: - Button input
 

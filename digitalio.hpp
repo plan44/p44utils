@@ -146,6 +146,39 @@ namespace p44 {
   typedef boost::intrusive_ptr<DigitalIo> DigitalIoPtr;
 
 
+  /// bus of multiple digital lines read or written as a number
+  class DigitalIoBus : public P44Obj
+  {
+    typedef std::vector<DigitalIoPtr> BusPinVector;
+    BusPinVector mBusPins;
+    bool mOutputs;
+    uint32_t mCurrentValue;
+
+  public:
+    /// Create bus consiting of multiple general purpose I/O pins
+    /// @param aBusPinSpecs comma separated list of bus pin specifications, MSB first.
+    ///
+    /// @param aNumBits (max) number of bits
+    /// @param aOutputs use as outputs
+    /// @param aInitialStates initial state of all bus pins
+    DigitalIoBus(const char* aBusPinSpecs, int aNumBits, bool aOutputs, bool aInitialStates = false);
+    virtual ~DigitalIoBus();
+
+    /// get the current bus value
+    uint32_t getBusValue();
+
+    /// get the max bus value
+    uint32_t getMaxBusValue();
+
+    /// set the current bus value
+    /// @param aBusValue new value
+    /// @note only actually changes pin values if bit position in aBusValue has changed since last setBusValue()
+    /// @note actual digital value on outputs will not change synchronously for all pins, but sequentially from LSB to MSB
+    void setBusValue(uint32_t aBusValue);
+
+  };
+  typedef boost::intrusive_ptr<DigitalIoBus> DigitalIoBusPtr;
+
 
   /// GPIO used as pushbutton
   class ButtonInput : public DigitalIo
