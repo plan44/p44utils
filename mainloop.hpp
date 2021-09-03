@@ -50,6 +50,9 @@ unsigned long _p44_millis();
 
 #if MAINLOOP_LIBEV_BASED
   #include <ev.h>
+  #ifndef __APPLE__
+    #include <sys/epoll.h>
+  #endif
 #endif
 
 
@@ -248,8 +251,11 @@ namespace p44 {
     friend void libev_sleep_timer_done(EV_P_ struct ev_timer *t, int revents);
     class IOPollHandler P44_FINAL {
     public:
-      struct ev_io iowatcher; // the actual IO watcher
-      IOPollCB pollHandler;
+      struct ev_io mIoWatcher; // the actual IO watcher
+      IOPollCB mPollHandler;
+      #ifndef __APPLE__
+      int mEpolledFd; // original FD polled via epoll in case we need to get events beyond POLLIN/POLLOUT
+      #endif
       IOPollHandler();
       ~IOPollHandler();
     };
@@ -505,12 +511,17 @@ namespace p44 {
     /// @param aFD the file descriptor to poll
     /// @param aPollFlags POLLxxx flags to specify events we want a callback for
     /// @param aPollEventHandler the functor to be called when poll() reports an event for one of the flags set in aPollFlags
+    /// @note when based on libev, registering flags other than POLLIN and POLLOUT is only
+    ///    possible on Linux by inserting a proxy epoll file descriptor. This should be avoided
+    ///    except for special cases (such as detecting edges on GPIO FDs with POLLPRI)
     void registerPollHandler(int aFD, int aPollFlags, IOPollCB aPollEventHandler);
 
     /// change the poll flags for an already registered handler
     /// @param aFD the file descriptor
     /// @param aSetPollFlags POLLxxx flags to be enabled for this file descriptor
     /// @param aClearPollFlags POLLxxx flags to be disabled for this file descriptor
+    /// @note when based on libev, only POLLIN and POLLOUT are supported. Setting other
+    ///    flags will cause an assertion to fail and terminate the program.
     void changePollFlags(int aFD, int aSetPollFlags, int aClearPollFlags=-1);
 
     /// unregister poll handlers for this file descriptor

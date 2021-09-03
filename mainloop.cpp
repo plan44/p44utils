@@ -969,50 +969,94 @@ bool MainLoop::checkWait()
 
 #if MAINLOOP_LIBEV_BASED
 
-
-
-
 static inline int pollToEv(int aPollFlags)
 {
   // POLLIN, POLLOUT -> EV_READ, EV_WRITE
-  // For now: POLLPRI -> EV_READ, don't know if this is sufficient
   int events = 0;
-  if (aPollFlags & (POLLIN|POLLPRI)) events |= EV_READ;
+  if (aPollFlags & POLLIN) events |= EV_READ;
   if (aPollFlags & POLLOUT) events |= EV_WRITE;
   return events;
 }
 
 
-static inline int evToPoll(int aEvents)
+static inline int evToPoll(int aLibEvEvents)
 {
   int pollFlags = 0;
-  if (aEvents & EV_READ) pollFlags |= EV_READ;
-  if (aEvents & EV_WRITE) pollFlags |= EV_WRITE;
+  if (aLibEvEvents & EV_READ) pollFlags |= EV_READ;
+  if (aLibEvEvents & EV_WRITE) pollFlags |= EV_WRITE;
   return pollFlags;
 }
+
+#ifndef __APPLE__
+
+static inline int pollToEpoll(int aPollFlags)
+{
+  // POLLIN, POLLOUT, POLLPRI -> EPOLLIN, EPOLLOUT, EPOLLPRI
+  int events = 0;
+  if (aPollFlags & POLLIN) events |= EPOLLIN;
+  if (aPollFlags & POLLOUT) events |= EPOLLOUT;
+  if (aPollFlags & POLLPRI) events |= EPOLLPRI;
+  return events;
+}
+
+
+static inline int epollToPoll(int aEpollFlags)
+{
+  // EPOLL... -> POLL...
+  int events = 0;
+  if (aEpollFlags & EPOLLIN) events |= POLLIN;
+  if (aEpollFlags & EPOLLOUT) events |= POLLOUT;
+  if (aEpollFlags & EPOLLERR) events |= POLLERR;
+  if (aEpollFlags & EPOLLHUP) events |= POLLHUP;
+  return events;
+}
+
+#endif
+
 
 
 void p44::libev_io_poll_handler(EV_P_ struct ev_io *i, int revents)
 {
-  MainLoop::IOPollHandler *h = (MainLoop::IOPollHandler*)((char *)i-offsetof(MainLoop::IOPollHandler, iowatcher));
-  h->pollHandler(i->fd, evToPoll(revents));
+  MainLoop::IOPollHandler *h = (MainLoop::IOPollHandler*)((char *)i-offsetof(MainLoop::IOPollHandler, mIoWatcher));
+  #ifndef __APPLE__
+  if (h->mEpolledFd>=0) {
+    // this is an epoll FD firing, get the actual event
+    struct epoll_event ev;
+    if (epoll_wait(i->fd, &ev, 1, 0)!=1) return; // no event -> no op
+    // return the event flags reported by epoll
+    h->mPollHandler(h->mEpolledFd, epollToPoll(ev.events));
+    return;
+  }
+  #endif
+  // directly return the flags reported by libev
+  h->mPollHandler(i->fd, evToPoll(revents));
 }
 
 
 MainLoop::IOPollHandler::IOPollHandler()
+  #ifndef __APPLE__
+  : mEpolledFd(-1)
+  #endif
 {
-  ev_io_init(&iowatcher, libev_io_poll_handler, 0, 0);
-  iowatcher.data = NULL; // not yet installed
+  ev_io_init(&mIoWatcher, libev_io_poll_handler, 0, 0);
+  mIoWatcher.data = NULL; // not yet installed
 }
 
 
 MainLoop::IOPollHandler::~IOPollHandler()
 {
-  if (iowatcher.data) {
+  if (mIoWatcher.data) {
     // only if data is set, the handler is actually installed and must remove the watcher from libev
-    MainLoop* mlP = static_cast<MainLoop*>(iowatcher.data);
-    ev_io_stop(mlP->mLibEvLoopP, &iowatcher);
-    iowatcher.data = NULL; // disconnect to make sure
+    MainLoop* mlP = static_cast<MainLoop*>(mIoWatcher.data);
+    ev_io_stop(mlP->mLibEvLoopP, &mIoWatcher);
+    #ifndef __APPLE__
+    // - also only for installed handlers, there might be an extra epoll FD
+    if (mEpolledFd>=0) {
+      close(mIoWatcher.fd); // close the extra epoll FD
+      mEpolledFd=-1;
+    }
+    #endif
+    mIoWatcher.data = NULL; // disconnect to make sure
   }
 }
 
@@ -1028,9 +1072,29 @@ void MainLoop::registerPollHandler(int aFD, int aPollFlags, IOPollCB aPollEventH
     // register new handler
     #if MAINLOOP_LIBEV_BASED
     IOPollHandler h;
-    h.pollHandler = aPollEventHandler;
-    ioPollHandlers[aFD] = h; // copies
-    ev_io* w = &(ioPollHandlers[aFD].iowatcher);
+    h.mPollHandler = aPollEventHandler;
+    if (aPollFlags & ~(POLLIN|POLLOUT)) {
+      #ifdef __APPLE__
+      LOG(LOG_ERR,"registerPollHandler: Requested Linux-only flags which libev cannot handle");
+      aPollFlags |= POLLIN; // default to POLLIN
+      #else
+      // requesting options libev cannot handle natively, in particular: POLLPRI for GPIO edge detection
+      // - we need an epoll file descriptor as a proxy
+      int epfd = epoll_create1(EPOLL_CLOEXEC);
+      if (epfd>=0) {
+        // - set it up to watch the requested flags on the original FD
+        struct epoll_event ev;
+        ev.events = pollToEpoll(aPollFlags);
+        aPollFlags = POLLIN; // when the epoll Fd detects event, it will signal POLLIN, so let libev watch for this
+        ev.data.ptr = NULL; // not needed, because we'll have the libev context
+        epoll_ctl(epfd, EPOLL_CTL_ADD, aFD, &ev);
+        h.mEpolledFd = aFD; // save original
+        aFD = epfd; // let libev watch the epoll FD
+      }
+      #endif
+    }
+    ioPollHandlers[aFD] = h; // copies h
+    ev_io* w = &(ioPollHandlers[aFD].mIoWatcher);
     w->data = this; // only now the watcher is considered active (and stopped when destructed)
     ev_io_set(w, aFD, pollToEv(aPollFlags));
     ev_io_start(mLibEvLoopP, w);
@@ -1046,7 +1110,7 @@ void MainLoop::registerPollHandler(int aFD, int aPollFlags, IOPollCB aPollEventH
 
 // older libev do not have ev_io_modify yet
 #ifndef ev_io_modify
-#define ev_io_modify(ev,events_)             do { (ev)->events = (ev)->events & EV__IOFDSET | (events_); } while (0)
+#define ev_io_modify(ev,events_) do { (ev)->events = (ev)->events & EV__IOFDSET | (events_); } while (0)
 #endif
 
 void MainLoop::changePollFlags(int aFD, int aSetPollFlags, int aClearPollFlags)
@@ -1055,7 +1119,7 @@ void MainLoop::changePollFlags(int aFD, int aSetPollFlags, int aClearPollFlags)
   if (pos!=ioPollHandlers.end()) {
     // found fd to set flags for
     #if MAINLOOP_LIBEV_BASED
-    int f = evToPoll(pos->second.iowatcher.events);
+    int f = evToPoll(pos->second.mIoWatcher.events);
     #else
     int f = pos->second.pollFlags;
     #endif
@@ -1070,7 +1134,9 @@ void MainLoop::changePollFlags(int aFD, int aSetPollFlags, int aClearPollFlags)
       f = aSetPollFlags;
     }
     #if MAINLOOP_LIBEV_BASED
-    ev_io_modify(&pos->second.iowatcher, pollToEv(f));
+    // TODO: for now, changing flags beyond POLLIN and POLLOUT is not supported with libev
+    assert((f & ~(POLLIN|POLLOUT))==0);
+    ev_io_modify(&pos->second.mIoWatcher, pollToEv(f));
     #else
     pos->second.pollFlags = f;
     #endif
