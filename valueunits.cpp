@@ -168,6 +168,11 @@ void p44::format_duration_append(string &aString, double aSeconds, int aComponen
 {
   // find largest unit to use
   int uidx = numDurationUnits-1;
+  if (aComponents<0) {
+    // limit higher order components, not precision
+    aComponents = -aComponents;
+    if (uidx>aComponents-1) uidx = aComponents-1;
+  }
   while (uidx>0) {
     if (aSeconds>=durationUnitDescriptors[uidx].factor)
       break; // this is the largest unit we need
@@ -175,25 +180,32 @@ void p44::format_duration_append(string &aString, double aSeconds, int aComponen
   }
   // render
   bool first = true;
-  while (aComponents>0 && uidx>=0 && aSeconds>0) {
+  bool expandedbefore = false;
+  while (aComponents>0 && uidx>=0) {
     const DurationUnitDescriptor &d = durationUnitDescriptors[uidx];
     long v = (aSeconds/d.factor);
-    if (aAsSymbol && d.unit==valueUnit_minute) {
-      string_format_append(aString, "%ld'", v);
+    if (v>0 || (first&&uidx==0)) {
+      if (aAsSymbol && d.unit==valueUnit_minute) {
+        if (expandedbefore) aString+=" ";
+        string_format_append(aString, "%ld'", v);
+      }
+      else if (aAsSymbol && d.unit==valueUnit_second) {
+        if (expandedbefore) aString+=" ";
+        string_format_append(aString, "%ld\"", v);
+      }
+      else {
+        if (!first) aString+=" ";
+        string_format_append(aString, "%ld%s%s",
+          v,
+          aAsSymbol ? "" : " ",
+          valueUnitName(VALUE_UNIT(d.unit, unitScaling_1), aAsSymbol).c_str()
+        );
+        expandedbefore = true;
+      }
+      aSeconds -= v*d.factor;
+      if (aSeconds<=0) break; // do not show smaller units when we've reached zero already with whole larger units
+      first = false;
     }
-    else if (aAsSymbol && d.unit==valueUnit_second) {
-      string_format_append(aString, "%ld\"", v);
-    }
-    else {
-      if (!first) aString+=" ";
-      string_format_append(aString, "%ld%s%s",
-        v,
-        aAsSymbol ? "" : " ",
-        valueUnitName(VALUE_UNIT(d.unit, unitScaling_1), aAsSymbol).c_str()
-      );
-    }
-    aSeconds -= v*d.factor;
-    first = false;
     uidx--;
     aComponents--;
   }

@@ -133,7 +133,9 @@ namespace p44 {
 
   /// format a duration as seconds, minutes, hours, days, months, years
   /// @param aSeconds the duration in seconds
-  /// @param aComponents how many components should be shown (1=only most significant, 2=e.g. hours and mins or years and months, etc.)
+  /// @param aComponents how many components should be shown
+  ///   if positive: 1=only most significant, 2=two most significant, e.g. hours and mins or years and months, etc.)
+  ///   if negative: -1=only seconds, -2=seconds and minutes, -3=seconds, minutes, hours, etc.)
   /// @return formatted duration: "4Mt, 3d"  or "2h 13'10""
   string format_duration(double aSeconds, int aComponents=1, bool aAsSymbol=true);
   void format_duration_append(string &aString, double aSeconds, int aComponents=1, bool aAsSymbol=true);
