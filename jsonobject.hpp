@@ -146,10 +146,12 @@ namespace p44 {
     /// @param aObj object to store in the array
     void arrayPut(int aAtIndex, JsonObjectPtr aObj);
 
+    #if !REDUCED_FOOTPRINT
     /// delete element(s) at specific position in array
     /// @param aAtIndex index position of first element to delete
     /// @param aNumElements number of elements to delete
     void arrayDel(int aAtIndex, int aNumElements = 1);
+    #endif // REDUCED_FOOTPRINT
 
     /// reset object iterator
     /// @return false if object cannot be iterated

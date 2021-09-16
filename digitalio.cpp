@@ -213,20 +213,19 @@ bool DigitalIo::toggle()
 }
 
 
-#if ENABLE_DIGITALIO_SCRIPT_FUNCS && ENABLE_P44SCRIPT
-/// get a analog input value object. This is also what is sent to event sinks
-P44Script::ScriptObjPtr DigitalIo::getStateObj()
-{
-  return new P44Script::DigitalInputEventObj(this);
-}
-#endif
-
-
-
 bool DigitalIo::setInputChangedHandler(InputChangedCB aInputChangedCB, MLMicroSeconds aDebounceTime, MLMicroSeconds aPollInterval)
 {
   // enable or disable reporting changes via callback
   return ioPin->setInputChangedHandler(aInputChangedCB, inverted, ioPin->getState(), aDebounceTime, aPollInterval);
+}
+
+
+#if ENABLE_DIGITALIO_SCRIPT_FUNCS && ENABLE_P44SCRIPT
+
+/// get a analog input value object. This is also what is sent to event sinks
+P44Script::ScriptObjPtr DigitalIo::getStateObj()
+{
+  return new P44Script::DigitalInputEventObj(this);
 }
 
 
@@ -250,7 +249,10 @@ void DigitalIo::processChange(bool aNewState)
   }
 }
 
+#endif // ENABLE_DIGITALIO_SCRIPT_FUNCS && ENABLE_P44SCRIPT
 
+
+#if !REDUCED_FOOTPRINT
 // MARK: - DigitalIoBus
 
 DigitalIoBus::DigitalIoBus(const char* aBusPinSpecs, int aNumBits, bool aOutputs, bool aInitialStates) :
@@ -323,7 +325,7 @@ void DigitalIoBus::setBusValue(uint32_t aBusValue)
   }
 }
 
-
+#endif // !REDUCED_FOOTPRINT
 
 // MARK: - Button input
 

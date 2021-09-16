@@ -140,12 +140,13 @@ namespace p44 {
 
     void processChange(bool aNewState);
 
-    #endif
+    #endif // ENABLE_DIGITALIO_SCRIPT_FUNCS && ENABLE_P44SCRIPT
 
   };
   typedef boost::intrusive_ptr<DigitalIo> DigitalIoPtr;
 
 
+  #if !REDUCED_FOOTPRINT
   /// bus of multiple digital lines read or written as a number
   class DigitalIoBus : public P44Obj
   {
@@ -178,7 +179,7 @@ namespace p44 {
 
   };
   typedef boost::intrusive_ptr<DigitalIoBus> DigitalIoBusPtr;
-
+  #endif // REDUCED_FOOTPRINT
 
   /// GPIO used as pushbutton
   class ButtonInput : public DigitalIo

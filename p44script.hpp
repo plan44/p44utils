@@ -836,9 +836,18 @@ namespace p44 { namespace P44Script {
   // MARK: - Structured objects
 
   /// structured object base class
-  class StructuredObject : public JsonRepresentedValue
+  class StructuredObject :
+    #if SCRIPTING_JSON_SUPPORT
+    public JsonRepresentedValue
+    #else
+    public ScriptObj
+    #endif
   {
+    #if SCRIPTING_JSON_SUPPORT
     typedef JsonRepresentedValue inherited;
+    #else
+    typedef ScriptObj inherited;
+    #endif
   public:
     virtual string getAnnotation() const P44_OVERRIDE { return "object"; };
     virtual TypeInfo getTypeInfo() const P44_OVERRIDE { return object; } // only object, although JSON representation exists
@@ -1174,13 +1183,25 @@ namespace p44 { namespace P44Script {
 
     virtual ~ScriptMainContext() { deactivate(); } // even if deactivate() is usually called before dtor, make sure it happens even if not
 
-    virtual void deactivate() P44_OVERRIDE { handlers.clear(); domainObj.reset(); thisObj.reset(); inherited::deactivate(); }
+    virtual void deactivate() P44_OVERRIDE
+    {
+      #if P44SCRIPT_FULL_SUPPORT
+      handlers.clear();
+      #endif
+      domainObj.reset();
+      thisObj.reset();
+      inherited::deactivate();
+    }
+
+    #if P44SCRIPT_FULL_SUPPORT
 
     /// @return info about handlers
     JsonObjectPtr handlersInfo();
 
     /// clear context-local variables and handlers (those that were created run-time, not declared)
     virtual void clearVars() P44_OVERRIDE;
+
+    #endif // P44SCRIPT_FULL_SUPPORT
 
     // access to objects in the context hierarchy of a local execution
     // (local objects, parent context objects, global objects)

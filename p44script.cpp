@@ -5085,11 +5085,16 @@ void ScriptCodeThread::executeResult()
     }
     else {
       mChainedExecutionContext = funcCallContext; // as long as this executes, the function context becomes the child context of this thread
+      #if P44SCRIPT_FULL_SUPPORT
       // Note: must have keepvars because these are the arguments!
       // Note: functions must not inherit their caller's evalscope but be run as script bodies
       // Note: must pass on threadvars. Custom functions technically run in a separate "thread", but that should be the same from a user's perspective
       // Note: must pass on chainOriginThread() so all nested function calls will have the same value for chainOriginThread()
       funcCallContext->execute(result, (evaluationFlags&~scopeMask)|scriptbody|keepvars, boost::bind(&ScriptCodeThread::executedResult, this, _1), chainOriginThread(), mThreadLocals);
+      #else
+      // only built-in functions can occur, eval scope flags are not relevant (only existing scope is expression)
+      funcCallContext->execute(result, (evaluationFlags&~scopeMask)|expression|keepvars, boost::bind(&ScriptCodeThread::executedResult, this, _1), chainOriginThread(), mThreadLocals);
+      #endif
     }
     // function call completion will call resume
     return;
@@ -6641,6 +6646,7 @@ static void yearday_func(BuiltinFunctionContextPtr f)
 }
 
 
+#if SCRIPTING_JSON_SUPPORT
 
 static void globalhandlers_func(BuiltinFunctionContextPtr f)
 {
@@ -6652,7 +6658,6 @@ static void contexthandlers_func(BuiltinFunctionContextPtr f)
 {
   f->finish(new JsonValue(f->thread()->owner()->scriptmain()->handlersInfo()));
 }
-
 
 
 static void globalvars_func(BuiltinFunctionContextPtr f)
@@ -6669,6 +6674,8 @@ static void localvars_func(BuiltinFunctionContextPtr f)
 {
   f->finish(f->thread()->owner());
 }
+
+#endif // SCRIPTING_JSON_SUPPORT
 
 
 // The standard function descriptor table
