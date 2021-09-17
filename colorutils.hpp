@@ -31,6 +31,9 @@ using namespace std;
 
 namespace p44 {
 
+  typedef double Row3[3];
+  typedef double Matrix3x3[3][3];
+
   #if !REDUCED_FOOTPRINT
 
   /// @name pixel color, utilities
@@ -48,9 +51,6 @@ namespace p44 {
   const PixelColor transparent = { .r=0, .g=0, .b=0, .a=0 };
   const PixelColor black = { .r=0, .g=0, .b=0, .a=255 };
   const PixelColor white = { .r=255, .g=255, .b=255, .a=255 };
-
-  typedef double Row3[3];
-  typedef double Matrix3x3[3][3];
 
   /// dim down (or light up) value
   /// @param aVal 0..255 value to dim up or down
