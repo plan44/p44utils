@@ -31,6 +31,7 @@ using namespace std;
 
 namespace p44 {
 
+  #if !REDUCED_FOOTPRINT
 
   /// @name pixel color, utilities
   /// @{
@@ -44,9 +45,9 @@ namespace p44 {
     PixelColorComponent a; // alpha
   } PixelColor;
 
-  const PixelColor transparent = { 0, 0, 0, 0 };
-  const PixelColor black = { 0, 0, 0, 255 };
-  const PixelColor white = { 255, 255, 255, 255 };
+  const PixelColor transparent = { .r=0, .g=0, .b=0, .a=0 };
+  const PixelColor black = { .r=0, .g=0, .b=0, .a=255 };
+  const PixelColor white = { .r=255, .g=255, .b=255, .a=255 };
 
   typedef double Row3[3];
   typedef double Matrix3x3[3][3];
@@ -133,6 +134,8 @@ namespace p44 {
   void pixelToRGB(PixelColor aPixelColor, Row3 &aRGB);
 
   /// @}
+
+  #endif // !REDUCED_FOOTPRINT
 
 
   /// @name color space conversions

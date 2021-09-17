@@ -5257,32 +5257,6 @@ static void limited_func(BuiltinFunctionContextPtr f)
 }
 
 
-// maprange(x, a1, b1, a2, b2)    map the range a1..a2 onto the range a2..b2
-static const BuiltInArgDesc maprange_args[] = { { scalar|undefres }, { numeric }, { numeric }, { numeric }, { numeric } };
-static const size_t maprange_numargs = sizeof(maprange_args)/sizeof(BuiltInArgDesc);
-static void maprange_func(BuiltinFunctionContextPtr f)
-{
-  double x = f->arg(0)->doubleValue();
-  double a1 = f->arg(1)->doubleValue();
-  double b1 = f->arg(2)->doubleValue();
-  double a2 = f->arg(3)->doubleValue();
-  double b2 = f->arg(4)->doubleValue();
-  double res = 0;
-  double min1 = a1;
-  double max1 = b1;
-  if (a1>b1) { min1 = b1; max1 = a1; }
-  if (x<min1) x = min1;
-  else if (x>max1) x = max1;
-  if (b1-a1==0) {
-    res = a2; // no range: always start of output range
-  }
-  else {
-    res = (x-a1)/(b1-a1)*(b2-a2)+a2;
-  }
-  f->finish(new NumericValue(res));
-}
-
-
 // cyclic (x, a, b)    return x with wraparound into range a..b (not including b because it means the same thing as a)
 static const BuiltInArgDesc cyclic_args[] = { { scalar|undefres }, { numeric }, { numeric } };
 static const size_t cyclic_numargs = sizeof(cyclic_args)/sizeof(BuiltInArgDesc);
@@ -5329,26 +5303,6 @@ static void number_func(BuiltinFunctionContextPtr f)
 }
 
 
-// ord(string)
-static const BuiltInArgDesc ord_args[] = { { text } };
-static const size_t ord_numargs = sizeof(ord_args)/sizeof(BuiltInArgDesc);
-static void ord_func(BuiltinFunctionContextPtr f)
-{
-  f->finish(new NumericValue((uint8_t)*f->arg(0)->stringValue().c_str()));
-}
-
-
-// chr(number)
-static const BuiltInArgDesc chr_args[] = { { numeric } };
-static const size_t chr_numargs = sizeof(chr_args)/sizeof(BuiltInArgDesc);
-static void chr_func(BuiltinFunctionContextPtr f)
-{
-  string s;
-  s.append(1, (char)(f->arg(0)->intValue() & 0xFF));
-  f->finish(new StringValue(s));
-}
-
-
 #if SCRIPTING_JSON_SUPPORT
 
 // json(anything [, allowcomments])     parse json from string, or get json representation of other objects that support it (=native JSON and JsonRepresentedValue)
@@ -5372,6 +5326,19 @@ static void json_func(BuiltinFunctionContextPtr f)
     j = f->arg(0)->jsonValue();
   }
   f->finish(new JsonValue(j));
+}
+
+
+// elements(array)
+static const BuiltInArgDesc elements_args[] = { { any|undefres } };
+static const size_t elements_numargs = sizeof(elements_args)/sizeof(BuiltInArgDesc);
+static void elements_func(BuiltinFunctionContextPtr f)
+{
+  if (f->arg(0)->hasType(json)) {
+    f->finish(new NumericValue((int)f->arg(0)->numIndexedMembers()));
+    return;
+  }
+  f->finish(new AnnotatedNullValue("not an array or object"));
 }
 
 
@@ -5413,6 +5380,54 @@ static void lastarg_func(BuiltinFunctionContextPtr f)
 }
 
 
+#if P44SCRIPT_FULL_SUPPORT
+
+// maprange(x, a1, b1, a2, b2)    map the range a1..a2 onto the range a2..b2
+static const BuiltInArgDesc maprange_args[] = { { scalar|undefres }, { numeric }, { numeric }, { numeric }, { numeric } };
+static const size_t maprange_numargs = sizeof(maprange_args)/sizeof(BuiltInArgDesc);
+static void maprange_func(BuiltinFunctionContextPtr f)
+{
+  double x = f->arg(0)->doubleValue();
+  double a1 = f->arg(1)->doubleValue();
+  double b1 = f->arg(2)->doubleValue();
+  double a2 = f->arg(3)->doubleValue();
+  double b2 = f->arg(4)->doubleValue();
+  double res = 0;
+  double min1 = a1;
+  double max1 = b1;
+  if (a1>b1) { min1 = b1; max1 = a1; }
+  if (x<min1) x = min1;
+  else if (x>max1) x = max1;
+  if (b1-a1==0) {
+    res = a2; // no range: always start of output range
+  }
+  else {
+    res = (x-a1)/(b1-a1)*(b2-a2)+a2;
+  }
+  f->finish(new NumericValue(res));
+}
+
+
+// ord(string)
+static const BuiltInArgDesc ord_args[] = { { text } };
+static const size_t ord_numargs = sizeof(ord_args)/sizeof(BuiltInArgDesc);
+static void ord_func(BuiltinFunctionContextPtr f)
+{
+  f->finish(new NumericValue((uint8_t)*f->arg(0)->stringValue().c_str()));
+}
+
+
+// chr(number)
+static const BuiltInArgDesc chr_args[] = { { numeric } };
+static const size_t chr_numargs = sizeof(chr_args)/sizeof(BuiltInArgDesc);
+static void chr_func(BuiltinFunctionContextPtr f)
+{
+  string s;
+  s.append(1, (char)(f->arg(0)->intValue() & 0xFF));
+  f->finish(new StringValue(s));
+}
+
+
 // strlen(string)
 static const BuiltInArgDesc strlen_args[] = { { text|undefres } };
 static const size_t strlen_numargs = sizeof(strlen_args)/sizeof(BuiltInArgDesc);
@@ -5420,20 +5435,6 @@ static void strlen_func(BuiltinFunctionContextPtr f)
 {
   f->finish(new NumericValue((double)f->arg(0)->stringValue().size())); // length of string
 }
-
-#if SCRIPTING_JSON_SUPPORT
-// elements(array)
-static const BuiltInArgDesc elements_args[] = { { any|undefres } };
-static const size_t elements_numargs = sizeof(elements_args)/sizeof(BuiltInArgDesc);
-static void elements_func(BuiltinFunctionContextPtr f)
-{
-  if (f->arg(0)->hasType(json)) {
-    f->finish(new NumericValue((int)f->arg(0)->numIndexedMembers()));
-    return;
-  }
-  f->finish(new AnnotatedNullValue("not an array or object"));
-}
-#endif // SCRIPTING_JSON_SUPPORT
 
 // substr(string, from)
 // substr(string, from, count)
@@ -5483,8 +5484,6 @@ static void shellquote_func(BuiltinFunctionContextPtr f)
   f->finish(new StringValue(shellQuote(f->arg(0)->stringValue())));
 }
 
-
-#if P44SCRIPT_FULL_SUPPORT
 
 // helper for log() and format()
 static ScriptObjPtr format_string(BuiltinFunctionContextPtr f, size_t aFmtArgIdx)
@@ -5734,10 +5733,6 @@ static void appversion_func(BuiltinFunctionContextPtr f)
   f->finish(new StringValue(Application::sharedApplication()->version()));
 }
 
-#endif
-
-
-#if ENABLE_APPLICATION_SUPPORT
 
 // writefile(filename, data [, append])
 static const BuiltInArgDesc writefile_args[] = { { text }, { any|null }, { numeric|optionalarg } };
@@ -6691,13 +6686,11 @@ static const BuiltinMemberDescriptor standardFunctions[] = {
   { "min", executable|numeric|null, min_numargs, min_args, &min_func },
   { "max", executable|numeric|null, max_numargs, max_args, &max_func },
   { "limited", executable|numeric|null, limited_numargs, limited_args, &limited_func },
-  { "maprange", executable|numeric|null, maprange_numargs, maprange_args, &maprange_func },
   { "cyclic", executable|numeric|null, cyclic_numargs, cyclic_args, &cyclic_func },
   { "string", executable|text, string_numargs, string_args, &string_func },
   { "number", executable|numeric, number_numargs, number_args, &number_func },
-  { "ord", executable|numeric, ord_numargs, ord_args, &ord_func },
-  { "chr", executable|text, chr_numargs, chr_args, &chr_func },
   { "describe", executable|text, describe_numargs, describe_args, &describe_func },
+  { "lastarg", executable|any, lastarg_numargs, lastarg_args, &lastarg_func },
   #if SCRIPTING_JSON_SUPPORT
   { "json", executable|json, json_numargs, json_args, &json_func },
   #if ENABLE_JSON_APPLICATION
@@ -6705,14 +6698,14 @@ static const BuiltinMemberDescriptor standardFunctions[] = {
   #endif // ENABLE_JSON_APPLICATION
   #endif // SCRIPTING_JSON_SUPPORT
   #if P44SCRIPT_FULL_SUPPORT
+  { "maprange", executable|numeric|null, maprange_numargs, maprange_args, &maprange_func },
+  { "ord", executable|numeric, ord_numargs, ord_args, &ord_func },
+  { "chr", executable|text, chr_numargs, chr_args, &chr_func },
   { "elements", executable|numeric|null, elements_numargs, elements_args, &elements_func },
-  #endif // P44SCRIPT_FULL_SUPPORT
-  { "lastarg", executable|any, lastarg_numargs, lastarg_args, &lastarg_func },
   { "strlen", executable|numeric|null, strlen_numargs, strlen_args, &strlen_func },
   { "substr", executable|text|null, substr_numargs, substr_args, &substr_func },
   { "find", executable|numeric|null, find_numargs, find_args, &find_func },
   { "shellquote", executable|text, shellquote_numargs, shellquote_args, &shellquote_func },
-  #if P44SCRIPT_FULL_SUPPORT
   { "format", executable|text, format_numargs, format_args, &format_func },
   { "formattime", executable|text, formattime_numargs, formattime_args, &formattime_func },
   { "throw", executable|any, throw_numargs, throw_args, &throw_func },

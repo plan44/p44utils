@@ -26,6 +26,8 @@
 
 using namespace p44;
 
+#if !REDUCED_FOOTPRINT
+
 // MARK: - pixel color utilities
 
 PixelColorComponent p44::dimVal(PixelColorComponent aVal, uint16_t aDim)
@@ -238,6 +240,8 @@ void p44::pixelToRGB(PixelColor aPixelColor, Row3 &aRGB)
   aRGB[1] = ((double)aPixelColor.g * aPixelColor.a)/255/255;
   aRGB[2] = ((double)aPixelColor.b * aPixelColor.a)/255/255;
 }
+
+#endif // !REDUCED_FOOTPRINT
 
 
 

@@ -31,7 +31,7 @@
 #include <set>
 
 #ifndef P44SCRIPT_FULL_SUPPORT
-  #define P44SCRIPT_FULL_SUPPORT 1 // on by default, can be switched off for small targets only needing expressions // TODO: actually implements sizing down!
+  #define P44SCRIPT_FULL_SUPPORT 1 // on by default, can be switched off for small targets only needing expressions
 #endif
 #ifndef SCRIPTING_JSON_SUPPORT
   #define SCRIPTING_JSON_SUPPORT 1 // on by default
