@@ -1810,7 +1810,7 @@ bool BuiltinFunctionObj::argumentInfo(size_t aIndex, ArgumentDescriptor& aArgDes
 BuiltinFunctionContext::BuiltinFunctionContext(ScriptMainContextPtr aMainContext, ScriptCodeThreadPtr aThread) :
   inherited(aMainContext),
   mThread(aThread),
-  callSite(aThread->src.posId()) // from where in the source the context was created, which is just after the opening arg '(?
+  mCallSite(aThread->src.posId()) // from where in the source the context was created, which is just after the opening arg '(?
 {
 }
 
@@ -1850,7 +1850,7 @@ SourceCursor::UniquePos BuiltinFunctionContext::argId(size_t aArgIndex) const
     // Note: as arguments in source occupy AT LEAST one separator, the following simplificaton
     // of just adding the argument index to the call site position is sufficient to provide a unique
     // ID for the argument at that call site
-    return callSite+aArgIndex;
+    return mCallSite+aArgIndex;
   }
   return NULL;
 }
@@ -2359,6 +2359,13 @@ SourceProcessor::SourceProcessor() :
   mThreadId = cThreadIdGen++; // unique thread ID
 }
 
+
+P44LoggingObj* SourceProcessor::loggingContext()
+{
+  return (src.source ? src.source->loggingContext() : NULL);
+}
+
+
 void SourceProcessor::setCursor(const SourceCursor& aCursor)
 {
   src = aCursor;
@@ -2641,13 +2648,12 @@ void SourceProcessor::exitWithSyntaxError(const char *aFmt, ...)
 
 void SourceProcessor::throwOrComplete(ErrorValuePtr aError)
 {
-  // thrown herewith
   result = aError;
-  aError->setThrown(true);
+  aError->setThrown(true); // thrown herewith
   ErrorPtr err = aError->errorValue();
   if (err->isDomain(ScriptError::domain()) && err->getErrorCode()>=ScriptError::FatalErrors) {
     // just end the thread unconditionally
-    LOG(LOG_ERR, "Aborting script because of fatal error: %s", aError->stringValue().c_str());
+    POLOG(loggingContext(), LOG_ERR, "Aborting script because of fatal error: %s", aError->stringValue().c_str());
     complete(aError);
     return;
   }
@@ -2656,7 +2662,7 @@ void SourceProcessor::throwOrComplete(ErrorValuePtr aError)
     if (!skipUntilReaching(&SourceProcessor::s_tryStatement, aError))
     #endif
     {
-      LOG(LOG_ERR, "Aborting script because of uncaught error: %s", aError->stringValue().c_str());
+      POLOG(loggingContext(), LOG_ERR, "Aborting script because of uncaught error: %s", aError->stringValue().c_str());
       complete(aError);
       return;
     }
@@ -4371,7 +4377,7 @@ void CompiledHandler::triggered(ScriptObjPtr aTriggerResult)
 {
   // execute the handler script now
   if (mainContext) {
-    POLOG(mainContext->domain(), LOG_INFO, "%s triggered: '%s' with result = %s", name.c_str(), cursor.displaycode(50).c_str(), ScriptObj::describe(aTriggerResult).c_str());
+    OLOG(LOG_INFO, "%s triggered: '%s' with result = %s", name.c_str(), cursor.displaycode(50).c_str(), ScriptObj::describe(aTriggerResult).c_str());
     ExecutionContextPtr ctx = contextForCallingFrom(mainContext->domain(), NULL);
     if (ctx) {
       SimpleVarContainer* handlerThreadLocals = NULL;
@@ -4383,13 +4389,13 @@ void CompiledHandler::triggered(ScriptObjPtr aTriggerResult)
       return;
     }
   }
-  POLOG(mainContext->domain(), LOG_ERR, "%s action cannot execute - no context", name.c_str());
+  OLOG(LOG_ERR, "%s action cannot execute - no context", name.c_str());
 }
 
 
 void CompiledHandler::actionExecuted(ScriptObjPtr aActionResult)
 {
-  POLOG(mainContext->domain(), LOG_INFO, "%s executed: result =  %s", name.c_str(), ScriptObj::describe(aActionResult).c_str());
+  OLOG(LOG_INFO, "%s executed: result =  %s", name.c_str(), ScriptObj::describe(aActionResult).c_str());
 }
 
 
@@ -6242,7 +6248,7 @@ static void log_func(BuiltinFunctionContextPtr f)
     else {
       msg = f->arg(ai);
     }
-    LOG(loglevel, "Script log: %s", msg->stringValue().c_str());
+    FLOG(f, loglevel, "Script log: %s", msg->stringValue().c_str());
     f->finish(msg); // also return the message logged
   }
   else {
@@ -6416,7 +6422,7 @@ static void testlater_func(BuiltinFunctionContextPtr f)
   double s = f->arg(0)->doubleValue();
   if (retrigger && s<MIN_RETRIGGER_SECONDS) {
     // prevent too frequent re-triggering that could eat up too much cpu
-    LOG(LOG_WARNING, "testlater() requests too fast retriggering (%.1f seconds), allowed minimum is %.1f seconds", s, (double)MIN_RETRIGGER_SECONDS);
+    FLOG(f, LOG_WARNING, "testlater() requests too fast retriggering (%.1f seconds), allowed minimum is %.1f seconds", s, (double)MIN_RETRIGGER_SECONDS);
     s = MIN_RETRIGGER_SECONDS;
   }
   ScriptObjPtr secs = new NumericValue(s);
@@ -6469,7 +6475,7 @@ static void every_func(BuiltinFunctionContextPtr f)
   double s = f->arg(0)->doubleValue();
   if (s<MIN_EVERY_SECONDS) {
     // prevent too frequent re-triggering that could eat up too much cpu
-    LOG(LOG_WARNING, "every() requests too fast retriggering (%.1f seconds), allowed minimum is %.1f seconds", s, (double)MIN_EVERY_SECONDS);
+    FLOG(f, LOG_WARNING, "every() requests too fast retriggering (%.1f seconds), allowed minimum is %.1f seconds", s, (double)MIN_EVERY_SECONDS);
     s = MIN_EVERY_SECONDS;
   }
   ScriptObjPtr secs = new NumericValue(s);

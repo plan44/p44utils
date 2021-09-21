@@ -1615,6 +1615,9 @@ namespace p44 { namespace P44Script {
 
     SourceProcessor();
 
+    /// logging context to use
+    virtual P44LoggingObj* loggingContext();
+
     /// set the source to process
     /// @param aCursor the source (part) to process
     void setCursor(const SourceCursor& aCursor);
@@ -2229,7 +2232,7 @@ namespace p44 { namespace P44Script {
     virtual ~ScriptCodeThread();
 
     /// logging context to use
-    P44LoggingObj* loggingContext();
+    virtual P44LoggingObj* loggingContext() P44_OVERRIDE;
 
     /// @return the prefix to be used for logging from this object
     virtual string logContextPrefix() P44_OVERRIDE;
@@ -2451,6 +2454,9 @@ namespace p44 { namespace P44Script {
   };
 
 
+  #define FLOG(f, lvl, ...) POLOG(f->thread()->chainOriginThread(), lvl, ##__VA_ARGS__);
+
+
   class BuiltinFunctionContext : public ExecutionContext
   {
     typedef ExecutionContext inherited;
@@ -2461,7 +2467,7 @@ namespace p44 { namespace P44Script {
     SimpleCB abortCB; ///< called when aborting. async built-in might set this to cause external operations to stop at abort
     CompiledTrigger* mTrigger; ///< set when the function executes as part of a trigger expression
     ScriptCodeThreadPtr mThread; ///< thread this call originates from
-    SourceCursor::UniquePos callSite; ///< from where in the source code the function was called
+    SourceCursor::UniquePos mCallSite; ///< from where in the source code the function was called
 
   public:
 
