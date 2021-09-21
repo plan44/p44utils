@@ -698,7 +698,7 @@ namespace p44 { namespace P44Script {
   public:
     ErrorValue(ErrorPtr aError) : err(aError), thrown(false) {};
     ErrorValue(ScriptError::ErrorCodes aErrCode, const char *aFmt, ...);
-    ErrorValue(ErrorValuePtr aErrVal) : err(aErrVal->err), thrown(aErrVal->thrown) {};
+    ErrorValue(ScriptObjPtr aErrVal);
     virtual string getAnnotation() const P44_OVERRIDE { return "error"; };
     virtual TypeInfo getTypeInfo() const P44_OVERRIDE { return error; };
     // value getters
@@ -1362,9 +1362,19 @@ namespace p44 { namespace P44Script {
     typedef ErrorValue inherited;
     SourceCursor sourceCursor;
   public:
-    ErrorPosValue(const SourceCursor &aCursor, ErrorPtr aError) : inherited(aError), sourceCursor(aCursor) {};
+    /// Create new positional error with formatted text
+    /// @param aCursor source position that should be the error's position
+    /// @param aErrCode script error code
+    /// @param aFmt error message formatting string
     ErrorPosValue(const SourceCursor &aCursor, ScriptError::ErrorCodes aErrCode, const char *aFmt, ...);
-    ErrorPosValue(const SourceCursor &aCursor, ErrorValuePtr aErrValue) : inherited(aErrValue), sourceCursor(aCursor) {};
+    /// Create ErrorPosValue from position and error
+    ErrorPosValue(const SourceCursor &aCursor, ErrorPtr aError);
+    /// Create ErrorPosValue from non-positional error
+    /// @param aCursor source position that should be the error's position
+    /// @param aErrValue the error value (if not an error, the created ErrorPosValue will be a OK error)
+    /// @note created ErrorPosValue also inherits aErrValue's thrown status flag
+    ErrorPosValue(const SourceCursor &aCursor, ScriptObjPtr aErrValue);
+
     void setErrorCursor(const SourceCursor &aCursor) { sourceCursor = aCursor; };
     virtual SourceCursor* cursor() P44_OVERRIDE { return &sourceCursor; } // has a position
     virtual string stringValue() const P44_OVERRIDE;

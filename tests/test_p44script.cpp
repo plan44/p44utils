@@ -292,12 +292,14 @@ TEST_CASE("CodeCursor", "[scripting]" )
 
 // MARK: - debug test case
 
+
 /*
 TEST_CASE_METHOD(AsyncScriptingFixture, "Debugging single case/assertion", "[DEBUG]" )
 {
   SETLOGLEVEL(LOG_DEBUG);
   SETDELTATIME(true);
-//  REQUIRE(scriptTest(scriptbody, "glob th; var res=''; concurrent as th { delay(0.5); res = 'done' } var th='notThread'; unset th; abort(th); delay(1); res")->stringValue() == "");
+  REQUIRE(scriptTest(scriptbody, "try { var zerodiv = 42; var simerr = error('generated error'); zerodiv = 66 } catch { log(6,'CAUGHT!') }; return zerodiv")->doubleValue() == 66); // the result of error() must not throw...
+  REQUIRE(Error::isError(scriptTest(scriptbody, "try { var zerodiv = 42; zerodiv = error('generated error'); throw(zerodiv); zerodiv = 66 } catch { log(6,'CAUGHT!') }; return zerodiv")->errorValue(), ScriptError::domain(), ScriptError::User) == true); // ...unless re-thrown
 }
 */
 
@@ -757,12 +759,18 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "statements", "[scripting]" )
     REQUIRE(Error::isError(s.test(scriptbody, "throw('test error')")->errorValue(), ScriptError::domain(), ScriptError::User) == true);
     REQUIRE(strcmp(s.test(scriptbody, "throw('test error')")->errorValue()->getErrorMessage(), "test error") == 0);
     REQUIRE(Error::isError(s.test(scriptbody, "try var zerodiv = 7/0; catch as error return error; return 'ok'")->errorValue(), ScriptError::domain(), ScriptError::DivisionByZero) == true);
+    REQUIRE(Error::isError(s.test(scriptbody, "try 7/0; catch as error return error; return 'ok'")->errorValue(), ScriptError::domain(), ScriptError::DivisionByZero) == true); // statement level expressions must throw, too!
     REQUIRE(Error::isError(s.test(scriptbody, "try var zerodiv = 7/0; catch as error { return error; } return 'ok'")->errorValue(), ScriptError::domain(), ScriptError::DivisionByZero) == true);
     REQUIRE(s.test(scriptbody, "try var zerodiv = 7/0; catch return 'not allowed'; return 'ok'")->stringValue() == "not allowed");
     REQUIRE(s.test(scriptbody, "try var zerodiv = 7/1; catch return 'error'; return zerodiv")->doubleValue() == 7);
     REQUIRE(s.test(scriptbody, "try { var zerodiv = 42; zerodiv = 7/0 } catch { log(6,'CAUGHT!') }; return zerodiv")->doubleValue() == 42);
     REQUIRE(s.test(scriptbody, "try { var zerodiv = 42; zerodiv = 7/0; zerodiv = 66 } catch { log(6,'CAUGHT!') }; return zerodiv")->doubleValue() == 42);
     REQUIRE(s.test(scriptbody, "try { var zerodiv = 42; zerodiv = 7/1; zerodiv = 66 } catch { log(6,'CAUGHT!') }; return zerodiv")->doubleValue() == 66);
+    REQUIRE(s.test(scriptbody, "try { var zerodiv = 42; zerodiv = throw('thrown error'); zerodiv = 66 } catch { log(6,'CAUGHT!') }; return zerodiv")->doubleValue() == 42); // even assignemnt of error value must throw
+    REQUIRE(s.test(scriptbody, "try { var zerodiv = 42; throw('thrown error'); zerodiv = 66 } catch { log(6,'CAUGHT!') }; return zerodiv")->doubleValue() == 42); // statement level error (as created by throw()) must actually throw!
+    REQUIRE(s.test(scriptbody, "try { var zerodiv = 42; var simerr = error('generated error'); zerodiv = 66 } catch { log(6,'CAUGHT!') }; return zerodiv")->doubleValue() == 66); // the result of error() must not throw...
+    REQUIRE(Error::isError(s.test(scriptbody, "try { var zerodiv = 42; zerodiv = error('generated error'); throw(zerodiv); zerodiv = 66 } catch { log(6,'CAUGHT!') }; return zerodiv")->errorValue(), ScriptError::domain(), ScriptError::User) == true); // ...unless re-thrown
+    REQUIRE(s.test(scriptbody, "try { var zerodiv = 42; zerodiv = 3 * throw('thrown error'); zerodiv = 66 } catch { log(6,'CAUGHT!') }; return zerodiv")->doubleValue() == 42); // must also throw within expression
     // Syntax errors
     REQUIRE(Error::isError(s.test(scriptbody, "78/9#")->errorValue(), ScriptError::domain(), ScriptError::Syntax) == true);
     REQUIRE(Error::isError(s.test(scriptbody, "78/#9")->errorValue(), ScriptError::domain(), ScriptError::Syntax) == true);

@@ -561,6 +561,34 @@ ErrorValue::ErrorValue(ScriptError::ErrorCodes aErrCode, const char *aFmt, ...) 
 }
 
 
+ErrorValue::ErrorValue(ScriptObjPtr aErrVal)
+{
+  ErrorValue* eP = dynamic_cast<ErrorValue *>(aErrVal.get());
+  if (eP) {
+    err = eP->err;
+    thrown = eP->thrown;
+  }
+  else {
+    err = Error::ok();
+  }
+}
+
+
+ErrorPosValue::ErrorPosValue(const SourceCursor &aCursor, ErrorPtr aError) :
+  inherited(aError),
+  sourceCursor(aCursor)
+{
+}
+
+
+ErrorPosValue::ErrorPosValue(const SourceCursor &aCursor, ScriptObjPtr aErrValue) :
+  inherited(aErrValue),
+  sourceCursor(aCursor)
+{
+}
+
+
+
 ErrorPosValue::ErrorPosValue(const SourceCursor &aCursor, ScriptError::ErrorCodes aErrCode, const char *aFmt, ...) :
   inherited(new ScriptError(aErrCode)),
   sourceCursor(aCursor)
@@ -2512,7 +2540,6 @@ void SourceProcessor::pop()
   stack.pop_back();
 }
 
-//#error here we ruined something with lvalues - popWithResult
 
 void SourceProcessor::popWithResult(bool aThrowErrors)
 {
@@ -2549,7 +2576,7 @@ void SourceProcessor::popWithValidResult(bool aThrowErrors)
     if (result->isErr() && !result->cursor()) {
       // Errors should get position as near to the creation as possible (and not
       // later when thrown and pos is no longer valid!)
-      result = new ErrorPosValue(src, result->errorValue());
+      result = new ErrorPosValue(src, result);
     }
   }
   if (aThrowErrors)
@@ -3663,7 +3690,8 @@ void SourceProcessor::processStatement()
     src.pos = memPos;
   }
   // is an expression or possibly an assignment, also handled in expression
-  push(currentState); // return to current state when expression evaluation completes
+  push(currentState); // return to current state when expression evaluation and result checking completes
+  push(&SourceProcessor::s_result); // but check result of statement level expressions first
   resumeAt(&SourceProcessor::s_assignmentExpression);
   return;
 }
@@ -4800,7 +4828,7 @@ ScriptCodeThread::~ScriptCodeThread()
 
 P44LoggingObj* ScriptCodeThread::loggingContext()
 {
-  return mCodeObj && mCodeObj->loggingContext() ? mCodeObj->loggingContext() : NULL;
+  return mCodeObj ? mCodeObj->loggingContext() : NULL;
 }
 
 
@@ -5575,17 +5603,21 @@ static void formattime_func(BuiltinFunctionContextPtr f)
 }
 
 
-// throw(value)       - throw a expression user error with the string value of value as errormessage
+// throw(value)       - throw value as-is if it is an error value, otherwise a user error with value converted to string as errormessage
 static const BuiltInArgDesc throw_args[] = { { any|error } };
 static const size_t throw_numargs = sizeof(throw_args)/sizeof(BuiltInArgDesc);
 static void throw_func(BuiltinFunctionContextPtr f)
 {
   // throw(errvalue)    - (re-)throw with the error of the value passed
   ScriptObjPtr throwVal;
-  if (f->arg(0)->isErr())
-    throwVal = f->arg(0);
-  else
+  ErrorValuePtr e = dynamic_pointer_cast<ErrorValue>(f->arg(0));
+  if (e) {
+    e->setThrown(false); // make sure it will throw, even if generated e.g. by error() or in catch as x {}
+    throwVal = e;
+  }
+  else {
     throwVal = new ErrorValue(ScriptError::User, "%s", f->arg(0)->stringValue().c_str());
+  }
   f->finish(throwVal);
 }
 
