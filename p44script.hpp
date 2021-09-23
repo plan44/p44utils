@@ -693,23 +693,23 @@ namespace p44 { namespace P44Script {
   {
     typedef ScriptObj inherited;
   protected:
-    ErrorPtr err;
-    bool thrown;
+    ErrorPtr mErr;
+    bool mCaught;
   public:
-    ErrorValue(ErrorPtr aError) : err(aError), thrown(false) {};
+    ErrorValue(ErrorPtr aError) : mErr(aError), mCaught(false) {};
     ErrorValue(ScriptError::ErrorCodes aErrCode, const char *aFmt, ...);
     ErrorValue(ScriptObjPtr aErrVal);
     virtual string getAnnotation() const P44_OVERRIDE { return "error"; };
     virtual TypeInfo getTypeInfo() const P44_OVERRIDE { return error; };
     // value getters
-    virtual double doubleValue() const P44_OVERRIDE { return err ? 0 : err->getErrorCode(); };
-    virtual string stringValue() const P44_OVERRIDE { return Error::text(err); };
-    virtual ErrorPtr errorValue() const P44_OVERRIDE { return err ? err : Error::ok(); };
+    virtual double doubleValue() const P44_OVERRIDE { return mErr ? 0 : mErr->getErrorCode(); };
+    virtual string stringValue() const P44_OVERRIDE { return Error::text(mErr); };
+    virtual ErrorPtr errorValue() const P44_OVERRIDE { return mErr ? mErr : Error::ok(); };
     #if SCRIPTING_JSON_SUPPORT
     virtual JsonObjectPtr jsonValue() const P44_OVERRIDE;
     #endif
-    bool wasThrown() { return thrown; }
-    void setThrown(bool aThrown) { thrown = aThrown; }
+    bool caught() { return mCaught; } ///< @return true if error was caught (must not be thrown any more)
+    void setCaught(bool aCaught) { mCaught = aCaught; } ///< set "caught" state
     // operators
     virtual bool operator==(const ScriptObj& aRightSide) const P44_OVERRIDE;
   };

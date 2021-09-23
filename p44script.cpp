@@ -551,12 +551,12 @@ EventSource* EventPlaceholderNullValue::eventSource() const
 // MARK: - Error Values
 
 ErrorValue::ErrorValue(ScriptError::ErrorCodes aErrCode, const char *aFmt, ...) :
-  thrown(false)
+  mCaught(false)
 {
-  err = new ScriptError(aErrCode);
+  mErr = new ScriptError(aErrCode);
   va_list args;
   va_start(args, aFmt);
-  err->setFormattedMessage(aFmt, args);
+  mErr->setFormattedMessage(aFmt, args);
   va_end(args);
 }
 
@@ -565,11 +565,11 @@ ErrorValue::ErrorValue(ScriptObjPtr aErrVal)
 {
   ErrorValue* eP = dynamic_cast<ErrorValue *>(aErrVal.get());
   if (eP) {
-    err = eP->err;
-    thrown = eP->thrown;
+    mErr = eP->mErr;
+    mCaught = eP->mCaught;
   }
   else {
-    err = Error::ok();
+    mErr = Error::ok();
   }
 }
 
@@ -595,7 +595,7 @@ ErrorPosValue::ErrorPosValue(const SourceCursor &aCursor, ScriptError::ErrorCode
 {
   va_list args;
   va_start(args, aFmt);
-  err->setFormattedMessage(aFmt, args);
+  mErr->setFormattedMessage(aFmt, args);
   va_end(args);
 }
 
@@ -607,7 +607,7 @@ string ErrorPosValue::stringValue() const
     sourceCursor.originLabel(),
     sourceCursor.lineno()+1,
     sourceCursor.charpos()+1,
-    Error::text(err)
+    Error::text(mErr)
   );
 }
 
@@ -687,11 +687,11 @@ bool StringValue::boolValue() const
 JsonObjectPtr ErrorValue::jsonValue() const
 {
   JsonObjectPtr j;
-  if (err) {
+  if (mErr) {
     j = JsonObject::newObj();
-    j->add("ErrorCode", JsonObject::newInt32((int32_t)err->getErrorCode()));
-    j->add("ErrorDomain", JsonObject::newString(err->getErrorDomain()));
-    j->add("ErrorMessage", JsonObject::newString(err->getErrorMessage()));
+    j->add("ErrorCode", JsonObject::newInt32((int32_t)mErr->getErrorCode()));
+    j->add("ErrorDomain", JsonObject::newString(mErr->getErrorDomain()));
+    j->add("ErrorMessage", JsonObject::newString(mErr->getErrorMessage()));
   }
   return j;
 }
@@ -2667,7 +2667,7 @@ void SourceProcessor::throwOrComplete(ErrorValuePtr aError)
     }
   }
   // catch found (or skipping), continue executing there
-  aError->setThrown(true); // error must not throw any more (caught or skipping)
+  aError->setCaught(true); // error must not throw any more (caught or skipping)
   resume();
 }
 
@@ -4969,13 +4969,13 @@ void ScriptCodeThread::checkAndResume()
 {
   ErrorValuePtr e = boost::dynamic_pointer_cast<ErrorValue>(result);
   if (e) {
-    if (!e->wasThrown()) {
-      // need to throw, adding pos if not yet included
+    if (!e->caught()) {
+      // need to throw
       OLOG(LOG_DEBUG, "   error at: %s\nwith result: %s", src.displaycode(90).c_str(), ScriptObj::describe(e).c_str());
       throwOrComplete(e);
       return;
     }
-    // already thrown (and equipped with pos), just propagate as result
+    // already caught (and equipped with pos), just propagate as result
     result = e;
   }
   resume();
@@ -5618,7 +5618,7 @@ static void throw_func(BuiltinFunctionContextPtr f)
   ScriptObjPtr throwVal;
   ErrorValuePtr e = dynamic_pointer_cast<ErrorValue>(f->arg(0));
   if (e) {
-    e->setThrown(false); // make sure it will throw, even if generated e.g. by error() or in catch as x {}
+    e->setCaught(false); // make sure it will throw, even if generated e.g. by error() or in catch as x {}
     throwVal = e;
   }
   else {
@@ -5634,7 +5634,7 @@ static const size_t error_numargs = sizeof(error_args)/sizeof(BuiltInArgDesc);
 static void error_func(BuiltinFunctionContextPtr f)
 {
   ErrorValuePtr e = new ErrorValue(Error::err<ScriptError>(ScriptError::User, "%s", f->arg(0)->stringValue().c_str()));
-  e->setThrown(true); // mark it caught already, so it can be passed as a regular value without throwing
+  e->setCaught(true); // mark it caught already, so it can be passed as a regular value without throwing
   f->finish(e);
 }
 
