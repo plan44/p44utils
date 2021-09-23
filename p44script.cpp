@@ -2652,7 +2652,6 @@ void SourceProcessor::throwOrComplete(ErrorValuePtr aError)
   ErrorPtr err = aError->errorValue();
   if (err->isDomain(ScriptError::domain()) && err->getErrorCode()>=ScriptError::FatalErrors) {
     // just end the thread unconditionally
-    POLOG(loggingContext(), LOG_ERR, "Aborting script because of fatal error: %s", aError->stringValue().c_str());
     complete(aError);
     return;
   }
@@ -2661,7 +2660,6 @@ void SourceProcessor::throwOrComplete(ErrorValuePtr aError)
     if (!skipUntilReaching(&SourceProcessor::s_tryStatement, aError))
     #endif
     {
-      POLOG(loggingContext(), LOG_ERR, "Aborting script because of uncaught error: %s", aError->stringValue().c_str());
       complete(aError);
       return;
     }
@@ -4642,7 +4640,7 @@ ScriptObjPtr ScriptSource::getExecutable()
         code = new CompiledTrigger("trigger", mctx);
       }
       else {
-        code = new CompiledScript("script", mctx);
+        code = new CompiledScript(originLabel ? originLabel : "script", mctx);
       }
       cachedExecutable = compiler.compile(sourceContainer, code, defaultFlags, mctx);
     }
@@ -4920,6 +4918,16 @@ ScriptObjPtr ScriptCodeThread::finalResult()
 void ScriptCodeThread::complete(ScriptObjPtr aFinalResult)
 {
   mAutoResumeTicket.cancel();
+  if (aFinalResult && aFinalResult->isErr()) {
+    ErrorPtr err = aFinalResult->errorValue();
+    bool fatal = err->isDomain(ScriptError::domain()) && err->getErrorCode()>=ScriptError::FatalErrors;
+    POLOG(loggingContext(), LOG_ERR,
+      "Aborting '%s' because of %s error: %s",
+      mCodeObj->getIdentifier().c_str(),
+      fatal ? "fatal" : "uncaught",
+      aFinalResult->stringValue().c_str()
+    );
+  }
   inherited::complete(aFinalResult);
   OLOG(LOG_DEBUG,
     "complete %04d at (%s:%zu,%zu):  %s\n- with result: %s",
@@ -5144,6 +5152,10 @@ void ScriptCodeThread::executedResult(ScriptObjPtr aResult)
     aResult = new AnnotatedNullValue("no return value");
   }
   mChainedExecutionContext.reset(); // release the child context
+  if (aResult->isErr()) {
+    // update (or add) position of error occurring to call site (log will show "call stack" as LOG_ERR messages)
+    aResult = new ErrorPosValue(src, aResult);
+  }
   resume(aResult);
 }
 
