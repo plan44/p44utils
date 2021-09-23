@@ -2649,7 +2649,6 @@ void SourceProcessor::exitWithSyntaxError(const char *aFmt, ...)
 void SourceProcessor::throwOrComplete(ErrorValuePtr aError)
 {
   result = aError;
-  aError->setThrown(true); // thrown herewith
   ErrorPtr err = aError->errorValue();
   if (err->isDomain(ScriptError::domain()) && err->getErrorCode()>=ScriptError::FatalErrors) {
     // just end the thread unconditionally
@@ -2668,6 +2667,7 @@ void SourceProcessor::throwOrComplete(ErrorValuePtr aError)
     }
   }
   // catch found (or skipping), continue executing there
+  aError->setThrown(true); // error must not throw any more (caught or skipping)
   resume();
 }
 
