@@ -477,7 +477,11 @@ ValueAnimatorPtr AnalogColorOutput::animatorFor(const string aComponent)
 
 // MARK: - script support
 
-#if ENABLE_ANALOGIO_SCRIPT_FUNCS  && ENABLE_P44SCRIPT
+#if ENABLE_ANALOGIO_SCRIPT_FUNCS && ENABLE_P44SCRIPT
+
+#if !ENABLE_APPLICATION_SUPPORT
+  #warning "Unconditionally allowing I/O creation (no userlevel check)"
+#endif
 
 using namespace P44Script;
 
@@ -634,9 +638,11 @@ AnalogIoPtr AnalogIoObj::analogIoFromArg(ScriptObjPtr aArg, bool aOutput, double
     aio = a->analogIo();
   }
   else if (aArg->hasType(text)) {
+    #if ENABLE_APPLICATION_SUPPORT
     if (Application::sharedApplication()->userLevel()>=1) { // user level >=1 is needed for IO access
       aio = AnalogIoPtr(new AnalogIo(aArg->stringValue().c_str(), aOutput, aInitialValue));
     }
+    #endif
   }
   return aio;
 }
@@ -648,9 +654,11 @@ static const BuiltInArgDesc analogio_args[] = { { text }, { numeric }, { numeric
 static const size_t analogio_numargs = sizeof(analogio_args)/sizeof(BuiltInArgDesc);
 static void analogio_func(BuiltinFunctionContextPtr f)
 {
+  #if ENABLE_APPLICATION_SUPPORT
   if (Application::sharedApplication()->userLevel()<1) { // user level >=1 is needed for IO access
     f->finish(new ErrorValue(ScriptError::NoPrivilege, "no IO privileges"));
   }
+  #endif
   bool out = f->arg(1)->boolValue();
   double v = 0;
   if (f->arg(2)->defined()) v = f->arg(2)->doubleValue();

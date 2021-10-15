@@ -258,7 +258,6 @@ void DigitalIo::processChange(bool aNewState)
 DigitalIoBus::DigitalIoBus(const char* aBusPinSpecs, int aNumBits, bool aOutputs, bool aInitialStates) :
   mOutputs(aOutputs)
 {
-  const char *p = aBusPinSpecs;
   string prefix;
   string spec;
   while (nextPart(aBusPinSpecs, spec, ',') && mBusPins.size()<aNumBits) {
@@ -486,7 +485,12 @@ void IndicatorOutput::timer(MLTimer &aTimer)
 
 // MARK: - script support
 
-#if ENABLE_DIGITALIO_SCRIPT_FUNCS  && ENABLE_P44SCRIPT
+#if ENABLE_DIGITALIO_SCRIPT_FUNCS && ENABLE_P44SCRIPT
+
+#if !ENABLE_APPLICATION_SUPPORT
+  #warning "Unconditionally allowing I/O creation (no userlevel check)"
+#endif
+
 
 using namespace P44Script;
 
@@ -596,7 +600,10 @@ DigitalIoPtr DigitalIoObj::digitalIoFromArg(ScriptObjPtr aArg, bool aOutput, boo
     dio = d->digitalIo();
   }
   else if (aArg->hasType(text)) {
-    if (Application::sharedApplication()->userLevel()>=1) { // user level >=1 is needed for IO access
+    #if ENABLE_APPLICATION_SUPPORT
+    if (Application::sharedApplication()->userLevel()>=1)
+    #endif
+    { // user level >=1 is needed for IO access
       dio = DigitalIoPtr(new DigitalIo(aArg->stringValue().c_str(), aOutput, aInitialState));
     }
   }
@@ -683,9 +690,11 @@ static const BuiltInArgDesc digitalio_args[] = { { text }, { numeric }, { numeri
 static const size_t digitalio_numargs = sizeof(digitalio_args)/sizeof(BuiltInArgDesc);
 static void digitalio_func(BuiltinFunctionContextPtr f)
 {
+  #if ENABLE_APPLICATION_SUPPORT
   if (Application::sharedApplication()->userLevel()<1) { // user level >=1 is needed for IO access
     f->finish(new ErrorValue(ScriptError::NoPrivilege, "no IO privileges"));
   }
+  #endif
   bool out = f->arg(1)->boolValue();
   bool v = false;
   if (f->arg(2)->defined()) v = f->arg(2)->boolValue();
@@ -699,9 +708,11 @@ static const BuiltInArgDesc indicator_args[] = { { text }, { numeric|optionalarg
 static const size_t indicator_numargs = sizeof(indicator_args)/sizeof(BuiltInArgDesc);
 static void indicator_func(BuiltinFunctionContextPtr f)
 {
+  #if ENABLE_APPLICATION_SUPPORT
   if (Application::sharedApplication()->userLevel()<1) { // user level >=1 is needed for IO access
     f->finish(new ErrorValue(ScriptError::NoPrivilege, "no IO privileges"));
   }
+  #endif
   bool v = false;
   if (f->arg(1)->defined()) v = f->arg(2)->boolValue();
   IndicatorOutputPtr indicator = new IndicatorOutput(f->arg(0)->stringValue().c_str(), v);
