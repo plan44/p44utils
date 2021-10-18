@@ -109,6 +109,7 @@ void HttpComm::requestThread(ChildThreadWrapper &aThread)
     #if !USE_LIBMONGOOSE
     struct mg_client_options copts;
     copts.host = host.c_str();
+    copts.host_name = host.c_str(); // important for servers that need SNI for establishing SSL connection
     copts.port = port;
     copts.client_cert = clientCertFile.empty() ? NULL : clientCertFile.c_str();
     copts.server_cert = serverCertVfyDir.empty() ? NULL : serverCertVfyDir.c_str();
