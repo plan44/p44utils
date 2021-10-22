@@ -1659,11 +1659,11 @@ namespace p44 { namespace P44Script {
   protected:
 
     // processing control vars
-    bool aborted; ///< if set, stepLoop must immediately end
-    bool resuming; ///< detector for resume calling itself (synchronous execution)
-    bool resumed; ///< detector for resume calling itself (synchronous execution)
-    EvaluationCB completedCB; ///< called when completed
-    EvaluationFlags evaluationFlags; ///< the evaluation flags in use
+    bool mAborted; ///< if set, stepLoop must immediately end
+    bool mResuming; ///< detector for resume calling itself (synchronous execution)
+    bool mResumed; ///< detector for resume calling itself (synchronous execution)
+    EvaluationCB mCompletedCB; ///< called when completed
+    EvaluationFlags mEvaluationFlags; ///< the evaluation flags in use
 
     /// called by resume to perform next step(s).
     /// @note base class just steps synchronously as long as it can by calling step().
@@ -1745,18 +1745,18 @@ namespace p44 { namespace P44Script {
     typedef void (SourceProcessor::*StateHandler)(void);
 
     // state that can be pushed
-    SourceCursor src; ///< the scanning position within code
-    SourcePos poppedPos; ///< the position popped from the stack (can be applied to jump back for loops)
-    StateHandler currentState; ///< next state to call
-    ScriptObjPtr result; ///< the current result object
-    ScriptObjPtr olderResult; ///< an older result, e.g. the result popped from stack, or previous lookup in nested member lookups
-    int precedence; ///< encountering a binary operator with smaller precedence will end the expression
-    ScriptOperator pendingOperation; ///< operator
-    ExecutionContextPtr funcCallContext; ///< the context of the currently preparing function call
-    bool skipping; ///< skipping
+    SourceCursor mSrc; ///< the scanning position within code
+    SourcePos mPoppedPos; ///< the position popped from the stack (can be applied to jump back for loops)
+    StateHandler mCurrentState; ///< next state to call
+    ScriptObjPtr mResult; ///< the current result object
+    ScriptObjPtr mOlderResult; ///< an older result, e.g. the result popped from stack, or previous lookup in nested member lookups
+    int mPrecedence; ///< encountering a binary operator with smaller precedence will end the expression
+    ScriptOperator mPendingOperation; ///< operator
+    ExecutionContextPtr mFuncCallContext; ///< the context of the currently preparing function call
+    bool mSkipping; ///< skipping
 
     // other internal state, not pushed
-    string identifier; ///< for processing identifiers
+    string mIdentifier; ///< for processing identifiers
 
     /// Scanner Stack frame
     class StackFrame {
@@ -1788,7 +1788,7 @@ namespace p44 { namespace P44Script {
     };
 
     typedef std::list<StackFrame> StackList;
-    StackList stack; ///< the stack
+    StackList mStack; ///< the stack
 
     /// convenience end of step using current result and checking for errors
     /// @note includes calling resume()
@@ -1796,16 +1796,16 @@ namespace p44 { namespace P44Script {
     virtual void checkAndResume();
 
     /// readability wrapper for setting the next state but NOT YET completing current state's processing
-    inline void setState(StateHandler aNextState) { currentState = aNextState; }
+    inline void setState(StateHandler aNextState) { mCurrentState = aNextState; }
 
     /// convenience functions for transition to a new state, i.e. setting the new state and checkAndResume() or resume() in one step
     /// @param aNextState set the next state
-    inline void checkAndResumeAt(StateHandler aNextState) { currentState = aNextState; checkAndResume(); }
-    inline void resumeAt(StateHandler aNextState) { currentState = aNextState; resume(); }
+    inline void checkAndResumeAt(StateHandler aNextState) { mCurrentState = aNextState; checkAndResume(); }
+    inline void resumeAt(StateHandler aNextState) { mCurrentState = aNextState; resume(); }
 
     /// push the current state
     /// @param aReturnToState the state to return to after pop().
-    /// @param aPushPoppedPos poppedPos will be pushed instead of src.pos
+    /// @param aPushPoppedPos mPoppedPos will be pushed instead of src.pos
     void push(StateHandler aReturnToState, bool aPushPoppedPos = false);
 
     /// return to the last pushed state
@@ -1921,11 +1921,11 @@ namespace p44 { namespace P44Script {
     friend class SourceProcessor;
     friend class ScriptMainContext;
 
-    std::vector<ArgumentDescriptor> arguments;
+    std::vector<ArgumentDescriptor> mArguments;
 
   protected:
-    string name;
-    SourceCursor cursor; ///< reference to the source part from which this object originates from
+    string mName;
+    SourceCursor mCursor; ///< reference to the source part from which this object originates from
 
     /// define argument
     void pushArgumentDefinition(TypeInfo aTypeInfo, const string aArgumentName);
@@ -1933,14 +1933,14 @@ namespace p44 { namespace P44Script {
   public:
     virtual string getAnnotation() const P44_OVERRIDE { return "function"; };
 
-    CompiledCode(const string aName) : name(aName) {};
-    CompiledCode(const string aName, const SourceCursor& aCursor) : name(aName), cursor(aCursor) {};
+    CompiledCode(const string aName) : mName(aName) {};
+    CompiledCode(const string aName, const SourceCursor& aCursor) : mName(aName), mCursor(aCursor) {};
     virtual ~CompiledCode();
     void setCursor(const SourceCursor& aCursor);
     bool codeFromSameSourceAs(const CompiledCode &aCode) const; ///< return true if both compiled codes are from the same source position
-    virtual bool originatesFrom(SourceContainerPtr aSource) const P44_OVERRIDE { return cursor.refersTo(aSource); };
-    virtual bool floating() const P44_OVERRIDE { return cursor.source->floating(); }
-    virtual P44LoggingObj* loggingContext() const P44_OVERRIDE { return cursor.source ? cursor.source->loggingContextP : NULL; };
+    virtual bool originatesFrom(SourceContainerPtr aSource) const P44_OVERRIDE { return mCursor.refersTo(aSource); };
+    virtual bool floating() const P44_OVERRIDE { return mCursor.source->floating(); }
+    virtual P44LoggingObj* loggingContext() const P44_OVERRIDE { return mCursor.source ? mCursor.source->loggingContextP : NULL; };
 
     /// get subroutine context to call this object as a subroutine/function call from a given context
     /// @param aMainContext the context from where this function is now called (the same function can be called
@@ -1954,7 +1954,7 @@ namespace p44 { namespace P44Script {
     virtual bool argumentInfo(size_t aIndex, ArgumentDescriptor& aArgDesc) const P44_OVERRIDE;
 
     /// get identifier (name) of this function object
-    virtual string getIdentifier() const P44_OVERRIDE { return name; };
+    virtual string getIdentifier() const P44_OVERRIDE { return mName; };
 
 
   };
@@ -1967,11 +1967,11 @@ namespace p44 { namespace P44Script {
     friend class ScriptCompiler;
 
   protected:
-    ScriptMainContextPtr mainContext; ///< the main context this script should execute in
+    ScriptMainContextPtr mMainContext; ///< the main context this script should execute in
 
   public:
-    CompiledScript(const string aName, ScriptMainContextPtr aMainContext) : inherited(aName), mainContext(aMainContext) {};
-    CompiledScript(const string aName, ScriptMainContextPtr aMainContext, const SourceCursor& aCursor) : inherited(aName, aCursor), mainContext(aMainContext) {};
+    CompiledScript(const string aName, ScriptMainContextPtr aMainContext) : inherited(aName), mMainContext(aMainContext) {};
+    CompiledScript(const string aName, ScriptMainContextPtr aMainContext, const SourceCursor& aCursor) : inherited(aName, aCursor), mMainContext(aMainContext) {};
 
     /// get new main routine context for running this object as a main script or expression
     /// @param aMainContext the context from where a script is "called" is always the domain.
@@ -2523,7 +2523,7 @@ namespace p44 { namespace P44Script {
     ScriptCodeThreadPtr thread() { return mThread; }
 
     /// @return the evaluation flags of the current evaluation
-    EvaluationFlags evalFlags() { return mThread ? mThread->evaluationFlags : (EvaluationFlags)regular; }
+    EvaluationFlags evalFlags() { return mThread ? mThread->mEvaluationFlags : (EvaluationFlags)regular; }
 
     /// @return the trigger object if this function is executing as part of a trigger expression
     CompiledTrigger* trigger() { return mThread ? dynamic_cast<CompiledTrigger *>(mThread->mCodeObj.get()) : NULL; }
