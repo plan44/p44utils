@@ -546,7 +546,7 @@ namespace p44 { namespace P44Script {
     virtual bool originatesFrom(SourceContainerPtr aSource) const { return false; }
 
     /// make ready for deletion, break links that might be parts of retain loops
-    /// @note this is used before freeing a object which originatesFrom() a given source
+    /// @note this is used before freeing a object which originatesFrom() a given source and generally 
     virtual void deactivate() {};
 
     /// @return true if this object's definition/declaration is floating, i.e. when it carries its own source code
@@ -1031,6 +1031,11 @@ namespace p44 { namespace P44Script {
     /// release all objects stored in this container and other known containers which were defined by aSource
     virtual void releaseObjsFromSource(SourceContainerPtr aSource); // no source-derived permanent objects here
 
+    /// check if context is involved in executing a particular source
+    /// @param aSource source to check
+    /// @return true when this context is involved in executing source from aSource
+    virtual bool isExecutingSource(SourceContainerPtr aSource) { return false; /* base class cannot execute */ }
+
     /// Execute a object
     /// @param aToExecute the object to be executed in this context
     /// @param aEvalFlags evaluation control flags
@@ -1106,6 +1111,8 @@ namespace p44 { namespace P44Script {
 
     virtual void releaseObjsFromSource(SourceContainerPtr aSource) P44_OVERRIDE;
 
+    virtual bool isExecutingSource(SourceContainerPtr aSource) P44_OVERRIDE;
+
     virtual void deactivate() P44_OVERRIDE { abort(); inherited::deactivate(); }
 
     /// clear local variables (named members)
@@ -1143,6 +1150,12 @@ namespace p44 { namespace P44Script {
     /// @param aExceptThread if set, this thread is not aborted
     /// @return true if any thread was aborted
     virtual bool abort(EvaluationFlags aAbortFlags = stopall, ScriptObjPtr aAbortResult = ScriptObjPtr(), ScriptCodeThreadPtr aExceptThread = ScriptCodeThreadPtr()) P44_OVERRIDE;
+
+    /// abort evaluation of threads originating from aSource
+    /// @param aSource source to check
+    /// @return true if any thread was aborted
+    bool abortThreadsRunningSource(SourceContainerPtr aSource);
+
 
     #if SCRIPTING_JSON_SUPPORT
     /// FIXME: this is a simplistic partial solution to get at least some introspection for debugging purposes.
@@ -1960,7 +1973,7 @@ namespace p44 { namespace P44Script {
   };
 
 
-  /// compiled main script
+  /// compiled main script, using a specific main context to run in
   class CompiledScript : public CompiledCode
   {
     typedef CompiledCode inherited;
@@ -1972,6 +1985,8 @@ namespace p44 { namespace P44Script {
   public:
     CompiledScript(const string aName, ScriptMainContextPtr aMainContext) : inherited(aName), mMainContext(aMainContext) {};
     CompiledScript(const string aName, ScriptMainContextPtr aMainContext, const SourceCursor& aCursor) : inherited(aName, aCursor), mMainContext(aMainContext) {};
+
+    virtual void deactivate() P44_OVERRIDE;
 
     /// get new main routine context for running this object as a main script or expression
     /// @param aMainContext the context from where a script is "called" is always the domain.
@@ -2231,6 +2246,8 @@ namespace p44 { namespace P44Script {
 
     virtual ~ScriptCodeThread();
 
+    virtual void deactivate();
+
     /// logging context to use
     virtual P44LoggingObj* loggingContext() P44_OVERRIDE;
 
@@ -2264,6 +2281,10 @@ namespace p44 { namespace P44Script {
     /// request aborting the current thread, including child context
     /// @param aAbortResult if set, this is what abort will report back
     virtual void abort(ScriptObjPtr aAbortResult = ScriptObjPtr()) P44_OVERRIDE;
+
+    /// @param aSource source to check
+    /// @return true when thread (or any subthread) is executing source code from aSource
+    bool isExecutingSource(SourceContainerPtr aSource);
 
     /// abort all threads in the same context execpt this one
     /// @param aAbortResult if set, this is what abort will report back

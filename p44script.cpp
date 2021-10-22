@@ -1345,9 +1345,22 @@ ScriptCodeContext::ScriptCodeContext(ScriptMainContextPtr aMainContext) :
 
 void ScriptCodeContext::releaseObjsFromSource(SourceContainerPtr aSource)
 {
+  // must abort all threads that are running something from this source
+  abortThreadsRunningSource(aSource);
+  // also release any objects linked to that source
   localVars.releaseObjsFromSource(aSource);
   inherited::releaseObjsFromSource(aSource);
 }
+
+
+bool ScriptCodeContext::isExecutingSource(SourceContainerPtr aSource)
+{
+  for (ThreadList::iterator pos = threads.begin(); pos!=threads.end(); ++pos) {
+    if ((*pos)->isExecutingSource(aSource)) return true;
+  }
+  return false;
+}
+
 
 
 void ScriptCodeContext::clearFloatingGlobs()
@@ -1440,6 +1453,22 @@ bool ScriptCodeContext::abort(EvaluationFlags aAbortFlags, ScriptObjPtr aAbortRe
   }
   return anyAborted;
 }
+
+
+bool ScriptCodeContext::abortThreadsRunningSource(SourceContainerPtr aSource)
+{
+  bool anyAborted = false;
+  ThreadList tba = threads; // copy list as original get modified while aborting
+  for (ThreadList::iterator pos = tba.begin(); pos!=tba.end(); ++pos) {
+    if ((*pos)->isExecutingSource(aSource)) {
+      anyAborted = true;
+      (*pos)->abort(new ErrorValue(ScriptError::Aborted, "Source code changed while executing")); // should cause threadTerminated to get called which will remove actually terminated thread from the list
+    }
+  }
+  return anyAborted;
+}
+
+
 
 
 #if SCRIPTING_JSON_SUPPORT
@@ -4008,7 +4037,7 @@ void SourceProcessor::memberEventCheck()
 }
 
 
-// MARK: - CompiledScript, CompiledFunction, CompiledHandler
+// MARK: - CompiledCode
 
 
 void CompiledCode::setCursor(const SourceCursor& aCursor)
@@ -4061,6 +4090,21 @@ bool CompiledCode::argumentInfo(size_t aIndex, ArgumentDescriptor& aArgDesc) con
 }
 
 
+// MARK: - CompiledScript
+
+
+void CompiledScript::deactivate()
+{
+  // abort all threads that are running any of my code
+  if (mMainContext) {
+    mMainContext->abortThreadsRunningSource(mCursor.source);
+    mMainContext.reset();
+  }
+  inherited::deactivate();
+}
+
+
+
 ExecutionContextPtr CompiledScript::contextForCallingFrom(ScriptMainContextPtr aMainContext, ScriptCodeThreadPtr aThread) const
 {
   // compiled script bodies get their execution context assigned at compile time, just return it
@@ -4097,6 +4141,8 @@ void CompiledTrigger::deactivate()
   // reset everything that could be part of a retain cycle
   setTriggerCB(NULL);
   mReEvaluationTicket.cancel();
+  mFrozenResults.clear();
+  mCurrentResult.reset();
   clearSources();
   inherited::deactivate();
 }
@@ -4579,7 +4625,7 @@ void ScriptSource::setSharedMainContext(ScriptMainContextPtr aSharedMainContext)
 
 bool ScriptSource::setSource(const string aSource, EvaluationFlags aEvaluationFlags)
 {
-  if (aEvaluationFlags==inherit || defaultFlags==aEvaluationFlags || aEvaluationFlags==inherit) {
+  if (aEvaluationFlags==inherit || defaultFlags==aEvaluationFlags) {
     // same flags, check source
     if (sourceContainer && sourceContainer->source == aSource) {
       return false; // no change at all -> NOP
@@ -4826,8 +4872,20 @@ ScriptCodeThread::ScriptCodeThread(ScriptCodeContextPtr aOwner, CompiledCodePtr 
 
 ScriptCodeThread::~ScriptCodeThread()
 {
+  deactivate(); // even if deactivate() is usually called before dtor, make sure it happens even if not
   FOCUSLOG("\n%04x END          thread deleted : %s", (uint32_t)((intptr_t)static_cast<SourceProcessor *>(this)) & 0xFFFF, src.displaycode(130).c_str());
 }
+
+
+void ScriptCodeThread::deactivate()
+{
+  // reset everything that could be part of a retain cycle
+  mOwner.reset();
+  mCodeObj.reset();
+  mThreadLocals.reset();
+  mChainOriginThread.reset();
+}
+
 
 
 P44LoggingObj* ScriptCodeThread::loggingContext()
@@ -4881,6 +4939,14 @@ void ScriptCodeThread::run()
     mSrc.displaycode(90).c_str()
   );
   start();
+}
+
+
+bool ScriptCodeThread::isExecutingSource(SourceContainerPtr aSource)
+{
+  if (mCodeObj && mCodeObj->originatesFrom(aSource)) return true; // this thread's starting point is in aSource
+  if (mChainedExecutionContext && mChainedExecutionContext->isExecutingSource(aSource)) return true; // chained thread runs from aSource
+  return false; // not running this source
 }
 
 
@@ -4939,6 +5005,8 @@ void ScriptCodeThread::complete(ScriptObjPtr aFinalResult)
   sendEvent(mResult); // send the final result as event to registered EventSinks
   mChainOriginThread.reset();
   mOwner->threadTerminated(this, mEvaluationFlags);
+  // deactivate myself early
+  deactivate();
 }
 
 
