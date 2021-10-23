@@ -1345,8 +1345,6 @@ ScriptCodeContext::ScriptCodeContext(ScriptMainContextPtr aMainContext) :
 
 void ScriptCodeContext::releaseObjsFromSource(SourceContainerPtr aSource)
 {
-  // must abort all threads that are running something from this source
-  abortThreadsRunningSource(aSource);
   // also release any objects linked to that source
   localVars.releaseObjsFromSource(aSource);
   inherited::releaseObjsFromSource(aSource);
@@ -4622,6 +4620,20 @@ void ScriptSource::setSharedMainContext(ScriptMainContextPtr aSharedMainContext)
 }
 
 
+void ScriptSource::uncompile()
+{
+  if (sharedMainContext) {
+    sharedMainContext->abortThreadsRunningSource(sourceContainer);
+  }
+  if (cachedExecutable) {
+    cachedExecutable.reset(); // release cached executable (will release SourceCursor holding our source)
+  }
+  if (sourceContainer) {
+    if (scriptingDomain) scriptingDomain->releaseObjsFromSource(sourceContainer); // release all global objects from this source
+    if (sharedMainContext) sharedMainContext->releaseObjsFromSource(sourceContainer); // release all main context objects from this source
+  }
+}
+
 
 bool ScriptSource::setSource(const string aSource, EvaluationFlags aEvaluationFlags)
 {
@@ -4633,14 +4645,8 @@ bool ScriptSource::setSource(const string aSource, EvaluationFlags aEvaluationFl
   }
   // changed, invalidate everything related to the previous code
   if (aEvaluationFlags!=inherit) defaultFlags = aEvaluationFlags;
-  if (cachedExecutable) {
-    cachedExecutable.reset(); // release cached executable (will release SourceCursor holding our source)
-  }
-  if (sourceContainer) {
-    if (scriptingDomain) scriptingDomain->releaseObjsFromSource(sourceContainer); // release all global objects from this source
-    if (sharedMainContext) sharedMainContext->releaseObjsFromSource(sourceContainer); // release all main context objects from this source
+  uncompile();
     sourceContainer.reset(); // release it myself
-  }
   // create new source container
   if (!aSource.empty()) {
     sourceContainer = SourceContainerPtr(new SourceContainer(originLabel, loggingContextP, aSource));
@@ -5004,7 +5010,7 @@ void ScriptCodeThread::complete(ScriptObjPtr aFinalResult)
   );
   sendEvent(mResult); // send the final result as event to registered EventSinks
   mChainOriginThread.reset();
-  mOwner->threadTerminated(this, mEvaluationFlags);
+  if (mOwner) mOwner->threadTerminated(this, mEvaluationFlags);
   // deactivate myself early
   deactivate();
 }
