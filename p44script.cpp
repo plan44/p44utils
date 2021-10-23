@@ -1638,15 +1638,17 @@ ScriptObjPtr ScriptMainContext::registerHandler(ScriptObjPtr aHandler)
   }
   // prevent duplicating handlers
   // - when source is changed, all handlers are erased before
-  // - so only re-running a on()-statement which is outside declaration could possibly be run twice
+  // - but re-compiling without changes or re-running a on()-statement can make it getting registered twice
   // - this can be detected by comparing source start locations
   for (HandlerList::iterator pos = handlers.begin(); pos!=handlers.end(); pos++) {
     if ((*pos)->codeFromSameSourceAs(*handler)) {
       // replace this handler by the new one
-      OLOG(LOG_WARNING, "Handler definition re-executed -> usually not a good idea");
       CompiledHandlerPtr h = handler;
+      OLOG(LOG_INFO, "Replacing handler at %s:%lu,%lu ...", h->mCursor.originLabel(), h->mCursor.lineno()+1, h->mCursor.charpos()+1);
       pos->swap(h);
-      h.reset(); // kill the previous instance
+      // deactivate and kill the previous instance
+      h->deactivate();
+      h.reset();
       // return the active instance
       return handler;
     }
@@ -3407,8 +3409,11 @@ void SourceProcessor::s_defineTrigger()
     exitWithSyntaxError("')' as end of trigger expression expected");
     return;
   }
-  CompiledTriggerPtr trigger = new CompiledTrigger("trigger", getTriggerAndHandlerMainContext());
-  mResult = captureCode(trigger);
+  CompiledTriggerPtr trigger;
+  if (!compiling() || declaring()) {
+    trigger = new CompiledTrigger("trigger", getTriggerAndHandlerMainContext());
+    mResult = captureCode(trigger);
+  }
   mSrc.next(); // skip ')'
   mSrc.skipNonCode();
   // optional trigger mode
@@ -3457,14 +3462,14 @@ void SourceProcessor::s_defineTrigger()
         exitWithSyntaxError("missing trigger result variable name");
         return;
       }
-      trigger->mResultVarName = mIdentifier;
+      if (trigger) trigger->mResultVarName = mIdentifier;
     }
     else {
       exitWithSyntaxError("missing trigger mode or 'as'");
       return;
     }
   }
-  trigger->setTriggerMode(mode, holdOff);
+  if (trigger) trigger->setTriggerMode(mode, holdOff);
   mSrc.skipNonCode();
   // check for beginning of handler body
   if (mSrc.c()!='{') {
@@ -3486,10 +3491,15 @@ void SourceProcessor::s_defineHandler()
   // - mPoppedPos points to the opening '{' of the body
   // - src.pos is after the closing '}' of the body
   // - olderResult is the trigger, mode already set
-  CompiledHandlerPtr handler = new CompiledHandler("handler", getTriggerAndHandlerMainContext());
-  mResult = captureCode(handler); // get the code first, so we can execute it in the trigger init
-  handler->installAndInitializeTrigger(mOlderResult);
-  storeHandler();
+  if (!compiling() || declaring()) {
+    CompiledHandlerPtr handler = new CompiledHandler("handler", getTriggerAndHandlerMainContext());
+    mResult = captureCode(handler); // get the code first, so we can execute it in the trigger init
+    handler->installAndInitializeTrigger(mOlderResult);
+    storeHandler();
+  }
+  else {
+    checkAndResume();
+  }
   // back to where we were before
   pop();
 }
@@ -4017,6 +4027,8 @@ void SourceProcessor::pushFunctionArgument(ScriptObjPtr aArgument)
 
 void SourceProcessor::startOfBodyCode()
 {
+  // switch to body scanning
+  mEvaluationFlags = (mEvaluationFlags & ~sourcecode) | scriptbody;
   checkAndResume(); // NOP on the base class level
 }
 
@@ -4504,7 +4516,7 @@ void ScriptCompiler::startOfBodyCode()
     return;
   }
   // we want a full syntax scan, continue skipping
-  resume();
+  inherited::startOfBodyCode();
 }
 
 
@@ -4541,8 +4553,15 @@ void ScriptCompiler::storeFunction()
 void ScriptCompiler::storeHandler()
 {
   if (!mResult->isErr()) {
-    // handlers in declaration part (processed at compiling) are always global
-    mResult = domain->registerHandler(mResult);
+    // only handlers in declaration part must be stored at compile time
+    if (mEvaluationFlags & sourcecode) {
+      mResult = domain->registerHandler(mResult);
+    }
+    else {
+      // handler in script body must NOT be stored
+      mResult->deactivate();
+      mResult.reset();
+    }
   }
   checkAndResume();
 }
@@ -4646,7 +4665,7 @@ bool ScriptSource::setSource(const string aSource, EvaluationFlags aEvaluationFl
   // changed, invalidate everything related to the previous code
   if (aEvaluationFlags!=inherit) defaultFlags = aEvaluationFlags;
   uncompile();
-    sourceContainer.reset(); // release it myself
+  sourceContainer.reset(); // release it myself
   // create new source container
   if (!aSource.empty()) {
     sourceContainer = SourceContainerPtr(new SourceContainer(originLabel, loggingContextP, aSource));

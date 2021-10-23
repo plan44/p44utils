@@ -546,7 +546,7 @@ namespace p44 { namespace P44Script {
     virtual bool originatesFrom(SourceContainerPtr aSource) const { return false; }
 
     /// make ready for deletion, break links that might be parts of retain loops
-    /// @note this is used before freeing a object which originatesFrom() a given source and generally 
+    /// @note this is used before freeing a object which originatesFrom() a given source and generally
     virtual void deactivate() {};
 
     /// @return true if this object's definition/declaration is floating, i.e. when it carries its own source code
@@ -1484,6 +1484,11 @@ namespace p44 { namespace P44Script {
     /// @return error in case of syntax errors or other fatal conditions
     ScriptObjPtr syntaxcheck();
 
+    /// reset to state before compilation, i.e. stop all threads running code from this source
+    /// including handlers, undeclare all handlers that were declared by this source
+    /// @note running will re-compile and re-declare all handlers
+    void uncompile();
+
     /// @return true if empty
     bool empty() const;
 
@@ -1740,6 +1745,12 @@ namespace p44 { namespace P44Script {
     /// @note embeddedGlobs determines if code is embedded into the code container (and lives on with it) or
     ///   just references source code (so it will get deleted when source code goes away)
     ScriptObjPtr captureCode(ScriptObjPtr aCodeContainer);
+
+    /// @return true if running as compiler
+    virtual bool compiling() { return false; }
+
+    /// @return true if compiling declaration
+    bool declaring() { return compiling() && (mEvaluationFlags&sourcecode)!=0; }
 
     /// indicates start of script body (at current src.pos)
     /// @note must cause calling resume()
@@ -2191,6 +2202,9 @@ namespace p44 { namespace P44Script {
     virtual void storeHandler() P44_OVERRIDE;
 
     #endif // P44SCRIPT_FULL_SUPPORT
+
+    /// @return true if running as compiler
+    virtual bool compiling() P44_OVERRIDE { return true; }
 
     /// indicates end of declarations
     /// @note must cause calling resume()
