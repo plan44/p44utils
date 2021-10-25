@@ -2706,7 +2706,7 @@ ScriptObjPtr SourceProcessor::captureCode(ScriptObjPtr aCodeContainer)
     return new ErrorPosValue(mSrc, ScriptError::Internal, "no compiled code");
   }
   else {
-    if (mEvaluationFlags & floatingGlobs) {
+    if (mEvaluationFlags & ephemeralSource) {
       // copy from the original source
       SourceContainerPtr s = SourceContainerPtr(new SourceContainer(mSrc, mPoppedPos, mSrc.pos));
       code->setCursor(s->getCursor());
@@ -4639,9 +4639,9 @@ void ScriptSource::setSharedMainContext(ScriptMainContextPtr aSharedMainContext)
 }
 
 
-void ScriptSource::uncompile()
+void ScriptSource::uncompile(bool aNoAbort)
 {
-  if (sharedMainContext) {
+  if (sharedMainContext && !aNoAbort) {
     sharedMainContext->abortThreadsRunningSource(sourceContainer);
   }
   if (cachedExecutable) {
@@ -4663,8 +4663,8 @@ bool ScriptSource::setSource(const string aSource, EvaluationFlags aEvaluationFl
     }
   }
   // changed, invalidate everything related to the previous code
+  uncompile(defaultFlags & ephemeralSource);
   if (aEvaluationFlags!=inherit) defaultFlags = aEvaluationFlags;
-  uncompile();
   sourceContainer.reset(); // release it myself
   // create new source container
   if (!aSource.empty()) {
@@ -6320,7 +6320,7 @@ static void delay_func(BuiltinFunctionContextPtr f)
 // undeclare()    undeclare functions and handlers - only works in embeddedGlobs threads
 static void undeclare_func(BuiltinFunctionContextPtr f)
 {
-  if ((f->evalFlags() & floatingGlobs)==0) {
+  if ((f->evalFlags() & ephemeralSource)==0) {
     f->finish(new ErrorValue(ScriptError::Invalid, "undeclare() can only be used in interactive sessions"));
     return;
   }
@@ -6952,7 +6952,7 @@ class SimpleREPLApp : public CmdLineApp
 public:
 
   SimpleREPLApp() :
-    source(sourcecode|regular|keepvars|concurrently|floatingGlobs, "REPL")
+    source(sourcecode|regular|keepvars|concurrently|ephemeralSource, "REPL")
   {
   }
 

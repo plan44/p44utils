@@ -197,7 +197,7 @@ namespace p44 { namespace P44Script {
     keepvars = 0x20000, ///< keep the local variables already set in the context
     mainthread = 0x40000, ///< if a thread with this flag set terminates, it also terminates all of its siblings
     // compilation modifiers
-    floatingGlobs = 0x100000, ///< global function+handler definitions are kept floating (not deleted when originating source code is changed/deleted)
+    ephemeralSource = 0x100000, ///< threads are kept running and global function+handler definitions are not deleted when originating source code is changed/deleted
     anonymousfunction = 0x200000, ///< compile and run as anonymous function body
   };
   typedef uint32_t EvaluationFlags;
@@ -1486,8 +1486,10 @@ namespace p44 { namespace P44Script {
 
     /// reset to state before compilation, i.e. stop all threads running code from this source
     /// including handlers, undeclare all handlers that were declared by this source
+    /// @param aNoAbort if set, threads will not be aborted, and will possibly keep previous source code alive until
+    ///    all threads have terminated.
     /// @note running will re-compile and re-declare all handlers
-    void uncompile();
+    void uncompile(bool aNoAbort = false);
 
     /// @return true if empty
     bool empty() const;
