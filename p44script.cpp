@@ -5888,10 +5888,10 @@ static void writefile_func(BuiltinFunctionContextPtr f)
     return;
   }
   #if !ALWAYS_ALLOW_ALL_FILES
-  size_t psz = fn.substr(0,2)=="_/" ? 2 : 0; // allow _/ temp prefix
+  size_t psz = fn.substr(0,2)=="_/" ? 2 : 0; // allow _/ temp prefix (but none of the others: =/ and +/)
   if (
-    (fn.find("/", psz)!=string::npos || fn.find("..", psz)!=string::npos) &&
-    Application::sharedApplication()->userLevel()<2 // only user level 2 is allowed to write everywhere
+    Application::sharedApplication()->userLevel()<2 && // only user level 2 is allowed to write everywhere
+    (fn.find("/", psz)!=string::npos || fn.find("..", psz)!=string::npos)
   ) {
     f->finish(new ErrorValue(ScriptError::NoPrivilege, "no path writing privileges"));
     return;
@@ -5938,10 +5938,10 @@ static void readfile_func(BuiltinFunctionContextPtr f)
     return;
   }
   #if !ALWAYS_ALLOW_ALL_FILES
-  size_t psz = fn.substr(0,2)=="_/" ? 2 : 0; // allow _/ temp prefix
+  size_t psz = fn.substr(0,2)=="_/" ? 2 : 0; // allow _/ temp prefix (but none of the others: =/ and +/)
   if (
-    (fn.find("/", psz)!=string::npos || fn.find("..", psz)!=string::npos) &&
-    Application::sharedApplication()->userLevel()<1 // user level 1 is allowed to read everywhere
+    Application::sharedApplication()->userLevel()<1 && // user level 1 is allowed to read everywhere
+    (fn.find("/", psz)!=string::npos || fn.find("..", psz)!=string::npos)
   ) {
     f->finish(new ErrorValue(ScriptError::NoPrivilege, "no path reading privileges"));
     return;
