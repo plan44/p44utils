@@ -965,7 +965,7 @@ void SimpleVarContainer::releaseObjsFromSource(SourceContainerPtr aSource)
 }
 
 
-void SimpleVarContainer::clearFloatingGlobs()
+void SimpleVarContainer::clearFloating()
 {
   NamedVarMap::iterator pos = namedVars.begin();
   while (pos!=namedVars.end()) {
@@ -1361,9 +1361,9 @@ bool ScriptCodeContext::isExecutingSource(SourceContainerPtr aSource)
 
 
 
-void ScriptCodeContext::clearFloatingGlobs()
+void ScriptCodeContext::clearFloating()
 {
-  localVars.clearFloatingGlobs();
+  localVars.clearFloating();
 }
 
 
@@ -1686,6 +1686,23 @@ void ScriptMainContext::clearVars()
     pos = handlers.erase(pos); // source is gone -> remove
   }
   inherited::clearVars();
+}
+
+
+void ScriptMainContext::clearFloating()
+{
+  #if P44SCRIPT_FULL_SUPPORT
+  HandlerList::iterator pos = handlers.begin();
+  while (pos!=handlers.end()) {
+    if ((*pos)->floating()) {
+      pos = handlers.erase(pos); // source is gone -> remove
+    }
+    else {
+      ++pos;
+    }
+  }
+  #endif // P44SCRIPT_FULL_SUPPORT
+  inherited::clearFloating();
 }
 
 
@@ -4863,23 +4880,6 @@ ScriptMainContextPtr ScriptingDomain::newContext(ScriptObjPtr aInstanceObj)
 }
 
 
-void ScriptingDomain::clearFloatingGlobs()
-{
-  #if P44SCRIPT_FULL_SUPPORT
-  HandlerList::iterator pos = handlers.begin();
-  while (pos!=handlers.end()) {
-    if ((*pos)->floating()) {
-      pos = handlers.erase(pos); // source is gone -> remove
-    }
-    else {
-      ++pos;
-    }
-  }
-  #endif // P44SCRIPT_FULL_SUPPORT
-  inherited::clearFloatingGlobs();
-}
-
-
 // MARK: - ScriptCodeThread
 
 ScriptCodeThread::ScriptCodeThread(ScriptCodeContextPtr aOwner, CompiledCodePtr aCode, const SourceCursor& aStartCursor, ScriptObjPtr aThreadLocals, ScriptCodeThreadPtr aChainOriginThread) :
@@ -6324,7 +6324,10 @@ static void undeclare_func(BuiltinFunctionContextPtr f)
     f->finish(new ErrorValue(ScriptError::Invalid, "undeclare() can only be used in interactive sessions"));
     return;
   }
-  f->thread()->owner()->domain()->clearFloatingGlobs();
+  // clear floating globals in the domain
+  f->thread()->owner()->domain()->clearFloating();
+  // clear floating globals in the current main context (especially: handlers)
+  f->thread()->owner()->scriptmain()->clearFloating();
   f->finish();
 }
 

@@ -875,7 +875,7 @@ namespace p44 { namespace P44Script {
     void clearVars();
 
     /// clear floating globals (only called as inherited from domain)
-    void clearFloatingGlobs();
+    void clearFloating();
 
     /// release all objects stored in this container and other known containers which were defined by aSource
     void releaseObjsFromSource(SourceContainerPtr aSource);
@@ -1103,7 +1103,7 @@ namespace p44 { namespace P44Script {
 
   protected:
     /// clear floating globals (only called as inherited from domain)
-    void clearFloatingGlobs();
+    void clearFloating();
 
   public:
 
@@ -1195,6 +1195,9 @@ namespace p44 { namespace P44Script {
   public:
 
     virtual ~ScriptMainContext() { deactivate(); } // even if deactivate() is usually called before dtor, make sure it happens even if not
+
+    /// clear functions and handlers that have embedded source (i.e. not linked to a still accessible source)
+    void clearFloating();
 
     virtual void deactivate() P44_OVERRIDE
     {
@@ -1590,9 +1593,6 @@ namespace p44 { namespace P44Script {
   public:
 
     ScriptingDomain() : inherited(ScriptingDomainPtr(), ScriptObjPtr()), geoLocationP(NULL), maxBlockTime(DEFAULT_MAX_BLOCK_TIME) {};
-
-    /// clear global functions and handlers that have embedded source (i.e. not linked to a still accessible source)
-    void clearFloatingGlobs();
 
     /// set geolocation to use for functions that refer to location
     void setGeoLocation(GeoLocation* aGeoLocationP) { geoLocationP = aGeoLocationP; };
