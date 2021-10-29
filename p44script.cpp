@@ -4244,8 +4244,8 @@ void CompiledTrigger::triggerDidEvaluate(EvaluationFlags aEvalMode, ScriptObjPtr
     }
   }
   // update state
-  if (mOneShotEvent) {
-    // oneshot triggers do not toggle status, but must return to undefined
+  if (mOneShotEvent || ((aEvalMode&initial) && aResult->hasType(oneshot))) {
+    // oneshot triggers do not toggle status, but must return to undefined (also on initial, non-event-triggered evaluation)
     mCurrentState = p44::undefined;
   }
   else {
