@@ -29,6 +29,10 @@
 #include "p44view.hpp"
 #endif
 
+#ifndef LEDCHAIN_LEGACY_API
+#define LEDCHAIN_LEGACY_API (!ENABLE_P44LRGRAPHICS) // with p44graphics, we don't need legacy API any more
+#endif
+
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -205,6 +209,8 @@ namespace p44 {
     /// @return true if chains has a separate (fourth) white channel
     bool hasWhite() { return numColorComponents>=4; }
 
+    #if LEDCHAIN_LEGACY_API
+
     /// set color of one LED
     /// @param aRed intensity of red component, 0..255
     /// @param aGreen intensity of green component, 0..255
@@ -228,11 +234,40 @@ namespace p44 {
     /// @param aRed set to intensity of red component, 0..255
     /// @param aGreen set to intensity of green component, 0..255
     /// @param aBlue set to intensity of blue component, 0..255
+    /// @param aWhite set to intensity of separate white component for RGBW LEDs, 0..255
     /// @note for LEDs set with setColorDimmed(), this returns the scaled down RGB values,
     ///   not the original r,g,b parameters. Note also that internal brightness resolution is 5 bits only.
     /// @note aLedNumber is the logical LED number, and aX/aY are logical coordinates, excluding any inactive LEDs
     void getColorXY(uint16_t aX, uint16_t aY, uint8_t &aRed, uint8_t &aGreen, uint8_t &aBlue, uint8_t &aWhite);
     void getColor(uint16_t aLedNumber, uint8_t &aRed, uint8_t &aGreen, uint8_t &aBlue, uint8_t &aWhite);
+
+    #endif // LEDCHAIN_LEGACY_API
+
+    /// set raw power (PWM value) of one LED
+    /// @param aX logical X coordinate
+    /// @param aY logical Y coordinate
+    /// @param aRed power of red component, 0..255
+    /// @param aGreen power of green component, 0..255
+    /// @param aBlue power of blue component, 0..255
+    /// @param aWhite power of separate white component for RGBW LEDs, 0..255
+    void setPowerXY(uint16_t aX, uint16_t aY, uint8_t aRed, uint8_t aGreen, uint8_t aBlue, uint8_t aWhite);
+
+    /// set raw power (PWM value) of one LED
+    /// @param aLedNumber is the logical LED number
+    /// @param aRed power of red component, 0..255
+    /// @param aGreen power of green component, 0..255
+    /// @param aBlue power of blue component, 0..255
+    /// @param aWhite power of separate white component for RGBW LEDs, 0..255
+    void setPower(uint16_t aLedNumber, uint8_t aRed, uint8_t aGreen, uint8_t aBlue, uint8_t aWhite=0);
+
+    /// set power (PWM value) of one LED
+    /// @param aX logical X coordinate
+    /// @param aY logical Y coordinate
+    /// @param aRed set to power of red component, 0..255
+    /// @param aGreen set to power of green component, 0..255
+    /// @param aBlue set to power of blue component, 0..255
+    /// @param aWhite set to power of separate white component for RGBW LEDs, 0..255
+    void getPowerXY(uint16_t aX, uint16_t aY, uint8_t &aRed, uint8_t &aGreen, uint8_t &aBlue, uint8_t &aWhite);
 
     /// @return number of active LEDs in the chain (that are active, i.e. minus inactiveStartLeds/inactiveBetweenLeds/inactiveEndLeds)
     uint16_t getNumLeds();
@@ -247,12 +282,21 @@ namespace p44 {
 
     uint16_t ledIndexFromXY(uint16_t aX, uint16_t aY);
 
+    /// set power at raw LED index with no mapping calculations in between
+    void setPowerAtLedIndex(uint16_t aLedIndex, uint8_t aRed, uint8_t aGreen, uint8_t aBlue, uint8_t aWhite);
+
+    /// get power at raw LED index with no mapping calculations in between
+    void getPowerAtLedIndex(uint16_t aLedIndex, uint8_t &aRed, uint8_t &aGreen, uint8_t &aBlue, uint8_t &aWhite);
+
+    #if LEDCHAIN_LEGACY_API
+
     /// set color at raw LED index with no mapping calculations in between
     void setColorAtLedIndex(uint16_t aLedIndex, uint8_t aRed, uint8_t aGreen, uint8_t aBlue, uint8_t aWhite);
 
     /// set color from raw LED index with no mapping calculations in between
     void getColorAtLedIndex(uint16_t aLedIndex, uint8_t &aRed, uint8_t &aGreen, uint8_t &aBlue, uint8_t &aWhite);
 
+    #endif // LEDCHAIN_LEGACY_API
 
   };
 
