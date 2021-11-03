@@ -780,29 +780,29 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "statements", "[scripting]" )
 
   SECTION("custom functions") {
     // Simple function w/o args
-    REQUIRE(s.test(sourcecode|floatingGlobs, "function f42() { return 42; }")->isErr() == false);
+    REQUIRE(s.test(sourcecode|ephemeralSource, "function f42() { return 42; }")->isErr() == false);
     REQUIRE(s.test(scriptbody, "f42()")->doubleValue() == 42);
     REQUIRE(s.test(scriptbody, "f42(7)")->isErr() == true); // no args expected
     // Simple function with one arg
-    REQUIRE(s.test(sourcecode|floatingGlobs, "function f42p(a) { return 42+a; }")->isErr() == false);
+    REQUIRE(s.test(sourcecode|ephemeralSource, "function f42p(a) { return 42+a; }")->isErr() == false);
     REQUIRE(s.test(scriptbody, "f42p()")->isErr() == true); // needs a arg
     REQUIRE(s.test(scriptbody, "f42p(null)")->isErr() == false); // arg may be explicit null
     REQUIRE(s.test(scriptbody, "f42p(null)")->undefined() == true); // null in calculation results in null
     REQUIRE(s.test(scriptbody, "f42p(8)")->doubleValue() == 50);
     REQUIRE(s.test(scriptbody, "f42p(41,4)")->isErr() == true); // too many args
     // Simple function with more than one arg
-    REQUIRE(s.test(sourcecode|floatingGlobs, "function f42pp(a,b) { return 42+a+b; }")->isErr() == false);
+    REQUIRE(s.test(sourcecode|ephemeralSource, "function f42pp(a,b) { return 42+a+b; }")->isErr() == false);
     REQUIRE(s.test(scriptbody, "f42pp()")->isErr() == true); // needs a arg
     REQUIRE(s.test(scriptbody, "f42pp(1)")->isErr() == true); // needs two args
     REQUIRE(s.test(scriptbody, "f42pp(1,2)")->doubleValue() == 45);
     // variadic function
-    REQUIRE(s.test(sourcecode|floatingGlobs, "function m(...) { return 1+ifvalid(arg1,0)+ifvalid(arg2,0)+ifvalid(arg3,0); } return m")->stringValue() == "function");
+    REQUIRE(s.test(sourcecode|ephemeralSource, "function m(...) { return 1+ifvalid(arg1,0)+ifvalid(arg2,0)+ifvalid(arg3,0); } return m")->stringValue() == "function");
     REQUIRE(s.test(scriptbody, "m")->stringValue() == "function");
     REQUIRE(s.test(scriptbody, "m()")->doubleValue() == 1);
     REQUIRE(s.test(scriptbody, "m(1,2,3)")->doubleValue() == 7);
     REQUIRE(s.test(scriptbody, "m(22,33)")->doubleValue() == 56);
     // function with one required and some more optional params
-    REQUIRE(s.test(sourcecode|floatingGlobs, "function m2(a,...) { return a+ifvalid(arg2,0)+ifvalid(arg3,0)+ifvalid(arg4,0); } return m2")->stringValue() == "function");
+    REQUIRE(s.test(sourcecode|ephemeralSource, "function m2(a,...) { return a+ifvalid(arg2,0)+ifvalid(arg3,0)+ifvalid(arg4,0); } return m2")->stringValue() == "function");
     REQUIRE(s.test(scriptbody, "m2")->stringValue() == "function");
     REQUIRE(s.test(scriptbody, "m2()")->isErr() == true);
     REQUIRE(s.test(scriptbody, "m2(42)")->doubleValue() == 42);
@@ -814,7 +814,7 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "statements", "[scripting]" )
     REQUIRE(s.test(scriptbody, "unset m")->isErr() == false);
     REQUIRE(s.test(scriptbody, "m")->isErr() == true); // should be gone
     REQUIRE(s.test(scriptbody, "undeclare()")->isErr() == true); // works only in floatingGlobs mode
-    REQUIRE(s.test(scriptbody|floatingGlobs, "undeclare()")->isErr() == false);
+    REQUIRE(s.test(scriptbody|ephemeralSource, "undeclare()")->isErr() == false);
     REQUIRE(s.test(scriptbody, "m2")->isErr() == true); // should be gone
     REQUIRE(s.test(scriptbody, "f42")->isErr() == true); // should be gone
     REQUIRE(s.test(scriptbody, "f42p")->isErr() == true); // should be gone

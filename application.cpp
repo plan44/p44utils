@@ -212,8 +212,12 @@ string Application::resourcePath(const string aResource, const string aPrefix)
   if (aResource[0]=='/')
     return aResource; // argument is absolute path, use it as-is
   // relative to resource directory
-  if (aResource.substr(0,2)=="./")
+  if (aResource.substr(0,2)=="./" || aResource.substr(0,2)=="+/")
     return mResourcepath + "/" + aResource.substr(2); // omit prefix
+  else if (aResource.substr(0,2)=="=/")
+    return mDatapath + "/" + aResource.substr(2); // make it datapath-relative, w/o prefix 
+  else if (aResource.substr(0,2)=="_/")
+    return tempPath(aResource.substr(2)); // make it temppath-relative, w/o prefix
   else
     return mResourcepath + aPrefix + "/" + aResource; // resource path with prefix
 }
@@ -238,10 +242,19 @@ string Application::dataPath(const string aDataFile, const string aPrefix, bool 
   string p;
   string f = aDataFile;
   if (f.substr(0,2)=="_/") {
+    // _/ uses temp path instead of data path
     f.erase(0,2);
     p = tempPath();
   }
+  else if (f.substr(0,2)=="+/") {
+    // +/ uses resource path instead of data path, but never creates any directories
+    return resourcePath(f);
+  }
   else {
+    // =/ datapath prefix is allowed, but optional
+    if (f.substr(0,2)=="=/") {
+      f.erase(0,2); // just ignore it
+    }
     p = mDatapath;
   }
   if (!aPrefix.empty()) {

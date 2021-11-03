@@ -197,7 +197,7 @@ namespace p44 { namespace P44Script {
     keepvars = 0x20000, ///< keep the local variables already set in the context
     mainthread = 0x40000, ///< if a thread with this flag set terminates, it also terminates all of its siblings
     // compilation modifiers
-    floatingGlobs = 0x100000, ///< global function+handler definitions are kept floating (not deleted when originating source code is changed/deleted)
+    ephemeralSource = 0x100000, ///< threads are kept running and global function+handler definitions are not deleted when originating source code is changed/deleted
     anonymousfunction = 0x200000, ///< compile and run as anonymous function body
   };
   typedef uint32_t EvaluationFlags;
@@ -546,7 +546,7 @@ namespace p44 { namespace P44Script {
     virtual bool originatesFrom(SourceContainerPtr aSource) const { return false; }
 
     /// make ready for deletion, break links that might be parts of retain loops
-    /// @note this is used before freeing a object which originatesFrom() a given source
+    /// @note this is used before freeing a object which originatesFrom() a given source and generally
     virtual void deactivate() {};
 
     /// @return true if this object's definition/declaration is floating, i.e. when it carries its own source code
@@ -875,7 +875,7 @@ namespace p44 { namespace P44Script {
     void clearVars();
 
     /// clear floating globals (only called as inherited from domain)
-    void clearFloatingGlobs();
+    void clearFloating();
 
     /// release all objects stored in this container and other known containers which were defined by aSource
     void releaseObjsFromSource(SourceContainerPtr aSource);
@@ -1031,6 +1031,11 @@ namespace p44 { namespace P44Script {
     /// release all objects stored in this container and other known containers which were defined by aSource
     virtual void releaseObjsFromSource(SourceContainerPtr aSource); // no source-derived permanent objects here
 
+    /// check if context is involved in executing a particular source
+    /// @param aSource source to check
+    /// @return true when this context is involved in executing source from aSource
+    virtual bool isExecutingSource(SourceContainerPtr aSource) { return false; /* base class cannot execute */ }
+
     /// Execute a object
     /// @param aToExecute the object to be executed in this context
     /// @param aEvalFlags evaluation control flags
@@ -1098,13 +1103,15 @@ namespace p44 { namespace P44Script {
 
   protected:
     /// clear floating globals (only called as inherited from domain)
-    void clearFloatingGlobs();
+    void clearFloating();
 
   public:
 
     virtual ~ScriptCodeContext() { deactivate(); } // even if deactivate() is usually called before dtor, make sure it happens even if not
 
     virtual void releaseObjsFromSource(SourceContainerPtr aSource) P44_OVERRIDE;
+
+    virtual bool isExecutingSource(SourceContainerPtr aSource) P44_OVERRIDE;
 
     virtual void deactivate() P44_OVERRIDE { abort(); inherited::deactivate(); }
 
@@ -1144,6 +1151,12 @@ namespace p44 { namespace P44Script {
     /// @return true if any thread was aborted
     virtual bool abort(EvaluationFlags aAbortFlags = stopall, ScriptObjPtr aAbortResult = ScriptObjPtr(), ScriptCodeThreadPtr aExceptThread = ScriptCodeThreadPtr()) P44_OVERRIDE;
 
+    /// abort evaluation of threads originating from aSource
+    /// @param aSource source to check
+    /// @return true if any thread was aborted
+    bool abortThreadsRunningSource(SourceContainerPtr aSource);
+
+
     #if SCRIPTING_JSON_SUPPORT
     /// FIXME: this is a simplistic partial solution to get at least some introspection for debugging purposes.
     ///   Once we have P44Value hierarchy with iterators, this can be done properly
@@ -1182,6 +1195,9 @@ namespace p44 { namespace P44Script {
   public:
 
     virtual ~ScriptMainContext() { deactivate(); } // even if deactivate() is usually called before dtor, make sure it happens even if not
+
+    /// clear functions and handlers that have embedded source (i.e. not linked to a still accessible source)
+    void clearFloating();
 
     virtual void deactivate() P44_OVERRIDE
     {
@@ -1471,6 +1487,13 @@ namespace p44 { namespace P44Script {
     /// @return error in case of syntax errors or other fatal conditions
     ScriptObjPtr syntaxcheck();
 
+    /// reset to state before compilation, i.e. stop all threads running code from this source
+    /// including handlers, undeclare all handlers that were declared by this source
+    /// @param aNoAbort if set, threads will not be aborted, and will possibly keep previous source code alive until
+    ///    all threads have terminated.
+    /// @note running will re-compile and re-declare all handlers
+    void uncompile(bool aNoAbort = false);
+
     /// @return true if empty
     bool empty() const;
 
@@ -1571,9 +1594,6 @@ namespace p44 { namespace P44Script {
 
     ScriptingDomain() : inherited(ScriptingDomainPtr(), ScriptObjPtr()), geoLocationP(NULL), maxBlockTime(DEFAULT_MAX_BLOCK_TIME) {};
 
-    /// clear global functions and handlers that have embedded source (i.e. not linked to a still accessible source)
-    void clearFloatingGlobs();
-
     /// set geolocation to use for functions that refer to location
     void setGeoLocation(GeoLocation* aGeoLocationP) { geoLocationP = aGeoLocationP; };
 
@@ -1659,11 +1679,11 @@ namespace p44 { namespace P44Script {
   protected:
 
     // processing control vars
-    bool aborted; ///< if set, stepLoop must immediately end
-    bool resuming; ///< detector for resume calling itself (synchronous execution)
-    bool resumed; ///< detector for resume calling itself (synchronous execution)
-    EvaluationCB completedCB; ///< called when completed
-    EvaluationFlags evaluationFlags; ///< the evaluation flags in use
+    bool mAborted; ///< if set, stepLoop must immediately end
+    bool mResuming; ///< detector for resume calling itself (synchronous execution)
+    bool mResumed; ///< detector for resume calling itself (synchronous execution)
+    EvaluationCB mCompletedCB; ///< called when completed
+    EvaluationFlags mEvaluationFlags; ///< the evaluation flags in use
 
     /// called by resume to perform next step(s).
     /// @note base class just steps synchronously as long as it can by calling step().
@@ -1728,6 +1748,12 @@ namespace p44 { namespace P44Script {
     ///   just references source code (so it will get deleted when source code goes away)
     ScriptObjPtr captureCode(ScriptObjPtr aCodeContainer);
 
+    /// @return true if running as compiler
+    virtual bool compiling() { return false; }
+
+    /// @return true if compiling declaration
+    bool declaring() { return compiling() && (mEvaluationFlags&sourcecode)!=0; }
+
     /// indicates start of script body (at current src.pos)
     /// @note must cause calling resume()
     virtual void startOfBodyCode();
@@ -1745,18 +1771,18 @@ namespace p44 { namespace P44Script {
     typedef void (SourceProcessor::*StateHandler)(void);
 
     // state that can be pushed
-    SourceCursor src; ///< the scanning position within code
-    SourcePos poppedPos; ///< the position popped from the stack (can be applied to jump back for loops)
-    StateHandler currentState; ///< next state to call
-    ScriptObjPtr result; ///< the current result object
-    ScriptObjPtr olderResult; ///< an older result, e.g. the result popped from stack, or previous lookup in nested member lookups
-    int precedence; ///< encountering a binary operator with smaller precedence will end the expression
-    ScriptOperator pendingOperation; ///< operator
-    ExecutionContextPtr funcCallContext; ///< the context of the currently preparing function call
-    bool skipping; ///< skipping
+    SourceCursor mSrc; ///< the scanning position within code
+    SourcePos mPoppedPos; ///< the position popped from the stack (can be applied to jump back for loops)
+    StateHandler mCurrentState; ///< next state to call
+    ScriptObjPtr mResult; ///< the current result object
+    ScriptObjPtr mOlderResult; ///< an older result, e.g. the result popped from stack, or previous lookup in nested member lookups
+    int mPrecedence; ///< encountering a binary operator with smaller precedence will end the expression
+    ScriptOperator mPendingOperation; ///< operator
+    ExecutionContextPtr mFuncCallContext; ///< the context of the currently preparing function call
+    bool mSkipping; ///< skipping
 
     // other internal state, not pushed
-    string identifier; ///< for processing identifiers
+    string mIdentifier; ///< for processing identifiers
 
     /// Scanner Stack frame
     class StackFrame {
@@ -1788,7 +1814,7 @@ namespace p44 { namespace P44Script {
     };
 
     typedef std::list<StackFrame> StackList;
-    StackList stack; ///< the stack
+    StackList mStack; ///< the stack
 
     /// convenience end of step using current result and checking for errors
     /// @note includes calling resume()
@@ -1796,16 +1822,16 @@ namespace p44 { namespace P44Script {
     virtual void checkAndResume();
 
     /// readability wrapper for setting the next state but NOT YET completing current state's processing
-    inline void setState(StateHandler aNextState) { currentState = aNextState; }
+    inline void setState(StateHandler aNextState) { mCurrentState = aNextState; }
 
     /// convenience functions for transition to a new state, i.e. setting the new state and checkAndResume() or resume() in one step
     /// @param aNextState set the next state
-    inline void checkAndResumeAt(StateHandler aNextState) { currentState = aNextState; checkAndResume(); }
-    inline void resumeAt(StateHandler aNextState) { currentState = aNextState; resume(); }
+    inline void checkAndResumeAt(StateHandler aNextState) { mCurrentState = aNextState; checkAndResume(); }
+    inline void resumeAt(StateHandler aNextState) { mCurrentState = aNextState; resume(); }
 
     /// push the current state
     /// @param aReturnToState the state to return to after pop().
-    /// @param aPushPoppedPos poppedPos will be pushed instead of src.pos
+    /// @param aPushPoppedPos mPoppedPos will be pushed instead of src.pos
     void push(StateHandler aReturnToState, bool aPushPoppedPos = false);
 
     /// return to the last pushed state
@@ -1921,11 +1947,11 @@ namespace p44 { namespace P44Script {
     friend class SourceProcessor;
     friend class ScriptMainContext;
 
-    std::vector<ArgumentDescriptor> arguments;
+    std::vector<ArgumentDescriptor> mArguments;
 
   protected:
-    string name;
-    SourceCursor cursor; ///< reference to the source part from which this object originates from
+    string mName;
+    SourceCursor mCursor; ///< reference to the source part from which this object originates from
 
     /// define argument
     void pushArgumentDefinition(TypeInfo aTypeInfo, const string aArgumentName);
@@ -1933,14 +1959,14 @@ namespace p44 { namespace P44Script {
   public:
     virtual string getAnnotation() const P44_OVERRIDE { return "function"; };
 
-    CompiledCode(const string aName) : name(aName) {};
-    CompiledCode(const string aName, const SourceCursor& aCursor) : name(aName), cursor(aCursor) {};
+    CompiledCode(const string aName) : mName(aName) {};
+    CompiledCode(const string aName, const SourceCursor& aCursor) : mName(aName), mCursor(aCursor) {};
     virtual ~CompiledCode();
     void setCursor(const SourceCursor& aCursor);
     bool codeFromSameSourceAs(const CompiledCode &aCode) const; ///< return true if both compiled codes are from the same source position
-    virtual bool originatesFrom(SourceContainerPtr aSource) const P44_OVERRIDE { return cursor.refersTo(aSource); };
-    virtual bool floating() const P44_OVERRIDE { return cursor.source->floating(); }
-    virtual P44LoggingObj* loggingContext() const P44_OVERRIDE { return cursor.source ? cursor.source->loggingContextP : NULL; };
+    virtual bool originatesFrom(SourceContainerPtr aSource) const P44_OVERRIDE { return mCursor.refersTo(aSource); };
+    virtual bool floating() const P44_OVERRIDE { return mCursor.source->floating(); }
+    virtual P44LoggingObj* loggingContext() const P44_OVERRIDE { return mCursor.source ? mCursor.source->loggingContextP : NULL; };
 
     /// get subroutine context to call this object as a subroutine/function call from a given context
     /// @param aMainContext the context from where this function is now called (the same function can be called
@@ -1954,24 +1980,26 @@ namespace p44 { namespace P44Script {
     virtual bool argumentInfo(size_t aIndex, ArgumentDescriptor& aArgDesc) const P44_OVERRIDE;
 
     /// get identifier (name) of this function object
-    virtual string getIdentifier() const P44_OVERRIDE { return name; };
+    virtual string getIdentifier() const P44_OVERRIDE { return mName; };
 
 
   };
 
 
-  /// compiled main script
+  /// compiled main script, using a specific main context to run in
   class CompiledScript : public CompiledCode
   {
     typedef CompiledCode inherited;
     friend class ScriptCompiler;
 
   protected:
-    ScriptMainContextPtr mainContext; ///< the main context this script should execute in
+    ScriptMainContextPtr mMainContext; ///< the main context this script should execute in
 
   public:
-    CompiledScript(const string aName, ScriptMainContextPtr aMainContext) : inherited(aName), mainContext(aMainContext) {};
-    CompiledScript(const string aName, ScriptMainContextPtr aMainContext, const SourceCursor& aCursor) : inherited(aName, aCursor), mainContext(aMainContext) {};
+    CompiledScript(const string aName, ScriptMainContextPtr aMainContext) : inherited(aName), mMainContext(aMainContext) {};
+    CompiledScript(const string aName, ScriptMainContextPtr aMainContext, const SourceCursor& aCursor) : inherited(aName, aCursor), mMainContext(aMainContext) {};
+
+    virtual void deactivate() P44_OVERRIDE;
 
     /// get new main routine context for running this object as a main script or expression
     /// @param aMainContext the context from where a script is "called" is always the domain.
@@ -2177,6 +2205,9 @@ namespace p44 { namespace P44Script {
 
     #endif // P44SCRIPT_FULL_SUPPORT
 
+    /// @return true if running as compiler
+    virtual bool compiling() P44_OVERRIDE { return true; }
+
     /// indicates end of declarations
     /// @note must cause calling resume()
     virtual void startOfBodyCode() P44_OVERRIDE;
@@ -2231,6 +2262,8 @@ namespace p44 { namespace P44Script {
 
     virtual ~ScriptCodeThread();
 
+    virtual void deactivate();
+
     /// logging context to use
     virtual P44LoggingObj* loggingContext() P44_OVERRIDE;
 
@@ -2264,6 +2297,10 @@ namespace p44 { namespace P44Script {
     /// request aborting the current thread, including child context
     /// @param aAbortResult if set, this is what abort will report back
     virtual void abort(ScriptObjPtr aAbortResult = ScriptObjPtr()) P44_OVERRIDE;
+
+    /// @param aSource source to check
+    /// @return true when thread (or any subthread) is executing source code from aSource
+    bool isExecutingSource(SourceContainerPtr aSource);
 
     /// abort all threads in the same context execpt this one
     /// @param aAbortResult if set, this is what abort will report back
@@ -2523,7 +2560,7 @@ namespace p44 { namespace P44Script {
     ScriptCodeThreadPtr thread() { return mThread; }
 
     /// @return the evaluation flags of the current evaluation
-    EvaluationFlags evalFlags() { return mThread ? mThread->evaluationFlags : (EvaluationFlags)regular; }
+    EvaluationFlags evalFlags() { return mThread ? mThread->mEvaluationFlags : (EvaluationFlags)regular; }
 
     /// @return the trigger object if this function is executing as part of a trigger expression
     CompiledTrigger* trigger() { return mThread ? dynamic_cast<CompiledTrigger *>(mThread->mCodeObj.get()) : NULL; }

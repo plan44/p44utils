@@ -16,7 +16,7 @@
  *         provided with the distribution.
  *     3.  Neither the name of the owner nor the names of its contributors may be used to endorse
  *         or promote products derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER BE
@@ -31,6 +31,7 @@
 #ifndef __PCM_H__
 #define __PCM_H__
 
+#include <stdint.h>
 
 /*
  *
@@ -38,11 +39,11 @@
  *
  * GPIO   ALT PCM_CLK   ALT PCM-FS   ALT PCM_DIN   ALT PCM_DOUT
  *
- *  18        0             
+ *  18        0
  *  19                      0
  *  20                                   0
  *  21                                                 0
- *  28        2 
+ *  28        2
  *  29                      2
  *  30                                   2
  *  31                                                 2

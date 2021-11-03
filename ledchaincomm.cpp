@@ -329,7 +329,7 @@ void LEDChainComm::clear()
   if (chainDriver) {
     // this is just a secondary mapping on a primary chain: clear only the actually mapped LEDs
     for (uint16_t led = inactiveStartLeds; led<numLeds-inactiveEndLeds; led++) {
-      chainDriver->setColor(led, 0, 0, 0, 0);
+      chainDriver->setPower(led, 0, 0, 0, 0);
     }
   }
   else {
@@ -393,76 +393,97 @@ void LEDChainComm::show()
 }
 
 
+#if LEDCHAIN_LEGACY_API
+
 void LEDChainComm::setColorAtLedIndex(uint16_t aLedIndex, uint8_t aRed, uint8_t aGreen, uint8_t aBlue, uint8_t aWhite)
+{
+  // get power (PWM values)
+  uint8_t r = pwmtable[aRed];
+  uint8_t g = pwmtable[aGreen];
+  uint8_t b = pwmtable[aBlue];
+  uint8_t w = pwmtable[aWhite];
+  setPowerAtLedIndex(aLedIndex, r, g, b, w);
+}
+
+
+void LEDChainComm::getColorAtLedIndex(uint16_t aLedIndex, uint8_t &aRed, uint8_t &aGreen, uint8_t &aBlue, uint8_t &aWhite)
+{
+  uint8_t r,g,b,w;
+  getPowerAtLedIndex(aLedIndex, r, g, b, w);
+  aRed = brightnesstable[r];
+  aGreen = brightnesstable[g];
+  aBlue = brightnesstable[b];
+  aWhite = brightnesstable[w];
+}
+
+#endif // LEDCHAIN_LEGACY_API
+
+
+void LEDChainComm::setPowerAtLedIndex(uint16_t aLedIndex, uint8_t aRed, uint8_t aGreen, uint8_t aBlue, uint8_t aWhite)
 {
   if (chainDriver) {
     // delegate actual output
-    chainDriver->setColorAtLedIndex(aLedIndex, aRed, aGreen, aBlue, aWhite);
+    chainDriver->setPowerAtLedIndex(aLedIndex, aRed, aGreen, aBlue, aWhite);
   }
   else {
     // local driver, store change in my own LED buffer
     if (aLedIndex>=numLeds) return;
-    // get power (PWM values)
-    uint8_t r = pwmtable[aRed];
-    uint8_t g = pwmtable[aGreen];
-    uint8_t b = pwmtable[aBlue];
-    uint8_t w = pwmtable[aWhite];
     #ifdef ESP_PLATFORM
     if (!pixels) return;
-    pixels[aLedIndex] = esp_ws281x_makeRGBVal(r, g, b, w);
+    pixels[aLedIndex] = esp_ws281x_makeRGBVal(aRed, aGreen, aBlue, aWhite);
     #elif ENABLE_RPIWS281X
     ws2811_led_t pixel =
-      ((uint32_t)r << 16) |
-      ((uint32_t)g << 8) |
-      ((uint32_t)b);
+      ((uint32_t)aRed << 16) |
+      ((uint32_t)aGreen << 8) |
+      ((uint32_t)aBlue);
     if (numColorComponents>3) {
-      pixel |= ((uint32_t)w << 24);
+      pixel |= ((uint32_t)aWhite << 24);
     }
     ledstring.channel[0].leds[aLedIndex] = pixel;
     #else
-    ledBuffer[numColorComponents*aLedIndex] = r;
-    ledBuffer[numColorComponents*aLedIndex+1] = g;
-    ledBuffer[numColorComponents*aLedIndex+2] = b;
+    ledBuffer[numColorComponents*aLedIndex] = aRed;
+    ledBuffer[numColorComponents*aLedIndex+1] = aGreen;
+    ledBuffer[numColorComponents*aLedIndex+2] = aBlue;
     if (numColorComponents>3) {
-      ledBuffer[numColorComponents*aLedIndex+3] = w;
+      ledBuffer[numColorComponents*aLedIndex+3] = aWhite;
     }
     #endif
   }
 }
 
 
-void LEDChainComm::getColorAtLedIndex(uint16_t aLedIndex, uint8_t &aRed, uint8_t &aGreen, uint8_t &aBlue, uint8_t &aWhite)
+void LEDChainComm::getPowerAtLedIndex(uint16_t aLedIndex, uint8_t &aRed, uint8_t &aGreen, uint8_t &aBlue, uint8_t &aWhite)
 {
   if (chainDriver) {
     // delegate actual output
-    chainDriver->getColorAtLedIndex(aLedIndex, aRed, aGreen, aBlue, aWhite);
+    chainDriver->getPowerAtLedIndex(aLedIndex, aRed, aGreen, aBlue, aWhite);
   }
   else {
     if (aLedIndex>=numLeds) return;
     #ifdef ESP_PLATFORM
     if (!pixels) return;
     Esp_ws281x_pixel &pixel = pixels[aLedIndex];
-    aRed = brightnesstable[pixel.r];
-    aGreen = brightnesstable[pixel.g];
-    aBlue = brightnesstable[pixel.b];
-    aWhite = brightnesstable[pixel.w];
+    aRed = pixel.r;
+    aGreen = pixel.g;
+    aBlue = pixel.b;
+    aWhite = pixel.w;
     #elif ENABLE_RPIWS281X
     ws2811_led_t pixel = ledstring.channel[0].leds[aLedIndex];
-    aRed = brightnesstable[(pixel>>16) & 0xFF];
-    aGreen = brightnesstable[(pixel>>8) & 0xFF];
-    aBlue = brightnesstable[pixel & 0xFF];
+    aRed = (pixel>>16) & 0xFF;
+    aGreen = (pixel>>8) & 0xFF;
+    aBlue = pixel & 0xFF;
     if (numColorComponents>3) {
-      aWhite = brightnesstable[(pixel>>24) & 0xFF];
+      aWhite = (pixel>>24) & 0xFF;
     }
     else {
       aWhite = 0;
     }
     #else
-    aRed = brightnesstable[ledBuffer[numColorComponents*aLedIndex]];
-    aGreen = brightnesstable[ledBuffer[numColorComponents*aLedIndex+1]];
-    aBlue = brightnesstable[ledBuffer[numColorComponents*aLedIndex+2]];
+    aRed = ledBuffer[numColorComponents*aLedIndex];
+    aGreen = ledBuffer[numColorComponents*aLedIndex+1];
+    aBlue = ledBuffer[numColorComponents*aLedIndex+2];
     if (numColorComponents>3) {
-      aWhite = brightnesstable[ledBuffer[numColorComponents*aLedIndex+3]];
+      aWhite = ledBuffer[numColorComponents*aLedIndex+3];
     }
     else {
       aWhite = 0;
@@ -523,6 +544,8 @@ uint16_t LEDChainComm::ledIndexFromXY(uint16_t aX, uint16_t aY)
 }
 
 
+#if LEDCHAIN_LEGACY_API
+
 void LEDChainComm::setColorXY(uint16_t aX, uint16_t aY, uint8_t aRed, uint8_t aGreen, uint8_t aBlue, uint8_t aWhite)
 {
   uint16_t ledindex = ledIndexFromXY(aX,aY);
@@ -566,6 +589,32 @@ void LEDChainComm::getColorXY(uint16_t aX, uint16_t aY, uint8_t &aRed, uint8_t &
   uint16_t ledindex = ledIndexFromXY(aX,aY);
   getColorAtLedIndex(ledindex, aRed, aGreen, aBlue, aWhite);
 }
+
+#endif // LEDCHAIN_LEGACY_API
+
+
+void LEDChainComm::setPowerXY(uint16_t aX, uint16_t aY, uint8_t aRed, uint8_t aGreen, uint8_t aBlue, uint8_t aWhite)
+{
+  uint16_t ledindex = ledIndexFromXY(aX,aY);
+  setPowerAtLedIndex(ledindex, aRed, aGreen, aBlue, aWhite);
+}
+
+
+void LEDChainComm::setPower(uint16_t aLedNumber, uint8_t aRed, uint8_t aGreen, uint8_t aBlue, uint8_t aWhite)
+{
+  int y = aLedNumber / getSizeX();
+  int x = aLedNumber % getSizeX();
+  setPowerXY(x, y, aRed, aGreen, aBlue, aWhite);
+}
+
+
+void LEDChainComm::getPowerXY(uint16_t aX, uint16_t aY, uint8_t &aRed, uint8_t &aGreen, uint8_t &aBlue, uint8_t &aWhite)
+{
+  uint16_t ledindex = ledIndexFromXY(aX,aY);
+  getPowerAtLedIndex(ledindex, aRed, aGreen, aBlue, aWhite);
+}
+
+
 
 
 #if ENABLE_P44LRGRAPHICS
@@ -920,34 +969,40 @@ MLMicroSeconds LEDChainArrangement::updateDisplay()
                     double r = (double)pix.r/255;
                     double g = (double)pix.g/255;
                     double b = (double)pix.b/255;
-                    // we can integrate powerdim while scaling up from 0..1 to 0..255
-                    int f = powerDim>0 ? powerDim : 255;
+                    int f = 255;
                     w = p44::transferToColor(l.ledChain->mLEDWhite, r, g, b)*f;
                     pix.r = r*f;
                     pix.g = g*f;
                     pix.b = b*f;
                   }
+                  // transfer to power
+                  uint8_t Pr, Pg, Pb, Pw;
+                  if (powerDim) {
+                    Pr = dimVal(pwmtable[pix.r], powerDim);
+                    Pg = dimVal(pwmtable[pix.g], powerDim);
+                    Pb = dimVal(pwmtable[pix.b], powerDim);
+                    Pw = dimVal(pwmtable[w], powerDim);
+                  }
                   else {
-                    // just RGB pixel, dim down if power limit is active
-                    if (powerDim) {
-                      // limit
-                      dimPixel(pix, powerDim);
-                    }
+                    Pr = pwmtable[pix.r];
+                    Pg = pwmtable[pix.g];
+                    Pb = pwmtable[pix.b];
+                    Pw = pwmtable[w];
                   }
                   // measure
-                  lightPower += pwmtable[pix.r]+pwmtable[pix.g]+pwmtable[pix.b]+pwmtable[w];
+                  lightPower += Pr+Pg+Pb+Pw;
                   // limit to max output value
                   if (mMaxOutValue<255) {
-                    if (pix.r>mMaxOutValue) pix.r = mMaxOutValue;
-                    if (pix.g>mMaxOutValue) pix.g = mMaxOutValue;
-                    if (pix.b>mMaxOutValue) pix.b = mMaxOutValue;
-                    if (w>mMaxOutValue) w = mMaxOutValue;
+                    if (Pr>mMaxOutValue) Pr = mMaxOutValue;
+                    if (Pg>mMaxOutValue) Pg = mMaxOutValue;
+                    if (Pb>mMaxOutValue) Pb = mMaxOutValue;
+                    if (Pw>mMaxOutValue) Pw = mMaxOutValue;
                   }
                   // set pixel in chain
-                  l.ledChain->setColorXY(
+                  l.ledChain->setPowerXY(
                     l.offset.x+x,
                     l.offset.y+y,
-                    pix.r, pix.g, pix.b, w
+                    Pr, Pg, Pb, Pw
                   );
                 }
               }
@@ -959,7 +1014,7 @@ MLMicroSeconds LEDChainArrangement::updateDisplay()
             }
             // check if we need power limiting
             if (mPowerLimit && lightPower>mPowerLimit && powerDim==0) {
-              powerDim = brightnesstable[(uint32_t)255*mPowerLimit/lightPower];
+              powerDim = (uint32_t)255*mPowerLimit/lightPower;
               if (!mPowerLimited) {
                 mPowerLimited = true;
                 OLOG(LOG_INFO, "!!! LED power (%d) exceeds limit (%d) -> re-run dimmed to (%d%%)", lightPower, mPowerLimit, powerDim*100/255);
