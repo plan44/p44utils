@@ -55,7 +55,7 @@
   #include "p44script.hpp"
 #endif
 
-
+#define MODBUS_RTU_DEFAULT_PARAMS "9600,8,N,1" // [baud rate][,[bits][,[parity][,[stopbits][,[H]]]]]
 
 
 using namespace std;
@@ -130,6 +130,7 @@ namespace p44 {
     /// @param aTransmitEnableSpec optional specification of a DigitalIo used to enable/disable the RS485 transmit driver.
     ///    If set to NULL or "RTS", the RTS line enables the RS485 drivers.
     ///    If set to "RS232", the connection is a plain two-point serial connection
+    ///    If set to "*" no digitalIO is created, but one must be set by assigning modbusTxEnable member directly
     /// @param aTxDisableDelay if>0, time delay in uS before disabling Tx driver after sending
     /// @param aReceiveEnableSpec optional specification of a DigitalIo used to enable the RS485 receive input (to silence echos)
     /// @param aByteTimeNs if>0, byte time in nanoseconds, in case UART does not have precise baud rate
@@ -146,6 +147,16 @@ namespace p44 {
       modbus_error_recovery_mode aRecoveryMode = MODBUS_ERROR_RECOVERY_NONE
     );
 
+    /// set byte time (might be needed for inprecise UART baudrates to get tx disable time right)
+    /// @param aByteTimeNs number of nanoseconds needed to send one byte
+    /// @return null or error
+    ErrorPtr setByteTimeNs(int aByteTimeNs);
+
+    /// set the modbus recovery mode
+    /// @param aRecoveryMode the recovery mode to use
+    /// @return null or error
+    ErrorPtr setRecoveryMode(modbus_error_recovery_mode aRecoveryMode);
+
     /// set the slave address (when RTU endpoints are involved)
     /// @param aSlaveAddress the slave address
     /// @note in master mode, this specifies the slave to connect to (or all when set to MODBUS_BROADCAST_ADDRESS).
@@ -159,7 +170,7 @@ namespace p44 {
     bool isBroadCast() { return slaveAddress == MODBUS_BROADCAST_ADDRESS; };
 
     /// enable accepting connections (TCP only)
-    /// @param aAccept true if TCP servere
+    /// @param aAccept true if TCP server
     void acceptConnections(bool aAccept) { doAcceptConnections = aAccept; };
 
     /// open the connection
@@ -255,6 +266,7 @@ namespace p44 {
     DigitalIoPtr modbusRxEnable; ///< if set, this I/O is used to enable receiving
 
   };
+  typedef boost::intrusive_ptr<ModbusConnection> ModbusConnectionPtr;
 
 
   class ModbusFileHandler;
@@ -848,6 +860,15 @@ namespace p44 {
       virtual string getAnnotation() const P44_OVERRIDE { return "modbus master"; };
       ModbusMasterPtr modbus() { return mModbus; }
     };
+
+    /// represents the global objects related to Modbus
+    class ModbusLookup : public BuiltInMemberLookup
+    {
+      typedef BuiltInMemberLookup inherited;
+    public:
+      ModbusLookup();
+    };
+
 
   }
   #endif // ENABLE_MODBUS_SCRIPT_FUNCS

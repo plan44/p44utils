@@ -134,8 +134,8 @@ ErrorPtr ModbusConnection::setConnectionSpecification(
     bool rs232 = aTransmitEnableSpec && strcasecmp("RS232", aTransmitEnableSpec)==0;
     if (!rs232) {
       if (aTransmitEnableSpec!=NULL && *aTransmitEnableSpec!=0 && strcasecmp("RTS", aTransmitEnableSpec)!=0) {
-        // not using native RTS, but digital IO specification
-        modbusTxEnable = DigitalIoPtr(new DigitalIo(aTransmitEnableSpec, true, false));
+        // not using native RTS, but digital IO specification (or * as placeholder for pinspec to be set separately with setDriverEnablePins())
+        if (strcmp(aTransmitEnableSpec,"*")!=0) modbusTxEnable = DigitalIoPtr(new DigitalIo(aTransmitEnableSpec, true, false));
       }
       if (aReceiveEnableSpec) {
         modbusRxEnable = DigitalIoPtr(new DigitalIo(aReceiveEnableSpec, true, true));
@@ -157,8 +157,7 @@ ErrorPtr ModbusConnection::setConnectionSpecification(
       }
       else {
         if (aByteTimeNs>0) {
-          LOG(LOG_DEBUG, "Setting explicit byte time: %d nS, calculated value is %d nS", aByteTimeNs, modbus_rtu_get_byte_time(modbus));
-          modbus_rtu_set_byte_time(modbus, (int)aByteTimeNs);
+          setByteTimeNs(aByteTimeNs);
         }
         if (rs232) {
           if (modbus_rtu_set_serial_mode(modbus, MODBUS_RTU_RS232)<0) mberr = errno;
@@ -202,6 +201,25 @@ ErrorPtr ModbusConnection::setConnectionSpecification(
   }
   return err;
 }
+
+
+ErrorPtr ModbusConnection::setByteTimeNs(int aByteTimeNs)
+{
+  ErrorPtr err;
+  LOG(LOG_DEBUG, "Setting explicit byte time: %d nS, calculated value is %d nS", aByteTimeNs, modbus_rtu_get_byte_time(modbus));
+  if (modbus_rtu_set_byte_time(modbus, (int)aByteTimeNs)) err = ModBusError::err<ModBusError>(errno);
+  return err;
+}
+
+
+ErrorPtr ModbusConnection::setRecoveryMode(modbus_error_recovery_mode aRecoveryMode)
+{
+  ErrorPtr err;
+  if (modbus_set_error_recovery(modbus, aRecoveryMode)) err = ModBusError::err<ModBusError>(errno);
+  return err;
+}
+
+
 
 
 void ModbusConnection::mbContextReady()
@@ -268,7 +286,7 @@ ErrorPtr ModbusConnection::connect(bool aAutoFlush)
         if (aAutoFlush) {
           flush(); // flush garbage possibly already in communication device buffers
         }
-        startServing(); // start serving in case this is a Modbus server
+        startServing(); // start serving in case this is a Modbus slave
         connected = true;
       }
     }
@@ -2058,6 +2076,161 @@ bool ModbusFileHandler::fileIntegrityOK()
 
 #if ENABLE_MODBUS_SCRIPT_FUNCS
 
+// MARK: - modbus connection scripting
+
+// bytetime(byte_time_in_seconds)
+static const BuiltInArgDesc bytetime_args[] = { { numeric } };
+static const size_t bytetime_numargs = sizeof(bytetime_args)/sizeof(BuiltInArgDesc);
+static void bytetime_func(ModbusConnectionPtr aModbusConnection, BuiltinFunctionContextPtr f)
+{
+  int bytetime = f->arg(0)->doubleValue()*1E9;
+  f->finish(ErrorValue::trueOrError(aModbusConnection->setByteTimeNs(bytetime)));
+}
+static void m_bytetime_func(BuiltinFunctionContextPtr f)
+{
+  ModbusMasterObj* o = dynamic_cast<ModbusMasterObj*>(f->thisObj().get());
+  bytetime_func(o->modbus(), f);
+}
+static void s_bytetime_func(BuiltinFunctionContextPtr f)
+{
+  ModbusSlaveObj* o = dynamic_cast<ModbusSlaveObj*>(f->thisObj().get());
+  bytetime_func(o->modbus(), f);
+}
+
+
+// recoverymode(link, protocol)
+static const BuiltInArgDesc recoverymode_args[] = { { numeric|optionalarg }, { numeric|optionalarg } };
+static const size_t recoverymode_numargs = sizeof(recoverymode_args)/sizeof(BuiltInArgDesc);
+static void recoverymode_func(ModbusConnectionPtr aModbusConnection, BuiltinFunctionContextPtr f)
+{
+  int rmod = MODBUS_ERROR_RECOVERY_NONE;
+  if (f->arg(0)->boolValue()) rmod |= MODBUS_ERROR_RECOVERY_LINK;
+  if (f->arg(1)->boolValue()) rmod |= MODBUS_ERROR_RECOVERY_PROTOCOL;
+  f->finish(ErrorValue::trueOrError(aModbusConnection->setRecoveryMode((modbus_error_recovery_mode)rmod)));
+}
+static void m_recoverymode_func(BuiltinFunctionContextPtr f)
+{
+  ModbusMasterObj* o = dynamic_cast<ModbusMasterObj*>(f->thisObj().get());
+  recoverymode_func(o->modbus(), f);
+}
+static void s_recoverymode_func(BuiltinFunctionContextPtr f)
+{
+  ModbusSlaveObj* o = dynamic_cast<ModbusSlaveObj*>(f->thisObj().get());
+  recoverymode_func(o->modbus(), f);
+}
+
+
+// debug(enable)
+static const BuiltInArgDesc debug_args[] = { { numeric } };
+static const size_t debug_numargs = sizeof(debug_args)/sizeof(BuiltInArgDesc);
+static void debug_func(ModbusConnectionPtr aModbusConnection, BuiltinFunctionContextPtr f)
+{
+  aModbusConnection->setDebug(f->arg(0)->boolValue());
+  f->finish();
+}
+static void m_debug_func(BuiltinFunctionContextPtr f)
+{
+  ModbusMasterObj* o = dynamic_cast<ModbusMasterObj*>(f->thisObj().get());
+  debug_func(o->modbus(), f);
+}
+static void s_debug_func(BuiltinFunctionContextPtr f)
+{
+  ModbusSlaveObj* o = dynamic_cast<ModbusSlaveObj*>(f->thisObj().get());
+  debug_func(o->modbus(), f);
+}
+
+
+
+// connection(connectionspec [, txenablepin|RS232|RTS [, rxenablepin, [, txdisabledelay]])
+static const BuiltInArgDesc connection_args[] = { { text }, { text|object|optionalarg }, { text|object|optionalarg } };
+static const size_t connection_numargs = sizeof(connection_args)/sizeof(BuiltInArgDesc);
+static void connection_func(ModbusConnectionPtr aModbusConnection, BuiltinFunctionContextPtr f)
+{
+  const char* txspecP = NULL;
+  if (dynamic_cast<DigitalIoObj*>(f->arg(1).get())==NULL) {
+    // not a pin
+    string txspec = f->arg(1)->stringValue();
+    if (txspec=="RS232" || txspec=="RTS") {
+      txspecP = txspec.c_str(); // pass through
+    }
+    else {
+      txspecP = "*"; // placeholder for pin set later
+    }
+  }
+  else {
+    // pre-existing pin object, will be set later
+    txspecP = "*"; // placeholder for pin set later
+  }
+  // create basic connection
+  MLMicroSeconds txdisabledelay = Never;
+  if (f->arg(3)->defined()) txdisabledelay = f->arg(3)->doubleValue()*Second;
+  ErrorPtr err = aModbusConnection->setConnectionSpecification(
+    f->arg(0)->stringValue().c_str(),
+    MODBUS_TCP_DEFAULT_PORT,
+    MODBUS_RTU_DEFAULT_PARAMS,
+    txspecP,
+    txdisabledelay,
+    NULL
+  );
+  if (Error::isOK(err)) {
+    // set the pins
+    aModbusConnection->modbusTxEnable = DigitalIoObj::digitalIoFromArg(f->arg(1), true, false);
+    aModbusConnection->modbusRxEnable = DigitalIoObj::digitalIoFromArg(f->arg(2), true, false);
+  }
+  f->finish(ErrorValue::trueOrError(err));
+}
+static void m_connection_func(BuiltinFunctionContextPtr f)
+{
+  ModbusMasterObj* o = dynamic_cast<ModbusMasterObj*>(f->thisObj().get());
+  connection_func(o->modbus(), f);
+}
+static void s_connection_func(BuiltinFunctionContextPtr f)
+{
+  ModbusSlaveObj* o = dynamic_cast<ModbusSlaveObj*>(f->thisObj().get());
+  connection_func(o->modbus(), f);
+}
+
+
+// connect([autoflush])
+static const BuiltInArgDesc connect_args[] = { { numeric|optionalarg } };
+static const size_t connect_numargs = sizeof(connect_args)/sizeof(BuiltInArgDesc);
+static void connect_func(ModbusConnectionPtr aModbusConnection, BuiltinFunctionContextPtr f)
+{
+  f->finish(ErrorValue::trueOrError(aModbusConnection->connect(f->arg(0)->boolValue())));
+}
+static void m_connect_func(BuiltinFunctionContextPtr f)
+{
+  ModbusMasterObj* o = dynamic_cast<ModbusMasterObj*>(f->thisObj().get());
+  connect_func(o->modbus(), f);
+}
+static void s_connect_func(BuiltinFunctionContextPtr f)
+{
+  ModbusSlaveObj* o = dynamic_cast<ModbusSlaveObj*>(f->thisObj().get());
+  connect_func(o->modbus(), f);
+}
+
+
+// close()
+static void close_func(ModbusConnectionPtr aModbusConnection, BuiltinFunctionContextPtr f)
+{
+  aModbusConnection->close();
+  f->finish();
+}
+static void m_close_func(BuiltinFunctionContextPtr f)
+{
+  ModbusMasterObj* o = dynamic_cast<ModbusMasterObj*>(f->thisObj().get());
+  close_func(o->modbus(), f);
+}
+static void s_close_func(BuiltinFunctionContextPtr f)
+{
+  ModbusSlaveObj* o = dynamic_cast<ModbusSlaveObj*>(f->thisObj().get());
+  close_func(o->modbus(), f);
+}
+
+
+
+
+
 // MARK: - modbus slave scripting
 
 ModbusSlaveObjPtr ModbusSlave::representingScriptObj()
@@ -2155,21 +2328,98 @@ static void access_func(BuiltinFunctionContextPtr f)
 }
 
 
+// slaveaddress([slave_address])
+static const BuiltInArgDesc slaveaddress_args[] = { { numeric|optionalarg } };
+static const size_t slaveaddress_numargs = sizeof(slaveaddress_args)/sizeof(BuiltInArgDesc);
+static void slaveaddress_func(BuiltinFunctionContextPtr f)
+{
+  ModbusSlaveObj* o = dynamic_cast<ModbusSlaveObj*>(f->thisObj().get());
+  assert(o);
+  if (f->arg(0)->defined()) {
+    o->modbus()->setSlaveAddress(f->arg(0)->intValue());
+  }
+  f->finish(new NumericValue(o->modbus()->getSlaveAddress()));
+}
+
+
+// slaveid(slave_id_string)
+static const BuiltInArgDesc slaveid_args[] = { { text } };
+static const size_t slaveid_numargs = sizeof(slaveid_args)/sizeof(BuiltInArgDesc);
+static void slaveid_func(BuiltinFunctionContextPtr f)
+{
+  ModbusSlaveObj* o = dynamic_cast<ModbusSlaveObj*>(f->thisObj().get());
+  assert(o);
+  o->modbus()->setSlaveId(f->arg(0)->stringValue());
+  f->finish();
+}
+
+
+// setmodel(registermodel_json)
+//   { "coils" : { "first":100, "num":10 }, "registers":{ "first":100, "num":20 } }
+static const BuiltInArgDesc setmodel_args[] = { { json|object } };
+static const size_t setmodel_numargs = sizeof(setmodel_args)/sizeof(BuiltInArgDesc);
+static void setmodel_func(BuiltinFunctionContextPtr f)
+{
+  ModbusSlaveObj* o = dynamic_cast<ModbusSlaveObj*>(f->thisObj().get());
+  assert(o);
+  struct {
+    int first;
+    int num;
+  } regdef[4];
+  const char* types[4] = { "coils", "bits", "registers", "inputs" };
+  JsonObjectPtr j = f->arg(0)->jsonValue();
+  ErrorPtr err;
+  if (j) {
+    for (int k=0; k<4; k++) {
+      regdef[k].first = 1;
+      regdef[k].num = 0;
+      JsonObjectPtr rd = j->get(types[k]);
+      if (rd) {
+        JsonObjectPtr o;
+        if (rd->get("first", o)) {
+          regdef[k].first = o->int32Value();
+          regdef[k].num = 1; // default to one
+        }
+        if (rd->get("num", o)) regdef[k].num = o->int32Value();
+      }
+    }
+  }
+  err = o->modbus()->setRegisterModel(
+    regdef[0].first, regdef[0].num,
+    regdef[1].first, regdef[1].num,
+    regdef[2].first, regdef[2].num,
+    regdef[3].first, regdef[3].num
+  );
+  f->finish(ErrorValue::trueOrError(err));
+}
+
+
 // master()
-static void slave_master_func(BuiltinFunctionContextPtr f)
+static void s_ismaster_func(BuiltinFunctionContextPtr f)
 {
   f->finish(new NumericValue(false));
 }
 
 
 static const BuiltinMemberDescriptor modbusSlaveMembers[] = {
-  { "master", executable|numeric, 0, NULL, &slave_master_func },
+  { "master", executable|numeric, 0, NULL, &s_ismaster_func },  // for applevel predefined master or slave mode, this is to check which type we have
+  // common
+  { "connection", executable|object, connection_numargs, connection_args, &s_connection_func },
+  { "bytetime", executable|object, bytetime_numargs, bytetime_args, &s_bytetime_func },
+  { "recoverymode", executable|object, recoverymode_numargs, recoverymode_args, &s_recoverymode_func },
+  { "debug", executable|object, debug_numargs, debug_args, &s_debug_func },
+  { "connect", executable|null, connect_numargs, connect_args, &s_connect_func },
+  { "close", executable|null, 0, NULL, &s_close_func },
+  // slave only
   { "setreg", executable|null, set_numargs, set_args, &setreg_func },
   { "setbit", executable|null, set_numargs, set_args, &setbit_func },
   { "getreg", executable|null, get_numargs, get_args, &getreg_func },
   { "getsreg", executable|null, get_numargs, get_args, &getsreg_func },
   { "getbit", executable|null, get_numargs, get_args, &getbit_func },
   { "access", executable|text|null, 0, NULL, &access_func },
+  { "slaveaddress", executable|numeric, slaveaddress_numargs, slaveaddress_args, &slaveaddress_func },
+  { "slaveid", executable|null, slaveid_numargs, slaveid_args, &slaveid_func },
+  { "setmodel", executable|null, setmodel_numargs, setmodel_args, &setmodel_func },
   { NULL } // terminator
 };
 
@@ -2328,14 +2578,22 @@ static void findslaves_func(BuiltinFunctionContextPtr f)
 
 
 // master()
-static void master_master_func(BuiltinFunctionContextPtr f)
+static void m_ismaster_func(BuiltinFunctionContextPtr f)
 {
   f->finish(new NumericValue(true));
 }
 
 
 static const BuiltinMemberDescriptor modbusMasterMembers[] = {
-  { "master", executable|numeric, 0, NULL, &master_master_func },
+  { "master", executable|numeric, 0, NULL, &m_ismaster_func }, // for applevel predefined master or slave mode, this is to check which type we have
+  // common
+  { "connection", executable|object, connection_numargs, connection_args, &m_connection_func },
+  { "bytetime", executable|object, bytetime_numargs, bytetime_args, &m_bytetime_func },
+  { "recoverymode", executable|object, recoverymode_numargs, recoverymode_args, &m_recoverymode_func },
+  { "debug", executable|object, debug_numargs, debug_args, &m_debug_func },
+  { "connect", executable|null, connect_numargs, connect_args, &m_connect_func },
+  { "close", executable|null, 0, NULL, &m_close_func },
+  // master only
   { "slave", executable|object, slave_numargs, slave_args, &slave_func },
   { "findslaves", executable|object, findslaves_numargs, findslaves_args, &findslaves_func },
   { "writereg", executable|error|null, write_numargs, write_args, &writereg_func },
@@ -2354,6 +2612,46 @@ ModbusMasterObj::ModbusMasterObj(ModbusMasterPtr aModbus) :
 {
   registerSharedLookup(sharedModbusMasterFunctionLookupP, modbusMasterMembers);
 }
+
+
+
+// modbusmaster()
+static void modbusmaster_func(BuiltinFunctionContextPtr f)
+{
+  #if ENABLE_APPLICATION_SUPPORT
+  if (Application::sharedApplication()->userLevel()<1) { // user level >=1 is needed for IO access
+    f->finish(new ErrorValue(ScriptError::NoPrivilege, "no IO privileges"));
+  }
+  #endif
+  ModbusMasterPtr mbm = new ModbusMaster();
+  f->finish(mbm->representingScriptObj());
+}
+
+
+// modbusslave()
+static void modbusslave_func(BuiltinFunctionContextPtr f)
+{
+  #if ENABLE_APPLICATION_SUPPORT
+  if (Application::sharedApplication()->userLevel()<1) { // user level >=1 is needed for IO access
+    f->finish(new ErrorValue(ScriptError::NoPrivilege, "no IO privileges"));
+  }
+  #endif
+  ModbusSlavePtr mbs = new ModbusSlave();
+  f->finish(mbs->representingScriptObj());
+}
+
+
+static const BuiltinMemberDescriptor modbusGlobals[] = {
+  { "modbusmaster", executable|null, 0, NULL, &modbusmaster_func },
+  { "modbusslave", executable|null, 0, NULL, &modbusslave_func },
+  { NULL } // terminator
+};
+
+ModbusLookup::ModbusLookup() :
+  inherited(modbusGlobals)
+{
+}
+
 
 
 
