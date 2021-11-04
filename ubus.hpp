@@ -149,15 +149,13 @@ namespace p44 {
     typedef P44LoggingObj inherited;
     friend class UbusRequest;
 
-    MLTicket restartTicket;
+    MLTicket mRestartTicket;
 
     // ubus context
-    UbusServerCtx *ubusServerCtx;
-    struct blob_buf responseBuffer;
+    UbusServerCtx *mUbusServerCtx;
 
     // objects
-    UbusObjectsList ubusObjects;
-
+    UbusObjectsList mUbusObjects;
 
   public:
 

@@ -34,7 +34,7 @@ using namespace p44;
 
 
 UbusServer::UbusServer() :
-  ubusServerCtx(NULL)
+  mUbusServerCtx(NULL)
 {
 }
 
@@ -47,20 +47,20 @@ UbusServer::~UbusServer()
 
 ErrorPtr UbusServer::startServer()
 {
-  if (!ubusServerCtx) {
+  if (!mUbusServerCtx) {
     // create derived context
-    ubusServerCtx = new UbusServerCtx(*this);
+    mUbusServerCtx = new UbusServerCtx(*this);
     // init the context, create the ubus socket (using the default socket by passing NULL)
-    if (ubus_connect_ctx(&ubusServerCtx->ctx, NULL)<0) {
-      delete ubusServerCtx;
-      ubusServerCtx = NULL;
+    if (ubus_connect_ctx(&mUbusServerCtx->ctx, NULL)<0) {
+      delete mUbusServerCtx;
+      mUbusServerCtx = NULL;
       return Error::err<UbusError>(UBUS_STATUS_CONNECTION_FAILED);
     }
     // register poll handler for the ubus socket
-    MainLoop::currentMainLoop().registerPollHandler(ubusServerCtx->ctx.sock.fd, POLLIN, boost::bind(&UbusServer::pollHandler, this, _1, _2));
+    MainLoop::currentMainLoop().registerPollHandler(mUbusServerCtx->ctx.sock.fd, POLLIN, boost::bind(&UbusServer::pollHandler, this, _1, _2));
     // register the objects
-    for (UbusObjectsList::iterator pos = ubusObjects.begin(); pos!=ubusObjects.end(); ++pos) {
-      int ret = ubus_add_object(&ubusServerCtx->ctx, (*pos)->getUbusObj());
+    for (UbusObjectsList::iterator pos = mUbusObjects.begin(); pos!=mUbusObjects.end(); ++pos) {
+      int ret = ubus_add_object(&mUbusServerCtx->ctx, (*pos)->getUbusObj());
       if (ret) {
         return Error::err<UbusError>(ret);
       }
@@ -72,10 +72,10 @@ ErrorPtr UbusServer::startServer()
 
 void UbusServer::stopServer()
 {
-  if (ubusServerCtx) {
-    ubus_shutdown(&ubusServerCtx->ctx);
-    delete ubusServerCtx;
-    ubusServerCtx = NULL;
+  if (mUbusServerCtx) {
+    ubus_shutdown(&mUbusServerCtx->ctx);
+    delete mUbusServerCtx;
+    mUbusServerCtx = NULL;
   }
 }
 
@@ -85,7 +85,7 @@ void UbusServer::stopServer()
 void UbusServer::restartServer()
 {
   stopServer();
-  restartTicket.executeOnce(boost::bind(&UbusServer::retryStartServer, this), UBUS_RESTART_INTERVAL);
+  mRestartTicket.executeOnce(boost::bind(&UbusServer::retryStartServer, this), UBUS_RESTART_INTERVAL);
 }
 
 
@@ -105,7 +105,7 @@ bool UbusServer::pollHandler(int aFD, int aPollFlags)
   // Note: test POLLIN first, because we might get a POLLHUP in parallel - so make sure we process data before hanging up
   if ((aPollFlags & POLLIN)) {
     // let ubus handle it
-    ubus_handle_event(&ubusServerCtx->ctx);
+    ubus_handle_event(&mUbusServerCtx->ctx);
   }
   if (aPollFlags & (POLLHUP|POLLERR)) {
     // some sort of error
@@ -121,7 +121,7 @@ void UbusServer::registerObject(UbusObjectPtr aUbusObject)
 {
   // only save in my list, will be actually registered at startServer()
   // (because ubus_add_object() needs a active context which is created not before ubus_connect_ctx())
-  ubusObjects.push_back(aUbusObject);
+  mUbusObjects.push_back(aUbusObject);
 }
 
 
@@ -147,7 +147,7 @@ UbusRequest::~UbusRequest()
 void UbusRequest::defer()
 {
   if (ubusServer && currentReq) {
-    ubus_defer_request(&ubusServer->ubusServerCtx->ctx, currentReq, &deferredReq);
+    ubus_defer_request(&ubusServer->mUbusServerCtx->ctx, currentReq, &deferredReq);
     currentReq = NULL; // can no longer directly respond
   }
 }
@@ -171,12 +171,12 @@ void UbusRequest::sendResponse(JsonObjectPtr aResponse, int aUbusErr)
     blob_buf_init(&responseBuffer, 0);
     if (aResponse) blobmsg_add_object(&responseBuffer, (struct json_object *)aResponse->jsoncObj());
     if (currentReq) {
-      ubus_send_reply(&ubusServer->ubusServerCtx->ctx, currentReq, responseBuffer.head);
+      ubus_send_reply(&ubusServer->mUbusServerCtx->ctx, currentReq, responseBuffer.head);
     }
     else {
       // is a deferred request
-      ubus_send_reply(&ubusServer->ubusServerCtx->ctx, &deferredReq, responseBuffer.head);
-      ubus_complete_deferred_request(&ubusServer->ubusServerCtx->ctx, &deferredReq, ubusErr);
+      ubus_send_reply(&ubusServer->mUbusServerCtx->ctx, &deferredReq, responseBuffer.head);
+      ubus_complete_deferred_request(&ubusServer->mUbusServerCtx->ctx, &deferredReq, ubusErr);
       ubusErr = UBUS_STATUS_OK;
     }
     // response is out, can no longer be used and must not keep server alive any more
@@ -201,7 +201,7 @@ int UbusServer::methodHandler(
   // wrap request for processing
   UbusRequestPtr ureq = UbusRequestPtr(new UbusRequest(this, req));
   // look for object
-  for (UbusObjectsList::iterator pos = ubusObjects.begin(); pos!=ubusObjects.end(); ++pos) {
+  for (UbusObjectsList::iterator pos = mUbusObjects.begin(); pos!=mUbusObjects.end(); ++pos) {
     if ((*pos)->objName==obj->name && (*pos)->methodHandler) {
       // object found and has a method handler -> call it
       (*pos)->methodHandler(ureq, method, jsonMsg);
@@ -406,7 +406,7 @@ ErrorPtr UbusServer::registerObject()
   test_object.type = &test_object_type;
   test_object.methods = test_methods;
   test_object.n_methods = ARRAY_SIZE(test_methods);
-  int ret = ubus_add_object(&ubusServerCtx->ctx, &test_object);
+  int ret = ubus_add_object(&mUbusServerCtx->ctx, &test_object);
   if (ret) {
     return Error::err<UbusError>(ret);
   }
