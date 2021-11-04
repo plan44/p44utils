@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2017-2020 plan44.ch / Lukas Zeller, Zurich, Switzerland
+//  Copyright (c) 2017-2021 plan44.ch / Lukas Zeller, Zurich, Switzerland
 //
 //  Author: Lukas Zeller <luz@plan44.ch>
 //
@@ -699,6 +699,7 @@ namespace p44 { namespace P44Script {
     ErrorValue(ErrorPtr aError) : mErr(aError), mCaught(false) {};
     ErrorValue(ScriptError::ErrorCodes aErrCode, const char *aFmt, ...);
     ErrorValue(ScriptObjPtr aErrVal);
+    static ScriptObjPtr trueOrError(ErrorPtr aError); ///< return a ErrorValue if aError is set and not OK, a true value otherwise
     virtual string getAnnotation() const P44_OVERRIDE { return "error"; };
     virtual TypeInfo getTypeInfo() const P44_OVERRIDE { return error; };
     // value getters

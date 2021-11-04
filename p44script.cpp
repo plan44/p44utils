@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2017-2020 plan44.ch / Lukas Zeller, Zurich, Switzerland
+//  Copyright (c) 2017-2021 plan44.ch / Lukas Zeller, Zurich, Switzerland
 //
 //  Author: Lukas Zeller <luz@plan44.ch>
 //
@@ -572,6 +572,19 @@ ErrorValue::ErrorValue(ScriptObjPtr aErrVal)
     mErr = Error::ok();
   }
 }
+
+
+ScriptObjPtr ErrorValue::trueOrError(ErrorPtr aError)
+{
+  // return a ErrorValue if aError is set and not OK, a true value otherwise
+  if (Error::isOK(aError)) {
+    return new NumericValue(true);
+  }
+  else {
+    return new ErrorValue(aError);
+  }
+}
+
 
 
 ErrorPosValue::ErrorPosValue(const SourceCursor &aCursor, ErrorPtr aError) :
