@@ -109,14 +109,14 @@ namespace p44 {
 
   protected:
 
-    modbus_t *modbus; ///< the connection context (modbus RTU or TCP context)
-    bool isTcp; ///< set if the backend is TCP
-    bool doAcceptConnections; ///< for TCP, if set, connect() will start listening rather than connecting to a server
-    int serverSocket; ///< socket where we are listening
+    modbus_t *mModbus; ///< the connection context (modbus RTU or TCP context)
+    bool mIsTcp; ///< set if the backend is TCP
+    bool mDoAcceptConnections; ///< for TCP, if set, connect() will start listening rather than connecting to a server
+    int mServerSocket; ///< socket where we are listening
 
-    int slaveAddress; ///< current slave address
-    bool connected; ///< set if connection is open
-    FloatMode floatMode; ///< current mode for setting/getting float values
+    int mSlaveAddress; ///< current slave address
+    bool mConnected; ///< set if connection is open
+    FloatMode mFloatMode; ///< current mode for setting/getting float values
 
   public:
 
@@ -164,14 +164,14 @@ namespace p44 {
     void setSlaveAddress(int aSlaveAddress);
 
     /// @return the currently set slave address
-    int getSlaveAddress() { return slaveAddress; };
+    int getSlaveAddress() { return mSlaveAddress; };
 
     /// @return true if slave address is set to broadcast
-    bool isBroadCast() { return slaveAddress == MODBUS_BROADCAST_ADDRESS; };
+    bool isBroadCast() { return mSlaveAddress == MODBUS_BROADCAST_ADDRESS; };
 
     /// enable accepting connections (TCP only)
     /// @param aAccept true if TCP server
-    void acceptConnections(bool aAccept) { doAcceptConnections = aAccept; };
+    void acceptConnections(bool aAccept) { mDoAcceptConnections = aAccept; };
 
     /// open the connection
     /// @param aAutoFlush if set to false, no implicit flush after connect occurs, default = true
@@ -186,7 +186,7 @@ namespace p44 {
     int flush();
 
     /// @return true if connection is open
-    bool isConnected() { return connected; };
+    bool isConnected() { return mConnected; };
 
     /// enable debug messages to stderr
     /// @param aDebugEnabled set true to enable debug messages
@@ -195,7 +195,7 @@ namespace p44 {
 
     /// set float mode
     /// @param aFloatMode the new float mode
-    void setFloatMode(FloatMode aFloatMode) { floatMode = aFloatMode; };
+    void setFloatMode(FloatMode aFloatMode) { mFloatMode = aFloatMode; };
 
     /// convert two register's contents to double
     /// @param aTwoRegs pointer to first of two consecutive registers containing a modbus float value
@@ -262,8 +262,8 @@ namespace p44 {
 
   public:
     // stuff that needs to be public because friend declaration does not work in gcc (does in clang)
-    DigitalIoPtr modbusTxEnable; ///< if set, this I/O is used to enable sending
-    DigitalIoPtr modbusRxEnable; ///< if set, this I/O is used to enable receiving
+    DigitalIoPtr mModbusTxEnable; ///< if set, this I/O is used to enable sending
+    DigitalIoPtr mModbusRxEnable; ///< if set, this I/O is used to enable receiving
 
   };
   typedef boost::intrusive_ptr<ModbusConnection> ModbusConnectionPtr;
@@ -281,20 +281,20 @@ namespace p44 {
 
   class ModbusFileHandler : public P44Obj
   {
-    int fileNo; ///< the file number. For large files with multiple segments, subsequent numbers might be in use, too
-    int maxSegments; ///< the number of segments, i.e. consecutive file numbers after fileNo + 1 which belong to the same file
-    int numFiles; ///< number of files at the same path (with fileno appended)
-    string filePath; ///< the local path of the file(s)
-    string finalBasePath; ///< final base path (including final separator, if any)
-    bool useP44Header; ///< set if this file uses a P44 header
-    bool readOnly; ///< set if file is read-only
+    int mFileNo; ///< the file number. For large files with multiple segments, subsequent numbers might be in use, too
+    int mMaxSegments; ///< the number of segments, i.e. consecutive file numbers after fileNo + 1 which belong to the same file
+    int mNumFiles; ///< number of files at the same path (with fileno appended)
+    string mFilePath; ///< the local path of the file(s)
+    string mFinalBasePath; ///< final base path (including final separator, if any)
+    bool mUseP44Header; ///< set if this file uses a P44 header
+    bool mReadOnly; ///< set if file is read-only
 
     /// ongoing transfer parameters
-    uint16_t currentBaseFileNo; ///< the currently open file (base number for segmented files)
-    int openFd; ///< the open file descriptor
+    uint16_t mCurrentBaseFileNo; ///< the currently open file (base number for segmented files)
+    int mOpenFd; ///< the open file descriptor
 
     /// data for/from P44 header
-    bool validP44Header; ///< if set, internal P44 header info is valid
+    bool mValidP44Header; ///< if set, internal P44 header info is valid
     /// the size of a addressed record (in uint16_t quantities).
     /// @note
     /// - Traditional Modbus interpretations use 1 for this, meaning that records are register-sized.
@@ -305,23 +305,23 @@ namespace p44 {
     /// - if useP44Header is set, this value is included in the header.
     /// - the implementation uses 1 for this quantity when the size of the file allows it,
     ///   i.e. when the file size is below <maxrecordno>*2 = 0xFFFF*2 = 128kB.
-    uint8_t singleRecordLength;
-    uint8_t neededSegments; ///< the number of segments needed for the current file
-    uint8_t recordsPerChunk; ///< the number of records that are be transmitted in a chunk
-    uint16_t firstDataRecord; ///< the number of the first actual data record
-    uint32_t remoteMissingRecord; ///< next missing record number (32bit, over all segments of the file) to retransmit (in multicast mode), or noneMissing
-    static const uint32_t noneMissing = 0xFFFFFFFF; ///< signals no missing record in remoteMissingRecord and file complete in nextExpectedDataRecord
-    uint32_t remoteCRC32; ///< on write, this is the CRC32 expected as extracted from the p44header
-    uint32_t remoteFileSize; ///< on write, this is the CRC32 expected as extracted from the p44header
+    uint8_t mSingleRecordLength;
+    uint8_t mNeededSegments; ///< the number of segments needed for the current file
+    uint8_t mRecordsPerChunk; ///< the number of records that are be transmitted in a chunk
+    uint16_t mFirstDataRecord; ///< the number of the first actual data record
+    uint32_t mRemoteMissingRecord; ///< next missing record number (32bit, over all segments of the file) to retransmit (in multicast mode), or noneMissing
+    static const uint32_t mNoneMissing = 0xFFFFFFFF; ///< signals no missing record in remoteMissingRecord and file complete in nextExpectedDataRecord
+    uint32_t mRemoteCRC32; ///< on write, this is the CRC32 expected as extracted from the p44header
+    uint32_t mRemoteFileSize; ///< on write, this is the CRC32 expected as extracted from the p44header
     // local info
-    uint32_t localFileSize; ///< the local file size, as obtained by readLocalFileInfo
-    static const uint32_t invalidCRC = 0xFFFFFFFF; ///< signals invalid CRC
-    uint32_t localCRC32; ///< the local file's CRC32, as obtained by readLocalFileInfo
+    uint32_t mLocalFileSize; ///< the local file size, as obtained by readLocalFileInfo
+    static const uint32_t mInvalidCRC = 0xFFFFFFFF; ///< signals invalid CRC
+    uint32_t mLocalCRC32; ///< the local file's CRC32, as obtained by readLocalFileInfo
     typedef std::list<uint32_t> RecordNoList;
-    RecordNoList missingDataRecords; ///< list of DATA record numbers of chunks that were missing in the ongoing file receive (chunk might be more than 1 record!)
-    uint32_t nextExpectedDataRecord; ///< the next DATA record number we expect to get. If next received is >nextExpectedRecord, the records in between are saved into missingRecords
-    bool pendingFinalisation; ///< set if file must be finalized (CRC updated)
-    ModbusFileWriteCompleteCB fileWriteCompleteCB; ///< called when a file writing completes
+    RecordNoList mMissingDataRecords; ///< list of DATA record numbers of chunks that were missing in the ongoing file receive (chunk might be more than 1 record!)
+    uint32_t mNextExpectedDataRecord; ///< the next DATA record number we expect to get. If next received is >nextExpectedRecord, the records in between are saved into missingRecords
+    bool mPendingFinalisation; ///< set if file must be finalized (CRC updated)
+    ModbusFileWriteCompleteCB mFileWriteCompleteCB; ///< called when a file writing completes
 
   public:
 
@@ -340,7 +340,7 @@ namespace p44 {
     /// set callback to be executed when a file write completes successfully
     /// @param aFileWriteCompleteCB the callback
     /// @note the callback is called AFTER the modbus request completing the file has been answered
-    void setFileWriteCompleteCB(ModbusFileWriteCompleteCB aFileWriteCompleteCB) { fileWriteCompleteCB = aFileWriteCompleteCB; };
+    void setFileWriteCompleteCB(ModbusFileWriteCompleteCB aFileWriteCompleteCB) { mFileWriteCompleteCB = aFileWriteCompleteCB; };
 
     /// check if a particular file number is handled by this filehandler
     /// @param aFileNo the file number to check
@@ -372,7 +372,7 @@ namespace p44 {
     void closeLocalFile();
 
     /// @return true when file needs finalisation
-    bool needFinalizing() { return pendingFinalisation; }
+    bool needFinalizing() { return mPendingFinalisation; }
 
 
     /// Update the local CRC
@@ -660,20 +660,20 @@ namespace p44 {
     typedef ModbusConnection inherited;
 
     string slaveId;
-    modbus_mapping_t* registerModel;
+    modbus_mapping_t* mRegisterModel;
     ModbusValueAccessCB mValueAccessHandler;
-    ModbusReqCB rawRequestHandler;
+    ModbusReqCB mRawRequestHandler;
 
-    modbus_rcv_t *modbusRcv;
+    modbus_rcv_t *mModbusRcv;
 
-    ModBusPDU modbusReq;
-    ModBusPDU modbusRsp;
-    MLTicket rcvTimeoutTicket;
+    ModBusPDU mModbusReq;
+    ModBusPDU mModbusRsp;
+    MLTicket mRcvTimeoutTicket;
 
-    string errStr; ///< holds error string for libmodbus to access a c_str after handler returns
+    string mErrStr; ///< holds error string for libmodbus to access a c_str after handler returns
 
     typedef std::list<ModbusFileHandlerPtr> FileHandlersList;
-    FileHandlersList fileHandlers;
+    FileHandlersList mFileHandlers;
 
     #if ENABLE_MODBUS_SCRIPT_FUNCS
     P44Script::ModbusSlaveObjPtr mRepresentingObj; ///< the (singleton) ScriptObj representing this modbus slave
