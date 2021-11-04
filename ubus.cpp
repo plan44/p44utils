@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2019 plan44.ch / Lukas Zeller, Zurich, Switzerland
+//  Copyright (c) 2019-2021 plan44.ch / Lukas Zeller, Zurich, Switzerland
 //
 //  Author: Lukas Zeller <luz@plan44.ch>
 //
@@ -33,8 +33,7 @@
 using namespace p44;
 
 
-UbusServer::UbusServer(MainLoop &aMainLoop) :
-  inherited(aMainLoop),
+UbusServer::UbusServer() :
   ubusServerCtx(NULL)
 {
 }
@@ -102,7 +101,7 @@ void UbusServer::retryStartServer()
 
 bool UbusServer::pollHandler(int aFD, int aPollFlags)
 {
-  FOCUSLOG("UbusServer::ubusPollHandler(time==%lld, fd==%d, pollflags==0x%X)", MainLoop::now(), aFD, aPollFlags);
+  FOCUSOLOG("ubusPollHandler(time==%lld, fd==%d, pollflags==0x%X)", MainLoop::now(), aFD, aPollFlags);
   // Note: test POLLIN first, because we might get a POLLHUP in parallel - so make sure we process data before hanging up
   if ((aPollFlags & POLLIN)) {
     // let ubus handle it
@@ -110,7 +109,7 @@ bool UbusServer::pollHandler(int aFD, int aPollFlags)
   }
   if (aPollFlags & (POLLHUP|POLLERR)) {
     // some sort of error
-    LOG(LOG_WARNING, "ubus socket closed or returned error: terminating connection");
+    OLOG(LOG_WARNING, "socket closed or returned error: terminating connection");
     restartServer();
   }
   // handled
@@ -166,6 +165,7 @@ void UbusRequest::sendResponse(JsonObjectPtr aResponse, int aUbusErr)
   ubusErr = aUbusErr;
   if (ubusServer) {
     // send reply
+    POLOG(ubusServer, LOG_INFO, "response status: %d, message: %s", aUbusErr, aResponse ? aResponse->json_c_str() : "<none>");
     struct blob_buf responseBuffer;
     memset(&responseBuffer, 0, sizeof(responseBuffer)); // essential for blob_buf_init
     blob_buf_init(&responseBuffer, 0);
@@ -196,7 +196,7 @@ int UbusServer::methodHandler(
   // - msg is a table container w/o having a header for it
   JsonObjectPtr jsonMsg = JsonObject::newObj();
   blobMsgToJsonContainer(jsonMsg, blobmsg_data(msg), blobmsg_data_len(msg));
-  LOG(LOG_NOTICE, "ubus '%s' object got method '%s' with message: %s", obj->name, method, jsonMsg ? jsonMsg->json_c_str() : "<none>");
+  OLOG(LOG_INFO, "object '%s' got method call '%s' with message: %s", obj->name, method, jsonMsg ? jsonMsg->json_c_str() : "<none>");
 
   // wrap request for processing
   UbusRequestPtr ureq = UbusRequestPtr(new UbusRequest(this, req));

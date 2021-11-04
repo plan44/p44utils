@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2019 plan44.ch / Lukas Zeller, Zurich, Switzerland
+//  Copyright (c) 2019-2021 plan44.ch / Lukas Zeller, Zurich, Switzerland
 //
 //  Author: Lukas Zeller <luz@plan44.ch>
 //
@@ -144,9 +144,9 @@ namespace p44 {
 
   typedef std::list<UbusObjectPtr> UbusObjectsList;
 
-  class UbusServer : public P44Obj
+  class UbusServer : public P44LoggingObj
   {
-    typedef P44Obj inherited;
+    typedef P44LoggingObj inherited;
     friend class UbusRequest;
 
     MLTicket restartTicket;
@@ -161,8 +161,10 @@ namespace p44 {
 
   public:
 
-    UbusServer(MainLoop &aMainLoop = MainLoop::currentMainLoop());
+    UbusServer();
     virtual ~UbusServer();
+
+    virtual string logContextPrefix() P44_OVERRIDE { return "ubus server"; };
 
     /// start the server
     ErrorPtr startServer();
