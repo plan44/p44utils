@@ -5580,6 +5580,26 @@ static void chr_func(BuiltinFunctionContextPtr f)
 }
 
 
+// hex(binarystring [,bytesep])
+static const BuiltInArgDesc hex_args[] = { { text }, { text|optionalarg } };
+static const size_t hex_numargs = sizeof(hex_args)/sizeof(BuiltInArgDesc);
+static void hex_func(BuiltinFunctionContextPtr f)
+{
+  char sep = 0;
+  if (f->numArgs()>1) sep = *(f->arg(1)->stringValue().c_str());
+  f->finish(new StringValue(binaryToHexString(f->arg(0)->stringValue(), sep)));
+}
+
+
+// binary(hexstring [, spacesallowed])
+static const BuiltInArgDesc binary_args[] = { { text }, { numeric|optionalarg } };
+static const size_t binary_numargs = sizeof(binary_args)/sizeof(BuiltInArgDesc);
+static void binary_func(BuiltinFunctionContextPtr f)
+{
+  f->finish(new StringValue(hexToBinaryString(f->arg(0)->stringValue().c_str(), f->arg(1)->boolValue())));
+}
+
+
 // strlen(string)
 static const BuiltInArgDesc strlen_args[] = { { text|undefres } };
 static const size_t strlen_numargs = sizeof(strlen_args)/sizeof(BuiltInArgDesc);
@@ -6860,6 +6880,8 @@ static const BuiltinMemberDescriptor standardFunctions[] = {
   { "maprange", executable|numeric|null, maprange_numargs, maprange_args, &maprange_func },
   { "ord", executable|numeric, ord_numargs, ord_args, &ord_func },
   { "chr", executable|text, chr_numargs, chr_args, &chr_func },
+  { "hex", executable|text, hex_numargs, hex_args, &hex_func },
+  { "binary", executable|text, binary_numargs, binary_args, &binary_func },
   { "elements", executable|numeric|null, elements_numargs, elements_args, &elements_func },
   { "strlen", executable|numeric|null, strlen_numargs, strlen_args, &strlen_func },
   { "substr", executable|text|null, substr_numargs, substr_args, &substr_func },
