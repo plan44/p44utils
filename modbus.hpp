@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2019 plan44.ch / Lukas Zeller, Zurich, Switzerland
+//  Copyright (c) 2019-2021 plan44.ch / Lukas Zeller, Zurich, Switzerland
 //
 //  Author: Lukas Zeller <luz@plan44.ch>
 //
@@ -856,7 +856,7 @@ namespace p44 {
     class ModbusMasterObj : public StructuredLookupObject
     {
       typedef StructuredLookupObject inherited;
-      friend class ModbusMaster;
+      friend class p44::ModbusMaster;
 
       ModbusMasterPtr mModbus;
     public:

@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2019 plan44.ch / Lukas Zeller, Zurich, Switzerland
+//  Copyright (c) 2019-2021 plan44.ch / Lukas Zeller, Zurich, Switzerland
 //
 //  Author: Lukas Zeller <luz@plan44.ch>
 //
@@ -1126,28 +1126,39 @@ bool ModbusSlave::modbusFdPollHandler(int aFD, int aPollFlags)
       }
     }
     else if (reqLen<0) {
+      if (errno==ECONNRESET) {
+        // simulate HUP for check below, as we must always stop the connection when connection ends
+        aPollFlags |= POLLHUP;
+        FOCUSOLOG("ECONNRESET -> simulate POLLHUP");
+      }
+      else {
         ErrorPtr err = Error::err<ModBusError>(errno);
-      if (errno!=ECONNRESET) LOG(LOG_ERR, "Error receiving Modbus request: %s", Error::text(err));
+        OLOG(LOG_ERR, "Error receiving Modbus request: %s", Error::text(err));
+      }
     }
     else {
-      FOCUSLOG("Modbus - message for other slave - ignored, reqLen = %d", reqLen);
+      FOCUSOLOG("Modbus - message for other slave - ignored, reqLen = %d", reqLen);
     }
     // done with this message
     if (aPollFlags & POLLHUP) {
       // connection terminated
+      FOCUSOLOG("POLLIN+POLLHUP - connection terminated");
       stopServing();
     }
     else {
       // connection still open, start reception of next message
+      FOCUSOLOG("Connection still open (pollflags=0x%X, reqLen=%d) - wait for next msg", aPollFlags, reqLen);
       startMsgReception();
     }
     return true;
   }
   else if (aPollFlags & POLLHUP) {
+    FOCUSOLOG("only POLLHUP - connection terminated");
     stopServing();
   }
   else if (aPollFlags & POLLERR) {
     // try to reconnect
+    FOCUSOLOG("POLLERR - close and reopen connection");
     close(); // not just stop serving, really disconnect!
     startServing();
     return true;
@@ -2651,10 +2662,6 @@ ModbusLookup::ModbusLookup() :
   inherited(modbusGlobals)
 {
 }
-
-
-
-
 
 #endif // ENABLE_MODBUS_SCRIPT_FUNCS
 
