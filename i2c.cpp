@@ -26,7 +26,6 @@
 //   Note: must be before including "logger.hpp" (or anything that includes "logger.hpp")
 #define FOCUSLOGLEVEL 7
 
-
 #include "i2c.hpp"
 
 // locally disable actual functionality on unsupported platforms (but still provide console output dummies)
@@ -46,6 +45,12 @@
   #endif
 #else
   #warning "No i2C supported on this platform - just showing calls in focus debug output"
+#endif
+
+#if !defined(ESP_PLATFORM)
+  #if ENABLE_APPLICATION_SUPPORT
+    #include "application.hpp" // we need it for user level, syscmd is only allowed with userlevel>=2
+  #endif
 #endif
 
 using namespace p44;

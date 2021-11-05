@@ -43,14 +43,19 @@ extern "C" {
   #warning "No SPI supported on this platform - just showing calls in focus debug output"
 #endif
 
-
-#define SPI_MAX_SPEED_HZ 100000 // 1MHz seems reasonable, faster sometimes does not work ok e.g. on RPi
+#if !defined(ESP_PLATFORM)
+  #if ENABLE_APPLICATION_SUPPORT
+    #include "application.hpp" // we need it for user level, syscmd is only allowed with userlevel>=2
+  #endif
+#endif
 
 using namespace p44;
 #if ENABLE_SPI_SCRIPT_FUNCS
 using namespace P44Script;
 #endif
 
+
+#define SPI_MAX_SPEED_HZ 100000 // 1MHz seems reasonable, faster sometimes does not work ok e.g. on RPi
 
 // MARK: - I2C Manager
 
