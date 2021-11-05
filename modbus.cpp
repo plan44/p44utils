@@ -206,7 +206,7 @@ ErrorPtr ModbusConnection::setConnectionSpecification(
 ErrorPtr ModbusConnection::setByteTimeNs(int aByteTimeNs)
 {
   ErrorPtr err;
-  LOG(LOG_DEBUG, "Setting explicit byte time: %d nS, calculated value is %d nS", aByteTimeNs, modbus_rtu_get_byte_time(mModbus));
+  OLOG(LOG_DEBUG, "Setting explicit byte time: %d nS, calculated value is %d nS", aByteTimeNs, modbus_rtu_get_byte_time(mModbus));
   if (modbus_rtu_set_byte_time(mModbus, (int)aByteTimeNs)) err = ModBusError::err<ModBusError>(errno);
   return err;
 }
@@ -326,7 +326,7 @@ int ModbusConnection::flush()
   int flushed = 0;
   if (mModbus) {
     flushed = modbus_flush(mModbus);
-    FOCUSLOG("modbus flushed, %d bytes", flushed);
+    FOCUSOLOG("flushed, %d bytes", flushed);
   }
   return flushed;
 }
@@ -473,11 +473,11 @@ ErrorPtr ModbusMaster::findSlaves(SlaveAddrList& aSlaveAddrList, string aMatchSt
           aSlaveAddrList.push_back(sa);
         }
         else {
-          LOG(LOG_INFO, "Slave %d id '%s' does not match", sa, id.c_str());
+          OLOG(LOG_INFO, "address %d id '%s' does not match", sa, id.c_str());
         }
       }
       else {
-        LOG(LOG_INFO, "Slave %d returns error for slaveid query: %s", sa, err->text());
+        OLOG(LOG_INFO, "address %d returns error for slaveid query: %s", sa, err->text());
       }
     }
     setSlaveAddress(currentSlave);
@@ -765,7 +765,7 @@ ErrorPtr ModbusMaster::sendFile(const string& aLocalFilePath, int aFileNo, bool 
   // create a file handler
   ModbusFileHandlerPtr handler = ModbusFileHandlerPtr(new ModbusFileHandler(aFileNo, 0, 1, aUseP44Header, aLocalFilePath));
   // send the file
-  LOG(LOG_NOTICE, "Sending file '%s' to fileNo %d in slave %d", aLocalFilePath.c_str(), aFileNo, getSlaveAddress());
+  OLOG(LOG_NOTICE, "Sending file '%s' to fileNo %d in slave %d", aLocalFilePath.c_str(), aFileNo, getSlaveAddress());
   return sendFile(handler, aFileNo);
 }
 
@@ -909,28 +909,28 @@ ErrorPtr ModbusMaster::broadcastFile(const SlaveAddrList& aSlaveAddrList, const 
     ModbusFileHandlerPtr handler = ModbusFileHandlerPtr(new ModbusFileHandler(aFileNo, 0, 1, aUseP44Header, aLocalFilePath));
     if (!aUseP44Header) {
       // simple one-by-one transfer, not real broadcast
-      LOG(LOG_NOTICE, "Sending file '%s' to fileNo %d in %lu slaves, no broadcast (no p44header)", aLocalFilePath.c_str(), aFileNo, aSlaveAddrList.size());
+      OLOG(LOG_NOTICE, "Sending file '%s' to fileNo %d in %lu slaves, no broadcast (no p44header)", aLocalFilePath.c_str(), aFileNo, aSlaveAddrList.size());
       for (SlaveAddrList::const_iterator pos = aSlaveAddrList.begin(); pos!=aSlaveAddrList.end(); ++pos) {
         setSlaveAddress(*pos);
-        LOG(LOG_NOTICE, "- sending file to slave %d", *pos);
+        OLOG(LOG_NOTICE, "- sending file to slave %d", *pos);
         ErrorPtr fileErr = sendFile(handler, aFileNo);
         if (Error::notOK(fileErr)) {
-          LOG(LOG_ERR, "Error sending file '%s' to fileNo %d in slave %d: %s", aLocalFilePath.c_str(), aFileNo, *pos, fileErr->text());
+          OLOG(LOG_ERR, "Error sending file '%s' to fileNo %d in slave %d: %s", aLocalFilePath.c_str(), aFileNo, *pos, fileErr->text());
           err = fileErr; // return most recent error
         }
       }
     }
     else {
       // with p44header, we can do real broadcast of the data
-      LOG(LOG_NOTICE, "Sending file '%s' to fileNo %d as broadcast", aLocalFilePath.c_str(), aFileNo);
+      OLOG(LOG_NOTICE, "Sending file '%s' to fileNo %d as broadcast", aLocalFilePath.c_str(), aFileNo);
       setSlaveAddress(MODBUS_BROADCAST_ADDRESS);
       err = sendFile(handler, aFileNo);
       if (Error::isOK(err)) {
         // query each slave for possibly missing records, send them
-        LOG(LOG_NOTICE, "Broadcast complete - now verifying successful transmission");
+        OLOG(LOG_NOTICE, "Broadcast complete - now verifying successful transmission");
         for (SlaveAddrList::const_iterator pos = aSlaveAddrList.begin(); pos!=aSlaveAddrList.end(); ++pos) {
           ErrorPtr slerr;
-          LOG(LOG_NOTICE, "- Verifying with slave %d", *pos);
+          OLOG(LOG_NOTICE, "- Verifying with slave %d", *pos);
           setSlaveAddress(*pos);
           ModBusPDU buf;
           while (true) {
@@ -966,7 +966,7 @@ ErrorPtr ModbusMaster::broadcastFile(const SlaveAddrList& aSlaveAddrList, const 
             else {
               // no more retransmits pending for this slave
               if (handler->fileIntegrityOK()) {
-                LOG(LOG_NOTICE, "- Sending file '%s' to fileNo %d in slave %d confirmed SUCCESSFUL!", aLocalFilePath.c_str(), aFileNo, *pos);
+                OLOG(LOG_NOTICE, "- Sending file '%s' to fileNo %d in slave %d confirmed SUCCESSFUL!", aLocalFilePath.c_str(), aFileNo, *pos);
               }
               else {
                 err = Error::err<ModBusError>(EMBBADCRC, "CRC or size mismatch after retransmitting all blocks");
@@ -975,7 +975,7 @@ ErrorPtr ModbusMaster::broadcastFile(const SlaveAddrList& aSlaveAddrList, const 
             }
           } // while bad blocks
           if (slerr) {
-            LOG(LOG_ERR, "Failed sending file No %d in slave %d: %s", aFileNo, *pos, slerr->text());
+            OLOG(LOG_ERR, "Failed sending file No %d in slave %d: %s", aFileNo, *pos, slerr->text());
             err = slerr->withPrefix("Slave %d: ", *pos);
           }
         } // for all slaves
@@ -1099,7 +1099,7 @@ bool ModbusSlave::modbusFdPollHandler(int aFD, int aPollFlags)
       // start new request
       startMsgReception();
       if (!mModbusRcv) {
-        LOG(LOG_CRIT, "cannot create new Modbus receive context");
+        OLOG(LOG_CRIT, "cannot create new Modbus receive context");
         return false;
       }
     }
@@ -1113,7 +1113,7 @@ bool ModbusSlave::modbusFdPollHandler(int aFD, int aPollFlags)
     if (reqLen>0) {
       mRcvTimeoutTicket.cancel();
       // got request
-      FOCUSLOG("Modbus received request, %d bytes", reqLen);
+      FOCUSOLOG("Modbus received request, %d bytes", reqLen);
       // - process it
       int rspLen = modbus_process_request(mModbus, mModbusReq, reqLen, mModbusRsp, modbus_slave_function_handler, this);
       /* Send response, if any */
@@ -1121,12 +1121,12 @@ bool ModbusSlave::modbusFdPollHandler(int aFD, int aPollFlags)
         int rc = modbus_send_msg(mModbus, mModbusRsp, rspLen);
         if (rc<0) {
           ErrorPtr err = Error::err<ModBusError>(errno)->withPrefix("sending response: ");
-          LOG(LOG_ERR, "Error sending Modbus response: %s", Error::text(err));
+          OLOG(LOG_ERR, "Error sending Modbus response: %s", Error::text(err));
         }
       }
     }
     else if (reqLen<0) {
-      ErrorPtr err = Error::err<ModBusError>(errno);
+        ErrorPtr err = Error::err<ModBusError>(errno);
       if (errno!=ECONNRESET) LOG(LOG_ERR, "Error receiving Modbus request: %s", Error::text(err));
     }
     else {

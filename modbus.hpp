@@ -94,7 +94,7 @@ namespace p44 {
 
   typedef uint8_t ModBusPDU[MODBUS_MAX_PDU_LENGTH]; ///< a buffer large enough for a modbus PDU
 
-  class ModbusConnection : public P44Obj
+  class ModbusConnection : public P44LoggingObj
   {
     friend void setRts(modbus_t *ctx, int on, void* cbctx);
 
@@ -471,6 +471,8 @@ namespace p44 {
     ModbusMaster();
     virtual ~ModbusMaster();
 
+    virtual string logContextPrefix() P44_OVERRIDE { return "modbus master"; };
+
     /// same as connect(), but also checks that a slave address is set
     ErrorPtr connectAsMaster();
 
@@ -683,6 +685,8 @@ namespace p44 {
 
     ModbusSlave();
     virtual ~ModbusSlave();
+
+    virtual string logContextPrefix() P44_OVERRIDE { return "modbus slave"; };
 
     /// set the text to be returned by "Report Server/Slave ID"
     void setSlaveId(const string aSlaveId);
