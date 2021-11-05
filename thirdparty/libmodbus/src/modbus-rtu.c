@@ -16,6 +16,8 @@
 
 #include "modbus-private.h"
 
+#if ENABLE_MODBUS
+
 #include "modbus-rtu.h"
 #include "modbus-rtu-private.h"
 
@@ -1333,3 +1335,5 @@ modbus_t* modbus_new_rtu(const char *device,
 
     return ctx;
 }
+
+#endif /* ENABLE_MODBUS */

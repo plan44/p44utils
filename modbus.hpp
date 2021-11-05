@@ -22,6 +22,8 @@
 #ifndef __p44utils__modbus__
 #define __p44utils__modbus__
 
+#include "p44utils_common.hpp"
+
 #ifndef ENABLE_MODBUS
   // We assume that including this file in a build usually means that modbus support is actually needed.
   // Still, ENABLE_MODBUS can be set to 0 to create build variants w/o removing the file from the project/makefile
@@ -30,7 +32,6 @@
 
 #if ENABLE_MODBUS
 
-#include "p44utils_common.hpp"
 #include "digitalio.hpp"
 
 #include <stdio.h>

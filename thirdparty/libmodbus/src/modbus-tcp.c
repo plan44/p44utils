@@ -52,6 +52,8 @@
 
 #include "modbus-private.h"
 
+#if ENABLE_MODBUS
+
 #include "modbus-tcp.h"
 #include "modbus-tcp-private.h"
 
@@ -900,3 +902,5 @@ modbus_t* modbus_new_tcp_pi(const char *node, const char *service)
 
     return ctx;
 }
+
+#endif /* ENABLE_MODBUS */

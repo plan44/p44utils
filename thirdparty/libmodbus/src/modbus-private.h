@@ -7,6 +7,13 @@
 #ifndef MODBUS_PRIVATE_H
 #define MODBUS_PRIVATE_H
 
+#include "p44utils_minimal.hpp"
+#ifndef ENABLE_MODBUS
+  #define ENABLE_MODBUS 1
+#endif
+
+#if ENABLE_MODBUS
+
 #ifndef _MSC_VER
 # include <stdint.h>
 # include <sys/time.h>
@@ -114,4 +121,5 @@ size_t strlcpy(char *dest, const char *src, size_t dest_size);
 
 MODBUS_END_DECLS
 
+#endif  /* ENABLE_MODBUS */
 #endif  /* MODBUS_PRIVATE_H */

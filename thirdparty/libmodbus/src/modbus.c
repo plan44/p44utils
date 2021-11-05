@@ -23,6 +23,8 @@
 #include "modbus.h"
 #include "modbus-private.h"
 
+#if ENABLE_MODBUS
+
 /* Internal use */
 #define MSG_LENGTH_UNDEFINED -1
 
@@ -2137,4 +2139,7 @@ size_t strlcpy(char *dest, const char *src, size_t dest_size)
 
     return (s - src - 1); /* count does not include NUL */
 }
-#endif
+#endif /* HAVE_STRLCPY */
+
+#endif /* ENABLE_MODBUS */
+
