@@ -955,6 +955,10 @@ ErrorPtr JsonValue::setMemberAtIndex(size_t aIndex, const ScriptObjPtr aMember, 
 void SimpleVarContainer::clearVars()
 {
   FOCUSLOGCLEAR("SimpleVarContainer");
+  while (!namedVars.empty()) {
+    namedVars.begin()->second->deactivate();
+    namedVars.erase(namedVars.begin());
+  }
   namedVars.clear();
 }
 
@@ -983,6 +987,7 @@ void SimpleVarContainer::clearFloating()
   NamedVarMap::iterator pos = namedVars.begin();
   while (pos!=namedVars.end()) {
     if (pos->second->floating()) {
+      pos->second->deactivate(); // pre-deletion, breaks retain cycles
       #if P44_CPP11_FEATURE
       pos = namedVars.erase(pos); // source is gone -> remove
       #else
@@ -1038,6 +1043,9 @@ ErrorPtr SimpleVarContainer::setMemberByName(const string aName, const ScriptObj
     }
     else {
       // delete
+      // - deactivate first to break retain cycles
+      pos->second->deactivate();
+      // - now release from container
       namedVars.erase(pos);
     }
   }
