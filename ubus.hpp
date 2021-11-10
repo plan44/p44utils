@@ -59,9 +59,7 @@ namespace p44 {
 
   /// generic callback for delivering a received ubus message
   /// @param aUbusRequest the request, must call sendResponse() on it in all cases
-  /// @param aUbusMethod the name of the method called
-  /// @param aJsonRequest the request message in JSON format
-  typedef boost::function<void (UbusRequestPtr aUbusRequest, const string aUbusMethod, JsonObjectPtr aJsonRequest)> UbusMethodHandler;
+  typedef boost::function<void (UbusRequestPtr aUbusRequest)> UbusMethodHandler;
 
 
   class UbusRequest : public P44Obj
@@ -71,11 +69,13 @@ namespace p44 {
 
     struct ubus_request_data *currentReq; ///< the current request
     struct ubus_request_data deferredReq; ///< the deferred request structure (needed to answer it later)
+    JsonObjectPtr mRequestMsg; ///< the request message
+    string mRequestMethod; ///< the request method name
     UbusServerPtr ubusServer; ///< the ubus server (needed to actually send answer later)
     int ubusErr; ///< the ubus error status set with sendResponse()
 
     // private constructor, only UbusServer may create me
-    UbusRequest(UbusServerPtr aUbusServer, struct ubus_request_data *aReq);
+    UbusRequest(UbusServerPtr aUbusServer, struct ubus_request_data *aReq, const char *aMethodName, JsonObjectPtr aMsg);
     virtual ~UbusRequest();
 
     /// to be called before original method handling ends.
@@ -86,6 +86,18 @@ namespace p44 {
     bool responded();
 
   public:
+
+    /// get current request message
+    /// @return the request message
+    JsonObjectPtr msg() const { return mRequestMsg; }
+
+    /// set a new (usually only: modified) request message
+    /// @param aMsg the new request message
+    void setMsg(JsonObjectPtr aMsg) { mRequestMsg = aMsg; }
+
+    /// get current request method
+    /// @return the method name
+    const string method() const { return mRequestMethod; }
 
     /// send response to this request
     /// @param
