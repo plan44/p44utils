@@ -847,6 +847,7 @@ namespace p44 {
       JsonObjectPtr lastAccess; ///< data about last access
       ModbusSlaveObj(ModbusSlavePtr aModbus);
       virtual ~ModbusSlaveObj();
+      virtual void deactivate() P44_OVERRIDE;
       virtual string getAnnotation() const P44_OVERRIDE { return "modbus slave"; };
       ModbusSlavePtr modbus() { return mModbus; }
     private:
@@ -862,6 +863,8 @@ namespace p44 {
       ModbusMasterPtr mModbus;
     public:
       ModbusMasterObj(ModbusMasterPtr aModbus);
+      virtual ~ModbusMasterObj();
+      virtual void deactivate() P44_OVERRIDE;
       virtual string getAnnotation() const P44_OVERRIDE { return "modbus master"; };
       ModbusMasterPtr modbus() { return mModbus; }
     };

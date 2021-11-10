@@ -2443,6 +2443,14 @@ ModbusSlaveObj::ModbusSlaveObj(ModbusSlavePtr aModbus) :
 }
 
 
+void ModbusSlaveObj::deactivate()
+{
+  mModbus->setValueAccessHandler(NULL);
+  mModbus->close();
+}
+
+
+
 ModbusSlaveObj::~ModbusSlaveObj()
 {
   mModbus->setValueAccessHandler(NULL);
@@ -2622,6 +2630,17 @@ ModbusMasterObj::ModbusMasterObj(ModbusMasterPtr aModbus) :
   mModbus(aModbus)
 {
   registerSharedLookup(sharedModbusMasterFunctionLookupP, modbusMasterMembers);
+}
+
+
+void ModbusMasterObj::deactivate()
+{
+  mModbus->close();
+}
+
+
+ModbusMasterObj::~ModbusMasterObj()
+{
 }
 
 
