@@ -45,7 +45,7 @@
 
 #include "logger.hpp"
 #include "mainloop.hpp"
-#if !DISABLE_SYSTEMCMDIO && !defined(ESP_PLATFORM)
+#if (!DISABLE_SYSTEMCMDIO || ENABLE_ANALOGIO_SCRIPT_FUNCS) && !defined(ESP_PLATFORM)
   #if ENABLE_APPLICATION_SUPPORT
     #include "application.hpp" // we need it for user level, syscmd is only allowed with userlevel>=2
   #endif
@@ -639,10 +639,11 @@ AnalogIoPtr AnalogIoObj::analogIoFromArg(ScriptObjPtr aArg, bool aOutput, double
   }
   else if (aArg->hasType(text)) {
     #if ENABLE_APPLICATION_SUPPORT
-    if (Application::sharedApplication()->userLevel()>=1) { // user level >=1 is needed for IO access
+    if (Application::sharedApplication()->userLevel()>=1) // user level >=1 is needed for IO access
+    #endif
+    {
       aio = AnalogIoPtr(new AnalogIo(aArg->stringValue().c_str(), aOutput, aInitialValue));
     }
-    #endif
   }
   return aio;
 }

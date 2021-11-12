@@ -44,7 +44,7 @@
 
 #include "logger.hpp"
 #include "mainloop.hpp"
-#if !DISABLE_SYSTEMCMDIO && !defined(ESP_PLATFORM)
+#if (!DISABLE_SYSTEMCMDIO || ENABLE_DIGITALIO_SCRIPT_FUNCS) && !defined(ESP_PLATFORM)
   #if ENABLE_APPLICATION_SUPPORT
     #include "application.hpp" // we need it for user level, syscmd is only allowed with userlevel>=2
   #endif
