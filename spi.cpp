@@ -1011,7 +1011,7 @@ static void writeread_func(BuiltinFunctionContextPtr f)
   uint8_t *inP = NULL;
   if (f->arg(1)->defined()) {
     insz = f->arg(1)->intValue();
-    inP = new uint8_t[insz];
+    if (insz>0) inP = new uint8_t[insz];
   }
   if (bus.SPIRawWriteRead(dev, (unsigned int)data.size(), (uint8_t *)data.c_str(), insz, inP, f->arg(2)->boolValue())) {
     if (inP) {
