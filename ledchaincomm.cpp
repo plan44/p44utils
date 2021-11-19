@@ -47,15 +47,18 @@ using namespace p44;
 #endif
 
 
-static const char* ledChipNames[LEDChainComm::num_ledchips] = {
-  "none",
-  "WS2811",
-  "WS2812",
-  "WS2813",
-  "WS2815",
-  "P9823",
-  "SK6812"
+// Power consumption according to
+// https://www.thesmarthomehookup.com/the-complete-guide-to-selecting-individually-addressable-led-strips/
+static const LEDChainComm::LedChipDesc ledChipDescriptors[LEDChainComm::num_ledchips] = {
+  { "none",    0,   0,  0, false },
+  { "WS2811",  8,  64,  0, false },
+  { "WS2812",  4,  60,  0, false },
+  { "WS2813",  4,  85,  0, false },
+  { "WS2815", 24, 120,  0, true },
+  { "P9823",   8,  80,  0, false }, // no real data, rough assumption
+  { "SK6812",  6,  50, 95, false }
 };
+
 
 static const char* ledLayoutNames[LEDChainComm::num_ledlayouts] = {
   "none",
@@ -126,7 +129,7 @@ LEDChainComm::LEDChainComm(
     string part;
     if (nextPart(cP, part, '.')) {
       // chip
-      for (int i=0; i<num_ledchips; i++) { if (strucmp(part.c_str(), ledChipNames[i])==0) { ledChip = (LedChip)i; break; } };
+      for (int i=0; i<num_ledchips; i++) { if (strucmp(part.c_str(), ledChipDescriptors[i].name )==0) { ledChip = (LedChip)i; break; } };
     }
     if (nextPart(cP, part, '.')) {
       // layout
@@ -143,7 +146,7 @@ LEDChainComm::LEDChainComm(
   }
   // device name/channel
   deviceName = aDeviceName;
-  numColorComponents = ledLayout==ledlayout_grbw || ledLayout==ledlayout_rgbw ? 4 : 3;
+  numColorComponents = ledChipDescriptors[ledChip].whiteChannelMw>0 ? 4 : 3;
   inactiveStartLeds = aInactiveStartLeds;
   inactiveBetweenLeds = aInactiveBetweenLeds;
   inactiveEndLeds = aInactiveEndLeds;
@@ -175,6 +178,12 @@ LEDChainComm::~LEDChainComm()
 void LEDChainComm::setChainDriver(LEDChainCommPtr aLedChainComm)
 {
   chainDriver = aLedChainComm;
+}
+
+
+const LEDChainComm::LedChipDesc &LEDChainComm::ledChipDescriptor() const
+{
+  return ledChipDescriptors[ledChip];
 }
 
 
@@ -636,9 +645,9 @@ void LEDChainComm::getPowerXY(uint16_t aX, uint16_t aY, uint8_t &aRed, uint8_t &
 LEDChainArrangement::LEDChainArrangement() :
   mCovers(zeroRect),
   mMaxOutValue(255),
-  mPowerLimit(0),
-  mRequestedLightPower(0),
-  mActualLightPower(0),
+  mPowerLimitMw(0),
+  mRequestedLightPowerMw(0),
+  mActualLightPowerMw(0),
   mPowerLimited(false),
   mLastUpdate(Never),
   minUpdateInterval(DEFAULT_MIN_UPDATE_INTERVAL),
@@ -895,12 +904,10 @@ uint8_t LEDChainArrangement::getMinVisibleColorIntensity()
 }
 
 
-#define MILLIWATTS_PER_LED 95 // empirical measurement for WS2813B
-
 void LEDChainArrangement::setPowerLimit(int aMilliWatts)
 {
   // internal limit is in PWM units
-  mPowerLimit = aMilliWatts*255/MILLIWATTS_PER_LED;
+  mPowerLimitMw = aMilliWatts;
   // make sure it gets applied immediately
   if (mRootView) mRootView->makeDirtyAndUpdate();
 }
@@ -909,21 +916,21 @@ void LEDChainArrangement::setPowerLimit(int aMilliWatts)
 int LEDChainArrangement::getPowerLimit()
 {
   // internal measurement is in PWM units
-  return mPowerLimit*MILLIWATTS_PER_LED/255;
+  return mPowerLimitMw;
 }
 
 
 int LEDChainArrangement::getNeededPower()
 {
   // internal measurement is in PWM units
-  return mRequestedLightPower*MILLIWATTS_PER_LED/255;
+  return mRequestedLightPowerMw;
 }
 
 
 int LEDChainArrangement::getCurrentPower()
 {
   // internal measurement is in PWM units
-  return mActualLightPower*MILLIWATTS_PER_LED/255;
+  return mActualLightPowerMw;
 }
 
 
@@ -943,15 +950,22 @@ MLMicroSeconds LEDChainArrangement::updateDisplay()
       else {
         // update now
         mLastUpdate = now;
-        uint32_t lightPower = 0;
+        uint32_t idlePowerMw = 0;
+        uint32_t lightPowerMw = 0;
+        uint32_t lightPowerPWM = 0;
+        uint32_t lightPowerPWMWhite = 0;
         if (dirty) {
           uint8_t powerDim = 0; // undefined
           while (true) {
-            lightPower = 0;
+            idlePowerMw = 0;
+            lightPowerMw = 0;
             // update LED chain content buffers from view hierarchy
             for(LedChainVector::iterator pos = mLedChains.begin(); pos!=mLedChains.end(); ++pos) {
+              lightPowerPWM = 0; // accumulated PWM values per chain
+              lightPowerPWMWhite = 0; // separate for white which has different wattage
               LEDChainFixture& l = *pos;
               bool hasWhite = l.ledChain->hasWhite();
+              const LEDChainComm::LedChipDesc &chip = l.ledChain->ledChipDescriptor();
               for (int x=0; x<l.covers.dx; ++x) {
                 for (int y=0; y<l.covers.dy; ++y) {
                   // get pixel from view
@@ -989,8 +1003,6 @@ MLMicroSeconds LEDChainArrangement::updateDisplay()
                     Pb = pwmtable[pix.b];
                     Pw = pwmtable[w];
                   }
-                  // measure
-                  lightPower += Pr+Pg+Pb+Pw;
                   // limit to max output value
                   if (mMaxOutValue<255) {
                     if (Pr>mMaxOutValue) Pr = mMaxOutValue;
@@ -998,6 +1010,19 @@ MLMicroSeconds LEDChainArrangement::updateDisplay()
                     if (Pb>mMaxOutValue) Pb = mMaxOutValue;
                     if (Pw>mMaxOutValue) Pw = mMaxOutValue;
                   }
+                  // measure
+                  // - every LED consumes the idle power
+                  idlePowerMw += chip.idleChipMw;
+                  // - sum up PWM values (multiply later, only once per chain)
+                  if (chip.rgbCommonCurrent) {
+                    // serially connected LEDs: max LEDs power determines total power
+                    lightPowerPWM += Pr>Pg ? (Pb>Pr ? Pb : Pr) : (Pb>Pg ? Pb : Pg);
+                  }
+                  else {
+                    // sum of RGB LEDs is total power
+                    lightPowerPWM += Pr+Pg+Pb;
+                  }
+                  lightPowerPWMWhite += Pw;
                   // set pixel in chain
                   l.ledChain->setPowerXY(
                     l.offset.x+x,
@@ -1006,28 +1031,31 @@ MLMicroSeconds LEDChainArrangement::updateDisplay()
                   );
                 }
               }
+              // end of one chain
+              // - update actual power (according to chip type)
+              lightPowerMw += lightPowerPWM*chip.rgbChannelMw/255 + lightPowerPWMWhite*chip.whiteChannelMw/255;
             }
-            // update stats
-            mActualLightPower = lightPower; // what we measured in this pass
+            // update stats (including idle power)
+            mActualLightPowerMw = lightPowerMw+idlePowerMw; // what we measured in this pass
             if (powerDim==0) {
-              mRequestedLightPower = lightPower; // what we measure without dim is the requested amount
+              mRequestedLightPowerMw = mActualLightPowerMw; // what we measure without dim is the requested amount
             }
             // check if we need power limiting
-            if (mPowerLimit && lightPower>mPowerLimit && powerDim==0) {
-              powerDim = (uint32_t)255*mPowerLimit/lightPower;
+            if (mPowerLimitMw && mActualLightPowerMw>mPowerLimitMw && powerDim==0) {
+              powerDim = (uint32_t)255*(mPowerLimitMw-idlePowerMw)/lightPowerMw; // scale proportionally to PWM dependent part of consumption (idle power cannot be reduced)
               if (!mPowerLimited) {
                 mPowerLimited = true;
-                OLOG(LOG_INFO, "!!! LED power (%d) exceeds limit (%d) -> re-run dimmed to (%d%%)", lightPower, mPowerLimit, powerDim*100/255);
+                OLOG(LOG_INFO, "!!! LED power (%d mW active + %d mW idle) exceeds limit (%d mW) -> re-run dimmed to (%d%%)", lightPowerMw, idlePowerMw, mPowerLimitMw, powerDim*100/255);
               }
               if (powerDim!=0) continue; // run again with reduced power (but prevent endless loop in case reduction results in zero)
             }
             else if (powerDim) {
-              DBGFOCUSOLOG("--- requested power is %d, reduced power is %d now (limit %d), dim=%d", mRequestedLightPower, lightPower, powerLimit, powerDim);
+              DBGFOCUSOLOG("--- requested power is %d mW, reduced power is %d mW now (limit %d mW), dim=%d", mRequestedLightPowerMw, lightPowerMw, mPowerLimitMw, powerDim);
             }
             else {
               if (mPowerLimited) {
                 mPowerLimited = false;
-                OLOG(LOG_INFO, "!!! LED power (%d) back below limit (%d) -> no dimm-down active", lightPower, mPowerLimit);
+                OLOG(LOG_INFO, "!!! LED power (%d mW) back below limit (%d mW) -> no dimm-down active", lightPowerMw, mPowerLimitMw);
               }
             }
             break;

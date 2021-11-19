@@ -95,6 +95,14 @@ namespace p44 {
       num_ledchips
     } LedChip;
 
+    typedef struct {
+      const char *name; // name of the chip
+      int idleChipMw; // [mW] idle power consumption per LED chip (LEDs all off)
+      int rgbChannelMw; // [mW] power consumption per R,G,B LED channel with full brightness (or total in case of rgbCommonCurrent==true)
+      int whiteChannelMw; // [mW] power consumption of white channel (0 if none)
+      bool rgbCommonCurrent; // if set, the LEDs are in a serial circuit with bridging PWM shortcuts, so max(r,g,b) defines consumption, not sum(r,g,b)
+    } LedChipDesc;
+
   private:
 
     typedef P44Obj inherited;
@@ -208,6 +216,9 @@ namespace p44 {
 
     /// @return true if chains has a separate (fourth) white channel
     bool hasWhite() { return numColorComponents>=4; }
+
+    /// @return the LED chip descriptor which includes information about power consumption
+    const LedChipDesc &ledChipDescriptor() const;
 
     #if LEDCHAIN_LEGACY_API
 
@@ -325,9 +336,9 @@ namespace p44 {
     MLMicroSeconds mLastUpdate;
     MLTicket mAutoStepTicket;
     uint8_t mMaxOutValue;
-    uint32_t mPowerLimit; // max power (accumulated PWM values of all LEDs)
-    uint32_t mRequestedLightPower; // light power currently requested (but possibly not actually output if >powerLimit)
-    uint32_t mActualLightPower; // light power actually used after dimming down because of limit
+    uint32_t mPowerLimitMw; // max power (accumulated PWM values of all LEDs)
+    uint32_t mRequestedLightPowerMw; // light power currently requested (but possibly not actually output if >powerLimit)
+    uint32_t mActualLightPowerMw; // light power actually used after dimming down because of limit
     bool mPowerLimited; // set while power is limited
 
   public:
