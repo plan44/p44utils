@@ -76,13 +76,13 @@ LEDChainComm::LEDChainComm(
   uint16_t aLedsPerRow,
   bool aXReversed,
   bool aAlternating,
-  bool aSwapXY,
+  bool aXYSwap,
   bool aYReversed,
   uint16_t aInactiveStartLeds,
   uint16_t aInactiveBetweenLeds,
   uint16_t aInactiveEndLeds
 ) :
-  initialized(false)
+  mInitialized(false)
   #ifdef ESP_PLATFORM
   ,gpioNo(18) // sensible default
   ,pixels(NULL)
@@ -95,32 +95,32 @@ LEDChainComm::LEDChainComm(
   #endif
 {
   // set defaults
-  ledChip = ledchip_none; // none defined yet
-  ledLayout = ledlayout_none; // none defined yet
-  tMaxPassive_uS = 0;
-  maxRetries = 0;
-  numColorComponents = 3;
+  mLedChip = ledchip_none; // none defined yet
+  mLedLayout = ledlayout_none; // none defined yet
+  mTMaxPassive_uS = 0;
+  mMaxRetries = 0;
+  mNumColorComponents = 3;
   // Parse led type string
   // - check legacy type names
   if (aLedType=="SK6812") {
-    ledChip = ledchip_sk6812;
-    ledLayout = ledlayout_grbw;
+    mLedChip = ledchip_sk6812;
+    mLedLayout = ledlayout_grbw;
   }
   else if (aLedType=="P9823") {
-    ledChip = ledchip_p9823;
-    ledLayout = ledlayout_rgb;
+    mLedChip = ledchip_p9823;
+    mLedLayout = ledlayout_rgb;
   }
   else if (aLedType=="WS2815_RGB") {
-    ledChip = ledchip_ws2815;
-    ledLayout = ledlayout_rgb;
+    mLedChip = ledchip_ws2815;
+    mLedLayout = ledlayout_rgb;
   }
   else if (aLedType=="WS2812") {
-    ledChip = ledchip_ws2812;
-    ledLayout = ledlayout_grb;
+    mLedChip = ledchip_ws2812;
+    mLedLayout = ledlayout_grb;
   }
   else if (aLedType=="WS2813") {
-    ledChip = ledchip_ws2813;
-    ledLayout = ledlayout_grb;
+    mLedChip = ledchip_ws2813;
+    mLedLayout = ledlayout_grb;
   }
   else {
     // Modern led definitions
@@ -129,41 +129,41 @@ LEDChainComm::LEDChainComm(
     string part;
     if (nextPart(cP, part, '.')) {
       // chip
-      for (int i=0; i<num_ledchips; i++) { if (strucmp(part.c_str(), ledChipDescriptors[i].name )==0) { ledChip = (LedChip)i; break; } };
+      for (int i=0; i<num_ledchips; i++) { if (strucmp(part.c_str(), ledChipDescriptors[i].name )==0) { mLedChip = (LedChip)i; break; } };
     }
     if (nextPart(cP, part, '.')) {
       // layout
-      for (int i=0; i<num_ledlayouts; i++) { if (strucmp(part.c_str(), ledLayoutNames[i])==0) { ledLayout = (LedLayout)i; break; } };
+      for (int i=0; i<num_ledlayouts; i++) { if (strucmp(part.c_str(), ledLayoutNames[i])==0) { mLedLayout = (LedLayout)i; break; } };
     }
     if (nextPart(cP, part, '.')) {
       // custom TPassive_max_nS
-      tMaxPassive_uS = atoi(part.c_str());
+      mTMaxPassive_uS = atoi(part.c_str());
     }
     if (nextPart(cP, part, '.')) {
       // custom maxrepeat
-      maxRetries = atoi(part.c_str());
+      mMaxRetries = atoi(part.c_str());
     }
   }
   // device name/channel
-  deviceName = aDeviceName;
-  numColorComponents = ledChipDescriptors[ledChip].whiteChannelMw>0 ? 4 : 3;
-  inactiveStartLeds = aInactiveStartLeds;
-  inactiveBetweenLeds = aInactiveBetweenLeds;
-  inactiveEndLeds = aInactiveEndLeds;
+  mDeviceName = aDeviceName;
+  mNumColorComponents = ledChipDescriptors[mLedChip].whiteChannelMw>0 ? 4 : 3;
+  mInactiveStartLeds = aInactiveStartLeds;
+  mInactiveBetweenLeds = aInactiveBetweenLeds;
+  mInactiveEndLeds = aInactiveEndLeds;
   // number of LEDs
-  numLeds = aNumLeds;
+  mNumLeds = aNumLeds;
   if (aLedsPerRow==0) {
-    ledsPerRow = aNumLeds-aInactiveStartLeds; // single row
-    numRows = 1;
+    mLedsPerRow = aNumLeds-aInactiveStartLeds; // single row
+    mNumRows = 1;
   }
   else {
-    ledsPerRow = aLedsPerRow; // set row size
-    numRows = (numLeds-1-inactiveStartLeds-inactiveEndLeds)/(ledsPerRow+inactiveBetweenLeds)+1; // calculate number of (full or partial) rows
+    mLedsPerRow = aLedsPerRow; // set row size
+    mNumRows = (mNumLeds-1-mInactiveStartLeds-mInactiveEndLeds)/(mLedsPerRow+mInactiveBetweenLeds)+1; // calculate number of (full or partial) rows
   }
-  xReversed = aXReversed;
-  yReversed = aYReversed;
-  alternating = aAlternating;
-  swapXY = aSwapXY;
+  mXReversed = aXReversed;
+  mYReversed = aYReversed;
+  mAlternating = aAlternating;
+  mXYSwap = aXYSwap;
   // make sure operation ends when mainloop terminates
   MainLoop::currentMainLoop().registerCleanupHandler(boost::bind(&LEDChainComm::end, this));
 }
@@ -177,13 +177,13 @@ LEDChainComm::~LEDChainComm()
 
 void LEDChainComm::setChainDriver(LEDChainCommPtr aLedChainComm)
 {
-  chainDriver = aLedChainComm;
+  mChainDriver = aLedChainComm;
 }
 
 
 const LEDChainComm::LedChipDesc &LEDChainComm::ledChipDescriptor() const
 {
-  return ledChipDescriptors[ledChip];
+  return ledChipDescriptors[mLedChip];
 }
 
 
@@ -201,10 +201,10 @@ static bool gEsp32_ws281x_initialized = false;
 
 bool LEDChainComm::begin(size_t aHintAtTotalChains)
 {
-  if (!initialized) {
-    if (chainDriver) {
+  if (!mInitialized) {
+    if (mChainDriver) {
       // another LED chain outputs to the hardware, make sure that one is up
-      initialized = chainDriver->begin();
+      mInitialized = mChainDriver->begin();
     }
     else {
       #ifdef ESP_PLATFORM
@@ -297,48 +297,48 @@ bool LEDChainComm::begin(size_t aHintAtTotalChains)
         ledBuffer = NULL;
         rawBytes = 0;
       }
-      if (ledChip!=ledchip_none) {
+      if (mLedChip!=ledchip_none) {
         const int hdrsize = 5; // v6 header size
-        rawBytes = numColorComponents*numLeds+1+hdrsize;
+        rawBytes = mNumColorComponents*mNumLeds+1+hdrsize;
         rawBuffer = new uint8_t[rawBytes];
         ledBuffer = rawBuffer+1+hdrsize; // led data starts here
         // prepare header for p44-ledchain v6 and later compatible drivers
         rawBuffer[0] = hdrsize; // driver v6 header size
-        rawBuffer[1] = ledLayout;
-        rawBuffer[2] = ledChip;
-        rawBuffer[3] = (tMaxPassive_uS>>8) & 0xFF;
-        rawBuffer[4] = (tMaxPassive_uS) & 0xFF;
-        rawBuffer[5] = maxRetries;
+        rawBuffer[1] = mLedLayout;
+        rawBuffer[2] = mLedChip;
+        rawBuffer[3] = (mTMaxPassive_uS>>8) & 0xFF;
+        rawBuffer[4] = (mTMaxPassive_uS) & 0xFF;
+        rawBuffer[5] = mMaxRetries;
       }
       else {
         // chip not known here: must be legacy driver w/o header
-        rawBytes = numColorComponents*numLeds;
+        rawBytes = mNumColorComponents*mNumLeds;
         rawBuffer = new uint8_t[rawBytes];
         ledBuffer = rawBuffer;
       }
-      memset(ledBuffer, 0, numColorComponents*numLeds);
-      ledFd = open(deviceName.c_str(), O_RDWR);
+      memset(ledBuffer, 0, mNumColorComponents*mNumLeds);
+      ledFd = open(mDeviceName.c_str(), O_RDWR);
       if (ledFd>=0) {
-        initialized = true;
+        mInitialized = true;
       }
       else {
-        LOG(LOG_ERR, "Error: Cannot open LED chain device '%s'", deviceName.c_str());
-        initialized = false;
+        LOG(LOG_ERR, "Error: Cannot open LED chain device '%s'", mDeviceName.c_str());
+        mInitialized = false;
       }
       #endif
     }
   }
-  return initialized;
+  return mInitialized;
 }
 
 
 void LEDChainComm::clear()
 {
-  if (!initialized) return;
-  if (chainDriver) {
+  if (!mInitialized) return;
+  if (mChainDriver) {
     // this is just a secondary mapping on a primary chain: clear only the actually mapped LEDs
-    for (uint16_t led = inactiveStartLeds; led<numLeds-inactiveEndLeds; led++) {
-      chainDriver->setPower(led, 0, 0, 0, 0);
+    for (uint16_t led = mInactiveStartLeds; led<mNumLeds-mInactiveEndLeds; led++) {
+      mChainDriver->setPower(led, 0, 0, 0, 0);
     }
   }
   else {
@@ -348,7 +348,7 @@ void LEDChainComm::clear()
     #elif ENABLE_RPIWS281X
     for (uint16_t i=0; i<numLeds; i++) ledstring.channel[0].leds[i] = 0;
     #else
-    memset(ledBuffer, 0, numColorComponents*numLeds);
+    memset(ledBuffer, 0, mNumColorComponents*mNumLeds);
     #endif
   }
 }
@@ -356,8 +356,8 @@ void LEDChainComm::clear()
 
 void LEDChainComm::end()
 {
-  if (initialized) {
-    if (!chainDriver) {
+  if (mInitialized) {
+    if (!mChainDriver) {
       #ifdef ESP_PLATFORM
       if (pixels) {
         delete[] pixels;
@@ -382,15 +382,15 @@ void LEDChainComm::end()
       #endif
     }
   }
-  initialized = false;
+  mInitialized = false;
 }
 
 
 void LEDChainComm::show()
 {
-  if (!chainDriver) {
+  if (!mChainDriver) {
     // Note: no operation if this is only a secondary mapping - primary driver will update the hardware
-    if (!initialized) return;
+    if (!mInitialized) return;
     #ifdef ESP_PLATFORM
     esp_ws281x_setColors(espLedChain, numLeds, pixels);
     #elif ENABLE_RPIWS281X
@@ -430,13 +430,13 @@ void LEDChainComm::getColorAtLedIndex(uint16_t aLedIndex, uint8_t &aRed, uint8_t
 
 void LEDChainComm::setPowerAtLedIndex(uint16_t aLedIndex, uint8_t aRed, uint8_t aGreen, uint8_t aBlue, uint8_t aWhite)
 {
-  if (chainDriver) {
+  if (mChainDriver) {
     // delegate actual output
-    chainDriver->setPowerAtLedIndex(aLedIndex, aRed, aGreen, aBlue, aWhite);
+    mChainDriver->setPowerAtLedIndex(aLedIndex, aRed, aGreen, aBlue, aWhite);
   }
   else {
     // local driver, store change in my own LED buffer
-    if (aLedIndex>=numLeds) return;
+    if (aLedIndex>=mNumLeds) return;
     #ifdef ESP_PLATFORM
     if (!pixels) return;
     pixels[aLedIndex] = esp_ws281x_makeRGBVal(aRed, aGreen, aBlue, aWhite);
@@ -450,11 +450,11 @@ void LEDChainComm::setPowerAtLedIndex(uint16_t aLedIndex, uint8_t aRed, uint8_t 
     }
     ledstring.channel[0].leds[aLedIndex] = pixel;
     #else
-    ledBuffer[numColorComponents*aLedIndex] = aRed;
-    ledBuffer[numColorComponents*aLedIndex+1] = aGreen;
-    ledBuffer[numColorComponents*aLedIndex+2] = aBlue;
-    if (numColorComponents>3) {
-      ledBuffer[numColorComponents*aLedIndex+3] = aWhite;
+    ledBuffer[mNumColorComponents*aLedIndex] = aRed;
+    ledBuffer[mNumColorComponents*aLedIndex+1] = aGreen;
+    ledBuffer[mNumColorComponents*aLedIndex+2] = aBlue;
+    if (mNumColorComponents>3) {
+      ledBuffer[mNumColorComponents*aLedIndex+3] = aWhite;
     }
     #endif
   }
@@ -463,12 +463,12 @@ void LEDChainComm::setPowerAtLedIndex(uint16_t aLedIndex, uint8_t aRed, uint8_t 
 
 void LEDChainComm::getPowerAtLedIndex(uint16_t aLedIndex, uint8_t &aRed, uint8_t &aGreen, uint8_t &aBlue, uint8_t &aWhite)
 {
-  if (chainDriver) {
+  if (mChainDriver) {
     // delegate actual output
-    chainDriver->getPowerAtLedIndex(aLedIndex, aRed, aGreen, aBlue, aWhite);
+    mChainDriver->getPowerAtLedIndex(aLedIndex, aRed, aGreen, aBlue, aWhite);
   }
   else {
-    if (aLedIndex>=numLeds) return;
+    if (aLedIndex>=mNumLeds) return;
     #ifdef ESP_PLATFORM
     if (!pixels) return;
     Esp_ws281x_pixel &pixel = pixels[aLedIndex];
@@ -488,11 +488,11 @@ void LEDChainComm::getPowerAtLedIndex(uint16_t aLedIndex, uint8_t &aRed, uint8_t
       aWhite = 0;
     }
     #else
-    aRed = ledBuffer[numColorComponents*aLedIndex];
-    aGreen = ledBuffer[numColorComponents*aLedIndex+1];
-    aBlue = ledBuffer[numColorComponents*aLedIndex+2];
-    if (numColorComponents>3) {
-      aWhite = ledBuffer[numColorComponents*aLedIndex+3];
+    aRed = ledBuffer[mNumColorComponents*aLedIndex];
+    aGreen = ledBuffer[mNumColorComponents*aLedIndex+1];
+    aBlue = ledBuffer[mNumColorComponents*aLedIndex+2];
+    if (mNumColorComponents>3) {
+      aWhite = ledBuffer[mNumColorComponents*aLedIndex+3];
     }
     else {
       aWhite = 0;
@@ -507,19 +507,19 @@ void LEDChainComm::getPowerAtLedIndex(uint16_t aLedIndex, uint8_t &aRed, uint8_t
 
 uint16_t LEDChainComm::getNumLeds()
 {
-  return numLeds-inactiveStartLeds-inactiveEndLeds-(numRows-1)*inactiveBetweenLeds;
+  return mNumLeds-mInactiveStartLeds-mInactiveEndLeds-(mNumRows-1)*mInactiveBetweenLeds;
 }
 
 
 uint16_t LEDChainComm::getSizeX()
 {
-  return swapXY ? numRows : ledsPerRow;
+  return mXYSwap ? mNumRows : mLedsPerRow;
 }
 
 
 uint16_t LEDChainComm::getSizeY()
 {
-  return swapXY ? ledsPerRow : numRows;
+  return mXYSwap ? mLedsPerRow : mNumRows;
 }
 
 
@@ -535,21 +535,21 @@ uint8_t LEDChainComm::getMinVisibleColorIntensity()
 uint16_t LEDChainComm::ledIndexFromXY(uint16_t aX, uint16_t aY)
 {
   //FOCUSLOG("ledIndexFromXY: X=%d, Y=%d", aX, aY);
-  if (swapXY) { uint16_t tmp = aY; aY = aX; aX = tmp; }
-  if (yReversed) { aY = numRows-1-aY; }
-  uint16_t ledindex = aY*(ledsPerRow+inactiveBetweenLeds);
-  bool reversed = xReversed;
-  if (alternating) {
+  if (mXYSwap) { uint16_t tmp = aY; aY = aX; aX = tmp; }
+  if (mYReversed) { aY = mNumRows-1-aY; }
+  uint16_t ledindex = aY*(mLedsPerRow+mInactiveBetweenLeds);
+  bool reversed = mXReversed;
+  if (mAlternating) {
     if (aY & 0x1) reversed = !reversed;
   }
   if (reversed) {
-    ledindex += (ledsPerRow-1-aX);
+    ledindex += (mLedsPerRow-1-aX);
   }
   else {
     ledindex += aX;
   }
   //FOCUSLOG("--> ledIndex=%d", ledindex);
-  return ledindex+inactiveStartLeds;
+  return ledindex+mInactiveStartLeds;
 }
 
 
@@ -1079,7 +1079,7 @@ MLMicroSeconds LEDChainArrangement::updateDisplay()
 void LEDChainArrangement::startChains()
 {
   for(LedChainVector::iterator pos = mLedChains.begin(); pos!=mLedChains.end(); ++pos) {
-    if (!pos->ledChain->initialized) {
+    if (!pos->ledChain->mInitialized) {
       pos->ledChain->begin(mLedChains.size());
       pos->ledChain->clear();
       pos->ledChain->show();

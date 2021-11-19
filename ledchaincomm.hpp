@@ -107,26 +107,26 @@ namespace p44 {
 
     typedef P44Obj inherited;
 
-    LedChip ledChip; // type of LED chips in the chain
-    LedLayout ledLayout; // color layout in the LED chips
-    uint16_t tMaxPassive_uS; // max passive bit time in uS
-    uint8_t maxRetries; // max number of update retries (for some low level drivers that may need to retry when IRQ hits at the wrong time)
-    string deviceName; // the LED device name
-    uint16_t inactiveStartLeds; // number of inactive LEDs at the start of the chain
-    uint16_t inactiveBetweenLeds; // number of inactive LEDs between physical rows
-    uint16_t inactiveEndLeds; // number of inactive LEDs at the end of the chain (we have buffer for them, but do not set colors for them)
-    uint16_t numLeds; // number of LEDs
-    uint16_t ledsPerRow; // number of LEDs per row (physically, along WS2812 chain)
-    uint16_t numRows; // number of rows (sections of WS2812 chain)
-    bool xReversed; // even (0,2,4...) rows go backwards, or all if not alternating
-    bool yReversed; // columns go backwards
-    bool alternating; // direction changes after every row
-    bool swapXY; // x and y swapped
+    LedChip mLedChip; // type of LED chips in the chain
+    LedLayout mLedLayout; // color layout in the LED chips
+    uint16_t mTMaxPassive_uS; // max passive bit time in uS
+    uint8_t mMaxRetries; // max number of update retries (for some low level drivers that may need to retry when IRQ hits at the wrong time)
+    string mDeviceName; // the LED device name
+    uint16_t mInactiveStartLeds; // number of inactive LEDs at the start of the chain
+    uint16_t mInactiveBetweenLeds; // number of inactive LEDs between physical rows
+    uint16_t mInactiveEndLeds; // number of inactive LEDs at the end of the chain (we have buffer for them, but do not set colors for them)
+    uint16_t mNumLeds; // number of LEDs
+    uint16_t mLedsPerRow; // number of LEDs per row (physically, along WS2812 chain)
+    uint16_t mNumRows; // number of rows (sections of WS2812 chain)
+    bool mXReversed; // even (0,2,4...) rows go backwards, or all if not alternating
+    bool mYReversed; // columns go backwards
+    bool mAlternating; // direction changes after every row
+    bool mXYSwap; // x and y swapped
 
-    bool initialized;
-    uint8_t numColorComponents; // depends on ledType
+    bool mInitialized;
+    uint8_t mNumColorComponents; // depends on ledType
 
-    LEDChainCommPtr chainDriver; // the LED chain used for outputting LED values. Usually: myself, but if this instance just maps a second part of another chain, this will point to the other chain
+    LEDChainCommPtr mChainDriver; // the LED chain used for outputting LED values. Usually: myself, but if this instance just maps a second part of another chain, this will point to the other chain
 
     #ifdef ESP_PLATFORM
     int gpioNo; // the GPIO to be used
@@ -170,7 +170,7 @@ namespace p44 {
       uint16_t aLedsPerRow=0,
       bool aXReversed=false,
       bool aAlternating=false,
-      bool aSwapXY=false,
+      bool aXYSwap=false,
       bool aYReversed=false,
       uint16_t aInactiveStartLeds=0,
       uint16_t aInactiveBetweenLeds=0,
@@ -181,7 +181,7 @@ namespace p44 {
     ~LEDChainComm();
 
     /// @return device (driver) name of this chain. Must be unqiuely identify the actual hardware output channel
-    const string &getDeviceName() { return deviceName; };
+    const string &getDeviceName() { return mDeviceName; };
 
     /// set this LedChainComm to use another chain's actual output driver, i.e. only act as mapping
     /// layer. This allows to have multiple different mappings on the same chain (i.e. part of the chain wound as tube,
@@ -191,7 +191,7 @@ namespace p44 {
     void setChainDriver(LEDChainCommPtr aLedChainComm);
 
     /// @return true if this LedChainComm acts as a hardware driver (and not as a secondary)
-    bool isHardwareDriver() { return chainDriver==NULL; };
+    bool isHardwareDriver() { return mChainDriver==NULL; };
 
     /// begin using the driver
     /// @param aHintAtTotalChains if not 0, this is a hint to the total number of total chains, which the driver can use
@@ -215,7 +215,7 @@ namespace p44 {
     uint8_t getMinVisibleColorIntensity();
 
     /// @return true if chains has a separate (fourth) white channel
-    bool hasWhite() { return numColorComponents>=4; }
+    bool hasWhite() { return mNumColorComponents>=4; }
 
     /// @return the LED chip descriptor which includes information about power consumption
     const LedChipDesc &ledChipDescriptor() const;
