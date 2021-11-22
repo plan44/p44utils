@@ -437,14 +437,34 @@ void JsonObject::arrayPut(int aAtIndex, JsonObjectPtr aObj)
   }
 }
 
-#if !REDUCED_FOOTPRINT
+
 void JsonObject::arrayDel(int aAtIndex, int aNumElements)
 {
   if (type()==json_type_array) {
+    #if HAVE_JSONC_VERSION_013
+    // JSON-C v0.13 onwards does have json_object_array_del_idx()
     json_object_array_del_idx(json_obj, aAtIndex, aNumElements);
+    #else
+    // for JSON-C before 0.13, we need to emulate array element deletion by coyping all but to-be-deleted elements
+    struct json_object *newarray = json_object_new_array();
+    int n = arrayLength();
+    for (int i=0; i<n; i++) {
+      if (i<aAtIndex || i>=aAtIndex+aNumElements) {
+        json_object *weakObjRef = json_object_array_get_idx(json_obj, i);
+        if (weakObjRef) {
+          // - claim ownership as neither json_object_array_get_idx nor json_object_array_add does not do that automatically
+          //   (and we *need* to own the object because deleting the old array will put all of its contained objects)
+          json_object_get(weakObjRef);
+          json_object_array_add(newarray, weakObjRef);
+        }
+      }
+    }
+    json_object_put(json_obj); // forget the old array
+    json_obj = newarray; // replace it with the new array
+    #endif // !HAVE_JSONC_VERSION_013
   }
 }
-#endif // REDUCED_FOOTPRINT
+
 
 
 // MARK: - object key/value iteration

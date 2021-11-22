@@ -303,15 +303,16 @@ TEST_CASE_METHOD(AsyncScriptingFixture, "Debugging single case/assertion", "[DEB
 }
 */
 
-/*
 TEST_CASE_METHOD(ScriptingCodeFixture, "Debugging single case/assertion", "[DEBUG]" )
 {
   SETLOGLEVEL(LOG_DEBUG);
   SETDELTATIME(true);
 
-  REQUIRE(s.test(expression, "string(undefined)")->stringValue() == "undefined"); // this is the stringvalue which defaults to the annotation which is "undefined" for ScriptObj
+  REQUIRE(s.test(scriptbody|keepvars, "var k = [42, 43, 44]; k[1]")->doubleValue() == 43);
+  REQUIRE(s.test(scriptbody|keepvars, "unset k[1]")->isErr() == false); // delete field must work
+  REQUIRE(s.test(scriptbody|keepvars, "k[1]")->doubleValue() == 44); // formerly third value
+  REQUIRE(s.test(scriptbody|keepvars, "elements(k)")->doubleValue() == 2); // only 2 elements left
 }
-*/
 
 
 // MARK: - Literals
