@@ -30,6 +30,10 @@
 
 #include "p44utils_common.hpp"
 
+#ifndef ENABLE_RFID
+  #define ENABLE_RFID 1
+#endif
+
 #if ENABLE_RFID
 
 #include <stdio.h>
