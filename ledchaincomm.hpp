@@ -228,7 +228,7 @@ namespace p44 {
     /// @param aBlue intensity of blue component, 0..255
     /// @param aWhite intensity of separate white component for RGBW LEDs, 0..255
     /// @note aLedNumber is the logical LED number, and aX/aY are logical coordinates, excluding any inactive LEDs
-    void setColorXY(uint16_t aX, uint16_t aY, uint8_t aRed, uint8_t aGreen, uint8_t aBlue, uint8_t aWhite=0);
+    void setColorXY(uint16_t aX, uint16_t aY, uint8_t aRed, uint8_t aGreen, uint8_t aBlue, uint8_t aWhite = 0);
     void setColor(uint16_t aLedNumber, uint8_t aRed, uint8_t aGreen, uint8_t aBlue, uint8_t aWhite=0);
 
     /// set color of one LED, scaled by a visible brightness (non-linear) factor
@@ -261,7 +261,7 @@ namespace p44 {
     /// @param aGreen power of green component, 0..255
     /// @param aBlue power of blue component, 0..255
     /// @param aWhite power of separate white component for RGBW LEDs, 0..255
-    void setPowerXY(uint16_t aX, uint16_t aY, uint8_t aRed, uint8_t aGreen, uint8_t aBlue, uint8_t aWhite);
+    void setPowerXY(uint16_t aX, uint16_t aY, uint8_t aRed, uint8_t aGreen, uint8_t aBlue, uint8_t aWhite = 0);
 
     /// set raw power (PWM value) of one LED
     /// @param aLedNumber is the logical LED number
@@ -269,7 +269,7 @@ namespace p44 {
     /// @param aGreen power of green component, 0..255
     /// @param aBlue power of blue component, 0..255
     /// @param aWhite power of separate white component for RGBW LEDs, 0..255
-    void setPower(uint16_t aLedNumber, uint8_t aRed, uint8_t aGreen, uint8_t aBlue, uint8_t aWhite=0);
+    void setPower(uint16_t aLedNumber, uint8_t aRed, uint8_t aGreen, uint8_t aBlue, uint8_t aWhite = 0);
 
     /// set power (PWM value) of one LED
     /// @param aX logical X coordinate
