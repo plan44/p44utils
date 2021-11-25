@@ -429,7 +429,9 @@ namespace p44 {
 
     /// Factory helper to create ledchain arrangement with one or multiple led chains from --ledchain command line options
     /// @param aLedChainArrangement if not set, new arrangement will be created, otherwise existing one is used
-    /// @param aChainSpec string describing the LED chain parameters and the coverage in the arrangement
+    /// @param aChainSpec string describing the LED chain parameters and the coverage in the arrangement,
+    ///   or "none" to not really add a ledchain, but instantiate an empty arrangement that can be configured later
+    ///   e.g. by using p44script.
     static void addLEDChain(LEDChainArrangementPtr &aLedChainArrangement, const string &aChainSpec);
 
     #if ENABLE_APPLICATION_SUPPORT

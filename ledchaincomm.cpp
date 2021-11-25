@@ -704,6 +704,7 @@ void LEDChainArrangement::addLEDChain(LEDChainArrangementPtr &aLedChainArrangeme
 {
   if (aChainSpec.empty()) return;
   if (!aLedChainArrangement) {
+    // create the arrangement, which registers global p44script functions for managing led chains
     aLedChainArrangement = LEDChainArrangementPtr(new LEDChainArrangement);
     #if ENABLE_P44SCRIPT && ENABLE_P44LRGRAPHICS && ENABLE_VIEWCONFIG
     // also install p44script lookup providing "lrg" global
@@ -712,8 +713,11 @@ void LEDChainArrangement::addLEDChain(LEDChainArrangementPtr &aLedChainArrangeme
     );
     #endif // ENABLE_P44SCRIPT
   }
-  // now add chain
-  aLedChainArrangement->addLEDChain(aChainSpec);
+  // "adding" a ledchain with spec "none" just creates the ledchainarrangement, so ledchains can be added via p44script
+  if (aChainSpec!="none") {
+    // now add chain
+    aLedChainArrangement->addLEDChain(aChainSpec);
+  }
 }
 
 
