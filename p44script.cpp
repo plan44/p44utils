@@ -5375,13 +5375,23 @@ static void round_func(BuiltinFunctionContextPtr f)
 }
 
 
-// random (a,b)     random value from a up to and including b
-static const BuiltInArgDesc random_args[] = { { numeric }, { numeric } };
+// random (a,b [, resolution])  float random value from a up to and including b, with optional resolution step
+static const BuiltInArgDesc random_args[] = { { numeric }, { numeric }, { numeric|optionalarg } };
 static const size_t random_numargs = sizeof(random_args)/sizeof(BuiltInArgDesc);
 static void random_func(BuiltinFunctionContextPtr f)
 {
+  double offs = f->arg(0)->doubleValue();
+  double sz = f->arg(1)->doubleValue()-offs;
+  double res = f->arg(2)->doubleValue();
+  if (res>0) {
+    sz += res-0.000001;
+  }
   // rand(): returns a pseudo-random integer value between ​0​ and RAND_MAX (0 and RAND_MAX included).
-  f->finish(new NumericValue(f->arg(0)->doubleValue() + (double)rand()*(f->arg(1)->doubleValue()-f->arg(0)->doubleValue())/((double)RAND_MAX)));
+  double rnd = (double)rand()*sz/((double)RAND_MAX);
+  if (res>0) {
+    rnd = int(rnd/res)*res;
+  }
+  f->finish(new NumericValue(rnd+offs));
 }
 
 
