@@ -167,7 +167,7 @@ void UbusRequest::sendResponse(JsonObjectPtr aResponse, int aUbusErr)
   ubusErr = aUbusErr;
   if (ubusServer) {
     // send reply
-    POLOG(ubusServer, LOG_INFO, "response status: %d, message: %s", aUbusErr, aResponse ? aResponse->json_c_str() : "<none>");
+    POLOG(ubusServer, LOG_INFO, "response status: %d, message: %s", aUbusErr, JsonObject::text(aResponse));
     struct blob_buf responseBuffer;
     memset(&responseBuffer, 0, sizeof(responseBuffer)); // essential for blob_buf_init
     blob_buf_init(&responseBuffer, 0);
@@ -200,7 +200,7 @@ int UbusServer::methodHandler(
   // - msg is a table container w/o having a header for it
   JsonObjectPtr jsonMsg = JsonObject::newObj();
   blobMsgToJsonContainer(jsonMsg, blobmsg_data(msg), blobmsg_data_len(msg));
-  OLOG(LOG_INFO, "object '%s' got method call '%s' with message: %s", obj->name, method, jsonMsg ? jsonMsg->json_c_str() : "<none>");
+  OLOG(LOG_INFO, "object '%s' got method call '%s' with message: %s", obj->name, method, JsonObject::text(jsonMsg));
 
   // wrap request for processing
   UbusRequestPtr ureq = UbusRequestPtr(new UbusRequest(this, req, method, jsonMsg));
