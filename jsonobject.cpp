@@ -36,31 +36,31 @@ using namespace p44;
 
 // construct from raw json_object, passing ownership
 JsonObject::JsonObject(struct json_object *aObjPassingOwnership) :
-  nextEntryP(NULL)
+  mNextEntryP(NULL)
 {
-  json_obj = aObjPassingOwnership;
+  mJson_obj = aObjPassingOwnership;
 }
 
 
 // construct empty
 JsonObject::JsonObject()
 {
-  json_obj = json_object_new_object();
+  mJson_obj = json_object_new_object();
 }
 
 
 JsonObject::~JsonObject()
 {
-  if (json_obj) {
-    json_object_put(json_obj);
-    json_obj = NULL;
+  if (mJson_obj) {
+    json_object_put(mJson_obj);
+    mJson_obj = NULL;
   }
 }
 
 
 /// copy constructor
 JsonObject::JsonObject(const JsonObject& aObj) :
-  json_obj(NULL)
+  mJson_obj(NULL)
 {
   *this = aObj;
 }
@@ -68,12 +68,12 @@ JsonObject::JsonObject(const JsonObject& aObj) :
 /// assignment operator
 JsonObject& JsonObject::operator=(const JsonObject& aObj)
 {
-  if (json_obj) {
-    json_object_put(json_obj);
-    json_obj = NULL;
+  if (mJson_obj) {
+    json_object_put(mJson_obj);
+    mJson_obj = NULL;
   }
   //json_object_deep_copy(aObj.json_obj, &json_obj, &json_c_shallow_copy_default);
-  json_obj = json_tokener_parse(json_object_get_string(aObj.json_obj)); // should do "roughly the same thing"
+  mJson_obj = json_tokener_parse(json_object_get_string(aObj.mJson_obj)); // should do "roughly the same thing"
   return *this;
 }
 
@@ -308,13 +308,13 @@ ErrorPtr JsonObject::saveToFile(const char *aJsonFilePath, int aFlags)
 
 json_type JsonObject::type() const
 {
-  return json_object_get_type(json_obj);
+  return json_object_get_type(mJson_obj);
 }
 
 
 bool JsonObject::isType(json_type aRefType) const
 {
-  return json_object_is_type(json_obj, aRefType);
+  return json_object_is_type(mJson_obj, aRefType);
 }
 
 
@@ -323,7 +323,7 @@ bool JsonObject::isType(json_type aRefType) const
 
 const char *JsonObject::json_c_str(int aFlags)
 {
-  return json_object_to_json_string_ext(json_obj, aFlags);
+  return json_object_to_json_string_ext(mJson_obj, aFlags);
 }
 
 
@@ -349,14 +349,14 @@ void JsonObject::add(const char* aKey, JsonObjectPtr aObj)
   // so we must compensate this by retaining (getting) the object
   // as the object still belongs to us
   // Except if a NULL (no object) is passed
-  json_object_object_add(json_obj, aKey, aObj ? json_object_get(aObj->json_obj) : NULL);
+  json_object_object_add(mJson_obj, aKey, aObj ? json_object_get(aObj->mJson_obj) : NULL);
 }
 
 
 bool JsonObject::get(const char *aKey, JsonObjectPtr &aJsonObject, bool aNonNull)
 {
   json_object *weakObjRef = NULL;
-  if (json_object_object_get_ex(json_obj, aKey, &weakObjRef)) {
+  if (json_object_object_get_ex(mJson_obj, aKey, &weakObjRef)) {
     // found object, but can be the NULL object (which will return no JsonObjectPtr
     if (weakObjRef==NULL) {
       if (aNonNull) return false; // we don't want a NULL value returned
@@ -395,7 +395,7 @@ const char *JsonObject::getCString(const char *aKey)
 
 void JsonObject::del(const char *aKey)
 {
-  json_object_object_del(json_obj, aKey);
+  json_object_object_del(mJson_obj, aKey);
 }
 
 
@@ -407,7 +407,7 @@ int JsonObject::arrayLength() const
   if (type()!=json_type_array)
     return 0; // normal objects don't have a length
   else
-    return (int)json_object_array_length(json_obj);
+    return (int)json_object_array_length(mJson_obj);
 }
 
 
@@ -415,8 +415,8 @@ void JsonObject::arrayAppend(JsonObjectPtr aObj)
 {
   if (type()==json_type_array) {
     // - claim ownership as json_object_array_add does not do that automatically
-    json_object_get(aObj->json_obj);
-    json_object_array_add(json_obj, aObj->json_obj);
+    json_object_get(aObj->mJson_obj);
+    json_object_array_add(mJson_obj, aObj->mJson_obj);
   }
 }
 
@@ -424,7 +424,7 @@ void JsonObject::arrayAppend(JsonObjectPtr aObj)
 JsonObjectPtr JsonObject::arrayGet(int aAtIndex)
 {
   JsonObjectPtr p;
-  json_object *weakObjRef = json_object_array_get_idx(json_obj, aAtIndex);
+  json_object *weakObjRef = json_object_array_get_idx(mJson_obj, aAtIndex);
   if (weakObjRef) {
     // found object
     // - claim ownership as json_object_array_get_idx does not do that automatically
@@ -440,8 +440,8 @@ void JsonObject::arrayPut(int aAtIndex, JsonObjectPtr aObj)
 {
   if (type()==json_type_array) {
     // - claim ownership as json_object_array_put_idx does not do that automatically
-    json_object_get(aObj->json_obj);
-    json_object_array_put_idx(json_obj, aAtIndex, aObj->json_obj);
+    json_object_get(aObj->mJson_obj);
+    json_object_array_put_idx(mJson_obj, aAtIndex, aObj->mJson_obj);
   }
 }
 
@@ -451,7 +451,7 @@ void JsonObject::arrayDel(int aAtIndex, int aNumElements)
   if (type()==json_type_array) {
     #if HAVE_JSONC_VERSION_013
     // JSON-C v0.13 onwards does have json_object_array_del_idx()
-    json_object_array_del_idx(json_obj, aAtIndex, aNumElements);
+    json_object_array_del_idx(mJson_obj, aAtIndex, aNumElements);
     #else
     // for JSON-C before 0.13, we need to emulate array element deletion by coyping all but to-be-deleted elements
     struct json_object *newarray = json_object_new_array();
@@ -481,7 +481,7 @@ void JsonObject::arrayDel(int aAtIndex, int aNumElements)
 bool JsonObject::resetKeyIteration()
 {
   if (isType(json_type_object)) {
-    nextEntryP = json_object_get_object(json_obj)->head;
+    mNextEntryP = json_object_get_object(mJson_obj)->head;
     return true; // can be iterated (but might still have zero key/values)
   }
   return false; // cannot be iterated
@@ -511,10 +511,10 @@ static void keyValueFromEntry(struct lh_entry *aEntryP, string* aKeyP, JsonObjec
 
 bool JsonObject::nextKeyValue(string &aKey, JsonObjectPtr &aValue)
 {
-  if (nextEntryP) {
-    keyValueFromEntry(nextEntryP, &aKey, &aValue);
+  if (mNextEntryP) {
+    keyValueFromEntry(mNextEntryP, &aKey, &aValue);
     // advance to next
-    nextEntryP = nextEntryP->next;
+    mNextEntryP = mNextEntryP->next;
     return true;
   }
   // no more entries
@@ -526,7 +526,7 @@ int JsonObject::numKeys()
 {
   int nk = 0;
   if (isType(json_type_object)) {
-    struct lh_entry *eP = json_object_get_object(json_obj)->head; ///< iterator pointer
+    struct lh_entry *eP = json_object_get_object(mJson_obj)->head; ///< iterator pointer
     while(eP) {
       nk++;
       eP = eP->next;
@@ -540,7 +540,7 @@ bool JsonObject::keyValueByIndex(int aIndex, string &aKey, JsonObjectPtr* aValue
 {
   if (isType(json_type_object)) {
     int i = 0;
-    struct lh_entry *eP = json_object_get_object(json_obj)->head; ///< iterator pointer
+    struct lh_entry *eP = json_object_get_object(mJson_obj)->head; ///< iterator pointer
     while(eP) {
       if (i==aIndex) {
         keyValueFromEntry(eP, &aKey, aValueP);
@@ -599,10 +599,10 @@ bool JsonObject::boolValue() const
   // workaround for bug in json_object_get_boolean() returning false for arrays and objects
   // Bug was reported on github: https://github.com/json-c/json-c/issues/658
   // PR for fixing the bug: https://github.com/json-c/json-c/pull/659
-  json_type t = json_object_get_type(json_obj);
+  json_type t = json_object_get_type(mJson_obj);
   if (t==json_type_object || t==json_type_array) return true;
   // end of bugfix
-  return json_object_get_boolean(json_obj);
+  return json_object_get_boolean(mJson_obj);
 }
 
 
@@ -625,7 +625,7 @@ int32_t JsonObject::int32Value() const
       return (int32_t)strtol(xstr, NULL, 0);
     }
   }
-  return json_object_get_int(json_obj);
+  return json_object_get_int(mJson_obj);
 }
 
 int64_t JsonObject::int64Value() const
@@ -637,7 +637,7 @@ int64_t JsonObject::int64Value() const
       return (int64_t)strtoll(xstr, NULL, 0);
     }
   }
-  return json_object_get_int64(json_obj);
+  return json_object_get_int64(mJson_obj);
 }
 
 
@@ -648,7 +648,7 @@ JsonObjectPtr JsonObject::newDouble(double aDouble)
 
 double JsonObject::doubleValue() const
 {
-  return json_object_get_double(json_obj);
+  return json_object_get_double(mJson_obj);
 }
 
 
@@ -673,12 +673,12 @@ JsonObjectPtr JsonObject::newString(const string &aString, bool aEmptyIsNull)
 
 const char *JsonObject::c_strValue() const
 {
-  return json_object_get_string(json_obj);
+  return json_object_get_string(mJson_obj);
 }
 
 size_t JsonObject::stringLength() const
 {
-  return (size_t)json_object_get_string_len(json_obj);
+  return (size_t)json_object_get_string_len(mJson_obj);
 }
 
 string JsonObject::stringValue() const

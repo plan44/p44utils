@@ -58,9 +58,9 @@ namespace p44 {
   /// wrapper around json-c / libjson0 object
   class JsonObject : public P44Obj
   {
-    struct json_object *json_obj; ///< the json-c object
+    struct json_object *mJson_obj; ///< the json-c object
 
-    struct lh_entry *nextEntryP; ///< iterator pointer for resetKeyIteration()/nextKeyValue()
+    struct lh_entry *mNextEntryP; ///< iterator pointer for resetKeyIteration()/nextKeyValue()
 
     /// construct object as wrapper of json-c json_object.
     /// @param aObjPassingOwnership json_object, ownership is passed into this JsonObject, caller looses ownership!
@@ -111,7 +111,7 @@ namespace p44 {
     /// Note: should only be used to pass object to other json-c native APIs
     /// Note: Ownership of the jsonobject remains with this JsonObject
     /// @return pointer the embedded json-c object structure
-    const struct json_object *jsoncObj() const { return json_obj; }
+    const struct json_object *jsoncObj() const { return mJson_obj; }
 
     /// add object for key
     /// @param aKey name of key
