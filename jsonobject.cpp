@@ -284,14 +284,14 @@ JsonObjectPtr JsonObject::objFromFile(const char *aJsonFilePath, ErrorPtr *aErro
 }
 
 
-ErrorPtr JsonObject::saveToFile(const char *aJsonFilePath)
+ErrorPtr JsonObject::saveToFile(const char *aJsonFilePath, int aFlags)
 {
   int fd = open(aJsonFilePath, O_WRONLY|O_CREAT|O_TRUNC, S_IRUSR|S_IWUSR);
   if (fd<0) {
     return SysError::errNo("Cannot open file to save JSON: ");
   }
   else {
-    const char *jsontext = json_c_str();
+    const char *jsontext = json_c_str(aFlags);
     if (write(fd, jsontext, strlen(jsontext))<0) {
       close(fd);
       return SysError::errNo("Error writing JSON: ");
@@ -331,6 +331,14 @@ string JsonObject::json_str(int aFlags)
 {
   return string(json_c_str(aFlags));
 }
+
+
+const char* JsonObject::text(JsonObjectPtr aJsonObj, int aFlags)
+{
+  if (aJsonObj) return aJsonObj->json_c_str(aFlags);
+  else return "<none>";
+}
+
 
 
 // MARK: - add, get and delete by key
