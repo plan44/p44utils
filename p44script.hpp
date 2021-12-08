@@ -1562,6 +1562,9 @@ namespace p44 { namespace P44Script {
     /// @return the result of the initialisation run
     ScriptObjPtr compileAndInit();
 
+    /// invalidate trigger state to unknown
+    void invalidateState();
+
     /// (re-)evaluate the trigger outside of the evaluations caused by timing and event sources
     /// @param aRunMode runmode flags (combined with evaluation flags set at initialisation), non-runmode bits here are ignored
     /// @return false if trigger evaluation could not be started
@@ -2039,7 +2042,7 @@ namespace p44 { namespace P44Script {
     TriggerMode mTriggerMode;
     EvaluationFlags mEvalFlags;
     ScriptObjPtr mCurrentResult;
-    Tristate mCurrentState;
+    Tristate mBoolState;
     bool mOneShotEvent;
     MLMicroSeconds mNextEvaluation;
 
@@ -2077,7 +2080,10 @@ namespace p44 { namespace P44Script {
     ScriptObjPtr currentResult() { return mCurrentResult ? mCurrentResult : new AnnotatedNullValue("trigger never evaluated"); }
 
     /// the current boolean evaluation of the trigger
-    Tristate currentState() { return mCurrentState; }
+    Tristate boolState() { return mBoolState; }
+
+    /// invalidate trigger state to unknown (boolean evaluation state and current result)
+    void invalidateState();
 
     /// initialize (activate) the trigger
     /// @return result of the initialisation (can be null when not requested synchronous execution)

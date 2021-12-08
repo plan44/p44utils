@@ -4174,7 +4174,7 @@ ExecutionContextPtr CompiledScript::contextForCallingFrom(ScriptMainContextPtr a
 CompiledTrigger::CompiledTrigger(const string aName, ScriptMainContextPtr aMainContext) :
   inherited(aName, aMainContext),
   mTriggerMode(inactive),
-  mCurrentState(p44::undefined),
+  mBoolState(p44::undefined),
   mOneShotEvent(false),
   mEvalFlags(expression|synchronously),
   mNextEvaluation(Never),
@@ -4224,6 +4224,14 @@ ScriptObjPtr CompiledTrigger::initializeTrigger()
 }
 
 
+void CompiledTrigger::invalidateState()
+{
+  // reset completely unknown state
+  mBoolState = p44::undefined;
+  mCurrentResult.reset();
+}
+
+
 void CompiledTrigger::processEvent(ScriptObjPtr aEvent, EventSource &aSource)
 {
   mOneShotEvent = aEvent->hasType(oneshot);
@@ -4247,7 +4255,7 @@ void CompiledTrigger::triggerDidEvaluate(EvaluationFlags aEvalMode, ScriptObjPtr
 {
   OLOG(aEvalMode&initial ? LOG_INFO : LOG_DEBUG, "evaluated trigger: %s in evalmode=0x%x\n- with result: %s%s", mCursor.displaycode(90).c_str(), aEvalMode, mOneShotEvent ? "(ONESHOT) " : "", ScriptObj::describe(aResult).c_str());
   bool doTrigger = false;
-  Tristate newState = aResult->defined() ? (aResult->boolValue() ? p44::yes : p44::no) : p44::undefined;
+  Tristate newBoolState = aResult->defined() ? (aResult->boolValue() ? p44::yes : p44::no) : p44::undefined;
   if (mTriggerMode==onEvaluation) {
     doTrigger = true;
   }
@@ -4256,9 +4264,9 @@ void CompiledTrigger::triggerDidEvaluate(EvaluationFlags aEvalMode, ScriptObjPtr
   }
   else {
     // bool modes
-    doTrigger = mCurrentState!=newState;
+    doTrigger = mBoolState!=newBoolState;
     if (mTriggerMode==onGettingTrue && doTrigger) {
-      if (newState!=yes) {
+      if (newBoolState!=yes) {
         doTrigger = false; // do not trigger on getting false
         mMetAt = Never; // also reset holdoff
       }
@@ -4267,11 +4275,11 @@ void CompiledTrigger::triggerDidEvaluate(EvaluationFlags aEvalMode, ScriptObjPtr
   // update state
   if (mOneShotEvent || ((aEvalMode&initial) && aResult->hasType(oneshot))) {
     // oneshot triggers do not toggle status, but must return to undefined (also on initial, non-event-triggered evaluation)
-    mCurrentState = p44::undefined;
+    invalidateState();
   }
   else {
     // Not oneshot: update state
-    mCurrentState = newState;
+    mBoolState = newBoolState;
     // check holdoff
     if (mHoldOff>0 && (aEvalMode&initial)==0) { // holdoff is only active for non-initial runs
       MLMicroSeconds now = MainLoop::now();
@@ -4328,7 +4336,7 @@ void CompiledTrigger::triggerDidEvaluate(EvaluationFlags aEvalMode, ScriptObjPtr
     if ((aEvalMode&initial)!=0) {
       OLOG(LOG_WARNING, "probably trigger will not work as intended (no timers nor events): %s", mCursor.displaycode(70).c_str());
     }
-    mCurrentState = p44::undefined;
+    invalidateState();
   }
   // schedule next timed evaluation if one is needed
   scheduleNextEval();
@@ -4864,6 +4872,15 @@ ScriptObjPtr TriggerSource::compileAndInit()
   trigger->setTriggerCB(mTriggerCB);
   trigger->setTriggerEvalFlags(defaultFlags);
   return trigger->initializeTrigger();
+}
+
+
+void TriggerSource::invalidateState()
+{
+  CompiledTriggerPtr trigger = boost::dynamic_pointer_cast<CompiledTrigger>(getExecutable());
+  if (trigger) {
+    trigger->invalidateState();
+  }
 }
 
 
