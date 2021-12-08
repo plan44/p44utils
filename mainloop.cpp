@@ -431,7 +431,7 @@ void p44::libev_sleep_timer_done(EV_P_ struct ev_timer *t, int revents)
   ev_timer_stop(mlP->mLibEvLoopP, t);
 
   // NOP, just needed to exit IO polling
-  DBGLOG(LOG_DEBUG, "libev IO polling timeout");
+  DBGFOCUSLOG(LOG_DEBUG, "libev IO polling timeout");
 }
 
 #endif // MAINLOOP_LIBEV_BASED
