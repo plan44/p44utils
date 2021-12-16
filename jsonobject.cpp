@@ -458,7 +458,7 @@ void JsonObject::arrayDel(int aAtIndex, int aNumElements)
     int n = arrayLength();
     for (int i=0; i<n; i++) {
       if (i<aAtIndex || i>=aAtIndex+aNumElements) {
-        json_object *weakObjRef = json_object_array_get_idx(json_obj, i);
+        json_object *weakObjRef = json_object_array_get_idx(mJson_obj, i);
         if (weakObjRef) {
           // - claim ownership as neither json_object_array_get_idx nor json_object_array_add does not do that automatically
           //   (and we *need* to own the object because deleting the old array will put all of its contained objects)
@@ -467,8 +467,8 @@ void JsonObject::arrayDel(int aAtIndex, int aNumElements)
         }
       }
     }
-    json_object_put(json_obj); // forget the old array
-    json_obj = newarray; // replace it with the new array
+    json_object_put(mJson_obj); // forget the old array
+    mJson_obj = newarray; // replace it with the new array
     #endif // !HAVE_JSONC_VERSION_013
   }
 }
@@ -690,9 +690,3 @@ string JsonObject::lowercaseStringValue() const
 {
   return lowerCase(c_strValue());
 }
-
-
-
-
-
-
