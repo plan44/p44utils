@@ -4145,8 +4145,9 @@ void CompiledScript::deactivate()
 {
   // abort all threads that are running any of my code
   if (mMainContext) {
-    mMainContext->abortThreadsRunningSource(mCursor.source);
+    ScriptMainContextPtr mc = mMainContext;
     mMainContext.reset();
+    mc->abortThreadsRunningSource(mCursor.source);
   }
   inherited::deactivate();
 }
