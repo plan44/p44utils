@@ -8519,27 +8519,27 @@ open_auth_file(struct mg_connection *conn,
 
 
 /* Parsed Authorization header */
-struct ah {
+struct ahdr {
     char *user, *uri, *cnonce, *response, *qop, *nc, *nonce;
 };
 
 
-/* Return 1 on success. Always initializes the ah structure. */
+/* Return 1 on success. Always initializes the ahdr structure. */
 static int
 parse_auth_header(struct mg_connection *conn,
                   char *buf,
                   size_t buf_size,
-                  struct ah *ah)
+                  struct ahdr *ahdr)
 {
     char *name, *value, *s;
     const char *auth_header;
     uint64_t nonce;
 
-    if (!ah || !conn) {
+    if (!ahdr || !conn) {
         return 0;
     }
 
-    (void)memset(ah, 0, sizeof(*ah));
+    (void)memset(ahdr, 0, sizeof(*ahdr));
     if (((auth_header = mg_get_header(conn, "Authorization")) == NULL)
         || mg_strncasecmp(auth_header, "Digest ", 7) != 0) {
         return 0;
@@ -8573,29 +8573,29 @@ parse_auth_header(struct mg_connection *conn,
         }
 
         if (!strcmp(name, "username")) {
-            ah->user = value;
+          ahdr->user = value;
         } else if (!strcmp(name, "cnonce")) {
-            ah->cnonce = value;
+          ahdr->cnonce = value;
         } else if (!strcmp(name, "response")) {
-            ah->response = value;
+          ahdr->response = value;
         } else if (!strcmp(name, "uri")) {
-            ah->uri = value;
+          ahdr->uri = value;
         } else if (!strcmp(name, "qop")) {
-            ah->qop = value;
+          ahdr->qop = value;
         } else if (!strcmp(name, "nc")) {
-            ah->nc = value;
+          ahdr->nc = value;
         } else if (!strcmp(name, "nonce")) {
-            ah->nonce = value;
+          ahdr->nonce = value;
         }
     }
 
 #if !defined(NO_NONCE_CHECK)
     /* Read the nonce from the response. */
-    if (ah->nonce == NULL) {
+    if (ahdr->nonce == NULL) {
         return 0;
     }
     s = NULL;
-    nonce = strtoull(ah->nonce, &s, 10);
+    nonce = strtoull(ahdr->nonce, &s, 10);
     if ((s == NULL) || (*s != 0)) {
         return 0;
     }
@@ -8627,9 +8627,9 @@ parse_auth_header(struct mg_connection *conn,
 #endif
 
     /* CGI needs it as REMOTE_USER */
-    if (ah->user != NULL) {
+    if (ahdr->user != NULL) {
         conn->request_info.remote_user =
-            mg_strdup_ctx(ah->user, conn->phys_ctx);
+            mg_strdup_ctx(ahdr->user, conn->phys_ctx);
     } else {
         return 0;
     }
@@ -8692,7 +8692,7 @@ mg_fgets(char *buf, size_t size, struct mg_file *filep, char **p)
 #if !defined(NO_FILESYSTEMS)
 struct read_auth_file_struct {
     struct mg_connection *conn;
-    struct ah ah;
+    struct ahdr ahdr;
     const char *domain;
     char buf[256 + 256 + 40];
     const char *f_user;
@@ -8797,16 +8797,16 @@ read_auth_file(struct mg_file *filep,
         *(char *)(workdata->f_ha1) = 0;
         (workdata->f_ha1)++;
 
-        if (!strcmp(workdata->ah.user, workdata->f_user)
+        if (!strcmp(workdata->ahdr.user, workdata->f_user)
             && !strcmp(workdata->domain, workdata->f_domain)) {
             return check_password(workdata->conn->request_info.request_method,
                                   workdata->f_ha1,
-                                  workdata->ah.uri,
-                                  workdata->ah.nonce,
-                                  workdata->ah.nc,
-                                  workdata->ah.cnonce,
-                                  workdata->ah.qop,
-                                  workdata->ah.response);
+                                  workdata->ahdr.uri,
+                                  workdata->ahdr.nonce,
+                                  workdata->ahdr.nc,
+                                  workdata->ahdr.cnonce,
+                                  workdata->ahdr.qop,
+                                  workdata->ahdr.response);
         }
     }
 
@@ -8828,7 +8828,7 @@ authorize(struct mg_connection *conn, struct mg_file *filep, const char *realm)
     memset(&workdata, 0, sizeof(workdata));
     workdata.conn = conn;
 
-    if (!parse_auth_header(conn, buf, sizeof(buf), &workdata.ah)) {
+    if (!parse_auth_header(conn, buf, sizeof(buf), &workdata.ahdr)) {
         return 0;
     }
 
