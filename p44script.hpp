@@ -691,6 +691,19 @@ namespace p44 { namespace P44Script {
   };
 
 
+  /// a NULL value which represents a one-shot event source. The actual value only exists
+  /// when an event occurs, and is delivered to the event sink, which then freezes it
+  /// for trigger expression evaluation.
+  class OneShotEventValue : public AnnotatedNullValue
+  {
+    typedef AnnotatedNullValue inherited;
+  public:
+    
+
+  }
+
+
+
   // MARK: - Error Values
 
   /// An error value
@@ -2048,8 +2061,10 @@ namespace p44 { namespace P44Script {
     EvaluationFlags mEvalFlags;
     ScriptObjPtr mCurrentResult;
     Tristate mBoolState;
-    bool mOneShotEvent;
     MLMicroSeconds mNextEvaluation;
+
+    ScriptObjPtr mFrozenEventValue; ///< the value of the event that triggered current evaluation
+    SourceCursor::UniquePos mFrozenEventPos; ///< the source position of the member value that represents the frozen result
 
     typedef std::map<SourceCursor::UniquePos, FrozenResult> FrozenResultsMap;
     FrozenResultsMap mFrozenResults; ///< map of expression starting indices and associated frozen results
@@ -2110,6 +2125,11 @@ namespace p44 { namespace P44Script {
     ///   next evaluation happens too early.
     void scheduleEvalNotLaterThan(const MLMicroSeconds aLatestEval);
 
+
+    /// return a frozen event result exists for the source position at aFreezeId
+    /// @param aFreezeId the reference position that identifies the frozen result
+    /// @return the frozen event value if one exists, null otherwise
+    ScriptObjPtr getFrozenEventValue(SourceCursor::UniquePos aFreezeId);
 
     /// @name API for timed evaluation and freezing values in functions that can be used in timed evaluations
     /// @{
@@ -2374,7 +2394,8 @@ namespace p44 { namespace P44Script {
     /// evaluate the current result and replace it with the output from the evaluation (e.g. function call)
     virtual void executeResult() P44_OVERRIDE;
 
-    /// check if member can issue event that should be connected to trigger
+    /// check if member can issue events that should be connected to trigger to cause trigger expression
+    /// evaluation, or if member is a one-shot result that must return a previously frozen value
     virtual void memberEventCheck() P44_OVERRIDE;
 
     /// @}
