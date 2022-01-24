@@ -282,7 +282,8 @@ namespace p44 { namespace P44Script {
     /// is called from sources to deliver an event
     /// @param aEvent the event object, can be NULL for unspecific events
     /// @param aSource the source sending the event
-    virtual void processEvent(ScriptObjPtr aEvent, EventSource &aSource) { /* NOP in base class */ };
+    /// @param aRegId the ID passed when registering this event sink with the event source
+    virtual void processEvent(ScriptObjPtr aEvent, EventSource &aSource, intptr_t aRegId) { /* NOP in base class */ };
 
     /// clear all event sources (unregister from all)
     void clearSources();
@@ -296,7 +297,7 @@ namespace p44 { namespace P44Script {
   };
 
   /// event handling callback
-  typedef boost::function<void (ScriptObjPtr aEvent, EventSource &aSource)> EventHandlingCB;
+  typedef boost::function<void (ScriptObjPtr aEvent, EventSource &aSource, intptr_t aRegId)> EventHandlingCB;
 
   /// standalone event handler, delivering events via callback
   class EventHandler : public EventSink
@@ -314,7 +315,8 @@ namespace p44 { namespace P44Script {
     /// is called from sources to deliver an event
     /// @param aEvent the event object, can be NULL for unspecific events
     /// @param aSource the source sending the event
-    virtual void processEvent(ScriptObjPtr aEvent, EventSource &aSource) P44_OVERRIDE;
+    /// @param aRegId the ID passed when registering this event sink with the event source
+    virtual void processEvent(ScriptObjPtr aEvent, EventSource &aSource, intptr_t aRegId) P44_OVERRIDE;
 
   };
 
@@ -323,8 +325,8 @@ namespace p44 { namespace P44Script {
   class EventSource
   {
     friend class EventSink;
-    typedef std::set<EventSink *> EventSinkSet;
-    EventSinkSet eventSinks;
+    typedef std::map<EventSink *, intptr_t> EventSinkMap;
+    EventSinkMap eventSinks;
     bool sinksModified;
   public:
     virtual ~EventSource();
@@ -335,13 +337,16 @@ namespace p44 { namespace P44Script {
 
     /// register an event sink to get events from this source
     /// @param aEventSink the event sink (receiver) to register for events (NULL allowed -> NOP)
-    /// @note registering the same event sink multiple times is allowed, but will not duplicate events sent
-    void registerForEvents(EventSink* aEventSink);
-    void registerForEvents(EventSink& aEventSink);
+    /// @param aRegId a registration id private to aEventSink's registration for this event source. This
+    ///   id will be returned with with events via processEvent().
+    /// @note registering the same event sink multiple times is allowed, but will not duplicate events sent.
+    ///   Also, the aRegId delivered to a sink will be that specificied in the most recent call to registerForEvents().
+    void registerForEvents(EventSink* aEventSink, intptr_t aRegId = 0);
+    void registerForEvents(EventSink& aEventSink, intptr_t aRegId = 0);
 
     /// release an event sink from getting events from this source
     /// @param aEventSink the event sink (receiver) to unregister from receiving events (NULL allowed -> NOP)
-    /// @note tring to unregister a event sink that is not registered is allowed -> NOP
+    /// @note tring to unregister an event sink that is not registered is allowed -> NOP
     void unregisterFromEvents(EventSink* aEventSink);
     void unregisterFromEvents(EventSink& aEventSink);
 
@@ -2090,7 +2095,7 @@ namespace p44 { namespace P44Script {
     ScriptObjPtr initializeTrigger();
 
     /// called from event sources related to this trigger
-    virtual void processEvent(ScriptObjPtr aEvent, EventSource &aSource) P44_OVERRIDE;
+    virtual void processEvent(ScriptObjPtr aEvent, EventSource &aSource, intptr_t aRegId) P44_OVERRIDE;
 
     /// trigger an evaluation
     /// @param aEvalMode primarily, sets the trigger evaluation run mode (triggered/timed/initial) and uses the other flags as set in

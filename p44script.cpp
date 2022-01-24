@@ -90,10 +90,10 @@ void EventHandler::setHandler(EventHandlingCB aEventHandlingCB)
 }
 
 
-void EventHandler::processEvent(ScriptObjPtr aEvent, EventSource &aSource)
+void EventHandler::processEvent(ScriptObjPtr aEvent, EventSource &aSource, intptr_t aRegId)
 {
   if (mEventHandlingCB) {
-    mEventHandlingCB(aEvent, aSource);
+    mEventHandlingCB(aEvent, aSource, aRegId);
   }
 }
 
@@ -104,7 +104,7 @@ EventSource::~EventSource()
 {
   // clear references in all sinks
   while (!eventSinks.empty()) {
-    EventSink *sink = *(eventSinks.begin());
+    EventSink *sink = eventSinks.begin()->first;
     eventSinks.erase(eventSinks.begin());
     sink->eventSources.erase(this);
   }
@@ -113,18 +113,18 @@ EventSource::~EventSource()
 }
 
 
-void EventSource::registerForEvents(EventSink* aEventSink)
+void EventSource::registerForEvents(EventSink* aEventSink, intptr_t aRegId)
 {
   if (aEventSink) {
-    registerForEvents(*aEventSink);
+    registerForEvents(*aEventSink, aRegId);
   }
 }
 
 
-void EventSource::registerForEvents(EventSink& aEventSink)
+void EventSource::registerForEvents(EventSink& aEventSink, intptr_t aRegId)
 {
   sinksModified = true;
-  eventSinks.insert(&aEventSink); // multiple registrations are possible, counted only once
+  eventSinks[&aEventSink] = aRegId; // multiple registrations are possible, counted only once, only last aRegId stored
   aEventSink.eventSources.insert(this);
 }
 
@@ -154,8 +154,8 @@ void EventSource::sendEvent(ScriptObjPtr aEvent)
   //       (should not, because entire triggering is designed to re-evaluate events after triggering)
   do {
     sinksModified = false;
-    for (EventSinkSet::iterator pos=eventSinks.begin(); pos!=eventSinks.end(); ++pos) {
-      (*pos)->processEvent(aEvent, *this);
+    for (EventSinkMap::iterator pos=eventSinks.begin(); pos!=eventSinks.end(); ++pos) {
+      pos->first->processEvent(aEvent, *this, pos->second);
       if (sinksModified) break;
     }
   } while(sinksModified);
@@ -165,9 +165,9 @@ void EventSource::sendEvent(ScriptObjPtr aEvent)
 void EventSource::copySinksFrom(EventSource* aOtherSource)
 {
   if (!aOtherSource) return;
-  for (EventSinkSet::iterator pos=aOtherSource->eventSinks.begin(); pos!=aOtherSource->eventSinks.end(); ++pos) {
+  for (EventSinkMap::iterator pos=aOtherSource->eventSinks.begin(); pos!=aOtherSource->eventSinks.end(); ++pos) {
     sinksModified = true;
-    registerForEvents(*pos);
+    registerForEvents(pos->first, pos->second);
   }
 }
 
@@ -4233,9 +4233,10 @@ void CompiledTrigger::invalidateState()
 }
 
 
-void CompiledTrigger::processEvent(ScriptObjPtr aEvent, EventSource &aSource)
+void CompiledTrigger::processEvent(ScriptObjPtr aEvent, EventSource &aSource, intptr_t aRegId)
 {
   mOneShotEvent = aEvent->hasType(oneshot);
+//  #error tbd
   triggerEvaluation(triggered);
 }
 
@@ -6303,7 +6304,7 @@ class AwaitEventSink : public EventSink
 public:
   MLTicket timeoutTicket;
   AwaitEventSink(BuiltinFunctionContextPtr aF) : f(aF) {};
-  virtual void processEvent(ScriptObjPtr aEvent, EventSource &aSource) P44_OVERRIDE
+  virtual void processEvent(ScriptObjPtr aEvent, EventSource &aSource, intptr_t aRegId) P44_OVERRIDE
   {
     // unwind stack before actually responding (to avoid changing containers this event originates from)
     MainLoop::currentMainLoop().executeNow(boost::bind(&AwaitEventSink::finishWait, this, aEvent));
