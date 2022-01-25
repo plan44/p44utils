@@ -6379,6 +6379,7 @@ static void abort_func(BuiltinFunctionContextPtr f)
         // really abort
         ScriptObjPtr exitValue;
         if (f->arg(1)->defined()) exitValue = f->arg(1);
+        else exitValue = new AnnotatedNullValue("abort() function called");
         t->abort(exitValue);
       }
     }
