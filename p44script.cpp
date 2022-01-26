@@ -6291,31 +6291,26 @@ static void lock_func(BuiltinFunctionContextPtr f)
 
 
 // Signal Object for event passing, see signal()
-class SignalObj : public NumericValue, public EventSource
+class SignalObj : public OneShotEventNullValue, public EventSource
 {
-  typedef NumericValue inherited;
+  typedef OneShotEventNullValue inherited;
 public:
-  SignalObj() : inherited(1) { }
-  void send() { sendEvent(this); }
+  SignalObj() : inherited(static_cast<EventSource *>(this), "Signal") { }
   virtual string getAnnotation() const P44_OVERRIDE { return "Signal"; }
-  virtual TypeInfo getTypeInfo() const P44_OVERRIDE {
-    return inherited::getTypeInfo()|oneshot|keeporiginal; // returns the signal only once, must keep the original
-  }
-  virtual EventSource *eventSource() const P44_OVERRIDE {
-    return const_cast<EventSource *>(static_cast<const EventSource *>(this));
-  }
   virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aMemberAccessFlags = none) P44_OVERRIDE;
 };
 
-// send() send the signal
+// send([signaldata]) send the signal
+static const BuiltInArgDesc signal_args[] = { { any|optionalarg } };
+static const size_t signal_numargs = sizeof(signal_args)/sizeof(BuiltInArgDesc);
 static void send_func(BuiltinFunctionContextPtr f)
 {
   SignalObj* sig = dynamic_cast<SignalObj *>(f->thisObj().get());
-  sig->send();
+  sig->sendEvent(f->numArgs()<1 ? new NumericValue(true) : f->arg(0)); // send first arg as signal value or nothing
   f->finish();
 }
 static const BuiltinMemberDescriptor answer_desc =
-  { "send", executable|any, 0, NULL, &send_func };
+  { "send", executable|any, signal_numargs, signal_args, &send_func };
 
 const ScriptObjPtr SignalObj::memberByName(const string aName, TypeInfo aMemberAccessFlags)
 {
