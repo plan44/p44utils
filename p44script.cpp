@@ -548,6 +548,20 @@ EventSource* EventPlaceholderNullValue::eventSource() const
 }
 
 
+OneShotEventNullValue::OneShotEventNullValue(EventSource *aEventSource, string aAnnotation) :
+  inherited(aAnnotation),
+  mEventSource(aEventSource)
+{
+}
+
+
+EventSource* OneShotEventNullValue::eventSource() const
+{
+  return mEventSource;
+}
+
+
+
 // MARK: - Error Values
 
 ErrorValue::ErrorValue(ScriptError::ErrorCodes aErrCode, const char *aFmt, ...) :
@@ -4179,6 +4193,7 @@ CompiledTrigger::CompiledTrigger(const string aName, ScriptMainContextPtr aMainC
   mEvalFlags(expression|synchronously),
   mNextEvaluation(Never),
   mFrozenEventPos(0),
+  mOneShotEval(false),
   mMetAt(Never),
   mHoldOff(0)
 {
@@ -4255,6 +4270,7 @@ void CompiledTrigger::triggerEvaluation(EvaluationFlags aEvalMode)
   FOCUSLOG("\n---------- Evaluating Trigger    : %s", mCursor.displaycode(130).c_str());
   mReEvaluationTicket.cancel();
   mNextEvaluation = Never; // reset
+  mOneShotEval = false; // no oneshot encountered yet. Evaluation will set it via getFrozenEventValue(), which is called for every leaf value (frozen or not)
   ExecutionContextPtr ctx = contextForCallingFrom(NULL, NULL);
   EvaluationFlags runFlags = ((aEvalMode&~runModeMask) ? aEvalMode : (mEvalFlags&~runModeMask)|aEvalMode)|keepvars; // always keep vars, use only runmode from aEvalMode if nothing else is set
   ctx->execute(ScriptObjPtr(this), runFlags, boost::bind(&CompiledTrigger::triggerDidEvaluate, this, runFlags, _1), NULL, ScriptObjPtr(), 30*Second);
@@ -4263,7 +4279,7 @@ void CompiledTrigger::triggerEvaluation(EvaluationFlags aEvalMode)
 
 void CompiledTrigger::triggerDidEvaluate(EvaluationFlags aEvalMode, ScriptObjPtr aResult)
 {
-  OLOG(aEvalMode&initial ? LOG_INFO : LOG_DEBUG, "evaluated trigger: %s in evalmode=0x%x\n- with result: %s%s", mCursor.displaycode(90).c_str(), aEvalMode, mFrozenEventValue ? "(ONESHOT) " : "", ScriptObj::describe(aResult).c_str());
+  OLOG(aEvalMode&initial ? LOG_INFO : LOG_DEBUG, "evaluated trigger: %s in evalmode=0x%x\n- with result: %s%s", mCursor.displaycode(90).c_str(), aEvalMode, mOneShotEval ? "(ONESHOT) " : "", ScriptObj::describe(aResult).c_str());
   bool doTrigger = false;
   Tristate newBoolState = aResult->defined() ? (aResult->boolValue() ? p44::yes : p44::no) : p44::undefined;
   if (mTriggerMode==onEvaluation) {
@@ -4283,7 +4299,7 @@ void CompiledTrigger::triggerDidEvaluate(EvaluationFlags aEvalMode, ScriptObjPtr
     }
   }
   // update state
-  if (mFrozenEventValue || ((aEvalMode&initial) && aResult->hasType(oneshot))) {
+  if (mOneShotEval || ((aEvalMode&initial) && aResult->hasType(oneshot))) {
     // oneshot triggers do not toggle status, but must return to undefined (also on initial, non-event-triggered evaluation)
     invalidateState();
   }
@@ -4351,6 +4367,7 @@ void CompiledTrigger::triggerDidEvaluate(EvaluationFlags aEvalMode, ScriptObjPtr
   // frozen one-shot value always expires after one evaluation
   mFrozenEventValue.reset();
   mFrozenEventPos = 0;
+  mOneShotEval = false;
   // schedule next timed evaluation if one is needed
   scheduleNextEval();
   // callback (always, even when initializing)
@@ -4411,12 +4428,7 @@ void CompiledTrigger::checkFrozenEventValue(ScriptObjPtr &aResult, SourceCursor:
   // that must be used instead of the event source representing value (with might be permanently NULL)
   if (aFreezeId==mFrozenEventPos) {
     // use value delivered by event (which might itself not be a oneshot nor freezable)
-    FOCUSLOG(
-      "replacing original result '%s'\n"
-      "    by frozen event value '%s'",
-      ScriptObj::describe(aResult).c_str(),
-      ScriptObj::describe(mFrozenEventValue).c_str()
-    );
+    FOCUSLOG("                      replacing result by frozen event value : result = %s", ScriptObj::describe(mFrozenEventValue).c_str());
     aResult = mFrozenEventValue;
   }
 }
@@ -5338,20 +5350,17 @@ void ScriptCodeThread::memberEventCheck()
         EventSink* triggerEventSink = dynamic_cast<EventSink*>(mCodeObj.get());
         if (triggerEventSink) {
           // register the result as event source, along with the source position (for later freezing in trigger evaluation)
-          // Note: only if this event source is of type oneshot, the source position is recorded for identifying frozen event values later
-          eventSource->registerForEvents(triggerEventSink, mResult->hasType(oneshot) ? (intptr_t)mSrc.posId() : 0);
+          // Note: only if this event source has type freezable, the source position is recorded for identifying frozen event values later
+          FOCUSLOG("  leaf member is event source in trigger initialisation : register%s", mResult->hasType(freezable) ? " and record for freezing" : "");
+          eventSource->registerForEvents(triggerEventSink, mResult->hasType(freezable) ? (intptr_t)mSrc.posId() : 0);
         }
       }
     }
     else if (mEvaluationFlags&triggered) {
-      // TODO: it might be more efficient do this check before trying to access the leaf member than replacing the value here
       // we might have a frozen one-shot value delivered via event (which triggered this evaluation)
       CompiledTrigger* trigger = dynamic_cast<CompiledTrigger*>(mCodeObj.get());
       if (trigger) {
-        ScriptObjPtr newRes = trigger->getFrozenEventValue(mSrc.posId());
-        if (newRes) {
-          mResult = newRes;
-        }
+        trigger->checkFrozenEventValue(mResult, mSrc.posId());
       }
     }
   }

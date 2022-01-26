@@ -244,6 +244,7 @@ namespace p44 { namespace P44Script {
     builtinmember = 0x4000000, ///< special flag for use in built-in member descriptions to differentiate members from functions
     keeporiginal = 0x8000000, ///< special flag for values that should NOT be replaced by their actualValue()
     oneshot = 0x10000000, ///< special flag for values that occur only once, such as event messages. Relevant for triggers, which will auto-reset when oneshot values are involved
+    freezable = 0x20000000, ///< special flag for values that are delivered as events to trigger evaluation and should be frozen for use in the trigger evaluation, rather than re-read
   };
   typedef uint32_t TypeInfo;
 
@@ -687,20 +688,22 @@ namespace p44 { namespace P44Script {
     typedef AnnotatedNullValue inherited;
   public:
     EventPlaceholderNullValue(string aAnnotation);
-    EventSource* eventSource() const;
+    virtual EventSource *eventSource() const P44_OVERRIDE;
   };
 
 
   /// a NULL value which represents a one-shot event source. The actual value only exists
   /// when an event occurs, and is delivered to the event sink, which then freezes it
   /// for trigger expression evaluation.
-  class OneShotEventValue : public AnnotatedNullValue
+  class OneShotEventNullValue : public AnnotatedNullValue
   {
     typedef AnnotatedNullValue inherited;
+    EventSource *mEventSource;
   public:
-    
-
-  }
+    OneShotEventNullValue(EventSource *aEventSource, string aAnnotation = "no event now");
+    virtual TypeInfo getTypeInfo() const P44_OVERRIDE { return null|oneshot|freezable; }; ///< when not delivered as event, the value is always NULL
+    virtual EventSource *eventSource() const P44_OVERRIDE;
+  };
 
 
 
@@ -2063,6 +2066,7 @@ namespace p44 { namespace P44Script {
     Tristate mBoolState;
     MLMicroSeconds mNextEvaluation;
 
+    bool mOneShotEval; ///< the current evaluation runs in one-shot mode (means: the trigger can only fire, but must not change state)
     ScriptObjPtr mFrozenEventValue; ///< the value of the event that triggered current evaluation
     SourceCursor::UniquePos mFrozenEventPos; ///< the source position of the member value that represents the frozen result
 
@@ -2127,9 +2131,11 @@ namespace p44 { namespace P44Script {
 
 
     /// return a frozen event result exists for the source position at aFreezeId
+    /// @param aResult On call: the current result of a (sub)expression
+    ///   On return: replaced by a frozen event result, if one exists
     /// @param aFreezeId the reference position that identifies the frozen result
     /// @return the frozen event value if one exists, null otherwise
-    ScriptObjPtr getFrozenEventValue(SourceCursor::UniquePos aFreezeId);
+    void checkFrozenEventValue(ScriptObjPtr &aResult, SourceCursor::UniquePos aFreezeId);
 
     /// @name API for timed evaluation and freezing values in functions that can be used in timed evaluations
     /// @{
