@@ -701,7 +701,7 @@ namespace p44 { namespace P44Script {
     EventSource *mEventSource;
   public:
     OneShotEventNullValue(EventSource *aEventSource, string aAnnotation = "no event now");
-    virtual TypeInfo getTypeInfo() const P44_OVERRIDE { return null|oneshot|freezable; }; ///< when not delivered as event, the value is always NULL
+    virtual TypeInfo getTypeInfo() const P44_OVERRIDE { return null|oneshot|freezable|keeporiginal; }; ///< when not delivered as event, the value is always NULL. When delivered as event, it is to be kept as-is!
     virtual EventSource *eventSource() const P44_OVERRIDE;
   };
 
