@@ -2403,12 +2403,12 @@ ScriptObjPtr SourceCursor::parseJSONLiteral()
 #define FOCUSLOGSTATE FOCUSLOG( \
   "%04d %s %22s : %25s : result = %s (olderResult = %s), precedence=%d", \
   threadId(), \
-  skipping ? "SKIP" : "EXEC", \
+  mSkipping ? "SKIP" : "EXEC", \
   __func__, \
-  src.displaycode(25).c_str(), \
-  ScriptObj::describe(result).c_str(), \
-  ScriptObj::describe(olderResult).c_str(), \
-  precedence \
+  mSrc.displaycode(25).c_str(), \
+  ScriptObj::describe(mResult).c_str(), \
+  ScriptObj::describe(mOlderResult).c_str(), \
+  mPrecedence \
 )
 
 int SourceProcessor::cThreadIdGen = 0;
@@ -2588,7 +2588,7 @@ void SourceProcessor::checkAndResume()
 
 void SourceProcessor::push(StateHandler aReturnToState, bool aPushPoppedPos)
 {
-  FOCUSLOG("                        push[%2lu] :                             result = %s", stack.size()+1, ScriptObj::describe(result).c_str());
+  FOCUSLOG("                        push[%2lu] :                             result = %s", mStack.size()+1, ScriptObj::describe(mResult).c_str());
   mStack.push_back(StackFrame(aPushPoppedPos ? mPoppedPos : mSrc.pos, mSkipping, aReturnToState, mResult, mFuncCallContext, mPrecedence, mPendingOperation));
 }
 
@@ -2608,7 +2608,7 @@ void SourceProcessor::pop()
   // these are restored separately, returnToState must decide what to do
   mPoppedPos = s.pos;
   mOlderResult = s.result;
-  FOCUSLOG("                         pop[%2lu] :                        olderResult = %s (result = %s)", stack.size(), ScriptObj::describe(olderResult).c_str(), ScriptObj::describe(result).c_str());
+  FOCUSLOG("                         pop[%2lu] :                        olderResult = %s (result = %s)", mStack.size(), ScriptObj::describe(mOlderResult).c_str(), ScriptObj::describe(mResult).c_str());
   // continue here
   setState(s.returnToState);
   mStack.pop_back();
@@ -3223,7 +3223,7 @@ void SourceProcessor::s_assignOlder()
     // assign a olderResult to the current result
     if (mResult && !mResult->hasType(lvalue)) {
       // not an lvalue, silently ignore assignment
-      FOCUSLOG("   s_assignOlder: silently IGNORING assignment to non-lvalue : value=%s", ScriptObj::describe(result).c_str());
+      FOCUSLOG("   s_assignOlder: silently IGNORING assignment to non-lvalue : value=%s", ScriptObj::describe(mResult).c_str());
       setState(&SourceProcessor::s_result);
       resume();
       return;
@@ -3577,7 +3577,7 @@ void SourceProcessor::s_body()
 
 void SourceProcessor::processStatement()
 {
-  FOCUSLOG("\n========== At statement boundary : %s", src.displaycode(130).c_str());
+  FOCUSLOG("\n========== At statement boundary : %s", mSrc.displaycode(130).c_str());
   mSrc.skipNonCode();
   if (mSrc.EOT()) {
     // end of code
@@ -4091,7 +4091,7 @@ void SourceProcessor::memberEventCheck()
 void CompiledCode::setCursor(const SourceCursor& aCursor)
 {
   mCursor = aCursor;
-  FOCUSLOG("New code named '%s' @ 0x%p: %s", name.c_str(), this, cursor.displaycode(70).c_str());
+  FOCUSLOG("New code named '%s' @ 0x%p: %s", mName.c_str(), this, mCursor.displaycode(70).c_str());
 }
 
 
@@ -4103,7 +4103,7 @@ bool CompiledCode::codeFromSameSourceAs(const CompiledCode &aCode) const
 
 CompiledCode::~CompiledCode()
 {
-  FOCUSLOG("Released code named '%s' @ 0x%p", name.c_str(), this);
+  FOCUSLOG("Released code named '%s' @ 0x%p", mName.c_str(), this);
 }
 
 ExecutionContextPtr CompiledCode::contextForCallingFrom(ScriptMainContextPtr aMainContext, ScriptCodeThreadPtr aThread) const
@@ -4200,7 +4200,7 @@ void CompiledTrigger::deactivate()
 ScriptObjPtr CompiledTrigger::initializeTrigger()
 {
   // initialize it
-  FOCUSLOG("\n---------- Initializing Trigger  : %s", cursor.displaycode(130).c_str());
+  FOCUSLOG("\n---------- Initializing Trigger  : %s", mCursor.displaycode(130).c_str());
   mReEvaluationTicket.cancel();
   mNextEvaluation = Never; // reset
   mFrozenResults.clear(); // (re)initializing trigger unfreezes all values
@@ -4243,7 +4243,7 @@ void CompiledTrigger::processEvent(ScriptObjPtr aEvent, EventSource &aSource)
 
 void CompiledTrigger::triggerEvaluation(EvaluationFlags aEvalMode)
 {
-  FOCUSLOG("\n---------- Evaluating Trigger    : %s", cursor.displaycode(130).c_str());
+  FOCUSLOG("\n---------- Evaluating Trigger    : %s", mCursor.displaycode(130).c_str());
   mReEvaluationTicket.cancel();
   mNextEvaluation = Never; // reset
   ExecutionContextPtr ctx = contextForCallingFrom(NULL, NULL);
@@ -4953,13 +4953,13 @@ ScriptCodeThread::ScriptCodeThread(ScriptCodeContextPtr aOwner, CompiledCodePtr 
   mRunningSince(Never)
 {
   setCursor(aStartCursor);
-  FOCUSLOG("\n%04x START        thread created : %s", (uint32_t)((intptr_t)static_cast<SourceProcessor *>(this)) & 0xFFFF, src.displaycode(130).c_str());
+  FOCUSLOG("\n%04x START        thread created : %s", (uint32_t)((intptr_t)static_cast<SourceProcessor *>(this)) & 0xFFFF, mSrc.displaycode(130).c_str());
 }
 
 ScriptCodeThread::~ScriptCodeThread()
 {
   deactivate(); // even if deactivate() is usually called before dtor, make sure it happens even if not
-  FOCUSLOG("\n%04x END          thread deleted : %s", (uint32_t)((intptr_t)static_cast<SourceProcessor *>(this)) & 0xFFFF, src.displaycode(130).c_str());
+  FOCUSLOG("\n%04x END          thread deleted : %s", (uint32_t)((intptr_t)static_cast<SourceProcessor *>(this)) & 0xFFFF, mSrc.displaycode(130).c_str());
 }
 
 
