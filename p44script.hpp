@@ -2113,7 +2113,7 @@ namespace p44 { namespace P44Script {
     /// @param aResult On call: the current result of a (sub)expression
     ///   On return: replaced by a frozen result, if one exists
     /// @param aFreezeId the reference position that identifies the frozen result
-    FrozenResult* getFrozen(ScriptObjPtr &aResult, SourceCursor::UniquePos aFreezeId);
+    FrozenResult* getTimeFrozenValue(ScriptObjPtr &aResult, SourceCursor::UniquePos aFreezeId);
 
     /// update existing or create new frozen result
     /// @param aExistingFreeze the pointer obtained from getFrozen(), can be NULL
@@ -2121,12 +2121,12 @@ namespace p44 { namespace P44Script {
     /// @param aFreezeId te reference position that identifies the frozen result
     /// @param aFreezeUntil The new freeze date. Specify Infinite to freeze indefinitely, Never to release any previous freeze.
     /// @param aUpdate if set, freeze will be updated/extended unconditionally, even when previous freeze is still running
-    FrozenResult* newFreeze(FrozenResult* aExistingFreeze, ScriptObjPtr aNewResult, SourceCursor::UniquePos aFreezeId, MLMicroSeconds aFreezeUntil, bool aUpdate = false);
+    FrozenResult* newTimedFreeze(FrozenResult* aExistingFreeze, ScriptObjPtr aNewResult, SourceCursor::UniquePos aFreezeId, MLMicroSeconds aFreezeUntil, bool aUpdate = false);
 
-    /// unfreeze frozen value at aAtPos
+    /// unfreeze time-frozen value at aAtPos
     /// @param aFreezeId the starting character index of the subexpression to unfreeze
     /// @return true if there was a frozen result at aAtPos
-    bool unfreeze(SourceCursor::UniquePos aFreezeId);
+    bool unfreezeTimed(SourceCursor::UniquePos aFreezeId);
 
     /// Set time when next evaluation must happen, latest
     /// @param aLatestEval new time when evaluation must happen latest, Never if no next evaluation is needed

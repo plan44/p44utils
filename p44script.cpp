@@ -4390,7 +4390,29 @@ bool CompiledTrigger::updateNextEval(const struct tm& aLatestEvalTm)
 }
 
 
-CompiledTrigger::FrozenResult* CompiledTrigger::getFrozen(ScriptObjPtr &aResult, SourceCursor::UniquePos aFreezeId)
+void CompiledTrigger::checkFrozenEventValue(ScriptObjPtr &aResult, SourceCursor::UniquePos aFreezeId)
+{
+  // Note: this is called for every leaf value, no matter if freezable or not
+  // if the original value is a oneshot, switch to oneshot evaluation
+  if (aResult->hasType(oneshot)) mOneShotEval = true;
+  // independently of oneshot mode, there might be a frozen value delivered earlier by the event source
+  // that must be used instead of the event source representing value (with might be permanently NULL)
+  if (aFreezeId==mFrozenEventPos) {
+    // use value delivered by event (which might itself not be a oneshot nor freezable)
+    FOCUSLOG(
+      "replacing original result '%s'\n"
+      "    by frozen event value '%s'",
+      ScriptObj::describe(aResult).c_str(),
+      ScriptObj::describe(mFrozenEventValue).c_str()
+    );
+    aResult = mFrozenEventValue;
+  }
+}
+
+
+
+
+CompiledTrigger::FrozenResult* CompiledTrigger::getTimeFrozenValue(ScriptObjPtr &aResult, SourceCursor::UniquePos aFreezeId)
 {
   FrozenResultsMap::iterator frozenVal = mFrozenResults.find(aFreezeId);
   FrozenResult* frozenResultP = NULL;
@@ -4416,7 +4438,7 @@ bool CompiledTrigger::FrozenResult::frozen()
 }
 
 
-CompiledTrigger::FrozenResult* CompiledTrigger::newFreeze(FrozenResult* aExistingFreeze, ScriptObjPtr aNewResult, SourceCursor::UniquePos aFreezeId, MLMicroSeconds aFreezeUntil, bool aUpdate)
+CompiledTrigger::FrozenResult* CompiledTrigger::newTimedFreeze(FrozenResult* aExistingFreeze, ScriptObjPtr aNewResult, SourceCursor::UniquePos aFreezeId, MLMicroSeconds aFreezeUntil, bool aUpdate)
 {
   if (!aExistingFreeze) {
     // nothing frozen yet, freeze it now
@@ -4446,7 +4468,7 @@ CompiledTrigger::FrozenResult* CompiledTrigger::newFreeze(FrozenResult* aExistin
 }
 
 
-bool CompiledTrigger::unfreeze(SourceCursor::UniquePos aFreezeId)
+bool CompiledTrigger::unfreezeTimed(SourceCursor::UniquePos aFreezeId)
 {
   FrozenResultsMap::iterator frozenVal = mFrozenResults.find(aFreezeId);
   if (frozenVal!=mFrozenResults.end()) {
@@ -6506,8 +6528,8 @@ static void is_weekday_func(BuiltinFunctionContextPtr f)
   loctim.tm_sec = 0;
   ScriptObjPtr res = newRes;
   if (CompiledTrigger* trigger = f->trigger()) {
-    CompiledTrigger::FrozenResult* frozenP = trigger->getFrozen(res, freezeId);
-    trigger->newFreeze(frozenP, newRes, freezeId, MainLoop::localTimeToMainLoopTime(loctim));
+    CompiledTrigger::FrozenResult* frozenP = trigger->getTimeFrozenValue(res, freezeId);
+    trigger->newTimedFreeze(frozenP, newRes, freezeId, MainLoop::localTimeToMainLoopTime(loctim));
   }
   f->finish(res); // freeze time over, use actual, newly calculated result
 }
@@ -6534,7 +6556,7 @@ static void timeCheckFunc(bool aIsTime, BuiltinFunctionContextPtr f)
   int daySecs = ((loctim.tm_hour*60)+loctim.tm_min)*60+loctim.tm_sec;
   CompiledTrigger* trigger = f->trigger();
   CompiledTrigger::FrozenResult* frozenP = NULL;
-  if (trigger) frozenP = trigger->getFrozen(secs, freezeId);
+  if (trigger) frozenP = trigger->getTimeFrozenValue(secs, freezeId);
   bool met = daySecs>=secs->intValue();
   // next check at specified time, today if not yet met, tomorrow if already met for today
   loctim.tm_hour = 0; loctim.tm_min = 0; loctim.tm_sec = secs->intValue();
@@ -6543,7 +6565,7 @@ static void timeCheckFunc(bool aIsTime, BuiltinFunctionContextPtr f)
   // limit to a few secs around target if it's "is_time"
   if (aIsTime && met && daySecs<secs->intValue()+IS_TIME_TOLERANCE_SECONDS) {
     // freeze again for a bit
-    if (trigger) trigger->newFreeze(frozenP, secs, freezeId, MainLoop::localTimeToMainLoopTime(loctim)+IS_TIME_TOLERANCE_SECONDS*Second);
+    if (trigger) trigger->newTimedFreeze(frozenP, secs, freezeId, MainLoop::localTimeToMainLoopTime(loctim)+IS_TIME_TOLERANCE_SECONDS*Second);
   }
   else {
     loctim.tm_hour = 0; loctim.tm_min = 0; loctim.tm_sec = newSecs;
@@ -6552,7 +6574,7 @@ static void timeCheckFunc(bool aIsTime, BuiltinFunctionContextPtr f)
       loctim.tm_sec = 0; // midnight
       if (aIsTime) res = false;
     }
-    if (trigger) trigger->newFreeze(frozenP, new NumericValue(newSecs), freezeId, MainLoop::localTimeToMainLoopTime(loctim));
+    if (trigger) trigger->newTimedFreeze(frozenP, new NumericValue(newSecs), freezeId, MainLoop::localTimeToMainLoopTime(loctim));
   }
   f->finish(new NumericValue(res));
 }
@@ -6605,19 +6627,19 @@ static void testlater_func(BuiltinFunctionContextPtr f)
   ScriptObjPtr secs = new NumericValue(s);
   ScriptObjPtr currentSecs = secs;
   SourceCursor::UniquePos  freezeId = f->argId(0);
-  CompiledTrigger::FrozenResult* frozenP = trigger->getFrozen(currentSecs, freezeId);
+  CompiledTrigger::FrozenResult* frozenP = trigger->getTimeFrozenValue(currentSecs, freezeId);
   bool evalNow = frozenP && !frozenP->frozen();
   if ((f->evalFlags()&timed)==0) {
     if ((f->evalFlags()&initial)==0 || retrigger) {
       // evaluating non-timed, non-initial (or retriggering) means "not yet ready" and must start or extend freeze period
-      trigger->newFreeze(frozenP, secs, freezeId, MainLoop::now()+s*Second, true);
+      trigger->newTimedFreeze(frozenP, secs, freezeId, MainLoop::now()+s*Second, true);
     }
     evalNow = false; // never evaluate on non-timed run
   }
   else {
     // evaluating timed after frozen period means "now is later" and if retrigger is set, must start a new freeze
     if (frozenP && retrigger) {
-      trigger->newFreeze(frozenP, secs, freezeId, MainLoop::now()+secs->doubleValue()*Second);
+      trigger->newTimedFreeze(frozenP, secs, freezeId, MainLoop::now()+secs->doubleValue()*Second);
     }
   }
   if (evalNow) {
@@ -6658,7 +6680,7 @@ static void every_func(BuiltinFunctionContextPtr f)
   ScriptObjPtr secs = new NumericValue(s);
   ScriptObjPtr currentSecs = secs;
   SourceCursor::UniquePos freezeId = f->argId(0);
-  CompiledTrigger::FrozenResult* frozenP = trigger->getFrozen(currentSecs, freezeId);
+  CompiledTrigger::FrozenResult* frozenP = trigger->getTimeFrozenValue(currentSecs, freezeId);
   bool triggered = frozenP && !frozenP->frozen();
   if (triggered || (f->evalFlags()&initial)!=0) {
     // setup new interval
@@ -6666,7 +6688,7 @@ static void every_func(BuiltinFunctionContextPtr f)
     if (syncoffset<0) {
       // no sync
       // - interval starts from now
-      trigger->newFreeze(frozenP, secs, freezeId, MainLoop::now()+s*Second, true);
+      trigger->newTimedFreeze(frozenP, secs, freezeId, MainLoop::now()+s*Second, true);
       triggered = true; // fire even in initial evaluation
     }
     else {
@@ -6675,7 +6697,7 @@ static void every_func(BuiltinFunctionContextPtr f)
       struct tm loctim; MainLoop::getLocalTime(loctim, &fracSecs);
       double secondOfDay = ((loctim.tm_hour*60)+loctim.tm_min)*60+loctim.tm_sec+fracSecs; // second of day right now
       double untilNext = syncoffset+(floor((secondOfDay-syncoffset)/interval)+1)*interval - secondOfDay; // time to next repetition
-      trigger->newFreeze(frozenP, secs, freezeId, MainLoop::now()+untilNext*Second, true);
+      trigger->newTimedFreeze(frozenP, secs, freezeId, MainLoop::now()+untilNext*Second, true);
     }
     // also cause a immediate re-evaluation as every() is an instant that immediately goes away
     trigger->updateNextEval(MainLoop::now());
