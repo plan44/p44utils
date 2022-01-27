@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2014-2019 plan44.ch / Lukas Zeller, Zurich, Switzerland
+//  Copyright (c) 2014-2022 plan44.ch / Lukas Zeller, Zurich, Switzerland
 //
 //  Author: Lukas Zeller <luz@plan44.ch>
 //
@@ -241,6 +241,7 @@ namespace p44 {
       AnalogInputEventObj(AnalogIoPtr aAnalogIo);
       virtual void deactivate() P44_OVERRIDE;
       virtual string getAnnotation() const P44_OVERRIDE;
+      virtual TypeInfo getTypeInfo() const P44_OVERRIDE;
       virtual EventSource *eventSource() const P44_OVERRIDE;
     };
 

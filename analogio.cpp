@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2014-2019 plan44.ch / Lukas Zeller, Zurich, Switzerland
+//  Copyright (c) 2014-2022 plan44.ch / Lukas Zeller, Zurich, Switzerland
 //
 //  Author: Lukas Zeller <luz@plan44.ch>
 //
@@ -504,6 +504,12 @@ void AnalogInputEventObj::deactivate()
 string AnalogInputEventObj::getAnnotation() const
 {
   return "analog input value";
+}
+
+
+TypeInfo AnalogInputEventObj::getTypeInfo() const
+{
+  return inherited::getTypeInfo()|freezable; // can be frozen
 }
 
 
