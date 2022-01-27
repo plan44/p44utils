@@ -675,10 +675,14 @@ bool ThreadValue::running()
 }
 
 
+TypeInfo ThreadValue::getTypeInfo() const
+{
+  return threadref+keeporiginal|(!mThread ? nowait : 0);
+}
+
 
 EventSource* ThreadValue::eventSource() const
 {
-  if (!mThread) return NULL; // no longer running -> no event source any more
   return static_cast<EventSource*>(mThread.get());
 }
 
@@ -6460,8 +6464,9 @@ static void await_func(BuiltinFunctionContextPtr f)
   AwaitEventSink* awaitEventSink = new AwaitEventSink(f); // temporary object that will receive one of the events or the timeout
   MLMicroSeconds to = Infinite;
   do {
-    ScriptObjPtr cv = f->arg(ai)->calculationValue(); // e.g. threadVars detect stopped thread only when being asked for calculation value first
-    EventSource* ev = f->arg(ai)->eventSource(); // ...but ask original value for event source (calculation value is not an event itself)
+    ScriptObjPtr v = f->arg(ai);
+    ScriptObjPtr cv = v->calculationValue(); // e.g. threadVars detect stopped thread only when being asked for calculation value first
+    EventSource* ev = v->eventSource(); // ...but ask original value for event source (calculation value is not an event itself)
     if (!ev) {
       // must be last arg and numeric to be timeout, otherwise error
       if (ai==f->numArgs()-1 && f->arg(ai)->hasType(numeric)) {
@@ -6470,7 +6475,14 @@ static void await_func(BuiltinFunctionContextPtr f)
       }
       // not an event source -> just immediately return the value itself
       delete awaitEventSink;
-      f->finish(f->arg(ai));
+      f->finish(v);
+      return;
+    }
+    // is an event source...
+    if (v->hasType(nowait)) {
+      // ...but should not be awaited now
+      delete awaitEventSink;
+      f->finish(v);
       return;
     }
     ev->registerForEvents(awaitEventSink); // register each of the event sources for getting events

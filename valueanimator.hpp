@@ -209,7 +209,7 @@ namespace p44 {
     public:
       ValueAnimatorObj(ValueAnimatorPtr aAnimator);
       virtual string getAnnotation() const P44_OVERRIDE { return "animator"; };
-      virtual TypeInfo getTypeInfo() const P44_OVERRIDE { return inherited::getTypeInfo()|oneshot|keeporiginal|freezable; }
+      virtual TypeInfo getTypeInfo() const P44_OVERRIDE;
       ValueAnimatorPtr animator() { return mAnimator; }
       virtual EventSource *eventSource() const P44_OVERRIDE;
     };

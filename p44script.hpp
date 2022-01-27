@@ -245,6 +245,7 @@ namespace p44 { namespace P44Script {
     keeporiginal = 0x8000000, ///< special flag for values that should NOT be replaced by their actualValue()
     oneshot = 0x10000000, ///< special flag for values that occur only once, such as event messages. Relevant for triggers, which will auto-reset when oneshot values are involved
     freezable = 0x20000000, ///< special flag for values that are delivered as events to trigger evaluation and should be frozen for use in the trigger evaluation, rather than re-read
+    nowait = 0x40000000, ///< special flags for event sources, indicating that await() should not wait for an event to occur
   };
   typedef uint32_t TypeInfo;
 
@@ -748,7 +749,7 @@ namespace p44 { namespace P44Script {
     ThreadValue(ScriptCodeThreadPtr aThread);
     virtual ~ThreadValue() { deactivate(); } // even if deactivate() is usually called before dtor, make sure it happens even if not
     virtual string getAnnotation() const P44_OVERRIDE { return "thread"; };
-    virtual TypeInfo getTypeInfo() const P44_OVERRIDE { return threadref+keeporiginal; };
+    virtual TypeInfo getTypeInfo() const P44_OVERRIDE;
     virtual void deactivate() P44_OVERRIDE { threadExitValue.reset(); mThread.reset(); inherited::deactivate(); }
     virtual ScriptObjPtr calculationValue() P44_OVERRIDE; /// < ThreadValue calculates to NULL as long as running or to the thread's exit value
     virtual EventSource *eventSource() const P44_OVERRIDE; ///< ThreadValue is an event source, event is the exit value of a thread terminating

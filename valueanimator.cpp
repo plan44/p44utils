@@ -567,9 +567,17 @@ ValueAnimatorObj::ValueAnimatorObj(ValueAnimatorPtr aAnimator) :
   registerMemberLookup(sharedAnimatorFunctionLookupP);
 }
 
+TypeInfo ValueAnimatorObj::getTypeInfo() const
+{
+  return
+    inherited::getTypeInfo()
+    |oneshot|keeporiginal|freezable
+    |(!mAnimator->inProgress() ? nowait : 0);
+}
+
+
 EventSource* ValueAnimatorObj::eventSource() const
 {
-  if (!mAnimator->inProgress()) return NULL; // no longer running -> no event source any more
   return static_cast<EventSource*>(const_cast<ValueAnimatorObj*>(this));
 }
 
