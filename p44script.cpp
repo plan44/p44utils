@@ -4410,7 +4410,7 @@ void CompiledTrigger::triggerDidEvaluate(EvaluationFlags aEvalMode, ScriptObjPtr
     }
     invalidateState();
   }
-  // frozen one-shot value always expires after one evaluation
+  // frozen one-shot value always expires after one evaluation (also important to free no longer used event objects early)
   mFrozenEventValue.reset();
   mFrozenEventPos = 0;
   mOneShotEval = false;
@@ -5459,6 +5459,24 @@ static void isvalid_func(BuiltinFunctionContextPtr f)
 {
   f->finish(new NumericValue(f->arg(0)->hasType(value)));
 }
+
+
+// ifok(a, b)   if a can be accessed w/o error, return it, otherwise return the default as specified by b
+static const BuiltInArgDesc ifok_args[] = { { any|error|null }, { any|error|null } };
+static const size_t ifok_numargs = sizeof(ifok_args)/sizeof(BuiltInArgDesc);
+static void ifok_func(BuiltinFunctionContextPtr f)
+{
+  f->finish(f->arg(0)->hasType(error) ? f->arg(1) : f->arg(0));
+}
+
+// isok(a)      if a does not produce an error
+static const BuiltInArgDesc isok_args[] = { { any|error|null } };
+static const size_t isok_numargs = sizeof(isok_args)/sizeof(BuiltInArgDesc);
+static void isok_func(BuiltinFunctionContextPtr f)
+{
+  f->finish(new NumericValue(!f->arg(0)->hasType(error)));
+}
+
 
 
 // if (c, a, b)    if c evaluates to true, return a, otherwise b
@@ -7020,7 +7038,9 @@ static void localvars_func(BuiltinFunctionContextPtr f)
 
 // The standard function descriptor table
 static const BuiltinMemberDescriptor standardFunctions[] = {
+  { "ifok", executable|any, ifok_numargs, ifok_args, &ifok_func },
   { "ifvalid", executable|any, ifvalid_numargs, ifvalid_args, &ifvalid_func },
+  { "isok", executable|numeric, isok_numargs, isok_args, &isok_func },
   { "isvalid", executable|numeric, isvalid_numargs, isvalid_args, &isvalid_func },
   { "if", executable|any, if_numargs, if_args, &if_func },
   { "abs", executable|numeric|null, abs_numargs, abs_args, &abs_func },
