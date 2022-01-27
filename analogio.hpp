@@ -56,10 +56,10 @@ namespace p44 {
     , public P44Script::EventSource
     #endif
   {
-    AnalogIOPinPtr ioPin; ///< the actual hardware interface to the pin
+    AnalogIOPinPtr mIoPin; ///< the actual hardware interface to the pin
 
-    string pinSpec;
-    bool output;
+    string mPinSpec;
+    bool mOutput;
     double mLastValue;
     MLTicket mAutoPollTicket;
     WindowEvaluatorPtr mWindowEvaluator;
@@ -91,10 +91,10 @@ namespace p44 {
     virtual ~AnalogIo();
 
     /// get name
-    string getName() { return pinSpec.c_str(); };
+    string getName() { return mPinSpec.c_str(); };
 
     /// check for output
-    bool isOutput() { return output; };
+    bool isOutput() { return mOutput; };
 
     /// get state of analog input
     /// @return current raw value (from actual pin for inputs, from last set value for outputs)

@@ -63,7 +63,7 @@ AnalogIo::AnalogIo(const char* aPinSpec, bool aOutput, double aInitialValue) :
 {
   mLastValue = aInitialValue;
   // save params
-  output = aOutput;
+  mOutput = aOutput;
   // check for inverting and pullup prefixes
   bool inverted = false; // not all analog outputs support this at all
   while (aPinSpec && *aPinSpec) {
@@ -72,25 +72,25 @@ AnalogIo::AnalogIo(const char* aPinSpec, bool aOutput, double aInitialValue) :
     ++aPinSpec; // processed prefix -> check next
   }
   // rest is pin specification
-  pinSpec = nonNullCStr(aPinSpec);
+  mPinSpec = nonNullCStr(aPinSpec);
   // check for missing pin (no pin, just silently keeping value)
-  if (pinSpec.size()==0 || pinSpec=="missing") {
-    ioPin = AnalogIOPinPtr(new AnalogMissingPin(aInitialValue));
+  if (mPinSpec.size()==0 || mPinSpec=="missing") {
+    mIoPin = AnalogIOPinPtr(new AnalogMissingPin(aInitialValue));
     return;
   }
   // dissect name into bus, device, pin
   string busName;
   string deviceName;
   string pinName;
-  size_t i = pinSpec.find(".");
+  size_t i = mPinSpec.find(".");
   if (i==string::npos) {
     // just a bus name, device and pin remain empty
-    busName = pinSpec;
+    busName = mPinSpec;
   }
   else {
-    busName = pinSpec.substr(0,i);
+    busName = mPinSpec.substr(0,i);
     // rest is device + pinname or just pinname
-    pinName = pinSpec.substr(i+1,string::npos);
+    pinName = mPinSpec.substr(i+1,string::npos);
     i = pinName.find(".");
     if (i!=string::npos) {
       // separate device and pin names
@@ -107,7 +107,7 @@ AnalogIo::AnalogIo(const char* aPinSpec, bool aOutput, double aInitialValue) :
     // i2c<busnum>.<devicespec>.<pinnum>
     int busNumber = atoi(busName.c_str()+3);
     int pinNumber = atoi(pinName.c_str());
-    ioPin = AnalogIOPinPtr(new AnalogI2CPin(busNumber, deviceName.c_str(), pinNumber, output, aInitialValue));
+    mIoPin = AnalogIOPinPtr(new AnalogI2CPin(busNumber, deviceName.c_str(), pinNumber, mOutput, aInitialValue));
   }
   else
   #endif
@@ -116,7 +116,7 @@ AnalogIo::AnalogIo(const char* aPinSpec, bool aOutput, double aInitialValue) :
     // spi<interfaceno*10+chipselno>.<devicespec>.<pinnum>
     int busNumber = atoi(busName.c_str()+3);
     int pinNumber = atoi(pinName.c_str());
-    ioPin = AnalogIOPinPtr(new AnalogSPIPin(busNumber, deviceName.c_str(), pinNumber, output, aInitialValue));
+    mIoPin = AnalogIOPinPtr(new AnalogSPIPin(busNumber, deviceName.c_str(), pinNumber, mOutput, aInitialValue));
   }
   else
   #endif
@@ -128,7 +128,7 @@ AnalogIo::AnalogIo(const char* aPinSpec, bool aOutput, double aInitialValue) :
     #endif
   ) {
     // analog I/O calling system command to set value
-    ioPin = AnalogIOPinPtr(new AnalogSysCommandPin(pinName.c_str(), output, aInitialValue));
+    mIoPin = AnalogIOPinPtr(new AnalogSysCommandPin(pinName.c_str(), mOutput, aInitialValue));
   }
   else
   #endif
@@ -148,18 +148,18 @@ AnalogIo::AnalogIo(const char* aPinSpec, bool aOutput, double aInitialValue) :
       channelNumber = atoi(deviceName.c_str());
       periodNs = atoi(pinName.c_str());
     }
-    ioPin = AnalogIOPinPtr(new PWMPin(chipNumber, channelNumber, inverted, aInitialValue, periodNs));
+    mIoPin = AnalogIOPinPtr(new PWMPin(chipNumber, channelNumber, inverted, aInitialValue, periodNs));
   }
   else
   #endif
   if (busName=="fdsim") {
     // analog I/O from file descriptor (should be non-blocking or at least minimal-delay files such
     // as quickly served pipes or /sys/class/* files)
-    ioPin = AnalogIOPinPtr(new AnalogSimPinFd(pinName.c_str(), output, aInitialValue));
+    mIoPin = AnalogIOPinPtr(new AnalogSimPinFd(pinName.c_str(), mOutput, aInitialValue));
   }
   else {
     // all other/unknown bus names, including "sim", default to simulated pin operated from console
-    ioPin = AnalogIOPinPtr(new AnalogSimPin(pinSpec.c_str(), output, aInitialValue));
+    mIoPin = AnalogIOPinPtr(new AnalogSimPin(mPinSpec.c_str(), mOutput, aInitialValue));
   }
 }
 
@@ -173,7 +173,7 @@ double AnalogIo::value()
 {
   if (!mUpdating) {
     mUpdating = true; // prevent recursion through event requesting the value again (prevents unneeded HW reads, too)
-    mLastValue = ioPin->getValue();
+    mLastValue = mIoPin->getValue();
     if (mWindowEvaluator) {
       mWindowEvaluator->addValue(mLastValue);
     }
@@ -241,13 +241,13 @@ void AnalogIo::pollhandler(MLMicroSeconds aPollInterval, MLMicroSeconds aToleran
 
 void AnalogIo::setValue(double aValue)
 {
-  ioPin->setValue(aValue);
+  mIoPin->setValue(aValue);
 }
 
 
 bool AnalogIo::getRange(double &aMin, double &aMax, double &aResolution)
 {
-  return ioPin->getRange(aMin, aMax, aResolution);
+  return mIoPin->getRange(aMin, aMax, aResolution);
 }
 
 
