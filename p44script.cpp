@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2017-2021 plan44.ch / Lukas Zeller, Zurich, Switzerland
+//  Copyright (c) 2017-2022 plan44.ch / Lukas Zeller, Zurich, Switzerland
 //
 //  Author: Lukas Zeller <luz@plan44.ch>
 //
@@ -5702,6 +5702,23 @@ static void strlen_func(BuiltinFunctionContextPtr f)
   f->finish(new NumericValue((double)f->arg(0)->stringValue().size())); // length of string
 }
 
+
+// strrep(string, count)
+static const BuiltInArgDesc strrep_args[] = { { text|undefres }, { numeric|undefres } };
+static const size_t strrep_numargs = sizeof(strrep_args)/sizeof(BuiltInArgDesc);
+static void strrep_func(BuiltinFunctionContextPtr f)
+{
+  string s = f->arg(0)->stringValue();
+  size_t count = f->arg(1)->intValue();
+  string r;
+  r.reserve(count*s.length());
+  while (count-- > 0) {
+    r += s;
+  }
+  f->finish(new StringValue(r));
+}
+
+
 // substr(string, from)
 // substr(string, from, count)
 // substr(string, -fromend, count)
@@ -6974,6 +6991,7 @@ static const BuiltinMemberDescriptor standardFunctions[] = {
   { "binary", executable|text, binary_numargs, binary_args, &binary_func },
   { "elements", executable|numeric|null, elements_numargs, elements_args, &elements_func },
   { "strlen", executable|numeric|null, strlen_numargs, strlen_args, &strlen_func },
+  { "strrep", executable|text, strrep_numargs, strrep_args, &strrep_func },
   { "substr", executable|text|null, substr_numargs, substr_args, &substr_func },
   { "find", executable|numeric|null, find_numargs, find_args, &find_func },
   { "shellquote", executable|text, shellquote_numargs, shellquote_args, &shellquote_func },

@@ -599,6 +599,7 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "expressions", "[scripting],[FOCUS]") {
     REQUIRE(s.test(expression, "describe(annotatednull)")->stringValue() == "undefined [undefined] // annotatednull");
     REQUIRE(s.test(expression, "string(nullstringXYZ)")->stringValue() == "XYZ"); // the only way to get the stored value within p44script
     REQUIRE(s.test(expression, "strlen('gugus')")->doubleValue() == 5);
+    REQUIRE(s.test(expression, "strrep('gugus',3)")->stringValue() == "gugusgugusgugus");
     REQUIRE(s.test(expression, "substr('gugus',3)")->stringValue() == "us");
     REQUIRE(s.test(expression, "substr('gugus',3,1)")->stringValue() == "u");
     REQUIRE(s.test(expression, "substr('gugus',7,1)")->stringValue() == "");
