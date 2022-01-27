@@ -1941,8 +1941,11 @@ namespace p44 { namespace P44Script {
     // - try/catch
     void s_tryStatement(); ///< executing the statement to try
 
+    void extracted();
+
     // Declarations
     void s_declarations(); ///< declarations (functions and handlers)
+    void processFunction(); ///< common processing for function definitions, which can be in declaration or code
     void s_defineFunction(); ///< store the defined function
     void processOnHandler(); ///< common processing for "on" handlers, which can be in declaration or code
     void s_defineTrigger(); ///< store the trigger expression of a on(...) {...} statement
@@ -2381,6 +2384,10 @@ namespace p44 { namespace P44Script {
     /// fork executing a block at the current position, if identifier is not empty, store a new ThreadValue.
     /// @note MUST NOT call resume() directly. This call will return when the new thread yields execution the first time.
     virtual void startBlockThreadAndStoreInIdentifier() P44_OVERRIDE;
+
+    /// must store result as a compiled (local) function in the current context
+    /// @note must cause calling resume()
+    virtual void storeFunction() P44_OVERRIDE;
 
     /// must store result as a event handler (trigger+action script) in the scripting domain
     /// @note must cause calling resume()

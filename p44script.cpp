@@ -3355,58 +3355,27 @@ void SourceProcessor::s_declarations()
   } while (mSrc.nextIf(';'));
   SourcePos declStart = mSrc.pos;
   if (mSrc.parseIdentifier(mIdentifier)) {
-    // could be a variable declaration
-    if (uequals(mIdentifier, "glob") || uequals(mIdentifier, "global")) {
+    // explicitly or implicitly global declarations
+    bool globvardef = false;
+    bool globfuncdef = false;
+    if (uequals(mIdentifier, "global")) {
+      mSrc.skipNonCode();
+      if (mSrc.checkForIdentifier("function")) {
+        globfuncdef = true;
+      }
+      else {
+        // must be variable declaration
+        globvardef = true;
+      }
+    }
+    if (globvardef || uequals(mIdentifier, "glob")) {
       // allow initialisation, even re-initialisation of global vars here!
       processVarDefs(lvalue|create|global, true, true);
       return;
     }
-    if (uequals(mIdentifier, "function")) {
-      // function fname([param[,param...]]) { code }
-      mSrc.skipNonCode();
-      if (!mSrc.parseIdentifier(mIdentifier)) {
-        exitWithSyntaxError("function name expected");
-        return;
-      }
-      CompiledCodePtr function = CompiledCodePtr(new CompiledCode(mIdentifier));
-      // optional argument list
-      mSrc.skipNonCode();
-      if (mSrc.nextIf('(')) {
-        mSrc.skipNonCode();
-        if (!mSrc.nextIf(')')) {
-          do {
-            mSrc.skipNonCode();
-            if (mSrc.c()=='.' && mSrc.c(1)=='.' && mSrc.c(2)=='.') {
-              // open argument list
-              mSrc.advance(3);
-              function->pushArgumentDefinition(any|null|error|multiple, "arg");
-              break;
-            }
-            string argName;
-            if (!mSrc.parseIdentifier(argName)) {
-              exitWithSyntaxError("function argument name expected");
-              return;
-            }
-            function->pushArgumentDefinition(any|null|error, argName);
-            mSrc.skipNonCode();
-          } while(mSrc.nextIf(','));
-          if (!mSrc.nextIf(')')) {
-            exitWithSyntaxError("missing closing ')' for argument list");
-            return;
-          }
-        }
-        mSrc.skipNonCode();
-      }
-      mResult = function;
-      // now capture the code
-      if (mSrc.c()!='{') {
-        exitWithSyntaxError("expected function body");
-        return;
-      }
-      push(&SourceProcessor::s_defineFunction); // with position on the opening '{' of the function body
-      mSkipping = true;
-      mSrc.next(); // skip the '{'
-      resumeAt(&SourceProcessor::s_block);
+    if (globfuncdef || uequals(mIdentifier, "function")) {
+      // Note: functions can be in declaration part (global) OR in running script code (if explicitly declared local)
+      processFunction();
       return;
     } // function
     if (uequals(mIdentifier, "on")) {
@@ -3422,6 +3391,57 @@ void SourceProcessor::s_declarations()
 }
 
 
+void SourceProcessor::processFunction()
+{
+  // function fname([param[,param...]]) { code }
+  push(mCurrentState); // return to current state when function definition completes
+  mSrc.skipNonCode();
+  if (!mSrc.parseIdentifier(mIdentifier)) {
+    exitWithSyntaxError("function name expected");
+    return;
+  }
+  CompiledCodePtr function = CompiledCodePtr(new CompiledCode(mIdentifier));
+  // optional argument list
+  mSrc.skipNonCode();
+  if (mSrc.nextIf('(')) {
+    mSrc.skipNonCode();
+    if (!mSrc.nextIf(')')) {
+      do {
+        mSrc.skipNonCode();
+        if (mSrc.c()=='.' && mSrc.c(1)=='.' && mSrc.c(2)=='.') {
+          // open argument list
+          mSrc.advance(3);
+          function->pushArgumentDefinition(any|null|error|multiple, "arg");
+          break;
+        }
+        string argName;
+        if (!mSrc.parseIdentifier(argName)) {
+          exitWithSyntaxError("function argument name expected");
+          return;
+        }
+        function->pushArgumentDefinition(any|null|error, argName);
+        mSrc.skipNonCode();
+      } while(mSrc.nextIf(','));
+      if (!mSrc.nextIf(')')) {
+        exitWithSyntaxError("missing closing ')' for argument list");
+        return;
+      }
+    }
+    mSrc.skipNonCode();
+  }
+  mResult = function;
+  // now capture the code
+  if (mSrc.c()!='{') {
+    exitWithSyntaxError("expected function body");
+    return;
+  }
+  push(&SourceProcessor::s_defineFunction); // with position on the opening '{' of the function body
+  mSkipping = true;
+  mSrc.next(); // skip the '{'
+  resumeAt(&SourceProcessor::s_block);
+}
+
+
 void SourceProcessor::s_defineFunction()
 {
   FOCUSLOGSTATE
@@ -3429,9 +3449,16 @@ void SourceProcessor::s_defineFunction()
   // - mPoppedPos points to the opening '{' of the body
   // - src.pos is after the closing '}' of the body
   // - olderResult is the CompiledFunction
-  setState(&SourceProcessor::s_declarations); // back to declarations
-  mResult = captureCode(mOlderResult);
-  storeFunction();
+  if (!compiling() || declaring()) {
+    setState(&SourceProcessor::s_declarations); // back to declarations
+    mResult = captureCode(mOlderResult);
+    storeFunction();
+  }
+  else {
+    checkAndResume();
+  }
+  // back to where we were before
+  pop();
 }
 
 
@@ -3752,7 +3779,16 @@ void SourceProcessor::processStatement()
       processVarDefs(lvalue+create+threadlocal, true);
       return;
     }
-    if (uequals(mIdentifier, "glob") || uequals(mIdentifier, "global")) {
+    bool globvar = false;
+    if (uequals(mIdentifier, "global")) {
+      mSrc.skipNonCode();
+      if (mSrc.checkForIdentifier("function")) {
+        exitWithSyntaxError("global function declarations must be made before first script statement");
+        return;
+      }
+      globvar = true;
+    }
+    if (globvar || uequals(mIdentifier, "glob")) {
       processVarDefs(lvalue+create+onlycreate+global, false);
       return;
     }
@@ -3762,6 +3798,16 @@ void SourceProcessor::processStatement()
     }
     if (uequals(mIdentifier, "unset")) {
       processVarDefs(unset, false);
+      return;
+    }
+    // check local function definition
+    if (uequals(mIdentifier, "local")) {
+      mSrc.skipNonCode();
+      if (mSrc.checkForIdentifier("function")) {
+        processFunction();
+        return;
+      }
+      exitWithSyntaxError("missing 'function' keyword");
       return;
     }
     // check handler definition within script code (needed when trigger expression wants to refer to run-time created objects)
@@ -3776,7 +3822,7 @@ void SourceProcessor::processStatement()
       return;
     }
     if (uequals(mIdentifier, "function")) {
-      exitWithSyntaxError("function declarations must be made before first script statement");
+      exitWithSyntaxError("global function declarations must be made before first script statement");
       return;
     }
     // identifier we've parsed above is not a keyword, rewind cursor
@@ -5263,6 +5309,19 @@ void ScriptCodeThread::startBlockThreadAndStoreInIdentifier()
     else {
       thread->run();
       checkAndResume();
+    }
+  }
+  checkAndResume();
+}
+
+
+void ScriptCodeThread::storeFunction()
+{
+  if (!mResult->isErr()) {
+    // functions encountered duing execution (not in declaration part) are local to the context
+    ErrorPtr err = owner()->scriptmain()->setMemberByName(mResult->getIdentifier(), mResult);
+    if (Error::notOK(err)) {
+      mResult = new ErrorPosValue(mSrc, err);
     }
   }
   checkAndResume();
