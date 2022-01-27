@@ -20,6 +20,7 @@
 #define UWSC_HAVE_WOLFSSL 	0
 #define UWSC_HAVE_MBEDTLS 	0
 
-
+/* for libmodbus which otherwise would try to redefine strlcpy on macOS */
+#define HAVE_STRLCPY 1
 
 #endif /* _STATIC_CONFIG_H */
