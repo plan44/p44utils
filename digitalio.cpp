@@ -509,6 +509,12 @@ void DigitalInputEventObj::deactivate()
 }
 
 
+TypeInfo DigitalInputEventObj::getTypeInfo() const
+{
+  return inherited::getTypeInfo()|freezable; // can be frozen
+}
+
+
 string DigitalInputEventObj::getAnnotation() const
 {
   return "input event";

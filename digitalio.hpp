@@ -289,6 +289,7 @@ namespace p44 {
       DigitalInputEventObj(DigitalIoPtr aDigitalIo);
       virtual void deactivate() P44_OVERRIDE;
       virtual string getAnnotation() const P44_OVERRIDE;
+      virtual TypeInfo getTypeInfo() const P44_OVERRIDE;
       virtual EventSource *eventSource() const P44_OVERRIDE;
     };
 
