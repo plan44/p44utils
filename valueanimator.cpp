@@ -531,6 +531,15 @@ static ScriptObjPtr current_accessor(BuiltInMemberLookup& aMemberLookup, ScriptO
 }
 
 
+static ScriptObjPtr running_accessor(BuiltInMemberLookup& aMemberLookup, ScriptObjPtr aParentObj, ScriptObjPtr aObjToWrite)
+{
+  ValueAnimatorObj* a = dynamic_cast<ValueAnimatorObj*>(aParentObj.get());
+  MLMicroSeconds st = a->animator()->startedAt();
+  if (st==Never) return new AnnotatedNullValue("animator not running");
+  else return new NumericValue((double)(MainLoop::now()-st)/Second); // number of seconds already running
+}
+
+
 static const BuiltinMemberDescriptor animatorFunctions[] = {
   { "delay", executable|any, delay_numargs, delay_args, &delay_func },
   { "runafter", executable|null, runafter_numargs, runafter_args, &runafter_func },
@@ -542,6 +551,7 @@ static const BuiltinMemberDescriptor animatorFunctions[] = {
   { "stop", executable|any, 0, NULL, &stop_func },
   { "reset", executable|any, 0, NULL, &reset_func },
   { "current", builtinmember|numeric, 0, NULL, (BuiltinFunctionImplementation)&current_accessor }, // Note: correct '.accessor=&lrg_accessor' form does not work with OpenWrt g++, so need ugly cast here
+  { "running", builtinmember|numeric, 0, NULL, (BuiltinFunctionImplementation)&running_accessor }, // Note: correct '.accessor=&lrg_accessor' form does not work with OpenWrt g++, so need ugly cast here
   { NULL } // terminator
 };
 

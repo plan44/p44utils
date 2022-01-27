@@ -177,6 +177,8 @@ namespace p44 {
     /// @return current value
     double current() { return mCurrentValue; }
 
+    /// @return time when started, if Never -> is not running
+    MLMicroSeconds startedAt() { return mStartedAt; }
 
     /// Animation functions
     static double linear(double aProgress, double aTuning);
