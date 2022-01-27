@@ -2253,37 +2253,6 @@ ModbusSlaveObjPtr ModbusSlave::representingScriptObj()
 }
 
 
-ModbusSlaveAccessObj::ModbusSlaveAccessObj(ModbusSlaveObj* aModbusSlaveObj) :
-  mModbusSlaveObj(aModbusSlaveObj),
-  inherited(JsonObjectPtr())
-{
-}
-
-
-string ModbusSlaveAccessObj::getAnnotation() const
-{
-  return "modbus slave access";
-}
-
-
-TypeInfo ModbusSlaveAccessObj::getTypeInfo() const
-{
-  return inherited::getTypeInfo()|oneshot|keeporiginal; // returns the request only once, must keep the original
-}
-
-
-EventSource* ModbusSlaveAccessObj::eventSource() const
-{
-  return static_cast<EventSource*>(mModbusSlaveObj);
-}
-
-
-JsonObjectPtr ModbusSlaveAccessObj::jsonValue() const
-{
-  return mModbusSlaveObj ? mModbusSlaveObj->lastAccess : JsonObjectPtr();
-}
-
-
 // setreg(regaddr, value [,input])
 // setbit(bitaddr, value [,input])
 static const BuiltInArgDesc set_args[] = { { numeric }, { numeric }, { numeric|optionalarg } };
@@ -2334,8 +2303,8 @@ static void access_func(BuiltinFunctionContextPtr f)
 {
   ModbusSlaveObj* o = dynamic_cast<ModbusSlaveObj*>(f->thisObj().get());
   assert(o);
-  // return latest message
-  f->finish(new ModbusSlaveAccessObj(o));
+  // return event source for access messages
+  f->finish(new OneShotEventNullValue(o, "modbus slave access"));
 }
 
 
@@ -2459,13 +2428,13 @@ ModbusSlaveObj::~ModbusSlaveObj()
 
 ErrorPtr ModbusSlaveObj::gotAccessed(int aAddress, bool aBit, bool aInput, bool aWrite)
 {
-  lastAccess = JsonObject::newObj();
-  lastAccess->add("reg", aBit ? JsonObject::newNull() : JsonObject::newInt32(aAddress));
-  lastAccess->add("bit", aBit ? JsonObject::newInt32(aAddress) : JsonObject::newNull());
-  lastAccess->add("addr", JsonObject::newInt32(aAddress));
-  lastAccess->add("input", JsonObject::newBool(aInput));
-  lastAccess->add("write", JsonObject::newBool(aWrite));
-  sendEvent(new ModbusSlaveAccessObj(this));
+  JsonObjectPtr acc = JsonObject::newObj();
+  acc->add("reg", aBit ? JsonObject::newNull() : JsonObject::newInt32(aAddress));
+  acc->add("bit", aBit ? JsonObject::newInt32(aAddress) : JsonObject::newNull());
+  acc->add("addr", JsonObject::newInt32(aAddress));
+  acc->add("input", JsonObject::newBool(aInput));
+  acc->add("write", JsonObject::newBool(aWrite));
+  sendEvent(new JsonValue(acc));
   return ErrorPtr();
 }
 

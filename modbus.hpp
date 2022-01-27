@@ -822,20 +822,6 @@ namespace p44 {
 
     class ModbusSlaveObj;
 
-    /// represents a modbus slave access from master
-    class ModbusSlaveAccessObj : public JsonValue
-    {
-      typedef JsonValue inherited;
-      ModbusSlaveObj* mModbusSlaveObj;
-    public:
-      ModbusSlaveAccessObj(ModbusSlaveObj* aModbusSlaveObj);
-      virtual string getAnnotation() const P44_OVERRIDE;
-      virtual TypeInfo getTypeInfo() const P44_OVERRIDE;
-      virtual EventSource *eventSource() const P44_OVERRIDE;
-      virtual JsonObjectPtr jsonValue() const P44_OVERRIDE;
-    };
-
-  
     /// represents a modbus slave
     class ModbusSlaveObj : public StructuredLookupObject, public EventSource
     {
@@ -844,7 +830,6 @@ namespace p44 {
 
       ModbusSlavePtr mModbus;
     public:
-      JsonObjectPtr lastAccess; ///< data about last access
       ModbusSlaveObj(ModbusSlavePtr aModbus);
       virtual ~ModbusSlaveObj();
       virtual void deactivate() P44_OVERRIDE;
