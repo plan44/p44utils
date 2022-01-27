@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2021 plan44.ch / Lukas Zeller, Zurich, Switzerland
+//  Copyright (c) 2021-2022 plan44.ch / Lukas Zeller, Zurich, Switzerland
 //
 //  Author: Lukas Zeller <luz@plan44.ch>
 //
@@ -143,20 +143,6 @@ namespace p44 {
 
     class WebSocketObj;
 
-    /// represents a message from a socket
-    class WebSocketMessageObj : public StringValue
-    {
-      typedef StringValue inherited;
-      WebSocketObj* mWebSocketObj;
-    public:
-      WebSocketMessageObj(WebSocketObj* aWebSocketObj);
-      virtual string getAnnotation() const P44_OVERRIDE;
-      virtual TypeInfo getTypeInfo() const P44_OVERRIDE;
-      virtual EventSource *eventSource() const P44_OVERRIDE;
-      virtual string stringValue() const P44_OVERRIDE;
-    };
-
-
     /// represents a WebSocket
     /// Note: is an event source, but does not expose it directly, only via WebSocketMessageObjs
     class WebSocketObj : public StructuredLookupObject, public EventSource
@@ -164,7 +150,6 @@ namespace p44 {
       typedef StructuredLookupObject inherited;
       WebSocketClientPtr mWebSocket;
     public:
-      string lastDatagram;
       WebSocketObj(WebSocketClientPtr aWebSocket);
       virtual ~WebSocketObj();
       virtual string getAnnotation() const P44_OVERRIDE { return "websocket"; };

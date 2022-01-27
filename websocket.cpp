@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2019 plan44.ch / Lukas Zeller, Zurich, Switzerland
+//  Copyright (c) 2021-2022 plan44.ch / Lukas Zeller, Zurich, Switzerland
 //
 //  Author: Lukas Zeller <luz@plan44.ch>
 //
@@ -229,37 +229,6 @@ ErrorPtr WebSocketClient::send(const string aMessage, int aWebSocketOpCode)
 
 using namespace P44Script;
 
-WebSocketMessageObj::WebSocketMessageObj(WebSocketObj* aWebSocketObj) :
-  inherited(""),
-  mWebSocketObj(aWebSocketObj)
-{
-}
-
-
-string WebSocketMessageObj::getAnnotation() const
-{
-  return "websocket message";
-}
-
-
-TypeInfo WebSocketMessageObj::getTypeInfo() const
-{
-  return inherited::getTypeInfo()|oneshot|keeporiginal; // returns the request only once, must keep the original
-}
-
-
-EventSource* WebSocketMessageObj::eventSource() const
-{
-  return static_cast<EventSource*>(mWebSocketObj);
-}
-
-
-string WebSocketMessageObj::stringValue() const
-{
-  return mWebSocketObj ? mWebSocketObj->lastDatagram : "";
-}
-
-
 
 // close([code [, reason])
 static const BuiltInArgDesc close_args[] = { { numeric|optionalarg }, { text|optionalarg } };
@@ -307,8 +276,8 @@ static void message_func(BuiltinFunctionContextPtr f)
 {
   WebSocketObj* s = dynamic_cast<WebSocketObj*>(f->thisObj().get());
   assert(s);
-  // return latest message
-  f->finish(new WebSocketMessageObj(s));
+  // return event source for messages
+  f->finish(new OneShotEventNullValue(s, "websocket message"));
 }
 
 
@@ -348,8 +317,7 @@ void WebSocketObj::gotMessage(const string aMessage, ErrorPtr aError)
     sendEvent(new ErrorValue(aError));
   }
   else {
-    lastDatagram = aMessage;
-    sendEvent(new WebSocketMessageObj(this));
+    sendEvent(new StringValue(aMessage));
   }
 }
 
