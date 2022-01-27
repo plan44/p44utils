@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2013-2019 plan44.ch / Lukas Zeller, Zurich, Switzerland
+//  Copyright (c) 2013-2022 plan44.ch / Lukas Zeller, Zurich, Switzerland
 //
 //  Author: Lukas Zeller <luz@plan44.ch>
 //
@@ -47,12 +47,12 @@ namespace p44 {
     , public P44Script::EventSource
     #endif
   {
-    IOPinPtr ioPin; ///< the actual hardware interface to the pin
+    IOPinPtr mIoPin; ///< the actual hardware interface to the pin
 
-    string pinSpec;
-    bool output;
-    bool inverted;
-    Tristate pull; // yes = pull up, no = pull down, undefined = no pull
+    string mPinSpec;
+    bool mOutput;
+    bool mInverted;
+    Tristate mPull; // yes = pull up, no = pull down, undefined = no pull
 
   public:
     /// Create general purpose I/O
@@ -87,7 +87,7 @@ namespace p44 {
     string getName();
 
     /// check for output
-    bool isOutput() { return output; };
+    bool isOutput() { return mOutput; };
 
     /// get state of GPIO
     /// @return current state (from actual GPIO pin for inputs, from last set state for outputs)
@@ -194,11 +194,11 @@ namespace p44 {
     typedef boost::function<void (bool aState, bool aHasChanged, MLMicroSeconds aTimeSincePreviousChange)> ButtonHandlerCB;
 
   private:
-    MLMicroSeconds lastChangeTime;
-    bool reportPressAndRelease;
-    ButtonHandlerCB buttonHandler;
-    MLMicroSeconds repeatActiveReport;
-    MLTicket activeReportTicket;
+    MLMicroSeconds mLastChangeTime;
+    bool mReportPressAndRelease;
+    ButtonHandlerCB mButtonHandler;
+    MLMicroSeconds mRepeatActiveReport;
+    MLTicket mActiveReportTicket;
 
     void inputChanged(bool aNewState);
     void repeatStateReport();
@@ -230,12 +230,12 @@ namespace p44 {
   {
     typedef DigitalIo inherited;
 
-    bool nextTimedState; // what state should be set next time the timer triggers
-    MLMicroSeconds blinkOnTime;
-    MLMicroSeconds blinkOffTime;
-    MLMicroSeconds blinkUntilTime;
+    bool mNextTimedState; // what state should be set next time the timer triggers
+    MLMicroSeconds mBlinkOnTime;
+    MLMicroSeconds mBlinkOffTime;
+    MLMicroSeconds mBlinkUntilTime;
 
-    MLTicket timedOpTicket;
+    MLTicket mTimedOpTicket;
 
     void timer(MLTimer &aTimer);
 

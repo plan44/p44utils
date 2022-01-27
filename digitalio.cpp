@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2013-2019 plan44.ch / Lukas Zeller, Zurich, Switzerland
+//  Copyright (c) 2013-2022 plan44.ch / Lukas Zeller, Zurich, Switzerland
 //
 //  Author: Lukas Zeller <luz@plan44.ch>
 //
@@ -58,40 +58,40 @@ using namespace p44;
 
 
 DigitalIo::DigitalIo(const char* aPinSpec, bool aOutput, bool aInitialState) :
-  inverted(false),
-  pull(undefined)
+  mInverted(false),
+  mPull(undefined)
 {
   // save params
-  output = aOutput;
+  mOutput = aOutput;
   // check for inverting and pullup prefixes
   while (aPinSpec && *aPinSpec) {
-    if (*aPinSpec=='/') inverted = true;
-    else if (*aPinSpec=='+') pull = yes; // pullup
-    else if (*aPinSpec=='-') pull = no; // pulldown
+    if (*aPinSpec=='/') mInverted = true;
+    else if (*aPinSpec=='+') mPull = yes; // pullup
+    else if (*aPinSpec=='-') mPull = no; // pulldown
     else break; // none of the allowed prefixes -> done
     ++aPinSpec; // processed prefix -> check next
   }
   // rest is actual pin specification
-  pinSpec = nonNullCStr(aPinSpec);
-  bool initialPinState = aInitialState!=inverted;
+  mPinSpec = nonNullCStr(aPinSpec);
+  bool initialPinState = aInitialState!=mInverted;
   // check for missing pin (no pin, just silently keeping state)
-  if (pinSpec.size()==0 || pinSpec=="missing") {
-    ioPin = IOPinPtr(new MissingPin(initialPinState));
+  if (mPinSpec.size()==0 || mPinSpec=="missing") {
+    mIoPin = IOPinPtr(new MissingPin(initialPinState));
     return;
   }
   // dissect name into bus, device, pin
   string busName;
   string deviceName;
   string pinName;
-  size_t i = pinSpec.find(".");
+  size_t i = mPinSpec.find(".");
   if (i==string::npos) {
     // just a bus name, device and pin remain empty
-    busName = pinSpec;
+    busName = mPinSpec;
   }
   else {
-    busName = pinSpec.substr(0,i);
+    busName = mPinSpec.substr(0,i);
     // rest is device + pinname or just pinname
-    pinName = pinSpec.substr(i+1,string::npos);
+    pinName = mPinSpec.substr(i+1,string::npos);
     if (busName!="syscmd") {
       i = pinName.find(".");
       if (i!=string::npos) {
@@ -110,13 +110,13 @@ DigitalIo::DigitalIo(const char* aPinSpec, bool aOutput, bool aInitialState) :
     // Linux or ESP32 generic GPIO
     // gpio.<gpionumber>
     int pinNumber = atoi(pinName.c_str());
-    ioPin = IOPinPtr(new GpioPin(pinNumber, output, initialPinState, pull));
+    mIoPin = IOPinPtr(new GpioPin(pinNumber, mOutput, initialPinState, mPull));
   }
   #ifndef ESP_PLATFORM
   else if (busName=="led") {
     // Linux generic LED
     // led.<lednumber_or_name>
-    ioPin = IOPinPtr(new GpioLedPin(pinName.c_str(), initialPinState));
+    mIoPin = IOPinPtr(new GpioLedPin(pinName.c_str(), initialPinState));
   }
   #endif // !ESP_PLATFORM
   else
@@ -125,7 +125,7 @@ DigitalIo::DigitalIo(const char* aPinSpec, bool aOutput, bool aInitialState) :
   if (busName=="gpioNS9XXXX") {
     // gpioNS9XXXX.<pinname>
     // NS9XXX driver based GPIO (Digi ME 9210 LX)
-    ioPin = IOPinPtr(new GpioNS9XXXPin(pinName.c_str(), output, initialPinState));
+    mIoPin = IOPinPtr(new GpioNS9XXXPin(pinName.c_str(), mOutput, initialPinState));
   }
   else
   #endif
@@ -134,7 +134,7 @@ DigitalIo::DigitalIo(const char* aPinSpec, bool aOutput, bool aInitialState) :
     // i2c<busnum>.<devicespec>.<pinnum>
     int busNumber = atoi(busName.c_str()+3);
     int pinNumber = atoi(pinName.c_str());
-    ioPin = IOPinPtr(new I2CPin(busNumber, deviceName.c_str(), pinNumber, output, initialPinState, pull));
+    mIoPin = IOPinPtr(new I2CPin(busNumber, deviceName.c_str(), pinNumber, mOutput, initialPinState, mPull));
   }
   else
   #endif
@@ -143,7 +143,7 @@ DigitalIo::DigitalIo(const char* aPinSpec, bool aOutput, bool aInitialState) :
     // spi<interfaceno*10+chipselno>.<devicespec>.<pinnum>
     int busNumber = atoi(busName.c_str()+3);
     int pinNumber = atoi(pinName.c_str());
-    ioPin = IOPinPtr(new SPIPin(busNumber, deviceName.c_str(), pinNumber, output, initialPinState, pull));
+    mIoPin = IOPinPtr(new SPIPin(busNumber, deviceName.c_str(), pinNumber, mOutput, initialPinState, mPull));
   }
   else
   #endif
@@ -155,13 +155,13 @@ DigitalIo::DigitalIo(const char* aPinSpec, bool aOutput, bool aInitialState) :
     #endif
   ) {
     // digital I/O calling system command to turn on/off
-    ioPin = IOPinPtr(new SysCommandPin(pinName.c_str(), output, initialPinState));
+    mIoPin = IOPinPtr(new SysCommandPin(pinName.c_str(), mOutput, initialPinState));
   }
   else
   #endif
   {
     // all other/unknown bus names, including "sim", default to simulated pin operated from console
-    ioPin = IOPinPtr(new SimPin(pinSpec.c_str(), output, initialPinState));
+    mIoPin = IOPinPtr(new SimPin(mPinSpec.c_str(), mOutput, initialPinState));
   }
 }
 
@@ -173,20 +173,20 @@ DigitalIo::~DigitalIo()
 
 string DigitalIo::getName()
 {
-  return string_format("%s%s%s", pull==yes ? "+" : (pull==no ? "-" : ""), inverted ? "/" : "", pinSpec.c_str());
+  return string_format("%s%s%s", mPull==yes ? "+" : (mPull==no ? "-" : ""), mInverted ? "/" : "", mPinSpec.c_str());
 }
 
 
 
 bool DigitalIo::isSet()
 {
-  return ioPin->getState() != inverted;
+  return mIoPin->getState() != mInverted;
 }
 
 
 void DigitalIo::set(bool aState)
 {
-  ioPin->setState(aState!=inverted);
+  mIoPin->setState(aState!=mInverted);
 }
 
 
@@ -205,7 +205,7 @@ void DigitalIo::off()
 bool DigitalIo::toggle()
 {
   bool state = isSet();
-  if (output) {
+  if (mOutput) {
     state = !state;
     set(state);
   }
@@ -216,7 +216,7 @@ bool DigitalIo::toggle()
 bool DigitalIo::setInputChangedHandler(InputChangedCB aInputChangedCB, MLMicroSeconds aDebounceTime, MLMicroSeconds aPollInterval)
 {
   // enable or disable reporting changes via callback
-  return ioPin->setInputChangedHandler(aInputChangedCB, inverted, ioPin->getState(), aDebounceTime, aPollInterval);
+  return mIoPin->setInputChangedHandler(aInputChangedCB, mInverted, mIoPin->getState(), aDebounceTime, aPollInterval);
 }
 
 
@@ -233,11 +233,11 @@ bool DigitalIo::setChangeDetection(MLMicroSeconds aDebounceTime, MLMicroSeconds 
 {
   if (aDebounceTime<0) {
     // disable
-    return ioPin->setInputChangedHandler(NULL, inverted, false, 0, 0);
+    return mIoPin->setInputChangedHandler(NULL, mInverted, false, 0, 0);
   }
   else {
     // enable
-    return ioPin->setInputChangedHandler(boost::bind(&DigitalIo::processChange, this, _1), inverted, ioPin->getState(), aDebounceTime, aPollInterval);
+    return mIoPin->setInputChangedHandler(boost::bind(&DigitalIo::processChange, this, _1), mInverted, mIoPin->getState(), aDebounceTime, aPollInterval);
   }
 }
 
@@ -332,28 +332,28 @@ void DigitalIoBus::setBusValue(uint32_t aBusValue)
 
 ButtonInput::ButtonInput(const char* aPinSpec) :
   DigitalIo(aPinSpec, false, false),
-  repeatActiveReport(Never)
+  mRepeatActiveReport(Never)
 {
-  lastChangeTime = MainLoop::now();
+  mLastChangeTime = MainLoop::now();
 }
 
 
 ButtonInput::~ButtonInput()
 {
-  activeReportTicket.cancel();
+  mActiveReportTicket.cancel();
 }
 
 
 void ButtonInput::setButtonHandler(ButtonHandlerCB aButtonHandler, bool aPressAndRelease, MLMicroSeconds aRepeatActiveReport)
 {
-  reportPressAndRelease = aPressAndRelease;
-  repeatActiveReport = aRepeatActiveReport;
-  buttonHandler = aButtonHandler;
-  if (buttonHandler) {
+  mReportPressAndRelease = aPressAndRelease;
+  mRepeatActiveReport = aRepeatActiveReport;
+  mButtonHandler = aButtonHandler;
+  if (mButtonHandler) {
     // mainloop idle polling if input does not support edge detection
     setInputChangedHandler(boost::bind(&ButtonInput::inputChanged, this, _1), BUTTON_DEBOUNCE_TIME, 0);
     // if active already when handler is installed and active report repeating requested -> start reporting now
-    if (isSet() && repeatActiveReport!=Never) {
+    if (isSet() && mRepeatActiveReport!=Never) {
       // report for the first time and keep reporting
       repeatStateReport();
     }
@@ -361,7 +361,7 @@ void ButtonInput::setButtonHandler(ButtonHandlerCB aButtonHandler, bool aPressAn
   else {
     // unregister
     setInputChangedHandler(NULL, 0, 0);
-    activeReportTicket.cancel();
+    mActiveReportTicket.cancel();
   }
 }
 
@@ -370,26 +370,26 @@ void ButtonInput::setButtonHandler(ButtonHandlerCB aButtonHandler, bool aPressAn
 void ButtonInput::inputChanged(bool aNewState)
 {
   MLMicroSeconds now = MainLoop::now();
-  if (!aNewState || reportPressAndRelease) {
-    buttonHandler(aNewState, true, now-lastChangeTime);
+  if (!aNewState || mReportPressAndRelease) {
+    mButtonHandler(aNewState, true, now-mLastChangeTime);
   }
   // consider this a state change
-  lastChangeTime = now;
+  mLastChangeTime = now;
   // active state reported now
-  if (aNewState && repeatActiveReport!=Never) {
-    activeReportTicket.executeOnce(boost::bind(&ButtonInput::repeatStateReport, this), repeatActiveReport);
+  if (aNewState && mRepeatActiveReport!=Never) {
+    mActiveReportTicket.executeOnce(boost::bind(&ButtonInput::repeatStateReport, this), mRepeatActiveReport);
   }
   else {
     // no longer active, cancel repeating active state if any
-    activeReportTicket.cancel();
+    mActiveReportTicket.cancel();
   }
 }
 
 
 void ButtonInput::repeatStateReport()
 {
-  if (buttonHandler) buttonHandler(true, false, MainLoop::now()-lastChangeTime);
-  activeReportTicket.executeOnce(boost::bind(&ButtonInput::repeatStateReport, this), repeatActiveReport);
+  if (mButtonHandler) mButtonHandler(true, false, MainLoop::now()-mLastChangeTime);
+  mActiveReportTicket.executeOnce(boost::bind(&ButtonInput::repeatStateReport, this), mRepeatActiveReport);
 }
 
 
@@ -398,10 +398,10 @@ void ButtonInput::repeatStateReport()
 
 IndicatorOutput::IndicatorOutput(const char* aPinSpec, bool aInitiallyOn) :
   DigitalIo(aPinSpec, true, aInitiallyOn),
-  blinkOnTime(Never),
-  blinkOffTime(Never),
-  blinkUntilTime(Never),
-  nextTimedState(false)
+  mBlinkOnTime(Never),
+  mBlinkOffTime(Never),
+  mBlinkUntilTime(Never),
+  mNextTimedState(false)
 {
 }
 
@@ -414,10 +414,10 @@ IndicatorOutput::~IndicatorOutput()
 
 void IndicatorOutput::stop()
 {
-  blinkOnTime = Never;
-  blinkOffTime = Never;
-  blinkUntilTime = Never;
-  timedOpTicket.cancel();
+  mBlinkOnTime = Never;
+  mBlinkOffTime = Never;
+  mBlinkUntilTime = Never;
+  mTimedOpTicket.cancel();
 }
 
 
@@ -426,8 +426,8 @@ void IndicatorOutput::onFor(MLMicroSeconds aOnTime)
   stop();
   set(true);
   if (aOnTime>0) {
-    nextTimedState = false; // ..turn off
-    timedOpTicket.executeOnce(boost::bind(&IndicatorOutput::timer, this, _1), aOnTime); // ..after given time
+    mNextTimedState = false; // ..turn off
+    mTimedOpTicket.executeOnce(boost::bind(&IndicatorOutput::timer, this, _1), aOnTime); // ..after given time
   }
 }
 
@@ -435,12 +435,12 @@ void IndicatorOutput::onFor(MLMicroSeconds aOnTime)
 void IndicatorOutput::blinkFor(MLMicroSeconds aOnTime, MLMicroSeconds aBlinkPeriod, int aOnRatioPercent)
 {
   stop();
-  blinkOnTime =  (aBlinkPeriod*aOnRatioPercent*10)/1000;
-  blinkOffTime = aBlinkPeriod - blinkOnTime;
-  blinkUntilTime = aOnTime>0 ? MainLoop::now()+aOnTime : Never;
+  mBlinkOnTime =  (aBlinkPeriod*aOnRatioPercent*10)/1000;
+  mBlinkOffTime = aBlinkPeriod - mBlinkOnTime;
+  mBlinkUntilTime = aOnTime>0 ? MainLoop::now()+aOnTime : Never;
   set(true); // ..start with on
-  nextTimedState = false; // ..then turn off..
-  timedOpTicket.executeOnce(boost::bind(&IndicatorOutput::timer, this, _1), blinkOnTime); // ..after blinkOn time
+  mNextTimedState = false; // ..then turn off..
+  mTimedOpTicket.executeOnce(boost::bind(&IndicatorOutput::timer, this, _1), mBlinkOnTime); // ..after blinkOn time
 }
 
 
@@ -469,16 +469,16 @@ void IndicatorOutput::steadyOn()
 void IndicatorOutput::timer(MLTimer &aTimer)
 {
   // apply scheduled next state
-  set(nextTimedState);
+  set(mNextTimedState);
   // if we are blinking, check continuation
-  if (blinkUntilTime!=Never && blinkUntilTime<MainLoop::now()) {
+  if (mBlinkUntilTime!=Never && mBlinkUntilTime<MainLoop::now()) {
     // end of blinking, stop
     stop();
   }
-  else if (blinkOnTime!=Never) {
+  else if (mBlinkOnTime!=Never) {
     // blinking should continue
-    nextTimedState = !nextTimedState;
-    MainLoop::currentMainLoop().retriggerTimer(aTimer, nextTimedState ? blinkOffTime : blinkOnTime);
+    mNextTimedState = !mNextTimedState;
+    MainLoop::currentMainLoop().retriggerTimer(aTimer, mNextTimedState ? mBlinkOffTime : mBlinkOnTime);
   }
 }
 
