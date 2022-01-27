@@ -199,7 +199,7 @@ namespace p44 {
   #if ENABLE_ANIMATOR_SCRIPT_FUNCS
   namespace P44Script {
 
-    /// represents a view of a P44lrgraphics view hierarchy
+    /// represents a value animator
     class ValueAnimatorObj : public P44Script::StructuredLookupObject, public P44Script::EventSource
     {
       typedef P44Script::StructuredLookupObject inherited;
@@ -207,6 +207,7 @@ namespace p44 {
     public:
       ValueAnimatorObj(ValueAnimatorPtr aAnimator);
       virtual string getAnnotation() const P44_OVERRIDE { return "animator"; };
+      virtual TypeInfo getTypeInfo() const P44_OVERRIDE { return inherited::getTypeInfo()|oneshot|keeporiginal|freezable; }
       ValueAnimatorPtr animator() { return mAnimator; }
       virtual EventSource *eventSource() const P44_OVERRIDE;
     };

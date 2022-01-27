@@ -486,7 +486,7 @@ static void step_func(BuiltinFunctionContextPtr f)
 // .runto(endvalue, intime [, minsteptime [, stepsize]])    actually start animation
 static void animation_complete(ValueAnimatorObjPtr aAnimationObj, double aReachedValue, bool aCompleted)
 {
-  aAnimationObj->sendEvent(new NumericValue(aCompleted));
+  aAnimationObj->sendEvent(aAnimationObj);
 }
 static const BuiltInArgDesc runto_args[] = { { numeric }, { numeric }, { numeric|optionalarg } };
 static const size_t runto_numargs = sizeof(runto_args)/sizeof(BuiltInArgDesc);
