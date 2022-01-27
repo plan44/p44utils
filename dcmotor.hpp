@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2017-2020 plan44.ch / Lukas Zeller, Zurich, Switzerland
+//  Copyright (c) 2017-2022 plan44.ch / Lukas Zeller, Zurich, Switzerland
 //
 //  Author: Lukas Zeller <luz@plan44.ch>
 //
@@ -227,7 +227,6 @@ namespace p44 {
       virtual string getAnnotation() const P44_OVERRIDE;
       virtual TypeInfo getTypeInfo() const P44_OVERRIDE;
       virtual EventSource *eventSource() const P44_OVERRIDE;
-      virtual JsonObjectPtr jsonValue() const P44_OVERRIDE;
     };
 
     /// represents a DC motor

@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2017-2020 plan44.ch / Lukas Zeller, Zurich, Switzerland
+//  Copyright (c) 2017-2022 plan44.ch / Lukas Zeller, Zurich, Switzerland
 //
 //  Author: Lukas Zeller <luz@plan44.ch>
 //
@@ -363,6 +363,20 @@ DcMotorStatusObj::DcMotorStatusObj(DcMotorDriverPtr aDcMotorDriver) :
   inherited(JsonObjectPtr()),
   mDcMotorDriver(aDcMotorDriver)
 {
+  // create snapshot of status right now
+  jsonval = JsonObject::newObj();
+  jsonval->add("power", JsonObject::newDouble(mDcMotorDriver->mCurrentPower));
+  jsonval->add("direction", JsonObject::newInt32(mDcMotorDriver->mCurrentDirection));
+  if (mDcMotorDriver->mStopCause) {
+    string cause;
+    if (mDcMotorDriver->mStopCause->isError(DcMotorDriverError::domain(), DcMotorDriverError::overcurrentStop)) cause = "overcurrent";
+    else if (mDcMotorDriver->mStopCause->isError(DcMotorDriverError::domain(), DcMotorDriverError::endswitchStop)) cause = "endswitch";
+    else cause = mDcMotorDriver->mStopCause->text();
+    jsonval->add("stoppedby", JsonObject::newString(cause));
+  }
+  if (mDcMotorDriver->mCurrentSensor) {
+    jsonval->add("current", JsonObject::newDouble(mDcMotorDriver->mCurrentSensor->lastValue()));
+  }
 }
 
 
@@ -381,33 +395,13 @@ string DcMotorStatusObj::getAnnotation() const
 
 TypeInfo DcMotorStatusObj::getTypeInfo() const
 {
-  return inherited::getTypeInfo()|oneshot|keeporiginal; // returns the request only once, must keep the original
+  return inherited::getTypeInfo()|freezable; // can be frozen
 }
 
 
 EventSource* DcMotorStatusObj::eventSource() const
 {
   return static_cast<EventSource*>(mDcMotorDriver.get());
-}
-
-
-JsonObjectPtr DcMotorStatusObj::jsonValue() const
-{
-  if (!mDcMotorDriver) return JsonObjectPtr();
-  JsonObjectPtr sta = JsonObject::newObj();
-  sta->add("power", JsonObject::newDouble(mDcMotorDriver->mCurrentPower));
-  sta->add("direction", JsonObject::newInt32(mDcMotorDriver->mCurrentDirection));
-  if (mDcMotorDriver->mStopCause) {
-    string cause;
-    if (mDcMotorDriver->mStopCause->isError(DcMotorDriverError::domain(), DcMotorDriverError::overcurrentStop)) cause = "overcurrent";
-    else if (mDcMotorDriver->mStopCause->isError(DcMotorDriverError::domain(), DcMotorDriverError::endswitchStop)) cause = "endswitch";
-    else cause = mDcMotorDriver->mStopCause->text();
-    sta->add("stoppedby", JsonObject::newString(cause));
-  }
-  if (mDcMotorDriver->mCurrentSensor) {
-    sta->add("current", JsonObject::newDouble(mDcMotorDriver->mCurrentSensor->lastValue()));
-  }
-  return sta;
 }
 
 

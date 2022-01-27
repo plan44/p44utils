@@ -839,6 +839,7 @@ namespace p44 { namespace P44Script {
   class JsonValue : public JsonRepresentedValue
   {
     typedef JsonRepresentedValue inherited;
+  protected:
     JsonObjectPtr jsonval;
   public:
     virtual ScriptObjPtr assignmentValue() P44_OVERRIDE;
