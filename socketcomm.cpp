@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2013-2019 plan44.ch / Lukas Zeller, Zurich, Switzerland
+//  Copyright (c) 2013-2022 plan44.ch / Lukas Zeller, Zurich, Switzerland
 //
 //  Author: Lukas Zeller <luz@plan44.ch>
 //
@@ -909,38 +909,6 @@ void SocketComm::dataExceptionHandler(int aFd, int aPollFlags)
 
 using namespace P44Script;
 
-SocketMessageObj::SocketMessageObj(SocketObj* aSocketObj) :
-  inherited(""),
-  mSocketObj(aSocketObj)
-{
-}
-
-
-string SocketMessageObj::getAnnotation() const
-{
-  return "UDP message";
-}
-
-
-TypeInfo SocketMessageObj::getTypeInfo() const
-{
-  return inherited::getTypeInfo()|oneshot|keeporiginal; // returns the request only once, must keep the original
-}
-
-
-EventSource* SocketMessageObj::eventSource() const
-{
-  return static_cast<EventSource*>(mSocketObj);
-}
-
-
-string SocketMessageObj::stringValue() const
-{
-  return mSocketObj ? mSocketObj->lastDatagram : "";
-}
-
-
-
 
 // send(data)
 static const BuiltInArgDesc send_args[] = { { any } };
@@ -966,8 +934,8 @@ static void message_func(BuiltinFunctionContextPtr f)
 {
   SocketObj* s = dynamic_cast<SocketObj*>(f->thisObj().get());
   assert(s);
-  // return latest message
-  f->finish(new SocketMessageObj(s));
+  // return event source placeholder for received messages
+  f->finish(new OneShotEventNullValue(s, "UDP message"));
 }
 
 
@@ -995,9 +963,10 @@ SocketObj::~SocketObj()
 
 void SocketObj::gotData(ErrorPtr aError)
 {
-  ErrorPtr err = mSocket->receiveIntoString(lastDatagram);
+  string datagram;
+  ErrorPtr err = mSocket->receiveIntoString(datagram);
   if (Error::isOK(err)) {
-    sendEvent(new SocketMessageObj(this));
+    sendEvent(new StringValue(datagram));
   }
   else {
     sendEvent(new ErrorValue(err));

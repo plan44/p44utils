@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2013-2019 plan44.ch / Lukas Zeller, Zurich, Switzerland
+//  Copyright (c) 2013-2022 plan44.ch / Lukas Zeller, Zurich, Switzerland
 //
 //  Author: Lukas Zeller <luz@plan44.ch>
 //
@@ -272,20 +272,6 @@ namespace p44 {
 
     class SocketObj;
   
-    /// represents a message from a socket
-    class SocketMessageObj : public StringValue
-    {
-      typedef StringValue inherited;
-      SocketObj* mSocketObj;
-    public:
-      SocketMessageObj(SocketObj* aSocketObj);
-      virtual string getAnnotation() const P44_OVERRIDE;
-      virtual TypeInfo getTypeInfo() const P44_OVERRIDE;
-      virtual EventSource *eventSource() const P44_OVERRIDE;
-      virtual string stringValue() const P44_OVERRIDE;
-    };
-
-
     /// represents a socket
     /// Note: is an event source, but does not expose it directly, only via SocketMessageObjs
     class SocketObj : public StructuredLookupObject, public EventSource
@@ -293,7 +279,6 @@ namespace p44 {
       typedef StructuredLookupObject inherited;
       SocketCommPtr mSocket;
     public:
-      string lastDatagram;
       SocketObj(SocketCommPtr aSocket);
       virtual ~SocketObj();
       virtual string getAnnotation() const P44_OVERRIDE { return "socket"; };
