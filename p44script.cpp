@@ -6040,6 +6040,43 @@ static void eval_func(BuiltinFunctionContextPtr f)
 }
 
 
+// maxblocktime([time [, localthreadonly]])
+static const BuiltInArgDesc maxblocktime_args[] = { { numeric|optionalarg }, { numeric|optionalarg } };
+static const size_t maxblocktime_numargs = sizeof(maxblocktime_args)/sizeof(BuiltInArgDesc);
+static void maxblocktime_func(BuiltinFunctionContextPtr f)
+{
+  if (f->numArgs()==0) {
+    f->finish(new NumericValue((double)(f->thread()->getMaxBlockTime())/Second));
+  }
+  else {
+    MLMicroSeconds mbt = f->arg(0)->doubleValue()*Second;
+    f->thread()->setMaxBlockTime(mbt); // always set for current thread
+    if (!f->arg(1)->boolValue()) f->domain()->setMaxBlockTime(mbt); // if localthreadonly is not set, also change domain wide default
+    f->finish();
+  }
+}
+
+
+// maxruntime([time])
+static const BuiltInArgDesc maxruntime_args[] = { { numeric|null|optionalarg } };
+static const size_t maxruntime_numargs = sizeof(maxruntime_args)/sizeof(BuiltInArgDesc);
+static void maxruntime_func(BuiltinFunctionContextPtr f)
+{
+  if (f->numArgs()==0) {
+    MLMicroSeconds mrt = f->thread()->getMaxRunTime();
+    if (mrt==Infinite) f->finish(new AnnotatedNullValue("no run time limit"));
+    else f->finish(new NumericValue((double)mrt/Second));
+  }
+  else {
+    double d = f->arg(0)->doubleValue();
+    if (d>0) f->thread()->setMaxRunTime(d*Second);
+    else f->thread()->setMaxRunTime(Infinite);
+    f->finish();
+  }
+}
+
+
+
 #if !ESP_PLATFORM
 
 // system(command_line)    execute given command line via system() in a shell and return the output
@@ -7136,6 +7173,8 @@ static const BuiltinMemberDescriptor standardFunctions[] = {
   { "await", executable|async|any, await_numargs, await_args, &await_func },
   { "delay", executable|async|null, delay_numargs, delay_args, &delay_func },
   { "eval", executable|async|any, eval_numargs, eval_args, &eval_func },
+  { "maxblocktime", executable|any, maxblocktime_numargs, maxblocktime_args, &maxblocktime_func },
+  { "maxruntime", executable|any, maxruntime_numargs, maxruntime_args, &maxruntime_func },
   #if !ESP_PLATFORM
   { "system", executable|async|text, system_numargs, system_args, &system_func },
   // Other system/app stuff

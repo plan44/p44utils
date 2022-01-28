@@ -2334,6 +2334,18 @@ namespace p44 { namespace P44Script {
     /// run the thread
     virtual void run();
 
+    /// get the maximum blocking time for script execution
+    MLMicroSeconds getMaxBlockTime() { return mMaxBlockTime; };
+
+    /// get the maximum blocking time for script execution
+    void setMaxBlockTime(MLMicroSeconds aMaxBlockTime) { mMaxBlockTime = aMaxBlockTime; };
+
+    /// get the maximum running time for this thread
+    MLMicroSeconds getMaxRunTime() { return mMaxRunTime; };
+
+    /// get the maximum running time for this thread
+    void setMaxRunTime(MLMicroSeconds aMaxRunTime) { mMaxRunTime = aMaxRunTime; };
+
     /// the original thread this chain of threads started from (can be this)
     ScriptCodeThreadPtr chainOriginThread() { if (mChainOriginThread) return mChainOriginThread; else return this; }
 
