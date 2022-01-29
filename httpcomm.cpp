@@ -551,11 +551,20 @@ static void httpFuncImpl(BuiltinFunctionContextPtr f, string aMethod)
     httpAction->setServerCertVfyDir(""); // no checking
   }
   // auth might be in URL
-  splitURL(url.c_str(), NULL, NULL, NULL, &user, &password);
+  splitURL(url.c_str(), &protocol, NULL, NULL, &user, &password);
+  if (protocol=="https") {
+    authMode = HttpComm::basic_on_request; // with https, basic auth is reasonably safe, so by default allow it if server requests it
+  }
   if (params) {
     // auth can also be in request object
     if (params->get("user", o)) user = o->stringValue();
     if (params->get("password", o)) user = o->stringValue();
+    if (params->get("basicauth", o)) {
+      string as = o->stringValue();
+      if (as=="immediate") authMode = HttpComm::basic_first;
+      else if (as=="onrequest") authMode = HttpComm::basic_on_request;
+      else authMode = HttpComm::digest_only;
+    }
     // explicit client or server certs
     if (params->get("clientcert", o)) {
       httpAction->setClientCertFile(Application::sharedApplication()->dataPath(o->stringValue(), "/" P44SCRIPT_DATA_SUBDIR, false));
@@ -576,7 +585,7 @@ static void httpFuncImpl(BuiltinFunctionContextPtr f, string aMethod)
       }
     }
   }
-  httpAction->setHttpAuthCredentials(user, password);
+  httpAction->setHttpAuthCredentials(user, password, authMode);
   if (timeout!=Never) httpAction->setTimeout(timeout);
   POLOG(f, LOG_INFO, "issuing %s to %s %s", aMethod.c_str(), url.c_str(), data.c_str());
   f->setAbortCallback(boost::bind(&HttpComm::cancelRequest, httpAction));
