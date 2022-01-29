@@ -1234,14 +1234,38 @@ struct mg_client_options {
 };
 
 
+/* Download data from the remote web server with options for client cert checking and http auth.
+     client_options: client options containing host, port, client certificate, server certificate checking, timeout
+     use_ssl: whether to use SSL connection.
+     method: http request method
+     requesturi: the request URI
+     username: username for http auth
+     password: password for http auth
+     opaqueauthP: pointer to NULL pointer or pre-existing auth data from last request
+     allowbasicauth: 0=no, 1=on server's request, 2=send in first try, before server requests it
+     error_buffer, error_buffer_size: error message placeholder.
+     request_fmt,...: HTTP request.
+   Return:
+     On success, valid pointer to the new connection, suitable for mg_read().
+     On error, NULL. error_buffer contains error message.
+   Example:
+     char ebuf[100];
+     struct mg_connection *conn;
+     conn = mg_download("google.com", 80, 0, ebuf, sizeof(ebuf),
+                        "%s", "GET / HTTP/1.0\r\nHost: google.com\r\n\r\n");
+
+   mg_download is equivalent to calling mg_connect_client followed by
+   mg_printf and mg_get_response. Using these three functions directly may
+   allow more control as compared to using mg_download.
+ */
 CIVETWEB_API struct mg_connection *
 mg_download_secure(const struct mg_client_options *client_options,
                    int use_ssl,
                    const char *method, const char *requesturi,
-                   const char *username, const char *password, void **opaqueauthP,
+                   const char *username, const char *password, void **opaqueauthP, int allowbasicauth,
                    char *ebuf, size_t ebuf_len,
                    PRINTF_FORMAT_STRING(const char *fmt),
-                   ...) PRINTF_ARGS(10, 11);
+                   ...) PRINTF_ARGS(11, 12);
 
 
 

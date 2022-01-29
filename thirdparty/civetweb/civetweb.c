@@ -7425,7 +7425,6 @@ mg_get_cookie(const char *cookie_header,
 }
 
 
-#if defined(USE_WEBSOCKET) || defined(USE_LUA)
 static void
 base64_encode(const unsigned char *src, int src_len, char *dst)
 {
@@ -7452,7 +7451,6 @@ base64_encode(const unsigned char *src, int src_len, char *dst)
     }
     dst[j++] = '\0';
 }
-#endif
 
 
 #if defined(USE_LUA)
@@ -8865,7 +8863,6 @@ mg_check_digest_access_authentication(struct mg_connection *conn,
     return auth;
 }
 #endif /* NO_FILESYSTEMS */
-
 
 
 /* Return 1 if request is authorised, 0 otherwise. */
@@ -18129,8 +18126,17 @@ static int parse_wwwauth_header(struct mg_connection *conn, struct wah **wahP) {
     size_t bl;
 
     if (!wahP) return 0;
-    if ((wwwauth_header = mg_get_header(conn, "WWW-Authenticate")) == NULL ||
-            mg_strncasecmp(wwwauth_header, "Digest ", 7) != 0) {
+    if ((wwwauth_header = mg_get_header(conn, "WWW-Authenticate")) == NULL) {
+        return 0; /* no auth requested */
+    }
+    if (mg_strncasecmp(wwwauth_header, "Basic ", 6) == 0) {
+        /* basic auth requested */
+        if (*wahP) mg_free(*wahP);
+        *wahP = NULL; /* returning no wah and 1 means basic auth is requested */
+        return 1;
+    }
+    if (mg_strncasecmp(wwwauth_header, "Digest ", 7) != 0) {
+        /* no known auth requested, fail */
         return 0;
     }
     if (*wahP) mg_free(*wahP);
@@ -18244,60 +18250,84 @@ int create_authorization_header(struct wah *wah,
     char nc[12];
     char cnonce[12];
     size_t n;
+    char *bauthbuf;
 
-    if (
-        !uri || !method || !username || !password ||
-        !wah->realm || !wah->nonce || !wah->qop || mg_strcasestr(wah->qop, "auth")==0
-    ) {
-        return 0;
+    if (!uri || !method || !username || !password) {
+        return 0; // no auth possible
     }
-
-    sprintf(cnonce, "%ld", (unsigned long) time(NULL));
-    wah->nc++;
-    sprintf(nc, "%08X", wah->nc);
-
-    mg_md5(ha1, username, ":", wah->realm, ":", password, NULL);
-    mg_md5(ha2, method, ":", uri, NULL);
-    mg_md5(response, ha1, ":", wah->nonce, ":", nc,
-                 ":", cnonce, ":", wah->qop, ":", ha2, NULL);
-
-    mg_snprintf(NULL, NULL, buf, buf_size,
-        "Authorization: Digest"
-        " username=\"%s\""
-        ", realm=\"%s\""
-        ", nonce=\"%s\""
-        ", uri=\"%s\""
-        ", response=\"%s\""
-        ", algorithm=\"MD5\""
-        ", cnonce=\"%s\""
-        ", nc=%s"
-        ", qop=\"auth\"", /*  regardless of what server requests, we just support this */
-        username,
-        wah->realm,
-        wah->nonce,
-        uri,
-        response,
-        cnonce,
-        nc
-    );
-    n = strlen(buf);
-    if (wah->opaque) {
-        mg_snprintf(NULL, NULL, buf+n, buf_size-n, ", opaque=\"%s\"", wah->opaque);
+    if (!wah) {
+        /* basic auth requested
+         * Authorization: Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ==
+         * auth   = base64(<user>:<password>) with +/ and padding
+         * header = Authorization: Basic <auth>
+         *          012345678901234567890 = 21 chars
+         */
+        n = strlen(username) + strlen(password) + 2; // username+password+:+terminator
+        if (buf_size < n*3/2+2+21+2+1) { // B64 makes 3 bytes out of 2, max 2 padding, prefix is 21, CRLF is 2, 1 terminator
+            return 0; // buffer too small, cannot auth
+        }
+        bauthbuf = mg_malloc(n);
+        sprintf(buf, "Authorization: Basic ");
+        sprintf(bauthbuf, "%s:%s", username, password);
         n = strlen(buf);
+        base64_encode((unsigned char*)bauthbuf, (int)strlen(bauthbuf), buf+n);
+        mg_free(bauthbuf);
+        n = strlen(buf);
+        mg_snprintf(NULL, NULL, buf+n, buf_size-n, "\r\n");
     }
-    mg_snprintf(NULL, NULL, buf+n, buf_size-n, "\r\n");
+    else {
+        /* digest auth requested */
+        if (
+            !uri || !method || !username || !password ||
+            !wah->realm || !wah->nonce || !wah->qop || mg_strcasestr(wah->qop, "auth")==0
+        ) {
+            return 0;
+        }
+
+        sprintf(cnonce, "%ld", (unsigned long) time(NULL));
+        wah->nc++;
+        sprintf(nc, "%08X", wah->nc);
+
+        mg_md5(ha1, username, ":", wah->realm, ":", password, NULL);
+        mg_md5(ha2, method, ":", uri, NULL);
+        mg_md5(response, ha1, ":", wah->nonce, ":", nc,
+                     ":", cnonce, ":", wah->qop, ":", ha2, NULL);
+
+        mg_snprintf(NULL, NULL, buf, buf_size,
+            "Authorization: Digest"
+            " username=\"%s\""
+            ", realm=\"%s\""
+            ", nonce=\"%s\""
+            ", uri=\"%s\""
+            ", response=\"%s\""
+            ", algorithm=\"MD5\""
+            ", cnonce=\"%s\""
+            ", nc=%s"
+            ", qop=\"auth\"", /*  regardless of what server requests, we just support this */
+            username,
+            wah->realm,
+            wah->nonce,
+            uri,
+            response,
+            cnonce,
+            nc
+        );
+        n = strlen(buf);
+        if (wah->opaque) {
+            mg_snprintf(NULL, NULL, buf+n, buf_size-n, ", opaque=\"%s\"", wah->opaque);
+            n = strlen(buf);
+        }
+        mg_snprintf(NULL, NULL, buf+n, buf_size-n, "\r\n");
+    }
     return 1;
 }
-
-
-
 
 
 struct mg_connection *
 mg_download_secure(const struct mg_client_options *client_options,
                    int use_ssl,
                    const char *method, const char *requesturi,
-                   const char *username, const char *password, void **opaqueauthP,
+                   const char *username, const char *password, void **opaqueauthP, int allowbasicauth,
                    char *ebuf, size_t ebuf_len,
                    const char *fmt, ...)
 {
@@ -18321,6 +18351,11 @@ mg_download_secure(const struct mg_client_options *client_options,
         if (!authorization) authorization = mg_malloc(MG_BUF_LEN);
         create_authorization_header(wah, requesturi, method, username, password, authorization, MG_BUF_LEN);
         reused_auth = 1;
+    }
+    else if (allowbasicauth>=2) {
+        /* allowbasicauth==2 means: always try basic first - INSECURE on non-SSL connections, but required by some IoT stuff */
+        if (!authorization) authorization = mg_malloc(MG_BUF_LEN);
+        create_authorization_header(NULL, requesturi, method, username, password, authorization, MG_BUF_LEN);
     }
     while (1) {
         ebuf[0] = '\0';
@@ -18350,6 +18385,13 @@ mg_download_secure(const struct mg_client_options *client_options,
             if (conn->response_info.status_code==401 && username && password && (!authorization || reused_auth)) {
                 /*  401 and we have user/pw and we haven't tried auth yet */
                 if (parse_wwwauth_header(conn, &wah)) {
+                    if (!wah && allowbasicauth<1) {
+                        /* server requests basic auth (wah==0), but we do not allow it (0=never, 1=on server's request, 2=always) */
+                        mg_snprintf(conn, NULL, ebuf, ebuf_len, "Server requests basic auth but we do not allow it");
+                        mg_close_connection(conn);
+                        conn = NULL;
+                        break;
+                    }
                     mg_close_connection(conn);
                     conn = NULL;
                     if (!authorization) authorization = mg_malloc(MG_BUF_LEN);
