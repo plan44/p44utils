@@ -52,6 +52,7 @@ HttpComm::HttpComm(MainLoop &aMainLoop) :
   requestInProgress(false),
   mgConn(NULL),
   httpAuthInfo(NULL),
+  authMode(digest_only),
   timeout(Never),
   bufferSz(2048),
   serverCertVfyDir("*"), // default to platform's generic certificate checking method / root cert store
@@ -124,6 +125,7 @@ void HttpComm::requestThread(ChildThreadWrapper &aThread)
         username.empty() ? NULL : username.c_str(),
         password.empty() ? NULL : password.c_str(),
         &httpAuthInfo,
+        (int)authMode,
         ebuf, ebufSz,
         "Content-Type: %s\r\n"
         "Content-Length: %ld\r\n"
@@ -146,6 +148,7 @@ void HttpComm::requestThread(ChildThreadWrapper &aThread)
         username.empty() ? NULL : username.c_str(),
         password.empty() ? NULL : password.c_str(),
         &httpAuthInfo,
+        (int)authMode,
         ebuf, ebufSz,
         "Content-Length: 0\r\n"
         "%s"
@@ -479,6 +482,7 @@ static void httpFuncImpl(BuiltinFunctionContextPtr f, string aMethod)
   JsonObjectPtr o;
   MLMicroSeconds timeout = Never;
   string contentType;
+  HttpComm::AuthMode authMode = HttpComm::digest_only;
   if (aMethod.empty()) {
     // httprequest({
     //   "url":"http...",
@@ -487,6 +491,7 @@ static void httpFuncImpl(BuiltinFunctionContextPtr f, string aMethod)
     //   "timeout":20
     //   "user":xxx,
     //   "password":xxx,
+    //   "authmode":xxx
     //   "clientcert":xxx,
     //   "servercert":xxx,
     //   "headers": {
@@ -538,6 +543,7 @@ static void httpFuncImpl(BuiltinFunctionContextPtr f, string aMethod)
   // extract from url
   string user;
   string password;
+  string protocol;
   HttpCommPtr httpAction = HttpCommPtr(new HttpComm(MainLoop::currentMainLoop()));
   // force https w/o cert checking when URL begins with a "!"
   if (*url.c_str()=='!') {

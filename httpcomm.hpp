@@ -93,6 +93,17 @@ namespace p44 {
   {
     typedef P44Obj inherited;
 
+  public:
+    typedef enum {
+      digest_only = 0, // only digest auth is allowed
+      basic_on_request = 1, // basic is used when server requests it
+      basic_first = 2, // basic auth is attempted in first try without server asking for it
+    } AuthMode; ///< http auth mode
+
+    HttpHeaderMapPtr responseHeaders; ///< the response headers when httpRequest is called with aSaveHeaders
+
+  private:
+
     HttpCommCB responseCallback;
 
     // vars used in subthread, only access when !requestInProgress
@@ -102,6 +113,7 @@ namespace p44 {
     string requestBody;
     string username;
     string password;
+    AuthMode authMode;
     string clientCertFile;
     string serverCertVfyDir;
     int responseDataFd;
@@ -110,10 +122,6 @@ namespace p44 {
     MLMicroSeconds timeout; ///< timeout, Never = use default, do not set
     struct mg_connection *mgConn; ///< mongoose connection
     void *httpAuthInfo; ///< opaque auth info kept stored between connections
-
-  public:
-
-    HttpHeaderMapPtr responseHeaders; ///< the response headers when httpRequest is called with aSaveHeaders
 
   protected:
 
@@ -144,7 +152,8 @@ namespace p44 {
     /// set http (digest) auth credentials (will be used on all subsequent requests)
     /// @param aUsername user name (empty means no http auth user)
     /// @param aPassword password (empty means no http auth pw)
-    void setHttpAuthCredentials(const string aUsername, const string aPassword) { username = aUsername; password = aPassword; };
+    /// @param aAuthMode defaults to digest_only.
+    void setHttpAuthCredentials(const string aUsername, const string aPassword, AuthMode aAuthMode = digest_only) { username = aUsername; password = aPassword; authMode = aAuthMode; };
 
     /// explicitly set socket timeout to use
     /// @param aTimeout set to timeout value or Never for no timeout at all
