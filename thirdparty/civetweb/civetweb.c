@@ -7453,7 +7453,6 @@ base64_encode(const unsigned char *src, int src_len, char *dst)
 }
 
 
-#if defined(USE_LUA)
 static unsigned char
 b64reverse(char letter)
 {
@@ -7518,7 +7517,6 @@ base64_decode(const unsigned char *src, int src_len, char *dst, size_t *dst_len)
     }
     return -1;
 }
-#endif
 
 
 static int
@@ -8396,16 +8394,36 @@ mg_md5(char buf[33], ...)
 }
 
 
-/* Check the user's password, return 1 if OK */
+
+/* Check the basic auth, return 1 if OK */
 static int
-check_password(const char *method,
-               const char *ha1,
-               const char *uri,
-               const char *nonce,
-               const char *nc,
-               const char *cnonce,
-               const char *qop,
-               const char *response)
+check_basic(const char *ha1,
+            const char *user,
+            const char *domain,
+            const char *password)
+{
+  char expected_response[32 + 1];
+
+  /* Some of the parameters may be NULL */
+  if ((ha1 == NULL) || (user == NULL) || (domain == NULL) || (password == NULL)) {
+      return 0;
+  }
+  /* construct ha1 from basic auth's plain user/pw and domain */
+  mg_md5(expected_response, user, ":", domain, ":", password, NULL);
+  return mg_strcasecmp(ha1, expected_response) == 0;
+}
+
+
+/* Check the digest auth, return 1 if OK */
+static int
+check_digest(const char *method,
+             const char *ha1,
+             const char *uri,
+             const char *nonce,
+             const char *nc,
+             const char *cnonce,
+             const char *qop,
+             const char *response)
 {
     char ha2[32 + 1], expected_response[32 + 1];
 
@@ -8532,17 +8550,38 @@ parse_auth_header(struct mg_connection *conn,
     char *name, *value, *s;
     const char *auth_header;
     uint64_t nonce;
+    size_t n, l;
 
     if (!ahdr || !conn) {
         return 0;
     }
 
     (void)memset(ahdr, 0, sizeof(*ahdr));
-    if (((auth_header = mg_get_header(conn, "Authorization")) == NULL)
-        || mg_strncasecmp(auth_header, "Digest ", 7) != 0) {
+    if ((auth_header = mg_get_header(conn, "Authorization")) == NULL) {
+        return 0; /* no auth provided */
+    }
+    if (mg_strncasecmp(auth_header, "Basic ", 6) == 0) {
+        /* basic auth provided */
+        n = strlen(auth_header)-6;
+        if (n*2/3 > buf_size) return 0; /* buffer too small to decode */
+        /* auth   = base64(<user>:<password>) with +/ and padding */
+        base64_decode((unsigned char *)auth_header+6, (int)n, buf, &l);
+        if (l<3) {
+          return 0; /* impossible, minimum is: 1 char user, 1 colon, 1 char pw */
+        }
+        buf[l] = '\0';
+        if ((s = strchr(buf, ':')) == NULL) {
+            return 0; /* no user pw separator, invalid */
+        }
+        *s++ = '\0';
+        ahdr->user = buf; /* username */
+        ahdr->response = s; /* password */
+        return 1;
+    }
+    if (mg_strncasecmp(auth_header, "Digest ", 7) != 0) {
+        /* no known auth provided */
         return 0;
     }
-
     /* Make modifiable copy of the auth header */
     (void)mg_strlcpy(buf, auth_header + 7, buf_size);
     s = buf;
@@ -8797,14 +8836,24 @@ read_auth_file(struct mg_file *filep,
 
         if (!strcmp(workdata->ahdr.user, workdata->f_user)
             && !strcmp(workdata->domain, workdata->f_domain)) {
-            return check_password(workdata->conn->request_info.request_method,
-                                  workdata->f_ha1,
-                                  workdata->ahdr.uri,
-                                  workdata->ahdr.nonce,
-                                  workdata->ahdr.nc,
-                                  workdata->ahdr.cnonce,
-                                  workdata->ahdr.qop,
-                                  workdata->ahdr.response);
+            if (workdata->ahdr.nonce==NULL) {
+                /* basic auth */
+                return check_basic(workdata->f_ha1,
+                                   workdata->f_user,
+                                   workdata->f_domain,
+                                   workdata->ahdr.response);
+            }
+            else {
+                /* digest auth */
+                return check_digest(workdata->conn->request_info.request_method,
+                                    workdata->f_ha1,
+                                    workdata->ahdr.uri,
+                                    workdata->ahdr.nonce,
+                                    workdata->ahdr.nc,
+                                    workdata->ahdr.cnonce,
+                                    workdata->ahdr.qop,
+                                    workdata->ahdr.response);
+            }
         }
     }
 
@@ -8842,7 +8891,7 @@ authorize(struct mg_connection *conn, struct mg_file *filep, const char *realm)
 
 /* Public function to check http digest authentication header */
 int
-mg_check_digest_access_authentication(struct mg_connection *conn,
+mg_check_access_authentication(struct mg_connection *conn,
                                       const char *realm,
                                       const char *filename)
 {
@@ -18803,7 +18852,7 @@ process_new_connection(struct mg_connection *conn)
                               conn->num_bytes_sent);
 #endif
 
-                DEBUG_TRACE("%s", "handle_request done");
+                  DEBUG_TRACE("%s", "handle_request done");
 
                 if (conn->phys_ctx->callbacks.end_request != NULL) {
                     conn->phys_ctx->callbacks.end_request(conn,

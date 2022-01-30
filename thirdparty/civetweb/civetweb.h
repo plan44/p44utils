@@ -54,53 +54,53 @@ extern "C" {
 
 /* Init Features */
 enum {
-	MG_FEATURES_DEFAULT = 0x0u,
+  MG_FEATURES_DEFAULT = 0x0u,
 
-	/* Support files from local directories */
-	/* Will only work, if NO_FILES is not set. */
-	MG_FEATURES_FILES = 0x1u,
+  /* Support files from local directories */
+  /* Will only work, if NO_FILES is not set. */
+  MG_FEATURES_FILES = 0x1u,
 
-	/* Support transport layer security (TLS). */
-	/* SSL is still often used synonymously for TLS. */
-	/* Will only work, if NO_SSL is not set. */
-	MG_FEATURES_TLS = 0x2u,
-	MG_FEATURES_SSL = 0x2u,
+  /* Support transport layer security (TLS). */
+  /* SSL is still often used synonymously for TLS. */
+  /* Will only work, if NO_SSL is not set. */
+  MG_FEATURES_TLS = 0x2u,
+  MG_FEATURES_SSL = 0x2u,
 
-	/* Support common gateway interface (CGI). */
-	/* Will only work, if NO_CGI is not set. */
-	MG_FEATURES_CGI = 0x4u,
+  /* Support common gateway interface (CGI). */
+  /* Will only work, if NO_CGI is not set. */
+  MG_FEATURES_CGI = 0x4u,
 
-	/* Support IPv6. */
-	/* Will only work, if USE_IPV6 is set. */
-	MG_FEATURES_IPV6 = 0x8u,
+  /* Support IPv6. */
+  /* Will only work, if USE_IPV6 is set. */
+  MG_FEATURES_IPV6 = 0x8u,
 
-	/* Support WebSocket protocol. */
-	/* Will only work, if USE_WEBSOCKET is set. */
-	MG_FEATURES_WEBSOCKET = 0x10u,
+  /* Support WebSocket protocol. */
+  /* Will only work, if USE_WEBSOCKET is set. */
+  MG_FEATURES_WEBSOCKET = 0x10u,
 
-	/* Support server side Lua scripting. */
-	/* Will only work, if USE_LUA is set. */
-	MG_FEATURES_LUA = 0x20u,
+  /* Support server side Lua scripting. */
+  /* Will only work, if USE_LUA is set. */
+  MG_FEATURES_LUA = 0x20u,
 
-	/* Support server side JavaScript scripting. */
-	/* Will only work, if USE_DUKTAPE is set. */
-	MG_FEATURES_SSJS = 0x40u,
+  /* Support server side JavaScript scripting. */
+  /* Will only work, if USE_DUKTAPE is set. */
+  MG_FEATURES_SSJS = 0x40u,
 
-	/* Provide data required for caching files. */
-	/* Will only work, if NO_CACHING is not set. */
-	MG_FEATURES_CACHE = 0x80u,
+  /* Provide data required for caching files. */
+  /* Will only work, if NO_CACHING is not set. */
+  MG_FEATURES_CACHE = 0x80u,
 
-	/* Collect server status information. */
-	/* Will only work, if USE_SERVER_STATS is set. */
-	MG_FEATURES_STATS = 0x100u,
+  /* Collect server status information. */
+  /* Will only work, if USE_SERVER_STATS is set. */
+  MG_FEATURES_STATS = 0x100u,
 
-	/* Support on-the-fly compression. */
-	/* Will only work, if USE_ZLIB is set. */
-	MG_FEATURES_COMPRESSION = 0x200u,
+  /* Support on-the-fly compression. */
+  /* Will only work, if USE_ZLIB is set. */
+  MG_FEATURES_COMPRESSION = 0x200u,
 
-	/* Collect server status information. */
-	/* Will only work, if USE_SERVER_STATS is set. */
-	MG_FEATURES_ALL = 0xFFFFu
+  /* Collect server status information. */
+  /* Will only work, if USE_SERVER_STATS is set. */
+  MG_FEATURES_ALL = 0xFFFFu
 };
 
 
@@ -136,80 +136,80 @@ struct mg_connection; /* Handle for the individual connection */
 #define MG_MAX_HEADERS (64)
 
 struct mg_header {
-	const char *name;  /* HTTP header name */
-	const char *value; /* HTTP header value */
+  const char *name;  /* HTTP header name */
+  const char *value; /* HTTP header value */
 };
 
 
 /* This structure contains information about the HTTP request. */
 struct mg_request_info {
-	const char *request_method;  /* "GET", "POST", etc */
-	const char *request_uri;     /* URL-decoded URI (absolute or relative,
-	                              * as in the request) */
-	const char *local_uri;       /* URL-decoded URI (relative). Can be NULL
-	                              * if the request_uri does not address a
-	                              * resource at the server host. */
+  const char *request_method;  /* "GET", "POST", etc */
+  const char *request_uri;     /* URL-decoded URI (absolute or relative,
+                                * as in the request) */
+  const char *local_uri;       /* URL-decoded URI (relative). Can be NULL
+                                * if the request_uri does not address a
+                                * resource at the server host. */
 #if defined(MG_LEGACY_INTERFACE) /* 2017-02-04, deprecated 2014-09-14 */
-	const char *uri;             /* Deprecated: use local_uri instead */
+  const char *uri;             /* Deprecated: use local_uri instead */
 #endif
-	const char *http_version; /* E.g. "1.0", "1.1" */
-	const char *query_string; /* URL part after '?', not including '?', or
-	                             NULL */
-	const char *remote_user;  /* Authenticated user, or NULL if no auth
-	                             used */
-	char remote_addr[48];     /* Client's IP address as a string. */
+  const char *http_version; /* E.g. "1.0", "1.1" */
+  const char *query_string; /* URL part after '?', not including '?', or
+                               NULL */
+  const char *remote_user;  /* Authenticated user, or NULL if no auth
+                               used */
+  char remote_addr[48];     /* Client's IP address as a string. */
 
-	long long content_length; /* Length (in bytes) of the request body,
-	                             can be -1 if no length was given. */
-	int remote_port;          /* Client's port */
-	int is_ssl;               /* 1 if SSL-ed, 0 if not */
-	void *user_data;          /* User data pointer passed to mg_start() */
-	void *conn_data;          /* Connection-specific user data */
+  long long content_length; /* Length (in bytes) of the request body,
+                               can be -1 if no length was given. */
+  int remote_port;          /* Client's port */
+  int is_ssl;               /* 1 if SSL-ed, 0 if not */
+  void *user_data;          /* User data pointer passed to mg_start() */
+  void *conn_data;          /* Connection-specific user data */
 
-	int num_headers; /* Number of HTTP headers */
-	struct mg_header
-	    http_headers[MG_MAX_HEADERS]; /* Allocate maximum headers */
+  int num_headers; /* Number of HTTP headers */
+  struct mg_header
+      http_headers[MG_MAX_HEADERS]; /* Allocate maximum headers */
 
-	struct mg_client_cert *client_cert; /* Client certificate information */
+  struct mg_client_cert *client_cert; /* Client certificate information */
 
-	const char *acceptedWebSocketSubprotocol; /* websocket subprotocol,
-	                                           * accepted during handshake */
+  const char *acceptedWebSocketSubprotocol; /* websocket subprotocol,
+                                             * accepted during handshake */
 };
 
 
 /* This structure contains information about the HTTP request. */
 /* This structure may be extended in future versions. */
 struct mg_response_info {
-	int status_code;          /* E.g. 200 */
-	const char *status_text;  /* E.g. "OK" */
-	const char *http_version; /* E.g. "1.0", "1.1" */
+  int status_code;          /* E.g. 200 */
+  const char *status_text;  /* E.g. "OK" */
+  const char *http_version; /* E.g. "1.0", "1.1" */
 
-	long long content_length; /* Length (in bytes) of the request body,
-	                             can be -1 if no length was given. */
+  long long content_length; /* Length (in bytes) of the request body,
+                               can be -1 if no length was given. */
 
-	int num_headers; /* Number of HTTP headers */
-	struct mg_header
-	    http_headers[MG_MAX_HEADERS]; /* Allocate maximum headers */
+  int num_headers; /* Number of HTTP headers */
+  struct mg_header
+      http_headers[MG_MAX_HEADERS]; /* Allocate maximum headers */
 };
 
 
 /* Client certificate information (part of mg_request_info) */
 /* New nomenclature. */
 struct mg_client_cert {
-	void *peer_cert;
-	const char *subject;
-	const char *issuer;
-	const char *serial;
-	const char *finger;
+  void *peer_cert;
+  const char *subject;
+  const char *issuer;
+  const char *serial;
+  const char *finger;
 };
 
 #if defined(MG_LEGACY_INTERFACE) /* 2017-10-05 */
 /* Old nomenclature. */
 struct client_cert {
-	const char *subject;
-	const char *issuer;
-	const char *serial;
-	const char *finger;
+  const char *subject;
+  const char *issuer;
+  const char *serial;
+  const char *finger;
 };
 #endif
 
@@ -218,209 +218,209 @@ struct client_cert {
    which callbacks to invoke. For a detailed description, see
    https://github.com/civetweb/civetweb/blob/master/docs/UserManual.md */
 struct mg_callbacks {
-	/* Called when civetweb has received new HTTP request.
-	   If the callback returns one, it must process the request
-	   by sending valid HTTP headers and a body. Civetweb will not do
-	   any further processing. Otherwise it must return zero.
-	   Note that since V1.7 the "begin_request" function is called
-	   before an authorization check. If an authorization check is
-	   required, use a request_handler instead.
-	   Return value:
-	     0: civetweb will process the request itself. In this case,
-	        the callback must not send any data to the client.
-	     1-999: callback already processed the request. Civetweb will
-	            not send any data after the callback returned. The
-	            return code is stored as a HTTP status code for the
-	            access log. */
-	int (*begin_request)(struct mg_connection *);
+  /* Called when civetweb has received new HTTP request.
+     If the callback returns one, it must process the request
+     by sending valid HTTP headers and a body. Civetweb will not do
+     any further processing. Otherwise it must return zero.
+     Note that since V1.7 the "begin_request" function is called
+     before an authorization check. If an authorization check is
+     required, use a request_handler instead.
+     Return value:
+       0: civetweb will process the request itself. In this case,
+          the callback must not send any data to the client.
+       1-999: callback already processed the request. Civetweb will
+              not send any data after the callback returned. The
+              return code is stored as a HTTP status code for the
+              access log. */
+  int (*begin_request)(struct mg_connection *);
 
-	/* Called when civetweb has finished processing request. */
-	void (*end_request)(const struct mg_connection *, int reply_status_code);
+  /* Called when civetweb has finished processing request. */
+  void (*end_request)(const struct mg_connection *, int reply_status_code);
 
-	/* Called when civetweb is about to log a message. If callback returns
-	   non-zero, civetweb does not log anything. */
-	int (*log_message)(const struct mg_connection *, const char *message);
+  /* Called when civetweb is about to log a message. If callback returns
+     non-zero, civetweb does not log anything. */
+  int (*log_message)(const struct mg_connection *, const char *message);
 
-	/* Called when civetweb is about to log access. If callback returns
-	   non-zero, civetweb does not log anything. */
-	int (*log_access)(const struct mg_connection *, const char *message);
+  /* Called when civetweb is about to log access. If callback returns
+     non-zero, civetweb does not log anything. */
+  int (*log_access)(const struct mg_connection *, const char *message);
 
-	/* Called when civetweb initializes SSL library.
-	   Parameters:
-	     ssl_ctx: SSL_CTX pointer.
-	     user_data: parameter user_data passed when starting the server.
-	   Return value:
-	     0: civetweb will set up the SSL certificate.
-	     1: civetweb assumes the callback already set up the certificate.
-	    -1: initializing ssl fails. */
-	int (*init_ssl)(void *ssl_ctx, void *user_data);
+  /* Called when civetweb initializes SSL library.
+     Parameters:
+       ssl_ctx: SSL_CTX pointer.
+       user_data: parameter user_data passed when starting the server.
+     Return value:
+       0: civetweb will set up the SSL certificate.
+       1: civetweb assumes the callback already set up the certificate.
+      -1: initializing ssl fails. */
+  int (*init_ssl)(void *ssl_ctx, void *user_data);
 
-	/* Called when civetweb initializes SSL library for a domain.
-	   Parameters:
-	     server_domain: authentication_domain from the domain config.
-	     ssl_ctx: SSL_CTX pointer.
-	     user_data: parameter user_data passed when starting the server.
-	   Return value:
-	     0: civetweb will set up the SSL certificate.
-	     1: civetweb assumes the callback already set up the certificate.
-	    -1: initializing ssl fails. */
-	int (*init_ssl_domain)(const char *server_domain,
-	                       void *ssl_ctx,
-	                       void *user_data);
+  /* Called when civetweb initializes SSL library for a domain.
+     Parameters:
+       server_domain: authentication_domain from the domain config.
+       ssl_ctx: SSL_CTX pointer.
+       user_data: parameter user_data passed when starting the server.
+     Return value:
+       0: civetweb will set up the SSL certificate.
+       1: civetweb assumes the callback already set up the certificate.
+      -1: initializing ssl fails. */
+  int (*init_ssl_domain)(const char *server_domain,
+                         void *ssl_ctx,
+                         void *user_data);
 
-	/* Called when civetweb is about to create or free a SSL_CTX.
-	Parameters:
-	     ssl_ctx: SSL_CTX pointer. NULL at creation time, Not NULL when
-	mg_context will be freed user_data: parameter user_data passed when starting
-	the server. Return value: 0: civetweb will continue to create the context,
-	just as if the callback would not be present. The value in *ssl_ctx when the
-	function returns is ignored. 1: civetweb will copy the value from *ssl_ctx
-	to the civetweb context and doesn't create its own. -1: initializing ssl
-	fails.*/
-	int (*external_ssl_ctx)(void **ssl_ctx, void *user_data);
+  /* Called when civetweb is about to create or free a SSL_CTX.
+  Parameters:
+       ssl_ctx: SSL_CTX pointer. NULL at creation time, Not NULL when
+  mg_context will be freed user_data: parameter user_data passed when starting
+  the server. Return value: 0: civetweb will continue to create the context,
+  just as if the callback would not be present. The value in *ssl_ctx when the
+  function returns is ignored. 1: civetweb will copy the value from *ssl_ctx
+  to the civetweb context and doesn't create its own. -1: initializing ssl
+  fails.*/
+  int (*external_ssl_ctx)(void **ssl_ctx, void *user_data);
 
-	/* Called when civetweb is about to create or free a SSL_CTX for a domain.
-	Parameters:
-	     server_domain: authentication_domain from the domain config.
-	     ssl_ctx: SSL_CTX pointer. NULL at creation time, Not NULL when
-	mg_context will be freed user_data: parameter user_data passed when starting
-	the server. Return value: 0: civetweb will continue to create the context,
-	just as if the callback would not be present. The value in *ssl_ctx when the
-	function returns is ignored. 1: civetweb will copy the value from *ssl_ctx
-	to the civetweb context and doesn't create its own. -1: initializing ssl
-	fails.*/
-	int (*external_ssl_ctx_domain)(const char *server_domain,
-	                               void **ssl_ctx,
-	                               void *user_data);
+  /* Called when civetweb is about to create or free a SSL_CTX for a domain.
+  Parameters:
+       server_domain: authentication_domain from the domain config.
+       ssl_ctx: SSL_CTX pointer. NULL at creation time, Not NULL when
+  mg_context will be freed user_data: parameter user_data passed when starting
+  the server. Return value: 0: civetweb will continue to create the context,
+  just as if the callback would not be present. The value in *ssl_ctx when the
+  function returns is ignored. 1: civetweb will copy the value from *ssl_ctx
+  to the civetweb context and doesn't create its own. -1: initializing ssl
+  fails.*/
+  int (*external_ssl_ctx_domain)(const char *server_domain,
+                                 void **ssl_ctx,
+                                 void *user_data);
 
 #if defined(MG_LEGACY_INTERFACE)           /* 2015-08-19 */                    \
     || defined(MG_EXPERIMENTAL_INTERFACES) /* 2019-11-03 */
-	/* Called when websocket request is received, before websocket handshake.
-	   Return value:
-	     0: civetweb proceeds with websocket handshake.
-	     1: connection is closed immediately.
-	   This callback is deprecated: Use mg_set_websocket_handler instead. */
-	int (*websocket_connect)(const struct mg_connection *);
+  /* Called when websocket request is received, before websocket handshake.
+     Return value:
+       0: civetweb proceeds with websocket handshake.
+       1: connection is closed immediately.
+     This callback is deprecated: Use mg_set_websocket_handler instead. */
+  int (*websocket_connect)(const struct mg_connection *);
 
-	/* Called when websocket handshake is successfully completed, and
-	   connection is ready for data exchange.
-	   This callback is deprecated: Use mg_set_websocket_handler instead. */
-	void (*websocket_ready)(struct mg_connection *);
+  /* Called when websocket handshake is successfully completed, and
+     connection is ready for data exchange.
+     This callback is deprecated: Use mg_set_websocket_handler instead. */
+  void (*websocket_ready)(struct mg_connection *);
 
-	/* Called when data frame has been received from the client.
-	   Parameters:
-	     bits: first byte of the websocket frame, see websocket RFC at
-	           http://tools.ietf.org/html/rfc6455, section 5.2
-	     data, data_len: payload, with mask (if any) already applied.
-	   Return value:
-	     1: keep this websocket connection open.
-	     0: close this websocket connection.
-	   This callback is deprecated: Use mg_set_websocket_handler instead. */
-	int (*websocket_data)(struct mg_connection *,
-	                      int bits,
-	                      char *data,
-	                      size_t data_len);
+  /* Called when data frame has been received from the client.
+     Parameters:
+       bits: first byte of the websocket frame, see websocket RFC at
+             http://tools.ietf.org/html/rfc6455, section 5.2
+       data, data_len: payload, with mask (if any) already applied.
+     Return value:
+       1: keep this websocket connection open.
+       0: close this websocket connection.
+     This callback is deprecated: Use mg_set_websocket_handler instead. */
+  int (*websocket_data)(struct mg_connection *,
+                        int bits,
+                        char *data,
+                        size_t data_len);
 #endif /* MG_LEGACY_INTERFACE */
 
-	/* Called when civetweb is closing a connection.  The per-context mutex is
-	   locked when this is invoked.
+  /* Called when civetweb is closing a connection.  The per-context mutex is
+     locked when this is invoked.
 
-	   Websockets:
-	   Before mg_set_websocket_handler has been added, it was primarily useful
-	   for noting when a websocket is closing, and used to remove it from any
-	   application-maintained list of clients.
-	   Using this callback for websocket connections is deprecated: Use
-	   mg_set_websocket_handler instead.
+     Websockets:
+     Before mg_set_websocket_handler has been added, it was primarily useful
+     for noting when a websocket is closing, and used to remove it from any
+     application-maintained list of clients.
+     Using this callback for websocket connections is deprecated: Use
+     mg_set_websocket_handler instead.
 
-	   Connection specific data:
-	   If memory has been allocated for the connection specific user data
-	   (mg_request_info->conn_data, mg_get_user_connection_data),
-	   this is the last chance to free it.
-	*/
-	void (*connection_close)(const struct mg_connection *);
+     Connection specific data:
+     If memory has been allocated for the connection specific user data
+     (mg_request_info->conn_data, mg_get_user_connection_data),
+     this is the last chance to free it.
+  */
+  void (*connection_close)(const struct mg_connection *);
 
-	/* Called when civetweb is about to serve Lua server page, if
-	   Lua support is enabled.
-	   Parameters:
-	     conn: current connection.
-	     lua_context: "lua_State *" pointer. */
-	void (*init_lua)(const struct mg_connection *conn, void *lua_context);
+  /* Called when civetweb is about to serve Lua server page, if
+     Lua support is enabled.
+     Parameters:
+       conn: current connection.
+       lua_context: "lua_State *" pointer. */
+  void (*init_lua)(const struct mg_connection *conn, void *lua_context);
 
 #if defined(MG_LEGACY_INTERFACE) /* 2016-05-14 */
-	/* Called when civetweb has uploaded a file to a temporary directory as a
-	   result of mg_upload() call.
-	   Note that mg_upload is deprecated. Use mg_handle_form_request instead.
-	   Parameters:
-	     file_name: full path name to the uploaded file. */
-	void (*upload)(struct mg_connection *, const char *file_name);
+  /* Called when civetweb has uploaded a file to a temporary directory as a
+     result of mg_upload() call.
+     Note that mg_upload is deprecated. Use mg_handle_form_request instead.
+     Parameters:
+       file_name: full path name to the uploaded file. */
+  void (*upload)(struct mg_connection *, const char *file_name);
 #endif
 
-	/* Called when civetweb is about to send HTTP error to the client.
-	   Implementing this callback allows to create custom error pages.
-	   Parameters:
-	     conn: current connection.
-	     status: HTTP error status code.
-	     errmsg: error message text.
-	   Return value:
-	     1: run civetweb error handler.
-	     0: callback already handled the error. */
-	int (*http_error)(struct mg_connection *conn,
-	                  int status,
-	                  const char *errmsg);
+  /* Called when civetweb is about to send HTTP error to the client.
+     Implementing this callback allows to create custom error pages.
+     Parameters:
+       conn: current connection.
+       status: HTTP error status code.
+       errmsg: error message text.
+     Return value:
+       1: run civetweb error handler.
+       0: callback already handled the error. */
+  int (*http_error)(struct mg_connection *conn,
+                    int status,
+                    const char *errmsg);
 
-	/* Called after civetweb context has been created, before requests
-	   are processed.
-	   Parameters:
-	     ctx: context handle */
-	void (*init_context)(const struct mg_context *ctx);
+  /* Called after civetweb context has been created, before requests
+     are processed.
+     Parameters:
+       ctx: context handle */
+  void (*init_context)(const struct mg_context *ctx);
 
-	/* Called when civetweb context is deleted.
-	Parameters:
-	ctx: context handle */
-	void (*exit_context)(const struct mg_context *ctx);
+  /* Called when civetweb context is deleted.
+  Parameters:
+  ctx: context handle */
+  void (*exit_context)(const struct mg_context *ctx);
 
-	/* Called when a new worker thread is initialized.
-	 * Parameters:
-	 *   ctx: context handle
-	 *   thread_type:
-	 *     0 indicates the master thread
-	 *     1 indicates a worker thread handling client connections
-	 *     2 indicates an internal helper thread (timer thread)
-	 * Return value:
-	 *   This function returns a user supplied pointer. The pointer is assigned
-	 *   to the thread and can be obtained from the mg_connection object using
-	 *   mg_get_thread_pointer in all server callbacks. Note: A connection and
-	 *   a thread are not directly related. Threads will serve several different
-	 *   connections, and data from a single connection may call different
-	 *   callbacks using different threads. The thread pointer can be obtained
-	 *   in a callback handler, but should not be stored beyond the scope of
-	 *   one call to one callback.
-	 */
-	void *(*init_thread)(const struct mg_context *ctx, int thread_type);
+  /* Called when a new worker thread is initialized.
+   * Parameters:
+   *   ctx: context handle
+   *   thread_type:
+   *     0 indicates the master thread
+   *     1 indicates a worker thread handling client connections
+   *     2 indicates an internal helper thread (timer thread)
+   * Return value:
+   *   This function returns a user supplied pointer. The pointer is assigned
+   *   to the thread and can be obtained from the mg_connection object using
+   *   mg_get_thread_pointer in all server callbacks. Note: A connection and
+   *   a thread are not directly related. Threads will serve several different
+   *   connections, and data from a single connection may call different
+   *   callbacks using different threads. The thread pointer can be obtained
+   *   in a callback handler, but should not be stored beyond the scope of
+   *   one call to one callback.
+   */
+  void *(*init_thread)(const struct mg_context *ctx, int thread_type);
 
-	/* Called when a worker exits.
-	 * The parameters "ctx" and "thread_type" correspond to the "init_thread"
-	 * call. The  "thread_pointer" parameter is the value returned by
-	 * "init_thread".
-	 */
-	void (*exit_thread)(const struct mg_context *ctx,
-	                    int thread_type,
-	                    void *thread_pointer);
+  /* Called when a worker exits.
+   * The parameters "ctx" and "thread_type" correspond to the "init_thread"
+   * call. The  "thread_pointer" parameter is the value returned by
+   * "init_thread".
+   */
+  void (*exit_thread)(const struct mg_context *ctx,
+                      int thread_type,
+                      void *thread_pointer);
 
-	/* Called when initializing a new connection object.
-	 * Can be used to initialize the connection specific user data
-	 * (mg_request_info->conn_data, mg_get_user_connection_data).
-	 * When the callback is called, it is not yet known if a
-	 * valid HTTP(S) request will be made.
-	 * Parameters:
-	 *   conn: not yet fully initialized connection object
-	 *   conn_data: output parameter, set to initialize the
-	 *              connection specific user data
-	 * Return value:
-	 *   must be 0
-	 *   Otherwise, the result is undefined
-	 */
-	int (*init_connection)(const struct mg_connection *conn, void **conn_data);
+  /* Called when initializing a new connection object.
+   * Can be used to initialize the connection specific user data
+   * (mg_request_info->conn_data, mg_get_user_connection_data).
+   * When the callback is called, it is not yet known if a
+   * valid HTTP(S) request will be made.
+   * Parameters:
+   *   conn: not yet fully initialized connection object
+   *   conn_data: output parameter, set to initialize the
+   *              connection specific user data
+   * Return value:
+   *   must be 0
+   *   Otherwise, the result is undefined
+   */
+  int (*init_connection)(const struct mg_connection *conn, void **conn_data);
 };
 
 
@@ -567,8 +567,8 @@ typedef void (*mg_websocket_close_handler)(const struct mg_connection *,
  * List of accepted subprotocols
  */
 struct mg_websocket_subprotocols {
-	int nb_subprotocols;
-	char **subprotocols;
+  int nb_subprotocols;
+  char **subprotocols;
 };
 
 /* mg_set_websocket_handler
@@ -693,38 +693,38 @@ CIVETWEB_API const char **mg_get_valid_option_names(void);
 
 
 struct mg_option {
-	const char *name;
-	int type;
-	const char *default_value;
+  const char *name;
+  int type;
+  const char *default_value;
 };
 
 /* Old nomenclature */
 #if defined(MG_LEGACY_INTERFACE) /* 2017-10-05 */
 enum {
-	CONFIG_TYPE_UNKNOWN = 0x0,
-	CONFIG_TYPE_NUMBER = 0x1,
-	CONFIG_TYPE_STRING = 0x2,
-	CONFIG_TYPE_FILE = 0x3,
-	CONFIG_TYPE_DIRECTORY = 0x4,
-	CONFIG_TYPE_BOOLEAN = 0x5,
-	CONFIG_TYPE_EXT_PATTERN = 0x6,
-	CONFIG_TYPE_STRING_LIST = 0x7,
-	CONFIG_TYPE_STRING_MULTILINE = 0x8
+  CONFIG_TYPE_UNKNOWN = 0x0,
+  CONFIG_TYPE_NUMBER = 0x1,
+  CONFIG_TYPE_STRING = 0x2,
+  CONFIG_TYPE_FILE = 0x3,
+  CONFIG_TYPE_DIRECTORY = 0x4,
+  CONFIG_TYPE_BOOLEAN = 0x5,
+  CONFIG_TYPE_EXT_PATTERN = 0x6,
+  CONFIG_TYPE_STRING_LIST = 0x7,
+  CONFIG_TYPE_STRING_MULTILINE = 0x8
 };
 #endif
 
 /* New nomenclature */
 enum {
-	MG_CONFIG_TYPE_UNKNOWN = 0x0,
-	MG_CONFIG_TYPE_NUMBER = 0x1,
-	MG_CONFIG_TYPE_STRING = 0x2,
-	MG_CONFIG_TYPE_FILE = 0x3,
-	MG_CONFIG_TYPE_DIRECTORY = 0x4,
-	MG_CONFIG_TYPE_BOOLEAN = 0x5,
-	MG_CONFIG_TYPE_EXT_PATTERN = 0x6,
-	MG_CONFIG_TYPE_STRING_LIST = 0x7,
-	MG_CONFIG_TYPE_STRING_MULTILINE = 0x8,
-	MG_CONFIG_TYPE_YES_NO_OPTIONAL = 0x9
+  MG_CONFIG_TYPE_UNKNOWN = 0x0,
+  MG_CONFIG_TYPE_NUMBER = 0x1,
+  MG_CONFIG_TYPE_STRING = 0x2,
+  MG_CONFIG_TYPE_FILE = 0x3,
+  MG_CONFIG_TYPE_DIRECTORY = 0x4,
+  MG_CONFIG_TYPE_BOOLEAN = 0x5,
+  MG_CONFIG_TYPE_EXT_PATTERN = 0x6,
+  MG_CONFIG_TYPE_STRING_LIST = 0x7,
+  MG_CONFIG_TYPE_STRING_MULTILINE = 0x8,
+  MG_CONFIG_TYPE_YES_NO_OPTIONAL = 0x9
 };
 
 /* Return array of struct mg_option, representing all valid configuration
@@ -734,14 +734,14 @@ CIVETWEB_API const struct mg_option *mg_get_valid_options(void);
 
 
 struct mg_server_port {
-	int protocol;    /* 1 = IPv4, 2 = IPv6, 3 = both */
-	int port;        /* port number */
-	int is_ssl;      /* https port: 0 = no, 1 = yes */
-	int is_redirect; /* redirect all requests: 0 = no, 1 = yes */
-	int _reserved1;
-	int _reserved2;
-	int _reserved3;
-	int _reserved4;
+  int protocol;    /* 1 = IPv4, 2 = IPv6, 3 = both */
+  int port;        /* port number */
+  int is_ssl;      /* https port: 0 = no, 1 = yes */
+  int is_redirect; /* redirect all requests: 0 = no, 1 = yes */
+  int _reserved1;
+  int _reserved2;
+  int _reserved3;
+  int _reserved4;
 };
 
 /* Legacy name */
@@ -878,23 +878,23 @@ CIVETWEB_API void mg_unlock_context(struct mg_context *ctx);
 /* Opcodes, from http://tools.ietf.org/html/rfc6455 */
 #if defined(MG_LEGACY_INTERFACE) /* 2017-10-05 */
 enum {
-	WEBSOCKET_OPCODE_CONTINUATION = 0x0,
-	WEBSOCKET_OPCODE_TEXT = 0x1,
-	WEBSOCKET_OPCODE_BINARY = 0x2,
-	WEBSOCKET_OPCODE_CONNECTION_CLOSE = 0x8,
-	WEBSOCKET_OPCODE_PING = 0x9,
-	WEBSOCKET_OPCODE_PONG = 0xa
+  WEBSOCKET_OPCODE_CONTINUATION = 0x0,
+  WEBSOCKET_OPCODE_TEXT = 0x1,
+  WEBSOCKET_OPCODE_BINARY = 0x2,
+  WEBSOCKET_OPCODE_CONNECTION_CLOSE = 0x8,
+  WEBSOCKET_OPCODE_PING = 0x9,
+  WEBSOCKET_OPCODE_PONG = 0xa
 };
 #endif
 
 /* New nomenclature */
 enum {
-	MG_WEBSOCKET_OPCODE_CONTINUATION = 0x0,
-	MG_WEBSOCKET_OPCODE_TEXT = 0x1,
-	MG_WEBSOCKET_OPCODE_BINARY = 0x2,
-	MG_WEBSOCKET_OPCODE_CONNECTION_CLOSE = 0x8,
-	MG_WEBSOCKET_OPCODE_PING = 0x9,
-	MG_WEBSOCKET_OPCODE_PONG = 0xa
+  MG_WEBSOCKET_OPCODE_CONTINUATION = 0x0,
+  MG_WEBSOCKET_OPCODE_TEXT = 0x1,
+  MG_WEBSOCKET_OPCODE_BINARY = 0x2,
+  MG_WEBSOCKET_OPCODE_CONNECTION_CLOSE = 0x8,
+  MG_WEBSOCKET_OPCODE_PING = 0x9,
+  MG_WEBSOCKET_OPCODE_PONG = 0xa
 };
 
 /* Macros for enabling compiler-specific checks for printf-like arguments. */
@@ -1029,6 +1029,13 @@ mg_send_digest_access_authentication_request(struct mg_connection *conn,
  * A file is used to provide a list of valid user names, realms and
  * password hashes. The file can be created and modified using the
  * mg_modify_passwords_file API function.
+ * Note: this was formerly called mg_check_digest_access_authentication()
+ *   but renamed to mg_check_access_authentication() when adding
+ *   basic auth checking. Note that the server NEVER does ask for
+ *   basic auth (no mg_send_basic_access_authentication_request exists!)
+ *   because basic auth is insecure and no client should ever be
+ *   asked to use it. However, if a client uses basic auth anyway,
+ *   accepting it does not do any additional harm.
  * Parameters:
  *   conn: Current connection handle.
  *   realm: Authentication realm. If NULL is supplied, the sever domain
@@ -1044,9 +1051,9 @@ mg_send_digest_access_authentication_request(struct mg_connection *conn,
  *   -2    File not found
  */
 CIVETWEB_API int
-mg_check_digest_access_authentication(struct mg_connection *conn,
-                                      const char *realm,
-                                      const char *filename);
+mg_check_access_authentication(struct mg_connection *conn,
+                               const char *realm,
+                               const char *filename);
 
 
 /* Send contents of the entire file together with HTTP headers.
@@ -1286,69 +1293,69 @@ CIVETWEB_API int mg_upload(struct mg_connection *conn,
 /* This structure contains callback functions for handling form fields.
    It is used as an argument to mg_handle_form_request. */
 struct mg_form_data_handler {
-	/* This callback function is called, if a new field has been found.
-	 * The return value of this callback is used to define how the field
-	 * should be processed.
-	 *
-	 * Parameters:
-	 *   key: Name of the field ("name" property of the HTML input field).
-	 *   filename: Name of a file to upload, at the client computer.
-	 *             Only set for input fields of type "file", otherwise NULL.
-	 *   path: Output parameter: File name (incl. path) to store the file
-	 *         at the server computer. Only used if FORM_FIELD_STORAGE_STORE
-	 *         is returned by this callback. Existing files will be
-	 *         overwritten.
-	 *   pathlen: Length of the buffer for path.
-	 *   user_data: Value of the member user_data of mg_form_data_handler
-	 *
-	 * Return value:
-	 *   The callback must return the intended storage for this field
-	 *   (See FORM_FIELD_STORAGE_*).
-	 */
-	int (*field_found)(const char *key,
-	                   const char *filename,
-	                   char *path,
-	                   size_t pathlen,
-	                   void *user_data);
+  /* This callback function is called, if a new field has been found.
+   * The return value of this callback is used to define how the field
+   * should be processed.
+   *
+   * Parameters:
+   *   key: Name of the field ("name" property of the HTML input field).
+   *   filename: Name of a file to upload, at the client computer.
+   *             Only set for input fields of type "file", otherwise NULL.
+   *   path: Output parameter: File name (incl. path) to store the file
+   *         at the server computer. Only used if FORM_FIELD_STORAGE_STORE
+   *         is returned by this callback. Existing files will be
+   *         overwritten.
+   *   pathlen: Length of the buffer for path.
+   *   user_data: Value of the member user_data of mg_form_data_handler
+   *
+   * Return value:
+   *   The callback must return the intended storage for this field
+   *   (See FORM_FIELD_STORAGE_*).
+   */
+  int (*field_found)(const char *key,
+                     const char *filename,
+                     char *path,
+                     size_t pathlen,
+                     void *user_data);
 
-	/* If the "field_found" callback returned FORM_FIELD_STORAGE_GET,
-	 * this callback will receive the field data.
-	 *
-	 * Parameters:
-	 *   key: Name of the field ("name" property of the HTML input field).
-	 *   value: Value of the input field.
-	 *   user_data: Value of the member user_data of mg_form_data_handler
-	 *
-	 * Return value:
-	 *   The return code determines how the server should continue processing
-	 *   the current request (See MG_FORM_FIELD_HANDLE_*).
-	 */
-	int (*field_get)(const char *key,
-	                 const char *value,
-	                 size_t valuelen,
-	                 void *user_data);
+  /* If the "field_found" callback returned FORM_FIELD_STORAGE_GET,
+   * this callback will receive the field data.
+   *
+   * Parameters:
+   *   key: Name of the field ("name" property of the HTML input field).
+   *   value: Value of the input field.
+   *   user_data: Value of the member user_data of mg_form_data_handler
+   *
+   * Return value:
+   *   The return code determines how the server should continue processing
+   *   the current request (See MG_FORM_FIELD_HANDLE_*).
+   */
+  int (*field_get)(const char *key,
+                   const char *value,
+                   size_t valuelen,
+                   void *user_data);
 
-	/* If the "field_found" callback returned FORM_FIELD_STORAGE_STORE,
-	 * the data will be stored into a file. If the file has been written
-	 * successfully, this callback will be called. This callback will
-	 * not be called for only partially uploaded files. The
-	 * mg_handle_form_request function will either store the file completely
-	 * and call this callback, or it will remove any partial content and
-	 * not call this callback function.
-	 *
-	 * Parameters:
-	 *   path: Path of the file stored at the server.
-	 *   file_size: Size of the stored file in bytes.
-	 *   user_data: Value of the member user_data of mg_form_data_handler
-	 *
-	 * Return value:
-	 *   The return code determines how the server should continue processing
-	 *   the current request (See MG_FORM_FIELD_HANDLE_*).
-	 */
-	int (*field_store)(const char *path, long long file_size, void *user_data);
+  /* If the "field_found" callback returned FORM_FIELD_STORAGE_STORE,
+   * the data will be stored into a file. If the file has been written
+   * successfully, this callback will be called. This callback will
+   * not be called for only partially uploaded files. The
+   * mg_handle_form_request function will either store the file completely
+   * and call this callback, or it will remove any partial content and
+   * not call this callback function.
+   *
+   * Parameters:
+   *   path: Path of the file stored at the server.
+   *   file_size: Size of the stored file in bytes.
+   *   user_data: Value of the member user_data of mg_form_data_handler
+   *
+   * Return value:
+   *   The return code determines how the server should continue processing
+   *   the current request (See MG_FORM_FIELD_HANDLE_*).
+   */
+  int (*field_store)(const char *path, long long file_size, void *user_data);
 
-	/* User supplied argument, passed to all callback functions. */
-	void *user_data;
+  /* User supplied argument, passed to all callback functions. */
+  void *user_data;
 };
 
 
@@ -1356,39 +1363,39 @@ struct mg_form_data_handler {
  * mg_form_data_handler. */
 #if defined(MG_LEGACY_INTERFACE) /* 2017-10-05 */
 enum {
-	/* Skip this field (neither get nor store it). Continue with the
-	 * next field. */
-	FORM_FIELD_STORAGE_SKIP = 0x0,
-	/* Get the field value. */
-	FORM_FIELD_STORAGE_GET = 0x1,
-	/* Store the field value into a file. */
-	FORM_FIELD_STORAGE_STORE = 0x2,
-	/* Stop parsing this request. Skip the remaining fields. */
-	FORM_FIELD_STORAGE_ABORT = 0x10
+  /* Skip this field (neither get nor store it). Continue with the
+   * next field. */
+  FORM_FIELD_STORAGE_SKIP = 0x0,
+  /* Get the field value. */
+  FORM_FIELD_STORAGE_GET = 0x1,
+  /* Store the field value into a file. */
+  FORM_FIELD_STORAGE_STORE = 0x2,
+  /* Stop parsing this request. Skip the remaining fields. */
+  FORM_FIELD_STORAGE_ABORT = 0x10
 };
 #endif
 /* New nomenclature */
 enum {
-	/* Skip this field (neither get nor store it). Continue with the
-	 * next field. */
-	MG_FORM_FIELD_STORAGE_SKIP = 0x0,
-	/* Get the field value. */
-	MG_FORM_FIELD_STORAGE_GET = 0x1,
-	/* Store the field value into a file. */
-	MG_FORM_FIELD_STORAGE_STORE = 0x2,
-	/* Stop parsing this request. Skip the remaining fields. */
-	MG_FORM_FIELD_STORAGE_ABORT = 0x10
+  /* Skip this field (neither get nor store it). Continue with the
+   * next field. */
+  MG_FORM_FIELD_STORAGE_SKIP = 0x0,
+  /* Get the field value. */
+  MG_FORM_FIELD_STORAGE_GET = 0x1,
+  /* Store the field value into a file. */
+  MG_FORM_FIELD_STORAGE_STORE = 0x2,
+  /* Stop parsing this request. Skip the remaining fields. */
+  MG_FORM_FIELD_STORAGE_ABORT = 0x10
 };
 
 /* Return values for "field_get" and "field_store" */
 enum {
-	/* Only "field_get": If there is more data in this field, get the next
-	 * chunk. Otherwise: handle the next field. */
-	MG_FORM_FIELD_HANDLE_GET = 0x1,
-	/* Handle the next field */
-	MG_FORM_FIELD_HANDLE_NEXT = 0x8,
-	/* Stop parsing this request */
-	MG_FORM_FIELD_HANDLE_ABORT = 0x10
+  /* Only "field_get": If there is more data in this field, get the next
+   * chunk. Otherwise: handle the next field. */
+  MG_FORM_FIELD_HANDLE_GET = 0x1,
+  /* Handle the next field */
+  MG_FORM_FIELD_HANDLE_NEXT = 0x8,
+  /* Stop parsing this request */
+  MG_FORM_FIELD_HANDLE_ABORT = 0x10
 };
 
 
@@ -1646,15 +1653,15 @@ CIVETWEB_API int mg_get_connection_info(const struct mg_context *ctx,
    Note: Experimental interfaces may change
 */
 struct mg_error_data {
-	unsigned *code;          /* error code (number) */
-	char *text;              /* buffer for error text */
-	size_t text_buffer_size; /* size of buffer of "text" */
+  unsigned *code;          /* error code (number) */
+  char *text;              /* buffer for error text */
+  size_t text_buffer_size; /* size of buffer of "text" */
 };
 
 struct mg_init_data {
-	const struct mg_callbacks *callbacks; /* callback function pointer */
-	void *user_data;                      /* data */
-	const char **configuration_options;
+  const struct mg_callbacks *callbacks; /* callback function pointer */
+  void *user_data;                      /* data */
+  const char **configuration_options;
 };
 
 
