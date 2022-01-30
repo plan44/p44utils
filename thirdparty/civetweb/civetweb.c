@@ -3810,15 +3810,18 @@ gmt_time_string(char *buf, size_t buf_len, time_t *t)
 
     tm = ((t != NULL) ? gmtime(t) : NULL);
     if (tm != NULL) {
+      strftime(buf, buf_len, "%a, %d %b %Y %H:%M:%S GMT", tm);
+    }
 #else
     struct tm _tm;
     struct tm *tm = &_tm;
 
     if (t != NULL) {
         gmtime_r(t, tm);
-#endif
         strftime(buf, buf_len, "%a, %d %b %Y %H:%M:%S GMT", tm);
-    } else {
+    }
+#endif
+    else {
         mg_strlcpy(buf, "Thu, 01 Jan 1970 00:00:00 GMT", buf_len);
         buf[buf_len - 1] = '\0';
     }
@@ -9294,8 +9297,9 @@ connect_socket(struct mg_context *ctx /* may be NULL */,
         sa->sin.sin_family = AF_INET;
         sa->sin.sin_port = htons((uint16_t)port);
         ip_ver = 4;
+    }
 #if defined(USE_IPV6)
-    } else if (mg_inet_pton(AF_INET6, host, &sa->sin6, sizeof(sa->sin6))) {
+    else if (mg_inet_pton(AF_INET6, host, &sa->sin6, sizeof(sa->sin6))) {
         sa->sin6.sin6_family = AF_INET6;
         sa->sin6.sin6_port = htons((uint16_t)port);
         ip_ver = 6;
@@ -9313,8 +9317,8 @@ connect_socket(struct mg_context *ctx /* may be NULL */,
             }
             mg_free(h);
         }
-#endif
     }
+#endif
 
     if (ip_ver == 0) {
         mg_snprintf(NULL,
@@ -9379,10 +9383,11 @@ connect_socket(struct mg_context *ctx /* may be NULL */,
     }
 
 #if defined(_WIN32)
-    if ((conn_ret != 0) && (sockerr == WSAEWOULDBLOCK)) {
+    if ((conn_ret != 0) && (sockerr == WSAEWOULDBLOCK))
 #else
-    if ((conn_ret != 0) && (sockerr == EINPROGRESS)) {
+    if ((conn_ret != 0) && (sockerr == EINPROGRESS))
 #endif
+    {
         /* Data for getsockopt */
         void *psockerr = &sockerr;
         int ret;
