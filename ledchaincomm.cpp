@@ -650,8 +650,8 @@ LEDChainArrangement::LEDChainArrangement() :
   mActualLightPowerMw(0),
   mPowerLimited(false),
   mLastUpdate(Never),
-  minUpdateInterval(DEFAULT_MIN_UPDATE_INTERVAL),
-  maxPriorityInterval(DEFAULT_MAX_PRIORITY_INTERVAL)
+  mMinUpdateInterval(DEFAULT_MIN_UPDATE_INTERVAL),
+  mMaxPriorityInterval(DEFAULT_MAX_PRIORITY_INTERVAL)
 {
   #if ENABLE_P44SCRIPT && ENABLE_P44LRGRAPHICS && ENABLE_VIEWCONFIG
   // install p44script lookup providing "ledchain" global
@@ -692,7 +692,7 @@ void LEDChainArrangement::setRootView(P44ViewPtr aRootView)
   }
   mRootView = aRootView;
   mRootView->setDefaultLabel("rootview");
-  mRootView->setNeedUpdateCB(boost::bind(&LEDChainArrangement::externalUpdateRequest, this), minUpdateInterval);
+  mRootView->setNeedUpdateCB(boost::bind(&LEDChainArrangement::externalUpdateRequest, this), mMinUpdateInterval);
 }
 
 
@@ -733,7 +733,7 @@ void LEDChainArrangement::processCmdlineOptions()
     setPowerLimit(v);
   }
   if (CmdLineApp::sharedCmdLineApp()->getIntOption("ledrefresh", v)) {
-    minUpdateInterval = v*MilliSecond;
+    mMinUpdateInterval = v*MilliSecond;
   }
 }
 
@@ -946,10 +946,10 @@ MLMicroSeconds LEDChainArrangement::updateDisplay()
     bool dirty = mRootView->isDirty();
     if (dirty || now>mLastUpdate+MAX_UPDATE_INTERVAL) {
       // needs update
-      if (now<mLastUpdate+minUpdateInterval) {
+      if (now<mLastUpdate+mMinUpdateInterval) {
         // cannot update now, but return the time when we can update next time
         DBGFOCUSOLOG("updateDisplay update postponed by %lld, mRootView.dirty=%d", lastUpdate+minUpdateInterval-now, dirty);
-        return mLastUpdate+minUpdateInterval;
+        return mLastUpdate+mMinUpdateInterval;
       }
       else {
         // update now
@@ -1107,7 +1107,7 @@ MLMicroSeconds LEDChainArrangement::step()
   MLMicroSeconds nextStep = Infinite;
   if (mRootView) {
     do {
-      nextStep = mRootView->step(mLastUpdate+maxPriorityInterval);
+      nextStep = mRootView->step(mLastUpdate+mMaxPriorityInterval);
     } while (nextStep==0);
     MLMicroSeconds nextDisp = updateDisplay();
     if (nextStep<0 || (nextDisp>0 && nextDisp<nextStep)) {
@@ -1231,9 +1231,9 @@ static const size_t setledrefresh_numargs = sizeof(setledrefresh_args)/sizeof(Bu
 static void setledrefresh_func(BuiltinFunctionContextPtr f)
 {
   LEDChainLookup* l = dynamic_cast<LEDChainLookup*>(f->funcObj()->getMemberLookup());
-  l->ledChainArrangement().minUpdateInterval = f->arg(0)->doubleValue()*Second;
+  l->ledChainArrangement().mMinUpdateInterval = f->arg(0)->doubleValue()*Second;
   if (f->arg(1)->defined()) {
-    l->ledChainArrangement().maxPriorityInterval = f->arg(1)->doubleValue()*Second;
+    l->ledChainArrangement().mMaxPriorityInterval = f->arg(1)->doubleValue()*Second;
   }
   f->finish();
 }

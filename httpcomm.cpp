@@ -491,7 +491,7 @@ static void httpFuncImpl(BuiltinFunctionContextPtr f, string aMethod)
     //   "timeout":20
     //   "user":xxx,
     //   "password":xxx,
-    //   "authmode":xxx
+    //   "basicauth":xxx
     //   "clientcert":xxx,
     //   "servercert":xxx,
     //   "headers": {

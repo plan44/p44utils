@@ -344,11 +344,11 @@ namespace p44 {
   public:
 
     /// minimum interval kept between updates to LED chain hardware
-    MLMicroSeconds minUpdateInterval;
+    MLMicroSeconds mMinUpdateInterval;
 
     /// maximum interval during which noisy view children are prevented from requesting rendering updates
     /// after prioritized (localTimingPriority==true) parent view did
-    MLMicroSeconds maxPriorityInterval;
+    MLMicroSeconds mMaxPriorityInterval;
 
     LEDChainArrangement();
     virtual ~LEDChainArrangement();
