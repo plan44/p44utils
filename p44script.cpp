@@ -5154,6 +5154,9 @@ void ScriptCodeThread::complete(ScriptObjPtr aFinalResult)
       aFinalResult->stringValue().c_str()
     );
   }
+  // make sure this object is not released early while unwinding completion
+  ScriptCodeThreadPtr keepAlive = ScriptCodeThreadPtr(this);
+  // now calling out to methods that might release this thread is safe
   inherited::complete(aFinalResult);
   OLOG(LOG_DEBUG,
     "complete %04d at (%s:%zu,%zu):  %s\n- with result: %s",
@@ -5165,8 +5168,10 @@ void ScriptCodeThread::complete(ScriptObjPtr aFinalResult)
   sendEvent(mResult); // send the final result as event to registered EventSinks
   mChainOriginThread.reset();
   if (mOwner) mOwner->threadTerminated(this, mEvaluationFlags);
-  // deactivate myself early
+  // deactivate myself to break any remaining retain loops
   deactivate();
+  // now thread object might be actually released
+  keepAlive.reset();
 }
 
 
