@@ -266,7 +266,7 @@ namespace p44 { namespace P44Script {
     string name; ///< the name of the argument
   } ArgumentDescriptor;
 
-  // MARK: - ScriptObj base class
+  // MARK: - EventSink and EventSource
 
   /// evaluation callback
   /// @param aEvaluationResult the result of an evaluation
@@ -365,7 +365,7 @@ namespace p44 { namespace P44Script {
 
   };
 
-
+  // MARK: - ScriptObj base class
 
   /// Base Object in scripting
   class ScriptObj : public P44LoggingObj
@@ -1906,7 +1906,7 @@ namespace p44 { namespace P44Script {
     void s_member(); ///< immediately after accessing a member for reading
     void s_subscriptArg(); ///< immediately after subscript expression evaluation
     void s_nextSubscript(); ///< multi-dimensional subscripts, 2nd and further arguments
-    void assignOrAccess(bool aAllowAssign); ///< access or assign identifier
+    void assignOrAccess(TypeInfo aAccessFlags); ///< access or assign identifier (lvalue and create are valid options)
     void s_funcArg(); ///< immediately after function argument evaluation
     void s_funcContext(); ///< after getting function calling context
     void s_funcExec(); ///< ready to execute the function

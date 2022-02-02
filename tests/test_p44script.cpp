@@ -308,10 +308,14 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "Debugging single case/assertion", "[DEBU
   SETLOGLEVEL(LOG_DEBUG);
   SETDELTATIME(true);
 
-  REQUIRE(s.test(scriptbody|keepvars, "var k = [42, 43, 44]; k[1]")->doubleValue() == 43);
-  REQUIRE(s.test(scriptbody|keepvars, "unset k[1]")->isErr() == false); // delete field must work
-  REQUIRE(s.test(scriptbody|keepvars, "k[1]")->doubleValue() == 44); // formerly third value
-  REQUIRE(s.test(scriptbody|keepvars, "elements(k)")->doubleValue() == 2); // only 2 elements left
+//  REQUIRE(s.test(scriptbody|keepvars, "var k = [42, 43, 44]; k[1]")->doubleValue() == 43);
+//  REQUIRE(s.test(scriptbody|keepvars, "unset k[1]")->isErr() == false); // delete field must work
+//  REQUIRE(s.test(scriptbody|keepvars, "k[1]")->doubleValue() == 44); // formerly third value
+//  REQUIRE(s.test(scriptbody|keepvars, "elements(k)")->doubleValue() == 2); // only 2 elements left
+
+  REQUIRE(s.test(scriptbody, "glob j2; j2 = 45; return j2")->doubleValue() == 45);
+  REQUIRE(s.test(scriptbody, "unset globalvars()['j2']")->isErr() == false); // must be unsettable, too
+
 }
 
 
@@ -640,6 +644,8 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "expressions", "[scripting],[FOCUS]") {
   }
 }
 
+// MARK: - Scripting Statements
+
 TEST_CASE_METHOD(ScriptingCodeFixture, "statements", "[scripting]" )
 {
 
@@ -672,9 +678,31 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "statements", "[scripting]" )
     REQUIRE(s.test(scriptbody, "var h; var i = 8; h = 3 + (i = 8)")->isErr() == true); // no nested assignment allowed
     #elif SCRIPT_OPERATOR_MODE==SCRIPT_OPERATOR_MODE_PASCAL
     REQUIRE(s.test(scriptbody, "var h; var i := 8; h := 3 + (i := 8)")->isErr() == true); // no nested assignment allowed
-    REQUIRE(s.test(scriptbody, "glob j; j = 44; return j")->numValue() == 44);
-    REQUIRE(s.test(scriptbody, "glob j; return j")->numValue() == 44); // should still be there
+    REQUIRE(s.test(scriptbody, "glob j; j = 44; return j")->doubleValue() == 44);
+    REQUIRE(s.test(scriptbody, "glob j; return j")->doubleValue() == 44); // should still be there
     #endif
+    // globals by subscript or subscript
+    REQUIRE(s.test(scriptbody, "return globalvars()['g']")->doubleValue() == 4); // same g as above
+    REQUIRE(s.test(scriptbody, "globalvars()['j2'] = 45; return j2")->doubleValue() == 45); // global j2 should be creatable via function result subscript
+    REQUIRE(s.test(scriptbody, "return globalvars()['j2']")->doubleValue() == 45); // global j2 should be accessible via function result subscript
+    REQUIRE(s.test(scriptbody, "return globalvars().j2")->doubleValue() == 45); // global j2 should be creatable via function result subfield
+    REQUIRE(s.test(scriptbody, "unset globalvars()['j2']")->isErr() == false); // must be unsettable, too
+    REQUIRE(s.test(scriptbody, "return j2")->defined() == false); // must be gone now
+    REQUIRE(s.test(scriptbody, "unset globalvars()['j2']")->isErr() == false); // unsetting nonexisting must be ok
+    // - syntax variants
+    REQUIRE(s.test(scriptbody, "let globalvars()['j22'] = 452; return j22")->doubleValue() == 452); // let must work with subfields as well
+    REQUIRE(s.test(scriptbody, "let globalvars().j23 = 453; return j23")->doubleValue() == 453); // let must work with function result subfields as well
+    REQUIRE(s.test(scriptbody, "globals.j24 = 454; return j24")->doubleValue() == 454); // implicit member subfield creation
+    REQUIRE(s.test(scriptbody, "globals['j25'] = 455; return j25")->doubleValue() == 455); // member subscript creation
+    REQUIRE(s.test(scriptbody, "return globals['j25']")->doubleValue() == 455); // member subscript access
+    REQUIRE(s.test(scriptbody, "unset globals['j25']")->isErr() == false); // must be unsettable, too
+    REQUIRE(s.test(scriptbody, "return j25")->defined() == false); // must be gone now
+    REQUIRE(s.test(scriptbody, "unset globals['j25']")->isErr() == false); // unsetting nonexisting must be ok
+    REQUIRE(s.test(scriptbody, "glob j26; j26 = 456; return j26")->doubleValue() == 456);
+    REQUIRE(s.test(scriptbody, "unset globalvars().j26")->isErr() == false); // must be unsettable, too
+    REQUIRE(s.test(scriptbody, "return j26")->defined() == false); // must be gone now
+    REQUIRE(s.test(scriptbody, "unset globalvars().j26")->isErr() == false); // unsetting nonexisting must be ok
+
     // scope and unset
     REQUIRE(s.test(scriptbody|keepvars, "glob k; k=42; return k")->doubleValue() == 42);
     REQUIRE(s.test(scriptbody|keepvars, "k")->doubleValue() == 42); // must stay
@@ -685,6 +713,8 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "statements", "[scripting]" )
     REQUIRE(s.test(scriptbody|keepvars, "unset k")->isErr() == false); // should work, deleting global
     REQUIRE(s.test(scriptbody|keepvars, "k")->isErr() == true); // deleted
     REQUIRE(s.test(scriptbody|keepvars, "unset k")->isErr() == false); // unsetting nonexisting variable should still not throw an error
+
+    // unset with subfields and arrays
     REQUIRE(s.test(scriptbody|keepvars, "var k = { 'this':42, 'that':43, 'another':44 }; k.this")->doubleValue() == 42);
     REQUIRE(s.test(scriptbody|keepvars, "unset k.this")->isErr() == false); // delete field must work
     REQUIRE(s.test(scriptbody|keepvars, "k.this")->isErr() == true); // deleted field must be gone
@@ -718,6 +748,8 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "statements", "[scripting]" )
     REQUIRE(s.test(scriptbody, "var j = { 'number':42 }; j.number==42")->boolValue() == true);
     REQUIRE(s.test(scriptbody, "var j = { 'number':42 }; j.number+2")->doubleValue() == 44.0); // calculatioValue() of json numeric field must be number that can be added to
   }
+
+  // MARK: - Scripting Control Flow
 
   SECTION("control flow") {
     REQUIRE(s.test(scriptbody, "var cond = 1; var res = 'none'; var cond = 1; if (cond==1) res='one' else res='NOT one'; return res")->stringValue() == "one");
@@ -780,6 +812,8 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "statements", "[scripting]" )
     REQUIRE(s.test(scriptbody, "42 43 44")->intValue() == 44);
   }
 
+  // MARK: - Scripting Custom Functions
+
   SECTION("custom functions") {
     // Simple function w/o args
     REQUIRE(s.test(sourcecode|ephemeralSource, "function f42() { return 42; }")->isErr() == false);
@@ -824,6 +858,8 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "statements", "[scripting]" )
   }
 
 }
+
+// MARK: - Async
 
 TEST_CASE_METHOD(AsyncScriptingFixture, "async", "[scripting]") {
 

@@ -844,8 +844,8 @@ const ScriptObjPtr JsonRepresentedValue::memberByName(const string aName, TypeIn
     }
     else {
       // no such member yet
-      if (aMemberAccessFlags & lvalue) {
-        // creation of new json object fields is generally allowed, return lvalue to create object
+      if ((aMemberAccessFlags & (lvalue|create))==(lvalue|create)) {
+        // return lvalue to create object
         m = new StandardLValue(this, aName, ScriptObjPtr()); // it is allowed to create a new value
       }
     }
@@ -2859,11 +2859,11 @@ void SourceProcessor::s_simpleTerm()
         }
         else {
           // no need to check for assign when we already know a ./[/( follows
-          assignOrAccess(false);
+          assignOrAccess(none);
           return;
         }
         // need to look up the identifier, or assign it
-        assignOrAccess(true);
+        assignOrAccess(lvalue);
         return;
       }
     }
@@ -2872,7 +2872,7 @@ void SourceProcessor::s_simpleTerm()
 
 // MARK: member access
 
-void SourceProcessor::assignOrAccess(bool aAllowAssign)
+void SourceProcessor::assignOrAccess(TypeInfo aAccessFlags)
 {
   // left hand term leaf member accces
   // - identifier represents the leaf member to access
@@ -2884,14 +2884,14 @@ void SourceProcessor::assignOrAccess(bool aAllowAssign)
     if (mPendingOperation==op_delete) {
       // COULD be deleting the member
       mSrc.skipNonCode();
-      if (mSrc.c()!='.' && mSrc.c()!='[') {
+      if (mSrc.c()!='.' && mSrc.c()!='[' && mSrc.c()!='(') {
         // this is the leaf member to be deleted. We need to obtain an lvalue and unset it
         setState(&SourceProcessor::s_unsetMember);
         memberByIdentifier(lvalue);
         return;
       }
     }
-    else if (aAllowAssign && mPrecedence==0) {
+    else if ((aAccessFlags & lvalue) && mPrecedence==0) {
       // COULD be an assignment
       mSrc.skipNonCode();
       SourcePos opos = mSrc.pos;
@@ -2900,7 +2900,7 @@ void SourceProcessor::assignOrAccess(bool aAllowAssign)
         // this IS an assignment. We need to obtain an lvalue and the right hand expression to assign
         push(&SourceProcessor::s_assignExpression);
         setState(&SourceProcessor::s_validResult);
-        memberByIdentifier(lvalue);
+        memberByIdentifier(aAccessFlags);
         return;
       }
       mSrc.pos = opos; // back to before operator
@@ -2931,7 +2931,7 @@ void SourceProcessor::s_member()
     }
     // assign to this identifier or access its value (from parent object in result)
     mSrc.skipNonCode();
-    assignOrAccess(true);
+    assignOrAccess(lvalue|create); // try creating submembers
     return;
   }
   else if (mSrc.nextIf('[')) {
@@ -2943,7 +2943,7 @@ void SourceProcessor::s_member()
   }
   else if (mSrc.nextIf('(')) {
     // function call
-    if (mPrecedence==0) mPrecedence = 1; // no longer a candidate for assignment
+    // Note: results of function calls remain candiates for assignments (e.g. `globalvars().subfield = 42`)
     mSrc.skipNonCode();
     // - we need a function call context
     setState(&SourceProcessor::s_funcContext);
@@ -2969,9 +2969,12 @@ void SourceProcessor::s_subscriptArg()
   // - olderResult is the object the subscript applies to
   mSrc.skipNonCode();
   // determine how to proceed after accessing via subscript first...
+  TypeInfo accessFlags = none; // subscript access is always local, no scope or assignment restrictions
   if (mSrc.nextIf(']')) {
     // end of subscript processing, what we'll be looking up below is final member (of this subscript bracket, more [] or . may follow!)
     setState(&SourceProcessor::s_member);
+    // subscript members can generally be created
+    accessFlags |= create;
   }
   else if (mSrc.nextIf(',')) {
     // more subscripts to apply to the member we'll be looking up below
@@ -2991,7 +2994,6 @@ void SourceProcessor::s_subscriptArg()
   }
   else {
     // now either get or assign the member indicated by the subscript
-    TypeInfo accessFlags = none; // subscript access is always local, no scope or assignment restrictions
     ScriptObjPtr subScript = mResult;
     mResult = mOlderResult; // object to access member from
     if (mPendingOperation==op_delete) {
@@ -3853,7 +3855,12 @@ void SourceProcessor::processVarDefs(TypeInfo aVarFlags, bool aAllowInitializer,
     // unset is special because it might address a subfield of a variable,
     // so it is modelled like a prefix operator
     mPendingOperation = op_delete;
-    assignOrAccess(false);
+    assignOrAccess(none);
+    return;
+  }
+  else if ((aVarFlags & create)==0) {
+    // not really a vardef, but just a "let"
+    assignOrAccess(lvalue);
     return;
   }
   if (aDeclaration) mSkipping = false; // must enable processing now for actually assigning globals.
@@ -7077,6 +7084,13 @@ static void globalvars_func(BuiltinFunctionContextPtr f)
   f->finish(f->thread()->owner()->domain());
 }
 
+static ScriptObjPtr globals_accessor(BuiltInMemberLookup& aMemberLookup, ScriptObjPtr aParentObj, ScriptObjPtr aObjToWrite)
+{
+  // the parent object of a global function is the scripting domain
+  return aParentObj;
+}
+
+
 static void contextvars_func(BuiltinFunctionContextPtr f)
 {
   f->finish(f->thread()->owner()->scriptmain());
@@ -7166,6 +7180,7 @@ static const BuiltinMemberDescriptor standardFunctions[] = {
   // Introspection
   #if SCRIPTING_JSON_SUPPORT
   { "globalvars", executable|json, 0, NULL, &globalvars_func},
+  { "globals", builtinmember|json, 0, NULL, (BuiltinFunctionImplementation)&globals_accessor }, // Note: correct '.accessor=&lrg_accessor' form does not work with OpenWrt g++, so need ugly cast here
   { "contextvars", executable|json, 0, NULL, &contextvars_func },
   { "localvars", executable|json, 0, NULL, &localvars_func },
   { "globalhandlers", executable|json, 0, NULL, &globalhandlers_func },
