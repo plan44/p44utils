@@ -644,7 +644,6 @@ void LEDChainComm::getPowerXY(uint16_t aX, uint16_t aY, uint8_t &aRed, uint8_t &
 
 LEDChainArrangement::LEDChainArrangement() :
   mCovers(zeroRect),
-  mMaxOutValue(255),
   mPowerLimitMw(0),
   mRequestedLightPowerMw(0),
   mActualLightPowerMw(0),
@@ -726,9 +725,6 @@ void LEDChainArrangement::addLEDChain(LEDChainArrangementPtr &aLedChainArrangeme
 void LEDChainArrangement::processCmdlineOptions()
 {
   int v;
-  if (CmdLineApp::sharedCmdLineApp()->getIntOption("ledchainmax", v)) {
-    setMaxOutValue(v);
-  }
   if (CmdLineApp::sharedCmdLineApp()->getIntOption("ledpowerlimit", v)) {
     setPowerLimit(v);
   }
@@ -1006,13 +1002,6 @@ MLMicroSeconds LEDChainArrangement::updateDisplay()
                     Pg = pwmtable[pix.g];
                     Pb = pwmtable[pix.b];
                     Pw = pwmtable[w];
-                  }
-                  // limit to max output value
-                  if (mMaxOutValue<255) {
-                    if (Pr>mMaxOutValue) Pr = mMaxOutValue;
-                    if (Pg>mMaxOutValue) Pg = mMaxOutValue;
-                    if (Pb>mMaxOutValue) Pb = mMaxOutValue;
-                    if (Pw>mMaxOutValue) Pw = mMaxOutValue;
                   }
                   // measure
                   // - every LED consumes the idle power

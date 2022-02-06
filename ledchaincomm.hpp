@@ -335,7 +335,6 @@ namespace p44 {
 
     MLMicroSeconds mLastUpdate;
     MLTicket mAutoStepTicket;
-    uint8_t mMaxOutValue;
     uint32_t mPowerLimitMw; // max power (accumulated PWM values of all LEDs)
     uint32_t mRequestedLightPowerMw; // light power currently requested (but possibly not actually output if >powerLimit)
     uint32_t mActualLightPowerMw; // light power actually used after dimming down because of limit
@@ -390,12 +389,6 @@ namespace p44 {
     /// @return minimum r,g,b value
     uint8_t getMinVisibleColorIntensity();
 
-    /// set max output value (0..255) to be sent to the LED chains
-    void setMaxOutValue(uint8_t aMaxOutValue) { mMaxOutValue = aMaxOutValue; }
-
-    /// get max output value (0..255) to be sent to the LED chains
-    uint8_t getMaxOutValue() { return mMaxOutValue; }
-
     /// limit total power, dim LED chain output accordingly
     /// @param aMilliWatts how many milliwatts (approximatively) the total arrangement chains may use, 0=no limit
     void setPowerLimit(int aMilliWatts);
@@ -448,7 +441,6 @@ namespace p44 {
                                      "\n- XYSA are flags: X or Y: x or y reversed, S: x/y swapped, A: alternating (zigzag)." \
                                      "\n- #whitecolor is a web color specification for the white channel of RGBW chains." \
                                      "\nNote: this option can be used multiple times to combine ledchains." }, \
-      { 0,   "ledchainmax",   true,  "max;max output value (0..255) sent to LED. Defaults to 255." }, \
       { 0,   "ledpowerlimit", true,  "max_mW;maximal power in milliwatts the entire LED arrangement is allowed to consume (approximately)." \
                                      "If power would exceed limit, all LEDs are dimmed to stay below limit." \
                                      "Standby/off power of LED chains is not included in the calculation. Defaults to 0=no limit" }, \
