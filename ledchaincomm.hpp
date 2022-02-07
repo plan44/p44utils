@@ -442,8 +442,7 @@ namespace p44 {
                                      "\n- #whitecolor is a web color specification for the white channel of RGBW chains." \
                                      "\nNote: this option can be used multiple times to combine ledchains." }, \
       { 0,   "ledpowerlimit", true,  "max_mW;maximal power in milliwatts the entire LED arrangement is allowed to consume (approximately)." \
-                                     "If power would exceed limit, all LEDs are dimmed to stay below limit." \
-                                     "Standby/off power of LED chains is not included in the calculation. Defaults to 0=no limit" }, \
+                                     "If power would exceed limit, all LEDs are dimmed to stay below limit. Defaults to 0=no limit." }, \
       { 0,   "ledrefresh",    true,  "update_ms;minimal number of milliseconds between LED chain updates. Defaults to 15ms." }
 
     /// process ledchain arrangement specific command line options
