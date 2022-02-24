@@ -33,6 +33,14 @@
   #define APPLICATION_DEFAULT_USERLEVEL 0
 #endif
 
+// exit codes with special meaning on P44 platform only
+#define P44_EXIT_LOCALMODE 2 // request daemon restart in "local mode"
+#define P44_EXIT_FIRMWAREUPDATE 3 // request check for new firmware, installation if available, platform restart
+#define P44_EXIT_REBOOT 4 // request platform restart
+#define P44_EXIT_SHUTDOWN 5 // request platform shutdown/poweroff
+#define P44_EXIT_FACTORYRESET 42 // request a factory reset and platform restart
+
+
 #ifdef ESP_PLATFORM
 #else
 #include <signal.h>

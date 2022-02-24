@@ -6129,10 +6129,18 @@ static void system_func(BuiltinFunctionContextPtr f)
 #if ENABLE_APPLICATION_SUPPORT
 
 // restartapp()
+// restartapp(shutdown|reboot|upgrade)
+static const BuiltInArgDesc restartapp_args[] = { { text|optionalarg } };
+static const size_t restartapp_numargs = sizeof(restartapp_args)/sizeof(BuiltInArgDesc);
 static void restartapp_func(BuiltinFunctionContextPtr f)
 {
-  LOG(LOG_WARNING, "Application will terminate because script called restartapp()");
-  Application::sharedApplication()->terminateApp(0); // regular termination
+  int ec = 0; // default to regular termination
+  string opt = f->arg(0)->stringValue();
+  if (uequals(opt, "shutdown")) ec = P44_EXIT_SHUTDOWN; // p44 vdcd daemon specific exit code
+  else if (uequals(opt, "reboot")) ec = P44_EXIT_REBOOT; // p44 vdcd daemon specific exit code
+  else if (uequals(opt, "upgrade")) ec = P44_EXIT_FIRMWAREUPDATE; // p44 vdcd daemon specific exit code
+  LOG(LOG_WARNING, "Application will terminate with exit code %d because script called restartapp()", ec);
+  Application::sharedApplication()->terminateApp(ec); // regular termination
   f->finish();
 }
 
@@ -7191,7 +7199,7 @@ static const BuiltinMemberDescriptor standardFunctions[] = {
   #if !ESP_PLATFORM
   { "system", executable|async|text, system_numargs, system_args, &system_func },
   // Other system/app stuff
-  { "restartapp", executable|null, 0, NULL, &restartapp_func },
+  { "restartapp", executable|null, restartapp_numargs, restartapp_args, &restartapp_func },
   { "appversion", executable|null, 0, NULL, &appversion_func },
   #if ENABLE_APPLICATION_SUPPORT
   { "readfile", executable|error|text, readfile_numargs, readfile_args, &readfile_func },
