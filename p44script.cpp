@@ -6131,13 +6131,6 @@ static void system_func(BuiltinFunctionContextPtr f)
 // restartapp()
 static void restartapp_func(BuiltinFunctionContextPtr f)
 {
-  #if !ALWAYS_ALLOW_SYSTEM_FUNC
-  if (Application::sharedApplication()->userLevel()<1)
-  {
-    f->finish(new ErrorValue(ScriptError::NoPrivilege, "no privileges to use restart() function"));
-    return;
-  }
-  #endif // ALWAYS_ALLOW_SYSTEM_FUNC
   LOG(LOG_WARNING, "Application will terminate because script called restartapp()");
   Application::sharedApplication()->terminateApp(0); // regular termination
   f->finish();
