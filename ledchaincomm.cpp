@@ -208,13 +208,13 @@ bool LEDChainComm::begin(size_t aHintAtTotalChains)
     }
     else {
       #ifdef ESP_PLATFORM
-      if (deviceName.substr(0,4)=="gpio") {
-        sscanf(deviceName.c_str()+4, "%d", &gpioNo);
+      if (mDeviceName.substr(0,4)=="gpio") {
+        sscanf(mDeviceName.c_str()+4, "%d", &gpioNo);
       }
       // make sure library is initialized
       if (!gEsp32_ws281x_initialized) {
         FOCUSLOG("calling esp_ws281x_init for %d chains", aHintAtTotalChains);
-        esp_ws281x_init(aHintAtTotalChains);
+        esp_ws281x_init((int)aHintAtTotalChains);
         gEsp32_ws281x_initialized = true;
       }
       // add this chain
@@ -392,7 +392,7 @@ void LEDChainComm::show()
     // Note: no operation if this is only a secondary mapping - primary driver will update the hardware
     if (!mInitialized) return;
     #ifdef ESP_PLATFORM
-    esp_ws281x_setColors(espLedChain, numLeds, pixels);
+    esp_ws281x_setColors(espLedChain, mNumLeds, pixels);
     #elif ENABLE_RPIWS281X
     ws2811_render(&ledstring);
     #else

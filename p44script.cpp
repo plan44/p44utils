@@ -677,7 +677,7 @@ bool ThreadValue::running()
 
 TypeInfo ThreadValue::getTypeInfo() const
 {
-  return threadref+keeporiginal|(!mThread ? nowait : 0);
+  return threadref|keeporiginal|(!mThread ? nowait : 0);
 }
 
 
@@ -1683,7 +1683,7 @@ ScriptObjPtr ScriptMainContext::registerHandler(ScriptObjPtr aHandler)
     if ((*pos)->codeFromSameSourceAs(*handler)) {
       // replace this handler by the new one
       CompiledHandlerPtr h = handler;
-      OLOG(LOG_INFO, "Replacing handler at %s:%lu,%lu ...", h->mCursor.originLabel(), h->mCursor.lineno()+1, h->mCursor.charpos()+1);
+      OLOG(LOG_INFO, "Replacing handler at %s:%zu,%zu ...", h->mCursor.originLabel(), h->mCursor.lineno()+1, h->mCursor.charpos()+1);
       pos->swap(h);
       // deactivate and kill the previous instance
       h->deactivate();
