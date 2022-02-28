@@ -214,7 +214,8 @@ namespace p44 {
     typedef AnalogIOPin inherited;
 
     #ifndef DISABLE_CONSOLEKEY
-    ConsoleKeyPtr consoleKey;
+    ConsoleKeyPtr consoleKeyUp;
+    ConsoleKeyPtr consoleKeyDown;
     #endif
     bool output;
     string name;
@@ -231,6 +232,10 @@ namespace p44 {
     /// set value of pin (NOP for inputs)
     /// @param aValue new value to set output to
     virtual void setValue(double aValue);
+
+    #ifndef DISABLE_CONSOLEKEY
+    void simKeyPress(int aDir, bool aNewState);
+    #endif
 
   };
 

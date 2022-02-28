@@ -846,7 +846,7 @@ typedef unsigned short int in_port_t;
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <poll.h>
+#include <sys/poll.h>
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <sys/utsname.h>
@@ -1901,6 +1901,8 @@ typedef struct x509 X509;
 #define SSL_TLSEXT_ERR_ALERT_FATAL (2)
 #define SSL_TLSEXT_ERR_NOACK (3)
 
+#define SSL_SESS_CACHE_BOTH (3)
+
 #endif /* !USE_SSL_HEADERS */
 
 struct ssl_func {
@@ -1975,7 +1977,13 @@ struct ssl_func {
     (*(unsigned long (*)(SSL_CTX *, unsigned long))ssl_sw[39].ptr)
 #define SSL_CTX_get0_param                                                     \
     (*(__owur X509_VERIFY_PARAM *(*)(SSL_CTX *ctx))ssl_sw[40].ptr)
+#define SSL_CTX_set_session_cache_mode                                         \
+    (*(long (*)(SSL_CTX *, long))ssl_sw[41].ptr)
+#define SSL_CTX_sess_set_cache_size (*(long (*)(SSL_CTX *, long))ssl_sw[42].ptr)
+#define SSL_CTX_set_timeout (*(long (*)(SSL_CTX *, long))ssl_sw[43].ptr)
 
+#define SSL_CTX_clear_options(ctx, op)                                         \
+    SSL_CTX_ctrl((ctx), SSL_CTRL_CLEAR_OPTIONS, (op), NULL)
 #define SSL_CTX_set_ecdh_auto(ctx, onoff)                                      \
     SSL_CTX_ctrl(ctx, SSL_CTRL_SET_ECDH_AUTO, onoff, NULL)
 
@@ -2072,6 +2080,9 @@ static struct ssl_func ssl_sw[] = {{"SSL_free", NULL},
                                    {"SSL_ctrl", NULL},
                                    {"SSL_CTX_clear_options", NULL },
                                    {"SSL_CTX_get0_param", NULL},
+                                   {"SSL_CTX_set_session_cache_mode", NULL},
+                                   {"SSL_CTX_sess_set_cache_size", NULL},
+                                   {"SSL_CTX_set_timeout", NULL},
                                    {NULL, NULL}};
 
 
@@ -2154,6 +2165,11 @@ static struct ssl_func crypto_sw[] = {{"ERR_get_error", NULL},
     (*(const char *(*)(const SSL *, int type))ssl_sw[36].ptr)
 #define SSL_set_SSL_CTX (*(SSL_CTX * (*)(SSL *, SSL_CTX *)) ssl_sw[37].ptr)
 #define SSL_ctrl (*(long (*)(SSL *, int, long, void *))ssl_sw[38].ptr)
+#define SSL_CTX_set_session_cache_mode                                         \
+    (*(long (*)(SSL_CTX *, long))ssl_sw[39].ptr)
+#define SSL_CTX_sess_set_cache_size (*(long (*)(SSL_CTX *, long))ssl_sw[40].ptr)
+#define SSL_CTX_set_timeout (*(long (*)(SSL_CTX *, long))ssl_sw[41].ptr)
+
 
 #define SSL_CTX_set_options(ctx, op)                                           \
     SSL_CTX_ctrl((ctx), SSL_CTRL_OPTIONS, (op), NULL)
@@ -2285,6 +2301,9 @@ static struct ssl_func ssl_sw[] = {{"SSL_free", NULL},
                                    {"SSL_get_servername", NULL},
                                    {"SSL_set_SSL_CTX", NULL},
                                    {"SSL_ctrl", NULL},
+                                   {"SSL_CTX_set_session_cache_mode", NULL},
+                                   {"SSL_CTX_sess_set_cache_size", NULL},
+                                   {"SSL_CTX_set_timeout", NULL},
                                    /* for host name verification in OpenSSL 1.0.x only */
                                    {"SSL_get_ex_data_X509_STORE_CTX_idx", NULL},
                                    {NULL, NULL}};
@@ -2502,12 +2521,14 @@ enum {
     URL_REWRITE_PATTERN,
     HIDE_FILES,
     SSL_DO_VERIFY_PEER,
+    SSL_CACHE_TIMEOUT,
     SSL_CA_PATH,
     SSL_CA_FILE,
     SSL_VERIFY_DEPTH,
     SSL_DEFAULT_VERIFY_PATHS,
     SSL_CIPHER_LIST,
     SSL_PROTOCOL_VERSION,
+    SSL_MAX_PROTOCOL_VERSION,
     SSL_SHORT_TRUST,
 
 #if defined(USE_LUA)
@@ -2619,6 +2640,7 @@ static const struct mg_option config_options[] = {
     {"hide_files_patterns", MG_CONFIG_TYPE_EXT_PATTERN, NULL},
 
     {"ssl_verify_peer", MG_CONFIG_TYPE_YES_NO_OPTIONAL, "no"},
+    {"ssl_cache_timeout", MG_CONFIG_TYPE_NUMBER, "-1"},
 
     {"ssl_ca_path", MG_CONFIG_TYPE_DIRECTORY, NULL},
     {"ssl_ca_file", MG_CONFIG_TYPE_FILE, NULL},
@@ -2626,6 +2648,7 @@ static const struct mg_option config_options[] = {
     {"ssl_default_verify_paths", MG_CONFIG_TYPE_BOOLEAN, "yes"},
     {"ssl_cipher_list", MG_CONFIG_TYPE_STRING, NULL},
     {"ssl_protocol_version", MG_CONFIG_TYPE_NUMBER, "0"},
+    {"ssl_max_protocol_version", MG_CONFIG_TYPE_NUMBER, "0"},
     {"ssl_short_trust", MG_CONFIG_TYPE_BOOLEAN, "no"},
 
 #if defined(USE_LUA)
@@ -3787,15 +3810,18 @@ gmt_time_string(char *buf, size_t buf_len, time_t *t)
 
     tm = ((t != NULL) ? gmtime(t) : NULL);
     if (tm != NULL) {
+      strftime(buf, buf_len, "%a, %d %b %Y %H:%M:%S GMT", tm);
+    }
 #else
     struct tm _tm;
     struct tm *tm = &_tm;
 
     if (t != NULL) {
         gmtime_r(t, tm);
-#endif
         strftime(buf, buf_len, "%a, %d %b %Y %H:%M:%S GMT", tm);
-    } else {
+    }
+#endif
+    else {
         mg_strlcpy(buf, "Thu, 01 Jan 1970 00:00:00 GMT", buf_len);
         buf[buf_len - 1] = '\0';
     }
@@ -4447,22 +4473,23 @@ should_decode_url(const struct mg_connection *conn)
 }
 
 
-static const char *
+const char *
 suggest_connection_header(const struct mg_connection *conn)
 {
     return should_keep_alive(conn) ? "keep-alive" : "close";
 }
 
 
+const char* nocache_headers = "Cache-Control: no-cache, no-store, "
+  "must-revalidate, private, max-age=0\r\n"
+  "Pragma: no-cache\r\n"
+  "Expires: 0\r\n";
+
 static int
 send_no_cache_header(struct mg_connection *conn)
 {
     /* Send all current and obsolete cache opt-out directives. */
-    return mg_printf(conn,
-                     "Cache-Control: no-cache, no-store, "
-                     "must-revalidate, private, max-age=0\r\n"
-                     "Pragma: no-cache\r\n"
-                     "Expires: 0\r\n");
+    return mg_printf(conn, "%s", nocache_headers);
 }
 
 
@@ -7401,7 +7428,6 @@ mg_get_cookie(const char *cookie_header,
 }
 
 
-#if defined(USE_WEBSOCKET) || defined(USE_LUA)
 static void
 base64_encode(const unsigned char *src, int src_len, char *dst)
 {
@@ -7428,10 +7454,8 @@ base64_encode(const unsigned char *src, int src_len, char *dst)
     }
     dst[j++] = '\0';
 }
-#endif
 
 
-#if defined(USE_LUA)
 static unsigned char
 b64reverse(char letter)
 {
@@ -7496,7 +7520,6 @@ base64_decode(const unsigned char *src, int src_len, char *dst, size_t *dst_len)
     }
     return -1;
 }
-#endif
 
 
 static int
@@ -8374,16 +8397,36 @@ mg_md5(char buf[33], ...)
 }
 
 
-/* Check the user's password, return 1 if OK */
+
+/* Check the basic auth, return 1 if OK */
 static int
-check_password(const char *method,
-               const char *ha1,
-               const char *uri,
-               const char *nonce,
-               const char *nc,
-               const char *cnonce,
-               const char *qop,
-               const char *response)
+check_basic(const char *ha1,
+            const char *user,
+            const char *domain,
+            const char *password)
+{
+  char expected_response[32 + 1];
+
+  /* Some of the parameters may be NULL */
+  if ((ha1 == NULL) || (user == NULL) || (domain == NULL) || (password == NULL)) {
+      return 0;
+  }
+  /* construct ha1 from basic auth's plain user/pw and domain */
+  mg_md5(expected_response, user, ":", domain, ":", password, NULL);
+  return mg_strcasecmp(ha1, expected_response) == 0;
+}
+
+
+/* Check the digest auth, return 1 if OK */
+static int
+check_digest(const char *method,
+             const char *ha1,
+             const char *uri,
+             const char *nonce,
+             const char *nc,
+             const char *cnonce,
+             const char *qop,
+             const char *response)
 {
     char ha2[32 + 1], expected_response[32 + 1];
 
@@ -8495,32 +8538,53 @@ open_auth_file(struct mg_connection *conn,
 
 
 /* Parsed Authorization header */
-struct ah {
+struct ahdr {
     char *user, *uri, *cnonce, *response, *qop, *nc, *nonce;
 };
 
 
-/* Return 1 on success. Always initializes the ah structure. */
+/* Return 1 on success. Always initializes the ahdr structure. */
 static int
 parse_auth_header(struct mg_connection *conn,
                   char *buf,
                   size_t buf_size,
-                  struct ah *ah)
+                  struct ahdr *ahdr)
 {
     char *name, *value, *s;
     const char *auth_header;
     uint64_t nonce;
+    size_t n, l;
 
-    if (!ah || !conn) {
+    if (!ahdr || !conn) {
         return 0;
     }
 
-    (void)memset(ah, 0, sizeof(*ah));
-    if (((auth_header = mg_get_header(conn, "Authorization")) == NULL)
-        || mg_strncasecmp(auth_header, "Digest ", 7) != 0) {
+    (void)memset(ahdr, 0, sizeof(*ahdr));
+    if ((auth_header = mg_get_header(conn, "Authorization")) == NULL) {
+        return 0; /* no auth provided */
+    }
+    if (mg_strncasecmp(auth_header, "Basic ", 6) == 0) {
+        /* basic auth provided */
+        n = strlen(auth_header)-6;
+        if (n*2/3 > buf_size) return 0; /* buffer too small to decode */
+        /* auth   = base64(<user>:<password>) with +/ and padding */
+        base64_decode((unsigned char *)auth_header+6, (int)n, buf, &l);
+        if (l<3) {
+          return 0; /* impossible, minimum is: 1 char user, 1 colon, 1 char pw */
+        }
+        buf[l] = '\0';
+        if ((s = strchr(buf, ':')) == NULL) {
+            return 0; /* no user pw separator, invalid */
+        }
+        *s++ = '\0';
+        ahdr->user = buf; /* username */
+        ahdr->response = s; /* password */
+        return 1;
+    }
+    if (mg_strncasecmp(auth_header, "Digest ", 7) != 0) {
+        /* no known auth provided */
         return 0;
     }
-
     /* Make modifiable copy of the auth header */
     (void)mg_strlcpy(buf, auth_header + 7, buf_size);
     s = buf;
@@ -8549,29 +8613,29 @@ parse_auth_header(struct mg_connection *conn,
         }
 
         if (!strcmp(name, "username")) {
-            ah->user = value;
+          ahdr->user = value;
         } else if (!strcmp(name, "cnonce")) {
-            ah->cnonce = value;
+          ahdr->cnonce = value;
         } else if (!strcmp(name, "response")) {
-            ah->response = value;
+          ahdr->response = value;
         } else if (!strcmp(name, "uri")) {
-            ah->uri = value;
+          ahdr->uri = value;
         } else if (!strcmp(name, "qop")) {
-            ah->qop = value;
+          ahdr->qop = value;
         } else if (!strcmp(name, "nc")) {
-            ah->nc = value;
+          ahdr->nc = value;
         } else if (!strcmp(name, "nonce")) {
-            ah->nonce = value;
+          ahdr->nonce = value;
         }
     }
 
 #if !defined(NO_NONCE_CHECK)
     /* Read the nonce from the response. */
-    if (ah->nonce == NULL) {
+    if (ahdr->nonce == NULL) {
         return 0;
     }
     s = NULL;
-    nonce = strtoull(ah->nonce, &s, 10);
+    nonce = strtoull(ahdr->nonce, &s, 10);
     if ((s == NULL) || (*s != 0)) {
         return 0;
     }
@@ -8603,9 +8667,9 @@ parse_auth_header(struct mg_connection *conn,
 #endif
 
     /* CGI needs it as REMOTE_USER */
-    if (ah->user != NULL) {
+    if (ahdr->user != NULL) {
         conn->request_info.remote_user =
-            mg_strdup_ctx(ah->user, conn->phys_ctx);
+            mg_strdup_ctx(ahdr->user, conn->phys_ctx);
     } else {
         return 0;
     }
@@ -8668,7 +8732,7 @@ mg_fgets(char *buf, size_t size, struct mg_file *filep, char **p)
 #if !defined(NO_FILESYSTEMS)
 struct read_auth_file_struct {
     struct mg_connection *conn;
-    struct ah ah;
+    struct ahdr ahdr;
     const char *domain;
     char buf[256 + 256 + 40];
     const char *f_user;
@@ -8773,16 +8837,26 @@ read_auth_file(struct mg_file *filep,
         *(char *)(workdata->f_ha1) = 0;
         (workdata->f_ha1)++;
 
-        if (!strcmp(workdata->ah.user, workdata->f_user)
+        if (!strcmp(workdata->ahdr.user, workdata->f_user)
             && !strcmp(workdata->domain, workdata->f_domain)) {
-            return check_password(workdata->conn->request_info.request_method,
-                                  workdata->f_ha1,
-                                  workdata->ah.uri,
-                                  workdata->ah.nonce,
-                                  workdata->ah.nc,
-                                  workdata->ah.cnonce,
-                                  workdata->ah.qop,
-                                  workdata->ah.response);
+            if (workdata->ahdr.nonce==NULL) {
+                /* basic auth */
+                return check_basic(workdata->f_ha1,
+                                   workdata->f_user,
+                                   workdata->f_domain,
+                                   workdata->ahdr.response);
+            }
+            else {
+                /* digest auth */
+                return check_digest(workdata->conn->request_info.request_method,
+                                    workdata->f_ha1,
+                                    workdata->ahdr.uri,
+                                    workdata->ahdr.nonce,
+                                    workdata->ahdr.nc,
+                                    workdata->ahdr.cnonce,
+                                    workdata->ahdr.qop,
+                                    workdata->ahdr.response);
+            }
         }
     }
 
@@ -8804,7 +8878,7 @@ authorize(struct mg_connection *conn, struct mg_file *filep, const char *realm)
     memset(&workdata, 0, sizeof(workdata));
     workdata.conn = conn;
 
-    if (!parse_auth_header(conn, buf, sizeof(buf), &workdata.ah)) {
+    if (!parse_auth_header(conn, buf, sizeof(buf), &workdata.ahdr)) {
         return 0;
     }
 
@@ -8820,7 +8894,7 @@ authorize(struct mg_connection *conn, struct mg_file *filep, const char *realm)
 
 /* Public function to check http digest authentication header */
 int
-mg_check_digest_access_authentication(struct mg_connection *conn,
+mg_check_access_authentication(struct mg_connection *conn,
                                       const char *realm,
                                       const char *filename)
 {
@@ -8938,8 +9012,23 @@ send_authorization_request(struct mg_connection *conn, const char *realm)
 }
 
 
-/* Interface function. Parameters are provided by the user, so do
- * at least some basic checks.
+
+/* Interface function version of check_authorization().
+ * Parameters are provided by the user, so do at least some basic checks.
+ */
+int
+mg_check_path_authorization(struct mg_connection *conn, const char *path)
+{
+    if (conn && conn->dom_ctx) {
+        return check_authorization(conn, path);
+    }
+    return -1;
+}
+
+
+
+/* Interface function version of send_authorization_request().
+ * Parameters are provided by the user, so do at least some basic checks.
  */
 int
 mg_send_digest_access_authentication_request(struct mg_connection *conn,
@@ -9208,8 +9297,9 @@ connect_socket(struct mg_context *ctx /* may be NULL */,
         sa->sin.sin_family = AF_INET;
         sa->sin.sin_port = htons((uint16_t)port);
         ip_ver = 4;
+    }
 #if defined(USE_IPV6)
-    } else if (mg_inet_pton(AF_INET6, host, &sa->sin6, sizeof(sa->sin6))) {
+    else if (mg_inet_pton(AF_INET6, host, &sa->sin6, sizeof(sa->sin6))) {
         sa->sin6.sin6_family = AF_INET6;
         sa->sin6.sin6_port = htons((uint16_t)port);
         ip_ver = 6;
@@ -9227,8 +9317,8 @@ connect_socket(struct mg_context *ctx /* may be NULL */,
             }
             mg_free(h);
         }
-#endif
     }
+#endif
 
     if (ip_ver == 0) {
         mg_snprintf(NULL,
@@ -9293,10 +9383,11 @@ connect_socket(struct mg_context *ctx /* may be NULL */,
     }
 
 #if defined(_WIN32)
-    if ((conn_ret != 0) && (sockerr == WSAEWOULDBLOCK)) {
+    if ((conn_ret != 0) && (sockerr == WSAEWOULDBLOCK))
 #else
-    if ((conn_ret != 0) && (sockerr == EINPROGRESS)) {
+    if ((conn_ret != 0) && (sockerr == EINPROGRESS))
 #endif
+    {
         /* Data for getsockopt */
         void *psockerr = &sockerr;
         int ret;
@@ -16170,21 +16261,22 @@ ssl_use_pem_file(struct mg_context *phys_ctx,
 
 #if defined(OPENSSL_API_1_1)
 static unsigned long
-ssl_get_protocol(int version_id)
+ssl_get_protocol(int version_id, int max_version_id)
 {
+    if (max_version_id==0) max_version_id=9999; /* no upper limit, simplify comparisons below */
     long unsigned ret = (long unsigned)SSL_OP_ALL;
     if (version_id > 0)
         ret |= SSL_OP_NO_SSLv2;
-    if (version_id > 1)
+    if (version_id > 1 || max_version_id < 1)
         ret |= SSL_OP_NO_SSLv3;
-    if (version_id > 2)
+    if (version_id > 2 || max_version_id < 2)
         ret |= SSL_OP_NO_TLSv1;
-    if (version_id > 3)
+    if (version_id > 3 || max_version_id < 3)
         ret |= SSL_OP_NO_TLSv1_1;
-    if (version_id > 4)
+    if (version_id > 4 || max_version_id < 4)
         ret |= SSL_OP_NO_TLSv1_2;
 #if defined(SSL_OP_NO_TLSv1_3)
-    if (version_id > 5)
+    if (version_id > 5 || max_version_id < 5)
         ret |= SSL_OP_NO_TLSv1_3;
 #endif
     return ret;
@@ -16322,6 +16414,8 @@ init_ssl_ctx_impl(struct mg_context *phys_ctx,
     md5_byte_t ssl_context_id[16];
     md5_state_t md5state;
     int protocol_ver;
+    int max_protocol_ver;
+    int ssl_cache_timeout;
 
 #if defined(OPENSSL_API_1_1)
     if ((dom_ctx->ssl_ctx = SSL_CTX_new(TLS_server_method())) == NULL) {
@@ -16343,7 +16437,8 @@ init_ssl_ctx_impl(struct mg_context *phys_ctx,
                           SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3 | SSL_OP_NO_TLSv1
                               | SSL_OP_NO_TLSv1_1);
     protocol_ver = atoi(dom_ctx->config[SSL_PROTOCOL_VERSION]);
-    SSL_CTX_set_options(dom_ctx->ssl_ctx, ssl_get_protocol(protocol_ver));
+    max_protocol_ver = atoi(dom_ctx->config[SSL_MAX_PROTOCOL_VERSION]);
+    SSL_CTX_set_options(dom_ctx->ssl_ctx, ssl_get_protocol(protocol_ver, max_protocol_ver));
     SSL_CTX_set_options(dom_ctx->ssl_ctx, SSL_OP_SINGLE_DH_USE);
     SSL_CTX_set_options(dom_ctx->ssl_ctx, SSL_OP_CIPHER_SERVER_PREFERENCE);
     SSL_CTX_set_options(dom_ctx->ssl_ctx,
@@ -16515,6 +16610,16 @@ init_ssl_ctx_impl(struct mg_context *phys_ctx,
         }
     }
 
+    /* SSL session caching */
+    ssl_cache_timeout = ((dom_ctx->config[SSL_CACHE_TIMEOUT] != NULL)
+                             ? atoi(dom_ctx->config[SSL_CACHE_TIMEOUT])
+                             : 0);
+    if (ssl_cache_timeout > 0) {
+        SSL_CTX_set_session_cache_mode(dom_ctx->ssl_ctx, SSL_SESS_CACHE_BOTH);
+        /* SSL_CTX_sess_set_cache_size(dom_ctx->ssl_ctx, 10000);  ... use default */
+        SSL_CTX_set_timeout(dom_ctx->ssl_ctx, (long)ssl_cache_timeout);
+    }
+
     return 1;
 }
 
@@ -16552,11 +16657,14 @@ init_ssl_ctx(struct mg_context *phys_ctx, struct mg_domain_context *dom_ctx)
                                                     phys_ctx->user_data));
 
     if (callback_ret < 0) {
+        /* Callback exists and returns <0: Initializing failed. */
         mg_cry_ctx_internal(phys_ctx,
                             "external_ssl_ctx callback returned error: %i",
                             callback_ret);
         return 0;
     } else if (callback_ret > 0) {
+        /* Callback exists and returns >0: Initializing complete,
+         * civetweb should not modify the SSL context. */
         dom_ctx->ssl_ctx = (SSL_CTX *)ssl_ctx;
         if (!initialize_ssl(ebuf, sizeof(ebuf))) {
             mg_cry_ctx_internal(phys_ctx, "%s", ebuf);
@@ -16564,8 +16672,10 @@ init_ssl_ctx(struct mg_context *phys_ctx, struct mg_domain_context *dom_ctx)
         }
         return 1;
     }
+    /* If the callback does not exist or return 0, civetweb must initialize
+     * the SSL context. Handle "domain" callback next. */
 
-    /* Check for external domain SSL_CTX */
+    /* Check for external domain SSL_CTX callback. */
     callback_ret = (phys_ctx->callbacks.external_ssl_ctx_domain == NULL)
                        ? 0
                        : (phys_ctx->callbacks.external_ssl_ctx_domain(
@@ -16574,12 +16684,14 @@ init_ssl_ctx(struct mg_context *phys_ctx, struct mg_domain_context *dom_ctx)
                              phys_ctx->user_data));
 
     if (callback_ret < 0) {
+        /* Callback < 0: Error. Abort init. */
         mg_cry_ctx_internal(
             phys_ctx,
             "external_ssl_ctx_domain callback returned error: %i",
             callback_ret);
         return 0;
     } else if (callback_ret > 0) {
+        /* Callback > 0: Consider init done. */
         dom_ctx->ssl_ctx = (SSL_CTX *)ssl_ctx;
         if (!initialize_ssl(ebuf, sizeof(ebuf))) {
             mg_cry_ctx_internal(phys_ctx, "%s", ebuf);
@@ -16604,11 +16716,14 @@ init_ssl_ctx(struct mg_context *phys_ctx, struct mg_domain_context *dom_ctx)
         return 0;
     }
 
+    /* If a certificate chain is configured, use it. */
     chain = dom_ctx->config[SSL_CERTIFICATE_CHAIN];
     if (chain == NULL) {
+        /* Default: certificate chain in PEM file */
         chain = pem;
     }
     if ((chain != NULL) && (*chain == 0)) {
+        /* If the chain is an empty string, don't use it. */
         chain = NULL;
     }
 
@@ -18065,8 +18180,17 @@ static int parse_wwwauth_header(struct mg_connection *conn, struct wah **wahP) {
     size_t bl;
 
     if (!wahP) return 0;
-    if ((wwwauth_header = mg_get_header(conn, "WWW-Authenticate")) == NULL ||
-            mg_strncasecmp(wwwauth_header, "Digest ", 7) != 0) {
+    if ((wwwauth_header = mg_get_header(conn, "WWW-Authenticate")) == NULL) {
+        return 0; /* no auth requested */
+    }
+    if (mg_strncasecmp(wwwauth_header, "Basic ", 6) == 0) {
+        /* basic auth requested */
+        if (*wahP) mg_free(*wahP);
+        *wahP = NULL; /* returning no wah and 1 means basic auth is requested */
+        return 1;
+    }
+    if (mg_strncasecmp(wwwauth_header, "Digest ", 7) != 0) {
+        /* no known auth requested, fail */
         return 0;
     }
     if (*wahP) mg_free(*wahP);
@@ -18180,60 +18304,84 @@ int create_authorization_header(struct wah *wah,
     char nc[12];
     char cnonce[12];
     size_t n;
+    char *bauthbuf;
 
-    if (
-        !uri || !method || !username || !password ||
-        !wah->realm || !wah->nonce || !wah->qop || mg_strcasestr(wah->qop, "auth")==0
-    ) {
-        return 0;
+    if (!uri || !method || !username || !password) {
+        return 0; // no auth possible
     }
-
-    sprintf(cnonce, "%ld", (unsigned long) time(NULL));
-    wah->nc++;
-    sprintf(nc, "%08X", wah->nc);
-
-    mg_md5(ha1, username, ":", wah->realm, ":", password, NULL);
-    mg_md5(ha2, method, ":", uri, NULL);
-    mg_md5(response, ha1, ":", wah->nonce, ":", nc,
-                 ":", cnonce, ":", wah->qop, ":", ha2, NULL);
-
-    mg_snprintf(NULL, NULL, buf, buf_size,
-        "Authorization: Digest"
-        " username=\"%s\""
-        ", realm=\"%s\""
-        ", nonce=\"%s\""
-        ", uri=\"%s\""
-        ", response=\"%s\""
-        ", algorithm=\"MD5\""
-        ", cnonce=\"%s\""
-        ", nc=%s"
-        ", qop=\"auth\"", /*  regardless of what server requests, we just support this */
-        username,
-        wah->realm,
-        wah->nonce,
-        uri,
-        response,
-        cnonce,
-        nc
-    );
-    n = strlen(buf);
-    if (wah->opaque) {
-        mg_snprintf(NULL, NULL, buf+n, buf_size-n, ", opaque=\"%s\"", wah->opaque);
+    if (!wah) {
+        /* basic auth requested
+         * Authorization: Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ==
+         * auth   = base64(<user>:<password>) with +/ and padding
+         * header = Authorization: Basic <auth>
+         *          012345678901234567890 = 21 chars
+         */
+        n = strlen(username) + strlen(password) + 2; // username+password+:+terminator
+        if (buf_size < n*3/2+2+21+2+1) { // B64 makes 3 bytes out of 2, max 2 padding, prefix is 21, CRLF is 2, 1 terminator
+            return 0; // buffer too small, cannot auth
+        }
+        bauthbuf = mg_malloc(n);
+        sprintf(buf, "Authorization: Basic ");
+        sprintf(bauthbuf, "%s:%s", username, password);
         n = strlen(buf);
+        base64_encode((unsigned char*)bauthbuf, (int)strlen(bauthbuf), buf+n);
+        mg_free(bauthbuf);
+        n = strlen(buf);
+        mg_snprintf(NULL, NULL, buf+n, buf_size-n, "\r\n");
     }
-    mg_snprintf(NULL, NULL, buf+n, buf_size-n, "\r\n");
+    else {
+        /* digest auth requested */
+        if (
+            !uri || !method || !username || !password ||
+            !wah->realm || !wah->nonce || !wah->qop || mg_strcasestr(wah->qop, "auth")==0
+        ) {
+            return 0;
+        }
+
+        sprintf(cnonce, "%ld", (unsigned long) time(NULL));
+        wah->nc++;
+        sprintf(nc, "%08X", wah->nc);
+
+        mg_md5(ha1, username, ":", wah->realm, ":", password, NULL);
+        mg_md5(ha2, method, ":", uri, NULL);
+        mg_md5(response, ha1, ":", wah->nonce, ":", nc,
+                     ":", cnonce, ":", wah->qop, ":", ha2, NULL);
+
+        mg_snprintf(NULL, NULL, buf, buf_size,
+            "Authorization: Digest"
+            " username=\"%s\""
+            ", realm=\"%s\""
+            ", nonce=\"%s\""
+            ", uri=\"%s\""
+            ", response=\"%s\""
+            ", algorithm=\"MD5\""
+            ", cnonce=\"%s\""
+            ", nc=%s"
+            ", qop=\"auth\"", /*  regardless of what server requests, we just support this */
+            username,
+            wah->realm,
+            wah->nonce,
+            uri,
+            response,
+            cnonce,
+            nc
+        );
+        n = strlen(buf);
+        if (wah->opaque) {
+            mg_snprintf(NULL, NULL, buf+n, buf_size-n, ", opaque=\"%s\"", wah->opaque);
+            n = strlen(buf);
+        }
+        mg_snprintf(NULL, NULL, buf+n, buf_size-n, "\r\n");
+    }
     return 1;
 }
-
-
-
 
 
 struct mg_connection *
 mg_download_secure(const struct mg_client_options *client_options,
                    int use_ssl,
                    const char *method, const char *requesturi,
-                   const char *username, const char *password, void **opaqueauthP,
+                   const char *username, const char *password, void **opaqueauthP, int allowbasicauth,
                    char *ebuf, size_t ebuf_len,
                    const char *fmt, ...)
 {
@@ -18257,6 +18405,11 @@ mg_download_secure(const struct mg_client_options *client_options,
         if (!authorization) authorization = mg_malloc(MG_BUF_LEN);
         create_authorization_header(wah, requesturi, method, username, password, authorization, MG_BUF_LEN);
         reused_auth = 1;
+    }
+    else if (allowbasicauth>=2) {
+        /* allowbasicauth==2 means: always try basic first - INSECURE on non-SSL connections, but required by some IoT stuff */
+        if (!authorization) authorization = mg_malloc(MG_BUF_LEN);
+        create_authorization_header(NULL, requesturi, method, username, password, authorization, MG_BUF_LEN);
     }
     while (1) {
         ebuf[0] = '\0';
@@ -18286,6 +18439,13 @@ mg_download_secure(const struct mg_client_options *client_options,
             if (conn->response_info.status_code==401 && username && password && (!authorization || reused_auth)) {
                 /*  401 and we have user/pw and we haven't tried auth yet */
                 if (parse_wwwauth_header(conn, &wah)) {
+                    if (!wah && allowbasicauth<1) {
+                        /* server requests basic auth (wah==0), but we do not allow it (0=never, 1=on server's request, 2=always) */
+                        mg_snprintf(conn, NULL, ebuf, ebuf_len, "Server requests basic auth but we do not allow it");
+                        mg_close_connection(conn);
+                        conn = NULL;
+                        break;
+                    }
                     mg_close_connection(conn);
                     conn = NULL;
                     if (!authorization) authorization = mg_malloc(MG_BUF_LEN);
@@ -18558,6 +18718,7 @@ init_connection(struct mg_connection *conn)
      * goes to crule42. */
     conn->data_len = 0;
     conn->handled_requests = 0;
+    conn->connection_type = CONNECTION_TYPE_INVALID;
     conn->client_timeout = -1; // none, use default for context
     mg_set_user_connection_data(conn, NULL);
 
@@ -18696,7 +18857,7 @@ process_new_connection(struct mg_connection *conn)
                               conn->num_bytes_sent);
 #endif
 
-                DEBUG_TRACE("%s", "handle_request done");
+                  DEBUG_TRACE("%s", "handle_request done");
 
                 if (conn->phys_ctx->callbacks.end_request != NULL) {
                     conn->phys_ctx->callbacks.end_request(conn,
@@ -19257,8 +19418,9 @@ master_thread_run(struct mg_context *ctx)
         tls.user_ptr = NULL;
     }
 
-    /* Server starts *now* */
-    ctx->start_time = time(NULL);
+    /* Server starts now, but as it might not have correct real time right now
+       we wait defining the start time until the first connection is accepted */
+    ctx->start_time = 0;
 
     /* Start the server */
     pfd = ctx->listening_socket_fds;
@@ -19276,6 +19438,8 @@ master_thread_run(struct mg_context *ctx)
                  * Therefore, we're checking pfd[i].revents & POLLIN, not
                  * pfd[i].revents == POLLIN. */
                 if ((ctx->stop_flag == 0) && (pfd[i].revents & POLLIN)) {
+                    /* define start time *now* if it is not set yet */
+                    if (ctx->start_time==0) ctx->start_time = time(NULL);
                     accept_new_connection(&ctx->listening_sockets[i], ctx);
                 }
             }

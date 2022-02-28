@@ -28,9 +28,14 @@
 #include <vector>
 #include <map>
 
+// derived definitions
 #ifdef ESP_PLATFORM
   #define BOOST_NO_EXCEPTIONS
   #include <boost/throw_exception.hpp>
+#endif
+#if ENABLE_UWSC
+  // libuwsc (websockets) needs libev based main loop
+  #define MAINLOOP_LIBEV_BASED 1
 #endif
 
 #include <boost/intrusive_ptr.hpp>
@@ -47,6 +52,7 @@
   #define __printflike_template(...) __printflike(__VA_ARGS__)
 #endif
 
+#include "p44utils_defs.hpp"
 #include "p44obj.hpp"
 #include "logger.hpp"
 #include "utils.hpp"

@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2014-2019 plan44.ch / Lukas Zeller, Zurich, Switzerland
+//  Copyright (c) 2014-2022 plan44.ch / Lukas Zeller, Zurich, Switzerland
 //
 //  Author: Lukas Zeller <luz@plan44.ch>
 //
@@ -23,23 +23,48 @@
 #define __p44utils__analogio__
 
 #include "p44utils_common.hpp"
-#include "colorutils.hpp"
+
+#ifndef ENABLE_ANALOGIO_COLOR_SUPPORT
+  #define ENABLE_ANALOGIO_COLOR_SUPPORT 1
+#endif
+#if ENABLE_ANALOGIO_COLOR_SUPPORT
+  #include "colorutils.hpp"
+#endif
+
+#if ENABLE_P44SCRIPT && !defined(ENABLE_ANALOGIO_SCRIPT_FUNCS)
+  #define ENABLE_ANALOGIO_SCRIPT_FUNCS 1
+#endif
+
+#if ENABLE_ANALOGIO_SCRIPT_FUNCS
+  #include "p44script.hpp"
+#endif
+
+
 
 #include "iopin.hpp"
 #include "valueanimator.hpp"
+#include "extutils.hpp"
 
 using namespace std;
 
 namespace p44 {
 
   /// Generic analog I/O
-  class AnalogIo : public P44Obj
+  class AnalogIo :
+    public P44Obj
+    #if ENABLE_ANALOGIO_SCRIPT_FUNCS  && ENABLE_P44SCRIPT
+    , public P44Script::EventSource
+    #endif
   {
-    AnalogIOPinPtr ioPin; ///< the actual hardware interface to the pin
+    AnalogIOPinPtr mIoPin; ///< the actual hardware interface to the pin
 
-    string pinspec;
-    bool output;
-    
+    string mPinSpec;
+    bool mOutput;
+    double mLastValue;
+    MLTicket mAutoPollTicket;
+    WindowEvaluatorPtr mWindowEvaluator;
+    bool mUpdating;
+
   public:
     /// Create general purpose analog I/O, such as PWM or D/A output, or A/D input
     /// @param aPinSpec specification of the IO; form is usually [busX.device.]pin
@@ -66,14 +91,24 @@ namespace p44 {
     virtual ~AnalogIo();
 
     /// get name
-    string getName() { return pinspec.c_str(); };
+    string getName() { return mPinSpec.c_str(); };
 
     /// check for output
-    bool isOutput() { return output; };
+    bool isOutput() { return mOutput; };
 
-    /// get state of GPIO
-    /// @return current value (from actual pin for inputs, from last set value for outputs)
+    /// get state of analog input
+    /// @return current raw value (from actual pin for inputs, from last set value for outputs)
+    /// @note if processing is enabled, calling value() adds a sample to the processing
     double value();
+
+    /// @return most recently sampled raw value, without actually triggering a sample
+    /// @note initially, returns the initial value set at creation
+    double lastValue();
+
+    /// @return processed value (is same as lastValue() when no averaging is set with setFilter())
+    /// @note when autopoll is enabled, this will not actually read a new value from hardware, but rely on autopoll to
+    ///    updated the value processor. If autopoll is not active, a new sample will be taken before returning the processed value
+    double processedValue();
 
     /// set state of output (NOP for inputs)
     /// @param aValue new state to set output to
@@ -89,9 +124,35 @@ namespace p44 {
     /// get value setter for animations
     ValueSetterCB getValueSetter(double& aCurrentValue);
 
+    /// get animator
+    ValueAnimatorPtr animator();
+
+    /// setup automatic polling
+    /// @param aPollInterval if set to <=0, polling will stop
+    /// @param aTolerance timing tolerance
+    /// @note every poll cycle generates an event in the EventSource
+    void setAutopoll(MLMicroSeconds aPollInterval, MLMicroSeconds aTolerance = 0);
+
+    /// setup value filtering
+    /// @param aEvalType the type of filtering to perform
+    /// @param aWindowTime width (timespan) of evaluation window
+    /// @param aDataPointCollTime within that timespan, new values reported will be collected into a single datapoint
+    void setFilter(WinEvalMode aEvalType, MLMicroSeconds aWindowTime, MLMicroSeconds aDataPointCollTime);
+
+    #if ENABLE_ANALOGIO_SCRIPT_FUNCS && ENABLE_P44SCRIPT
+    /// get a analog input value object. This is also what is sent to event sinks
+    P44Script::ScriptObjPtr getValueObj();
+    #endif
+
+  private:
+
+    void pollhandler(MLMicroSeconds aPollInterval, MLMicroSeconds aTolerance, MLTimer &aTimer);
+
   };
   typedef boost::intrusive_ptr<AnalogIo> AnalogIoPtr;
 
+
+  #if ENABLE_ANALOGIO_COLOR_SUPPORT
 
   /// Analog color output (RGB, RGBW, RGBWA)
   class AnalogColorOutput : public P44Obj
@@ -147,6 +208,10 @@ namespace p44 {
     /// @param aComponent name of the color component: "r", "g", "b", "hue", "saturation", "brightness"
     ValueSetterCB getColorComponentSetter(const string aComponent, double& aCurrentValue);
 
+    /// get animator for a component
+    /// @param aComponent name of the color component: "r", "g", "b", "hue", "saturation", "brightness"
+    ValueAnimatorPtr animatorFor(const string aComponent);
+
   private:
 
     void outputHSV();
@@ -159,7 +224,71 @@ namespace p44 {
   };
   typedef boost::intrusive_ptr<AnalogColorOutput> AnalogColorOutputPtr;
 
-  
+  #endif // ENABLE_ANALOGIO_COLOR_SUPPORT
+
+  #if ENABLE_ANALOGIO_SCRIPT_FUNCS  && ENABLE_P44SCRIPT
+
+  namespace P44Script {
+
+    class AnalogIoObj;
+
+    /// represents a sampled value from an analog input
+    class AnalogInputEventObj : public NumericValue
+    {
+      typedef NumericValue inherited;
+      AnalogIoPtr mAnalogIo;
+    public:
+      AnalogInputEventObj(AnalogIoPtr aAnalogIo);
+      virtual void deactivate() P44_OVERRIDE;
+      virtual string getAnnotation() const P44_OVERRIDE;
+      virtual TypeInfo getTypeInfo() const P44_OVERRIDE;
+      virtual EventSource *eventSource() const P44_OVERRIDE;
+    };
+
+
+    /// represents an analog I/O
+    class AnalogIoObj : public StructuredLookupObject
+    {
+      typedef StructuredLookupObject inherited;
+      AnalogIoPtr mAnalogIo;
+    public:
+      AnalogIoObj(AnalogIoPtr aAnalogIo);
+      virtual string getAnnotation() const P44_OVERRIDE { return "analogIO"; };
+      AnalogIoPtr analogIo() { return mAnalogIo; }
+
+      /// factory method to get an AnalogIo either by creating it from pinspec
+      /// string or by using existing AnalogIoObj passed
+      static AnalogIoPtr analogIoFromArg(ScriptObjPtr aArg, bool aOutput, double aInitialValue);
+    };
+
+
+    #if ENABLE_ANALOGIO_COLOR_SUPPORT
+
+    /// represents an analog color light output
+    class AnalogColorOutputObj : public StructuredLookupObject
+    {
+      typedef StructuredLookupObject inherited;
+      AnalogColorOutputPtr mColorOutput;
+    public:
+      AnalogColorOutputObj(AnalogColorOutputPtr aColorOutput);
+      virtual string getAnnotation() const P44_OVERRIDE { return "color output"; };
+      AnalogColorOutputPtr colorOutput() { return mColorOutput; }
+    };
+
+    #endif // ENABLE_ANALOGIO_COLOR_SUPPORT
+
+    /// represents the global objects related to analogio
+    class AnalogIoLookup : public BuiltInMemberLookup
+    {
+      typedef BuiltInMemberLookup inherited;
+    public:
+      AnalogIoLookup();
+    };
+
+  }
+
+  #endif // ENABLE_ANALOGIO_SCRIPT_FUNCS  && ENABLE_P44SCRIPT
+
 } // namespace p44
 
 #endif /* defined(__p44utils__analogio__) */

@@ -26,6 +26,18 @@
 
 #include "iopin.hpp"
 
+#if ENABLE_P44SCRIPT && !defined(ENABLE_I2C_SCRIPT_FUNCS)
+  #define ENABLE_I2C_SCRIPT_FUNCS 1
+#endif
+#if ENABLE_I2C_SCRIPT_FUNCS && !ENABLE_P44SCRIPT
+  #error "ENABLE_P44SCRIPT required when ENABLE_I2C_SCRIPT_FUNCS is set"
+#endif
+
+#if ENABLE_I2C_SCRIPT_FUNCS
+  #include "p44script.hpp"
+#endif
+
+
 using namespace std;
 
 namespace p44 {
@@ -33,9 +45,21 @@ namespace p44 {
   class I2CManager;
   class I2CBus;
 
+  #if ENABLE_I2C_SCRIPT_FUNCS
+  namespace P44Script {
+    class I2CDeviceObj;
+    typedef boost::intrusive_ptr<I2CDeviceObj> I2CDeviceObjPtr;
+  }
+  #endif
+
+
   class I2CDevice : public P44Obj
   {
     friend class I2CBus;
+
+    #if ENABLE_I2C_SCRIPT_FUNCS
+    P44Script::I2CDeviceObjPtr mRepresentingObj; ///< the (singleton) ScriptObj representing this i2c device
+    #endif
 
   protected:
 
@@ -60,6 +84,11 @@ namespace p44 {
     /// @param aDeviceAddress slave address of the device
     /// @param aBusP I2CBus object
     I2CDevice(uint8_t aDeviceAddress, I2CBus *aBusP, const char *aDeviceOptions);
+
+    #if ENABLE_I2C_SCRIPT_FUNCS
+    /// @return a singleton script object, representing this i2c device
+    P44Script::I2CDeviceObjPtr representingScriptObj();
+    #endif
 
   };
   typedef boost::intrusive_ptr<I2CDevice> I2CDevicePtr;
@@ -113,7 +142,7 @@ namespace p44 {
     /// @return true if successful
     bool SMBusReadWord(I2CDevice *aDeviceP, uint8_t aRegister, uint16_t &aWord, bool aMSBFirst = false);
 
-    /// SMBus read byte/word/block
+    /// SMBus read block
     /// @param aDeviceP device to access
     /// @param aRegister register/command to access
     /// @param aCount number of bytes
@@ -515,6 +544,34 @@ namespace p44 {
   };
 
 
+  #if ENABLE_I2C_SCRIPT_FUNCS
+  namespace P44Script {
+
+    /// represents a i2c device
+    class I2CDeviceObj : public StructuredLookupObject
+    {
+      typedef StructuredLookupObject inherited;
+      friend class p44::I2CDevice;
+
+      I2CDevicePtr mI2CDevice;
+    public:
+      I2CDeviceObj(I2CDevicePtr aI2CDevice);
+      virtual string getAnnotation() const P44_OVERRIDE { return "i2c device"; };
+      I2CDevicePtr i2cdevice() { return mI2CDevice; }
+    };
+
+    /// represents the global objects related to i2c
+    class I2CLookup : public BuiltInMemberLookup
+    {
+      typedef BuiltInMemberLookup inherited;
+    public:
+      I2CLookup();
+    };
+
+  } // namespace
+  #endif // ENABLE_I2C_SCRIPT_FUNCS
+
 } // namespace
+
 
 #endif /* defined(__p44utils__i2c__) */

@@ -167,7 +167,7 @@ namespace p44 {
 
   /// Operation queue
   typedef boost::intrusive_ptr<OperationQueue> OperationQueuePtr;
-  class OperationQueue : public P44Obj
+  class OperationQueue : public P44LoggingObj
   {
     MainLoop &mainLoop;
     bool processingQueue; ///< set when queue is currently processing

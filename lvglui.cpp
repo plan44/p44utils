@@ -33,6 +33,11 @@ using namespace p44;
 
 #if ENABLE_LVGL
 
+#if ENABLE_LVGLUI_SCRIPT_FUNCS
+using namespace P44Script;
+#endif
+
+
 // MARK: - static utilities
 
 static lv_font_t* getFontByName(const string aFontName)
@@ -494,7 +499,7 @@ ErrorPtr LvGLUiStyle::configure(JsonObjectPtr aConfig)
 
 // MARK - Element Factory
 
-static LVGLUiElementPtr createElement(LvGLUi& aLvGLUI, JsonObjectPtr aConfig, LVGLUiContainer* aParentP, bool aContainerByDefault)
+static LVGLUiElementPtr createElement(LvGLUi& aLvGLUI, JsonObjectPtr aConfig, LvGLUiContainer* aParentP, bool aContainerByDefault)
 {
   LVGLUiElementPtr elem;
   JsonObjectPtr o;
@@ -550,11 +555,15 @@ const void* LVGLUiElement::imgSrc(const string& aSource)
 
 
 
-LVGLUiElement::LVGLUiElement(LvGLUi& aLvGLUI, LVGLUiContainer* aParentP, lv_obj_t *aTemplate) :
+LVGLUiElement::LVGLUiElement(LvGLUi& aLvGLUI, LvGLUiContainer* aParentP, lv_obj_t *aTemplate) :
   inherited(aLvGLUI),
   parentP(aParentP),
   element(NULL),
   handlesEvents(false)
+  #if ENABLE_LVGLUI_SCRIPT_FUNCS
+  ,onEventScript(scriptbody+regular, "onEvent")
+  ,onRefreshScript(scriptbody+regular, "onRefresh")
+  #endif
 {
 }
 
@@ -642,14 +651,16 @@ ErrorPtr LVGLUiElement::configure(JsonObjectPtr aConfig)
     setText(o->stringValue());
   }
   // events
+  #if ENABLE_LVGLUI_SCRIPT_FUNCS
   if (aConfig->get("onevent", o)) {
-    onEventScript = o->stringValue();
+    onEventScript.setSource(o->stringValue());
     installEventHandler();
   }
   if (aConfig->get("onrefresh", o)) {
-    onRefreshScript = o->stringValue();
+    onRefreshScript.setSource(o->stringValue());
     installEventHandler();
   }
+  #endif
   return inherited::configure(aConfig);
 }
 
@@ -674,21 +685,16 @@ void LVGLUiElement::installEventHandler()
 }
 
 
-void LVGLUiElement::runEventScript(lv_event_t aEvent, const string &aScriptCode)
-{
-  lvglui.queueEventScript(aEvent, this, aScriptCode);
-}
-
-
-
 void LVGLUiElement::handleEvent(lv_event_t aEvent)
 {
+  #if ENABLE_LVGLUI_SCRIPT_FUNCS
   if (aEvent==LV_EVENT_REFRESH && !onRefreshScript.empty()) {
     runEventScript(aEvent, onRefreshScript);
   }
   else if (!onEventScript.empty()) {
     runEventScript(aEvent, onEventScript);
   }
+  #endif
 }
 
 
@@ -748,7 +754,7 @@ ErrorPtr LvGLUiLayoutContainer::configure(JsonObjectPtr aConfig)
 
 // MARK: - LVGLUiContainer
 
-void LVGLUiContainer::clear()
+void LvGLUiContainer::clear()
 {
   namedElements.clear();
   anonymousElements.clear();
@@ -756,7 +762,7 @@ void LVGLUiContainer::clear()
 }
 
 
-ErrorPtr LVGLUiContainer::addElements(JsonObjectPtr aElementConfigArray, LVGLUiContainer* aParent, bool aContainerByDefault)
+ErrorPtr LvGLUiContainer::addElements(JsonObjectPtr aElementConfigArray, LvGLUiContainer* aParent, bool aContainerByDefault)
 {
   ErrorPtr err;
   for (int i = 0; i<aElementConfigArray->arrayLength(); ++i) {
@@ -786,7 +792,7 @@ ErrorPtr LVGLUiContainer::addElements(JsonObjectPtr aElementConfigArray, LVGLUiC
 }
 
 
-ErrorPtr LVGLUiContainer::configure(JsonObjectPtr aConfig)
+ErrorPtr LvGLUiContainer::configure(JsonObjectPtr aConfig)
 {
   // configure basics
   ErrorPtr err = inherited::configure(aConfig);
@@ -803,7 +809,7 @@ ErrorPtr LVGLUiContainer::configure(JsonObjectPtr aConfig)
 
 // MARK: - LvGLUiPlain - simple object with no child layout
 
-LvGLUiPlain::LvGLUiPlain(LvGLUi& aLvGLUI, LVGLUiContainer* aParentP, lv_obj_t *aTemplate) :
+LvGLUiPlain::LvGLUiPlain(LvGLUi& aLvGLUI, LvGLUiContainer* aParentP, lv_obj_t *aTemplate) :
   inherited(aLvGLUI, aParentP, aTemplate)
 {
   element = lv_obj_create(lvParent(), aTemplate);
@@ -812,7 +818,7 @@ LvGLUiPlain::LvGLUiPlain(LvGLUi& aLvGLUI, LVGLUiContainer* aParentP, lv_obj_t *a
 
 // MARK: - LvGLUiPanel - object with layout features for contained children
 
-LvGLUiPanel::LvGLUiPanel(LvGLUi& aLvGLUI, LVGLUiContainer* aParentP, lv_obj_t *aTemplate) :
+LvGLUiPanel::LvGLUiPanel(LvGLUi& aLvGLUI, LvGLUiContainer* aParentP, lv_obj_t *aTemplate) :
   inherited(aLvGLUI, aParentP, aTemplate)
 {
   element = lv_cont_create(lvParent(), aTemplate);
@@ -821,7 +827,7 @@ LvGLUiPanel::LvGLUiPanel(LvGLUi& aLvGLUI, LVGLUiContainer* aParentP, lv_obj_t *a
 
 // MARK: - LvGLUiImage
 
-LvGLUiImage::LvGLUiImage(LvGLUi& aLvGLUI, LVGLUiContainer* aParentP, lv_obj_t *aTemplate) :
+LvGLUiImage::LvGLUiImage(LvGLUi& aLvGLUI, LvGLUiContainer* aParentP, lv_obj_t *aTemplate) :
   inherited(aLvGLUI, aParentP, aTemplate)
 {
   element = lv_img_create(lvParent(), aTemplate);
@@ -863,7 +869,7 @@ void LvGLUiImage::setTextRaw(const string &aNewText)
 
 // MARK: - LvGLUiLabel
 
-LvGLUiLabel::LvGLUiLabel(LvGLUi& aLvGLUI, LVGLUiContainer* aParentP, lv_obj_t *aTemplate) :
+LvGLUiLabel::LvGLUiLabel(LvGLUi& aLvGLUI, LvGLUiContainer* aParentP, lv_obj_t *aTemplate) :
   inherited(aLvGLUI, aParentP, aTemplate)
 {
   element = lv_label_create(lvParent(), aTemplate);
@@ -907,9 +913,13 @@ void LvGLUiLabel::setTextRaw(const string &aNewText)
 
 // MARK: - LvGLUiButton
 
-LvGLUiButton::LvGLUiButton(LvGLUi& aLvGLUI, LVGLUiContainer* aParentP, lv_obj_t *aTemplate) :
+LvGLUiButton::LvGLUiButton(LvGLUi& aLvGLUI, LvGLUiContainer* aParentP, lv_obj_t *aTemplate) :
   inherited(aLvGLUI, aParentP, aTemplate),
   label(NULL)
+  #if ENABLE_LVGLUI_SCRIPT_FUNCS
+  ,onPressScript(scriptbody+regular, "onPress")
+  ,onReleaseScript(scriptbody+regular, "onRelease")
+  #endif
 {
   element = lv_btn_create(lvParent(), aTemplate);
 }
@@ -974,27 +984,32 @@ ErrorPtr LvGLUiButton::configure(JsonObjectPtr aConfig)
   // common button+imgBtn properties
   configureButtonCommon(lvglui, element, aConfig);
   // event handling
+  #if ENABLE_LVGLUI_SCRIPT_FUNCS
   if (aConfig->get("onpress", o)) {
-    onPressScript = o->stringValue();
+    onPressScript.setSource(o->stringValue());
     installEventHandler();
   }
   if (aConfig->get("onrelease", o)) {
-    onReleaseScript = o->stringValue();
+    onReleaseScript.setSource(o->stringValue());
     installEventHandler();
   }
+  #endif
   return inherited::configure(aConfig);
 }
 
 
 void LvGLUiButton::handleEvent(lv_event_t aEvent)
 {
+  #if ENABLE_LVGLUI_SCRIPT_FUNCS
   if (aEvent==LV_EVENT_PRESSED && !onPressScript.empty()) {
     runEventScript(aEvent, onPressScript);
   }
   else if (aEvent==LV_EVENT_RELEASED && !onReleaseScript.empty()) {
     runEventScript(aEvent, onReleaseScript);
   }
-  else {
+  else
+  #endif
+  {
     inherited::handleEvent(aEvent);
   }
 }
@@ -1021,9 +1036,13 @@ const void* LvGLUiImgButton::imgBtnSrc(const string& aSource)
 }
 
 
-LvGLUiImgButton::LvGLUiImgButton(LvGLUi& aLvGLUI, LVGLUiContainer* aParentP, lv_obj_t *aTemplate) :
+LvGLUiImgButton::LvGLUiImgButton(LvGLUi& aLvGLUI, LvGLUiContainer* aParentP, lv_obj_t *aTemplate) :
   inherited(aLvGLUI, aParentP, aTemplate),
   imgsAssigned(false)
+  #if ENABLE_LVGLUI_SCRIPT_FUNCS
+  ,onPressScript(scriptbody+regular, "onPress")
+  ,onReleaseScript(scriptbody+regular, "onRelease")
+  #endif
 {
   element = lv_imgbtn_create(lvParent(), aTemplate);
 }
@@ -1069,27 +1088,32 @@ ErrorPtr LvGLUiImgButton::configure(JsonObjectPtr aConfig)
     imgsAssigned = true;
   }
   // event handling
+  #if ENABLE_LVGLUI_SCRIPT_FUNCS
   if (aConfig->get("onpress", o)) {
-    onPressScript = o->stringValue();
+    onPressScript.setSource(o->stringValue());
     installEventHandler();
   }
   if (aConfig->get("onrelease", o)) {
-    onReleaseScript = o->stringValue();
+    onReleaseScript.setSource(o->stringValue());
     installEventHandler();
   }
+  #endif
   return inherited::configure(aConfig);
 }
 
 
 void LvGLUiImgButton::handleEvent(lv_event_t aEvent)
 {
+  #if ENABLE_LVGLUI_SCRIPT_FUNCS
   if (aEvent==LV_EVENT_PRESSED && !onPressScript.empty()) {
     runEventScript(aEvent, onPressScript);
   }
   else if (aEvent==LV_EVENT_RELEASED && !onReleaseScript.empty()) {
     runEventScript(aEvent, onReleaseScript);
   }
-  else {
+  else
+  #endif
+  {
     inherited::handleEvent(aEvent);
   }
 }
@@ -1117,19 +1141,19 @@ ErrorPtr LvGLUiBarBase::configure(JsonObjectPtr aConfig)
 }
 
 
-void LvGLUiBarBase::setValue(int16_t aValue, uint16_t aAnimationTime)
+void LvGLUiBarBase::setValue(int16_t aValue, uint16_t aAnimationTimeMs)
 {
-  if (aAnimationTime>0) {
-    lv_bar_set_anim_time(element, aAnimationTime);
+  if (aAnimationTimeMs>0) {
+    lv_bar_set_anim_time(element, aAnimationTimeMs);
   }
-  lv_bar_set_value(element, aValue, aAnimationTime>0 ? LV_ANIM_ON : LV_ANIM_OFF);
+  lv_bar_set_value(element, aValue, aAnimationTimeMs>0 ? LV_ANIM_ON : LV_ANIM_OFF);
 }
 
 
 
 // MARK: - LvGLUiBar
 
-LvGLUiBar::LvGLUiBar(LvGLUi& aLvGLUI, LVGLUiContainer* aParentP, lv_obj_t *aTemplate) :
+LvGLUiBar::LvGLUiBar(LvGLUi& aLvGLUI, LvGLUiContainer* aParentP, lv_obj_t *aTemplate) :
   inherited(aLvGLUI, aParentP, aTemplate)
 {
   element = lv_bar_create(lvParent(), aTemplate);
@@ -1139,8 +1163,12 @@ LvGLUiBar::LvGLUiBar(LvGLUi& aLvGLUI, LVGLUiContainer* aParentP, lv_obj_t *aTemp
 
 // MARK: - LvGLUiSlider
 
-LvGLUiSlider::LvGLUiSlider(LvGLUi& aLvGLUI, LVGLUiContainer* aParentP, lv_obj_t *aTemplate) :
+LvGLUiSlider::LvGLUiSlider(LvGLUi& aLvGLUI, LvGLUiContainer* aParentP, lv_obj_t *aTemplate) :
   inherited(aLvGLUI, aParentP, aTemplate)
+  #if ENABLE_LVGLUI_SCRIPT_FUNCS
+  ,onChangeScript(scriptbody+regular, "onChange")
+  ,onReleaseScript(scriptbody+regular, "onRelease")
+  #endif
 {
   element = lv_slider_create(lvParent(), aTemplate);
 }
@@ -1168,150 +1196,65 @@ ErrorPtr LvGLUiSlider::configure(JsonObjectPtr aConfig)
     }
   }
   // event handling
+  #if ENABLE_LVGLUI_SCRIPT_FUNCS
   if (aConfig->get("onchange", o)) {
-    onChangeScript = o->stringValue();
+    onChangeScript.setSource(o->stringValue());
     installEventHandler();
   }
   if (aConfig->get("onrelease", o)) {
-    onReleaseScript = o->stringValue();
+    onReleaseScript.setSource(o->stringValue());
     installEventHandler();
   }
+  #endif
   return inherited::configure(aConfig);
 }
 
 
 void LvGLUiSlider::handleEvent(lv_event_t aEvent)
 {
+  #if ENABLE_LVGLUI_SCRIPT_FUNCS
   if (aEvent==LV_EVENT_VALUE_CHANGED && !onChangeScript.empty()) {
     runEventScript(aEvent, onChangeScript);
   }
   else if (aEvent==LV_EVENT_RELEASED && !onReleaseScript.empty()) {
     runEventScript(aEvent, onReleaseScript);
   }
-  else {
+  else
+  #endif
+  {
     inherited::handleEvent(aEvent);
   }
 }
 
 
 
-
-// MARK: - LvGLUiScriptContext
-
-bool LvGLUiScriptContext::evaluateFunction(const string &aFunc, const FunctionArguments &aArgs, ExpressionValue &aResult)
-{
-  if (aFunc=="event" && aArgs.size()==0) {
-    // string event()
-    aResult.setString(eventName(currentEvent));
-  }
-  else if (aFunc=="value" && aArgs.size()<=1) {
-    // value([<element>])
-    LVGLUiElementPtr elem = currentElement;
-    if (aArgs.size()>=1) {
-      elem = lvglui.namedElement(aArgs[0].stringValue(), currentElement);
-    }
-    if (elem) {
-      aResult.setNumber(elem->getValue());
-    }
-  }
-  else if (aFunc=="setvalue" && aArgs.size()>=1 && aArgs.size()<=3) {
-    // setValue([<element>,] value [,animationtime])
-    LVGLUiElementPtr elem = currentElement;
-    int arridx = 0;
-    if (aArgs[arridx].isString()) {
-      elem = lvglui.namedElement(aArgs[arridx].stringValue(), currentElement);
-      arridx++;
-    }
-    if (elem) {
-      int animtime = 0;
-      if (aArgs.size()>=arridx+2) animtime = aArgs[arridx+1].intValue();
-      elem->setValue(aArgs[arridx].intValue(), animtime);
-    }
-  }
-  else if (aFunc=="settext" && aArgs.size()>=1 && aArgs.size()<=2) {
-    // setText([<element>,] text)
-    LVGLUiElementPtr elem = currentElement;
-    int argidx = 0;
-    if (aArgs[argidx].notValue()) return errorInArg(aArgs[argidx], aResult); // return error/null from argument
-    if (aArgs.size()>1) {
-      elem = lvglui.namedElement(aArgs[argidx].stringValue(), currentElement);
-      argidx++;
-      if (aArgs[argidx].notValue()) return errorInArg(aArgs[argidx], aResult); // return error/null from argument
-    }
-    if (elem) {
-      elem->setText(aArgs[argidx].stringValue());
-    }
-  }
-  else if (aFunc=="refresh" && aArgs.size()<=1) {
-    // refresh([<element>])
-    LVGLUiElementPtr elem = currentElement;
-    if (aArgs.size()!=0) {
-      elem = lvglui.namedElement(aArgs[0].stringValue(), currentElement);
-    }
-    if (elem) {
-      lv_event_send(elem->element, LV_EVENT_REFRESH, NULL);
-    }
-  }
-  else if (aFunc=="showscreen" && aArgs.size()==1) {
-    // showScreen(<screenname>)
-    lvglui.loadScreen(aArgs[0].stringValue());
-  }
-  else if (aFunc=="configure" && aArgs.size()>=1 && aArgs.size()<=2) {
-    // configure([<element>,] <filename|json|key=value>)
-    LVGLUiElementPtr elem = currentElement;
-    int argidx = 0;
-    if (aArgs.size()>1) {
-      elem = lvglui.namedElement(aArgs[argidx].stringValue(), currentElement);
-      argidx++;
-    }
-    if (elem) {
-      string cfgstr = aArgs[argidx].stringValue();
-      JsonObjectPtr cfg;
-      ErrorPtr err;
-      if (*cfgstr.c_str()=='{') {
-        // JSON config
-        cfg = JsonObject::objFromText(cfgstr.c_str(), -1, &err);
-      }
-      else {
-        // key=value or filename
-        string k,v;
-        if (keyAndValue(cfgstr, k, v, '=')) {
-          // - single property change
-          cfg = JsonObject::newObj();
-          cfg->add(k.c_str(), cfg->newString(v));
-        }
-        else {
-          // filename
-          cfg = JsonObject::objFromFile(Application::sharedApplication()->resourcePath(cfgstr).c_str(), &err);
-        }
-      }
-      if (Error::isOK(err)) {
-        err = elem->configure(cfg);
-      }
-      if (Error::notOK(err)) {
-        aResult.setError(err);
-      }
-    }
-  }
-  else {
-    // unknown function
-    return inherited::evaluateFunction(aFunc, aArgs, aResult);
-  }
-  return true;
-}
-
-
-
-
 // MARK: - LvGLUi
 
+static LvGLUi* gLvgluiP = NULL;
 
 LvGLUi::LvGLUi() :
   inherited(*this, NULL, NULL),
-  uiScriptContext(*this)
+  mDataPathResources(false)
+  #if ENABLE_LVGLUI_SCRIPT_FUNCS
+  ,activityTimeoutScript(scriptbody+regular, "activityTimeout")
+  ,activationScript(scriptbody+regular, "activation")
+  #endif
 {
   name = "LvGLUi";
+  gLvgluiP = this;
 }
+
+
+void LvGLUi::uiActivation(bool aActivated)
+{
+  if (aActivated) {
+    runEventScript(LV_EVENT_REFRESH, activationScript);
+  }
+  else {
+    runEventScript(LV_EVENT_REFRESH, activityTimeoutScript);
+  }
+}
+
 
 
 void LvGLUi::clear()
@@ -1404,7 +1347,7 @@ LVGLUiElementPtr LvGLUi::namedElement(string aElementPath, LVGLUiElementPtr aOri
       elemname = aElementPath.substr(0,sep);
       aElementPath.erase(0,sep+1);
     }
-    LVGLUiContainerPtr cont = boost::dynamic_pointer_cast<LVGLUiContainer>(aOrigin);
+    LVGLUiContainerPtr cont = boost::dynamic_pointer_cast<LvGLUiContainer>(aOrigin);
     if (cont) {
       ElementMap::iterator pos = cont->namedElements.find(elemname);
       if (pos!=cont->namedElements.end()) {
@@ -1423,47 +1366,11 @@ void LvGLUi::loadScreen(const string aScreenName)
   LVGLUiElementPtr screen = namedElement(aScreenName, &lvglui);
   if (screen) {
     lv_scr_load(screen->element);
-    lvglui.queueEventScript(LV_EVENT_REFRESH, screen, screen->onRefreshScript);
+    #if ENABLE_LVGLUI_SCRIPT_FUNCS
+    screen->runEventScript(LV_EVENT_REFRESH, screen->onRefreshScript);
+    #endif
   }
 }
-
-
-void LvGLUi::queueGlobalScript(const string &aScriptCode, P44ObjPtr aCallerContext)
-{
-  queueEventScript(LV_EVENT_REFRESH, this, aScriptCode, aCallerContext);
-}
-
-
-void LvGLUi::queueEventScript(lv_event_t aEvent, LVGLUiElementPtr aElement, const string &aScriptCode, P44ObjPtr aCallerContext)
-{
-  scriptRequests.push_back(LvGLUiScriptRequest(aEvent, aElement, aScriptCode, aCallerContext));
-  if (!uiScriptContext.isEvaluating()) {
-    // there was no script pending, must start
-    runNextScript();
-  }
-}
-
-void LvGLUi::runNextScript()
-{
-  if (!scriptRequests.empty()) {
-    uiScriptContext.currentEvent = scriptRequests.front().event;
-    uiScriptContext.currentElement = scriptRequests.front().element;
-    uiScriptContext.setCode(scriptRequests.front().scriptCode);
-    uiScriptContext.setCallerContext(scriptRequests.front().callerContext);
-    LOG(LOG_INFO, "+++ Starting action script for LVGLUiElement '%s'", uiScriptContext.currentElement ? uiScriptContext.currentElement->getName().c_str() : "<none>");
-    uiScriptContext.execute(true, boost::bind(&LvGLUi::scriptDone, this));
-  }
-}
-
-
-void LvGLUi::scriptDone()
-{
-  LOG(LOG_INFO, "--- Finished action script for LVGLUiElement '%s'", uiScriptContext.currentElement ? uiScriptContext.currentElement->getName().c_str() : "<none>");
-  scriptRequests.pop_front();
-  runNextScript();
-}
-
-
 
 
 ErrorPtr LvGLUi::configure(JsonObjectPtr aConfig)
@@ -1507,6 +1414,19 @@ ErrorPtr LvGLUi::configure(JsonObjectPtr aConfig)
   if (aConfig->get("startscreen", o)) {
     loadScreen(o->stringValue());
   }
+  if (aConfig->get("resourceprefix", o)) {
+    mResourcePrefix = o->stringValue();
+  }
+  if (aConfig->get("dataresources", o)) {
+    mDataPathResources = o->boolValue();
+  }
+  // check for activation/deactivation scripts
+  if (aConfig->get("activitytimeoutscript", o)) {
+    activityTimeoutScript.setSource(o->stringValue());
+  }
+  if (aConfig->get("activationscript", o)) {
+    activationScript.setSource(o->stringValue());
+  }
   // simulate activity
   lv_disp_trig_activity(NULL);
   return ErrorPtr();
@@ -1515,11 +1435,21 @@ ErrorPtr LvGLUi::configure(JsonObjectPtr aConfig)
 
 string LvGLUi::imagePath(const string aImageSpec)
 {
-  string f = Application::sharedApplication()->dataPath(aImageSpec);
-  if (access(f.c_str(), R_OK)>=0) return f;
-  f = Application::sharedApplication()->resourcePath(aImageSpec);
+  string f;
+  if (mDataPathResources) {
+    f = Application::sharedApplication()->dataPath(aImageSpec, mResourcePrefix);
+    if (access(f.c_str(), R_OK)>=0) return f;
+  }
+  f = Application::sharedApplication()->resourcePath(aImageSpec, mResourcePrefix);
   if (access(f.c_str(), R_OK)>=0) return f;
   return "";
+}
+
+
+void LvGLUi::setResourceLoadOptions(bool aFromDataPath, const string aPrefix)
+{
+  mDataPathResources = aFromDataPath;
+  mResourcePrefix = aPrefix;
 }
 
 
@@ -1538,6 +1468,265 @@ string LvGLUi::namedImageSource(const string& aImageSpec)
 }
 
 
+// MARK: - script support
 
+#if ENABLE_LVGLUI_SCRIPT_FUNCS
+
+using namespace P44Script;
+
+ScriptObjPtr LvGLUi::representingScriptObj()
+{
+  if (!mRepresentingObj) {
+    mRepresentingObj = new LVGLUiElementObj(this);
+  }
+  return mRepresentingObj;
+}
+
+
+void LVGLUiElement::runEventScript(lv_event_t aEvent, ScriptSource& aScriptCode)
+{
+  const char* en = eventName(aEvent);
+  LOG(LOG_INFO, "--- Starting/queuing action script for event='%s', LVGLUiElement '%s'", en, getName().c_str());
+  aScriptCode.setSharedMainContext(lvglui.getScriptMainContext());
+  // pass the event and sender as a thread-local variables
+  SimpleVarContainer* eventThreadLocals = new SimpleVarContainer();
+  eventThreadLocals->setMemberByName("event", new StringValue(en));
+  eventThreadLocals->setMemberByName("sender", new LVGLUiElementObj(this));
+  aScriptCode.run(regular|queue|concurrently, boost::bind(&LvGLUi::scriptDone, this), eventThreadLocals, Infinite);
+}
+
+
+void LVGLUiElement::scriptDone()
+{
+  LOG(LOG_INFO, "--- Finished action script for LVGLUiElement '%s'", getName().c_str());
+}
+
+
+void LvGLUi::setScriptMainContext(ScriptMainContextPtr aScriptMainContext)
+{
+  mScriptMainContext = aScriptMainContext;
+}
+
+
+ScriptMainContextPtr LvGLUi::getScriptMainContext()
+{
+  if (!mScriptMainContext) {
+    // default main context has the lvgl ui as instance object
+    mScriptMainContext = StandardScriptingDomain::sharedDomain().newContext(new LVGLUiElementObj(this));
+  }
+  return mScriptMainContext;
+}
+
+
+// findobj(elementpath)
+static const BuiltInArgDesc findobj_args[] = { { text } };
+static const size_t findobj_numargs = sizeof(findobj_args)/sizeof(BuiltInArgDesc);
+static void findobj_func(BuiltinFunctionContextPtr f)
+{
+  LVGLUiElementObj* o = dynamic_cast<LVGLUiElementObj*>(f->thisObj().get());
+  assert(o);
+  LVGLUiElementPtr elem = o->element()->getLvGLUi().namedElement(f->arg(0)->stringValue(), o->element());
+  if (elem) {
+    f->finish(new LVGLUiElementObj(elem));
+    return;
+  }
+  f->finish(new AnnotatedNullValue("no such lvgl obj"));
+}
+
+
+// name()
+static void name_func(BuiltinFunctionContextPtr f)
+{
+  LVGLUiElementObj* o = dynamic_cast<LVGLUiElementObj*>(f->thisObj().get());
+  assert(o);
+  f->finish(new StringValue(o->element()->getName()));
+}
+
+
+// parent()
+static void parent_func(BuiltinFunctionContextPtr f)
+{
+  LVGLUiElementObj* o = dynamic_cast<LVGLUiElementObj*>(f->thisObj().get());
+  assert(o);
+  LVGLUiElement* parent = o->element()->parentP;
+  if (!parent) {
+    f->finish(new AnnotatedNullValue("no parent obj"));
+    return;
+  }
+  f->finish(new LVGLUiElementObj(parent));
+}
+
+
+// value()
+static void value_func(BuiltinFunctionContextPtr f)
+{
+  LVGLUiElementObj* o = dynamic_cast<LVGLUiElementObj*>(f->thisObj().get());
+  assert(o);
+  f->finish(new NumericValue(o->element()->getValue()));
+}
+
+
+// setvalue(value [,animationtime])
+static const BuiltInArgDesc setvalue_args[] = { { numeric }, { numeric|optionalarg } };
+static const size_t setvalue_numargs = sizeof(setvalue_args)/sizeof(BuiltInArgDesc);
+static void setvalue_func(BuiltinFunctionContextPtr f)
+{
+  LVGLUiElementObj* o = dynamic_cast<LVGLUiElementObj*>(f->thisObj().get());
+  assert(o);
+  int animtime = 0;
+  if (f->arg(1)->defined()) {
+    animtime = f->arg(1)->doubleValue()*1000; // make milliseconds
+  }
+  o->element()->setValue(f->arg(0)->intValue(), animtime);
+  f->finish(o); // return myself for chaining calls
+}
+
+
+// settext(newtext)
+static const BuiltInArgDesc settext_args[] = { { text } };
+static const size_t settext_numargs = sizeof(settext_args)/sizeof(BuiltInArgDesc);
+static void settext_func(BuiltinFunctionContextPtr f)
+{
+  LVGLUiElementObj* o = dynamic_cast<LVGLUiElementObj*>(f->thisObj().get());
+  assert(o);
+  o->element()->setText(f->arg(0)->stringValue());
+  f->finish(o); // return myself for chaining calls
+}
+
+
+// refresh()
+static void refresh_func(BuiltinFunctionContextPtr f)
+{
+  LVGLUiElementObj* o = dynamic_cast<LVGLUiElementObj*>(f->thisObj().get());
+  assert(o);
+  lv_event_send(o->element()->element, LV_EVENT_REFRESH, NULL);
+  f->finish(o); // return myself for chaining calls
+}
+
+
+// showScreen(<screenname>)
+static const BuiltInArgDesc showscreen_args[] = { { text } };
+static const size_t showscreen_numargs = sizeof(showscreen_args)/sizeof(BuiltInArgDesc);
+static void showscreen_func(BuiltinFunctionContextPtr f)
+{
+  LVGLUiElementObj* o = dynamic_cast<LVGLUiElementObj*>(f->thisObj().get());
+  assert(o);
+  o->element()->getLvGLUi().loadScreen(f->arg(0)->stringValue());
+  f->finish();
+}
+
+
+// set(propertyname, newvalue)   convenience function to set (configure) a single property
+static const BuiltInArgDesc set_args[] = { { text }, { any } };
+static const size_t set_numargs = sizeof(set_args)/sizeof(BuiltInArgDesc);
+static void set_func(BuiltinFunctionContextPtr f)
+{
+  LVGLUiElementObj* o = dynamic_cast<LVGLUiElementObj*>(f->thisObj().get());
+  assert(o);
+  JsonObjectPtr cfgJSON = JsonObject::newObj();
+  cfgJSON->add(f->arg(0)->stringValue().c_str(), f->arg(1)->jsonValue());
+  o->element()->configure(cfgJSON);
+  f->finish(o); // return myself for chaining calls
+}
+
+
+// configure(<filename|json|key=value>)
+static const BuiltInArgDesc configure_args[] = { { text|json|object } };
+static const size_t configure_numargs = sizeof(configure_args)/sizeof(BuiltInArgDesc);
+static void configure_func(BuiltinFunctionContextPtr f)
+{
+  LVGLUiElementObj* o = dynamic_cast<LVGLUiElementObj*>(f->thisObj().get());
+  assert(o);
+  JsonObjectPtr cfgJSON;
+  ErrorPtr err;
+  #if SCRIPTING_JSON_SUPPORT
+  if (f->arg(0)->hasType(json)) {
+    // is already a JSON value, use it as-is
+    cfgJSON = f->arg(0)->jsonValue();
+  }
+  else
+  #endif
+  {
+    // JSON from string (or file if we have a JSON app)
+    string cfgText = f->arg(0)->stringValue();
+    #if LVGLUI_LEGCACY_FUNCTIONS
+    string k,v;
+    if (*cfgText.c_str()!='{' && keyAndValue(cfgText, k, v, '=')) {
+      // legacy key=value string
+      cfgJSON = JsonObject::newObj();
+      cfgJSON->add(k.c_str(), cfgJSON->newString(v));
+    }
+    else
+    #endif // LVGLUI_LEGCACY_FUNCTIONS
+    {
+      // literal json or filename
+      #if ENABLE_JSON_APPLICATION
+      cfgJSON = Application::jsonObjOrResource(cfgText, &err);
+      #else
+      cfgJSON = JsonObject::objFromText(cfgText.c_str(), -1, &err);
+      #endif
+    }
+  }
+  if (Error::isOK(err)) {
+    err = o->element()->configure(cfgJSON);
+  }
+  if (Error::notOK(err)) {
+    f->finish(new ErrorValue(err));
+    return;
+  }
+  f->finish(o); // return view itself to allow chaining
+}
+
+
+static const BuiltinMemberDescriptor lvglobjFunctions[] = {
+  { "findobj", executable|object, findobj_numargs, findobj_args, &findobj_func },
+  { "name", executable|text, 0, NULL, &name_func },
+  { "parent", executable|object, 0, NULL, &parent_func },
+  { "value", executable|numeric, 0, NULL, &value_func },
+  { "setvalue", executable|object, setvalue_numargs, setvalue_args, &setvalue_func },
+  { "settext", executable|object, settext_numargs, settext_args, &settext_func },
+  { "refresh", executable|object, 0, NULL, &refresh_func },
+  { "showscreen", executable|null, showscreen_numargs, showscreen_args, &showscreen_func },
+  { "set", executable|object, set_numargs, set_args, &set_func },
+  { "configure", executable|object, configure_numargs, configure_args, &configure_func },
+  { NULL } // terminator
+};
+
+static BuiltInMemberLookup* sharedLvglobjFunctionLookupP = NULL;
+
+LVGLUiElementObj::LVGLUiElementObj(LVGLUiElementPtr aElement) :
+  mElement(aElement)
+{
+  registerSharedLookup(sharedLvglobjFunctionLookupP, lvglobjFunctions);
+}
+
+
+
+#if LVGLUI_LEGCACY_FUNCTIONS
+
+// TODO: implement
+#error "%%% tbd"
+
+static const BuiltinMemberDescriptor lvgluiGlobals[] = {
+  // deprecated, backwards compatibility
+  { "value", executable|numeric, lgcy_value_numargs, lgcy_value_args, &lgcy_value_func },
+  { "setvalue", executable|null, lgcy_setvalue_numargs, lgcy_setvalue_args, &lgcy_setvalue_func },
+  { "settext", executable|null, lgcy_settext_numargs, lgcy_settext_args, &lgcy_settext_func },
+  { "refresh", executable|null, lgcy_refresh_numargs, lgcy_refresh_args, &lgcy_refresh_func },
+  { "showscreen", executable|null, lgcy_showscreen_numargs, lgcy_showscreen_args, &lgcy_showscreen_func },
+  { "configure", executable|null, lgcy_configure_numargs, lgcy_configure_args, &lgcy_configure_func },
+  { NULL } // terminator
+};
+
+LvGLUiLookup::LvGLUiLookup(LvGLUi &aLvGLUi) :
+  mLvGLUi(aLvGLUi),
+  inherited(lvgluiGlobals)
+{
+}
+#endif // LVGLUI_LEGCACY_FUNCTIONS
+
+
+
+#endif // ENABLE_LVGLUI_SCRIPT_FUNCS
 
 #endif // ENABLE_LVGL

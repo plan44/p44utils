@@ -24,26 +24,27 @@
 
 #include "p44utils_common.hpp"
 
-#if ENABLE_EXPRESSIONS
-
-#include "timeutils.hpp"
-#include <string>
-
-#ifndef EXPRESSION_SCRIPT_SUPPORT
-  #define EXPRESSION_SCRIPT_SUPPORT 1 // on by default
-#endif
-#ifndef EXPRESSION_JSON_SUPPORT
-  #define EXPRESSION_JSON_SUPPORT 1 // on by default
-#endif
-
-#if EXPRESSION_JSON_SUPPORT
-  #include "jsonobject.hpp"
-#endif
-
+#if ENABLE_EXPRESSIONS || EXPRESSION_LEGACY_PLACEHOLDERS
 
 using namespace std;
 
 namespace p44 {
+
+  #if ENABLE_EXPRESSIONS
+
+  #include "timeutils.hpp"
+  #include <string>
+
+  #ifndef EXPRESSION_SCRIPT_SUPPORT
+    #define EXPRESSION_SCRIPT_SUPPORT 1 // on by default
+  #endif
+  #ifndef EXPRESSION_JSON_SUPPORT
+    #define EXPRESSION_JSON_SUPPORT 1 // on by default
+  #endif
+
+  #if EXPRESSION_JSON_SUPPORT
+    #include "jsonobject.hpp"
+  #endif
 
   class EvaluationContext;
 
@@ -870,6 +871,7 @@ namespace p44 {
   };
   typedef boost::intrusive_ptr<TimedEvaluationContext> TimedEvaluationContextPtr;
 
+  #endif // ENABLE_EXPRESSIONS
 
   #if EXPRESSION_LEGACY_PLACEHOLDERS
 
@@ -888,7 +890,6 @@ namespace p44 {
 
 } // namespace p44
 
-
-#endif // ENABLE_EXPRESSIONS
+#endif // ENABLE_EXPRESSIONS || EXPRESSION_LEGACY_PLACEHOLDERS
 
 #endif // defined(__p44utils__expressions__)

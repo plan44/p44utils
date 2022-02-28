@@ -29,6 +29,17 @@
 #ifndef ENABLE_APPLICATION_SUPPORT
   #define ENABLE_APPLICATION_SUPPORT 1 // projects which include application.hpp can include support for it in other files
 #endif
+#ifndef APPLICATION_DEFAULT_USERLEVEL
+  #define APPLICATION_DEFAULT_USERLEVEL 0
+#endif
+
+// exit codes with special meaning on P44 platform only
+#define P44_EXIT_LOCALMODE 2 // request daemon restart in "local mode"
+#define P44_EXIT_FIRMWAREUPDATE 3 // request check for new firmware, installation if available, platform restart
+#define P44_EXIT_REBOOT 4 // request platform restart
+#define P44_EXIT_SHUTDOWN 5 // request platform shutdown/poweroff
+#define P44_EXIT_FACTORYRESET 42 // request a factory reset and platform restart
+
 
 #ifdef ESP_PLATFORM
 #else
@@ -49,8 +60,9 @@ namespace p44 {
 
   protected:
 
-    string resourcepath; ///< path to resources directory for this application
-    string datapath; ///< path to (usually persistent) r/w data for this application
+    string mResourcepath; ///< path to resources directory for this application
+    string mDatapath; ///< path to (usually persistent) r/w data for this application
+    int mUserLevel; ///< the "user (expert) level" - 0=regular, 1=diy/beta, 2=privileged (e.g. shell calling I/O pins, script functions)
 
   public:
     /// construct application with specific mainloop
@@ -94,16 +106,24 @@ namespace p44 {
     /// get resource path. Resources are usually readonly files
     /// @param aResource if not empty, and it is an absolute path, the the result will be just this path
     ///   if it is a relative path, the application's resource path will be prepended.
+    /// @param aPrefix prefix possibly used on resource path when aResource does not begin with "./".
+    ///   Note that aPrefix is appended as-is, so must contain a path separator if it is meant as a subdirectory
     /// @return if aRelativePath is empty, result is the application's resource directory (no separator at end)
     ///   Otherwise, it is the absolute path to the resource specified with aResource
-    string resourcePath(const string aResource = "");
+    string resourcePath(const string aResource = "", const string aPrefix = "");
 
     /// get data path. Data are usually persistent read/write files
     /// @param aDataFile if not empty, and it is an absolute path, the the result will be just this path
-    ///   if it is a relative path, the application's data path will be prepended.
+    ///   if it is a relative path, the application's data path will be prepended. If it begins with "_/",
+    ///   the applications's temp file path will be prepended.
+    /// @param aPrefix if not empty, and aDatafile is NOT an absolute path, the prefix will be appended
+    ///   to the datapath.
+    ///   Note that aPrefix is appended as-is, so must contain a path separator if it is meant as a subdirectory.
+    ///   Also note that the prefix is always used (no "./" checking as in rsourcepath()).
+    /// @param aCreatePrefix if true, the subriectory consisting of datapath + prefix is created (only subdir, datapath itself must exist)
     /// @return if aDataFile is empty, result is the application's data directory (no separator at end)
     ///   Otherwise, it is the absolute path to the data file specified with aDataFile
-    string dataPath(const string aDataFile = "");
+    string dataPath(const string aDataFile = "", const string aPrefix = "", bool aCreatePrefix = false);
 
     /// get temp path. Temp data are usually non-persistent read/write files located in a ram disk
     /// @param aTempFile if not empty, and it is an absolute path, the the result will be just this path
@@ -111,6 +131,9 @@ namespace p44 {
     /// @return if aTempFile is empty, result is the application's temp directory (no separator at end)
     ///   Otherwise, it is the absolute path to the temp file specified with aTempFile
     string tempPath(const string aTempFile = "");
+
+    /// @return user (expert) level, 0=regular, 1=diy/expert
+    int userLevel() { return mUserLevel; }
 
     #if ENABLE_JSON_APPLICATION
 
@@ -188,22 +211,22 @@ namespace p44 {
   #ifndef ESP_PLATFORM
 
   /// standard option texts, can be used as part of setCommandDescriptors() string
-
   /// - logging options matching processStandardLogOptions()
   /// - for all apps
   #define CMDLINE_APPLICATION_LOGOPTIONS \
-    { 'l', "loglevel",        true,  "level;set max level of log message detail to show on stderr" }, \
-    { 0  , "deltatstamps",    false, "show timestamp delta between log lines" }
+    { 'l', "loglevel",       true,  "level;set max level of log message detail to show on stderr" }, \
+    { 0  , "deltatstamps",   false, "show timestamp delta between log lines" }
   /// - for daemon apps
   #define DAEMON_APPLICATION_LOGOPTIONS \
     CMDLINE_APPLICATION_LOGOPTIONS, \
-    { 0  , "errlevel",      true,  "level;set max level for log messages to go to stderr as well" }, \
-    { 0  , "dontlogerrors", false, "don't duplicate error messages (see --errlevel) on stdout" }
+    { 0  , "errlevel",       true,  "level;set max level for log messages to go to stderr as well" }, \
+    { 0  , "dontlogerrors",  false, "don't duplicate error messages (see --errlevel) on stdout" }
 
   /// - standard options every CmdLineApp understands
   #define CMDLINE_APPLICATION_STDOPTIONS \
-    { 'V', "version",         false, "show version" }, \
-    { 'h', "help",            false, "show this text" }
+    { 'V', "version",        false, "show version" }, \
+    { 'h', "help",           false, "show this text" }, \
+    { 0  , "userlevel",      true,  "level;set user level (0=regular, 1=diy/expert, 2=privileged)" }
   #define CMDLINE_APPLICATION_PATHOPTIONS \
     { 'r', "resourcepath",   true,  "path;path to application resources" }, \
     { 'd', "datapath",       true,  "path;path to the r/w persistent data" }
@@ -259,8 +282,10 @@ namespace p44 {
     /// @param aArgc argument count as passed to C-level main() entry point
     /// @param aArgv argument pointer array as passed to C-level main() entry point
     /// @note setOptionDescriptors() must be called before using this method
-    /// @note this method might call terminateApp() in case of command line syntax errors
-    void parseCommandLine(int aArgc, char **aArgv);
+    /// @note this method might call terminateApp() in case of command line syntax errors or standard application
+    ///   options such as help or version.
+    /// @return false when app got terminated due to syntax errors or standard application options, true otherwise
+    bool parseCommandLine(int aArgc, char **aArgv);
 
     /// reset internal argument lists (to save memory when arguments are all processed)
     void resetCommandLine();
@@ -270,7 +295,7 @@ namespace p44 {
     /// @param aOptionValue the value of the option, empty string if option has no value
     /// @return true if option has been processed; false if option should be stored for later reference via getOption()
     /// @note will be called from parseCommandLine()
-    /// @note base class will process "help" option by showing usage and terminating the app with EXIT_SUCCESS exit code
+    /// @note base class will process some options (see CMDLINE_APPLICATION_STDOPTIONS and CMDLINE_APPLICATION_PATHOPTIONS)
     virtual bool processOption(const CmdLineOptionDescriptor &aOptionDescriptor, const char *aOptionValue);
 
     /// process a non-option command line argument

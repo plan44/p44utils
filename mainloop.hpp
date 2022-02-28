@@ -48,6 +48,14 @@ unsigned long _p44_millis();
   #include <pthread.h>
 #endif
 
+#if MAINLOOP_LIBEV_BASED
+  #include <ev.h>
+  #ifndef __APPLE__
+    #include <sys/epoll.h>
+  #endif
+#endif
+
+
 // if set to non-zero, mainloop will have some code to record statistics
 #define MAINLOOP_STATISTICS 1
 
@@ -60,18 +68,6 @@ namespace p44 {
 
   typedef boost::intrusive_ptr<MainLoop> MainLoopPtr;
   typedef boost::intrusive_ptr<ChildThreadWrapper> ChildThreadWrapperPtr;
-
-  // Mainloop timing unit
-  typedef long long MLMicroSeconds; ///< Mainloop time in microseconds
-  const MLMicroSeconds Never = 0;
-  const MLMicroSeconds Infinite = -1;
-  const MLMicroSeconds MicroSecond = 1;
-  const MLMicroSeconds MilliSecond = 1000;
-  const MLMicroSeconds Second = 1000*MilliSecond;
-  const MLMicroSeconds Minute = 60*Second;
-  const MLMicroSeconds Hour = 60*Minute;
-  const MLMicroSeconds Day = 24*Hour;
-
 
   /// subthread/maintthread communication signals (sent via pipe)
   enum {
@@ -171,17 +167,22 @@ namespace p44 {
     MLTicket();
     ~MLTicket();
 
-    // conversion operator, get as MLTicket (number only)
+    /// reset the ticket number w/o cancelling the timer
+    /// @note this might be needed to pass MLTickets around
+    /// @return ticketNo present before defusing
+    MLTicketNo defuse();
+
+    /// conversion operator, get as MLTicketNo (number only)
     operator MLTicketNo() const;
 
-    // get as bool to check if ticket is running
+    /// get as bool to check if ticket is running
     operator bool() const;
 
-    // assign ticket number (cancels previous ticket, if any)
+    /// assign ticket number (cancels previous ticket, if any)
     MLTicketNo operator= (MLTicketNo aTicketNo);
 
-    // cancel current ticket
-    // @return true if actually cancelled a scheduled timer
+    /// cancel current ticket
+    /// @return true if actually cancelled a scheduled timer
     bool cancel();
 
     /// reschedule existing execution request
@@ -245,11 +246,27 @@ namespace p44 {
     WaitHandlerMap waitHandlers;
 
     // IO poll handlers
+    #if MAINLOOP_LIBEV_BASED
+    friend void libev_io_poll_handler(EV_P_ struct ev_io *, int);
+    friend void libev_sleep_timer_done(EV_P_ struct ev_timer *t, int revents);
+    class IOPollHandler P44_FINAL {
+    public:
+      struct ev_io mIoWatcher; // the actual IO watcher
+      IOPollCB mPollHandler;
+      #ifndef __APPLE__
+      int mEpolledFd; // original FD polled via epoll in case we need to get events beyond POLLIN/POLLOUT
+      #endif
+      IOPollHandler();
+      ~IOPollHandler();
+    };
+    #else
     typedef struct {
       int monitoredFD;
       int pollFlags;
       IOPollCB pollHandler;
     } IOPollHandler;
+    #endif
+
     typedef std::map<int, IOPollHandler> IOPollHandlerMap;
     IOPollHandlerMap ioPollHandlers;
 
@@ -264,6 +281,11 @@ namespace p44 {
     TaskHandle_t mTaskHandle; ///< task handle of task that started this mainloop
     SemaphoreHandle_t mTimersLock; ///< semaphore for timers list
     int evFsFD; ///< the filedescriptor that is signalled when another task posts timer events
+    #endif
+
+    #if MAINLOOP_LIBEV_BASED
+    struct ev_loop* mLibEvLoopP;
+    struct ev_timer mLibEvTimer;
     #endif
 
   protected:
@@ -293,7 +315,6 @@ namespace p44 {
     /// returns or creates the current thread's mainloop
     /// @return the mainloop for this thread
     static MainLoop &currentMainLoop();
-
 
     /// @name time related static utility functions
     /// @{
@@ -378,7 +399,7 @@ namespace p44 {
 
 
     /// execute something on the mainloop without delay, usually to unwind call stack in long chains of operations
-    /// @note: this is the only call we allow to start w/o a ticket. It still can go wrong if the object which calls
+    /// @note this is the only call we allow to start w/o a ticket. It still can go wrong if the object which calls
     ///   it immediately gets destroyed *before* the mainloop executes the callback, but probability is low.
     /// @param aTimerCallback the functor to be called from mainloop
     void executeNow(TimerCB aTimerCallback);
@@ -456,9 +477,11 @@ namespace p44 {
     /// @param aEnvp a NULL terminated array of environment variables, or NULL to let child inherit parent's environment
     /// @param aPipeBackStdOut if true, stdout of the child is collected via a pipe by the parent and passed back in aCallBack (or can be read using aPipeBackFdP)
     /// @param aPipeBackFdP if not NULL, and aPipeBackStdOut is set, this will be set to the file descriptor of the pipe,
+    /// @param aStdErrFd if >0, stderr of the child process is set to it; if 0, stderr of the child is redirected to /dev/null
+    /// @param aStdInFd if >0, stdin of the child process is set to it;  if 0, stderr of the child is redirected to /dev/null
     ///   so caller can handle output data of the process. The caller is responsible for closing the fd.
     /// @return the child's PID (can be used to send signals to it), or -1 if fork fails
-    pid_t fork_and_execve(ExecCB aCallback, const char *aPath, char *const aArgv[], char *const aEnvp[] = NULL, bool aPipeBackStdOut = false, int* aPipeBackFdP = NULL);
+    pid_t fork_and_execve(ExecCB aCallback, const char *aPath, char *const aArgv[], char *const aEnvp[] = NULL, bool aPipeBackStdOut = false, int* aPipeBackFdP = NULL, int aStdErrFd = -1, int aStdInFd = -1);
 
     /// execute command line in external shell
     /// @param aCallback the functor to be called when execution is done (failed to start or completed)
@@ -466,8 +489,10 @@ namespace p44 {
     /// @param aPipeBackStdOut if true, stdout of the child is collected via a pipe by the parent and passed back in aCallBack
     /// @param aStdOutFdP if not NULL, and aPipeBackStdOut is set, this will be set to the file descriptor of the pipe,
     ///   so caller can handle output data of the process. The caller is responsible for closing the fd.
+    /// @param aStdErrFd if >0, stderr of the child process is set to it; if 0, stderr of the child is redirected to /dev/null
+    /// @param aStdInFd if >0, stdin of the child process is set to it;  if 0, stderr of the child is redirected to /dev/null
     /// @return the child's PID (can be used to send signals to it), or -1 if fork fails
-    pid_t fork_and_system(ExecCB aCallback, const char *aCommandLine, bool aPipeBackStdOut = false, int* aStdOutFdP = NULL);
+    pid_t fork_and_system(ExecCB aCallback, const char *aCommandLine, bool aPipeBackStdOut = false, int* aStdOutFdP = NULL, int aStdErrFd = -1, int aStdInFd = -1);
 
 
     /// have handler called when a specific process delivers a state change
@@ -486,12 +511,17 @@ namespace p44 {
     /// @param aFD the file descriptor to poll
     /// @param aPollFlags POLLxxx flags to specify events we want a callback for
     /// @param aPollEventHandler the functor to be called when poll() reports an event for one of the flags set in aPollFlags
+    /// @note when based on libev, registering flags other than POLLIN and POLLOUT is only
+    ///    possible on Linux by inserting a proxy epoll file descriptor. This should be avoided
+    ///    except for special cases (such as detecting edges on GPIO FDs with POLLPRI)
     void registerPollHandler(int aFD, int aPollFlags, IOPollCB aPollEventHandler);
 
     /// change the poll flags for an already registered handler
     /// @param aFD the file descriptor
     /// @param aSetPollFlags POLLxxx flags to be enabled for this file descriptor
     /// @param aClearPollFlags POLLxxx flags to be disabled for this file descriptor
+    /// @note when based on libev, only POLLIN and POLLOUT are supported. Setting other
+    ///    flags will cause an assertion to fail and terminate the program.
     void changePollFlags(int aFD, int aSetPollFlags, int aClearPollFlags=-1);
 
     /// unregister poll handlers for this file descriptor
@@ -563,6 +593,14 @@ namespace p44 {
     void statistics_reset();
 
 
+    #if MAINLOOP_LIBEV_BASED
+    /// the underlying libev main loop. Depending on the implementation the libev main loop might only be created
+    /// when first queried via this method, or might exist as a base for p44utils mainloop all the time
+    /// @return libev loop pointer to be used as "the mainloop" from code using libev mechanisms
+    struct ev_loop* libevLoop();
+    #endif
+
+
   private:
 
     // we don't want timers to be used without a MLTicket taking care of cancelling when the called object is deleted
@@ -573,8 +611,7 @@ namespace p44 {
     MLMicroSeconds checkTimers(MLMicroSeconds aTimeout);
     void scheduleTimer(MLTimer &aTimer);
 
-    bool handleIOPoll(MLMicroSeconds aTimeout);
-    void IOPollHandlerForFd(int aFD, IOPollHandler &h);
+    void handleIOPoll(MLMicroSeconds aTimeout);
 
     #ifndef ESP_PLATFORM
     bool checkWait();

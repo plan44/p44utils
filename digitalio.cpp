@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2013-2019 plan44.ch / Lukas Zeller, Zurich, Switzerland
+//  Copyright (c) 2013-2022 plan44.ch / Lukas Zeller, Zurich, Switzerland
 //
 //  Author: Lukas Zeller <luz@plan44.ch>
 //
@@ -44,46 +44,54 @@
 
 #include "logger.hpp"
 #include "mainloop.hpp"
+#if (!DISABLE_SYSTEMCMDIO || ENABLE_DIGITALIO_SCRIPT_FUNCS) && !defined(ESP_PLATFORM)
+  #if ENABLE_APPLICATION_SUPPORT
+    #include "application.hpp" // we need it for user level, syscmd is only allowed with userlevel>=2
+  #endif
+  #ifndef ALWAYS_ALLOW_SYSCMDIO
+    #define ALWAYS_ALLOW_SYSCMDIO 0
+  #endif
+#endif
+
 
 using namespace p44;
 
 
 DigitalIo::DigitalIo(const char* aPinSpec, bool aOutput, bool aInitialState) :
-  inverted(false),
-  pull(undefined)
+  mInverted(false),
+  mPull(undefined)
 {
   // save params
-  output = aOutput;
+  mOutput = aOutput;
   // check for inverting and pullup prefixes
   while (aPinSpec && *aPinSpec) {
-    if (*aPinSpec=='/') inverted = true;
-    else if (*aPinSpec=='+') pull = yes; // pullup
-    else if (*aPinSpec=='-') pull = no; // pulldown
+    if (*aPinSpec=='/') mInverted = true;
+    else if (*aPinSpec=='+') mPull = yes; // pullup
+    else if (*aPinSpec=='-') mPull = no; // pulldown
     else break; // none of the allowed prefixes -> done
     ++aPinSpec; // processed prefix -> check next
   }
   // rest is actual pin specification
-  pinSpec = nonNullCStr(aPinSpec);
-  if (pinSpec.size()==0) pinSpec="missing";
-  bool initialPinState = aInitialState!=inverted;
+  mPinSpec = nonNullCStr(aPinSpec);
+  bool initialPinState = aInitialState!=mInverted;
   // check for missing pin (no pin, just silently keeping state)
-  if (pinSpec=="missing") {
-    ioPin = IOPinPtr(new MissingPin(initialPinState));
+  if (mPinSpec.size()==0 || mPinSpec=="missing") {
+    mIoPin = IOPinPtr(new MissingPin(initialPinState));
     return;
   }
   // dissect name into bus, device, pin
   string busName;
   string deviceName;
   string pinName;
-  size_t i = pinSpec.find(".");
+  size_t i = mPinSpec.find(".");
   if (i==string::npos) {
-    // no structured name, assume GPIO
-    busName = "gpio";
+    // just a bus name, device and pin remain empty
+    busName = mPinSpec;
   }
   else {
-    busName = pinSpec.substr(0,i);
+    busName = mPinSpec.substr(0,i);
     // rest is device + pinname or just pinname
-    pinName = pinSpec.substr(i+1,string::npos);
+    pinName = mPinSpec.substr(i+1,string::npos);
     if (busName!="syscmd") {
       i = pinName.find(".");
       if (i!=string::npos) {
@@ -102,13 +110,13 @@ DigitalIo::DigitalIo(const char* aPinSpec, bool aOutput, bool aInitialState) :
     // Linux or ESP32 generic GPIO
     // gpio.<gpionumber>
     int pinNumber = atoi(pinName.c_str());
-    ioPin = IOPinPtr(new GpioPin(pinNumber, output, initialPinState, pull));
+    mIoPin = IOPinPtr(new GpioPin(pinNumber, mOutput, initialPinState, mPull));
   }
   #ifndef ESP_PLATFORM
   else if (busName=="led") {
     // Linux generic LED
     // led.<lednumber_or_name>
-    ioPin = IOPinPtr(new GpioLedPin(pinName.c_str(), initialPinState));
+    mIoPin = IOPinPtr(new GpioLedPin(pinName.c_str(), initialPinState));
   }
   #endif // !ESP_PLATFORM
   else
@@ -117,7 +125,7 @@ DigitalIo::DigitalIo(const char* aPinSpec, bool aOutput, bool aInitialState) :
   if (busName=="gpioNS9XXXX") {
     // gpioNS9XXXX.<pinname>
     // NS9XXX driver based GPIO (Digi ME 9210 LX)
-    ioPin = IOPinPtr(new GpioNS9XXXPin(pinName.c_str(), output, initialPinState));
+    mIoPin = IOPinPtr(new GpioNS9XXXPin(pinName.c_str(), mOutput, initialPinState));
   }
   else
   #endif
@@ -126,7 +134,7 @@ DigitalIo::DigitalIo(const char* aPinSpec, bool aOutput, bool aInitialState) :
     // i2c<busnum>.<devicespec>.<pinnum>
     int busNumber = atoi(busName.c_str()+3);
     int pinNumber = atoi(pinName.c_str());
-    ioPin = IOPinPtr(new I2CPin(busNumber, deviceName.c_str(), pinNumber, output, initialPinState, pull));
+    mIoPin = IOPinPtr(new I2CPin(busNumber, deviceName.c_str(), pinNumber, mOutput, initialPinState, mPull));
   }
   else
   #endif
@@ -135,20 +143,25 @@ DigitalIo::DigitalIo(const char* aPinSpec, bool aOutput, bool aInitialState) :
     // spi<interfaceno*10+chipselno>.<devicespec>.<pinnum>
     int busNumber = atoi(busName.c_str()+3);
     int pinNumber = atoi(pinName.c_str());
-    ioPin = IOPinPtr(new SPIPin(busNumber, deviceName.c_str(), pinNumber, output, initialPinState, pull));
+    mIoPin = IOPinPtr(new SPIPin(busNumber, deviceName.c_str(), pinNumber, mOutput, initialPinState, mPull));
   }
   else
   #endif
-  #if !DISABLE_SYSTEMCMDIO && !defined(ESP_PLATFORM)
-  if (busName=="syscmd") {
+  #if !DISABLE_SYSCMDIO && !defined(ESP_PLATFORM) && (ENABLE_APPLICATION_SUPPORT || ALWAYS_ALLOW_SYSCMDIO)
+  if (
+    busName=="syscmd"
+    #if !ALWAYS_ALLOW_SYSCMDIO
+    && Application::sharedApplication()->userLevel()>=2
+    #endif
+  ) {
     // digital I/O calling system command to turn on/off
-    ioPin = IOPinPtr(new SysCommandPin(pinName.c_str(), output, initialPinState));
+    mIoPin = IOPinPtr(new SysCommandPin(pinName.c_str(), mOutput, initialPinState));
   }
   else
   #endif
   {
     // all other/unknown bus names, including "sim", default to simulated pin operated from console
-    ioPin = IOPinPtr(new SimPin(pinSpec.c_str(), output, initialPinState));
+    mIoPin = IOPinPtr(new SimPin(mPinSpec.c_str(), mOutput, initialPinState));
   }
 }
 
@@ -160,20 +173,20 @@ DigitalIo::~DigitalIo()
 
 string DigitalIo::getName()
 {
-  return string_format("%s%s%s", pull==yes ? "+" : (pull==no ? "-" : ""), inverted ? "/" : "", pinSpec.c_str());
+  return string_format("%s%s%s", mPull==yes ? "+" : (mPull==no ? "-" : ""), mInverted ? "/" : "", mPinSpec.c_str());
 }
 
 
 
 bool DigitalIo::isSet()
 {
-  return ioPin->getState() != inverted;
+  return mIoPin->getState() != mInverted;
 }
 
 
 void DigitalIo::set(bool aState)
 {
-  ioPin->setState(aState!=inverted);
+  mIoPin->setState(aState!=mInverted);
 }
 
 
@@ -192,7 +205,7 @@ void DigitalIo::off()
 bool DigitalIo::toggle()
 {
   bool state = isSet();
-  if (output) {
+  if (mOutput) {
     state = !state;
     set(state);
   }
@@ -202,9 +215,116 @@ bool DigitalIo::toggle()
 
 bool DigitalIo::setInputChangedHandler(InputChangedCB aInputChangedCB, MLMicroSeconds aDebounceTime, MLMicroSeconds aPollInterval)
 {
-  return ioPin->setInputChangedHandler(aInputChangedCB, inverted, ioPin->getState(), aDebounceTime, aPollInterval);
+  // enable or disable reporting changes via callback
+  return mIoPin->setInputChangedHandler(aInputChangedCB, mInverted, mIoPin->getState(), aDebounceTime, aPollInterval);
 }
 
+
+#if ENABLE_DIGITALIO_SCRIPT_FUNCS && ENABLE_P44SCRIPT
+
+/// get a analog input value object. This is also what is sent to event sinks
+P44Script::ScriptObjPtr DigitalIo::getStateObj()
+{
+  return new P44Script::DigitalInputEventObj(this);
+}
+
+
+bool DigitalIo::setChangeDetection(MLMicroSeconds aDebounceTime, MLMicroSeconds aPollInterval)
+{
+  if (aDebounceTime<0) {
+    // disable
+    return mIoPin->setInputChangedHandler(NULL, mInverted, false, 0, 0);
+  }
+  else {
+    // enable
+    return mIoPin->setInputChangedHandler(boost::bind(&DigitalIo::processChange, this, _1), mInverted, mIoPin->getState(), aDebounceTime, aPollInterval);
+  }
+}
+
+
+void DigitalIo::processChange(bool aNewState)
+{
+  if (hasSinks()) {
+    sendEvent(getStateObj());
+  }
+}
+
+#endif // ENABLE_DIGITALIO_SCRIPT_FUNCS && ENABLE_P44SCRIPT
+
+
+#if !REDUCED_FOOTPRINT
+// MARK: - DigitalIoBus
+
+DigitalIoBus::DigitalIoBus(const char* aBusPinSpecs, int aNumBits, bool aOutputs, bool aInitialStates) :
+  mOutputs(aOutputs)
+{
+  string prefix;
+  string spec;
+  while (nextPart(aBusPinSpecs, spec, ',') && mBusPins.size()<aNumBits) {
+    if (spec.empty()) {
+      spec="missing";
+    }
+    else if (spec[0]=='(') {
+      // (prefix) can be used to define multiple similar pins, such as "(gpio.)1,2,3,4,(i2c0.MCP23017@24.)6,7"
+      size_t e = spec.find(")", 1);
+      if (e!=string::npos) {
+        prefix = spec.substr(1,e-1);
+        spec.erase(0,e);
+      }
+    }
+    string pinspec = prefix+spec;
+    DigitalIoPtr newIO = DigitalIoPtr(new DigitalIo(pinspec.c_str(), mOutputs, aInitialStates));
+    mBusPins.insert(mBusPins.begin(), newIO);
+  }
+  // calculate initial value
+  mCurrentValue = 0;
+  for (int i=0; i<mBusPins.size(); i++) {
+    mCurrentValue = (mCurrentValue<<1)|(aInitialStates ? 1 : 0);
+  }
+}
+
+
+DigitalIoBus::~DigitalIoBus()
+{
+}
+
+
+uint32_t DigitalIoBus::getBusValue()
+{
+  mCurrentValue = 0;
+  if (!mOutputs) {
+    // actually read
+    for (BusPinVector::iterator pos=mBusPins.begin(); pos<mBusPins.end(); ++pos) {
+      mCurrentValue = (mCurrentValue<<1)|((*pos)->isSet() ? 1 : 0);
+    }
+  }
+  return mCurrentValue;
+}
+
+
+uint32_t DigitalIoBus::getMaxBusValue()
+{
+  return (1<<mBusPins.size())-1;
+}
+
+
+void DigitalIoBus::setBusValue(uint32_t aBusValue)
+{
+  if (aBusValue!=mCurrentValue) {
+    uint32_t m = 0x01;
+    for (BusPinVector::iterator pos=mBusPins.begin(); pos<mBusPins.end(); ++pos) {
+      bool sta = (aBusValue & m)!=0;
+      if (sta != ((mCurrentValue & m)!=0)) {
+        // bit has changed, apply
+        (*pos)->set(sta);
+      }
+      m <<= 1;
+    }
+    mCurrentValue = aBusValue;
+  }
+}
+
+#endif // !REDUCED_FOOTPRINT
 
 // MARK: - Button input
 
@@ -212,28 +332,28 @@ bool DigitalIo::setInputChangedHandler(InputChangedCB aInputChangedCB, MLMicroSe
 
 ButtonInput::ButtonInput(const char* aPinSpec) :
   DigitalIo(aPinSpec, false, false),
-  repeatActiveReport(Never)
+  mRepeatActiveReport(Never)
 {
-  lastChangeTime = MainLoop::now();
+  mLastChangeTime = MainLoop::now();
 }
 
 
 ButtonInput::~ButtonInput()
 {
-  activeReportTicket.cancel();
+  mActiveReportTicket.cancel();
 }
 
 
 void ButtonInput::setButtonHandler(ButtonHandlerCB aButtonHandler, bool aPressAndRelease, MLMicroSeconds aRepeatActiveReport)
 {
-  reportPressAndRelease = aPressAndRelease;
-  repeatActiveReport = aRepeatActiveReport;
-  buttonHandler = aButtonHandler;
-  if (buttonHandler) {
+  mReportPressAndRelease = aPressAndRelease;
+  mRepeatActiveReport = aRepeatActiveReport;
+  mButtonHandler = aButtonHandler;
+  if (mButtonHandler) {
     // mainloop idle polling if input does not support edge detection
     setInputChangedHandler(boost::bind(&ButtonInput::inputChanged, this, _1), BUTTON_DEBOUNCE_TIME, 0);
     // if active already when handler is installed and active report repeating requested -> start reporting now
-    if (isSet() && repeatActiveReport!=Never) {
+    if (isSet() && mRepeatActiveReport!=Never) {
       // report for the first time and keep reporting
       repeatStateReport();
     }
@@ -241,7 +361,7 @@ void ButtonInput::setButtonHandler(ButtonHandlerCB aButtonHandler, bool aPressAn
   else {
     // unregister
     setInputChangedHandler(NULL, 0, 0);
-    activeReportTicket.cancel();
+    mActiveReportTicket.cancel();
   }
 }
 
@@ -250,26 +370,26 @@ void ButtonInput::setButtonHandler(ButtonHandlerCB aButtonHandler, bool aPressAn
 void ButtonInput::inputChanged(bool aNewState)
 {
   MLMicroSeconds now = MainLoop::now();
-  if (!aNewState || reportPressAndRelease) {
-    buttonHandler(aNewState, true, now-lastChangeTime);
+  if (!aNewState || mReportPressAndRelease) {
+    mButtonHandler(aNewState, true, now-mLastChangeTime);
   }
   // consider this a state change
-  lastChangeTime = now;
+  mLastChangeTime = now;
   // active state reported now
-  if (aNewState && repeatActiveReport!=Never) {
-    activeReportTicket.executeOnce(boost::bind(&ButtonInput::repeatStateReport, this), repeatActiveReport);
+  if (aNewState && mRepeatActiveReport!=Never) {
+    mActiveReportTicket.executeOnce(boost::bind(&ButtonInput::repeatStateReport, this), mRepeatActiveReport);
   }
   else {
     // no longer active, cancel repeating active state if any
-    activeReportTicket.cancel();
+    mActiveReportTicket.cancel();
   }
 }
 
 
 void ButtonInput::repeatStateReport()
 {
-  if (buttonHandler) buttonHandler(true, false, MainLoop::now()-lastChangeTime);
-  activeReportTicket.executeOnce(boost::bind(&ButtonInput::repeatStateReport, this), repeatActiveReport);
+  if (mButtonHandler) mButtonHandler(true, false, MainLoop::now()-mLastChangeTime);
+  mActiveReportTicket.executeOnce(boost::bind(&ButtonInput::repeatStateReport, this), mRepeatActiveReport);
 }
 
 
@@ -278,10 +398,10 @@ void ButtonInput::repeatStateReport()
 
 IndicatorOutput::IndicatorOutput(const char* aPinSpec, bool aInitiallyOn) :
   DigitalIo(aPinSpec, true, aInitiallyOn),
-  blinkOnTime(Never),
-  blinkOffTime(Never),
-  blinkUntilTime(Never),
-  nextTimedState(false)
+  mBlinkOnTime(Never),
+  mBlinkOffTime(Never),
+  mBlinkUntilTime(Never),
+  mNextTimedState(false)
 {
 }
 
@@ -294,10 +414,10 @@ IndicatorOutput::~IndicatorOutput()
 
 void IndicatorOutput::stop()
 {
-  blinkOnTime = Never;
-  blinkOffTime = Never;
-  blinkUntilTime = Never;
-  timedOpTicket.cancel();
+  mBlinkOnTime = Never;
+  mBlinkOffTime = Never;
+  mBlinkUntilTime = Never;
+  mTimedOpTicket.cancel();
 }
 
 
@@ -306,8 +426,8 @@ void IndicatorOutput::onFor(MLMicroSeconds aOnTime)
   stop();
   set(true);
   if (aOnTime>0) {
-    nextTimedState = false; // ..turn off
-    timedOpTicket.executeOnce(boost::bind(&IndicatorOutput::timer, this, _1), aOnTime); // ..after given time
+    mNextTimedState = false; // ..turn off
+    mTimedOpTicket.executeOnce(boost::bind(&IndicatorOutput::timer, this, _1), aOnTime); // ..after given time
   }
 }
 
@@ -315,12 +435,12 @@ void IndicatorOutput::onFor(MLMicroSeconds aOnTime)
 void IndicatorOutput::blinkFor(MLMicroSeconds aOnTime, MLMicroSeconds aBlinkPeriod, int aOnRatioPercent)
 {
   stop();
-  blinkOnTime =  (aBlinkPeriod*aOnRatioPercent*10)/1000;
-  blinkOffTime = aBlinkPeriod - blinkOnTime;
-  blinkUntilTime = aOnTime>0 ? MainLoop::now()+aOnTime : Never;
+  mBlinkOnTime =  (aBlinkPeriod*aOnRatioPercent*10)/1000;
+  mBlinkOffTime = aBlinkPeriod - mBlinkOnTime;
+  mBlinkUntilTime = aOnTime>0 ? MainLoop::now()+aOnTime : Never;
   set(true); // ..start with on
-  nextTimedState = false; // ..then turn off..
-  timedOpTicket.executeOnce(boost::bind(&IndicatorOutput::timer, this, _1), blinkOnTime); // ..after blinkOn time
+  mNextTimedState = false; // ..then turn off..
+  mTimedOpTicket.executeOnce(boost::bind(&IndicatorOutput::timer, this, _1), mBlinkOnTime); // ..after blinkOn time
 }
 
 
@@ -349,15 +469,273 @@ void IndicatorOutput::steadyOn()
 void IndicatorOutput::timer(MLTimer &aTimer)
 {
   // apply scheduled next state
-  set(nextTimedState);
+  set(mNextTimedState);
   // if we are blinking, check continuation
-  if (blinkUntilTime!=Never && blinkUntilTime<MainLoop::now()) {
+  if (mBlinkUntilTime!=Never && mBlinkUntilTime<MainLoop::now()) {
     // end of blinking, stop
     stop();
   }
-  else if (blinkOnTime!=Never) {
+  else if (mBlinkOnTime!=Never) {
     // blinking should continue
-    nextTimedState = !nextTimedState;
-    MainLoop::currentMainLoop().retriggerTimer(aTimer, nextTimedState ? blinkOffTime : blinkOnTime);
+    mNextTimedState = !mNextTimedState;
+    MainLoop::currentMainLoop().retriggerTimer(aTimer, mNextTimedState ? mBlinkOffTime : mBlinkOnTime);
   }
 }
+
+
+// MARK: - script support
+
+#if ENABLE_DIGITALIO_SCRIPT_FUNCS && ENABLE_P44SCRIPT
+
+#if !ENABLE_APPLICATION_SUPPORT
+  #warning "Unconditionally allowing I/O creation (no userlevel check)"
+#endif
+
+
+using namespace P44Script;
+
+DigitalInputEventObj::DigitalInputEventObj(DigitalIoPtr aDigitalIo) :
+  inherited(false),
+  mDigitalIo(aDigitalIo)
+{
+  if (mDigitalIo) num = mDigitalIo->isSet() ? 1 : 0;
+}
+
+
+void DigitalInputEventObj::deactivate()
+{
+  mDigitalIo.reset();
+  inherited::deactivate();
+}
+
+
+TypeInfo DigitalInputEventObj::getTypeInfo() const
+{
+  return inherited::getTypeInfo()|freezable; // can be frozen
+}
+
+
+string DigitalInputEventObj::getAnnotation() const
+{
+  return "input event";
+}
+
+
+EventSource* DigitalInputEventObj::eventSource() const
+{
+  return static_cast<EventSource*>(mDigitalIo.get());
+}
+
+
+// detectchanges([debouncetime [, pollinterval]])
+// detectchanges(null)
+static const BuiltInArgDesc detectchanges_args[] = { { numeric|optionalarg }, { numeric|optionalarg } };
+static const size_t detectchanges_numargs = sizeof(detectchanges_args)/sizeof(BuiltInArgDesc);
+static void detectchanges_func(BuiltinFunctionContextPtr f)
+{
+  DigitalIoObj* d = dynamic_cast<DigitalIoObj*>(f->thisObj().get());
+  assert(d);
+  MLMicroSeconds debounce = 0; // no debouncing by default
+  MLMicroSeconds pollinterval = 0; // default polling interval (or no polling if pin has edge detection)
+  if (f->numArgs()==1 && f->arg(0)->undefined()) {
+    // stop change detection/polling
+    d->digitalIo()->setChangeDetection();
+    f->finish();
+  }
+  else {
+    // start polling and debouncing
+    if (f->arg(0)->defined()) debounce = f->arg(0)->doubleValue()*Second;
+    if (f->arg(1)->defined()) pollinterval = f->arg(0)->doubleValue()*Second;
+    bool works = d->digitalIo()->setChangeDetection(debounce, pollinterval);
+    f->finish(new NumericValue(works));
+  }
+}
+
+
+// toggle()
+static void toggle_func(BuiltinFunctionContextPtr f)
+{
+  DigitalIoObj* d = dynamic_cast<DigitalIoObj*>(f->thisObj().get());
+  assert(d);
+  d->digitalIo()->toggle();
+  f->finish();
+}
+
+
+// state() // get state (has event source)
+// state(newstate) // set state
+static const BuiltInArgDesc state_args[] = { { numeric|optionalarg } };
+static const size_t state_numargs = sizeof(state_args)/sizeof(BuiltInArgDesc);
+static void state_func(BuiltinFunctionContextPtr f)
+{
+  DigitalIoObj* d = dynamic_cast<DigitalIoObj*>(f->thisObj().get());
+  assert(d);
+  if (f->numArgs()>0) {
+    // set new state
+    d->digitalIo()->set(f->arg(0)->boolValue());
+    f->finish();
+  }
+  else {
+    // return current state as triggerable event
+    f->finish(new DigitalInputEventObj(d->digitalIo()));
+  }
+}
+
+
+static const BuiltinMemberDescriptor digitalioFunctions[] = {
+  { "state", executable|numeric, state_numargs, state_args, &state_func },
+  { "toggle", executable|numeric, 0, NULL, &toggle_func },
+  { "detectchanges", executable|numeric, detectchanges_numargs, detectchanges_args, &detectchanges_func },
+  { NULL } // terminator
+};
+
+static BuiltInMemberLookup* sharedDigitalIoFunctionLookupP = NULL;
+
+DigitalIoObj::DigitalIoObj(DigitalIoPtr aDigitalIo) :
+  mDigitalIo(aDigitalIo)
+{
+  registerSharedLookup(sharedDigitalIoFunctionLookupP, digitalioFunctions);
+}
+
+
+DigitalIoPtr DigitalIoObj::digitalIoFromArg(ScriptObjPtr aArg, bool aOutput, bool aInitialState)
+{
+  DigitalIoPtr dio;
+  DigitalIoObj* d = dynamic_cast<DigitalIoObj*>(aArg.get());
+  if (d) {
+    dio = d->digitalIo();
+  }
+  else if (aArg->hasType(text)) {
+    #if ENABLE_APPLICATION_SUPPORT
+    if (Application::sharedApplication()->userLevel()>=1)
+    #endif
+    { // user level >=1 is needed for IO access
+      dio = DigitalIoPtr(new DigitalIo(aArg->stringValue().c_str(), aOutput, aInitialState));
+    }
+  }
+  return dio;
+}
+
+
+// blink([period [, onpercent [, timeout]]])
+static const BuiltInArgDesc blink_args[] = { { numeric|optionalarg }, { numeric|optionalarg }, { numeric|optionalarg } };
+static const size_t blink_numargs = sizeof(blink_args)/sizeof(BuiltInArgDesc);
+static void blink_func(BuiltinFunctionContextPtr f)
+{
+  IndicatorObj* i = dynamic_cast<IndicatorObj*>(f->thisObj().get());
+  assert(i);
+  MLMicroSeconds howlong = p44::Infinite;
+  MLMicroSeconds period = 600*MilliSecond;
+  int onpercent = 50;
+  if (f->arg(0)->defined()) period = f->arg(0)->doubleValue()*Second;
+  if (f->arg(1)->defined()) onpercent = f->arg(1)->intValue();
+  if (f->arg(2)->defined()) howlong = f->arg(2)->doubleValue()*Second;
+  i->indicator()->blinkFor(howlong, period, onpercent);
+  f->finish();
+}
+
+
+// on() // just turn on
+// on(timeout) // on for a certain time
+static const BuiltInArgDesc on_args[] = { { numeric|optionalarg } };
+static const size_t on_numargs = sizeof(on_args)/sizeof(BuiltInArgDesc);
+static void on_func(BuiltinFunctionContextPtr f)
+{
+  IndicatorObj* i = dynamic_cast<IndicatorObj*>(f->thisObj().get());
+  assert(i);
+  if (f->numArgs()>0) {
+    // timed on
+    i->indicator()->onFor(f->arg(0)->doubleValue()*Second);
+  }
+  else {
+    i->indicator()->steadyOn();
+  }
+  f->finish();
+}
+
+
+// off()
+static void off_func(BuiltinFunctionContextPtr f)
+{
+  IndicatorObj* i = dynamic_cast<IndicatorObj*>(f->thisObj().get());
+  assert(i);
+  i->indicator()->steadyOff();
+  f->finish();
+}
+
+
+// stop()
+static void stop_func(BuiltinFunctionContextPtr f)
+{
+  IndicatorObj* i = dynamic_cast<IndicatorObj*>(f->thisObj().get());
+  assert(i);
+  i->indicator()->stop();
+  f->finish();
+}
+
+
+static const BuiltinMemberDescriptor indicatorFunctions[] = {
+  { "blink", executable|numeric, blink_numargs, blink_args, &blink_func },
+  { "on", executable|numeric, on_numargs, on_args, &on_func },
+  { "off", executable|numeric, 0, NULL, &off_func },
+  { "stop", executable|numeric, 0, NULL, &stop_func },
+  { NULL } // terminator
+};
+
+static BuiltInMemberLookup* sharedIndicatorFunctionLookupP = NULL;
+
+IndicatorObj::IndicatorObj(IndicatorOutputPtr aIndicator) :
+  mIndicator(aIndicator)
+{
+  registerSharedLookup(sharedIndicatorFunctionLookupP, indicatorFunctions);
+}
+
+
+// digitalio(pinspec, isOutput [, initialValue])
+static const BuiltInArgDesc digitalio_args[] = { { text }, { numeric }, { numeric|optionalarg } };
+static const size_t digitalio_numargs = sizeof(digitalio_args)/sizeof(BuiltInArgDesc);
+static void digitalio_func(BuiltinFunctionContextPtr f)
+{
+  #if ENABLE_APPLICATION_SUPPORT
+  if (Application::sharedApplication()->userLevel()<1) { // user level >=1 is needed for IO access
+    f->finish(new ErrorValue(ScriptError::NoPrivilege, "no IO privileges"));
+  }
+  #endif
+  bool out = f->arg(1)->boolValue();
+  bool v = false;
+  if (f->arg(2)->defined()) v = f->arg(2)->boolValue();
+  DigitalIoPtr digitalio = new DigitalIo(f->arg(0)->stringValue().c_str(), out, v);
+  f->finish(new DigitalIoObj(digitalio));
+}
+
+
+// indicator(pinspec [, initialValue])
+static const BuiltInArgDesc indicator_args[] = { { text }, { numeric|optionalarg } };
+static const size_t indicator_numargs = sizeof(indicator_args)/sizeof(BuiltInArgDesc);
+static void indicator_func(BuiltinFunctionContextPtr f)
+{
+  #if ENABLE_APPLICATION_SUPPORT
+  if (Application::sharedApplication()->userLevel()<1) { // user level >=1 is needed for IO access
+    f->finish(new ErrorValue(ScriptError::NoPrivilege, "no IO privileges"));
+  }
+  #endif
+  bool v = false;
+  if (f->arg(1)->defined()) v = f->arg(2)->boolValue();
+  IndicatorOutputPtr indicator = new IndicatorOutput(f->arg(0)->stringValue().c_str(), v);
+  f->finish(new IndicatorObj(indicator));
+}
+
+
+static const BuiltinMemberDescriptor digitalioGlobals[] = {
+  { "digitalio", executable|null, digitalio_numargs, digitalio_args, &digitalio_func },
+  { "indicator", executable|null, indicator_numargs, indicator_args, &indicator_func },
+  { NULL } // terminator
+};
+
+DigitalIoLookup::DigitalIoLookup() :
+  inherited(digitalioGlobals)
+{
+}
+
+
+#endif // ENABLE_DIGITALIO_SCRIPT_FUNCS  && ENABLE_P44SCRIPT

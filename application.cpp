@@ -68,7 +68,8 @@ Application::Application(MainLoop &aMainLoop) :
 
 
 Application::Application() :
-  mMainLoop(MainLoop::currentMainLoop())
+  mMainLoop(MainLoop::currentMainLoop()),
+  mUserLevel(APPLICATION_DEFAULT_USERLEVEL)
 {
   initializeInternal();
 }
@@ -82,8 +83,8 @@ Application::~Application()
 
 void Application::initializeInternal()
 {
-  resourcepath = "."; // current directory by default
-  datapath = TEMP_DIR_PATH; // tmp by default
+  mResourcepath = "."; // current directory by default
+  mDatapath = TEMP_DIR_PATH; // tmp by default
   // make random a bit "random" (not really, but ok for games)
   srand((unsigned)(MainLoop::now()>>32 ^ MainLoop::now()));
   // "publish" singleton
@@ -204,42 +205,75 @@ void Application::terminateAppWith(ErrorPtr aError)
 }
 
 
-string Application::resourcePath(const string aResource)
+string Application::resourcePath(const string aResource, const string aPrefix)
 {
-  if (aResource.empty())
-    return resourcepath; // just return resource path
+  if (aResource.empty() && aPrefix.empty())
+    return mResourcepath; // just return resource path
   if (aResource[0]=='/')
     return aResource; // argument is absolute path, use it as-is
   // relative to resource directory
-  return resourcepath + "/" + aResource;
+  if (aResource.substr(0,2)=="./" || aResource.substr(0,2)=="+/")
+    return mResourcepath + "/" + aResource.substr(2); // omit prefix
+  else if (aResource.substr(0,2)=="=/")
+    return mDatapath + "/" + aResource.substr(2); // make it datapath-relative, w/o prefix 
+  else if (aResource.substr(0,2)=="_/")
+    return tempPath(aResource.substr(2)); // make it temppath-relative, w/o prefix
+  else
+    return mResourcepath + aPrefix + "/" + aResource; // resource path with prefix
 }
 
 
 void Application::setResourcePath(const char *aResourcePath)
 {
-  resourcepath = aResourcePath;
-  if (resourcepath.size()>1 && resourcepath[resourcepath.size()-1]=='/') {
-    resourcepath.erase(resourcepath.size()-1);
+  mResourcepath = aResourcePath;
+  if (mResourcepath.size()>1 && mResourcepath[mResourcepath.size()-1]=='/') {
+    mResourcepath.erase(mResourcepath.size()-1);
   }
 }
 
 
-string Application::dataPath(const string aDataFile)
+string Application::dataPath(const string aDataFile, const string aPrefix, bool aCreatePrefix)
 {
-  if (aDataFile.empty())
-    return datapath; // just return data path
+  if (aDataFile.empty() && aPrefix.empty())
+    return mDatapath; // just return data path
   if (aDataFile[0]=='/')
     return aDataFile; // argument is absolute path, use it as-is
-  // relative to data directory
-  return datapath + "/" + aDataFile;
+  // relative to data directory (with the option to be relative to temp when prefixed with "_/")
+  string p;
+  string f = aDataFile;
+  if (f.substr(0,2)=="_/") {
+    // _/ uses temp path instead of data path
+    f.erase(0,2);
+    p = tempPath();
+  }
+  else if (f.substr(0,2)=="+/") {
+    // +/ uses resource path instead of data path, but never creates any directories
+    return resourcePath(f);
+  }
+  else {
+    // =/ datapath prefix is allowed, but optional
+    if (f.substr(0,2)=="=/") {
+      f.erase(0,2); // just ignore it
+    }
+    p = mDatapath;
+  }
+  if (!aPrefix.empty()) {
+    p += aPrefix;
+    if (aCreatePrefix) {
+      if (access(p.c_str(), F_OK)<0) {
+        mkdir(p.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
+      }
+    }
+  }
+  return p + "/" + f;
 }
 
 
 void Application::setDataPath(const char *aDataPath)
 {
-  datapath = aDataPath;
-  if (datapath.size()>1 && datapath[datapath.size()-1]=='/') {
-    datapath.erase(datapath.size()-1);
+  mDatapath = aDataPath;
+  if (mDatapath.size()>1 && mDatapath[mDatapath.size()-1]=='/') {
+    mDatapath.erase(mDatapath.size()-1);
   }
 }
 
@@ -266,7 +300,7 @@ JsonObjectPtr Application::jsonObjOrResource(const string &aText, ErrorPtr *aErr
   }
   else {
     // pass as a simple string, will try to load resource file
-    obj = jsonObjOrResource(JsonObject::newString(aText), aErrorP, aPrefix);
+    obj = jsonResource(aText, aErrorP, aPrefix);
   }
   return obj;
 }
@@ -276,11 +310,7 @@ JsonObjectPtr Application::jsonResource(string aResourceName, ErrorPtr *aErrorP,
 {
   JsonObjectPtr r;
   ErrorPtr err;
-  if (aResourceName.substr(0,2)=="./")
-    aResourceName.erase(0,2);
-  else
-    aResourceName.insert(0, aPrefix);
-  string fn = Application::sharedApplication()->resourcePath(aResourceName);
+  string fn = Application::sharedApplication()->resourcePath(aResourceName, aPrefix);
   r = JsonObject::objFromFile(fn.c_str(), &err, true);
   if (aErrorP) *aErrorP = err;
   return r;
@@ -545,7 +575,7 @@ void CmdLineApp::showUsage()
 }
 
 
-void CmdLineApp::parseCommandLine(int aArgc, char **aArgv)
+bool CmdLineApp::parseCommandLine(int aArgc, char **aArgv)
 {
   if (aArgc>0) {
     invocationName = aArgv[0];
@@ -597,6 +627,7 @@ void CmdLineApp::parseCommandLine(int aArgc, char **aArgv)
                 fprintf(stderr, "Option '%s' does not expect an argument\n", optName.c_str());
                 showUsage();
                 terminateApp(EXIT_FAILURE);
+                return false; // terminated
               }
             }
             else {
@@ -613,10 +644,15 @@ void CmdLineApp::parseCommandLine(int aArgc, char **aArgv)
                 fprintf(stderr, "Option '%s' requires an argument\n", optName.c_str());
                 showUsage();
                 terminateApp(EXIT_FAILURE);
+                return false; // terminated
               }
             }
             // now have option processed by subclass
-            if (!processOption(*optionDescP, optArg.c_str())) {
+            if (processOption(*optionDescP, optArg.c_str())) {
+              // option processed, check if it has terminated the app
+              if (isTerminated()) return false;
+            }
+            else {
               // not processed, store instead
               if (optionDescP->longOptionName)
                 optName = optionDescP->longOptionName;
@@ -635,6 +671,7 @@ void CmdLineApp::parseCommandLine(int aArgc, char **aArgv)
           fprintf(stderr, "Unknown Option '%s'\n", optName.c_str());
           showUsage();
           terminateApp(EXIT_FAILURE);
+          return false;  // terminated
         }
       }
       else {
@@ -649,6 +686,7 @@ void CmdLineApp::parseCommandLine(int aArgc, char **aArgv)
       rawArgIndex++;
     }
   }
+  return true; // parsed, not terminated
 }
 
 
@@ -669,7 +707,13 @@ bool CmdLineApp::processOption(const CmdLineOptionDescriptor &aOptionDescriptor,
   else if (aOptionDescriptor.withArgument && strucmp(aOptionDescriptor.longOptionName,"datapath")==0) {
     setDataPath(aOptionValue);
   }
-  return false; // not processed
+  else if (aOptionDescriptor.withArgument && strucmp(aOptionDescriptor.longOptionName,"userlevel")==0) {
+    mUserLevel = atoi(aOptionValue);
+  }
+  else {
+    return false; // not processed
+  }
+  return true; // option already processed
 }
 
 

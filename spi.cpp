@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2016-2019 plan44.ch / Lukas Zeller, Zurich, Switzerland
+//  Copyright (c) 2016-2021 plan44.ch / Lukas Zeller, Zurich, Switzerland
 //
 //  Author: Lukas Zeller <luz@plan44.ch>
 //
@@ -43,11 +43,19 @@ extern "C" {
   #warning "No SPI supported on this platform - just showing calls in focus debug output"
 #endif
 
-
-#define SPI_MAX_SPEED_HZ 100000 // 1MHz seems reasonable, faster sometimes does not work ok e.g. on RPi
-
+#if !defined(ESP_PLATFORM)
+  #if ENABLE_APPLICATION_SUPPORT
+    #include "application.hpp" // we need it for user level, syscmd is only allowed with userlevel>=2
+  #endif
+#endif
 
 using namespace p44;
+#if ENABLE_SPI_SCRIPT_FUNCS
+using namespace P44Script;
+#endif
+
+
+#define SPI_MAX_SPEED_HZ 100000 // 1MHz seems reasonable, faster sometimes does not work ok e.g. on RPi
 
 // MARK: - I2C Manager
 
@@ -889,153 +897,183 @@ bool AnalogSPIPin::getRange(double &aMin, double &aMax, double &aResolution)
 }
 
 
+#if ENABLE_SPI_SCRIPT_FUNCS
 
-//  SPI devices have a limited userspace API, supporting basic half-duplex
-//  read() and write() access to SPI slave devices.  Using ioctl() requests,
-//  full duplex transfers and device I/O configuration are also available.
-//
-//    #include <fcntl.h>
-//    #include <unistd.h>
-//    #include <sys/ioctl.h>
-//    #include <linux/types.h>
-//    #include <linux/spi/spidev.h>
-//
-//  Some reasons you might want to use this programming interface include:
-//
-//   * Prototyping in an environment that's not crash-prone; stray pointers
-//     in userspace won't normally bring down any Linux system.
-//
-//   * Developing simple protocols used to talk to microcontrollers acting
-//     as SPI slaves, which you may need to change quite often.
-//
-//  Of course there are drivers that can never be written in userspace, because
-//  they need to access kernel interfaces (such as IRQ handlers or other layers
-//  of the driver stack) that are not accessible to userspace.
-//
-//
-//  DEVICE CREATION, DRIVER BINDING
-//  ===============================
-//  The simplest way to arrange to use this driver is to just list it in the
-//  spi_board_info for a device as the driver it should use:  the "modalias"
-//  entry is "spidev", matching the name of the driver exposing this API.
-//  Set up the other device characteristics (bits per word, SPI clocking,
-//  chipselect polarity, etc) as usual, so you won't always need to override
-//  them later.
-//
-//  (Sysfs also supports userspace driven binding/unbinding of drivers to
-//  devices.  That mechanism might be supported here in the future.)
-//
-//  When you do that, the sysfs node for the SPI device will include a child
-//  device node with a "dev" attribute that will be understood by udev or mdev.
-//  (Larger systems will have "udev".  Smaller ones may configure "mdev" into
-//  busybox; it's less featureful, but often enough.)  For a SPI device with
-//  chipselect C on bus B, you should see:
-//
-//      /dev/spidevB.C ... character special device, major number 153 with
-//    a dynamically chosen minor device number.  This is the node
-//    that userspace programs will open, created by "udev" or "mdev".
-//
-//      /sys/devices/.../spiB.C ... as usual, the SPI device node will
-//    be a child of its SPI master controller.
-//
-//      /sys/class/spidev/spidevB.C ... created when the "spidev" driver
-//    binds to that device.  (Directory or symlink, based on whether
-//    or not you enabled the "deprecated sysfs files" Kconfig option.)
-//
-//  Do not try to manage the /dev character device special file nodes by hand.
-//  That's error prone, and you'd need to pay careful attention to system
-//  security issues; udev/mdev should already be configured securely.
-//
-//  If you unbind the "spidev" driver from that device, those two "spidev" nodes
-//  (in sysfs and in /dev) should automatically be removed (respectively by the
-//  kernel and by udev/mdev).  You can unbind by removing the "spidev" driver
-//  module, which will affect all devices using this driver.  You can also unbind
-//  by having kernel code remove the SPI device, probably by removing the driver
-//  for its SPI controller (so its spi_master vanishes).
-//
-//  Since this is a standard Linux device driver -- even though it just happens
-//  to expose a low level API to userspace -- it can be associated with any number
-//  of devices at a time.  Just provide one spi_board_info record for each such
-//  SPI device, and you'll get a /dev device node for each device.
-//
-//
-//  BASIC CHARACTER DEVICE API
-//  ==========================
-//  Normal open() and close() operations on /dev/spidevB.D files work as you
-//  would expect.
-//
-//  Standard read() and write() operations are obviously only half-duplex, and
-//  the chipselect is deactivated between those operations.  Full-duplex access,
-//  and composite operation without chipselect de-activation, is available using
-//  the SPI_IOC_MESSAGE(N) request.
-//
-//  Several ioctl() requests let your driver read or override the device's current
-//  settings for data transfer parameters:
-//
-//      SPI_IOC_RD_MODE, SPI_IOC_WR_MODE ... pass a pointer to a byte which will
-//    return (RD) or assign (WR) the SPI transfer mode.  Use the constants
-//    SPI_MODE_0..SPI_MODE_3; or if you prefer you can combine SPI_CPOL
-//    (clock polarity, idle high iff this is set) or SPI_CPHA (clock phase,
-//    sample on trailing edge iff this is set) flags.
-//    Note that this request is limited to SPI mode flags that fit in a
-//    single byte.
-//
-//      SPI_IOC_RD_MODE32, SPI_IOC_WR_MODE32 ... pass a pointer to a uin32_t
-//    which will return (RD) or assign (WR) the full SPI transfer mode,
-//    not limited to the bits that fit in one byte.
-//
-//      SPI_IOC_RD_LSB_FIRST, SPI_IOC_WR_LSB_FIRST ... pass a pointer to a byte
-//    which will return (RD) or assign (WR) the bit justification used to
-//    transfer SPI words.  Zero indicates MSB-first; other values indicate
-//    the less common LSB-first encoding.  In both cases the specified value
-//    is right-justified in each word, so that unused (TX) or undefined (RX)
-//    bits are in the MSBs.
-//
-//      SPI_IOC_RD_BITS_PER_WORD, SPI_IOC_WR_BITS_PER_WORD ... pass a pointer to
-//    a byte which will return (RD) or assign (WR) the number of bits in
-//    each SPI transfer word.  The value zero signifies eight bits.
-//
-//      SPI_IOC_RD_MAX_SPEED_HZ, SPI_IOC_WR_MAX_SPEED_HZ ... pass a pointer to a
-//    u32 which will return (RD) or assign (WR) the maximum SPI transfer
-//    speed, in Hz.  The controller can't necessarily assign that specific
-//    clock speed.
-//
-//  NOTES:
-//
-//      - At this time there is no async I/O support; everything is purely
-//        synchronous.
-//
-//      - There's currently no way to report the actual bit rate used to
-//        shift data to/from a given device.
-//
-//      - From userspace, you can't currently change the chip select polarity;
-//        that could corrupt transfers to other devices sharing the SPI bus.
-//        Each SPI device is deselected when it's not in active use, allowing
-//        other drivers to talk to other devices.
-//
-//      - There's a limit on the number of bytes each I/O request can transfer
-//        to the SPI device.  It defaults to one page, but that can be changed
-//        using a module parameter.
-//
-//      - Because SPI has no low-level transfer acknowledgement, you usually
-//        won't see any I/O errors when talking to a non-existent device.
-//
-//
-//  FULL DUPLEX CHARACTER DEVICE API
-//  ================================
-//
-//  See the spidev_fdx.c sample program for one example showing the use of the
-//  full duplex programming interface.  (Although it doesn't perform a full duplex
-//  transfer.)  The model is the same as that used in the kernel spi_sync()
-//  request; the individual transfers offer the same capabilities as are
-//  available to kernel drivers (except that it's not asynchronous).
-//
-//  The example shows one half-duplex RPC-style request and response message.
-//  These requests commonly require that the chip not be deselected between
-//  the request and response.  Several such requests could be chained into
-//  a single kernel request, even allowing the chip to be deselected after
-//  each response.  (Other protocol options include changing the word size
-//  and bitrate for each transfer segment.)
-//
-//  To make a full duplex request, provide both rx_buf and tx_buf for the
-//  same transfer.  It's even OK if those are the same buffer.
+// MARK: - SPI scripting
+
+SPIDeviceObjPtr SPIDevice::representingScriptObj()
+{
+  if (!mRepresentingObj) {
+    mRepresentingObj = new SPIDeviceObj(this);
+  }
+  return mRepresentingObj;
+}
+
+
+// regread(reg [,type, [, count])
+static const BuiltInArgDesc regread_args[] = { { numeric }, { text|optionalarg } };
+static const size_t regread_numargs = sizeof(regread_args)/sizeof(BuiltInArgDesc);
+static void regread_func(BuiltinFunctionContextPtr f)
+{
+  SPIDeviceObj* o = dynamic_cast<SPIDeviceObj*>(f->thisObj().get());
+  assert(o);
+  SPIDevice* dev = o->spidevice().get();
+  SPIBus& bus = dev->getBus();
+  uint8_t reg = f->arg(0)->intValue();
+  string ty;
+  if (f->arg(1)->defined()) ty = f->arg(1)->stringValue();
+  if (ty=="word") {
+    // 16 bit word
+    uint16_t w;
+    if (bus.SPIRegReadWord(dev, reg, w)) {
+      f->finish(new NumericValue(w));
+      return;
+    }
+  }
+  else if (ty=="bytes") {
+    // a number of bytes
+    uint8_t count = 1;
+    if (f->arg(2)->defined()) count = f->arg(2)->intValue();
+    uint8_t buf[256];
+    if (bus.SPIRegReadBytes(dev, reg, count, buf)) {
+      string data((char *)buf, (size_t)count);
+      f->finish(new StringValue(data));
+      return;
+    }
+  }
+  else {
+    // byte
+    uint8_t b;
+    if (bus.SPIRegReadByte(dev, reg, b)) {
+      f->finish(new NumericValue(b));
+      return;
+    }
+  }
+  // no success
+  f->finish(new ErrorValue(TextError::err("i2c smbus read error")));
+}
+
+
+// regwrite(reg, value [,type])
+static const BuiltInArgDesc regwrite_args[] = { { numeric }, { text|numeric }, { text|optionalarg } };
+static const size_t regwrite_numargs = sizeof(regwrite_args)/sizeof(BuiltInArgDesc);
+static void regwrite_func(BuiltinFunctionContextPtr f)
+{
+  SPIDeviceObj* o = dynamic_cast<SPIDeviceObj*>(f->thisObj().get());
+  assert(o);
+  SPIDevice* dev = o->spidevice().get();
+  SPIBus& bus = dev->getBus();
+  uint8_t reg = f->arg(0)->intValue();
+  string ty;
+  if (f->arg(2)->defined()) ty = f->arg(2)->stringValue();
+  if (ty=="word") {
+    // 16 bit word
+    uint16_t w = f->arg(1)->intValue();
+    if (bus.SPIRegWriteWord(dev, reg, w)) {
+      f->finish();
+      return;
+    }
+  }
+  else if (ty=="bytes") {
+    // number of bytes is determined by string length
+    string d = f->arg(1)->stringValue();
+    uint8_t c = d.size();
+    if (bus.SPIRegWriteBytes(dev, reg, c, (uint8_t*)d.c_str())) {
+      f->finish();
+      return;
+    }
+  }
+  else {
+    // byte
+    uint8_t b = f->arg(1)->intValue();
+    if (bus.SPIRegWriteByte(dev, reg, b)) {
+      f->finish();
+      return;
+    }
+  }
+  // no success
+  f->finish(new ErrorValue(TextError::err("i2c smbus write error")));
+}
+
+
+
+// writeread(bytes_to_write [, num_bytes_to_read [, fullduplex]])
+static const BuiltInArgDesc writeread_args[] = { { text }, { numeric }, { numeric|optionalarg } };
+static const size_t writeread_numargs = sizeof(writeread_args)/sizeof(BuiltInArgDesc);
+static void writeread_func(BuiltinFunctionContextPtr f)
+{
+  SPIDeviceObj* o = dynamic_cast<SPIDeviceObj*>(f->thisObj().get());
+  assert(o);
+  SPIDevice* dev = o->spidevice().get();
+  SPIBus& bus = dev->getBus();
+  string data = f->arg(0)->stringValue();
+  unsigned int insz = 0; // no reading
+  uint8_t *inP = NULL;
+  if (f->arg(1)->defined()) {
+    insz = f->arg(1)->intValue();
+    if (insz>0) inP = new uint8_t[insz];
+  }
+  if (bus.SPIRawWriteRead(dev, (unsigned int)data.size(), (uint8_t *)data.c_str(), insz, inP, f->arg(2)->boolValue())) {
+    if (inP) {
+      f->finish(new StringValue(string((char *)inP, (size_t)insz)));
+      delete inP;
+    }
+    else {
+      // nothing read
+      f->finish();
+    }
+    return;
+  }
+  if (inP) delete inP;
+  // no success
+  f->finish(new ErrorValue(TextError::err("i2c raw write error")));
+}
+
+
+static const BuiltinMemberDescriptor spiDeviceMembers[] = {
+  { "regread", executable|error|text|numeric, regread_numargs, regread_args, &regread_func },
+  { "regwrite", executable|error|text|numeric, regwrite_numargs, regwrite_args, &regwrite_func },
+  { "writeread", executable|error|text, writeread_numargs, writeread_args, &writeread_func },
+  { NULL } // terminator
+};
+
+static BuiltInMemberLookup* sharedspiDeviceFunctionLookupP = NULL;
+
+SPIDeviceObj::SPIDeviceObj(SPIDevicePtr aSPIDevice) :
+  mSPIDevice(aSPIDevice)
+{
+  registerSharedLookup(sharedspiDeviceFunctionLookupP, spiDeviceMembers);
+}
+
+
+// spidevice(busnumber, devicespec)
+static const BuiltInArgDesc spidevice_args[] = { { numeric }, { text } };
+static const size_t spidevice_numargs = sizeof(spidevice_args)/sizeof(BuiltInArgDesc);
+static void spidevice_func(BuiltinFunctionContextPtr f)
+{
+  #if ENABLE_APPLICATION_SUPPORT
+  if (Application::sharedApplication()->userLevel()<2) { // user level >=1 is needed for IO access
+    f->finish(new ErrorValue(ScriptError::NoPrivilege, "no IO privileges"));
+  }
+  #endif
+  SPIDevicePtr dev = SPIManager::sharedManager().getDevice(f->arg(0)->intValue(), f->arg(1)->stringValue().c_str());
+  if (dev) {
+    f->finish(dev->representingScriptObj());
+  }
+  else {
+    f->finish(new ErrorValue(ScriptError::NotFound, "unknown spi device"));
+  }
+}
+
+
+static const BuiltinMemberDescriptor spiGlobals[] = {
+  { "spidevice", executable|null, spidevice_numargs, spidevice_args, &spidevice_func },
+  { NULL } // terminator
+};
+
+SPILookup::SPILookup() :
+  inherited(spiGlobals)
+{
+}
+
+#endif // ENABLE_SPI_SCRIPT_FUNCS

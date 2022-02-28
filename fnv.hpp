@@ -28,8 +28,7 @@ using namespace std;
 
 namespace p44 {
 
-
-  class Fnv32  : public P44Obj
+  class Fnv32
   {
     uint32_t hash;
   public:
@@ -45,7 +44,8 @@ namespace p44 {
   };
 
 
-  class Fnv64 {
+  class Fnv64
+  {
     uint64_t hash;
   public:
     Fnv64();

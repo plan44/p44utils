@@ -28,12 +28,14 @@
 
 #include "expressions.hpp"
 
-#if ENABLE_EXPRESSIONS
+#if ENABLE_EXPRESSIONS || EXPRESSION_LEGACY_PLACEHOLDERS
 
 #include "math.h"
 
 using namespace p44;
 
+
+#if ENABLE_EXPRESSIONS
 
 // MARK: - expression value
 
@@ -2817,6 +2819,8 @@ ErrorPtr p44::substituteExpressionPlaceholders(string &aString, ValueLookupCB aV
   return err;
 }
 
+#endif // ENABLE_EXPRESSIONS
+
 
 #if EXPRESSION_LEGACY_PLACEHOLDERS
 
@@ -2835,7 +2839,7 @@ ErrorPtr p44::substitutePlaceholders(string &aString, StringValueLookupCB aValue
     size_t e = aString.find("}",p+2);
     if (e==string::npos) {
       // syntactically incorrect, no closing "}"
-      err = ExpressionError::err(ExpressionError::Syntax, "unterminated placeholder: %s", aString.c_str()+p);
+      err = TextError::err("unterminated placeholder: %s", aString.c_str()+p);
       break;
     }
     string v = aString.substr(p+2,e-2-p);
@@ -2908,5 +2912,4 @@ ErrorPtr p44::substitutePlaceholders(string &aString, StringValueLookupCB aValue
 
 #endif // EXPRESSION_LEGACY_PLACEHOLDERS
 
-#endif // ENABLE_EXPRESSIONS
-
+#endif // ENABLE_EXPRESSIONS || EXPRESSION_LEGACY_PLACEHOLDERS

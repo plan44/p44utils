@@ -23,6 +23,7 @@
 #define __p44utils__utils__
 
 #include "p44utils_minimal.hpp"
+#include "p44utils_defs.hpp"
 
 #include <string>
 #include <stdarg.h>
@@ -36,16 +37,9 @@
 using namespace std;
 
 /// Basic utilities that DO NOT HAVE DEPENDENCIES on other p44utils classes
+/// @note utilities that depends on p44::Error or other p44utils classes are in "extutils"
 
 namespace p44 {
-
-  /// tristate type
-  typedef enum {
-    yes = 1,
-    no = 0,
-    undefined = -1
-  } Tristate;
-
 
   /// printf-style format into std::string
   /// @param aFormat printf-style format string
@@ -98,6 +92,12 @@ namespace p44 {
   /// @return true if file could be read, false otherwise
   bool string_fgetfile(FILE *aFile, string &aData);
 
+  /// get whitespace-trimmed first line of file into string
+  /// @param aFileName filename/path to read from
+  /// @param aLine string to store first line, whitespace trimmed front and end
+  /// @return true if file could be read, false otherwise
+  bool string_fgetfirstline(const string aFileName, string &aLine);
+
 	/// always return a valid C String, if NULL is passed, an empty string is returned
 	/// @param aNULLOrCStr NULL or C-String
 	/// @return the input string if it is non-NULL, or an empty string
@@ -134,11 +134,18 @@ namespace p44 {
   /// @return lowercase (char by char tolower())
   string lowerCase(const string &aString);
 
-  /// return string quoted such that it works as a single shell argument
+  /// return string quoted such that it safely works as a single shell argument with no variable expansion
   /// @param aString a string
-  /// @return quoted string
+  /// @return (single) quoted shell argument string, if original contains single quotes these are represented as '"'"'
   string shellQuote(const char *aString);
   string shellQuote(const string &aString);
+
+  /// return string quoted such that it works as a C string literal
+  /// @param aString a string
+  /// @return (double) quoted C string
+  string cstringQuote(const char *aString);
+  string cstringQuote(const string &aString);
+
 
   /// return string with trailimg and/or leading spaces removed
   /// @param aString a string

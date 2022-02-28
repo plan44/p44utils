@@ -7,6 +7,13 @@
 #ifndef MODBUS_H
 #define MODBUS_H
 
+#include "p44utils_minimal.hpp"
+#ifndef ENABLE_MODBUS
+  #define ENABLE_MODBUS 1
+#endif
+
+#if ENABLE_MODBUS
+
 /* Add this for macros that defined unix flavor */
 #if (defined(__unix__) || defined(unix)) && !defined(USG)
 #include <sys/param.h>
@@ -364,4 +371,5 @@ MODBUS_API void modbus_set_float_cdab(float f, uint16_t *dest);
 
 MODBUS_END_DECLS
 
+#endif /* ENABLE_MODBUS */
 #endif  /* MODBUS_H */

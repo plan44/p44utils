@@ -19,8 +19,8 @@
 //  along with p44utils. If not, see <http://www.gnu.org/licenses/>.
 //
 
-#ifndef __p44utils__uielements__
-#define __p44utils__uielements__
+#ifndef __p44utils__lvglui__
+#define __p44utils__lvglui__
 
 
 #include "lvgl.hpp"
@@ -28,7 +28,22 @@
 #if ENABLE_LVGL
 
 #include "jsonobject.hpp"
-#include "expressions.hpp"
+
+#if ENABLE_P44SCRIPT && !defined(ENABLE_LVGLUI_SCRIPT_FUNCS)
+  #define ENABLE_LVGLUI_SCRIPT_FUNCS 1
+#endif
+#if ENABLE_LVGLUI_SCRIPT_FUNCS && !ENABLE_P44SCRIPT
+  #error "ENABLE_P44SCRIPT required when ENABLE_LVGLUI_SCRIPT_FUNCS is set"
+#endif
+#ifndef LVGLUI_LEGCACY_FUNCTIONS
+  #define LVGLUI_LEGCACY_FUNCTIONS 0
+#endif
+
+
+#if ENABLE_LVGLUI_SCRIPT_FUNCS
+  #include "p44script.hpp"
+#endif
+
 
 
 using namespace std;
@@ -49,7 +64,8 @@ namespace p44 {
 
     LvGLUIObject(LvGLUi& aLvGLUI) : lvglui(aLvGLUI) {};
 
-    const string &getName() { return name; };
+    const string& getName() { return name; };
+    LvGLUi& getLvGLUi() { return lvglui; };
 
     /// configure this object from json
     /// @param aConfig JSON object containing configuration propertyname/values
@@ -104,9 +120,9 @@ namespace p44 {
   // MARK: - element and container base classes
 
   class LVGLUiElement;
-  class LVGLUiContainer;
+  class LvGLUiContainer;
   typedef boost::intrusive_ptr<LVGLUiElement> LVGLUiElementPtr;
-  typedef boost::intrusive_ptr<LVGLUiContainer> LVGLUiContainerPtr;
+  typedef boost::intrusive_ptr<LvGLUiContainer> LVGLUiContainerPtr;
 
 
   /// abstract base class for visible UI elements, wrapping a lv_obj
@@ -115,16 +131,18 @@ namespace p44 {
     friend class LvGLUi;
 
     typedef LvGLUIObject inherited;
-    string onEventScript; ///< script executed to process otherwise unhandled lvgl events on this element
-    string onRefreshScript; ///< script executed to specifically process "refresh" event
+    #if ENABLE_LVGLUI_SCRIPT_FUNCS
+    P44Script::ScriptSource onEventScript; ///< script executed to process otherwise unhandled lvgl events on this element
+    P44Script::ScriptSource onRefreshScript; ///< script executed to specifically process "refresh" event
+    #endif
     bool handlesEvents;
 
   public:
 
     lv_obj_t* element;
-    LVGLUiContainer* parentP;
+    LvGLUiContainer* parentP;
 
-    LVGLUiElement(LvGLUi& aLvGLUI, LVGLUiContainer* aParentP, lv_obj_t *aTemplate);
+    LVGLUiElement(LvGLUi& aLvGLUI, LvGLUiContainer* aParentP, lv_obj_t *aTemplate);
     virtual ~LVGLUiElement();
 
     lv_obj_t* lvParent();
@@ -142,7 +160,6 @@ namespace p44 {
       return false; // not changed value
     };
 
-
     /// configure this object from json
     /// @param aConfig JSON object containing configuration propertyname/values
     /// @param aParent parent object, or NULL if none
@@ -159,7 +176,7 @@ namespace p44 {
 
     /// @param aValue the value to set to the element (depends on element type)
     /// @param aAnimationTime if set>0, the value change will be animated
-    virtual void setValue(int16_t aValue, uint16_t aAnimationTime = 0) { /* NOP in base class */ }
+    virtual void setValue(int16_t aValue, uint16_t aAnimationTimeMs = 0) { /* NOP in base class */ }
 
     /// set a new text for an element
     void setText(const string &aNewText);
@@ -169,7 +186,10 @@ namespace p44 {
     virtual int16_t getValue() { return 0; /* no value in base class */ }
 
     /// run event script
-    void runEventScript(lv_event_t aEvent, const string &aScriptCode);
+    #if ENABLE_LVGLUI_SCRIPT_FUNCS
+    void runEventScript(lv_event_t aEvent, P44Script::ScriptSource& aScriptCode);
+    void scriptDone();
+    #endif
 
   protected:
 
@@ -189,13 +209,13 @@ namespace p44 {
   {
     typedef LVGLUiElement inherited;
   public:
-    LvGLUiLayoutContainer(LvGLUi& aLvGLUI, LVGLUiContainer* aParentP, lv_obj_t *aTemplate) : inherited(aLvGLUI, aParentP, aTemplate) {};
+    LvGLUiLayoutContainer(LvGLUi& aLvGLUI, LvGLUiContainer* aParentP, lv_obj_t *aTemplate) : inherited(aLvGLUI, aParentP, aTemplate) {};
     virtual ErrorPtr configure(JsonObjectPtr aConfig) P44_OVERRIDE;
   };
 
 
   /// abstract for a UI element that can create contained child objects from config
-  class LVGLUiContainer : public LvGLUiLayoutContainer
+  class LvGLUiContainer : public LvGLUiLayoutContainer
   {
     typedef LvGLUiLayoutContainer inherited;
     friend class LvGLUi;
@@ -205,7 +225,7 @@ namespace p44 {
 
   public:
 
-    LVGLUiContainer(LvGLUi& aLvGLUI, LVGLUiContainer* aParentP, lv_obj_t *aTemplate) : inherited(aLvGLUI, aParentP, aTemplate) {};
+    LvGLUiContainer(LvGLUi& aLvGLUI, LvGLUiContainer* aParentP, lv_obj_t *aTemplate) : inherited(aLvGLUI, aParentP, aTemplate) {};
 
     /// configure this object from json
     /// @param aConfig JSON object containing configuration propertyname/values
@@ -220,7 +240,7 @@ namespace p44 {
 
   protected:
 
-    ErrorPtr addElements(JsonObjectPtr aElementConfigArray, LVGLUiContainer* aParent, bool aContainerByDefault);
+    ErrorPtr addElements(JsonObjectPtr aElementConfigArray, LvGLUiContainer* aParent, bool aContainerByDefault);
 
   };
 
@@ -231,15 +251,15 @@ namespace p44 {
   {
     typedef LVGLUiElement inherited;
   public:
-    LvGLUiPlain(LvGLUi& aLvGLUI, LVGLUiContainer* aParentP, lv_obj_t *aTemplate);
+    LvGLUiPlain(LvGLUi& aLvGLUI, LvGLUiContainer* aParentP, lv_obj_t *aTemplate);
   };
 
 
-  class LvGLUiPanel : public LVGLUiContainer
+  class LvGLUiPanel : public LvGLUiContainer
   {
-    typedef LVGLUiContainer inherited;
+    typedef LvGLUiContainer inherited;
   public:
-    LvGLUiPanel(LvGLUi& aLvGLUI, LVGLUiContainer* aParentP, lv_obj_t *aTemplate);
+    LvGLUiPanel(LvGLUi& aLvGLUI, LvGLUiContainer* aParentP, lv_obj_t *aTemplate);
   };
 
 
@@ -249,7 +269,7 @@ namespace p44 {
     typedef LVGLUiElement inherited;
     string imgSrc;
   public:
-    LvGLUiImage(LvGLUi& aLvGLUI, LVGLUiContainer* aParentP, lv_obj_t *aTemplate);
+    LvGLUiImage(LvGLUi& aLvGLUI, LvGLUiContainer* aParentP, lv_obj_t *aTemplate);
     virtual ErrorPtr configure(JsonObjectPtr aConfig) P44_OVERRIDE;
     virtual void setTextRaw(const string &aNewText) P44_OVERRIDE;
     virtual bool wrapperNeeded() P44_OVERRIDE { return true; }; // wrapper stores the image source, must be kept
@@ -260,7 +280,7 @@ namespace p44 {
   {
     typedef LVGLUiElement inherited;
   public:
-    LvGLUiLabel(LvGLUi& aLvGLUI, LVGLUiContainer* aParentP, lv_obj_t *aTemplate);
+    LvGLUiLabel(LvGLUi& aLvGLUI, LvGLUiContainer* aParentP, lv_obj_t *aTemplate);
     virtual ErrorPtr configure(JsonObjectPtr aConfig) P44_OVERRIDE;
     virtual void setTextRaw(const string &aNewText) P44_OVERRIDE;
   };
@@ -269,11 +289,13 @@ namespace p44 {
   class LvGLUiButton : public LvGLUiLayoutContainer
   {
     typedef LvGLUiLayoutContainer inherited;
-    string onPressScript;
-    string onReleaseScript;
+    #if ENABLE_LVGLUI_SCRIPT_FUNCS
+    P44Script::ScriptSource onPressScript;
+    P44Script::ScriptSource onReleaseScript;
+    #endif
     lv_obj_t *label;
   public:
-    LvGLUiButton(LvGLUi& aLvGLUI, LVGLUiContainer* aParentP, lv_obj_t *aTemplate);
+    LvGLUiButton(LvGLUi& aLvGLUI, LvGLUiContainer* aParentP, lv_obj_t *aTemplate);
     virtual ErrorPtr configure(JsonObjectPtr aConfig) P44_OVERRIDE;
   protected:
     virtual void handleEvent(lv_event_t aEvent) P44_OVERRIDE;
@@ -284,8 +306,10 @@ namespace p44 {
   class LvGLUiImgButton : public LVGLUiElement
   {
     typedef LVGLUiElement inherited;
-    string onPressScript;
-    string onReleaseScript;
+    #if ENABLE_LVGLUI_SCRIPT_FUNCS
+    P44Script::ScriptSource onPressScript;
+    P44Script::ScriptSource onReleaseScript;
+    #endif
     string relImgSrc;
     string prImgSrc;
     string tglPrImgSrc;
@@ -293,7 +317,7 @@ namespace p44 {
     string inaImgSrc;
     bool imgsAssigned;
   public:
-    LvGLUiImgButton(LvGLUi& aLvGLUI, LVGLUiContainer* aParentP, lv_obj_t *aTemplate);
+    LvGLUiImgButton(LvGLUi& aLvGLUI, LvGLUiContainer* aParentP, lv_obj_t *aTemplate);
     virtual ErrorPtr configure(JsonObjectPtr aConfig) P44_OVERRIDE;
     virtual bool wrapperNeeded() P44_OVERRIDE { return true; }; // wrapper stores the image sources, must be kept
   protected:
@@ -306,10 +330,10 @@ namespace p44 {
   {
     typedef LVGLUiElement inherited;
   public:
-    LvGLUiBarBase(LvGLUi& aLvGLUI, LVGLUiContainer* aParentP, lv_obj_t *aTemplate) : inherited(aLvGLUI, aParentP, aTemplate) {};
+    LvGLUiBarBase(LvGLUi& aLvGLUI, LvGLUiContainer* aParentP, lv_obj_t *aTemplate) : inherited(aLvGLUI, aParentP, aTemplate) {};
     virtual ErrorPtr configure(JsonObjectPtr aConfig) P44_OVERRIDE;
   protected:
-    virtual void setValue(int16_t aValue, uint16_t aAnimationTime = 0) P44_OVERRIDE;
+    virtual void setValue(int16_t aValue, uint16_t aAnimationTimeMs = 0) P44_OVERRIDE;
   };
 
 
@@ -317,7 +341,7 @@ namespace p44 {
   {
     typedef LvGLUiBarBase inherited;
   public:
-    LvGLUiBar(LvGLUi& aLvGLUI, LVGLUiContainer* aParentP, lv_obj_t *aTemplate);
+    LvGLUiBar(LvGLUi& aLvGLUI, LvGLUiContainer* aParentP, lv_obj_t *aTemplate);
     virtual int16_t getValue() P44_OVERRIDE { return lv_bar_get_value(element); }
   };
 
@@ -325,10 +349,12 @@ namespace p44 {
   class LvGLUiSlider : public LvGLUiBarBase
   {
     typedef LvGLUiBarBase inherited;
-    string onChangeScript;
-    string onReleaseScript;
+    #if ENABLE_LVGLUI_SCRIPT_FUNCS
+    P44Script::ScriptSource onChangeScript;
+    P44Script::ScriptSource onReleaseScript;
+    #endif
   public:
-    LvGLUiSlider(LvGLUi& aLvGLUI, LVGLUiContainer* aParentP, lv_obj_t *aTemplate);
+    LvGLUiSlider(LvGLUi& aLvGLUI, LvGLUiContainer* aParentP, lv_obj_t *aTemplate);
     virtual ErrorPtr configure(JsonObjectPtr aConfig) P44_OVERRIDE;
   protected:
     virtual void handleEvent(lv_event_t aEvent) P44_OVERRIDE;
@@ -336,48 +362,11 @@ namespace p44 {
   };
 
 
-
-  // MARK: - LvGLUiScriptContext
-
-  class LvGLUiScriptContext : public ScriptExecutionContext
-  {
-    typedef ScriptExecutionContext inherited;
-    friend class LvGLUi;
-
-    LvGLUi& lvglui;
-    int currentEvent; // -1 means none
-    LVGLUiElementPtr currentElement; // the element that triggered the current script
-
-  public:
-
-    LvGLUiScriptContext(LvGLUi& aLvGLUI) : lvglui(aLvGLUI), currentEvent(-1) {};
-
-    /// script context specific functions
-    virtual bool evaluateFunction(const string &aFunc, const FunctionArguments &aArgs, ExpressionValue &aResult) P44_OVERRIDE;
-  };
-
-
   // MARK: - LvGLUi
 
-
-  class LvGLUi : public LVGLUiContainer
+  class LvGLUi : public LvGLUiContainer
   {
-    typedef LVGLUiContainer inherited;
-
-    class LvGLUiScriptRequest
-    {
-      friend class LvGLUi;
-
-      LvGLUiScriptRequest(lv_event_t aEvent, LVGLUiElementPtr aElement, const string &aScriptCode, P44ObjPtr aCallerContext) :
-      event(aEvent), element(aElement), scriptCode(aScriptCode), callerContext(aCallerContext) {};
-      lv_event_t event;
-      LVGLUiElementPtr element;
-      string scriptCode;
-      P44ObjPtr callerContext;
-    };
-
-    typedef std::list<LvGLUiScriptRequest> ScriptRequestList;
-    ScriptRequestList scriptRequests;
+    typedef LvGLUiContainer inherited;
 
     lv_disp_t *display; ///< the display this gui appears on
 
@@ -385,15 +374,45 @@ namespace p44 {
     StyleList adhocStyles; ///< keeps ad hoc styles
     ThemeMap themes; ///< initialized themes (basic theme + hue + font)
 
+    bool mDataPathResources; ///< look for resources also in data path
+    string mResourcePrefix; ///< prefix for resource loading
+
+    #if ENABLE_LVGLUI_SCRIPT_FUNCS
+    P44Script::ScriptMainContextPtr mScriptMainContext;
+    P44Script::ScriptObjPtr mRepresentingObj;
+    P44Script::ScriptSource activityTimeoutScript;
+    P44Script::ScriptSource activationScript;
+    #endif
+
   protected:
 
     virtual void clear() P44_OVERRIDE;
 
   public:
 
-    LvGLUiScriptContext uiScriptContext;
-
     LvGLUi();
+
+    #if ENABLE_LVGLUI_SCRIPT_FUNCS
+
+    /// set main context for all lvgl object level script executions in
+    /// @param aScriptMainContext main context to execute lvgl object level scripts (sequentially among each other)
+    void setScriptMainContext(P44Script::ScriptMainContextPtr aScriptMainContext);
+
+    /// get the main script context (or create it on demand if not set by setScriptMainContext()
+    /// @return the context that runs all lvgl ui event handlers (queued, one by one)
+    P44Script::ScriptMainContextPtr getScriptMainContext();
+
+    /// @return a singleton script object, representing this lvgl ui instance
+    P44Script::ScriptObjPtr representingScriptObj();
+
+    /// report activation / timeout of UI
+    /// @note actual mechanism to detect UI usage or inactivity must be implemented on app level
+    ///    This method is only to call respective scripts
+    /// @param aActivated if set, this is an UI activation, otherwise a UI timeout
+    void uiActivation(bool aActivated);
+
+
+    #endif // ENABLE_LVGLUI_SCRIPT_FUNCS
 
     /// initialize for use with a specified display
     /// @param aDisplay the display to use
@@ -442,38 +461,54 @@ namespace p44 {
     /// @return requested element or NULL if none found
     LVGLUiElementPtr namedElement(string aElementPath, LVGLUiElementPtr aOrigin);
 
-    /// queue event script to run (when others scripts are done)
-    /// @param aEvent the LittevGL event that causes the script to execute
-    /// @param aScriptCode the script code string to execute
-    /// @param aCallerContext optional context object for the execution (can be used by custom function implementations)
-    void queueEventScript(lv_event_t aEvent, LVGLUiElementPtr aElement, const string &aScriptCode, P44ObjPtr aCallerContext = NULL);
-
-    /// queue global script (executed as refresh event for the LvGLUi container)
-    /// @param aScriptCode the script code string to execute
-    /// @param aCallerContext optional context object for the execution (can be used by custom function implementations)
-    void queueGlobalScript(const string &aScriptCode, P44ObjPtr aCallerContext = NULL);
-
     /// load named screen and call its onrefreshscript
     /// @param aScreenName the name of the screen to load
     void loadScreen(const string aScreenName);
 
-
-  private:
-
-    void runNextScript();
-    void scriptDone();
+    /// set resource loading options
+    /// @param aFromDataPath if set, non-absolute resource (image) file names are first looked up in datapath
+    /// @param aPrefix if not empty and image spec does not start with "./", this is prepended to the image spec
+    ///    in both data and resource paths
+    void setResourceLoadOptions(bool aFromDataPath, const string aPrefix);
 
   };
 
 
+  #if ENABLE_LVGLUI_SCRIPT_FUNCS
+  namespace P44Script {
+
+    /// represents a object of a LvGLUI object hierarchy
+    class LVGLUiElementObj : public StructuredLookupObject
+    {
+      friend class p44::LvGLUi;
+
+      typedef P44Script::StructuredLookupObject inherited;
+      LVGLUiElementPtr mElement;
+    public:
+      LVGLUiElementObj(LVGLUiElementPtr aElement);
+      virtual string getAnnotation() const P44_OVERRIDE { return "lvglObj"; };
+      LVGLUiElementPtr element() { return mElement; }
+    };
+
+
+    #if LVGLUI_LEGCACY_FUNCTIONS
+    /// represents the global objects related to lvglui
+    class LvGLUiLookup : public BuiltInMemberLookup
+    {
+      typedef BuiltInMemberLookup inherited;
+      LvGLUi& mLvGLUi;
+    public:
+      LvGLUi* lvglui() { return &mLvGLUi; };
+      LvGLUiLookup(LvGLUi &aLvGLUi);
+    };
+    #endif // LVGLUI_LEGCACY_FUNCTIONS
+
+  }
+  #endif // ENABLE_LVGLUI_SCRIPT_FUNCS
 
 } // namespace p44
 
 
-
-
-
-
 #endif // ENABLE_LVGL
 
-#endif /* __p44utils__uielements__ */
+#endif /* __p44utils__lvglui__ */

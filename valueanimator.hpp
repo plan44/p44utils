@@ -29,7 +29,7 @@
 #endif
 
 #if ENABLE_ANIMATOR_SCRIPT_FUNCS
-#include "p44script.hpp"
+  #include "p44script.hpp"
 #endif
 
 
@@ -61,25 +61,28 @@ namespace p44 {
   {
     typedef std::list<ValueAnimatorPtr> AnimatorList;
 
-    ValueSetterCB valueSetter;
-    AnimationDoneCB doneCB;
-    MLMicroSeconds startedAt; // if Never -> not running
-    MLMicroSeconds defaultMinStepTime;
-    MLMicroSeconds stepTime;
-    MLMicroSeconds duration;
-    double startValue;
-    double currentValue;
-    double distance;
-    AnimationFunction animationFunction;
-    double animationParam;
-    bool selfTiming;
-    MLTicket animationTimer;
-    bool autoreverse;
-    int cycles;
-    AnimatorList triggerAnimations; ///< the animations to trigger when this one ends
-    bool awaitingTrigger; ///< set when animation awaits a trigger from another animation
-    bool absoluteStartTime; ///< true when startTimeOrDelay is absolute, false when start is relative to the time the animation is triggered
-    MLMicroSeconds startTimeOrDelay; ///< starting time (when relativeStartTime==false) or start delay (when relativeStartTime==true)
+    ValueSetterCB mValueSetter;
+    AnimationDoneCB mDoneCB;
+    MLMicroSeconds mStartedAt; // if Never -> not running
+    MLMicroSeconds mDefaultMinStepTime; ///< default minimum step time (usually set by creator of animator based on HW constraints)
+    MLMicroSeconds mMinStepTime; ///< minimum step time for this animation as set via stepParams()
+    MLMicroSeconds mStepTime; ///< actual step time used for this animation, might be larger when a minimal step size specified
+    double mStepSize; ///< step size wanted for this animation, 0 if step size should be calculated from step time
+    MLMicroSeconds mDuration;
+    double mStartValue;
+    double mCurrentValue;
+    double mDistance;
+    AnimationFunction mAnimationFunction;
+    double mAnimationParam;
+    bool mSelfTiming;
+    MLTicket mAnimationTimer;
+    bool mAutoreverse;
+    int mRepeat; ///< the number of repetitions to run, -1 = forever
+    int mCycles; ///< remaining cycles in current run
+    AnimatorList mTriggerAnimations; ///< the animations to trigger when this one ends
+    bool mAwaitingTrigger; ///< set when animation awaits a trigger from another animation
+    bool mAbsoluteStartTime; ///< true when startTimeOrDelay is absolute, false when start is relative to the time the animation is triggered
+    MLMicroSeconds mStartTimeOrDelay; ///< starting time (when relativeStartTime==false) or start delay (when relativeStartTime==true)
 
   public:
 
@@ -90,24 +93,30 @@ namespace p44 {
     ValueAnimator(ValueSetterCB aValueSetter, bool aSelfTiming = false, MLMicroSeconds aDefaultMinStepTime = 0);
     virtual ~ValueAnimator();
 
+    /// Reset to default parameters
+    void reset();
+
     /// Start animation
     /// @note start value and repeat parameters must be set before
     /// @param aTo ending value
     /// @param aDuration overall duration of of the animation
     /// @param aDoneCB called when the animation completes or is stopped with reporting enabled
+    /// @note if animator was created with aSelfTiming==true, step() is called by an internal timer an MUST NOT be called directly!
+    /// @return Infinite if there is no need to call step (animation has no steps or needs trigger first), otherwise mainloop time of when to call again
+    MLMicroSeconds animate(double aTo, MLMicroSeconds aDuration, AnimationDoneCB aDoneCB = NULL);
+
+    /// set stepping params
     /// @param aMinStepTime the minimum time between steps. If 0, ANIMATION_MIN_STEP_TIME is used
     /// @param aStepSize the desired step size. If 0, step size is determined by aMinStepTime (or its default)
     /// @note stepsize and steptime is only used when autostepping and for the recommended call-again time returned by step()
     ///   Actual stepping is done whenever step() is called, relative to the start time
-    /// @note if animator was created with aSelfTiming==true, step() is called by an internal timer an MUST NOT be called directly!
-    /// @return Infinite if there is no need to call step (animation has no steps or needs trigger first), otherwise mainloop time of when to call again
-    MLMicroSeconds animate(double aTo, MLMicroSeconds aDuration, AnimationDoneCB aDoneCB = NULL, MLMicroSeconds aMinStepTime = 0, double aStepSize = 0);
+    ValueAnimatorPtr stepParams(MLMicroSeconds aMinStepTime = 0, double aStepSize = 0);
 
     /// set repetition parameters
     /// @param aAutoReverse if set, animation direction is reversed after each cycle
-    /// @param aCycles number of cycles (running forth and back with autoreverse counts as 2 cycles), 0 for endless repeat
+    /// @param aRepeat number of repeating cycles (running forth and back with autoreverse counts as 2 cycles), <=0 for endless repeat
     /// @return the animator to allow chaining
-    ValueAnimatorPtr repeat(bool aAutoReverse, int aCycles);
+    ValueAnimatorPtr repeat(bool aAutoReverse, int aRepeat);
 
     /// set animation function
     /// @param aAnimationFunction the animation function to use
@@ -166,8 +175,10 @@ namespace p44 {
     bool valid();
 
     /// @return current value
-    double current() { return currentValue; }
+    double current() { return mCurrentValue; }
 
+    /// @return time when started, if Never -> is not running
+    MLMicroSeconds startedAt() { return mStartedAt; }
 
     /// Animation functions
     static double linear(double aProgress, double aTuning);
@@ -190,7 +201,7 @@ namespace p44 {
   #if ENABLE_ANIMATOR_SCRIPT_FUNCS
   namespace P44Script {
 
-    /// represents a view of a P44lrgraphics view hierarchy
+    /// represents a value animator
     class ValueAnimatorObj : public P44Script::StructuredLookupObject, public P44Script::EventSource
     {
       typedef P44Script::StructuredLookupObject inherited;
@@ -198,6 +209,7 @@ namespace p44 {
     public:
       ValueAnimatorObj(ValueAnimatorPtr aAnimator);
       virtual string getAnnotation() const P44_OVERRIDE { return "animator"; };
+      virtual TypeInfo getTypeInfo() const P44_OVERRIDE;
       ValueAnimatorPtr animator() { return mAnimator; }
       virtual EventSource *eventSource() const P44_OVERRIDE;
     };

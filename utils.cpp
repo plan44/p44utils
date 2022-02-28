@@ -23,6 +23,7 @@
 
 #include <string.h>
 #include <stdio.h>
+#include <fcntl.h>
 #include <sys/types.h> // for ssize_t, size_t etc.
 
 using namespace p44;
@@ -147,6 +148,7 @@ void p44::string_ftime_append(std::string &aStringToAppendTo, const char *aForma
 
 bool p44::string_fgetline(FILE *aFile, string &aLine)
 {
+  if (!aFile) return false;
   const size_t bufLen = 1024;
   char buf[bufLen];
   aLine.clear();
@@ -178,6 +180,7 @@ bool p44::string_fgetline(FILE *aFile, string &aLine)
 
 bool p44::string_fgetfile(FILE *aFile, string &aData)
 {
+  if (!aFile) return false;
   const size_t bufLen = 1024;
   char buf[bufLen];
   aData.clear();
@@ -194,6 +197,23 @@ bool p44::string_fgetfile(FILE *aFile, string &aData)
     }
   }
   return true;
+}
+
+
+bool p44::string_fgetfirstline(const string aFileName, string &aLine)
+{
+  string line;
+  FILE *file = fopen(aFileName.c_str(), "r");
+  bool readLine = false;
+  if (file) {
+    // file opened
+    if (string_fgetline(file, line)) {
+      aLine = trimWhiteSpace(line, true, true);
+      readLine = true;
+    }
+    fclose(file);
+  }
+  return readLine;
 }
 
 
@@ -303,15 +323,14 @@ string p44::singleLine(const char *aString, bool aCompactWSRuns, size_t aEllipsi
 }
 
 
-
 string p44::shellQuote(const char *aString)
 {
-  string s = "\"";
+  string s = "'";
   while (char c=*aString++) {
-    if (c=='"' || c=='\\') s += '\\'; // escape double quotes and backslashes
+    if (c=='\'') s += "'\"'\""; // must exit single quoted string to include quote
     s += c;
   }
-  s += '"';
+  s += '\'';
   return s;
 }
 
@@ -319,6 +338,28 @@ string p44::shellQuote(const char *aString)
 string p44::shellQuote(const string &aString)
 {
   return shellQuote(aString.c_str());
+}
+
+
+string p44::cstringQuote(const char *aString)
+{
+  string s = "\"";
+  while (char c=*aString++) {
+    if (c=='"' || c=='\\') s += '\\'; // escape double quotes and backslashes
+    else if (c=='\n') { s += "\\n"; continue; }
+    else if (c=='\r') { s += "\\r"; continue; }
+    else if (c=='\t') { s += "\\t"; continue; }
+    else if (c<0x20) { string_format_append(s,"\\x%02x",(uint8_t)c); continue; }
+    s += c;
+  }
+  s += '"';
+  return s;
+}
+
+
+string p44::cstringQuote(const string &aString)
+{
+  return cstringQuote(aString.c_str());
 }
 
 

@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2013-2019 plan44.ch / Lukas Zeller, Zurich, Switzerland
+//  Copyright (c) 2013-2022 plan44.ch / Lukas Zeller, Zurich, Switzerland
 //
 //  Author: Lukas Zeller <luz@plan44.ch>
 //
@@ -107,35 +107,35 @@ namespace p44 {
     typedef FdComm inherited;
 
     // connection parameter
-    string hostNameOrAddress;
-    string serviceOrPortOrSocket;
-    int protocolFamily;
-    int socketType;
-    int protocol;
-    string interface;
-    bool serving; ///< is serving socket (TCP) or receiving socket (UDP)
-    bool nonLocal; ///< if set, server sockets (TCP) and receiving sockets (UDP) are bound to external interfaces, otherwise to local loopback only
-    bool connectionLess; ///< if set, this is a socket w/o connections (datagram, UDP)
-    bool broadcast; ///< if set and this is a connectionless socket (UDP), it will also receive broadcasts, not only unicasts
+    string mHostNameOrAddress;
+    string mServiceOrPortOrSocket;
+    int mProtocolFamily;
+    int mSocketType;
+    int mProtocol;
+    string mInterface;
+    bool mServing; ///< is serving socket (TCP) or receiving socket (UDP)
+    bool mNonLocal; ///< if set, server sockets (TCP) and receiving sockets (UDP) are bound to external interfaces, otherwise to local loopback only
+    bool mConnectionLess; ///< if set, this is a socket w/o connections (datagram, UDP)
+    bool mBroadcast; ///< if set and this is a connectionless socket (UDP), it will also receive broadcasts, not only unicasts
     // connection making fd (for server to listen, for clients or server handlers for opening connection)
-    int connectionFd;
+    int mConnectionFd;
     // client connection internals
-    struct addrinfo *addressInfoList; ///< list of possible connection addresses
-    struct addrinfo *currentAddressInfo; ///< address currently connecting to
-    struct sockaddr *currentSockAddrP; ///< address info as currently in use by open connection
-    socklen_t currentSockAddrLen; ///< length of current sockAddr struct
-    struct sockaddr *peerSockAddrP; ///< address info of last UDP receive
-    socklen_t peerSockAddrLen; ///< length of address info of last UDP receive
-    bool isConnecting; ///< in progress of opening connection
-    bool isClosing; ///< in progress of closing connection
-    bool connectionOpen; ///< regular data connection is open
-    bool clearHandlersAtClose; ///< when socket closes, all handlers are cleared (to break retain cycles)
-    SocketCommCB connectionStatusHandler;
+    struct addrinfo *mAddressInfoList; ///< list of possible connection addresses
+    struct addrinfo *mCurrentAddressInfo; ///< address currently connecting to
+    struct sockaddr *mCurrentSockAddrP; ///< address info as currently in use by open connection
+    socklen_t mCurrentSockAddrLen; ///< length of current sockAddr struct
+    struct sockaddr *mPeerSockAddrP; ///< address info of last UDP receive
+    socklen_t mPeerSockAddrLen; ///< length of address info of last UDP receive
+    bool mIsConnecting; ///< in progress of opening connection
+    bool mIsClosing; ///< in progress of closing connection
+    bool mConnectionOpen; ///< regular data connection is open
+    bool mClearHandlersAtClose; ///< when socket closes, all handlers are cleared (to break retain cycles)
+    SocketCommCB mConnectionStatusHandler;
     // server connection internals
-    int maxServerConnections;
-    ServerConnectionCB serverConnectionHandler;
-    SocketCommList clientConnections;
-    SocketCommPtr serverConnection;
+    int mMaxServerConnections;
+    ServerConnectionCB mServerConnectionHandler;
+    SocketCommList mClientConnections;
+    SocketCommPtr mServerConnection;
   public:
 
     SocketComm(MainLoop &aMainLoop = MainLoop::currentMainLoop());
@@ -154,7 +154,7 @@ namespace p44 {
     /// Set if server may accept non-local connections
     /// @param aAllow if set, server accepts non-local connections
     /// @note must be called before initiateConnection() or startServer()
-    void setAllowNonlocalConnections(bool aAllow) { nonLocal = aAllow; };
+    void setAllowNonlocalConnections(bool aAllow) { mNonLocal = aAllow; };
 
     /// Set datagram (UDP) socket options
     /// @param aReceive set to enable receiving (using protocol family as set in setConnectionParams()).
@@ -162,15 +162,15 @@ namespace p44 {
     ///   otherwise to the local loopback only
     /// @param aBroadcast if true, socket will be configured to allow broadcast (sending and receiving)
     /// @note must be called before initiateConnection()
-    void setDatagramOptions(bool aReceive, bool aBroadcast) { serving = aReceive; broadcast = aBroadcast; }
+    void setDatagramOptions(bool aReceive, bool aBroadcast) { mServing = aReceive; mBroadcast = aBroadcast; }
 
     /// get host name we are connected to (useful for server to query connecting client's address)
     /// @return name or IP address of host (for server: actually connected, for client: as set with setConnectionParams())
-    const char *getHost() { return hostNameOrAddress.c_str(); };
+    const char *getHost() { return mHostNameOrAddress.c_str(); };
 
     /// get port, service name or socket path
     /// @return port/service/path (for server: actually connected, for client: as set with setConnectionParams())
-    const char *getPort() { return serviceOrPortOrSocket.c_str(); };
+    const char *getPort() { return mServiceOrPortOrSocket.c_str(); };
 
     /// get datagram origin information
     /// @param aAddress will be set to address of datagram origin
@@ -238,16 +238,16 @@ namespace p44 {
 
     /// clear all callbacks
     /// @note this is important because handlers might cause retain cycles when they have smart ptr arguments
-    virtual void clearCallbacks() { connectionStatusHandler = NULL; serverConnectionHandler = NULL; inherited::clearCallbacks(); }
+    virtual void clearCallbacks() { mConnectionStatusHandler = NULL; mServerConnectionHandler = NULL; inherited::clearCallbacks(); }
 
     /// make sure handlers are cleared as soon as connection closes
     /// @note this is for connections that only live by themselves and should deallocate when they close. As handlers might hold
     ///   smart pointers to the connection, it is essential the handlers are cleared
-    void setClearHandlersAtClose() { clearHandlersAtClose = true; }
+    void setClearHandlersAtClose() { mClearHandlersAtClose = true; }
 
     /// get server (listening) socketComm
     /// @return NULL if this is not a client connection, server listening socketComm otherwise
-    SocketCommPtr getServerConnection() { return serverConnection; }
+    SocketCommPtr getServerConnection() { return mServerConnection; }
 
   private:
     void freeAddressInfo();
@@ -266,32 +266,19 @@ namespace p44 {
 
   #if ENABLE_SOCKET_SCRIPT_FUNCS && ENABLE_P44SCRIPT
 
+  // FIXME: refactor to have SocketComm as the event source
+
   namespace P44Script {
 
     class SocketObj;
   
-    /// represents a message from a socket
-    class SocketMessageObj : public StringValue
-    {
-      typedef StringValue inherited;
-      SocketObj* mSocketObj;
-    public:
-      SocketMessageObj(SocketObj* aSocketObj);
-      virtual string getAnnotation() const P44_OVERRIDE;
-      virtual TypeInfo getTypeInfo() const P44_OVERRIDE;
-      virtual EventSource *eventSource() const P44_OVERRIDE;
-      virtual string stringValue() const P44_OVERRIDE;
-    };
-
-
     /// represents a socket
     /// Note: is an event source, but does not expose it directly, only via SocketMessageObjs
-    class SocketObj : public P44Script::StructuredLookupObject, public P44Script::EventSource
+    class SocketObj : public StructuredLookupObject, public EventSource
     {
-      typedef P44Script::StructuredLookupObject inherited;
+      typedef StructuredLookupObject inherited;
       SocketCommPtr mSocket;
     public:
-      string lastDatagram;
       SocketObj(SocketCommPtr aSocket);
       virtual ~SocketObj();
       virtual string getAnnotation() const P44_OVERRIDE { return "socket"; };

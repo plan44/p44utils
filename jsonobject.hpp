@@ -58,9 +58,9 @@ namespace p44 {
   /// wrapper around json-c / libjson0 object
   class JsonObject : public P44Obj
   {
-    struct json_object *json_obj; ///< the json-c object
+    struct json_object *mJson_obj; ///< the json-c object
 
-    struct lh_entry *nextEntryP; ///< iterator pointer for resetKeyIteration()/nextKeyValue()
+    struct lh_entry *mNextEntryP; ///< iterator pointer for resetKeyIteration()/nextKeyValue()
 
     /// construct object as wrapper of json-c json_object.
     /// @param aObjPassingOwnership json_object, ownership is passed into this JsonObject, caller looses ownership!
@@ -93,16 +93,29 @@ namespace p44 {
     /// @return true if object matches given type
     bool isType(json_type aRefType) const;
 
-    /// string representation of object.
+    /// return JSON string representation
+    /// @param aFlags formatting options, see JSON_C_TO_STRING_PRETTY and other constants
+    /// @return JSON C string representation (valid as long as object exists)
     const char *json_c_str(int aFlags=0);
+
+    /// return JSON string representation
+    /// @param aFlags formatting options, see JSON_C_TO_STRING_PRETTY and other constants
+    /// @return JSON string representation of object.
     string json_str(int aFlags=0);
+
+    /// Convenience method: return JSON string representation of passed object, which may be NULL
+    /// @param aFlags formatting options, see JSON_C_TO_STRING_PRETTY and other constants
+    /// @return JSON C string representation of json aJsonObj, or "<none>" if aJsonObj is NULL
+    static const char* text(JsonObjectPtr aJsonObj, int aFlags=0);
 
     /// Note: should only be used to pass object to other json-c native APIs
     /// Note: Ownership of the jsonobject remains with this JsonObject
     /// @return pointer the embedded json-c object structure
-    const struct json_object *jsoncObj() const { return json_obj; }
+    const struct json_object *jsoncObj() const { return mJson_obj; }
 
     /// add object for key
+    /// @param aKey name of key
+    /// @param aObj object to store in field named aKey
     void add(const char* aKey, JsonObjectPtr aObj);
 
     /// get object by key
@@ -125,8 +138,8 @@ namespace p44 {
     const char *getCString(const char *aKey);
 
     /// delete object by key
+    /// @param aKey key of field to delete
     void del(const char *aKey);
-
 
     /// get array length
     /// @return length of array. Returns 0 for empty arrays and all non-array objects
@@ -146,6 +159,12 @@ namespace p44 {
     /// @param aObj object to store in the array
     void arrayPut(int aAtIndex, JsonObjectPtr aObj);
 
+    #if !REDUCED_FOOTPRINT
+    /// delete element(s) at specific position in array
+    /// @param aAtIndex index position of first element to delete
+    /// @param aNumElements number of elements to delete
+    void arrayDel(int aAtIndex, int aNumElements = 1);
+    #endif // REDUCED_FOOTPRINT
 
     /// reset object iterator
     /// @return false if object cannot be iterated
@@ -157,57 +176,104 @@ namespace p44 {
     /// @return false if there are no more key/values (aKey and aValue unchanged)
     bool nextKeyValue(string &aKey, JsonObjectPtr &aValue);
 
-    /// get next child object and wrap it into a parent object.
-    /// This is an alternative to get a key/value pair as a single C++ object instead of two
-    /// as provided by nextKeyValue(), e.g. for iterating purposes.
-    /// @return JSON object, containing a single named child, or null if no more objects
-    JsonObjectPtr nextJsonObj();
+    /// get number of keys in this object
+    /// @return number of keys. Returns 0 for empty objects and all non-objects
+    int numKeys();
 
-    /// create new empty object
+    /// get key/value by index
+    /// @param aIndex index into object (internal, non-predictable order)
+    /// @param aKey will be assigned the key (name) of the child object
+    /// @param aValueP if not NULL, will be assigned the child object
+    /// @return false if there is no object with the specified aIndex
+    bool keyValueByIndex(int aIndex, string &aKey, JsonObjectPtr* aValueP = NULL);
+
+    /// @return new empty object
     static JsonObjectPtr newObj();
 
-    /// create new NULL object (does not embed a real JSON-C object, just a NULL pointer)
+    /// @return create new NULL object (does not embed a real JSON-C object, just a NULL pointer)
     static JsonObjectPtr newNull();
 
 
     /// create new object from text
+    /// @param aJsonText text to be read as JSON
+    /// @param aMaxChars max chars to read from aJsonText, or -1 to read entire C string (until NUL terminator is found)
+    /// @param aErrorP where to store parsing error objects, or NULL if no error return is needed
+    /// @param aAllowCComments if set, C-Style comments /* */ are allowed withing JSON text (not conformant to JSON specs)
+    /// @param aParsedCharsP where to store the number of chars parsed from aJsonText, or NULL if not needed
+    /// @return new object or NULL if aJsonText parsing was not succesful
     static JsonObjectPtr objFromText(const char *aJsonText, ssize_t aMaxChars = -1, ErrorPtr *aErrorP = NULL, bool aAllowCComments = false, ssize_t* aParsedCharsP = NULL);
 
     /// create new object from text file
+    /// @param aJsonFilePath path of file to read as JSON
+    /// @param aErrorP where to store parsing error objects, or NULL if no error return is needed
+    /// @param aAllowCComments if set, C-Style comments /* */ are allowed withing JSON text (not conformant to JSON specs)
+    /// @return new object or NULL if aJsonText parsing was not succesful
     static JsonObjectPtr objFromFile(const char *aJsonFilePath, ErrorPtr *aErrorP = NULL, bool aAllowCComments = false);
 
     /// save object to text file
-    ErrorPtr saveToFile(const char *aJsonFilePath);
+    /// @param aJsonFilePath path of file to (over)write with text representation of this JSON object
+    /// @param aFlags formatting options, see JSON_C_TO_STRING_PRETTY and other constants
+    /// @return ok or error
+    ErrorPtr saveToFile(const char *aJsonFilePath, int aFlags = 0);
 
-    /// create new array object
+    /// @return new array object
     static JsonObjectPtr newArray();
 
 
-    /// create new boolean object
+    /// @return new boolean JSON object
     static JsonObjectPtr newBool(bool aBool);
-    /// get boolean value
+
+    /// @return boolean value
     bool boolValue() const;
 
-    /// create int objects
+    /// create int JSON object
+    /// @param aInt32 32 bit integer number
     static JsonObjectPtr newInt32(int32_t aInt32);
+
+    /// create int JSON object
+    /// @param aInt64 64 bit integer number
     static JsonObjectPtr newInt64(int64_t aInt64);
-    /// get int values
+
+    /// @return int32 value
     int32_t int32Value() const;
+
+    /// @return int64 value
     int64_t int64Value() const;
 
-    /// create double object
+    /// @return double JSON object
+    /// @param aDouble double float number
     static JsonObjectPtr newDouble(double aDouble);
-    /// get double value
+
+    /// @return double value
     double doubleValue() const;
 
-    /// create new string object
+    /// Create new JSON string object or no object from C string
+    /// @param aCStr C string to make JSON string of, can be NULL to create no object
+    /// @return new JSON string object or NULL if aCStr is NULL
     static JsonObjectPtr newString(const char *aCStr);
+
+    /// Create new JSON string object or no object from part of C string
+    /// @param aCStr C string to take characters from for JSON string, can be NULL to create no object
+    /// @param aLen max number of characters to take from aCStr
+    /// @return new JSON string object or NULL if aCStr is NULL
     static JsonObjectPtr newString(const char *aCStr, size_t aLen);
+
+    /// @return new JSON string object
+    /// @param aString string to make JSON string of
+    /// @param aEmptyIsNull if set, and aString is empty, NULL is returned
+    /// @return new JSON string object or NULL if aString is empty and aEmptyIsNull is set
     static JsonObjectPtr newString(const string &aString, bool aEmptyIsNull = false);
-    /// get string value
-    const char *c_strValue() const;
+
+    /// @return value of object as string
+    const char* c_strValue() const;
+
+    /// @return length of value of object as string
     size_t stringLength() const;
+
+    /// @return value of object as string
     string stringValue() const;
+
+    /// @return value of object as lowercase string
     string lowercaseStringValue() const;
 
   };

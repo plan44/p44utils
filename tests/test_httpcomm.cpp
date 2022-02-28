@@ -165,7 +165,7 @@ TEST_CASE_METHOD(HttpFixture, "http auth: no credentials", "[http]") {
 }
 
 TEST_CASE_METHOD(HttpFixture, "http auth: bad credentials", "[http]") {
-  http->setHttpAuthCredentials("BAD" AUTH_TEST_USER, "BAD" AUTH_TEST_PW);
+  http->setHttpAuthCredentials("BAD" AUTH_TEST_USER, "BAD" AUTH_TEST_PW, p44::HttpComm::digest_only);
   REQUIRE(runHttp("http://" AUTH_TEST_URL, "GET")==EXIT_SUCCESS);
   INFO(URL);
   INFO(Error::text(httpErr));
@@ -173,7 +173,7 @@ TEST_CASE_METHOD(HttpFixture, "http auth: bad credentials", "[http]") {
 }
 
 TEST_CASE_METHOD(HttpFixture, "http auth: correct credentials", "[http]") {
-  http->setHttpAuthCredentials(AUTH_TEST_USER, AUTH_TEST_PW);
+  http->setHttpAuthCredentials(AUTH_TEST_USER, AUTH_TEST_PW, p44::HttpComm::digest_only);
   REQUIRE(runHttp("http://" AUTH_TEST_URL, "GET")==EXIT_SUCCESS);
   INFO(URL);
   INFO(Error::text(httpErr));
@@ -274,7 +274,7 @@ TEST_CASE_METHOD(HttpFixture, "https auth: no credentials", "[https]") {
 }
 
 TEST_CASE_METHOD(HttpFixture, "https auth: bad credentials", "[https]") {
-  http->setHttpAuthCredentials("BAD" AUTH_TEST_USER, "BAD" AUTH_TEST_PW);
+  http->setHttpAuthCredentials("BAD" AUTH_TEST_USER, "BAD" AUTH_TEST_PW, p44::HttpComm::digest_only);
   REQUIRE(runHttp("https://" AUTH_TEST_URL, "GET")==EXIT_SUCCESS);
   INFO(URL);
   INFO(Error::text(httpErr));
@@ -282,7 +282,7 @@ TEST_CASE_METHOD(HttpFixture, "https auth: bad credentials", "[https]") {
 }
 
 TEST_CASE_METHOD(HttpFixture, "https auth: correct credentials", "[https]") {
-  http->setHttpAuthCredentials(AUTH_TEST_USER, AUTH_TEST_PW);
+  http->setHttpAuthCredentials(AUTH_TEST_USER, AUTH_TEST_PW, p44::HttpComm::digest_only);
   REQUIRE(runHttp("https://" AUTH_TEST_URL, "GET")==EXIT_SUCCESS);
   INFO(URL);
   INFO(Error::text(httpErr));

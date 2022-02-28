@@ -19,8 +19,8 @@
 //  along with p44utils. If not, see <http://www.gnu.org/licenses/>.
 //
 
-#ifndef __p44utils__fnv__
-#define __p44utils__fnv__
+#ifndef __p44utils__crc32__
+#define __p44utils__crc32__
 
 #include "p44utils_common.hpp"
 
@@ -28,7 +28,7 @@ using namespace std;
 
 namespace p44 {
 
-  class Crc32  : public P44Obj
+  class Crc32
   {
     uint32_t crc;
   public:
@@ -43,4 +43,4 @@ namespace p44 {
 } // namespace p44
 
 
-#endif /* defined(__p44utils__fnv__) */
+#endif /* defined(__p44utils__crc32__) */

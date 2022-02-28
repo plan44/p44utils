@@ -79,7 +79,7 @@ namespace p44 {
 
   protected:
 
-    virtual const char *defaultContentType() { return "application/json; charset=UTF-8"; };
+    virtual const char *defaultContentType() { return CONTENT_TYPE_JSON; };
 
     virtual void requestThreadSignal(ChildThreadWrapper &aChildThread, ThreadSignals aSignalCode);
 

@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2016-2019 plan44.ch / Lukas Zeller, Zurich, Switzerland
+//  Copyright (c) 2016-2021 plan44.ch / Lukas Zeller, Zurich, Switzerland
 //
 //  Author: Lukas Zeller <luz@plan44.ch>
 //
@@ -26,6 +26,18 @@
 
 #include "iopin.hpp"
 
+#if ENABLE_P44SCRIPT && !defined(ENABLE_SPI_SCRIPT_FUNCS)
+  #define ENABLE_SPI_SCRIPT_FUNCS 1
+#endif
+#if ENABLE_SPI_SCRIPT_FUNCS && !ENABLE_P44SCRIPT
+  #error "ENABLE_P44SCRIPT required when ENABLE_SPI_SCRIPT_FUNCS is set"
+#endif
+
+#if ENABLE_SPI_SCRIPT_FUNCS
+  #include "p44script.hpp"
+#endif
+
+
 using namespace std;
 
 namespace p44 {
@@ -33,9 +45,20 @@ namespace p44 {
   class SPIManager;
   class SPIBus;
 
+  #if ENABLE_SPI_SCRIPT_FUNCS
+  namespace P44Script {
+    class SPIDeviceObj;
+    typedef boost::intrusive_ptr<SPIDeviceObj> SPIDeviceObjPtr;
+  }
+  #endif
+
   class SPIDevice : public P44Obj
   {
     friend class SPIBus;
+
+    #if ENABLE_SPI_SCRIPT_FUNCS
+    P44Script::SPIDeviceObjPtr mRepresentingObj; ///< the (singleton) ScriptObj representing this SPI device
+    #endif
 
   protected:
 
@@ -74,6 +97,10 @@ namespace p44 {
     /// @return true if successful
     bool SPIRawWriteRead(unsigned int aOutSz, uint8_t *aOutP, unsigned int aInSz, uint8_t *aInP, bool aFullDuplex = false);
 
+    #if ENABLE_SPI_SCRIPT_FUNCS
+    /// @return a singleton script object, representing this SPI device
+    P44Script::SPIDeviceObjPtr representingScriptObj();
+    #endif
 
   };
   typedef boost::intrusive_ptr<SPIDevice> SPIDevicePtr;
@@ -175,8 +202,6 @@ namespace p44 {
     /// @param aFullDuplex send and receive simultaneously (otherwise: first send, then receive)
     /// @return true if successful
     bool SPIRawWriteRead(SPIDevice *aDeviceP, unsigned int aOutSz, uint8_t *aOutP, unsigned int aInSz, uint8_t *aInP, bool aFullDuplex = false);
-
-
 
   private:
     bool accessDevice(SPIDevice *aDeviceP);
@@ -421,6 +446,34 @@ namespace p44 {
 
   };
 
+
+
+  #if ENABLE_SPI_SCRIPT_FUNCS
+  namespace P44Script {
+
+    /// represents a i2c device
+    class SPIDeviceObj : public StructuredLookupObject
+    {
+      typedef StructuredLookupObject inherited;
+      friend class p44::SPIDevice;
+
+      SPIDevicePtr mSPIDevice;
+    public:
+      SPIDeviceObj(SPIDevicePtr aSPIDevice);
+      virtual string getAnnotation() const P44_OVERRIDE { return "SPI device"; };
+      SPIDevicePtr spidevice() { return mSPIDevice; }
+    };
+
+    /// represents the global objects related to i2c
+    class SPILookup : public BuiltInMemberLookup
+    {
+      typedef BuiltInMemberLookup inherited;
+    public:
+      SPILookup();
+    };
+
+  } // namespace
+  #endif // ENABLE_SPI_SCRIPT_FUNCS
 
 } // namespace
 

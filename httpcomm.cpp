@@ -21,6 +21,9 @@
 
 #include "httpcomm.hpp"
 
+#if ENABLE_APPLICATION_SUPPORT
+  #include "application.hpp" // we need it for paths
+#endif
 
 using namespace p44;
 
@@ -49,6 +52,7 @@ HttpComm::HttpComm(MainLoop &aMainLoop) :
   requestInProgress(false),
   mgConn(NULL),
   httpAuthInfo(NULL),
+  authMode(digest_only),
   timeout(Never),
   bufferSz(2048),
   serverCertVfyDir("*"), // default to platform's generic certificate checking method / root cert store
@@ -106,6 +110,7 @@ void HttpComm::requestThread(ChildThreadWrapper &aThread)
     #if !USE_LIBMONGOOSE
     struct mg_client_options copts;
     copts.host = host.c_str();
+    copts.host_name = host.c_str(); // important for servers that need SNI for establishing SSL connection
     copts.port = port;
     copts.client_cert = clientCertFile.empty() ? NULL : clientCertFile.c_str();
     copts.server_cert = serverCertVfyDir.empty() ? NULL : serverCertVfyDir.c_str();
@@ -120,6 +125,7 @@ void HttpComm::requestThread(ChildThreadWrapper &aThread)
         username.empty() ? NULL : username.c_str(),
         password.empty() ? NULL : password.c_str(),
         &httpAuthInfo,
+        (int)authMode,
         ebuf, ebufSz,
         "Content-Type: %s\r\n"
         "Content-Length: %ld\r\n"
@@ -142,6 +148,7 @@ void HttpComm::requestThread(ChildThreadWrapper &aThread)
         username.empty() ? NULL : username.c_str(),
         password.empty() ? NULL : password.c_str(),
         &httpAuthInfo,
+        (int)authMode,
         ebuf, ebufSz,
         "Content-Length: 0\r\n"
         "%s"
@@ -458,7 +465,7 @@ using namespace P44Script;
 
 static void httpFuncDone(BuiltinFunctionContextPtr f, HttpCommPtr aHttpAction, const string &aResponse, ErrorPtr aError)
 {
-  SPLOG(f, LOG_INFO, "http action returns '%s', error = %s", aResponse.c_str(), Error::text(aError));
+  POLOG(f, LOG_INFO, "http action returns '%s', error = %s", aResponse.c_str(), Error::text(aError));
   if (Error::isOK(aError)) {
     f->finish(new StringValue(aResponse));
   }
@@ -469,39 +476,125 @@ static void httpFuncDone(BuiltinFunctionContextPtr f, HttpCommPtr aHttpAction, c
 
 static void httpFuncImpl(BuiltinFunctionContextPtr f, string aMethod)
 {
-  // xxxurl("<url>"[,timeout][,"<data>"])
-  string url = f->arg(0)->stringValue();
+  string url;
   string data;
+  JsonObjectPtr params; // for httprequest full-feature function
+  JsonObjectPtr o;
   MLMicroSeconds timeout = Never;
-  int ai = 1;
-  if (f->numArgs()>ai) {
-    // could be timeout if it is numeric
-    if (f->arg(ai)->hasType(numeric)) {
-      timeout = f->arg(ai)->doubleValue()*Second;
-      ai++;
+  string contentType;
+  HttpComm::AuthMode authMode = HttpComm::digest_only;
+  if (aMethod.empty()) {
+    // httprequest({
+    //   "url":"http...",
+    //   "method":"POST",
+    //   "data":...,
+    //   "timeout":20
+    //   "user":xxx,
+    //   "password":xxx,
+    //   "basicauth":xxx
+    //   "clientcert":xxx,
+    //   "servercert":xxx,
+    //   "headers": {
+    //      "Content-Type":"...", // custom content type
+    //      "header1":"value1",
+    //      ...
+    //   }
+    // } [, data])
+    params = f->arg(0)->jsonValue();
+    // url must be present
+    if (!params->get("url", o, true)) {
+      f->finish(new ErrorValue(TextError::err("request object must contain 'url' field")));
+      return;
     }
+    url = o->stringValue();
+    // method defaults to GET, but can be set
+    aMethod = "GET"; // default to GET
+    if (params->get("method", o)) aMethod = o->stringValue();
+    // data can be in the request object or (to allow binary strings), as second parameter
+    if (f->numArgs()>=2) {
+      if (f->arg(1)->hasType(json)) contentType = CONTENT_TYPE_JSON;
+      data = f->arg(1)->stringValue(); // could be a binary string
+    }
+    else if (params->get("data", o)) {
+      if (o->isType(json_type_object) || o->isType(json_type_array)) contentType = CONTENT_TYPE_JSON;
+      data = o->stringValue();
+    }
+    // timeout is optional
+    if (params->get("timeout", o)) timeout = o->doubleValue()*Second;
   }
-  if (aMethod!="GET") {
-    if (f->numArgs()>ai) data = f->arg(ai)->stringValue();
+  else {
+    // xxxurl("<url>"[,timeout][,"<data>"])
+    url = f->arg(0)->stringValue();
+    int ai = 1;
+    if (f->numArgs()>ai) {
+      // could be timeout if it is numeric
+      if (f->arg(ai)->hasType(numeric)) {
+        timeout = f->arg(ai)->doubleValue()*Second;
+        ai++;
+      }
+    }
+    if (aMethod!="GET") {
+      if (f->numArgs()>ai) {
+        if (f->arg(ai)->hasType(json)) contentType = CONTENT_TYPE_JSON;
+        data = f->arg(ai)->stringValue();
+      }
+    }
   }
   // extract from url
   string user;
   string password;
-  HttpCommPtr httpAction;
-//  if (aHttpCommP) httpAction = *aHttpCommP;
-  if (!httpAction) httpAction = HttpCommPtr(new HttpComm(MainLoop::currentMainLoop()));
-//  if (aHttpCommP) *aHttpCommP = httpAction;
-  splitURL(url.c_str(), NULL, NULL, NULL, &user, &password);
-  httpAction->setHttpAuthCredentials(user, password);
+  string protocol;
+  HttpCommPtr httpAction = HttpCommPtr(new HttpComm(MainLoop::currentMainLoop()));
+  // force https w/o cert checking when URL begins with a "!"
+  if (*url.c_str()=='!') {
+    url.erase(0,1); // remove exclamation mark
+    httpAction->setServerCertVfyDir(""); // no checking
+  }
+  // auth might be in URL
+  splitURL(url.c_str(), &protocol, NULL, NULL, &user, &password);
+  if (protocol=="https") {
+    authMode = HttpComm::basic_on_request; // with https, basic auth is reasonably safe, so by default allow it if server requests it
+  }
+  if (params) {
+    // auth can also be in request object
+    if (params->get("user", o)) user = o->stringValue();
+    if (params->get("password", o)) user = o->stringValue();
+    if (params->get("basicauth", o)) {
+      string as = o->stringValue();
+      if (as=="immediate") authMode = HttpComm::basic_first;
+      else if (as=="onrequest") authMode = HttpComm::basic_on_request;
+      else authMode = HttpComm::digest_only;
+    }
+    // explicit client or server certs
+    if (params->get("clientcert", o)) {
+      httpAction->setClientCertFile(Application::sharedApplication()->dataPath(o->stringValue(), "/" P44SCRIPT_DATA_SUBDIR, false));
+    }
+    if (params->get("servercert", o)) {
+      string p = o->stringValue();
+      if (p.empty()) httpAction->setServerCertVfyDir(p);
+      else httpAction->setServerCertVfyDir(Application::sharedApplication()->dataPath(p, "/" P44SCRIPT_DATA_SUBDIR, false));
+    }
+    // request object might contain extra headers
+    if (params->get("headers", o)) {
+      o->resetKeyIteration();
+      string hn;
+      JsonObjectPtr hv;
+      while (o->nextKeyValue(hn, hv)) {
+        if (hn=="Content-Type") contentType = hv->stringValue(); // special case, content type
+        else httpAction->addRequestHeader(hn, hv->stringValue()); // other headers
+      }
+    }
+  }
+  httpAction->setHttpAuthCredentials(user, password, authMode);
   if (timeout!=Never) httpAction->setTimeout(timeout);
-  SPLOG(f, LOG_INFO, "issuing %s to %s %s", aMethod.c_str(), url.c_str(), data.c_str());
+  POLOG(f, LOG_INFO, "issuing %s to %s %s", aMethod.c_str(), url.c_str(), data.c_str());
   f->setAbortCallback(boost::bind(&HttpComm::cancelRequest, httpAction));
-//  httpAction->cancelRequest(); // abort any previous request
   if (!httpAction->httpRequest(
     url.c_str(),
     boost::bind(&httpFuncDone, f, httpAction, _1, _2),
     aMethod.c_str(),
-    data.c_str()
+    data.c_str(),
+    contentType.empty() ? NULL : contentType.c_str()
   )) {
     f->finish(new ErrorValue(TextError::err("could not issue http request")));
   }
@@ -531,10 +624,30 @@ static void puturl_func(BuiltinFunctionContextPtr f)
 }
 
 
+// httprequest(requestparams [,"<data>"])
+static const BuiltInArgDesc httprequest_args[] = { { json|object }, { text|optionalarg} };
+static const size_t httprequest_numargs = sizeof(httprequest_args)/sizeof(BuiltInArgDesc);
+static void httprequest_func(BuiltinFunctionContextPtr f)
+{
+  httpFuncImpl(f, "");
+}
+
+
+// urlencode(texttoencode [, x-www-form-urlencoded])
+static const BuiltInArgDesc urlencode_args[] = { { text } , { any|optionalarg }, { any|optionalarg } };
+static const size_t urlencode_numargs = sizeof(urlencode_args)/sizeof(BuiltInArgDesc);
+static void urlencode_func(BuiltinFunctionContextPtr f)
+{
+  f->finish(new StringValue(HttpComm::urlEncode(f->arg(0)->stringValue(), f->arg(1)->boolValue())));
+}
+
+
 static const BuiltinMemberDescriptor httpGlobals[] = {
   { "geturl", executable|async|text, geturl_numargs, geturl_args, &geturl_func },
   { "posturl", executable|async|text, postputurl_numargs, postputurl_args, &posturl_func },
   { "puturl", executable|async|text, postputurl_numargs, postputurl_args, &puturl_func },
+  { "httprequest", executable|async|text, httprequest_numargs, httprequest_args, &httprequest_func },
+  { "urlencode", executable|text, urlencode_numargs, urlencode_args, &urlencode_func },
   { NULL } // terminator
 };
 
@@ -544,78 +657,3 @@ HttpLookup::HttpLookup() :
 }
 
 #endif // ENABLE_HTTP_SCRIPT_FUNCS && ENABLE_P44SCRIPT
-
-
-// TODO: remove legacy EXPRESSION_SCRIPT_SUPPORT later
-#if ENABLE_HTTP_SCRIPT_FUNCS && EXPRESSION_SCRIPT_SUPPORT
-
-bool HttpComm::evaluateAsyncHttpFunctions(EvaluationContext* aEvalContext, const string &aFunc, const FunctionArguments &aArgs, bool &aNotYielded, HttpCommPtr* aHttpCommP)
-{
-  bool isGet = false;
-  bool isPost = false;
-  bool isPut = false;
-  if (strucmp(aFunc.c_str(), "geturl")==0) isGet = true;
-  else if (strucmp(aFunc.c_str(), "posturl")==0) isPost = true;
-  else if (strucmp(aFunc.c_str(), "puturl")==0) isPut = true;
-  else return false; // unknown function
-  if (aArgs.size()<1) return false; // not enough params
-  if (isGet && aArgs.size()>2) return false; // geturl has one or two params
-  // one of:
-  //   geturl("<url>"[,timeout])
-  //   posturl("<url>"[,timeout][,"<data>"])
-  //   puturl("<url>"[,timeout][,"<data>"])
-  if (aArgs[0].notValue()) return aEvalContext->errorInArg(aArgs[0], true);
-  string url = aArgs[0].stringValue();
-  string method = isGet ? "GET" : (isPut ? "PUT" : "POST");
-  string data;
-  MLMicroSeconds timeout = Never;
-  int ai = 1;
-  if (aArgs.size()>ai) {
-    // could be timeout if it is numeric
-    if (!aArgs[ai].isString()) {
-      timeout = aArgs[ai].numValue()*Second;
-      ai++;
-    }
-  }
-  if (isPost || isPut) {
-    if (aArgs.size()>ai) data=aArgs[ai].stringValue();
-  }
-  // extract from url
-  string user;
-  string password;
-  HttpCommPtr httpAction;
-  if (aHttpCommP) httpAction = *aHttpCommP;
-  if (!httpAction) httpAction = HttpCommPtr(new HttpComm(MainLoop::currentMainLoop()));
-  if (aHttpCommP) *aHttpCommP = httpAction;
-  splitURL(url.c_str(), NULL, NULL, NULL, &user, &password);
-  httpAction->setHttpAuthCredentials(user, password);
-  if (timeout!=Never) httpAction->setTimeout(timeout);
-  SOLOG(*aEvalContext, LOG_INFO, "issuing %s to %s %s", method.c_str(), url.c_str(), data.c_str());
-  httpAction->cancelRequest(); // abort any previous request
-  if (!httpAction->httpRequest(
-    url.c_str(),
-    boost::bind(&HttpComm::httpFunctionDone, aEvalContext, _1, _2),
-    method.c_str(),
-    data.c_str()
-  )) {
-    return aEvalContext->throwError(TextError::err("could not issue http request"));
-  }
-  aNotYielded = false; // callback will get result
-  return true; // function found, aNotYielded must be set correctly!
-}
-
-
-void HttpComm::httpFunctionDone(EvaluationContext* aEvalContext, const string &aResponse, ErrorPtr aError)
-{
-  SOLOG(*aEvalContext, LOG_INFO, "http action returns '%s', error = %s", aResponse.c_str(), Error::text(aError));
-  ExpressionValue res;
-  if (Error::isOK(aError)) {
-    res.setString(aResponse);
-  }
-  else {
-    res.setError(aError);
-  }
-  aEvalContext->continueWithAsyncFunctionResult(res);
-}
-
-#endif // ENABLE_HTTP_SCRIPT_FUNCS && EXPRESSION_SCRIPT_SUPPORT

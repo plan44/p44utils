@@ -45,6 +45,7 @@
 #endif
 #include "fdcomm.hpp"
 
+
 // MARK: - MainLoop default parameters
 
 #define MAINLOOP_DEFAULT_MAXSLEEP Infinite // if really nothing to do, we can sleep
@@ -80,6 +81,14 @@ MLTicket::MLTicket(MLTicket &aTicket) : ticketNo(0)
 {
   // should not happen!
   // But if it does, we do not copy the ticket number
+}
+
+
+MLTicketNo MLTicket::defuse()
+{
+  MLTicketNo tn = ticketNo;
+  ticketNo = 0; // cancel() or destruction will no longer end the timer
+  return tn;
 }
 
 
@@ -181,7 +190,7 @@ unsigned long _p44_millis()
 
 
 
-// MARK: - MainLoop
+// MARK: - MainLoop static utilities
 
 // time reference in microseconds
 MLMicroSeconds MainLoop::now()
@@ -286,8 +295,6 @@ string MainLoop::string_fmltime(const char *aFormat, MLMicroSeconds aTime, int a
 }
 
 
-
-
 void MainLoop::sleep(MLMicroSeconds aSleepTime)
 {
   #ifdef ESP_PLATFORM
@@ -334,6 +341,7 @@ MainLoop &MainLoop::currentMainLoop()
 #endif
 
 
+// MARK: - ExecError
 
 ErrorPtr ExecError::exitStatus(int aExitStatus, const char *aContextMessage)
 {
@@ -342,6 +350,8 @@ ErrorPtr ExecError::exitStatus(int aExitStatus, const char *aContextMessage)
   return Error::err_cstr<ExecError>(aExitStatus, aContextMessage);
 }
 
+
+// MARK: - MainLoop ESP32 specific utilities
 
 #ifdef ESP_PLATFORM
 
@@ -405,6 +415,30 @@ static esp_vfs_t evFs = {
 #endif // ESP_PLATFORM
 
 
+
+// MARK: - MainLoop
+
+#if MAINLOOP_LIBEV_BASED
+
+namespace p44 {
+  void libev_io_poll_handler(EV_P_ struct ev_io *i, int revents); // declaration to silence warning
+  void libev_sleep_timer_done(EV_P_ struct ev_timer *t, int revents); // declaration to silence warning
+}
+
+
+
+void p44::libev_sleep_timer_done(EV_P_ struct ev_timer *t, int revents)
+{
+  MainLoop* mlP = static_cast<MainLoop*>(t->data);
+  ev_timer_stop(mlP->mLibEvLoopP, t);
+
+  // NOP, just needed to exit IO polling
+  DBGFOCUSLOG(LOG_DEBUG, "libev IO polling timeout");
+}
+
+#endif // MAINLOOP_LIBEV_BASED
+
+
 MainLoop::MainLoop() :
 	terminated(false),
   hasStarted(false),
@@ -435,6 +469,11 @@ MainLoop::MainLoop() :
     }
     DBGFOCUSLOG("- select trigger event pseudo file, FD=%d", evFsFD);
   }
+  #elif MAINLOOP_LIBEV_BASED
+  mLibEvLoopP = EV_DEFAULT;
+  // init timer we need when we allow libev to "sleep"
+  ev_timer_init(&mLibEvTimer, &libev_sleep_timer_done, 1, 0);
+  mLibEvTimer.data = this;
   #endif
   // default configuration
   maxSleep = MAINLOOP_DEFAULT_MAXSLEEP;
@@ -448,6 +487,7 @@ MainLoop::MainLoop() :
 }
 
 
+// MARK: timer setup
 
 // private implementation
 MLTicketNo MainLoop::executeOnce(TimerCB aTimerCallback, MLMicroSeconds aDelay, MLMicroSeconds aTolerance)
@@ -644,6 +684,8 @@ int MainLoop::retriggerTimer(MLTimer &aTimer, MLMicroSeconds aInterval, MLMicroS
 }
 
 
+// MARK: subprocesses
+
 #ifndef ESP_PLATFORM
 
 void MainLoop::waitForPid(WaitCB aCallback, pid_t aPid)
@@ -669,7 +711,7 @@ void MainLoop::waitForPid(WaitCB aCallback, pid_t aPid)
 extern char **environ;
 
 
-pid_t MainLoop::fork_and_execve(ExecCB aCallback, const char *aPath, char *const aArgv[], char *const aEnvp[], bool aPipeBackStdOut, int* aPipeBackFdP)
+pid_t MainLoop::fork_and_execve(ExecCB aCallback, const char *aPath, char *const aArgv[], char *const aEnvp[], bool aPipeBackStdOut, int* aPipeBackFdP, int aStdErrFd, int aStdInFd)
 {
   LOG(LOG_DEBUG, "fork_and_execve: preparing to fork for executing '%s' now", aPath);
   pid_t child_pid;
@@ -699,6 +741,16 @@ pid_t MainLoop::fork_and_execve(ExecCB aCallback, const char *aPath, char *const
         dup2(answerPipe[1],STDOUT_FILENO); // replace STDOUT by writing end of pipe
         close(answerPipe[1]); // release the original descriptor (does NOT really close the file)
         close(answerPipe[0]); // close child's reading end of pipe (parent uses it!)
+      }
+      if (aStdErrFd>=0) {
+        if (aStdErrFd==0) aStdErrFd = open("/dev/null", O_WRONLY);
+        dup2(aStdErrFd, STDERR_FILENO); // replace STDERR by provided fd
+        close(aStdErrFd);
+      }
+      if (aStdInFd>=0) {
+        if (aStdInFd==0) aStdErrFd = open("/dev/null", O_RDONLY);
+        dup2(aStdInFd, STDIN_FILENO); // replace STDIN by provided fd
+        close(aStdInFd);
       }
       // close all non-std file descriptors
       int fd = getdtablesize();
@@ -741,14 +793,14 @@ pid_t MainLoop::fork_and_execve(ExecCB aCallback, const char *aPath, char *const
 }
 
 
-pid_t MainLoop::fork_and_system(ExecCB aCallback, const char *aCommandLine, bool aPipeBackStdOut, int* aPipeBackFdP)
+pid_t MainLoop::fork_and_system(ExecCB aCallback, const char *aCommandLine, bool aPipeBackStdOut, int* aPipeBackFdP, int aStdErrFd, int aStdInFd)
 {
   char * args[4];
   args[0] = (char *)"sh";
   args[1] = (char *)"-c";
   args[2] = (char *)aCommandLine;
   args[3] = NULL;
-  return fork_and_execve(aCallback, "/bin/sh", args, NULL, aPipeBackStdOut, aPipeBackFdP);
+  return fork_and_execve(aCallback, "/bin/sh", args, NULL, aPipeBackStdOut, aPipeBackFdP, aStdErrFd, aStdInFd);
 }
 
 
@@ -785,6 +837,8 @@ void MainLoop::childAnswerCollected(ExecCB aCallback, FdStringCollectorPtr aAnsw
 
 #endif // !ESP_PLATFORM
 
+
+// MARK: mainloop core
 
 
 void MainLoop::registerCleanupHandler(SimpleCB aCleanupHandler)
@@ -913,37 +967,181 @@ bool MainLoop::checkWait()
 #endif
 
 
+// MARK: - IO event handling
 
+#if MAINLOOP_LIBEV_BASED
+
+static inline int pollToEv(int aPollFlags)
+{
+  // POLLIN, POLLOUT -> EV_READ, EV_WRITE
+  int events = 0;
+  if (aPollFlags & POLLIN) events |= EV_READ;
+  if (aPollFlags & POLLOUT) events |= EV_WRITE;
+  return events;
+}
+
+
+static inline int evToPoll(int aLibEvEvents)
+{
+  int pollFlags = 0;
+  if (aLibEvEvents & EV_READ) pollFlags |= EV_READ;
+  if (aLibEvEvents & EV_WRITE) pollFlags |= EV_WRITE;
+  return pollFlags;
+}
+
+#ifndef __APPLE__
+
+static inline int pollToEpoll(int aPollFlags)
+{
+  // POLLIN, POLLOUT, POLLPRI -> EPOLLIN, EPOLLOUT, EPOLLPRI
+  int events = 0;
+  if (aPollFlags & POLLIN) events |= EPOLLIN;
+  if (aPollFlags & POLLOUT) events |= EPOLLOUT;
+  if (aPollFlags & POLLPRI) events |= EPOLLPRI;
+  return events;
+}
+
+
+static inline int epollToPoll(int aEpollFlags)
+{
+  // EPOLL... -> POLL...
+  int events = 0;
+  if (aEpollFlags & EPOLLIN) events |= POLLIN;
+  if (aEpollFlags & EPOLLOUT) events |= POLLOUT;
+  if (aEpollFlags & EPOLLERR) events |= POLLERR;
+  if (aEpollFlags & EPOLLHUP) events |= POLLHUP;
+  return events;
+}
+
+#endif
+
+
+
+void p44::libev_io_poll_handler(EV_P_ struct ev_io *i, int revents)
+{
+  MainLoop::IOPollHandler *h = (MainLoop::IOPollHandler*)((char *)i-offsetof(MainLoop::IOPollHandler, mIoWatcher));
+  #ifndef __APPLE__
+  if (h->mEpolledFd>=0) {
+    // this is an epoll FD firing, get the actual event
+    struct epoll_event ev;
+    if (epoll_wait(i->fd, &ev, 1, 0)!=1) return; // no event -> no op
+    // return the event flags reported by epoll
+    h->mPollHandler(h->mEpolledFd, epollToPoll(ev.events));
+    return;
+  }
+  #endif
+  // directly return the flags reported by libev
+  h->mPollHandler(i->fd, evToPoll(revents));
+}
+
+
+MainLoop::IOPollHandler::IOPollHandler()
+  #ifndef __APPLE__
+  : mEpolledFd(-1)
+  #endif
+{
+  ev_io_init(&mIoWatcher, libev_io_poll_handler, 0, 0);
+  mIoWatcher.data = NULL; // not yet installed
+}
+
+
+MainLoop::IOPollHandler::~IOPollHandler()
+{
+  if (mIoWatcher.data) {
+    // only if data is set, the handler is actually installed and must remove the watcher from libev
+    MainLoop* mlP = static_cast<MainLoop*>(mIoWatcher.data);
+    ev_io_stop(mlP->mLibEvLoopP, &mIoWatcher);
+    #ifndef __APPLE__
+    // - also only for installed handlers, there might be an extra epoll FD
+    if (mEpolledFd>=0) {
+      close(mIoWatcher.fd); // close the extra epoll FD
+      mEpolledFd=-1;
+    }
+    #endif
+    mIoWatcher.data = NULL; // disconnect to make sure
+  }
+}
+
+#endif // MAINLOOP_LIBEV_BASED
 
 
 void MainLoop::registerPollHandler(int aFD, int aPollFlags, IOPollCB aPollEventHandler)
 {
-  if (aPollEventHandler.empty())
+  if (aPollEventHandler.empty()) {
     unregisterPollHandler(aFD); // no handler means unregistering handler
-  // register new handler
-  IOPollHandler h;
-  h.monitoredFD = aFD;
-  h.pollFlags = aPollFlags;
-  h.pollHandler = aPollEventHandler;
-	ioPollHandlers[aFD] = h;
+  }
+  else {
+    // register new handler
+    #if MAINLOOP_LIBEV_BASED
+    IOPollHandler h;
+    h.mPollHandler = aPollEventHandler;
+    if (aPollFlags & ~(POLLIN|POLLOUT)) {
+      #ifdef __APPLE__
+      LOG(LOG_ERR,"registerPollHandler: Requested Linux-only flags which libev cannot handle");
+      aPollFlags |= POLLIN; // default to POLLIN
+      #else
+      // requesting options libev cannot handle natively, in particular: POLLPRI for GPIO edge detection
+      // - we need an epoll file descriptor as a proxy
+      int epfd = epoll_create1(EPOLL_CLOEXEC);
+      if (epfd>=0) {
+        // - set it up to watch the requested flags on the original FD
+        struct epoll_event ev;
+        ev.events = pollToEpoll(aPollFlags);
+        aPollFlags = POLLIN; // when the epoll Fd detects event, it will signal POLLIN, so let libev watch for this
+        ev.data.ptr = NULL; // not needed, because we'll have the libev context
+        epoll_ctl(epfd, EPOLL_CTL_ADD, aFD, &ev);
+        h.mEpolledFd = aFD; // save original
+        aFD = epfd; // let libev watch the epoll FD
+      }
+      #endif
+    }
+    ioPollHandlers[aFD] = h; // copies h
+    ev_io* w = &(ioPollHandlers[aFD].mIoWatcher);
+    w->data = this; // only now the watcher is considered active (and stopped when destructed)
+    ev_io_set(w, aFD, pollToEv(aPollFlags));
+    ev_io_start(mLibEvLoopP, w);
+    #else
+    IOPollHandler h;
+    h.monitoredFD = aFD;
+    h.pollFlags = aPollFlags;
+    h.pollHandler = aPollEventHandler;
+    ioPollHandlers[aFD] = h;
+    #endif
+  }
 }
 
+// older libev do not have ev_io_modify yet
+#ifndef ev_io_modify
+#define ev_io_modify(ev,events_) do { (ev)->events = (ev)->events & EV__IOFDSET | (events_); } while (0)
+#endif
 
 void MainLoop::changePollFlags(int aFD, int aSetPollFlags, int aClearPollFlags)
 {
   IOPollHandlerMap::iterator pos = ioPollHandlers.find(aFD);
   if (pos!=ioPollHandlers.end()) {
     // found fd to set flags for
+    #if MAINLOOP_LIBEV_BASED
+    int f = evToPoll(pos->second.mIoWatcher.events);
+    #else
+    int f = pos->second.pollFlags;
+    #endif
     if (aClearPollFlags>=0) {
       // read modify write
       // - clear specified flags
-      pos->second.pollFlags &= ~aClearPollFlags;
-      pos->second.pollFlags |= aSetPollFlags;
+      f &= ~aClearPollFlags;
+      f |= aSetPollFlags;
     }
     else {
       // just set
-      pos->second.pollFlags = aSetPollFlags;
+      f = aSetPollFlags;
     }
+    #if MAINLOOP_LIBEV_BASED
+    // TODO: for now, changing flags beyond POLLIN and POLLOUT is not supported with libev
+    assert((f & ~(POLLIN|POLLOUT))==0);
+    ev_io_modify(&pos->second.mIoWatcher, pollToEv(f));
+    #else
+    pos->second.pollFlags = f;
+    #endif
   }
 }
 
@@ -956,7 +1154,7 @@ void MainLoop::unregisterPollHandler(int aFD)
 
 
 
-bool MainLoop::handleIOPoll(MLMicroSeconds aTimeout)
+void MainLoop::handleIOPoll(MLMicroSeconds aTimeout)
 {
   #ifdef ESP_PLATFORM
   // use select(), more modern poll() is not available
@@ -997,7 +1195,7 @@ bool MainLoop::handleIOPoll(MLMicroSeconds aTimeout)
     tv.tv_usec = aTimeout % 1000000;
     numReadyFDs = select(numFDsToTest, &readfs, &writefs, &errorfs, aTimeout!=Infinite ? &tv : NULL);
     DBGFOCUSLOG("select returns %d", numReadyFDs);
- }
+  }
   else {
     // nothing to test, just await timeout
     static const MLMicroSeconds tickInterval = portTICK_PERIOD_MS*MilliSecond;
@@ -1035,8 +1233,23 @@ bool MainLoop::handleIOPoll(MLMicroSeconds aTimeout)
       }
     }
   }
-  // return true if we actually handled some I/O
-  return numReadyFDs>0;
+  #elif MAINLOOP_LIBEV_BASED
+  // use libev
+  if (aTimeout==0) {
+    // just check
+    ev_run(mLibEvLoopP, EVRUN_NOWAIT);
+  }
+  else if (aTimeout>0) {
+    // pass control for specified time
+    ev_timer_set(&mLibEvTimer, (double)aTimeout/Second, 0.);
+    ev_timer_start(mLibEvLoopP, &mLibEvTimer);
+    ev_run(mLibEvLoopP, EVRUN_ONCE);
+    ev_timer_stop(mLibEvLoopP, &mLibEvTimer);
+  }
+  else {
+    // no timers, just FDs -> completely pass control indefinitely
+    ev_run(mLibEvLoopP, 0);
+  }
   #else
   // use poll() - create poll structure
   struct pollfd *pollFds = NULL;
@@ -1094,8 +1307,6 @@ bool MainLoop::handleIOPoll(MLMicroSeconds aTimeout)
   }
   // return the poll array
   delete[] pollFds;
-  // return true if poll actually reported something (not just timed out)
-  return numReadyFDs>0;
   #endif
 }
 
@@ -1191,6 +1402,17 @@ int MainLoop::run(bool aRestart)
 }
 
 
+#if MAINLOOP_LIBEV_BASED
+
+struct ev_loop* MainLoop::libevLoop()
+{
+  return mLibEvLoopP;
+}
+
+#endif
+
+
+
 
 string MainLoop::description()
 {
@@ -1216,6 +1438,9 @@ string MainLoop::description()
     "  - max timers waiting at once  : %ld\n"
     "- throttling sleep inserted     : %ld times\n"
     #endif
+    #if MAINLOOP_LIBEV_BASED
+    "- pending libev watchers        : %d %s\n"
+    #endif
     ,(long)ioPollHandlers.size()
     ,(long)waitHandlers.size()
     ,(long)timers.size()
@@ -1231,6 +1456,10 @@ string MainLoop::description()
     ,(long)timesTimersRanToLong
     ,(long)maxTimers
     ,(long)timesThrottlingApplied
+    #endif
+    #if MAINLOOP_LIBEV_BASED
+    ,(mLibEvLoopP ? ev_pending_count(mLibEvLoopP) : 0)
+    ,(mLibEvLoopP ? "" : "(NOT IN USE)")
     #endif
   );
 }
