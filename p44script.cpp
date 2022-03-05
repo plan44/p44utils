@@ -4134,13 +4134,14 @@ void SourceProcessor::pushFunctionArgument(ScriptObjPtr aArgument)
   checkAndResume(); // NOP on the base class level
 }
 
+#if P44SCRIPT_FULL_SUPPORT
 void SourceProcessor::startOfBodyCode()
 {
   // switch to body scanning
   mEvaluationFlags = (mEvaluationFlags & ~sourcecode) | scriptbody;
   checkAndResume(); // NOP on the base class level
 }
-
+#endif
 
 
 void SourceProcessor::executeResult()
@@ -4658,6 +4659,7 @@ ScriptObjPtr ScriptCompiler::compile(SourceContainerPtr aSource, CompiledCodePtr
 }
 
 
+#if P44SCRIPT_FULL_SUPPORT
 void ScriptCompiler::startOfBodyCode()
 {
   bodyRef = mSrc; // rest of source code is body
@@ -4668,6 +4670,7 @@ void ScriptCompiler::startOfBodyCode()
   // we want a full syntax scan, continue skipping
   inherited::startOfBodyCode();
 }
+#endif
 
 
 void ScriptCompiler::memberByIdentifier(TypeInfo aMemberAccessFlags, bool aNoNotFoundError)

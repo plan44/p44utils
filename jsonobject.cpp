@@ -446,6 +446,7 @@ void JsonObject::arrayPut(int aAtIndex, JsonObjectPtr aObj)
 }
 
 
+#if !REDUCED_FOOTPRINT
 void JsonObject::arrayDel(int aAtIndex, int aNumElements)
 {
   if (type()==json_type_array) {
@@ -472,7 +473,7 @@ void JsonObject::arrayDel(int aAtIndex, int aNumElements)
     #endif // !HAVE_JSONC_VERSION_013
   }
 }
-
+#endif // !REDUCED_FOOTPRINT
 
 
 // MARK: - object key/value iteration

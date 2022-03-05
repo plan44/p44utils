@@ -1778,12 +1778,16 @@ namespace p44 { namespace P44Script {
     /// @return true if running as compiler
     virtual bool compiling() { return false; }
 
+    #if P44SCRIPT_FULL_SUPPORT
+
     /// @return true if compiling declaration
     bool declaring() { return compiling() && (mEvaluationFlags&sourcecode)!=0; }
 
     /// indicates start of script body (at current src.pos)
     /// @note must cause calling resume()
     virtual void startOfBodyCode();
+
+    #endif
 
     /// @return the main context for running triggers and handlers. This is used to associate scripts defined as part of a
     /// source (e.g. "on"-handlers) with a execution context to call them later
@@ -2251,9 +2255,11 @@ namespace p44 { namespace P44Script {
     /// @return true if running as compiler
     virtual bool compiling() P44_OVERRIDE { return true; }
 
+    #if P44SCRIPT_FULL_SUPPORT
     /// indicates end of declarations
     /// @note must cause calling resume()
     virtual void startOfBodyCode() P44_OVERRIDE;
+    #endif
 
     /// must retrieve the member as specified. Note that compiler only can access global scope
     /// @param aMemberAccessFlags if this has lvalue set, caller would like to get an ScriptLValue which allows assigning a new value
