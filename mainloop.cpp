@@ -381,7 +381,9 @@ esp_err_t evFs_start_select(int nfds, fd_set *readfds, fd_set *writefds, fd_set 
 {
   // remember the semaphore we need to trigger
   DBGFOCUSLOG("evFs_start_select");
-  evFsSemaphore = sem.sem;
+  // from esp_vfs.h: type of "sem" is SemaphoreHandle_t when true, defined by socket driver otherwise
+  assert(sem.is_sem_local);
+  evFsSemaphore = (SemaphoreHandle_t)sem.sem;
   if (foreignTaskTimersWaiting) {
     // new timers were waiting before select has started -> immediately terminate select()
     foreignTaskTimersWaiting = false;
