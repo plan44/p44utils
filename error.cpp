@@ -156,6 +156,12 @@ bool Error::isError(ErrorPtr aError, const char *aDomain, ErrorCode aErrorCode)
   return aError->isError(aDomain, aErrorCode);
 }
 
+bool Error::isDomain(ErrorPtr aError, const char *aDomain)
+{
+  if (!aError) return false;
+  return aError->isDomain(aDomain);
+}
+
 
 ErrorPtr Error::ok(ErrorPtr aError)
 {
