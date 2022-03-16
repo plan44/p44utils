@@ -216,18 +216,20 @@ void DnsSdManager::avahi_poll(MLTimer &aTimer)
 // MARK: - Basic service (avahi client or server)
 
 
-void DnsSdManager::requestService(StatusCB aServiceStatusCB, MLMicroSeconds aStartupDelay)
+void DnsSdManager::requestService(ServiceStatusCB aServiceStatusCB, MLMicroSeconds aStartupDelay)
 {
   if (serviceRunning()) {
     // already running, can use it right away
     if (aServiceStatusCB) {
-      mServiceCallbacks.push_back(aServiceStatusCB);
-      aServiceStatusCB(ErrorPtr());
+      if (aServiceStatusCB(ErrorPtr())) {
+        // callback requests keep receiving updates
+        mServiceCallbacks.push_back(aServiceStatusCB);
+      }
     }
   }
   else {
-    if (aServiceStatusCB) mServiceCallbacks.push_back(aServiceStatusCB);
     // service not yet running
+    if (aServiceStatusCB) mServiceCallbacks.push_back(aServiceStatusCB);
     if (!mService) {
       // service not instantiated yet
       mServiceStartTicket.executeOnce(boost::bind(&DnsSdManager::initiateService, this), aStartupDelay);
@@ -240,7 +242,7 @@ void DnsSdManager::initiateService()
 {
   ErrorPtr status;
   // - make sure we are initialized
-  status = initialize(NULL); // previously set or default host name
+  status = initialize(NULL); // previously set or default settings (hostname, IPv4,v6 flags)
   if (Error::isOK(status)) {
     #if USE_AVAHI_CORE
     // single avahi instance for embedded use, no other process uses avahi
@@ -251,7 +253,7 @@ void DnsSdManager::initiateService()
     // basic info
     config.host_name = avahi_strdup(mHostname.c_str()); // unique hostname
     #ifdef __APPLE__
-    config.disallow_other_stacks = 0; // om OS X, we always have a mDNS, so allow more than one for testing
+    config.disallow_other_stacks = 0; // on macOS, we always have a mDNS, so allow more than one for testing
     #else
     config.disallow_other_stacks = 1; // we wants to be the only mdNS (also avoids problems with SO_REUSEPORT on older Linux kernels)
     #endif
@@ -333,10 +335,10 @@ void DnsSdManager::stopService()
   // actually terminate the service
   terminateService();
   // finally, inform all former service requesters, forget callbacks
-  StatusCBList cbl = mServiceCallbacks;
+  ServiceStatusCBList cbl = mServiceCallbacks;
   mServiceCallbacks.clear();
   ErrorPtr status = Error::err<DnsSdError>(DnsSdError::Stopped, "avahi service stopped");
-  for (StatusCBList::iterator pos = cbl.begin(); pos!=cbl.end(); ++pos) {
+  for (ServiceStatusCBList::iterator pos = cbl.begin(); pos!=cbl.end(); ++pos) {
     (*pos)(status);
   }
 }
@@ -382,8 +384,14 @@ void DnsSdManager::restartServiceBecause(ErrorPtr aError)
 
 void DnsSdManager::deliverServiceStatus(ErrorPtr aStatus)
 {
-  for (StatusCBList::iterator pos = mServiceCallbacks.begin(); pos!=mServiceCallbacks.end(); ++pos) {
-    (*pos)(aStatus);
+  ServiceStatusCBList::iterator pos = mServiceCallbacks.begin();
+  while (pos!=mServiceCallbacks.end()) {
+    bool keep = (*pos)(aStatus);
+    if (!keep) {
+      pos = mServiceCallbacks.erase(pos);
+      continue;
+    }
+    ++pos;
   }
 }
 
@@ -436,7 +444,7 @@ void DnsSdManager::server_callback(AvahiServer *s, AvahiServerState state)
       break;
     }
     case AVAHI_SERVER_INVALID:
-      status = Error::err<DnsSdError>(DnsSdError::Fatal, "avahi: invalid state, server not started"ret);
+      status = Error::err<DnsSdError>(DnsSdError::Fatal, "avahi: invalid state, server not started");
       break;
   }
   // deliver status
@@ -689,12 +697,19 @@ DnsSdServiceBrowserPtr DnsSdManager::newServiceBrowser()
 void DnsSdManager::browse(const char *aServiceType, DnsSdServiceBrowserCB aServiceBrowserCB)
 {
   if (!aServiceBrowserCB) return;
-  DnsSdServiceBrowserPtr sb = newServiceBrowser();
-  if (!sb) {
-    aServiceBrowserCB(Error::err<DnsSdError>(DnsSdError::WrongUsage, "service not running"), DnsSdServiceInfoPtr());
-    return;
+  // auto-start service
+  requestService(boost::bind(&DnsSdManager::doBrowse, this, _1, aServiceType, aServiceBrowserCB), 0);
+}
+
+bool DnsSdManager::doBrowse(ErrorPtr aStatus, const char *aServiceType, DnsSdServiceBrowserCB aServiceBrowserCB)
+{
+  if (Error::notOK(aStatus)) {
+    aServiceBrowserCB(aStatus, DnsSdServiceInfoPtr());
+    return false; // no more updates!
   }
-  sb->browse(aServiceType, aServiceBrowserCB);
+  DnsSdServiceBrowserPtr sb = newServiceBrowser();
+  if (sb) sb->browse(aServiceType, aServiceBrowserCB);
+  return false; // no more updates!
 }
 
 

@@ -24,11 +24,6 @@
 
 #include "p44utils_common.hpp"
 
-// FIXME: remove: %%%%
-#define USE_AVAHI_CORE 0
-
-#if !DISABLE_DISCOVERY
-
 // Avahi includes
 #if USE_AVAHI_CORE
 // - directly using core, good for small embedded with single process using avahi
@@ -244,6 +239,12 @@ namespace p44 {
   typedef boost::intrusive_ptr<DnsSdServiceBrowser> DnsSdServiceBrowserPtr;
 
 
+  /// service status callback
+  /// @param aError if NULL, this means that service came up and callee should now set up service advertisements or browsers
+  /// @return true if callee wants to get further updates, false otherwise
+  typedef boost::function<bool (ErrorPtr aError)> ServiceStatusCB;
+
+
   /// Implements service announcement and discovery (via avahi) for vdc host and (if configured) a associated vdsm
   class DnsSdManager : public P44LoggingObj
   {
@@ -260,8 +261,8 @@ namespace p44 {
     MLTicket mPollTicket; // timer for avahi polling
 
     AvahiService *mService;
-    typedef std::list<StatusCB> StatusCBList;
-    StatusCBList mServiceCallbacks;
+    typedef std::list<ServiceStatusCB> ServiceStatusCBList;
+    ServiceStatusCBList mServiceCallbacks;
     MLTicket mServiceStartTicket; // timer for starting/restarting service
 
     typedef std::list<DnsSdServiceBrowserPtr> ServiceBrowsersList;
@@ -299,7 +300,7 @@ namespace p44 {
     ///   callback to start publishing or browsing whenever the service (re)starts
     /// @param aRestartDelay delay for actually starting
     /// @note can be called repeatedly to register multiple callbacks. aStartupDelay is effective for the initial call only.
-    void requestService(StatusCB aServiceStatusCB, MLMicroSeconds aStartupDelay);
+    void requestService(ServiceStatusCB aServiceStatusCB, MLMicroSeconds aStartupDelay);
 
     /// stop advertising and scanning service
     /// @note all registered callbacks will receive a DnsSdError::Stopped error, and need to re-request the service
@@ -332,6 +333,7 @@ namespace p44 {
     /// @param aServiceType the service type such as "_http._tcp"
     /// @param aServiceBrowserCB will be called (possibly multiple times) to report found services.
     ///   Must return false to stop browsing, otherwise, further callbacks may happen and callback target must not get deleted.
+    /// @note this will automatically request DNS-SD service to get started with default parameters, if not already started otherwise
     void browse(const char *aServiceType, DnsSdServiceBrowserCB aServiceBrowserCB);
 
     /// create a new service group
@@ -346,6 +348,8 @@ namespace p44 {
 
     void deliverServiceStatus(ErrorPtr aStatus);
 
+    bool doBrowse(ErrorPtr aStatus, const char *aServiceType, DnsSdServiceBrowserCB aServiceBrowserCB);
+
     // callbacks
     static void avahi_log(AvahiLogLevel level, const char *txt);
     #if USE_AVAHI_CORE
@@ -358,14 +362,10 @@ namespace p44 {
 
     void avahi_poll(MLTimer &aTicket);
 
-//    static void avahi_debug_browse_callback(AvahiServiceBrowser *b, AvahiIfIndex interface, AvahiProtocol protocol, AvahiBrowserEvent event, const char *name, const char *type, const char *domain, AVAHI_GCC_UNUSED AvahiLookupResultFlags flags, void* userdata);
-//    void debug_browse_callback(AvahiServiceBrowser *b, AvahiIfIndex interface, AvahiProtocol protocol, AvahiBrowserEvent event, const char *name, const char *type, const char *domain, AVAHI_GCC_UNUSED AvahiLookupResultFlags flags);
-
   };
 
 
 
 } // namespace p44
 
-#endif // !DISABLE_DISCOVERY
 #endif // __p44utils__dnssd__
