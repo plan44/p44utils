@@ -56,6 +56,12 @@
 #define __printflike(...)
 #endif
 
+#if REDUCED_FOOTPRINT
+  #define IFNOTREDUCEDFOOTPRINT(lvl) (0)
+#else
+  #define IFNOTREDUCEDFOOTPRINT(lvl) (lvl)
+#endif
+
 
 #include "p44obj.hpp"
 
