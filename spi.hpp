@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2016-2021 plan44.ch / Lukas Zeller, Zurich, Switzerland
+//  Copyright (c) 2016-2022 plan44.ch / Lukas Zeller, Zurich, Switzerland
 //
 //  Author: Lukas Zeller <luz@plan44.ch>
 //
@@ -94,8 +94,9 @@ namespace p44 {
     /// @param aInSz number of bytes to receive, can be 0
     /// @param aInP pointer to bytes to receive, can be NULL
     /// @param aFullDuplex send and receive simultaneously (otherwise: first send, then receive)
+    /// @param aKeepCSActive if set, CS is kept active at the end of the transaction (usually meaning actual logical transaction continues)
     /// @return true if successful
-    bool SPIRawWriteRead(unsigned int aOutSz, uint8_t *aOutP, unsigned int aInSz, uint8_t *aInP, bool aFullDuplex = false);
+    bool SPIRawWriteRead(unsigned int aOutSz, const uint8_t *aOutP, unsigned int aInSz, uint8_t *aInP, bool aFullDuplex = false, bool aKeepCSActive = false);
 
     #if ENABLE_SPI_SCRIPT_FUNCS
     /// @return a singleton script object, representing this SPI device
@@ -137,11 +138,12 @@ namespace p44 {
     int spidev_write_read(
       SPIDevice *aDeviceP,
       unsigned int num_out_bytes,
-      uint8_t *out_buffer,
+      const uint8_t *out_buffer,
       unsigned int num_in_bytes,
       uint8_t *in_buffer,
       bool writeWrite = false,
-      bool fullDuplex = false
+      bool fullDuplex = false,
+      bool keepCSActive = false
     );
 
 
@@ -200,8 +202,9 @@ namespace p44 {
     /// @param aInSz number of bytes to receive
     /// @param aInP pointer to bytes to receive
     /// @param aFullDuplex send and receive simultaneously (otherwise: first send, then receive)
+    /// @param aKeepCSActive if set, CS is kept active at the end of the transaction (usually meaning actual logical transaction continues)
     /// @return true if successful
-    bool SPIRawWriteRead(SPIDevice *aDeviceP, unsigned int aOutSz, uint8_t *aOutP, unsigned int aInSz, uint8_t *aInP, bool aFullDuplex = false);
+    bool SPIRawWriteRead(SPIDevice *aDeviceP, unsigned int aOutSz, const uint8_t *aOutP, unsigned int aInSz, uint8_t *aInP, bool aFullDuplex = false, bool aKeepCSActive = false);
 
   private:
     bool accessDevice(SPIDevice *aDeviceP);

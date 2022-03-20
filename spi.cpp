@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2016-2021 plan44.ch / Lukas Zeller, Zurich, Switzerland
+//  Copyright (c) 2016-2022 plan44.ch / Lukas Zeller, Zurich, Switzerland
 //
 //  Author: Lukas Zeller <luz@plan44.ch>
 //
@@ -213,11 +213,12 @@ SPIDevicePtr SPIBus::getDevice(const char *aDeviceID)
 int SPIBus::spidev_write_read(
   SPIDevice *aDeviceP,
   unsigned int num_out_bytes,
-  uint8_t *out_buffer,
+  const uint8_t *out_buffer,
   unsigned int num_in_bytes,
   uint8_t *in_buffer,
   bool writeWrite,
-  bool fullDuplex
+  bool fullDuplex,
+  bool keepCSActive
 )
 {
   #if !DISABLE_SPI
@@ -259,6 +260,9 @@ int SPIBus::spidev_write_read(
   }
   // execute
   if(num_tr > 0) {
+    // set cs_change on last transaction if CS should be KEPT ACTIVE
+    if (keepCSActive) mesg[num_tr-1].cs_change = 1;
+    // run the transfer(s)
     ret = ioctl(busFD, SPI_IOC_MESSAGE(num_tr), mesg);
     if(ret == 1) {
       return 1;
@@ -357,10 +361,10 @@ bool SPIBus::SPIRegWriteBytes(SPIDevice *aDeviceP, uint8_t aRegister, uint8_t aC
 }
 
 
-bool SPIBus::SPIRawWriteRead(SPIDevice *aDeviceP, unsigned int aOutSz, uint8_t *aOutP, unsigned int aInSz, uint8_t *aInP, bool aFullDuplex)
+bool SPIBus::SPIRawWriteRead(SPIDevice *aDeviceP, unsigned int aOutSz, const uint8_t *aOutP, unsigned int aInSz, uint8_t *aInP, bool aFullDuplex, bool aKeepCSActive)
 {
   if (!accessDevice(aDeviceP)) return false; // cannot access
-  int res = spidev_write_read(aDeviceP, aOutSz, aOutP, aInSz, aInP, false, aFullDuplex);
+  int res = spidev_write_read(aDeviceP, aOutSz, aOutP, aInSz, aInP, false, aFullDuplex, aKeepCSActive);
   // shown only in real Debug log, because polling creates lots of accesses
   DBGFOCUSLOG("SPIRawWriteRead(devaddr=0x%02X), %d bytes written, %d bytes read (res=%d)", aDeviceP->deviceAddress, aOutSz, aFullDuplex ? aOutSz : aInSz, res);
   return (res>=0);
@@ -489,9 +493,9 @@ bool SPIDevice::isKindOf(const char *aDeviceType)
 }
 
 
-bool SPIDevice::SPIRawWriteRead(unsigned int aOutSz, uint8_t *aOutP, unsigned int aInSz, uint8_t *aInP, bool aFullDuplex)
+bool SPIDevice::SPIRawWriteRead(unsigned int aOutSz, const uint8_t *aOutP, unsigned int aInSz, uint8_t *aInP, bool aFullDuplex, bool aKeepCSActive)
 {
-  return spibus->SPIRawWriteRead(this, aOutSz, aOutP, aInSz, aInP, aFullDuplex);
+  return spibus->SPIRawWriteRead(this, aOutSz, aOutP, aInSz, aInP, aFullDuplex, aKeepCSActive);
 }
 
 
