@@ -26,7 +26,6 @@
 //   Note: must be before including "logger.hpp" (or anything that includes "logger.hpp")
 #define FOCUSLOGLEVEL 7
 
-
 #include "spi.hpp"
 
 // locally disable actual functionality on unsupported platforms (but still provide console output dummies)
@@ -209,7 +208,6 @@ SPIDevicePtr SPIBus::getDevice(const char *aDeviceID)
 //  ends when the chipselect goes inactive.
 
 
-
 int SPIBus::spidev_write_read(
   SPIDevice *aDeviceP,
   unsigned int num_out_bytes,
@@ -221,7 +219,39 @@ int SPIBus::spidev_write_read(
   bool keepCSActive
 )
 {
-  #if !DISABLE_SPI
+  #if SPI_SIMULATION
+  string s;
+  if (out_buffer && num_out_bytes>0) {
+    // show data written
+    s = "writes:";
+    while(num_out_bytes-- > 0) {
+      string_format_append(s, " %02X", *out_buffer++);
+    }
+    if (writeWrite && in_buffer) {
+      while(num_in_bytes-- > 0) {
+        string_format_append(s, " %02X", *in_buffer++);
+      }
+    }
+  }
+  if (in_buffer && !writeWrite) {
+    // feed back SPI_SIMULATION_READDATA
+    s += " - reads sim data:";
+    while(num_in_bytes-- > 0) {
+      // get simulated data
+      if (mSimReadData.size()>0) {
+        *in_buffer = mSimReadData[mSimDataIdx++];
+        if (mSimDataIdx>mSimReadData.size()) mSimDataIdx=0;
+      }
+      else {
+        *in_buffer = 0x42;
+      }
+      // show it
+      string_format_append(s, " %02X", *in_buffer++);
+    }
+  }
+  FOCUSLOG("SPI: %s", s.c_str());
+  if (!keepCSActive) mSimDataIdx=0; // reset read index at end of transaction
+  #elif !DISABLE_SPI
   struct spi_ioc_transfer mesg[2];
   uint8_t num_tr = 0;
   int ret;

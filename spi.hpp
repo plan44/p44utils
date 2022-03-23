@@ -33,6 +33,10 @@
   #error "ENABLE_P44SCRIPT required when ENABLE_SPI_SCRIPT_FUNCS is set"
 #endif
 
+#ifndef SPI_SIMULATION
+  #define SPI_SIMULATION 0
+#endif
+
 #if ENABLE_SPI_SCRIPT_FUNCS
   #include "p44script.hpp"
 #endif
@@ -119,6 +123,13 @@ namespace p44 {
 
     int busFD;
     uint8_t lastSpiMode;
+
+    #if SPI_SIMULATION
+    string mSimReadData;
+    size_t mSimDataIdx;
+  public:
+    void setDataToRead(const string aBinarySimData) { mSimReadData = aBinarySimData; mSimDataIdx = 0; }
+    #endif
 
   protected:
     /// create spi bus
