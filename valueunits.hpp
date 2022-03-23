@@ -38,6 +38,7 @@ namespace p44 {
 
   /// value (physical) units
   #define VALUE_UNIT(u, s) ((((uint16_t)((uint8_t)s)&0xFF)<<8)+(uint8_t)u)
+  #define VALUE_UNIT1(u) ((((uint16_t)((uint8_t)unitScaling_1)&0xFF)<<8)+(uint8_t)u)
   #define VALUE_UNIT_ONLY(u) ((ValueBaseUnit)(u & 0xFF))
   #define VALUE_SCALING_ONLY(u) ((UnitScale)((u>>8) & 0xFF))
 
@@ -66,6 +67,7 @@ namespace p44 {
     valueUnit_pascal,
     valueUnit_degree, ///< angle
     valueUnit_bel, ///< 10*dezibel
+    valueUnit_hertz,
     // combined units
     valueUnit_molpercubicmeter, ///< also: mmol/liter
     valueUnit_frenchwaterhardness, ///< equivalent to (1/10000 mol)/liter -> 10 times more than mmol/liter

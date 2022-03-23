@@ -55,6 +55,7 @@ static const ValueUnitDescriptor valueUnitNames[numValueUnits] = {
   { "pascal", "Pa" },
   { "degree", "°" },
   { "bel", "B" },
+  { "Hertz", "Hz" },
   // combined units
   { "molpercubicmeter", "mol/m3" },
   { "frenchwaterhardness", "°fH" },
