@@ -6587,13 +6587,32 @@ static void delay_abort(TicketObjPtr aTicket)
 {
   aTicket->ticket.cancel();
 }
-static const BuiltInArgDesc delay_args[] = { { numeric } };
-static const size_t delay_numargs = sizeof(delay_args)/sizeof(BuiltInArgDesc);
+static const BuiltInArgDesc delayx_args[] = { { numeric } };
+static const size_t delayx_numargs = sizeof(delayx_args)/sizeof(BuiltInArgDesc);
 static void delay_func(BuiltinFunctionContextPtr f)
 {
   MLMicroSeconds delay = f->arg(0)->doubleValue()*Second;
   TicketObjPtr delayTicket = TicketObjPtr(new TicketObj);
   delayTicket->ticket.executeOnce(boost::bind(&BuiltinFunctionContext::finish, f, new AnnotatedNullValue("delayed")), delay);
+  f->setAbortCallback(boost::bind(&delay_abort, delayTicket));
+}
+static void delayuntil_func(BuiltinFunctionContextPtr f)
+{
+  MLMicroSeconds until;
+  double u = f->arg(0)->doubleValue();
+  if (u<24*60*60*365) {
+    // small times (less than a year) are considered relative to 0:00 of today (this is what time literals represent)
+    struct tm loctim; MainLoop::getLocalTime(loctim);
+    loctim.tm_sec = (int)u;
+    u -= loctim.tm_sec;
+    loctim.tm_hour = 0;
+    loctim.tm_min = 0;
+    u += mktime(&loctim);
+  }
+  // now u is epoch time in seconds
+  until = MainLoop::unixTimeToMainLoopTime(u*Second);
+  TicketObjPtr delayTicket = TicketObjPtr(new TicketObj);
+  delayTicket->ticket.executeOnceAt(boost::bind(&BuiltinFunctionContext::finish, f, new AnnotatedNullValue("delayed")), until);
   f->setAbortCallback(boost::bind(&delay_abort, delayTicket));
 }
 
@@ -6964,10 +6983,32 @@ static void dusk_func(BuiltinFunctionContextPtr f)
 }
 
 
-// epochtime()
+// epochtime() - epoch time of right now
+// epochtime(daysecond [, yearday [, year]]) - epoch time of given daysecond, yearday, year
+static const BuiltInArgDesc epochtime_args[] = { { numeric|optionalarg }, { numeric|optionalarg }, { numeric|optionalarg } };
+static const size_t epochtime_numargs = sizeof(epochtime_args)/sizeof(BuiltInArgDesc);
 static void epochtime_func(BuiltinFunctionContextPtr f)
 {
-  f->finish(new NumericValue((double)MainLoop::unixtime()/Second)); // epoch time in seconds
+  if (f->numArgs()==0) {
+    f->finish(new NumericValue((double)MainLoop::unixtime()/Second)); // epoch time in seconds
+    return;
+  }
+  struct tm loctim; MainLoop::getLocalTime(loctim);
+  double r = f->arg(0)->doubleValue();
+  loctim.tm_sec = (int)r;
+  loctim.tm_hour = 0;
+  loctim.tm_min = 0;
+  r -= loctim.tm_sec; // fractional need to be added later
+  if (f->numArgs()>1) {
+    // note: tm_yday is not processed by mktime, so we base on Jan 1st and add yeardays later
+    loctim.tm_mon = 0;
+    loctim.tm_mday = 1;
+    r += f->arg(1)->doubleValue()*24*60*60; // seconds
+    if (f->numArgs()>2) {
+      loctim.tm_year = f->arg(2)->intValue()-1900;
+    }
+  }
+  f->finish(new NumericValue(mktime(&loctim)+r));
 }
 
 
@@ -7170,7 +7211,7 @@ static const BuiltinMemberDescriptor standardFunctions[] = {
   { "dawn", executable|numeric|null, 0, NULL, &dawn_func },
   { "sunset", executable|numeric|null, 0, NULL, &sunset_func },
   { "dusk", executable|numeric|null, 0, NULL, &dusk_func },
-  { "epochtime", executable|any, 0, NULL, &epochtime_func },
+  { "epochtime", executable|any, epochtime_numargs, epochtime_args, &epochtime_func },
   { "epochdays", executable|any, 0, NULL, &epochdays_func },
   { "timeofday", executable|numeric, timegetter_numargs, timegetter_args, &timeofday_func },
   { "hour", executable|numeric, timegetter_numargs, timegetter_args, &hour_func },
@@ -7195,7 +7236,8 @@ static const BuiltinMemberDescriptor standardFunctions[] = {
   { "signal", executable|any, 0, NULL, &signal_func },
   // Async
   { "await", executable|async|any, await_numargs, await_args, &await_func },
-  { "delay", executable|async|null, delay_numargs, delay_args, &delay_func },
+  { "delay", executable|async|null, delayx_numargs, delayx_args, &delay_func },
+  { "delayuntil", executable|async|null, delayx_numargs, delayx_args, &delayuntil_func },
   { "eval", executable|async|any, eval_numargs, eval_args, &eval_func },
   { "maxblocktime", executable|any, maxblocktime_numargs, maxblocktime_args, &maxblocktime_func },
   { "maxruntime", executable|any, maxruntime_numargs, maxruntime_args, &maxruntime_func },
