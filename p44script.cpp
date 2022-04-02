@@ -5790,6 +5790,72 @@ static void binary_func(BuiltinFunctionContextPtr f)
 }
 
 
+static uint64_t bitmask(int aNextArg, int& aLoBit, int& aHiBit, BuiltinFunctionContextPtr f)
+{
+  aLoBit = f->arg(0)->intValue();
+  aHiBit = aLoBit;
+  if (aNextArg>1) {
+    aHiBit = f->arg(1)->intValue();
+    if (aHiBit<aLoBit) {
+      swap(aHiBit, aLoBit);
+    }
+    if (aLoBit<0) aLoBit=0;
+    if (aHiBit>63) aHiBit=63;
+  }
+  return (((uint64_t)-1)>>(63-aHiBit))<<aLoBit;
+}
+
+// bit(bitno, value) - get bit from value
+// bit(firstbit, lastbit, value [, signed]) - get bit range from value
+static const BuiltInArgDesc bit_args[] = { { numeric }, { numeric }, { numeric|optionalarg }, { numeric|optionalarg } };
+static const size_t bit_numargs = sizeof(bit_args)/sizeof(BuiltInArgDesc);
+static void bit_func(BuiltinFunctionContextPtr f)
+{
+  int nextarg = f->numArgs()>2 ? 2 : 1;
+  int loBit, hiBit;
+  uint64_t mask = bitmask(nextarg, loBit, hiBit, f);
+  uint64_t r = f->arg(nextarg)->int64Value();
+  r = (r & mask)>>loBit;
+  if (f->arg(3)->boolValue() && (r & (1<<hiBit))) {
+    // extend sign
+    r |= ~mask;
+  }
+  f->finish(new NumericValue((int64_t)r));
+}
+
+
+// setbit(bitno, newbit, value) - set a bit in value
+// setbit(firstbit, lastbit, newvalue, value) - set bit range in value
+static const BuiltInArgDesc setbit_args[] = { { numeric }, { numeric }, { numeric }, { numeric|optionalarg } };
+static const size_t setbit_numargs = sizeof(setbit_args)/sizeof(BuiltInArgDesc);
+static void setbit_func(BuiltinFunctionContextPtr f)
+{
+  int nextarg = f->numArgs()>3 ? 2 : 1;
+  int loBit, hiBit;
+  uint64_t mask = bitmask(nextarg, loBit, hiBit, f);
+  uint64_t newbits = f->arg(nextarg)->int64Value();
+  if (nextarg==1) newbits = (newbits!=0); // for single bits, treat newbit as bool
+  uint64_t v = f->arg(nextarg+1)->int64Value();
+  v = (v & ~mask) | ((newbits<<loBit) & mask);
+  f->finish(new NumericValue((int64_t)v));
+}
+
+
+// flipbit(bitno, value)
+// flipbit(firstbit, lastbit, value)
+static const BuiltInArgDesc flipbit_args[] = { { numeric }, { numeric }, { numeric|optionalarg } };
+static const size_t flipbit_numargs = sizeof(flipbit_args)/sizeof(BuiltInArgDesc);
+static void flipbit_func(BuiltinFunctionContextPtr f)
+{
+  int nextarg = f->numArgs()>2 ? 2 : 1;
+  int loBit, hiBit;
+  uint64_t mask = bitmask(nextarg, loBit, hiBit, f);
+  uint64_t v = f->arg(nextarg)->int64Value();
+  v ^= mask;
+  f->finish(new NumericValue((int64_t)v));
+}
+
+
 // strlen(string)
 static const BuiltInArgDesc strlen_args[] = { { text|undefres } };
 static const size_t strlen_numargs = sizeof(strlen_args)/sizeof(BuiltInArgDesc);
@@ -7181,6 +7247,9 @@ static const BuiltinMemberDescriptor standardFunctions[] = {
   { "chr", executable|text, chr_numargs, chr_args, &chr_func },
   { "hex", executable|text, hex_numargs, hex_args, &hex_func },
   { "binary", executable|text, binary_numargs, binary_args, &binary_func },
+  { "bit", executable|numeric, bit_numargs, bit_args, &bit_func },
+  { "setbit", executable|numeric, setbit_numargs, setbit_args, &setbit_func },
+  { "flipbit", executable|numeric, flipbit_numargs, flipbit_args, &flipbit_func },
   { "elements", executable|numeric|null, elements_numargs, elements_args, &elements_func },
   { "strlen", executable|numeric|null, strlen_numargs, strlen_args, &strlen_func },
   { "strrep", executable|text, strrep_numargs, strrep_args, &strrep_func },
