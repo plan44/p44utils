@@ -5790,6 +5790,72 @@ static void binary_func(BuiltinFunctionContextPtr f)
 }
 
 
+static uint64_t bitmask(int aNextArg, int& aLoBit, int& aHiBit, BuiltinFunctionContextPtr f)
+{
+  aLoBit = f->arg(0)->intValue();
+  aHiBit = aLoBit;
+  if (aNextArg>1) {
+    aHiBit = f->arg(1)->intValue();
+    if (aHiBit<aLoBit) {
+      swap(aHiBit, aLoBit);
+    }
+    if (aLoBit<0) aLoBit=0;
+    if (aHiBit>63) aHiBit=63;
+  }
+  return (((uint64_t)-1)>>(63-aHiBit))<<aLoBit;
+}
+
+// bit(bitno, value) - get bit from value
+// bit(firstbit, lastbit, value [, signed]) - get bit range from value
+static const BuiltInArgDesc bit_args[] = { { numeric }, { numeric }, { numeric|optionalarg }, { numeric|optionalarg } };
+static const size_t bit_numargs = sizeof(bit_args)/sizeof(BuiltInArgDesc);
+static void bit_func(BuiltinFunctionContextPtr f)
+{
+  int nextarg = f->numArgs()>2 ? 2 : 1;
+  int loBit, hiBit;
+  uint64_t mask = bitmask(nextarg, loBit, hiBit, f);
+  uint64_t r = f->arg(nextarg)->int64Value();
+  r = (r & mask)>>loBit;
+  if (f->arg(3)->boolValue() && (r & (1<<hiBit))) {
+    // extend sign
+    r |= ~mask;
+  }
+  f->finish(new NumericValue((int64_t)r));
+}
+
+
+// setbit(bitno, newbit, value) - set a bit in value
+// setbit(firstbit, lastbit, newvalue, value) - set bit range in value
+static const BuiltInArgDesc setbit_args[] = { { numeric }, { numeric }, { numeric }, { numeric|optionalarg } };
+static const size_t setbit_numargs = sizeof(setbit_args)/sizeof(BuiltInArgDesc);
+static void setbit_func(BuiltinFunctionContextPtr f)
+{
+  int nextarg = f->numArgs()>3 ? 2 : 1;
+  int loBit, hiBit;
+  uint64_t mask = bitmask(nextarg, loBit, hiBit, f);
+  uint64_t newbits = f->arg(nextarg)->int64Value();
+  if (nextarg==1) newbits = (newbits!=0); // for single bits, treat newbit as bool
+  uint64_t v = f->arg(nextarg+1)->int64Value();
+  v = (v & ~mask) | ((newbits<<loBit) & mask);
+  f->finish(new NumericValue((int64_t)v));
+}
+
+
+// flipbit(bitno, value)
+// flipbit(firstbit, lastbit, value)
+static const BuiltInArgDesc flipbit_args[] = { { numeric }, { numeric }, { numeric|optionalarg } };
+static const size_t flipbit_numargs = sizeof(flipbit_args)/sizeof(BuiltInArgDesc);
+static void flipbit_func(BuiltinFunctionContextPtr f)
+{
+  int nextarg = f->numArgs()>2 ? 2 : 1;
+  int loBit, hiBit;
+  uint64_t mask = bitmask(nextarg, loBit, hiBit, f);
+  uint64_t v = f->arg(nextarg)->int64Value();
+  v ^= mask;
+  f->finish(new NumericValue((int64_t)v));
+}
+
+
 // strlen(string)
 static const BuiltInArgDesc strlen_args[] = { { text|undefres } };
 static const size_t strlen_numargs = sizeof(strlen_args)/sizeof(BuiltInArgDesc);
@@ -6587,13 +6653,32 @@ static void delay_abort(TicketObjPtr aTicket)
 {
   aTicket->ticket.cancel();
 }
-static const BuiltInArgDesc delay_args[] = { { numeric } };
-static const size_t delay_numargs = sizeof(delay_args)/sizeof(BuiltInArgDesc);
+static const BuiltInArgDesc delayx_args[] = { { numeric } };
+static const size_t delayx_numargs = sizeof(delayx_args)/sizeof(BuiltInArgDesc);
 static void delay_func(BuiltinFunctionContextPtr f)
 {
   MLMicroSeconds delay = f->arg(0)->doubleValue()*Second;
   TicketObjPtr delayTicket = TicketObjPtr(new TicketObj);
   delayTicket->ticket.executeOnce(boost::bind(&BuiltinFunctionContext::finish, f, new AnnotatedNullValue("delayed")), delay);
+  f->setAbortCallback(boost::bind(&delay_abort, delayTicket));
+}
+static void delayuntil_func(BuiltinFunctionContextPtr f)
+{
+  MLMicroSeconds until;
+  double u = f->arg(0)->doubleValue();
+  if (u<24*60*60*365) {
+    // small times (less than a year) are considered relative to 0:00 of today (this is what time literals represent)
+    struct tm loctim; MainLoop::getLocalTime(loctim);
+    loctim.tm_sec = (int)u;
+    u -= loctim.tm_sec;
+    loctim.tm_hour = 0;
+    loctim.tm_min = 0;
+    u += mktime(&loctim);
+  }
+  // now u is epoch time in seconds
+  until = MainLoop::unixTimeToMainLoopTime(u*Second);
+  TicketObjPtr delayTicket = TicketObjPtr(new TicketObj);
+  delayTicket->ticket.executeOnceAt(boost::bind(&BuiltinFunctionContext::finish, f, new AnnotatedNullValue("delayed")), until);
   f->setAbortCallback(boost::bind(&delay_abort, delayTicket));
 }
 
@@ -6964,10 +7049,32 @@ static void dusk_func(BuiltinFunctionContextPtr f)
 }
 
 
-// epochtime()
+// epochtime() - epoch time of right now
+// epochtime(daysecond [, yearday [, year]]) - epoch time of given daysecond, yearday, year
+static const BuiltInArgDesc epochtime_args[] = { { numeric|optionalarg }, { numeric|optionalarg }, { numeric|optionalarg } };
+static const size_t epochtime_numargs = sizeof(epochtime_args)/sizeof(BuiltInArgDesc);
 static void epochtime_func(BuiltinFunctionContextPtr f)
 {
-  f->finish(new NumericValue((double)MainLoop::unixtime()/Second)); // epoch time in seconds
+  if (f->numArgs()==0) {
+    f->finish(new NumericValue((double)MainLoop::unixtime()/Second)); // epoch time in seconds
+    return;
+  }
+  struct tm loctim; MainLoop::getLocalTime(loctim);
+  double r = f->arg(0)->doubleValue();
+  loctim.tm_sec = (int)r;
+  loctim.tm_hour = 0;
+  loctim.tm_min = 0;
+  r -= loctim.tm_sec; // fractional need to be added later
+  if (f->numArgs()>1) {
+    // note: tm_yday is not processed by mktime, so we base on Jan 1st and add yeardays later
+    loctim.tm_mon = 0;
+    loctim.tm_mday = 1;
+    r += f->arg(1)->doubleValue()*24*60*60; // seconds
+    if (f->numArgs()>2) {
+      loctim.tm_year = f->arg(2)->intValue()-1900;
+    }
+  }
+  f->finish(new NumericValue(mktime(&loctim)+r));
 }
 
 
@@ -7140,6 +7247,9 @@ static const BuiltinMemberDescriptor standardFunctions[] = {
   { "chr", executable|text, chr_numargs, chr_args, &chr_func },
   { "hex", executable|text, hex_numargs, hex_args, &hex_func },
   { "binary", executable|text, binary_numargs, binary_args, &binary_func },
+  { "bit", executable|numeric, bit_numargs, bit_args, &bit_func },
+  { "setbit", executable|numeric, setbit_numargs, setbit_args, &setbit_func },
+  { "flipbit", executable|numeric, flipbit_numargs, flipbit_args, &flipbit_func },
   { "elements", executable|numeric|null, elements_numargs, elements_args, &elements_func },
   { "strlen", executable|numeric|null, strlen_numargs, strlen_args, &strlen_func },
   { "strrep", executable|text, strrep_numargs, strrep_args, &strrep_func },
@@ -7170,7 +7280,7 @@ static const BuiltinMemberDescriptor standardFunctions[] = {
   { "dawn", executable|numeric|null, 0, NULL, &dawn_func },
   { "sunset", executable|numeric|null, 0, NULL, &sunset_func },
   { "dusk", executable|numeric|null, 0, NULL, &dusk_func },
-  { "epochtime", executable|any, 0, NULL, &epochtime_func },
+  { "epochtime", executable|any, epochtime_numargs, epochtime_args, &epochtime_func },
   { "epochdays", executable|any, 0, NULL, &epochdays_func },
   { "timeofday", executable|numeric, timegetter_numargs, timegetter_args, &timeofday_func },
   { "hour", executable|numeric, timegetter_numargs, timegetter_args, &hour_func },
@@ -7195,7 +7305,8 @@ static const BuiltinMemberDescriptor standardFunctions[] = {
   { "signal", executable|any, 0, NULL, &signal_func },
   // Async
   { "await", executable|async|any, await_numargs, await_args, &await_func },
-  { "delay", executable|async|null, delay_numargs, delay_args, &delay_func },
+  { "delay", executable|async|null, delayx_numargs, delayx_args, &delay_func },
+  { "delayuntil", executable|async|null, delayx_numargs, delayx_args, &delayuntil_func },
   { "eval", executable|async|any, eval_numargs, eval_args, &eval_func },
   { "maxblocktime", executable|any, maxblocktime_numargs, maxblocktime_args, &maxblocktime_func },
   { "maxruntime", executable|any, maxruntime_numargs, maxruntime_args, &maxruntime_func },
