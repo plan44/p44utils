@@ -94,16 +94,10 @@ const char *Error::getErrorMessage() const
 }
 
 
-string Error::description() const
+string Error::errorCodeText() const
 {
-  string errorText;
-  if (errorMessage.size()>0)
-    errorText = errorMessage;
-  else
-    errorText = "Error";
-  // Append domain and code to message text
   #if ENABLE_NAMED_ERRORS
-  string_format_append(errorText, " (%s", getErrorDomain());
+  string errorText = string_format("(%s", getErrorDomain());
   const char *errName = errorName();
   if (!errName) errName = getErrorCode()==0 ? "OK" : "NotOK";
   // Note: errorName() returning empty string means error has no error codes to show, only domain
@@ -115,9 +109,22 @@ string Error::description() const
     }
   }
   errorText += ')';
+  return errorText;
   #else
-  string_format_append(errorText, " (%s:%ld)", getErrorDomain() , errorCode);
+  return string_format("(%s:%ld)", getErrorDomain() , errorCode);
   #endif
+}
+
+
+string Error::description() const
+{
+  string errorText;
+  if (errorMessage.size()>0)
+    errorText = errorMessage;
+  else
+    errorText = "Error";
+  // Append domain and code to message text
+  errorText += " " + errorCodeText();
   return errorText;
 }
 
@@ -136,6 +143,7 @@ const char* Error::text(ErrorPtr aError)
   if (!aError) return "<none>";
   return aError->text();
 }
+
 
 
 bool Error::isError(const char *aDomain, ErrorCode aErrorCode) const

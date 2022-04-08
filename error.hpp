@@ -192,6 +192,9 @@ namespace p44 {
     /// @return OK error object if aError is OK or NULL, aError otherwise
     static ErrorPtr ok(ErrorPtr aError = ErrorPtr());
 
+    /// @return error code as string in the form domain::error (with "error" textual if errorName() is available, numeric otherwise)
+    string errorCodeText() const;
+
     #if ENABLE_NAMED_ERRORS
   protected:
     /// return name of the error
