@@ -280,6 +280,23 @@ string p44::lowerCase(const string &aString)
 }
 
 
+string p44::upperCase(const char *aString, size_t aMaxSize)
+{
+  string s;
+  while (char c=*aString++) {
+    s += toupper(c);
+    if (aMaxSize>0 && --aMaxSize==0) break;
+  }
+  return s;
+}
+
+
+string p44::upperCase(const string &aString)
+{
+  return lowerCase(aString.c_str());
+}
+
+
 string p44::trimWhiteSpace(const string &aString, bool aLeading, bool aTrailing)
 {
   size_t n = aString.length();

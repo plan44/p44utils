@@ -134,6 +134,17 @@ namespace p44 {
   /// @return lowercase (char by char tolower())
   string lowerCase(const string &aString);
 
+  /// return simple (non locale aware) ASCII uppercase version of string
+  /// @param aStringP a C string pinter
+  /// @param aMaxSize max number of chars to read fom aStringP
+  /// @return uppercase (char by char tolower())
+  string upperCase(const char *aStringP, size_t aMaxSize = 0);
+
+  /// return simple (non locale aware) ASCII uppercase version of string
+  /// @param aString string pinter
+  /// @return uppercase (char by char toupper())
+  string upperCase(const string &aString);
+
   /// return string quoted such that it safely works as a single shell argument with no variable expansion
   /// @param aString a string
   /// @return (single) quoted shell argument string, if original contains single quotes these are represented as '"'"'
