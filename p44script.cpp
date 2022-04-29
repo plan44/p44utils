@@ -5902,12 +5902,21 @@ static void substr_func(BuiltinFunctionContextPtr f)
 
 // find(haystack, needle)
 // find(haystack, needle, from)
+// find(haystack, needle, from, caseinsensitive)
 static const BuiltInArgDesc find_args[] = { { text|undefres }, { text }, { numeric|optionalarg }  };
 static const size_t find_numargs = sizeof(find_args)/sizeof(BuiltInArgDesc);
 static void find_func(BuiltinFunctionContextPtr f)
 {
-  string haystack = f->arg(0)->stringValue(); // haystack can be anything, including invalid
-  string needle = f->arg(1)->stringValue();
+  string haystack;
+  string needle;
+  if (f->arg(3)->boolValue()) {
+    haystack = lowerCase(f->arg(0)->stringValue());
+    needle = lowerCase(f->arg(1)->stringValue());
+  }
+  else {
+    haystack = f->arg(0)->stringValue();
+    needle = f->arg(1)->stringValue();
+  }
   size_t start = 0;
   if (f->arg(2)->defined()) {
     start = f->arg(2)->intValue();
@@ -5918,6 +5927,20 @@ static void find_func(BuiltinFunctionContextPtr f)
     f->finish(new NumericValue((double)p));
   else
     f->finish(new AnnotatedNullValue("no such substring")); // not found
+}
+
+
+// uppercase(string)
+// lowercase(string)
+static const BuiltInArgDesc xcase_args[] = { { text|undefres } };
+static const size_t xcase_numargs = sizeof(xcase_args)/sizeof(BuiltInArgDesc);
+static void uppercase_func(BuiltinFunctionContextPtr f)
+{
+  f->finish(new StringValue(upperCase(f->arg(0)->stringValue())));
+}
+static void lowercase_func(BuiltinFunctionContextPtr f)
+{
+  f->finish(new StringValue(lowerCase(f->arg(0)->stringValue())));
 }
 
 
@@ -7255,6 +7278,8 @@ static const BuiltinMemberDescriptor standardFunctions[] = {
   { "strrep", executable|text, strrep_numargs, strrep_args, &strrep_func },
   { "substr", executable|text|null, substr_numargs, substr_args, &substr_func },
   { "find", executable|numeric|null, find_numargs, find_args, &find_func },
+  { "lowercase", executable|text, xcase_numargs, xcase_args, &lowercase_func },
+  { "uppercase", executable|text, xcase_numargs, xcase_args, &uppercase_func },
   { "shellquote", executable|text, shellquote_numargs, shellquote_args, &shellquote_func },
   { "format", executable|text, format_numargs, format_args, &format_func },
   { "formattime", executable|text, formattime_numargs, formattime_args, &formattime_func },
