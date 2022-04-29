@@ -32,7 +32,7 @@ Features
 --------
 
 - common base class implementing a reference counted memory management model via boost intrusive\_ptr (more efficient and easier to use than shared\_ptr).
-- Mainloop as central event dispatcher, supports timers, I/O based events, subthread events, subprocess events.
+- Mainloop as central event dispatcher, supports timers, I/O based events, subthread events, subprocess events (standalone or based on/cooperating with libev)
 - Application base class implementing command line parsing, option handling and usage message formatting.
 - logging with loglevels, efficiently avoiding disabled log levels to waste CPU time.
 - support for using unix file descriptors with the I/O based mainloop events.
