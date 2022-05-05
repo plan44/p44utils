@@ -6707,7 +6707,7 @@ static void delayuntil_func(BuiltinFunctionContextPtr f)
 
 
 
-// undeclare()    undeclare functions and handlers - only works in embeddedGlobs threads
+// undeclare()    undeclare functions and handlers - only works in ephemeralSource threads
 static void undeclare_func(BuiltinFunctionContextPtr f)
 {
   if ((f->evalFlags() & ephemeralSource)==0) {

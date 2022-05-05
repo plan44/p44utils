@@ -120,7 +120,7 @@ namespace p44 {
     ///   to the datapath.
     ///   Note that aPrefix is appended as-is, so must contain a path separator if it is meant as a subdirectory.
     ///   Also note that the prefix is always used (no "./" checking as in rsourcepath()).
-    /// @param aCreatePrefix if true, the subriectory consisting of datapath + prefix is created (only subdir, datapath itself must exist)
+    /// @param aCreatePrefix if true, the subdirectory consisting of datapath + prefix is created (only subdir, datapath itself must exist)
     /// @return if aDataFile is empty, result is the application's data directory (no separator at end)
     ///   Otherwise, it is the absolute path to the data file specified with aDataFile
     string dataPath(const string aDataFile = "", const string aPrefix = "", bool aCreatePrefix = false);
