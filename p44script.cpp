@@ -2954,9 +2954,9 @@ void SourceProcessor::s_member()
     resume();
     return;
   }
-  // Leaf value: do not error-check or validate at this level, might be lvalue
+  // Leaf value
   memberEventCheck(); // detect and possibly register event sources
-  popWithValidResult(false);
+  popWithValidResult(false); // do not error-check or validate at this level, might be lvalue
   return;
 }
 
@@ -4328,7 +4328,7 @@ void CompiledTrigger::triggerEvaluation(EvaluationFlags aEvalMode)
   FOCUSLOG("\n---------- Evaluating Trigger    : %s", mCursor.displaycode(130).c_str());
   mReEvaluationTicket.cancel();
   mNextEvaluation = Never; // reset
-  mOneShotEval = false; // no oneshot encountered yet. Evaluation will set it via getFrozenEventValue(), which is called for every leaf value (frozen or not)
+  mOneShotEval = false; // no oneshot encountered yet. Evaluation will set it via checkFrozenEventValue(), which is called for every leaf value (frozen or not)
   ExecutionContextPtr ctx = contextForCallingFrom(NULL, NULL);
   EvaluationFlags runFlags = ((aEvalMode&~runModeMask) ? aEvalMode : (mEvalFlags&~runModeMask)|aEvalMode)|keepvars; // always keep vars, use only runmode from aEvalMode if nothing else is set
   ctx->execute(ScriptObjPtr(this), runFlags, boost::bind(&CompiledTrigger::triggerDidEvaluate, this, runFlags, _1), NULL, ScriptObjPtr(), 30*Second);
@@ -4337,7 +4337,7 @@ void CompiledTrigger::triggerEvaluation(EvaluationFlags aEvalMode)
 
 void CompiledTrigger::triggerDidEvaluate(EvaluationFlags aEvalMode, ScriptObjPtr aResult)
 {
-  OLOG(aEvalMode&initial ? LOG_INFO : LOG_DEBUG, "evaluated trigger: %s in evalmode=0x%x\n- with result: %s%s", mCursor.displaycode(90).c_str(), aEvalMode, mOneShotEval ? "(ONESHOT) " : "", ScriptObj::describe(aResult).c_str());
+  OLOG(aEvalMode&initial ? LOG_INFO : LOG_DEBUG, "%s: evaluated: %s in evalmode=0x%x\n- with result: %s%s", getIdentifier().c_str(), mCursor.displaycode(90).c_str(), aEvalMode, mOneShotEval ? "(ONESHOT) " : "", ScriptObj::describe(aResult).c_str());
   bool doTrigger = false;
   Tristate newBoolState = aResult->defined() ? (aResult->boolValue() ? p44::yes : p44::no) : p44::undefined;
   if (mTriggerMode==onEvaluation) {
@@ -4362,23 +4362,23 @@ void CompiledTrigger::triggerDidEvaluate(EvaluationFlags aEvalMode, ScriptObjPtr
     invalidateState();
   }
   else {
-    // Not oneshot: update state
+    // Not oneshot: update state (note: the trigger for this state might only come later when mHoldOff is set!)
     mBoolState = newBoolState;
     // check holdoff
     if (mHoldOff>0 && (aEvalMode&initial)==0) { // holdoff is only active for non-initial runs
       MLMicroSeconds now = MainLoop::now();
       // we have a hold-off
       if (doTrigger) {
-        // trigger would fire now, but may not do so now -> (re)start hold-off period
+        // trigger would fire now, but may not yet do so -> (re)start hold-off period
         doTrigger = false; // can't trigger now
         mMetAt = now+mHoldOff;
-        OLOG(LOG_INFO, "triggering conditions met, but must await holdoff period of %.2f seconds", (double)mHoldOff/Second);
+        OLOG(LOG_INFO, "%s: conditions met, but must await holdoff period of %.2f seconds", getIdentifier().c_str(), (double)mHoldOff/Second);
         updateNextEval(mMetAt);
       }
       else if (mMetAt!=Never) {
         // not changed, but waiting for holdoff
         if (now>=mMetAt) {
-          OLOG(LOG_INFO, "trigger condition has been stable for holdoff period of %.2f seconds -> fire now", (double)mHoldOff/Second);
+          OLOG(LOG_INFO, "%s: condition has been stable for holdoff period of %.2f seconds -> fire now", getIdentifier().c_str(), (double)mHoldOff/Second);
           doTrigger = true;
           mMetAt = Never;
         }
@@ -4418,7 +4418,7 @@ void CompiledTrigger::triggerDidEvaluate(EvaluationFlags aEvalMode, ScriptObjPtr
   if (mNextEvaluation==Never && !hasSources()) {
     // Warn if trigger is unlikely to ever fire (note: still might make sense, e.g. as evaluator reset)
     if ((aEvalMode&initial)!=0) {
-      OLOG(LOG_WARNING, "probably trigger will not work as intended (no timers nor events): %s", mCursor.displaycode(70).c_str());
+      OLOG(LOG_WARNING, "%s: probably will not work as intended (no timers nor events): %s", getIdentifier().c_str(), mCursor.displaycode(70).c_str());
     }
     invalidateState();
   }
@@ -4431,7 +4431,7 @@ void CompiledTrigger::triggerDidEvaluate(EvaluationFlags aEvalMode, ScriptObjPtr
   // callback (always, even when initializing)
   if (doTrigger && mTriggerCB) {
     FOCUSLOG("\n---------- FIRING Trigger        : result = %s", ScriptObj::describe(aResult).c_str());
-    OLOG(LOG_INFO, "trigger fires with result = %s", ScriptObj::describe(aResult).c_str());
+    OLOG(LOG_INFO, "%s: fires with result = %s", getIdentifier().c_str(), ScriptObj::describe(aResult).c_str());
     mTriggerCB(aResult);
   }
 }
@@ -4860,8 +4860,8 @@ ScriptObjPtr ScriptSource::getExecutable()
       if (mDefaultFlags & anonymousfunction) {
         code = new CompiledCode("anonymous");
       }
-      else if (defaultFlags & (triggered|timed|initial)) {
-        code = new CompiledTrigger("trigger", mctx);
+      else if (mDefaultFlags & (triggered|timed|initial)) {
+        code = new CompiledTrigger(mOriginLabel ? mOriginLabel : "trigger", mctx);
       }
       else {
         code = new CompiledScript(mOriginLabel ? mOriginLabel : "script", mctx);
