@@ -2014,14 +2014,14 @@ SourcePos::SourcePos(const SourcePos &aCursor) :
 
 SourceCursor::SourceCursor(string aString, const char *aLabel) :
   source(new SourceContainer(aLabel ? aLabel : "hidden", NULL, aString)),
-  pos(source->source)
+  pos(source->mSource)
 {
 }
 
 
 SourceCursor::SourceCursor(SourceContainerPtr aContainer) :
   source(aContainer),
-  pos(aContainer->source)
+  pos(aContainer->mSource)
 {
 }
 
@@ -2030,7 +2030,7 @@ SourceCursor::SourceCursor(SourceContainerPtr aContainer, SourcePos aStart, Sour
   source(aContainer),
   pos(aStart)
 {
-  assert(pos.ptr>=source->source.c_str() && pos.eot-pos.ptr<source->source.size());
+  assert(pos.ptr>=source->mSource.c_str() && pos.eot-pos.ptr<source->mSource.size());
   if(aEnd.ptr>=pos.ptr && aEnd.ptr<=pos.eot) pos.eot = aEnd.ptr;
 }
 
@@ -2162,8 +2162,8 @@ string SourceCursor::displaycode(size_t aMaxLen)
 const char *SourceCursor::originLabel() const
 {
   if (!source) return "<none>";
-  if (!source->originLabel) return "<unlabeled>";
-  return source->originLabel;
+  if (!source->mOriginLabel) return "<unlabeled>";
+  return source->mOriginLabel;
 }
 
 
@@ -4725,20 +4725,20 @@ void ScriptCompiler::storeHandler()
 // MARK: - SourceContainer
 
 SourceContainer::SourceContainer(const char *aOriginLabel, P44LoggingObj* aLoggingContextP, const string aSource) :
-  originLabel(aOriginLabel),
-  loggingContextP(aLoggingContextP),
-  source(aSource),
+  mOriginLabel(aOriginLabel),
+  mLoggingContextP(aLoggingContextP),
+  mSource(aSource),
   mFloating(false)
 {
 }
 
 
 SourceContainer::SourceContainer(const SourceCursor &aCodeFrom, const SourcePos &aStartPos, const SourcePos &aEndPos) :
-  originLabel("copied"),
-  loggingContextP(aCodeFrom.source->loggingContextP),
+  mOriginLabel("copied"),
+  mLoggingContextP(aCodeFrom.source->mLoggingContextP),
   mFloating(true) // copied source is floating
 {
-  source.assign(aStartPos.ptr, aEndPos.ptr-aStartPos.ptr);
+  mSource.assign(aStartPos.ptr, aEndPos.ptr-aStartPos.ptr);
 }
 
 
@@ -4752,9 +4752,9 @@ SourceCursor SourceContainer::getCursor()
 // MARK: - ScriptSource
 
 ScriptSource::ScriptSource(EvaluationFlags aDefaultFlags, const char* aOriginLabel, P44LoggingObj* aLoggingContextP) :
-  defaultFlags(aDefaultFlags),
-  originLabel(aOriginLabel),
-  loggingContextP(aLoggingContextP)
+  mDefaultFlags(aDefaultFlags),
+  mOriginLabel(aOriginLabel),
+  mLoggingContextP(aLoggingContextP)
 {
 }
 
@@ -4766,62 +4766,62 @@ ScriptSource::~ScriptSource()
 
 void ScriptSource::setDomain(ScriptingDomainPtr aDomain)
 {
-  scriptingDomain = aDomain;
+  mScriptingDomain = aDomain;
 };
 
 
 ScriptingDomainPtr ScriptSource::domain()
 {
-  if (!scriptingDomain) {
+  if (!mScriptingDomain) {
     // none assigned so far, assign default
-    scriptingDomain = ScriptingDomainPtr(&StandardScriptingDomain::sharedDomain());
+    mScriptingDomain = ScriptingDomainPtr(&StandardScriptingDomain::sharedDomain());
   }
-  return scriptingDomain;
+  return mScriptingDomain;
 }
 
 
 void ScriptSource::setSharedMainContext(ScriptMainContextPtr aSharedMainContext)
 {
   // cached executable gets invalid when setting new context
-  if (sharedMainContext!=aSharedMainContext) {
-    if (cachedExecutable) {
-      cachedExecutable.reset(); // release cached executable (will release SourceCursor holding our source)
+  if (mSharedMainContext!=aSharedMainContext) {
+    if (mCachedExecutable) {
+      mCachedExecutable.reset(); // release cached executable (will release SourceCursor holding our source)
     }
-    sharedMainContext = aSharedMainContext; // use this particular context for executing scripts
+    mSharedMainContext = aSharedMainContext; // use this particular context for executing scripts
   }
 }
 
 
 void ScriptSource::uncompile(bool aNoAbort)
 {
-  if (sharedMainContext && !aNoAbort) {
-    sharedMainContext->abortThreadsRunningSource(sourceContainer);
+  if (mSharedMainContext && !aNoAbort) {
+    mSharedMainContext->abortThreadsRunningSource(mSourceContainer);
   }
-  if (cachedExecutable) {
-    cachedExecutable.reset(); // release cached executable (will release SourceCursor holding our source)
+  if (mCachedExecutable) {
+    mCachedExecutable.reset(); // release cached executable (will release SourceCursor holding our source)
   }
-  if (sourceContainer) {
-    if (scriptingDomain) scriptingDomain->releaseObjsFromSource(sourceContainer); // release all global objects from this source
-    if (sharedMainContext) sharedMainContext->releaseObjsFromSource(sourceContainer); // release all main context objects from this source
+  if (mSourceContainer) {
+    if (mScriptingDomain) mScriptingDomain->releaseObjsFromSource(mSourceContainer); // release all global objects from this source
+    if (mSharedMainContext) mSharedMainContext->releaseObjsFromSource(mSourceContainer); // release all main context objects from this source
   }
 }
 
 
 bool ScriptSource::setSource(const string aSource, EvaluationFlags aEvaluationFlags)
 {
-  if (aEvaluationFlags==inherit || defaultFlags==aEvaluationFlags) {
+  if (aEvaluationFlags==inherit || mDefaultFlags==aEvaluationFlags) {
     // same flags, check source
-    if (sourceContainer && sourceContainer->source == aSource) {
+    if (mSourceContainer && mSourceContainer->mSource == aSource) {
       return false; // no change at all -> NOP
     }
   }
   // changed, invalidate everything related to the previous code
-  uncompile(defaultFlags & ephemeralSource);
-  if (aEvaluationFlags!=inherit) defaultFlags = aEvaluationFlags;
-  sourceContainer.reset(); // release it myself
+  uncompile(mDefaultFlags & ephemeralSource);
+  if (aEvaluationFlags!=inherit) mDefaultFlags = aEvaluationFlags;
+  mSourceContainer.reset(); // release it myself
   // create new source container
   if (!aSource.empty()) {
-    sourceContainer = SourceContainerPtr(new SourceContainer(originLabel, loggingContextP, aSource));
+    mSourceContainer = SourceContainerPtr(new SourceContainer(mOriginLabel, mLoggingContextP, aSource));
   }
   return true; // source has changed
 }
@@ -4829,46 +4829,46 @@ bool ScriptSource::setSource(const string aSource, EvaluationFlags aEvaluationFl
 
 string ScriptSource::getSource() const
 {
-  return sourceContainer ? sourceContainer->source : "";
+  return mSourceContainer ? mSourceContainer->mSource : "";
 }
 
 
 bool ScriptSource::empty() const
 {
-  return sourceContainer ? sourceContainer->source.empty() : true;
+  return mSourceContainer ? mSourceContainer->mSource.empty() : true;
 }
 
 
 bool ScriptSource::refersTo(const SourceCursor& aCursor)
 {
-  return aCursor.refersTo(sourceContainer);
+  return aCursor.refersTo(mSourceContainer);
 }
 
 
 ScriptObjPtr ScriptSource::getExecutable()
 {
-  if (sourceContainer) {
-    if (!cachedExecutable) {
+  if (mSourceContainer) {
+    if (!mCachedExecutable) {
       // need to compile
       ScriptCompiler compiler(domain());
-      ScriptMainContextPtr mctx = sharedMainContext; // use shared context if one is set
+      ScriptMainContextPtr mctx = mSharedMainContext; // use shared context if one is set
       if (!mctx) {
         // default to independent execution in a non-object context (no instance pointer)
         mctx = domain()->newContext();
       }
       CompiledCodePtr code;
-      if (defaultFlags & anonymousfunction) {
+      if (mDefaultFlags & anonymousfunction) {
         code = new CompiledCode("anonymous");
       }
       else if (defaultFlags & (triggered|timed|initial)) {
         code = new CompiledTrigger("trigger", mctx);
       }
       else {
-        code = new CompiledScript(originLabel ? originLabel : "script", mctx);
+        code = new CompiledScript(mOriginLabel ? mOriginLabel : "script", mctx);
       }
-      cachedExecutable = compiler.compile(sourceContainer, code, defaultFlags, mctx);
+      mCachedExecutable = compiler.compile(mSourceContainer, code, mDefaultFlags, mctx);
     }
-    return cachedExecutable;
+    return mCachedExecutable;
   }
   return new ErrorValue(ScriptError::Internal, "no source -> no executable");
 }
@@ -4876,20 +4876,20 @@ ScriptObjPtr ScriptSource::getExecutable()
 
 ScriptObjPtr ScriptSource::syntaxcheck()
 {
-  EvaluationFlags checkFlags = (defaultFlags&~runModeMask)|scanning|checking;
+  EvaluationFlags checkFlags = (mDefaultFlags&~runModeMask)|scanning|checking;
   ScriptCompiler compiler(domain());
-  ScriptMainContextPtr mctx = sharedMainContext; // use shared context if one is set
+  ScriptMainContextPtr mctx = mSharedMainContext; // use shared context if one is set
   if (!mctx) {
     // default to independent execution in a non-object context (no instance pointer)
     mctx = domain()->newContext();
   }
-  return compiler.compile(sourceContainer, CompiledCodePtr(), checkFlags, mctx);
+  return compiler.compile(mSourceContainer, CompiledCodePtr(), checkFlags, mctx);
 }
 
 
 ScriptObjPtr ScriptSource::run(EvaluationFlags aRunFlags, EvaluationCB aEvaluationCB, ScriptObjPtr aThreadLocals, MLMicroSeconds aMaxRunTime)
 {
-  EvaluationFlags flags = defaultFlags; // default to compile flags
+  EvaluationFlags flags = mDefaultFlags; // default to compile flags
   if (aRunFlags & runModeMask) {
     // runmode set in run flags -> use it
     flags = (flags&~runModeMask) | (aRunFlags&runModeMask);
@@ -4977,7 +4977,7 @@ ScriptObjPtr TriggerSource::compileAndInit()
   if (!trigger) return  new ErrorValue(ScriptError::Internal, "is not a trigger");
   trigger->setTriggerMode(mTriggerMode, mHoldOffTime);
   trigger->setTriggerCB(mTriggerCB);
-  trigger->setTriggerEvalFlags(defaultFlags);
+  trigger->setTriggerEvalFlags(mDefaultFlags);
   return trigger->initializeTrigger();
 }
 

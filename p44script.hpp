@@ -1430,9 +1430,9 @@ namespace p44 { namespace P44Script {
     friend class CompiledCode;
     friend class ExecutionContext;
 
-    const char *originLabel; ///< a label used for logging and error reporting
-    P44LoggingObj* loggingContextP; ///< the logging context
-    string source; ///< the source code as written by the script author
+    const char *mOriginLabel; ///< a label used for logging and error reporting
+    P44LoggingObj* mLoggingContextP; ///< the logging context
+    string mSource; ///< the source code as written by the script author
     bool mFloating; ///< if set, the source is not linked but is a private copy
   public:
     /// create source container
@@ -1448,7 +1448,7 @@ namespace p44 { namespace P44Script {
     bool floating() { return mFloating; }
 
     /// return a logging context
-    P44LoggingObj *loggingContext() { return loggingContextP; };
+    P44LoggingObj *loggingContext() { return mLoggingContextP; };
 
   };
 
@@ -1457,13 +1457,13 @@ namespace p44 { namespace P44Script {
   class ScriptSource
   {
   protected:
-    ScriptingDomainPtr scriptingDomain; ///< the scripting domain
-    ScriptMainContextPtr sharedMainContext; ///< a shared context to always run this source in. If not set, each script gets a new main context
-    ScriptObjPtr cachedExecutable; ///< the compiled executable for the script's body.
-    EvaluationFlags defaultFlags; ///< default flags for how to compile (as expression, scriptbody, source), also used as default run flags
-    const char *originLabel; ///< a label used for logging and error reporting
-    P44LoggingObj* loggingContextP; ///< the logging context
-    SourceContainerPtr sourceContainer; ///< the container of the source
+    ScriptingDomainPtr mScriptingDomain; ///< the scripting domain
+    ScriptMainContextPtr mSharedMainContext; ///< a shared context to always run this source in. If not set, each script gets a new main context
+    ScriptObjPtr mCachedExecutable; ///< the compiled executable for the script's body.
+    EvaluationFlags mDefaultFlags; ///< default flags for how to compile (as expression, scriptbody, source), also used as default run flags
+    const char *mOriginLabel; ///< a label used for logging and error reporting
+    P44LoggingObj* mLoggingContextP; ///< the logging context
+    SourceContainerPtr mSourceContainer; ///< the container of the source
 
   public:
     /// create empty script source
@@ -1496,7 +1496,7 @@ namespace p44 { namespace P44Script {
     string getSource() const;
 
     /// @return the origin label string
-    const char *getOriginLabel() { return nonNullCStr(originLabel); }
+    const char *getOriginLabel() { return nonNullCStr(mOriginLabel); }
 
     /// check if a cursor refers to this source
     /// @param aCursor the cursor to check
@@ -2000,7 +2000,7 @@ namespace p44 { namespace P44Script {
     bool codeFromSameSourceAs(const CompiledCode &aCode) const; ///< return true if both compiled codes are from the same source position
     virtual bool originatesFrom(SourceContainerPtr aSource) const P44_OVERRIDE { return mCursor.refersTo(aSource); };
     virtual bool floating() const P44_OVERRIDE { return mCursor.source->floating(); }
-    virtual P44LoggingObj* loggingContext() const P44_OVERRIDE { return mCursor.source ? mCursor.source->loggingContextP : NULL; };
+    virtual P44LoggingObj* loggingContext() const P44_OVERRIDE { return mCursor.source ? mCursor.source->mLoggingContextP : NULL; };
 
     /// get subroutine context to call this object as a subroutine/function call from a given context
     /// @param aMainContext the context from where this function is now called (the same function can be called
