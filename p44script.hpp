@@ -256,7 +256,8 @@ namespace p44 { namespace P44Script {
     onGettingTrue = 1, ///< trigger is fired when evaluation result is getting true
     onChangingBool = 2, ///< trigger is fired when evaluation result changes boolean value, including getting invalid
     onChange = 3, ///< trigger is fired when evaluation result changes (operator== with last result does not return true)
-    onEvaluation = 4 ///< trigger is fired whenever it gets evaluated
+    onEvaluation = 4, ///< trigger is fired whenever it gets evaluated
+    onChangingBoolRisingHoldoffOnly = 5, ///< special mode which applies the holdoff delay only to the rising edge (
   } TriggerMode;
 
 
@@ -1595,6 +1596,11 @@ namespace p44 { namespace P44Script {
     /// @note will execute the callback when done
     bool evaluate(EvaluationFlags aRunMode = triggered);
 
+    /// @return last evaluated bool result (or undefined)
+    Tristate lastBoolResult();
+
+    /// @return last evaluated trigger expression result (or NULL if none)
+    ScriptObjPtr lastEvalResult();
 
     /// schedule a (re-)evaluation at the specified time latest
     /// @param aLatestEval new time when evaluation must happen latest
@@ -1602,6 +1608,11 @@ namespace p44 { namespace P44Script {
     ///   evaluation actually does happen AT that time. So the trigger callback might want to re-schedule when the
     ///   next evaluation happens too early.
     void nextEvaluationNotLaterThan(MLMicroSeconds aLatestEval);
+
+    /// get pointer to compiled trigger
+    /// @param aMustBeActive if set, trigger must be active, otherwise NULL is returned
+    /// @return trigger or NULL if not initialized or active (when aMustBeActive is set)
+    CompiledTriggerPtr getTrigger(bool aMustBeActive);
 
   };
 

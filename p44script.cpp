@@ -4347,12 +4347,22 @@ void CompiledTrigger::triggerDidEvaluate(EvaluationFlags aEvalMode, ScriptObjPtr
     doTrigger = (*aResult) != *currentResult();
   }
   else {
-    // bool modes
+    // bool modes (onGettingTrue, onChangingBool, onChangingBoolRisingHoldoffOnly)
     doTrigger = mBoolState!=newBoolState;
-    if (mTriggerMode==onGettingTrue && doTrigger) {
+    if (doTrigger) {
+      // potential state change
       if (newBoolState!=yes) {
-        doTrigger = false; // do not trigger on getting false
-        mMetAt = Never; // also reset holdoff
+        // falling edge of trigger state
+        if (mTriggerMode==onGettingTrue) {
+          // do not report falling edge in onGettingTrue mode
+          doTrigger = false;
+        }
+      }
+      if (mMetAt!=Never) {
+        // we are waiting for a holdoff before firing the trigger with the current mBoolState -> cancel and report nothing
+        OLOG(LOG_INFO, "%s: condition no longer met within holdoff period of %.2f seconds -> IGNORED", getIdentifier().c_str(), (double)mHoldOff/Second);
+        doTrigger = false; // nothing to trigger
+        mMetAt = Never; // holdoff time cancelled
       }
     }
   }
@@ -4366,13 +4376,14 @@ void CompiledTrigger::triggerDidEvaluate(EvaluationFlags aEvalMode, ScriptObjPtr
     mBoolState = newBoolState;
     // check holdoff
     if (mHoldOff>0 && (aEvalMode&initial)==0) { // holdoff is only active for non-initial runs
-      MLMicroSeconds now = MainLoop::now();
       // we have a hold-off
-      if (doTrigger) {
+      MLMicroSeconds now = MainLoop::now();
+      if (doTrigger & (mTriggerMode==onChangingBool || newBoolState)) {
         // trigger would fire now, but may not yet do so -> (re)start hold-off period
+        // Note: onChangingBool has holdoff for both edges, onChangingBoolRisingHoldoffOnly only for rising edge
         doTrigger = false; // can't trigger now
         mMetAt = now+mHoldOff;
-        OLOG(LOG_INFO, "%s: conditions met, but must await holdoff period of %.2f seconds", getIdentifier().c_str(), (double)mHoldOff/Second);
+        OLOG(LOG_INFO, "%s: condition became %s, but must await holdoff period of %.2f seconds", getIdentifier().c_str(), newBoolState ? "true" : "false", (double)mHoldOff/Second);
         updateNextEval(mMetAt);
       }
       else if (mMetAt!=Never) {
@@ -4440,7 +4451,7 @@ void CompiledTrigger::triggerDidEvaluate(EvaluationFlags aEvalMode, ScriptObjPtr
 void CompiledTrigger::scheduleNextEval()
 {
   if (mNextEvaluation!=Never) {
-    OLOG(LOG_INFO, "Trigger re-evaluation scheduled for %s: '%s'", MainLoop::string_mltime(mNextEvaluation, 3).c_str(), mCursor.displaycode(70).c_str());
+    OLOG(LOG_INFO, "trigger re-evaluation scheduled for %s: '%s'", MainLoop::string_mltime(mNextEvaluation, 3).c_str(), mCursor.displaycode(70).c_str());
     mReEvaluationTicket.executeOnceAt(
       boost::bind(&CompiledTrigger::triggerEvaluation, this, (EvaluationFlags)timed),
       mNextEvaluation
@@ -4991,9 +5002,17 @@ void TriggerSource::invalidateState()
 }
 
 
-bool TriggerSource::evaluate(EvaluationFlags aRunMode)
+CompiledTriggerPtr TriggerSource::getTrigger(bool aMustBeActive)
 {
   CompiledTriggerPtr trigger = boost::dynamic_pointer_cast<CompiledTrigger>(getExecutable());
+  if (trigger && (!aMustBeActive || trigger->isActive())) return trigger;
+  return CompiledTriggerPtr();
+}
+
+
+bool TriggerSource::evaluate(EvaluationFlags aRunMode)
+{
+  CompiledTriggerPtr trigger = getTrigger(false);
   if (trigger) {
     if (!trigger->isActive()) {
       compileAndInit();
@@ -5004,6 +5023,22 @@ bool TriggerSource::evaluate(EvaluationFlags aRunMode)
     return true;
   }
   return false;
+}
+
+
+Tristate TriggerSource::lastBoolResult()
+{
+  CompiledTriggerPtr trigger = getTrigger(true);
+  if (trigger) return trigger->boolState();
+  return undefined;
+}
+
+
+ScriptObjPtr TriggerSource::lastEvalResult()
+{
+  CompiledTriggerPtr trigger = getTrigger(true);
+  if (trigger) return trigger->currentResult();
+  return ScriptObjPtr();
 }
 
 
