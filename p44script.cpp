@@ -4383,7 +4383,7 @@ void CompiledTrigger::triggerDidEvaluate(EvaluationFlags aEvalMode, ScriptObjPtr
         // Note: onChangingBool has holdoff for both edges, onChangingBoolRisingHoldoffOnly only for rising edge
         doTrigger = false; // can't trigger now
         mMetAt = now+mHoldOff;
-        OLOG(LOG_INFO, "%s: condition became %s, but must await holdoff period of %.2f seconds", getIdentifier().c_str(), newBoolState ? "true" : "false", (double)mHoldOff/Second);
+        OLOG(LOG_INFO, "%s: condition became %s, but must await holdoff period of %.2f seconds - wait until %s", getIdentifier().c_str(), newBoolState ? "true" : "false", (double)mHoldOff/Second, MainLoop::string_mltime(mMetAt, 3).c_str());
         updateNextEval(mMetAt);
       }
       else if (mMetAt!=Never) {
@@ -4451,7 +4451,7 @@ void CompiledTrigger::triggerDidEvaluate(EvaluationFlags aEvalMode, ScriptObjPtr
 void CompiledTrigger::scheduleNextEval()
 {
   if (mNextEvaluation!=Never) {
-    OLOG(LOG_INFO, "trigger re-evaluation scheduled for %s: '%s'", MainLoop::string_mltime(mNextEvaluation, 3).c_str(), mCursor.displaycode(70).c_str());
+    OLOG(LOG_DEBUG, "%s: re-evaluation scheduled for %s: '%s'", getIdentifier().c_str(), MainLoop::string_mltime(mNextEvaluation, 3).c_str(), mCursor.displaycode(70).c_str());
     mReEvaluationTicket.executeOnceAt(
       boost::bind(&CompiledTrigger::triggerEvaluation, this, (EvaluationFlags)timed),
       mNextEvaluation
