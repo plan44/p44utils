@@ -103,7 +103,7 @@ namespace p44 {
     /// @param aDoneCB called when the animation completes or is stopped with reporting enabled
     /// @note if animator was created with aSelfTiming==true, step() is called by an internal timer an MUST NOT be called directly!
     /// @return Infinite if there is no need to call step (animation has no steps or needs trigger first), otherwise mainloop time of when to call again
-    MLMicroSeconds animate(double aTo, MLMicroSeconds aDuration, AnimationDoneCB aDoneCB = NULL);
+    MLMicroSeconds animate(double aTo, MLMicroSeconds aDuration, AnimationDoneCB aDoneCB = NoOP);
 
     /// set stepping params
     /// @param aMinStepTime the minimum time between steps. If 0, ANIMATION_MIN_STEP_TIME is used

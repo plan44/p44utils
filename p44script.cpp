@@ -1923,7 +1923,7 @@ void BuiltinFunctionContext::execute(ScriptObjPtr aToExecute, EvaluationFlags aE
     aEvaluationCB(new ErrorValue(ScriptError::AsyncNotAllowed, "builtin function '%s' cannot be used in synchronous evaluation", func->descriptor->name));
   }
   else {
-    abortCB = NULL; // no abort callback so far, implementation must set one if it returns before finishing
+    abortCB = NoOP; // no abort callback so far, implementation must set one if it returns before finishing
     evaluationCB = aEvaluationCB;
     func->descriptor->implementation(this);
   }
@@ -1955,7 +1955,7 @@ bool BuiltinFunctionContext::abort(EvaluationFlags aAbortFlags, ScriptObjPtr aAb
 {
   if (func) {
     if (abortCB) abortCB(); // stop external things the function call has started
-    abortCB = NULL;
+    abortCB = NoOP;
     if (!aAbortResult) aAbortResult = new ErrorValue(ScriptError::Aborted, "builtin function '%s' aborted", func->descriptor->name);
     func = NULL;
     finish(aAbortResult);
@@ -1967,11 +1967,11 @@ bool BuiltinFunctionContext::abort(EvaluationFlags aAbortFlags, ScriptObjPtr aAb
 
 void BuiltinFunctionContext::finish(ScriptObjPtr aResult)
 {
-  abortCB = NULL; // finished
+  abortCB = NoOP; // finished
   func = NULL;
   if (evaluationCB) {
     EvaluationCB cb = evaluationCB;
-    evaluationCB = NULL;
+    evaluationCB = NoOP;
     cb(aResult);
   }
 }
@@ -2558,7 +2558,7 @@ void SourceProcessor::complete(ScriptObjPtr aFinalResult)
   mCurrentState = NULL; // dead
   if (mCompletedCB) {
     EvaluationCB cb = mCompletedCB;
-    mCompletedCB = NULL;
+    mCompletedCB = NoOP;
     cb(mResult);
   }
 }
@@ -4261,7 +4261,7 @@ CompiledTrigger::CompiledTrigger(const string aName, ScriptMainContextPtr aMainC
 void CompiledTrigger::deactivate()
 {
   // reset everything that could be part of a retain cycle
-  setTriggerCB(NULL);
+  setTriggerCB(NoOP);
   mReEvaluationTicket.cancel();
   mFrozenResults.clear();
   mCurrentResult.reset();
@@ -5347,7 +5347,7 @@ void ScriptCodeThread::newFunctionCallContext()
 
 void ScriptCodeThread::startBlockThreadAndStoreInIdentifier()
 {
-  ScriptCodeThreadPtr thread = mOwner->newThreadFrom(mCodeObj, mSrc, concurrently|block, NULL, NULL);
+  ScriptCodeThreadPtr thread = mOwner->newThreadFrom(mCodeObj, mSrc, concurrently|block, NoOP, NULL);
   if (thread) {
     if (!mIdentifier.empty()) {
       push(mCurrentState); // skipping==true is pushed (as we're already skipping the concurrent block in the main thread)
@@ -6617,13 +6617,13 @@ public:
   void finishWait(ScriptObjPtr aEvent)
   {
     f->finish(aEvent);
-    f->setAbortCallback(NULL);
+    f->setAbortCallback(NoOP);
     delete this;
   }
   void timeout()
   {
     f->finish(new AnnotatedNullValue("await timeout"));
-    f->setAbortCallback(NULL);
+    f->setAbortCallback(NoOP);
     delete this;
   }
 };

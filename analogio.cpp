@@ -434,7 +434,7 @@ ValueSetterCB AnalogColorOutput::getColorComponentSetter(const string aComponent
   else if (aComponent=="b") {
     return getRgbComponentSetter(mRGB[2], aCurrentValue);
   }
-  return NULL;
+  return NoOP;
 }
 
 

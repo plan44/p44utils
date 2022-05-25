@@ -1532,11 +1532,11 @@ namespace p44 { namespace P44Script {
     /// @param aEvaluationCB will be called with the result
     /// @param aThreadLocals optionally, the (structured) object that provides thread local members
     /// @param aMaxRunTime optionally, maximum time the thread may run before it is aborted by timeout
-    ScriptObjPtr run(EvaluationFlags aRunFlags, EvaluationCB aEvaluationCB = NULL, ScriptObjPtr aThreadLocals = ScriptObjPtr(), MLMicroSeconds aMaxRunTime = Infinite);
+    ScriptObjPtr run(EvaluationFlags aRunFlags, EvaluationCB aEvaluationCB = NoOP, ScriptObjPtr aThreadLocals = ScriptObjPtr(), MLMicroSeconds aMaxRunTime = Infinite);
 
     /// for single-line tests
     ScriptObjPtr test(EvaluationFlags aEvalFlags, const string aSource)
-      { setSource(aSource, aEvalFlags); return run(aEvalFlags|regular|synchronously, NULL, ScriptObjPtr(), Infinite); }
+      { setSource(aSource, aEvalFlags); return run(aEvalFlags|regular|synchronously, NoOP, ScriptObjPtr(), Infinite); }
 
   };
 

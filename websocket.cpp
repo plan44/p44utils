@@ -114,7 +114,7 @@ void WebSocketClient::cb_onopen()
   DBGLOG(LOG_NOTICE,"onopen");
   if (mOnOpenCloseCB) {
     StatusCB cb = mOnOpenCloseCB;
-    mOnOpenCloseCB = NULL;
+    mOnOpenCloseCB = NoOP;
     cb(ErrorPtr());
   }
 }
@@ -126,7 +126,7 @@ void WebSocketClient::cb_onclose()
   mUwscClient = NULL; // note: it frees itself on close, make sure we don't interact with it any more
   if (mOnOpenCloseCB) {
     StatusCB cb = mOnOpenCloseCB;
-    mOnOpenCloseCB = NULL;
+    mOnOpenCloseCB = NoOP;
     cb(ErrorPtr());
   }
 }
@@ -152,8 +152,8 @@ void WebSocketClient::cb_onerror(ErrorPtr aError)
 
 void WebSocketClient::clearCallbacks()
 {
-  mOnOpenCloseCB = NULL;
-  mOnMessageCB = NULL;
+  mOnOpenCloseCB = NoOP;
+  mOnMessageCB = NoOP;
 }
 
 
@@ -181,7 +181,7 @@ void WebSocketClient::connectTo(StatusCB aOnOpenCB, const string aUrl, MLMicroSe
   // report immediate failure
   if (aOnOpenCB) {
     StatusCB cb = mOnOpenCloseCB;
-    mOnOpenCloseCB = NULL;
+    mOnOpenCloseCB = NoOP;
     cb(err);
   }
 }
@@ -192,7 +192,7 @@ void WebSocketClient::close(StatusCB aOnCloseCB, int aWebSocketCloseCode, const 
   if (mOnOpenCloseCB) {
     // still in progress opening or closing, call back
     StatusCB cb = mOnOpenCloseCB;
-    mOnOpenCloseCB = NULL;
+    mOnOpenCloseCB = NoOP;
     cb(Error::err<WebSocketError>(UWSC_ERROR_CONNECT, "closing before finished opening"));
   }
   if (mUwscClient) {

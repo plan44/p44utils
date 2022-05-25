@@ -473,7 +473,7 @@ void RFID522::execResult(ErrorPtr aErr, uint16_t aResultBits, const string aResu
   FOCUSLOG("### execResult: resultBits=%d, result=%s, err=%s, callback=%s", aResultBits, binaryToHexString(aResult).c_str(), Error::text(aErr), execResultCB ? "YES" : "NO");
   if (execResultCB) {
     ExecResultCB cb = execResultCB;
-    execResultCB = NULL;
+    execResultCB = NoOP;
     cb(aErr, aResultBits, aResult);
   }
 }

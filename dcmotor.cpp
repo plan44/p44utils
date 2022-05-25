@@ -111,7 +111,7 @@ void DcMotorDriver::motorStatusUpdate(ErrorPtr aStopCause)
   if (mRampDoneCB) {
     // ramp done CB must be set for every ramp separately
     DCMotorStatusCB cb = mRampDoneCB;
-    mRampDoneCB = NULL;
+    mRampDoneCB = NoOP;
     cb(mCurrentPower, mCurrentDirection, mStopCause);
   }
   #if ENABLE_DCMOTOR_SCRIPT_FUNCS  && ENABLE_P44SCRIPT

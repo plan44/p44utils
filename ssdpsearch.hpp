@@ -104,7 +104,7 @@ namespace p44 {
 
     /// clear all callbacks
     /// @note this is important because handlers might cause retain cycles when they have smart ptr arguments
-    virtual void clearCallbacks() { searchResultHandler = NULL; inherited::clearCallbacks(); }
+    virtual void clearCallbacks() { searchResultHandler = NoOP; inherited::clearCallbacks(); }
 
   private:
     void gotData(ErrorPtr aError);

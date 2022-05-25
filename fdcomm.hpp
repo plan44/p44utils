@@ -142,7 +142,7 @@ namespace p44 {
 
     /// clear all callbacks
     /// @note this is important because handlers might cause retain cycles when they have smart ptr arguments
-    virtual void clearCallbacks() { receiveHandler = NULL; transmitHandler = NULL; }
+    virtual void clearCallbacks() { receiveHandler = NoOP; transmitHandler = NoOP; }
 
   protected:
     /// this is intended to be overridden in subclases, and is called when
@@ -176,7 +176,7 @@ namespace p44 {
 
     /// clear all callbacks
     /// @note this is important because handlers might cause retain cycles when they have smart ptr arguments
-    virtual void clearCallbacks() { endedCallback = NULL; inherited::clearCallbacks(); }
+    virtual void clearCallbacks() { endedCallback = NoOP; inherited::clearCallbacks(); }
 
   protected:
 

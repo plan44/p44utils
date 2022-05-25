@@ -687,7 +687,7 @@ void LEDChainArrangement::clear()
 void LEDChainArrangement::setRootView(P44ViewPtr aRootView)
 {
   if (mRootView) {
-    mRootView->setNeedUpdateCB(NULL, 0); // make sure previous rootview will not call back any more!
+    mRootView->setNeedUpdateCB(NoOP, 0); // make sure previous rootview will not call back any more!
   }
   mRootView = aRootView;
   mRootView->setDefaultLabel("rootview");

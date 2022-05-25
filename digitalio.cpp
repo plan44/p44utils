@@ -233,7 +233,7 @@ bool DigitalIo::setChangeDetection(MLMicroSeconds aDebounceTime, MLMicroSeconds 
 {
   if (aDebounceTime<0) {
     // disable
-    return mIoPin->setInputChangedHandler(NULL, mInverted, false, 0, 0);
+    return mIoPin->setInputChangedHandler(NoOP, mInverted, false, 0, 0);
   }
   else {
     // enable
@@ -360,7 +360,7 @@ void ButtonInput::setButtonHandler(ButtonHandlerCB aButtonHandler, bool aPressAn
   }
   else {
     // unregister
-    setInputChangedHandler(NULL, 0, 0);
+    setInputChangedHandler(NoOP, 0, 0);
     mActiveReportTicket.cancel();
   }
 }

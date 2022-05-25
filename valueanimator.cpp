@@ -106,7 +106,7 @@ void ValueAnimator::internalStop(bool aCallback, bool aCompleted)
     }
     if (aCallback && mDoneCB) {
       AnimationDoneCB cb = mDoneCB;
-      mDoneCB = NULL;
+      mDoneCB = NoOP;
       cb(mCurrentValue, aCompleted);
     }
   }

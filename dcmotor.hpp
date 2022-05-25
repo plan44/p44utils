@@ -167,7 +167,7 @@ namespace p44 {
     /// @param aRampDoneCB will be called at end of ramp
     /// @note aRampDoneCB callback will receive the current power and direction as active at the end of the ramp
     ///    (if the motor runs into a stop condition during ramp, power and direction will be 0)
-    void rampToPower(double aPower, int aDirection, double aRampTime = 0, double aRampExp = 0, DCMotorStatusCB aRampDoneCB = NULL);
+    void rampToPower(double aPower, int aDirection, double aRampTime = 0, double aRampExp = 0, DCMotorStatusCB aRampDoneCB = NoOP);
 
     /// stop immediately, no braking
     void stop();
@@ -189,7 +189,7 @@ namespace p44 {
     /// ramp motor from current power to another power
     /// @param aSteps list of sequence steps
     /// @param aSequenceDoneCB will be called at end of ramp
-    void runSequence(SequenceStepList aSteps, DCMotorStatusCB aSequenceDoneCB = NULL);
+    void runSequence(SequenceStepList aSteps, DCMotorStatusCB aSequenceDoneCB = NoOP);
 
     #if ENABLE_DCMOTOR_SCRIPT_FUNCS  && ENABLE_P44SCRIPT
     /// get a motor status object. This is also what is sent to event sinks

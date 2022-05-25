@@ -99,7 +99,7 @@ bool JsonWebClient::jsonRequest(const char *aURL, JsonWebClientCB aResponseCallb
     jsonstring = aJsonRequest->json_c_str();
   }
   LOG(LOG_DEBUG, "JsonWebClient: -> sending %s JSON request to %s:\n%s", aMethod, aURL, jsonstring.c_str());
-  return httpRequest(aURL, NULL, aMethod, jsonstring.c_str(), aContentType,  -1, aSaveHeaders);
+  return httpRequest(aURL, NoOP, aMethod, jsonstring.c_str(), aContentType,  -1, aSaveHeaders);
 }
 
 
@@ -109,7 +109,7 @@ bool JsonWebClient::jsonReturningRequest(const char *aURL, JsonWebClientCB aResp
   // set callback
   jsonResponseCallback = aResponseCallback;
   LOG(LOG_DEBUG, "JsonWebClient: -> sending %s raw data request to %s:\n%s", aMethod, aURL, aPostData.c_str());
-  return httpRequest(aURL, NULL, aMethod, aPostData.c_str(), aContentType,  -1, aSaveHeaders);
+  return httpRequest(aURL, NoOP, aMethod, aPostData.c_str(), aContentType,  -1, aSaveHeaders);
 }
 
 

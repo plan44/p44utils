@@ -372,7 +372,7 @@ void FdStringCollector::dataExceptionHandler(int aFd, int aPollFlags)
     // - linux socket was closed server side and does not return POLLHUP, but POLLIN with no data
     // - error (POLLERR)
     // end polling for data
-    setReceiveHandler(NULL);
+    setReceiveHandler(NoOP);
     // if ending first time, call back
     if (!ended && endedCallback) {
       endedCallback(ErrorPtr());
@@ -392,7 +392,7 @@ void FdStringCollector::collectToEnd(StatusCB aEndedCallback)
     // if already ended when called, end right away
     if (endedCallback) {
       endedCallback(ErrorPtr());
-      endedCallback = NULL;
+      endedCallback = NoOP;
     }
   }
 }

@@ -30,7 +30,7 @@ using namespace p44;
 p44::Logger globalLogger;
 
 Logger::Logger() :
-  loggerCB(NULL),
+  loggerCB(NoOP),
   loggerContextPtr(NULL),
   logFILE(NULL)
 {

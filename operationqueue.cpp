@@ -32,7 +32,7 @@ using namespace p44;
 
 
 Operation::Operation() :
-  completionCB(NULL),
+  completionCB(NoOP),
   initiated(false),
   aborted(false),
   timeout(0), // no timeout
@@ -55,7 +55,7 @@ Operation::~Operation()
 void Operation::reset()
 {
   // release callback
-  completionCB = NULL;
+  completionCB = NoOP;
   // release chained object
   if (chainedOp) {
     chainedOp->reset(); // reset contents, break ownership loops held trough callbacks
@@ -163,7 +163,7 @@ OperationPtr Operation::finalize()
   // callback (only if not chaining)
   if (completionCB) {
     StatusCB cb = completionCB;
-    completionCB = NULL; // call once only (or never when chaining)
+    completionCB = NoOP; // call once only (or never when chaining)
     if (!chainedOp) {
       // no error and not chained (yet, callback might still set chained op) - callback now
       cb(ErrorPtr());
@@ -182,7 +182,7 @@ void Operation::abortOperation(ErrorPtr aError)
     aborted = true;
     if (completionCB) {
       StatusCB cb = completionCB;
-      completionCB = NULL; // call once only
+      completionCB = NoOP; // call once only
       if (aError) cb(aError); // prevent callback if no error is given
     }
   }

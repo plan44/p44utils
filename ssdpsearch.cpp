@@ -102,7 +102,7 @@ void SsdpSearch::socketStatusHandler(ErrorPtr aError)
   if (Error::isOK(aError)) {
     FOCUSLOG("### sending UDP M-SEARCH");
     // unregister socket status handler (or we'll get called when connection closes)
-    setConnectionStatusHandler(NULL);
+    setConnectionStatusHandler(NoOP);
     // send search request
     string ssdpSearch = string_format(
       "M-SEARCH * HTTP/1.1\r\n"

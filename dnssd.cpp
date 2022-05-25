@@ -675,7 +675,7 @@ void DnsSdServiceGroup::entry_group_callback(AvahiService *aService, AvahiEntryG
   }
   if (mAdvertisingStatusCB) {
     StatusCB cb = mAdvertisingStatusCB;
-    mAdvertisingStatusCB = NULL;
+    mAdvertisingStatusCB = NoOP;
     cb(err);
   }
 }

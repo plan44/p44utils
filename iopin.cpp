@@ -43,7 +43,7 @@ IOPin::~IOPin()
 
 void IOPin::clearChangeHandling()
 {
-  inputChangedCB = NULL;
+  inputChangedCB = NoOP;
   pollInterval = Never;
   pollTicket.cancel();
   debounceTicket.cancel();

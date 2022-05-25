@@ -2414,7 +2414,7 @@ ModbusSlaveObj::ModbusSlaveObj(ModbusSlavePtr aModbus) :
 
 void ModbusSlaveObj::deactivate()
 {
-  mModbus->setValueAccessHandler(NULL);
+  mModbus->setValueAccessHandler(NoOP);
   mModbus->close();
 }
 
@@ -2422,7 +2422,7 @@ void ModbusSlaveObj::deactivate()
 
 ModbusSlaveObj::~ModbusSlaveObj()
 {
-  mModbus->setValueAccessHandler(NULL);
+  mModbus->setValueAccessHandler(NoOP);
 }
 
 

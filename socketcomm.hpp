@@ -238,7 +238,7 @@ namespace p44 {
 
     /// clear all callbacks
     /// @note this is important because handlers might cause retain cycles when they have smart ptr arguments
-    virtual void clearCallbacks() { mConnectionStatusHandler = NULL; mServerConnectionHandler = NULL; inherited::clearCallbacks(); }
+    virtual void clearCallbacks() { mConnectionStatusHandler = NoOP; mServerConnectionHandler = NoOP; inherited::clearCallbacks(); }
 
     /// make sure handlers are cleared as soon as connection closes
     /// @note this is for connections that only live by themselves and should deallocate when they close. As handlers might hold

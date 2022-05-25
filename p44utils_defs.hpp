@@ -43,6 +43,10 @@ namespace p44 {
   const MLMicroSeconds Day = 24*Hour;
   /// @}
 
+  /// Special Constant to use for empty boost::function arguments
+  /// @note use this, not NULL, because NULL is nullptr in more recent C++ environments,
+  ///    which is incompatible with boost::function constructors. A plain 0 is compatible.
+  #define NoOP 0
 
   /// tristate type
   typedef enum {

@@ -45,14 +45,14 @@ JsonComm::~JsonComm()
 
 void JsonComm::setMessageHandler(JSonMessageCB aJsonMessageHandler)
 {
-  rawMessageHandler = NULL;
+  rawMessageHandler = NoOP;
   jsonMessageHandler = aJsonMessageHandler;
 }
 
 
 void JsonComm::setRawMessageHandler(TextLineCB aRawMessageHandler)
 {
-  jsonMessageHandler = NULL;
+  jsonMessageHandler = NoOP;
   rawMessageHandler = aRawMessageHandler;
 }
 
@@ -192,7 +192,7 @@ ErrorPtr JsonComm::sendRaw(string &aRawBytes)
 			else {
 				// all sent
 				// - disable transmit handler
-        setTransmitHandler(NULL);
+        setTransmitHandler(NoOP);
 			}
     }
   }
@@ -225,7 +225,7 @@ void JsonComm::canSendData(ErrorPtr aError)
         // all sent
         transmitBuffer.erase();
 				// - disable transmit handler
-        setTransmitHandler(NULL);
+        setTransmitHandler(NoOP);
       }
       else {
         // partially sent, remove sent bytes
