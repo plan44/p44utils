@@ -64,6 +64,7 @@ namespace p44 {
     MLTicket mAutoPollTicket;
     WindowEvaluatorPtr mWindowEvaluator;
     bool mUpdating;
+    SimpleCB mPollCB;
 
   public:
     /// Create general purpose analog I/O, such as PWM or D/A output, or A/D input
@@ -130,8 +131,9 @@ namespace p44 {
     /// setup automatic polling
     /// @param aPollInterval if set to <=0, polling will stop
     /// @param aTolerance timing tolerance
-    /// @note every poll cycle generates an event in the EventSource
-    void setAutopoll(MLMicroSeconds aPollInterval, MLMicroSeconds aTolerance = 0);
+    /// @param aPollCB will be called after polling new value and processing it
+    /// @note every poll cycle generates an event in the EventSource and invokes the callback
+    void setAutopoll(MLMicroSeconds aPollInterval, MLMicroSeconds aTolerance = 0, SimpleCB aPollCB = NoOP);
 
     /// setup value filtering
     /// @param aEvalType the type of filtering to perform

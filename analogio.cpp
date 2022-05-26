@@ -182,6 +182,9 @@ double AnalogIo::value()
       sendEvent(getValueObj());
     }
     #endif
+    if (mPollCB) {
+      mPollCB();
+    }
     mUpdating = false;
   }
   return mLastValue;
@@ -223,8 +226,9 @@ void AnalogIo::setFilter(WinEvalMode aEvalType, MLMicroSeconds aWindowTime, MLMi
 }
 
 
-void AnalogIo::setAutopoll(MLMicroSeconds aPollInterval, MLMicroSeconds aTolerance)
+void AnalogIo::setAutopoll(MLMicroSeconds aPollInterval, MLMicroSeconds aTolerance, SimpleCB aPollCB)
 {
+  mPollCB = aPollCB;
   mAutoPollTicket.cancel();
   if (aPollInterval<=0) return; // disable polling
   mAutoPollTicket.executeOnce(boost::bind(&AnalogIo::pollhandler, this, aPollInterval, aTolerance, _1));

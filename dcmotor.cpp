@@ -65,22 +65,33 @@ void DcMotorDriver::setEndSwitches(DigitalIoPtr aPositiveEnd, DigitalIoPtr aNega
   mPositiveEndInput = aPositiveEnd;
   mNegativeEndInput = aNegativeEnd;
   if (mPositiveEndInput) {
+    #if ENABLE_DCMOTOR_SCRIPT_FUNCS  && ENABLE_P44SCRIPT
     mPositiveEndInput->setChangeDetection(aDebounceTime, aPollInterval);
     mPositiveEndInput->registerForEvents(mEndSwitchHandler);
+    #else
+    mPositiveEndInput->setInputChangedHandler(boost::bind(&DcMotorDriver::endSwitch, this, true, _1), aDebounceTime, aPollInterval);
+    #endif
   }
   if (mNegativeEndInput) {
+    #if ENABLE_DCMOTOR_SCRIPT_FUNCS  && ENABLE_P44SCRIPT
     mNegativeEndInput->setChangeDetection(aDebounceTime, aPollInterval);
     mNegativeEndInput->registerForEvents(mEndSwitchHandler);
+    #else
+    mNegativeEndInput->setInputChangedHandler(boost::bind(&DcMotorDriver::endSwitch, this, false, _1), aDebounceTime, aPollInterval);
+    #endif
   }
+  #if ENABLE_DCMOTOR_SCRIPT_FUNCS  && ENABLE_P44SCRIPT
   mEndSwitchHandler.setHandler(boost::bind(&DcMotorDriver::endSwitchEvent, this, _1, _2));
+  #endif
 }
 
 
+#if ENABLE_DCMOTOR_SCRIPT_FUNCS  && ENABLE_P44SCRIPT
 void DcMotorDriver::endSwitchEvent(P44Script::ScriptObjPtr aEvent, P44Script::EventSource &aSource)
 {
   endSwitch(&aSource == static_cast<EventSource*>(mPositiveEndInput.get()), aEvent->boolValue());
 }
-
+#endif
 
 void DcMotorDriver::endSwitch(bool aPositiveEnd, bool aNewState)
 {
@@ -131,10 +142,14 @@ P44Script::ScriptObjPtr DcMotorDriver::getStatusObj()
 void DcMotorDriver::setCurrentSensor(AnalogIoPtr aCurrentSensor, MLMicroSeconds aSampleInterval)
 {
   // - current sensor
+  #if ENABLE_DCMOTOR_SCRIPT_FUNCS  && ENABLE_P44SCRIPT
   if (mCurrentSensor) mCurrentSensor->unregisterFromEvents(mCurrentHandler); // make sure previous sensor no longer sends events
+  #endif
   mCurrentSensor = aCurrentSensor;
   mSampleInterval = aSampleInterval;
+  #if ENABLE_DCMOTOR_SCRIPT_FUNCS  && ENABLE_P44SCRIPT
   if (mCurrentSensor) mCurrentSensor->registerForEvents(mCurrentHandler); // we want to see events of the new sensor
+  #endif
 }
 
 
@@ -203,8 +218,12 @@ void DcMotorDriver::setPower(double aPower, int aDirection)
     // start current sampling when starting to apply power
     if (mCurrentSensor && mStopCurrent>0 && aDirection!=0 && mCurrentPower==0) {
       mStartMonitoring = MainLoop::now()+mCurrentLimiterHoldoffTime;
+      #if ENABLE_DCMOTOR_SCRIPT_FUNCS  && ENABLE_P44SCRIPT
       mCurrentSensor->setAutopoll(mSampleInterval, mSampleInterval/4);
       mCurrentHandler.setHandler(boost::bind(&DcMotorDriver::checkCurrent, this));
+      #else
+      mCurrentSensor->setAutopoll(mSampleInterval, mSampleInterval/4, boost::bind(&DcMotorDriver::checkCurrent, this));
+      #endif
     }
     // now set desired direction and power
     setDirection(aDirection);
