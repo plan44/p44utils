@@ -101,6 +101,7 @@ namespace p44 {
     } AuthMode; ///< http auth mode
 
     HttpHeaderMapPtr responseHeaders; ///< the response headers when httpRequest is called with aSaveHeaders
+    int responseStatus; ///< set to the status code of the response (in all cases, success or not, 0 if none)
 
   private:
 

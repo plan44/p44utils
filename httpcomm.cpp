@@ -211,16 +211,17 @@ void HttpComm::requestThread(ChildThreadWrapper &aThread)
       int status = responseInfo->status_code;
       #else
       struct mg_request_info *responseInfo = mg_get_request_info(mgConn);
-      int status = 0;
-      sscanf(responseInfo->uri, "%d", &status);  // status code string is in uri
+      responseStatus = 0;
+      sscanf(responseInfo->uri, "%d", &responseStatus);  // status code string is in uri
       #endif
       // check for auth
-      if (status==401) {
+      if (responseStatus==401) {
         LOG(LOG_DEBUG, "401 - http auth?")
       }
-      if (status!=200) {
+      // accept 200..203 status codes as OK (these are: success, created, accepted, non-authorative(=proxy modified))
+      if (responseStatus<200 || responseStatus>203) {
         // Important: report status as WebError, not HttpCommError, because it is not technically an error on the HTTP transport level
-        requestError = WebError::webErr(status,"HTTP non-ok status");
+        requestError = WebError::webErr(responseStatus,"HTTP non-ok status");
       }
       // - get headers if requested
       if (responseHeaders) {
@@ -463,15 +464,33 @@ void HttpComm::appendFormValue(string &aDataString, const string &aFieldname, co
 
 using namespace P44Script;
 
-static void httpFuncDone(BuiltinFunctionContextPtr f, HttpCommPtr aHttpAction, const string &aResponse, ErrorPtr aError)
+static void httpFuncDone(BuiltinFunctionContextPtr f, HttpCommPtr aHttpAction, bool aWithMeta, const string &aResponse, ErrorPtr aError)
 {
   POLOG(f, LOG_INFO, "http action returns '%s', error = %s", aResponse.c_str(), Error::text(aError));
-  if (Error::isOK(aError)) {
-    f->finish(new StringValue(aResponse));
+  if (aWithMeta) {
+    if (Error::isOK(aError) || Error::isDomain(aError, WebError::domain())) {
+      JsonObjectPtr resp = JsonObject::newObj();
+      resp->add("status", JsonObject::newInt32(aHttpAction->responseStatus));
+      resp->add("data", JsonObject::newString(aResponse));
+      if (aHttpAction->responseHeaders) {
+        JsonObjectPtr hdrs = JsonObject::newObj();
+        for (HttpHeaderMap::iterator pos = aHttpAction->responseHeaders->begin(); pos!=aHttpAction->responseHeaders->end(); ++pos) {
+          hdrs->add(pos->first.c_str(), JsonObject::newString(pos->second));
+        }
+        resp->add("headers", hdrs);
+      }
+      f->finish(new JsonValue(resp));
+      return;
+    }
   }
   else {
-    f->finish(new ErrorValue(aError));
+    if (Error::isOK(aError)) {
+      f->finish(new StringValue(aResponse));
+      return;
+    }
   }
+  // report as script error
+  f->finish(new ErrorValue(aError));
 }
 
 static void httpFuncImpl(BuiltinFunctionContextPtr f, string aMethod)
@@ -483,6 +502,7 @@ static void httpFuncImpl(BuiltinFunctionContextPtr f, string aMethod)
   MLMicroSeconds timeout = Never;
   string contentType;
   HttpComm::AuthMode authMode = HttpComm::digest_only;
+  bool withmeta = false;
   if (aMethod.empty()) {
     // httprequest({
     //   "url":"http...",
@@ -498,7 +518,8 @@ static void httpFuncImpl(BuiltinFunctionContextPtr f, string aMethod)
     //      "Content-Type":"...", // custom content type
     //      "header1":"value1",
     //      ...
-    //   }
+    //   },
+    //   "withmeta": bool
     // } [, data])
     params = f->arg(0)->jsonValue();
     // url must be present
@@ -584,6 +605,8 @@ static void httpFuncImpl(BuiltinFunctionContextPtr f, string aMethod)
         else httpAction->addRequestHeader(hn, hv->stringValue()); // other headers
       }
     }
+    // we might want to get all metadata (headers, status, etc.) as an object
+    if (params->get("withmeta", o)) withmeta = o->boolValue();
   }
   httpAction->setHttpAuthCredentials(user, password, authMode);
   if (timeout!=Never) httpAction->setTimeout(timeout);
@@ -591,10 +614,12 @@ static void httpFuncImpl(BuiltinFunctionContextPtr f, string aMethod)
   f->setAbortCallback(boost::bind(&HttpComm::cancelRequest, httpAction));
   if (!httpAction->httpRequest(
     url.c_str(),
-    boost::bind(&httpFuncDone, f, httpAction, _1, _2),
+    boost::bind(&httpFuncDone, f, httpAction, withmeta, _1, _2),
     aMethod.c_str(),
     data.c_str(),
-    contentType.empty() ? NULL : contentType.c_str()
+    contentType.empty() ? NULL : contentType.c_str(),
+    -1,
+    withmeta // save headers when we need all meta data
   )) {
     f->finish(new ErrorValue(TextError::err("could not issue http request")));
   }
