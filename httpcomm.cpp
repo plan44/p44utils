@@ -208,7 +208,7 @@ void HttpComm::requestThread(ChildThreadWrapper &aThread)
       // successfully initiated connection
       #if !USE_LIBMONGOOSE
       const struct mg_response_info *responseInfo = mg_get_response_info(mgConn);
-      int status = responseInfo->status_code;
+      responseStatus = responseInfo->status_code;
       #else
       struct mg_request_info *responseInfo = mg_get_request_info(mgConn);
       responseStatus = 0;
