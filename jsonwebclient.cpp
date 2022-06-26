@@ -105,7 +105,7 @@ bool JsonWebClient::jsonRequest(const char *aURL, JsonWebClientCB aResponseCallb
 
 bool JsonWebClient::jsonReturningRequest(const char *aURL, JsonWebClientCB aResponseCallback, const char *aMethod, const string &aPostData, const char* aContentType, bool aSaveHeaders)
 {
-  if (!aContentType) aContentType = "application/x-www-form-urlencoded";
+  if (!aContentType) aContentType = CONTENT_TYPE_FORMDATA;
   // set callback
   jsonResponseCallback = aResponseCallback;
   LOG(LOG_DEBUG, "JsonWebClient: -> sending %s raw data request to %s:\n%s", aMethod, aURL, aPostData.c_str());

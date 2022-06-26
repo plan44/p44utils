@@ -41,6 +41,7 @@
 
 #define CONTENT_TYPE_HTML "text/html; charset=UTF-8"
 #define CONTENT_TYPE_JSON "application/json; charset=UTF-8"
+#define CONTENT_TYPE_FORMDATA "application/x-www-form-urlencoded; charset=UTF-8"
 
 using namespace std;
 

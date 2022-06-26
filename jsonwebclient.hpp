@@ -71,7 +71,7 @@ namespace p44 {
     /// @param aResponseCallback will be called when request completes, returning response or error
     /// @param aMethod the HTTP method to use (defaults to "POST")
     /// @param aPostData the raw POST data to send (for POST or PUT requests)
-    /// @param aContentType the content type/charset or NULL to use the default (application/x-www-form-urlencoded)
+    /// @param aContentType the content type/charset or NULL to use the default (application/x-www-form-urlencoded; charset=UTF-8)
     /// @param aSaveHeaders if true, responseHeaders will be set to a string,string map containing the headers
     /// @return false if no request could be initiated (already busy with another request).
     ///   If false, aHttpCallback will not be called

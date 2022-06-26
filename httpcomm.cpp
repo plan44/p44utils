@@ -503,11 +503,14 @@ static void httpFuncImpl(BuiltinFunctionContextPtr f, string aMethod)
   string contentType;
   HttpComm::AuthMode authMode = HttpComm::digest_only;
   bool withmeta = false;
+  bool formdata = false;
+  JsonObjectPtr jdata;
   if (aMethod.empty()) {
     // httprequest({
     //   "url":"http...",
     //   "method":"POST",
     //   "data":...,
+    //   "formdata": bool,
     //   "timeout":20
     //   "user":xxx,
     //   "password":xxx,
@@ -533,15 +536,17 @@ static void httpFuncImpl(BuiltinFunctionContextPtr f, string aMethod)
     if (params->get("method", o)) aMethod = o->stringValue();
     // data can be in the request object or (to allow binary strings), as second parameter
     if (f->numArgs()>=2) {
-      if (f->arg(1)->hasType(json)) contentType = CONTENT_TYPE_JSON;
-      data = f->arg(1)->stringValue(); // could be a binary string
+      if (f->arg(1)->hasType(json)) jdata = f->arg(1)->jsonValue();
+      else data = f->arg(1)->stringValue(); // could be a binary string
     }
     else if (params->get("data", o)) {
-      if (o->isType(json_type_object) || o->isType(json_type_array)) contentType = CONTENT_TYPE_JSON;
-      data = o->stringValue();
+      if (o->isType(json_type_object) || o->isType(json_type_array)) jdata = o;
+      else data = o->stringValue();
     }
     // timeout is optional
     if (params->get("timeout", o)) timeout = o->doubleValue()*Second;
+    // flag to convert JSON data objects to key=value application/x-www-form-urlencoded style
+    if (params->get("formdata", o)) formdata = o->boolValue();
   }
   else {
     // xxxurl("<url>"[,timeout][,"<data>"])
@@ -556,9 +561,31 @@ static void httpFuncImpl(BuiltinFunctionContextPtr f, string aMethod)
     }
     if (aMethod!="GET") {
       if (f->numArgs()>ai) {
-        if (f->arg(ai)->hasType(json)) contentType = CONTENT_TYPE_JSON;
-        data = f->arg(ai)->stringValue();
+        if (f->arg(ai)->hasType(json)) {
+          jdata = f->arg(ai)->jsonValue();
+        }
+        else {
+          data = f->arg(ai)->stringValue();
+          contentType = CONTENT_TYPE_FORMDATA; // default for non-JSON PUT and POST
+        }
       }
+    }
+  }
+  // possibly convert JSON data
+  if (jdata) {
+    if (jdata->isType(json_type_object) && formdata) {
+      // convert JSON objects to formdata
+      jdata->resetKeyIteration();
+      string field;
+      while(jdata->nextKeyValue(field, o)) {
+        HttpComm::appendFormValue(data, field, o->stringValue());
+      }
+      contentType = CONTENT_TYPE_FORMDATA;
+    }
+    else {
+      // just stringified JSON
+      data = jdata->stringValue();
+      contentType = CONTENT_TYPE_JSON;
     }
   }
   // extract from url
