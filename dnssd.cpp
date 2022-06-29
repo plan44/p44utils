@@ -376,7 +376,7 @@ void DnsSdManager::restartServiceBecause(ErrorPtr aError)
     }
   }
   // restart
-  OLOG(LOG_NOTICE, "restarting because: %s", Error::text(aError));
+  OLOG(LOG_NOTICE, "restarting in %lld seconds because: %s", delay/Second, Error::text(aError));
   restartService(delay);
 }
 
