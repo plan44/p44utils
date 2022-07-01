@@ -5668,6 +5668,14 @@ static void describe_func(BuiltinFunctionContextPtr f)
 }
 
 
+// annotation(anything)
+static const BuiltInArgDesc annotation_args[] = { { any|error|null } };
+static const size_t annotation_numargs = sizeof(string_args)/sizeof(BuiltInArgDesc);
+static void annotation_func(BuiltinFunctionContextPtr f)
+{
+  f->finish(new StringValue(f->arg(0)->getAnnotation()));
+}
+
 
 // number(anything)
 static const BuiltInArgDesc number_args[] = { { any|error|null } };
@@ -7303,6 +7311,7 @@ static const BuiltinMemberDescriptor standardFunctions[] = {
   { "number", executable|numeric, number_numargs, number_args, &number_func },
   { "boolean", executable|numeric, boolean_numargs, boolean_args, &boolean_func },
   { "describe", executable|text, describe_numargs, describe_args, &describe_func },
+  { "annotation", executable|text, annotation_numargs, annotation_args, &annotation_func },
   { "lastarg", executable|any, lastarg_numargs, lastarg_args, &lastarg_func },
   #if SCRIPTING_JSON_SUPPORT
   { "json", executable|json, json_numargs, json_args, &json_func },
