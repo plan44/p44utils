@@ -592,7 +592,7 @@ ScriptObjPtr ErrorValue::trueOrError(ErrorPtr aError)
 {
   // return a ErrorValue if aError is set and not OK, a true value otherwise
   if (Error::isOK(aError)) {
-    return new NumericValue(true);
+    return new BoolValue(true);
   }
   else {
     return new ErrorValue(aError);
@@ -739,7 +739,7 @@ JsonObjectPtr StringValue::jsonValue() const
 ScriptObjPtr JsonRepresentedValue::calculationValue()
 {
   if (!jsonValue()) return new AnnotatedNullValue("json null");
-  if (jsonValue()->isType(json_type_boolean)) return new NumericValue(jsonValue()->boolValue());
+  if (jsonValue()->isType(json_type_boolean)) return new BoolValue(jsonValue()->boolValue());
   if (jsonValue()->isType(json_type_int)) return new NumericValue(jsonValue()->int64Value());
   if (jsonValue()->isType(json_type_double)) return new NumericValue(jsonValue()->doubleValue());
   if (jsonValue()->isType(json_type_string)) return new StringValue(jsonValue()->stringValue());
@@ -2842,12 +2842,12 @@ void SourceProcessor::s_simpleTerm()
         if (mSrc.c()!='(' && mSrc.c()!='.' && mSrc.c()!='[') {
           // - check them before doing an actual member lookup
           if (uequals(mIdentifier, "true") || uequals(mIdentifier, "yes")) {
-            mResult = new NumericValue(true);
+            mResult = new BoolValue(true);
             popWithResult(false);
             return;
           }
           else if (uequals(mIdentifier, "false") || uequals(mIdentifier, "no")) {
-            mResult = new NumericValue(false);
+            mResult = new BoolValue(false);
             popWithResult(false);
             return;
           }
@@ -3187,7 +3187,7 @@ void SourceProcessor::s_exprFirstTerm()
   // res now has the first term of an expression, which might need applying unary operations
   if (!mSkipping && mResult && mResult->defined()) {
     switch (mPendingOperation) {
-      case op_not : mResult = new NumericValue(!mResult->boolValue()); break;
+      case op_not : mResult = new BoolValue(!mResult->boolValue()); break;
       case op_subtract : mResult = new NumericValue(-mResult->doubleValue()); break;
       case op_add: // dummy, is NOP, allowed for clarification purposes
       default: break;
@@ -3304,10 +3304,10 @@ void SourceProcessor::s_exprRightSide()
     ScriptObjPtr left = mOlderResult->calculationValue();
     ScriptObjPtr right = mResult->calculationValue();
     if (mPendingOperation==op_equal || mPendingOperation==op_assignOrEq) {
-      mResult = new NumericValue(*left == *right);
+      mResult = new BoolValue(*left == *right);
     }
     else if (mPendingOperation==op_notequal) {
-      mResult = new NumericValue(*left != *right);
+      mResult = new BoolValue(*left != *right);
     }
     else if (left->defined() && right->defined()) {
       // both are values -> apply the operation between leftside and rightside
@@ -3327,12 +3327,12 @@ void SourceProcessor::s_exprRightSide()
         case op_add:        mResult = *left + *right; break;
         case op_subtract:   mResult = *left - *right; break;
         // boolean result
-        case op_less:       mResult = new NumericValue(*left <  *right); break;
-        case op_greater:    mResult = new NumericValue(*left >  *right); break;
-        case op_leq:        mResult = new NumericValue(*left <= *right); break;
-        case op_geq:        mResult = new NumericValue(*left >= *right); break;
-        case op_and:        mResult = new NumericValue(*left && *right); break;
-        case op_or:         mResult = new NumericValue(*left || *right); break;
+        case op_less:       mResult = new BoolValue(*left <  *right); break;
+        case op_greater:    mResult = new BoolValue(*left >  *right); break;
+        case op_leq:        mResult = new BoolValue(*left <= *right); break;
+        case op_geq:        mResult = new BoolValue(*left >= *right); break;
+        case op_and:        mResult = new BoolValue(*left && *right); break;
+        case op_or:         mResult = new BoolValue(*left || *right); break;
         default: break;
       }
     }
@@ -5511,7 +5511,7 @@ static const BuiltInArgDesc isvalid_args[] = { { any|error|null } };
 static const size_t isvalid_numargs = sizeof(isvalid_args)/sizeof(BuiltInArgDesc);
 static void isvalid_func(BuiltinFunctionContextPtr f)
 {
-  f->finish(new NumericValue(f->arg(0)->hasType(value)));
+  f->finish(new BoolValue(f->arg(0)->hasType(value)));
 }
 
 
@@ -5528,7 +5528,7 @@ static const BuiltInArgDesc isok_args[] = { { any|error|null } };
 static const size_t isok_numargs = sizeof(isok_args)/sizeof(BuiltInArgDesc);
 static void isok_func(BuiltinFunctionContextPtr f)
 {
-  f->finish(new NumericValue(!f->arg(0)->hasType(error)));
+  f->finish(new BoolValue(!f->arg(0)->hasType(error)));
 }
 
 
@@ -5677,6 +5677,16 @@ static void number_func(BuiltinFunctionContextPtr f)
   // Note: This is the only way to get the doubleValue() of a derived NumericValue which
   // signals "null" in its getTypeInfo().
   f->finish(new NumericValue(f->arg(0)->doubleValue())); // force convert to numeric
+}
+
+// boolean(anything)
+static const BuiltInArgDesc boolean_args[] = { { any|error|null } };
+static const size_t boolean_numargs = sizeof(boolean_args)/sizeof(BuiltInArgDesc);
+static void boolean_func(BuiltinFunctionContextPtr f)
+{
+  // Note: This is the only way to get the boolValue() of a derived NumericValue which
+  // signals "null" in its getTypeInfo().
+  f->finish(new BoolValue(f->arg(0)->boolValue())); // force convert to numeric boolean
 }
 
 
@@ -6506,7 +6516,7 @@ bool LockObj::leave(ScriptCodeThreadPtr aThread)
 
 void endLockWait(BuiltinFunctionContextPtr f, bool aEntered)
 {
-  f->finish(new NumericValue(aEntered));
+  f->finish(new BoolValue(aEntered));
 }
 
 // enter([timeout])    wait until we can enter or timeout expires. returns true if entered, false on timeout
@@ -6524,14 +6534,14 @@ static void enter_func(BuiltinFunctionContextPtr f)
     return;
   }
   // report right now
-  f->finish(new NumericValue(entered));
+  f->finish(new BoolValue(entered));
 }
 
 // leave()    leave (release) the lock for another thread to enter
 static void leave_func(BuiltinFunctionContextPtr f)
 {
   LockObj* lock = dynamic_cast<LockObj *>(f->thisObj().get());
-  f->finish(new NumericValue(lock->leave(f->thread())));
+  f->finish(new BoolValue(lock->leave(f->thread())));
 }
 
 
@@ -6581,7 +6591,7 @@ static const size_t signal_numargs = sizeof(signal_args)/sizeof(BuiltInArgDesc);
 static void send_func(BuiltinFunctionContextPtr f)
 {
   SignalObj* sig = dynamic_cast<SignalObj *>(f->thisObj().get());
-  sig->sendEvent(f->numArgs()<1 ? new NumericValue(true) : f->arg(0)); // send first arg as signal value or nothing
+  sig->sendEvent(f->numArgs()<1 ? new BoolValue(true) : f->arg(0)); // send first arg as signal value or nothing
   f->finish();
 }
 static const BuiltinMemberDescriptor answer_desc =
@@ -6854,7 +6864,7 @@ static void is_weekday_func(BuiltinFunctionContextPtr f)
       break;
     }
   }
-  ScriptObjPtr newRes = new NumericValue(isday);
+  ScriptObjPtr newRes = new BoolValue(isday);
   // freeze until next check: next day 0:00:00
   loctim.tm_mday++;
   loctim.tm_hour = 0;
@@ -6910,7 +6920,7 @@ static void timeCheckFunc(bool aIsTime, BuiltinFunctionContextPtr f)
     }
     if (trigger) trigger->newTimedFreeze(frozenP, new NumericValue(newSecs), freezeId, MainLoop::localTimeToMainLoopTime(loctim));
   }
-  f->finish(new NumericValue(res));
+  f->finish(new BoolValue(res));
 }
 
 
@@ -6936,7 +6946,7 @@ static void is_time_func(BuiltinFunctionContextPtr f)
 // initial()  returns true if this is a "initial" run of a trigger, meaning after startup or expression changes
 static void initial_func(BuiltinFunctionContextPtr f)
 {
-  f->finish(new NumericValue((f->evalFlags()&initial)!=0));
+  f->finish(new BoolValue((f->evalFlags()&initial)!=0));
 }
 
 // testlater(seconds, timedtest [, retrigger])
@@ -7036,7 +7046,7 @@ static void every_func(BuiltinFunctionContextPtr f)
     // also cause a immediate re-evaluation as every() is an instant that immediately goes away
     trigger->updateNextEval(MainLoop::now());
   }
-  f->finish(new NumericValue(triggered));
+  f->finish(new BoolValue(triggered));
 }
 
 
@@ -7057,7 +7067,7 @@ static void between_dates_func(BuiltinFunctionContextPtr f)
   else { loctim.tm_mday = smaller; loctim.tm_year += 1; } // check one day too early, to make sure no day is skipped in a leap year to non leap year transition
   CompiledTrigger* trigger = f->trigger();
   if (trigger) trigger->updateNextEval(loctim);
-  f->finish(new NumericValue((currentYday>=smaller && currentYday<=larger)!=lastBeforeFirst));
+  f->finish(new BoolValue((currentYday>=smaller && currentYday<=larger)!=lastBeforeFirst));
 }
 
 
@@ -7291,6 +7301,7 @@ static const BuiltinMemberDescriptor standardFunctions[] = {
   { "cyclic", executable|numeric|null, cyclic_numargs, cyclic_args, &cyclic_func },
   { "string", executable|text, string_numargs, string_args, &string_func },
   { "number", executable|numeric, number_numargs, number_args, &number_func },
+  { "boolean", executable|numeric, boolean_numargs, boolean_args, &boolean_func },
   { "describe", executable|text, describe_numargs, describe_args, &describe_func },
   { "lastarg", executable|any, lastarg_numargs, lastarg_args, &lastarg_func },
   #if SCRIPTING_JSON_SUPPORT

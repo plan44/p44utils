@@ -924,7 +924,7 @@ static void send_func(BuiltinFunctionContextPtr f)
     f->finish(new ErrorValue(err));
   }
   else {
-    f->finish(new NumericValue(res==datagram.length()));
+    f->finish(new BoolValue(res==datagram.length()));
   }
 }
 

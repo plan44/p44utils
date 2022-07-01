@@ -792,6 +792,21 @@ namespace p44 { namespace P44Script {
   };
 
 
+  /// BoolValue is a NumericValue that can only be initialized to 0 or 1 via ctor and
+  ///   when asked about its jsonValue(), actually returns a JSON bool value
+  class BoolValue : public NumericValue
+  {
+    typedef NumericValue inherited;
+  public:
+    BoolValue(bool aBool) : inherited(aBool) {};
+    virtual string getAnnotation() const P44_OVERRIDE { return "boolean"; };
+    // value getters
+    #if SCRIPTING_JSON_SUPPORT
+    virtual JsonObjectPtr jsonValue() const P44_OVERRIDE { return JsonObject::newBool(boolValue()); };
+    #endif
+  };
+
+
   class StringValue : public ScriptObj
   {
     typedef ScriptObj inherited;

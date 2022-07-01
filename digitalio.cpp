@@ -547,7 +547,7 @@ static void detectchanges_func(BuiltinFunctionContextPtr f)
     if (f->arg(0)->defined()) debounce = f->arg(0)->doubleValue()*Second;
     if (f->arg(1)->defined()) pollinterval = f->arg(0)->doubleValue()*Second;
     bool works = d->digitalIo()->setChangeDetection(debounce, pollinterval);
-    f->finish(new NumericValue(works));
+    f->finish(new BoolValue(works));
   }
 }
 

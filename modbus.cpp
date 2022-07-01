@@ -2294,7 +2294,7 @@ static void getbit_func(BuiltinFunctionContextPtr f)
 {
   ModbusSlaveObj* o = dynamic_cast<ModbusSlaveObj*>(f->thisObj().get());
   assert(o);
-  f->finish(new NumericValue(o->modbus()->getBit(f->arg(0)->intValue(), f->arg(1)->boolValue())));
+  f->finish(new BoolValue(o->modbus()->getBit(f->arg(0)->intValue(), f->arg(1)->boolValue())));
 }
 
 
@@ -2377,7 +2377,7 @@ static void setmodel_func(BuiltinFunctionContextPtr f)
 // master()
 static void s_ismaster_func(BuiltinFunctionContextPtr f)
 {
-  f->finish(new NumericValue(false));
+  f->finish(new BoolValue(false));
 }
 
 
@@ -2529,7 +2529,7 @@ static void readbit_func(BuiltinFunctionContextPtr f)
     f->finish(new ErrorValue(err->withPrefix("reading bit: ")));
     return;
   }
-  f->finish(new NumericValue(b));
+  f->finish(new BoolValue(b));
 }
 
 // readinfo()
@@ -2568,7 +2568,7 @@ static void findslaves_func(BuiltinFunctionContextPtr f)
 // master()
 static void m_ismaster_func(BuiltinFunctionContextPtr f)
 {
-  f->finish(new NumericValue(true));
+  f->finish(new BoolValue(true));
 }
 
 
