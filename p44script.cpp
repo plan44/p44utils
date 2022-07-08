@@ -4298,6 +4298,13 @@ ScriptObjPtr CompiledTrigger::initializeTrigger()
 }
 
 
+Tristate CompiledTrigger::boolState(bool aIgnoreHoldoff)
+{
+  if (aIgnoreHoldoff || mMetAt==Never) return mBoolState;
+  return p44::undefined;
+}
+
+
 void CompiledTrigger::invalidateState()
 {
   // reset completely unknown state
@@ -4350,14 +4357,16 @@ void CompiledTrigger::triggerDidEvaluate(EvaluationFlags aEvalMode, ScriptObjPtr
     // bool modes (onGettingTrue, onChangingBool, onChangingBoolRisingHoldoffOnly)
     doTrigger = mBoolState!=newBoolState;
     if (doTrigger) {
-      // potential state change
+      // bool state of trigger expression evaluation has changed
       if (newBoolState!=yes) {
-        // falling edge of trigger state
+        // trigger expression result has become false (or invalid)
         if (mTriggerMode==onGettingTrue) {
-          // do not report falling edge in onGettingTrue mode
+          // do NOT report trigger expression becoming non-true
           doTrigger = false;
         }
       }
+      // A change of the trigger expression boolean result always terminates a waiting holdoff,
+      // no matter if we are in onGettingTrue or onChangingBool(RisingHoldoffOnly) mode.
       if (mMetAt!=Never) {
         // we are waiting for a holdoff before firing the trigger with the current mBoolState -> cancel and report nothing
         OLOG(LOG_INFO, "%s: condition no longer met within holdoff period of %.2f seconds -> IGNORED", getIdentifier().c_str(), (double)mHoldOff/Second);
@@ -4387,18 +4396,19 @@ void CompiledTrigger::triggerDidEvaluate(EvaluationFlags aEvalMode, ScriptObjPtr
         updateNextEval(mMetAt);
       }
       else if (mMetAt!=Never) {
-        // not changed, but waiting for holdoff
+        // not changed now, but waiting for holdoff -> check if holdoff has expired
         if (now>=mMetAt) {
+          // holdoff expired, now we must trigger
           OLOG(LOG_INFO, "%s: condition has been stable for holdoff period of %.2f seconds -> fire now", getIdentifier().c_str(), (double)mHoldOff/Second);
           doTrigger = true;
           mMetAt = Never;
         }
         else {
-          // not yet, silently re-schedule
+          // not yet, silently re-schedule an evaluation not later than the end of the holdoff
           updateNextEval(mMetAt);
         }
       }
-    }
+    } // holdoff
   }
   mCurrentResult = aResult->assignmentValue();
   // take unfreeze time of frozen results into account for next evaluation
@@ -5026,11 +5036,11 @@ bool TriggerSource::evaluate(EvaluationFlags aRunMode)
 }
 
 
-Tristate TriggerSource::lastBoolResult()
+Tristate TriggerSource::currentBoolState()
 {
   CompiledTriggerPtr trigger = getTrigger(true);
-  if (trigger) return trigger->boolState();
-  return undefined;
+  if (trigger) return trigger->boolState(false); // undefined when trigger is in holdoff (settling) time
+  return undefined; // undefined when trigger is not yet compiled
 }
 
 

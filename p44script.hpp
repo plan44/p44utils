@@ -1611,8 +1611,8 @@ namespace p44 { namespace P44Script {
     /// @note will execute the callback when done
     bool evaluate(EvaluationFlags aRunMode = triggered);
 
-    /// @return last evaluated bool result (or undefined)
-    Tristate lastBoolResult();
+    /// @return current evaluated and settled boolean state (or undefined, e.g. during holdoff or not yet evaluated)
+    Tristate currentBoolState();
 
     /// @return last evaluated trigger expression result (or NULL if none)
     ScriptObjPtr lastEvalResult();
@@ -2139,7 +2139,10 @@ namespace p44 { namespace P44Script {
     ScriptObjPtr currentResult() { return mCurrentResult ? mCurrentResult : new AnnotatedNullValue("trigger never evaluated"); }
 
     /// the current boolean evaluation of the trigger
-    Tristate boolState() { return mBoolState; }
+    /// @param aIgnoreHoldoff if set, the state as evaluated (but possibly still waiting for holdoff) is retuned.
+    ///   Otherwise, when state settling (holdoff) is still running, the result is `undefined`
+    /// @return the current boolean state of the trigger
+    Tristate boolState(bool aIgnoreHoldoff = false);
 
     /// invalidate trigger state to unknown (boolean evaluation state and current result)
     void invalidateState();
