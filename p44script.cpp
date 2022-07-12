@@ -1152,6 +1152,20 @@ JsonObjectPtr StructuredLookupObject::jsonValue() const
   return obj;
 }
 
+
+JsonObjectPtr StructuredLookupObject::builtinsInfo()
+{
+  JsonObjectPtr hl = JsonObject::newObj();
+  ScriptObjPtr m;
+  for (LookupList::const_iterator pos = lookups.begin(); pos!=lookups.end(); pos++) {
+    MemberLookupPtr lookup = *pos;
+    lookup->addJsonValues(hl);
+  }
+  return hl;
+}
+
+
+
 #endif // SCRIPTING_JSON_SUPPORT
 
 
@@ -1176,9 +1190,8 @@ void PredefinedMemberLookup::registerMember(const string aName, ScriptObjPtr aMe
 
 void PredefinedMemberLookup::addJsonValues(JsonObjectPtr &aObj) const
 {
-  JsonObjectPtr obj = JsonObject::newObj();
   for(NamedVarMap::const_iterator pos = members.begin(); pos!=members.end(); ++pos) {
-    obj->add(pos->first.c_str(), pos->second->jsonValue());
+    aObj->add(pos->first.c_str(), pos->second->jsonValue());
   }
 }
 
@@ -1717,6 +1730,8 @@ JsonObjectPtr ScriptMainContext::handlersInfo()
 }
 
 
+
+
 void ScriptMainContext::clearVars()
 {
   HandlerList::iterator pos = handlers.begin();
@@ -1820,7 +1835,7 @@ BuiltInMemberLookup::BuiltInMemberLookup(const BuiltinMemberDescriptor* aMemberD
   // build name lookup map
   if (aMemberDescriptors) {
     while (aMemberDescriptors->name) {
-      members[aMemberDescriptors->name]=aMemberDescriptors;
+      mMembers[aMemberDescriptors->name]=aMemberDescriptors;
       aMemberDescriptors++;
     }
   }
@@ -1832,8 +1847,8 @@ ScriptObjPtr BuiltInMemberLookup::memberByNameFrom(ScriptObjPtr aThisObj, const 
   FOCUSLOGLOOKUP("builtin");
   // actual type requirement must match, scope requirements are irrelevant here
   ScriptObjPtr m;
-  MemberMap::const_iterator pos = members.find(aName);
-  if (pos!=members.end()) {
+  MemberMap::const_iterator pos = mMembers.find(aName);
+  if (pos!=mMembers.end()) {
     // we have a member by that name
     TypeInfo ty = pos->second->returnTypeInfo;
     if (ty & builtinmember) {
@@ -1858,11 +1873,18 @@ ScriptObjPtr BuiltInMemberLookup::memberByNameFrom(ScriptObjPtr aThisObj, const 
 
 void BuiltInMemberLookup::addJsonValues(JsonObjectPtr &aObj) const
 {
-  JsonObjectPtr obj = JsonObject::newObj();
-  for(MemberMap::const_iterator pos = members.begin(); pos!=members.end(); ++pos) {
+  for(MemberMap::const_iterator pos = mMembers.begin(); pos!=mMembers.end(); ++pos) {
     // FIXME: as long as we use JSON here, there's no way for now to add non-values like functions, so just return NULL
     //   Only once we have P44Value hierarchy with iterators, we can do better
-    obj->add(pos->first.c_str(), JsonObject::newNull());
+    const BuiltinMemberDescriptor* m = pos->second;
+    if (m->returnTypeInfo & executable) {
+      // function
+      aObj->add(pos->first.c_str(), JsonObject::newString(string_format("built-in function with %zu arguments", m->numArgs)));
+    }
+    else {
+      // member
+      aObj->add(pos->first.c_str(), JsonObject::newString("built-in object field"));
+    }
   }
 }
 
@@ -7264,6 +7286,18 @@ static void yearday_func(BuiltinFunctionContextPtr f)
 
 #if SCRIPTING_JSON_SUPPORT
 
+static void globalbuiltins_func(BuiltinFunctionContextPtr f)
+{
+  f->finish(new JsonValue(f->thread()->owner()->domain()->builtinsInfo()));
+}
+
+
+static void contextbuiltins_func(BuiltinFunctionContextPtr f)
+{
+  f->finish(new JsonValue(f->thread()->owner()->scriptmain()->builtinsInfo()));
+}
+
+
 static void globalhandlers_func(BuiltinFunctionContextPtr f)
 {
   f->finish(new JsonValue(f->thread()->owner()->domain()->handlersInfo()));
@@ -7389,6 +7423,8 @@ static const BuiltinMemberDescriptor standardFunctions[] = {
   { "localvars", executable|json, 0, NULL, &localvars_func },
   { "globalhandlers", executable|json, 0, NULL, &globalhandlers_func },
   { "contexthandlers", executable|json, 0, NULL, &contexthandlers_func },
+  { "globalbuiltins", executable|json, 0, NULL, &globalbuiltins_func },
+  { "contextbuiltins", executable|json, 0, NULL, &contextbuiltins_func },
   #endif
   #if P44SCRIPT_FULL_SUPPORT
   { "lock", executable|any, lock_numargs, lock_args, &lock_func },

@@ -973,6 +973,9 @@ namespace p44 { namespace P44Script {
     /// FIXME: this is a simplistic partial solution to get at least some introspection for debugging purposes.
     ///   Once we have P44Value hierarchy with iterators, this can be done properly
     virtual JsonObjectPtr jsonValue() const P44_OVERRIDE;
+
+    /// @return info about functions
+    JsonObjectPtr builtinsInfo();
     #endif
 
   };
@@ -2531,7 +2534,7 @@ namespace p44 { namespace P44Script {
   {
     typedef MemberLookup inherited;
     typedef std::map<const string, const BuiltinMemberDescriptor*, lessStrucmp> MemberMap;
-    MemberMap members;
+    MemberMap mMembers;
 
   public:
     /// create a builtin member lookup from descriptor table
