@@ -573,12 +573,18 @@ ErrorPtr DnsSdServiceGroup::addService(DnsSdServiceInfoPtr aService)
       else txtrecs[i] = string_format("%s=%s", pos->first.c_str(), pos->second.c_str()); // key=value
     }
     int avahiErr;
+    // limit service name in case it is too long (otherwise service cannot be installed)
+    string name = aService->name;
+    if (name.size()>=AVAHI_LABEL_MAX) {
+      const size_t hn = (AVAHI_LABEL_MAX-4)/2;
+      name = name.substr(0,hn)+"..."+name.substr(name.size()-hn,hn) ; // shorten in the middle, assuming user-specified name part there
+    }
     if ((avahiErr = avahi_add_service(
       mManager.mService,
       mEntryGroup,
       AVAHI_IF_UNSPEC, AVAHI_PROTO_UNSPEC, // all interfaces and protocols (as enabled at server level)
       (AvahiPublishFlags)0, // no flags
-      aService->name.c_str(),
+      name.c_str(),
       aService->type.c_str(),
       NULL, // no separate domain
       NULL, // no separate host
