@@ -361,6 +361,12 @@ SocketCommPtr SocketComm::returnClientConnection(SocketCommPtr aClientConnection
 }
 
 
+void SocketComm::eachClient(SocketCommCB aEachClientCB)
+{
+  for (SocketCommList::iterator pos = mClientConnections.begin(); pos!=mClientConnections.end(); ++pos) {
+    aEachClientCB(*pos, ErrorPtr());
+  }
+}
 
 
 // MARK: - connecting to a client

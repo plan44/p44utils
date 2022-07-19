@@ -249,6 +249,10 @@ namespace p44 {
     /// @return NULL if this is not a client connection, server listening socketComm otherwise
     SocketCommPtr getServerConnection() { return mServerConnection; }
 
+    /// iterate over clients
+    /// @param aEachClient is called once for every client
+    void eachClient(SocketCommCB aEachClientCB);
+
   private:
     void freeAddressInfo();
     ErrorPtr socketError(int aSocketFd);
