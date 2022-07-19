@@ -22,7 +22,7 @@
 #ifndef __p44utils__modbus__
 #define __p44utils__modbus__
 
-#include "p44utils_common.hpp"
+#include "p44utils_main.hpp"
 
 #ifndef ENABLE_MODBUS
   // We assume that including this file in a build usually means that modbus support is actually needed.

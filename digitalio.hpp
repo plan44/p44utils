@@ -22,7 +22,7 @@
 #ifndef __p44utils__digitalio__
 #define __p44utils__digitalio__
 
-#include "p44utils_common.hpp"
+#include "p44utils_main.hpp"
 
 #include "iopin.hpp"
 

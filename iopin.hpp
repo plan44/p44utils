@@ -22,7 +22,7 @@
 #ifndef __p44utils__iopin__
 #define __p44utils__iopin__
 
-#include "p44utils_common.hpp"
+#include "p44utils_main.hpp"
 
 #ifndef DISABLE_CONSOLEKEY
 #include "consolekey.hpp"

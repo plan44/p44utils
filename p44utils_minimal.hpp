@@ -19,6 +19,9 @@
 //  along with p44utils. If not, see <http://www.gnu.org/licenses/>.
 //
 
+/// This header file introduces no dependencies on code, just defines the
+/// bare minimum for using independent p44utils routines and types
+
 #ifndef __p44utils__minimal__
 #define __p44utils__minimal__
 
@@ -28,7 +31,6 @@
 #ifdef ESP_PLATFORM
   #include "sdkconfig.h"
 #endif
-
 
 #if __cplusplus >= 201103L
   // we have C++ 11
@@ -57,5 +59,9 @@
 #endif
 
 #include "p44utils_config.hpp"
+
+// some minimal defs
+#include <stddef.h>
+#include <stdint.h>
 
 #endif /* __p44utils__minimal__ */

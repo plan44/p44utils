@@ -23,7 +23,6 @@
 #define __p44utils__regexp__
 
 #include "p44utils_common.hpp"
-#include <string>
 
 extern "C" {
   #include "slre/slre.h"

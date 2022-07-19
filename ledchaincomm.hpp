@@ -22,7 +22,7 @@
 #ifndef __p44utils__ledchaincomm__
 #define __p44utils__ledchaincomm__
 
-#include "p44utils_common.hpp"
+#include "p44utils_main.hpp"
 #include "colorutils.hpp"
 
 #if ENABLE_P44LRGRAPHICS

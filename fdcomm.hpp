@@ -22,7 +22,7 @@
 #ifndef __p44utils__fdcomm__
 #define __p44utils__fdcomm__
 
-#include "p44utils_common.hpp"
+#include "p44utils_main.hpp"
 
 // unix I/O and network
 #include <sys/types.h>

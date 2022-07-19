@@ -22,7 +22,8 @@
 #ifndef __p44utils__fnv__
 #define __p44utils__fnv__
 
-#include "p44utils_common.hpp"
+#include "p44utils_minimal.hpp"
+#include <string>
 
 using namespace std;
 

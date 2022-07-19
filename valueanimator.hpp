@@ -22,7 +22,7 @@
 #ifndef __p44utils__valueanimator__
 #define __p44utils__valueanimator__
 
-#include "p44utils_common.hpp"
+#include "p44utils_main.hpp"
 
 #if ENABLE_P44SCRIPT && !defined(ENABLE_ANIMATOR_SCRIPT_FUNCS)
   #define ENABLE_ANIMATOR_SCRIPT_FUNCS 1

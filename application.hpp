@@ -22,7 +22,7 @@
 #ifndef __p44utils__application__
 #define __p44utils__application__
 
-#include "p44utils_common.hpp"
+#include "p44utils_main.hpp"
 #if ENABLE_JSON_APPLICATION
   #include "jsonobject.hpp"
 #endif

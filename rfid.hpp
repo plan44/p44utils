@@ -28,7 +28,7 @@
 #ifndef rfid_hpp
 #define rfid_hpp
 
-#include "p44utils_common.hpp"
+#include "p44utils_main.hpp"
 
 #ifndef ENABLE_RFID
   #define ENABLE_RFID 1

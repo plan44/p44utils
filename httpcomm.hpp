@@ -22,7 +22,7 @@
 #ifndef __p44utils__httpcomm__
 #define __p44utils__httpcomm__
 
-#include "p44utils_common.hpp"
+#include "p44utils_main.hpp"
 
 #if USE_LIBMONGOOSE
   #include "mongoose.h"

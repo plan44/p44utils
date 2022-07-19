@@ -22,7 +22,7 @@
 #ifndef __p44utils__dnssd__
 #define __p44utils__dnssd__
 
-#include "p44utils_common.hpp"
+#include "p44utils_main.hpp"
 
 // Avahi includes
 #if USE_AVAHI_CORE

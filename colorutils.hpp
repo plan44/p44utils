@@ -21,7 +21,6 @@
 
 #include "p44utils_minimal.hpp"
 
-#include <stdint.h>
 #include <string>
 
 #ifndef __p44utils__colorutils__

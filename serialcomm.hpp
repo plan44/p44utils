@@ -22,7 +22,7 @@
 #ifndef __p44utils__serialcomm__
 #define __p44utils__serialcomm__
 
-#include "p44utils_common.hpp"
+#include "p44utils_main.hpp"
 
 #include "fdcomm.hpp"
 

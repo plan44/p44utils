@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2014 plan44.ch / Lukas Zeller, Zurich, Switzerland
+//  Copyright (c) 2022 plan44.ch / Lukas Zeller, Zurich, Switzerland
 //
 //  Author: Lukas Zeller <luz@plan44.ch>
 //
@@ -19,28 +19,14 @@
 //  along with p44utils. If not, see <http://www.gnu.org/licenses/>.
 //
 
-#ifndef __p44utils__crc32__
-#define __p44utils__crc32__
+/// This header file introduces dependencies on p44utils "main" level
+/// classes, such as mainloop
 
-#include "p44utils_minimal.hpp"
+#ifndef __p44utils__main__
+#define __p44utils__main__
 
-using namespace std;
+#include "p44utils_common.hpp"
 
-namespace p44 {
+#include "mainloop.hpp"
 
-  class Crc32
-  {
-    uint32_t crc;
-  public:
-    Crc32();
-    void reset();
-    void addByte(uint8_t aByte);
-    void addBytes(size_t aNumBytes, const uint8_t *aBytesP);
-		void addCStr(const char *aCStr);
-    uint32_t getCRC() const;
-  };
-
-} // namespace p44
-
-
-#endif /* defined(__p44utils__crc32__) */
+#endif /* __p44utils__main__ */

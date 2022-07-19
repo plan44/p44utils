@@ -22,7 +22,7 @@
 #ifndef __p44utils__p44script__
 #define __p44utils__p44script__
 
-#include "p44utils_common.hpp"
+#include "p44utils_main.hpp"
 
 #if ENABLE_P44SCRIPT
 

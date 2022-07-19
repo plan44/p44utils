@@ -22,7 +22,7 @@
 #ifndef __p44wiperd__dcmotordriver__
 #define __p44wiperd__dcmotordriver__
 
-#include "p44utils_common.hpp"
+#include "p44utils_main.hpp"
 
 #if ENABLE_P44SCRIPT && !defined(ENABLE_DCMOTOR_SCRIPT_FUNCS)
   #define ENABLE_DCMOTOR_SCRIPT_FUNCS 1

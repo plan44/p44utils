@@ -22,7 +22,7 @@
 #ifndef __p44utils__timeutils__
 #define __p44utils__timeutils__
 
-#include "p44utils_common.hpp"
+#include "p44utils_minimal.hpp"
 
 #include <time.h>
 

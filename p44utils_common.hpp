@@ -19,6 +19,9 @@
 //  along with p44utils. If not, see <http://www.gnu.org/licenses/>.
 //
 
+/// This header file introduces dependencies on other p44utils classes, but no
+/// "main" program dependencies like mainloop
+
 #ifndef __p44utils__common__
 #define __p44utils__common__
 
@@ -58,7 +61,6 @@
 #include "utils.hpp"
 #include "error.hpp"
 #include "extutils.hpp"
-#include "mainloop.hpp"
 
 // build platform dependencies
 #if P44_BUILD_DIGI

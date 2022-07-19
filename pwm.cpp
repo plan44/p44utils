@@ -31,7 +31,6 @@
   #include <unistd.h>
 #endif
 #include "logger.hpp"
-#include "mainloop.hpp"
 
 using namespace p44;
 
