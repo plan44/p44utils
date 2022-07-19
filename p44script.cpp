@@ -6038,6 +6038,15 @@ static void shellquote_func(BuiltinFunctionContextPtr f)
 }
 
 
+// cquote(string)
+static const BuiltInArgDesc cquote_args[] = { { any } };
+static const size_t cquote_numargs = sizeof(cquote_args)/sizeof(BuiltInArgDesc);
+static void cquote_func(BuiltinFunctionContextPtr f)
+{
+  f->finish(new StringValue(cstringQuote(f->arg(0)->stringValue())));
+}
+
+
 // helper for log() and format()
 static ScriptObjPtr format_string(BuiltinFunctionContextPtr f, size_t aFmtArgIdx)
 {
@@ -7380,6 +7389,7 @@ static const BuiltinMemberDescriptor standardFunctions[] = {
   { "lowercase", executable|text, xcase_numargs, xcase_args, &lowercase_func },
   { "uppercase", executable|text, xcase_numargs, xcase_args, &uppercase_func },
   { "shellquote", executable|text, shellquote_numargs, shellquote_args, &shellquote_func },
+  { "cquote", executable|text, cquote_numargs, cquote_args, &cquote_func },
   { "format", executable|text, format_numargs, format_args, &format_func },
   { "formattime", executable|text, formattime_numargs, formattime_args, &formattime_func },
   { "throw", executable|any, throw_numargs, throw_args, &throw_func },
