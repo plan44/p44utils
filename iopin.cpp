@@ -425,7 +425,7 @@ void AnalogSimPinFd::setValue(double aValue)
   if (pinValue!=aValue) {
     pinValue = aValue;
     char buf[20];
-    sprintf(buf, "%f\n", pinValue);
+    snprintf(buf, 20, "%f\n", pinValue);
     lseek(fd, 0, SEEK_SET);
     write(fd, buf, strlen(buf));
   }
