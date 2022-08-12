@@ -333,6 +333,7 @@ namespace p44 {
     /// @note parseCommandLine() must be called before using this method
     /// @note integer option can be specified as decimal (NO leading zeroes!!), hex ('0x' prefix) or octal ('0' prefix)
     bool getIntOption(const char *aOptionName, int &aInteger);
+    bool getUIntOption(const char *aOptionName, unsigned int &aInteger);
 
     /// @param aOptionName the name of the option (longOptionName if exists, shortOptionChar if no longOptionName exists)
     /// @param aCString will be set to point to the option argument cstring, if any

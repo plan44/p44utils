@@ -758,6 +758,22 @@ bool CmdLineApp::getIntOption(const char *aOptionName, int &aInteger)
 }
 
 
+bool CmdLineApp::getUIntOption(const char *aOptionName, unsigned int &aInteger)
+{
+  const char *opt = getOption(aOptionName);
+  if (opt) {
+    char *e = NULL;
+    unsigned long i = strtoul(opt, &e, 0);
+    if (e && *e==0) {
+      aInteger = (unsigned int)i;
+      return true;
+    }
+  }
+  return false; // no such option
+}
+
+
+
 bool CmdLineApp::getStringOption(const char *aOptionName, const char *&aCString)
 {
   const char *opt = getOption(aOptionName);
