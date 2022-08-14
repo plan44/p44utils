@@ -130,12 +130,12 @@ void Application::signalOccurred(int aSignal, siginfo_t *aSiginfo)
 {
   if (aSignal==SIGUSR1) {
     // default for SIGUSR1 is showing mainloop statistics
-    LOG(LOG_NOTICE, "SIGUSR1 requests %s", mMainLoop.description().c_str());
+    OLOG(LOG_NOTICE, "SIGUSR1 requests %s", mMainLoop.description().c_str());
     mMainLoop.statistics_reset();
     return;
   }
   // default action for all other signals is terminating the program
-  LOG(LOG_ERR, "Terminating because pid %d sent signal %d", aSiginfo->si_pid, aSignal);
+  OLOG(LOG_ERR, "Terminating because pid %d sent signal %d", aSiginfo->si_pid, aSignal);
   mMainLoop.terminate(EXIT_FAILURE);
 }
 
@@ -169,7 +169,7 @@ int Application::run()
 	// run the mainloop
 	int exitCode = mMainLoop.run();
   // show the statistic
-  LOG(LOG_INFO, "Terminated: %s", mMainLoop.description().c_str());
+  OLOG(LOG_INFO, "Terminated: %s", mMainLoop.description().c_str());
   // clean up
   cleanup(exitCode);
   // done
@@ -198,7 +198,7 @@ void Application::terminateAppWith(ErrorPtr aError)
       if (*msg) fprintf(stderr, "Error: %s\n", msg);
     }
     else {
-      LOG(LOG_ERR, "Terminating because of error: %s", aError->text());
+      OLOG(LOG_ERR, "Terminating because of error: %s", aError->text());
     }
     mMainLoop.terminate(EXIT_FAILURE);
   }

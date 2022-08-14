@@ -52,9 +52,9 @@ namespace p44 {
 
   class MainLoop;
 
-  class Application : public P44Obj
+  class Application : public P44LoggingObj
   {
-    typedef P44Obj inherited;
+    typedef P44LoggingObj inherited;
 
     MainLoop &mMainLoop;
 
@@ -167,6 +167,9 @@ namespace p44 {
 
     /// @return version of this application
     virtual string version() const;
+
+    /// @return the prefix to be used for logging from this object
+    virtual string logContextPrefix() P44_OVERRIDE { return "Application"; }
 
   protected:
 
