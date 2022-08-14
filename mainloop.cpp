@@ -984,8 +984,8 @@ static inline int pollToEv(int aPollFlags)
 static inline int evToPoll(int aLibEvEvents)
 {
   int pollFlags = 0;
-  if (aLibEvEvents & EV_READ) pollFlags |= EV_READ;
-  if (aLibEvEvents & EV_WRITE) pollFlags |= EV_WRITE;
+  if (aLibEvEvents & EV_READ) pollFlags |= POLLIN;
+  if (aLibEvEvents & EV_WRITE) pollFlags |= POLLOUT;
   return pollFlags;
 }
 
