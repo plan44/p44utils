@@ -666,7 +666,7 @@ bool SocketComm::connectionMonitorHandler(int aFd, int aPollFlags)
       // connection ok
       mConnectionStatusHandler(this, ErrorPtr());
     }
-    // let FdComm base class operate open connection (will install handlers)
+    // let FdComm base class operate open connection (will replace existing connection monitor with data monitoring)
     setFd(aFd);
   }
   else {

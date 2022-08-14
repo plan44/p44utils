@@ -1044,8 +1044,7 @@ MainLoop::IOPollHandler::IOPollHandler()
   mIoWatcher.data = NULL; // not yet installed
 }
 
-
-MainLoop::IOPollHandler::~IOPollHandler()
+void MainLoop::IOPollHandler::deactivate()
 {
   if (mIoWatcher.data) {
     // only if data is set, the handler is actually installed and must remove the watcher from libev
@@ -1061,6 +1060,23 @@ MainLoop::IOPollHandler::~IOPollHandler()
     mIoWatcher.data = NULL; // disconnect to make sure
   }
 }
+
+MainLoop::IOPollHandler::~IOPollHandler()
+{
+  deactivate();
+}
+
+MainLoop::IOPollHandler& MainLoop::IOPollHandler::operator= (MainLoop::IOPollHandler& aReplacing)
+{
+  deactivate();
+  mIoWatcher = aReplacing.mIoWatcher;
+  mPollHandler = aReplacing.mPollHandler;
+  #ifndef __APPLE__
+  mEpolledFd = aReplacing.mEpolledFd;
+  #endif
+  return *this;
+}
+
 
 #endif // MAINLOOP_LIBEV_BASED
 
@@ -1095,7 +1111,8 @@ void MainLoop::registerPollHandler(int aFD, int aPollFlags, IOPollCB aPollEventH
       }
       #endif
     }
-    ioPollHandlers[aFD] = h; // copies h
+    // Note: just assigning to map 
+    ioPollHandlers [aFD] = h; // copies h
     ev_io* w = &(ioPollHandlers[aFD].mIoWatcher);
     w->data = this; // only now the watcher is considered active (and stopped when destructed)
     ev_io_set(w, aFD, pollToEv(aPollFlags));

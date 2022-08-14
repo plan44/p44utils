@@ -258,6 +258,9 @@ namespace p44 {
       #endif
       IOPollHandler();
       ~IOPollHandler();
+      IOPollHandler& operator= (IOPollHandler& aReplacing);
+    private:
+      void deactivate();
     };
     #else
     typedef struct {
