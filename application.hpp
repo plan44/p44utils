@@ -252,12 +252,12 @@ namespace p44 {
   {
     typedef Application inherited;
 
-    const CmdLineOptionDescriptor *optionDescriptors;
+    const CmdLineOptionDescriptor *mOptionDescriptors;
 
-    string invocationName;
-    string synopsis;
-    OptionsMap options;
-    ArgumentsVector arguments;
+    string mInvocationName;
+    string mSynopsis;
+    OptionsMap mOptions;
+    ArgumentsVector mArguments;
 
   public:
 

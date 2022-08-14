@@ -402,7 +402,7 @@ void Application::daemonize()
 /// constructor
 CmdLineApp::CmdLineApp(MainLoop &aMainLoop) :
   inherited(aMainLoop),
-  optionDescriptors(NULL)
+  mOptionDescriptors(NULL)
 {
 }
 
@@ -420,8 +420,8 @@ CmdLineApp *CmdLineApp::sharedCmdLineApp()
 
 void CmdLineApp::setCommandDescriptors(const char *aSynopsis, const CmdLineOptionDescriptor *aOptionDescriptors)
 {
-  optionDescriptors = aOptionDescriptors;
-  synopsis = aSynopsis ? aSynopsis : "Usage: %1$s";
+  mOptionDescriptors = aOptionDescriptors;
+  mSynopsis = aSynopsis ? aSynopsis : "Usage: %1$s";
 }
 
 
@@ -431,12 +431,12 @@ void CmdLineApp::setCommandDescriptors(const char *aSynopsis, const CmdLineOptio
 void CmdLineApp::showUsage()
 {
   // print synopsis
-  fprintf(stderr, synopsis.c_str(), invocationName.c_str());
+  fprintf(stderr, mSynopsis.c_str(), mInvocationName.c_str());
   // print options
   int numDocumentedOptions = 0;
   // - calculate indent
   ssize_t indent = 0;
-  const CmdLineOptionDescriptor *optionDescP = optionDescriptors;
+  const CmdLineOptionDescriptor *optionDescP = mOptionDescriptors;
   bool anyShortOpts = false;
   while (optionDescP && (optionDescP->longOptionName!=NULL || optionDescP->shortOptionChar!='\x00')) {
     const char *desc = optionDescP->optionDescription;
@@ -466,7 +466,7 @@ void CmdLineApp::showUsage()
   // - print options
   if (numDocumentedOptions>0) {
     fprintf(stderr, "Options:\n");
-    optionDescP = optionDescriptors;
+    optionDescP = mOptionDescriptors;
     while (optionDescP && (optionDescP->longOptionName!=NULL || optionDescP->shortOptionChar!='\x00')) {
       //  fprintf(stderr, "\n");
       const char *desc = optionDescP->optionDescription;
@@ -578,7 +578,7 @@ void CmdLineApp::showUsage()
 bool CmdLineApp::parseCommandLine(int aArgc, char **aArgv)
 {
   if (aArgc>0) {
-    invocationName = aArgv[0];
+    mInvocationName = aArgv[0];
     int rawArgIndex=1;
     while(rawArgIndex<aArgc) {
       const char *argP = aArgv[rawArgIndex];
@@ -612,7 +612,7 @@ bool CmdLineApp::parseCommandLine(int aArgc, char **aArgv)
           optName.erase(n,string::npos);
         }
         // search for option descriptor
-        const CmdLineOptionDescriptor *optionDescP = optionDescriptors;
+        const CmdLineOptionDescriptor *optionDescP = mOptionDescriptors;
         bool optionFound = false;
         while (optionDescP && (optionDescP->longOptionName!=NULL || optionDescP->shortOptionChar!='\x00')) {
           // not yet end of descriptor list
@@ -659,7 +659,7 @@ bool CmdLineApp::parseCommandLine(int aArgc, char **aArgv)
               else
                 optName[0] = optionDescP->shortOptionChar;
               // save in map
-              options[optName] = optArg;
+              mOptions[optName] = optArg;
             }
             optionFound = true;
             break;
@@ -679,7 +679,7 @@ bool CmdLineApp::parseCommandLine(int aArgc, char **aArgv)
         // - have argument processed by subclass
         if (!processArgument(argP)) {
           // not processed, store instead
-          arguments.push_back(argP);
+          mArguments.push_back(argP);
         }
       }
       // next argument
@@ -719,24 +719,24 @@ bool CmdLineApp::processOption(const CmdLineOptionDescriptor &aOptionDescriptor,
 
 const char *CmdLineApp::getInvocationName()
 {
-  return invocationName.c_str();
+  return mInvocationName.c_str();
 }
 
 
 void CmdLineApp::resetCommandLine()
 {
-  invocationName.clear();
-  synopsis.clear();
-  options.clear();
-  arguments.clear();
+  mInvocationName.clear();
+  mSynopsis.clear();
+  mOptions.clear();
+  mArguments.clear();
 }
 
 
 const char *CmdLineApp::getOption(const char *aOptionName, const char *aDefaultValue)
 {
   const char *opt = aDefaultValue;
-  OptionsMap::iterator pos = options.find(aOptionName);
-  if (pos!=options.end()) {
+  OptionsMap::iterator pos = mOptions.find(aOptionName);
+  if (pos!=mOptions.end()) {
     opt = pos->second.c_str();
   }
   return opt;
@@ -799,14 +799,14 @@ bool CmdLineApp::getStringOption(const char *aOptionName, string &aString)
 
 size_t CmdLineApp::numOptions()
 {
-  return options.size();
+  return mOptions.size();
 }
 
 
 const char *CmdLineApp::getArgument(size_t aArgumentIndex)
 {
-  if (aArgumentIndex>=arguments.size()) return NULL;
-  return arguments[aArgumentIndex].c_str();
+  if (aArgumentIndex>=mArguments.size()) return NULL;
+  return mArguments[aArgumentIndex].c_str();
 }
 
 
@@ -838,7 +838,7 @@ bool CmdLineApp::getIntArgument(size_t aArgumentIndex, int &aInteger)
 
 size_t CmdLineApp::numArguments()
 {
-  return arguments.size();
+  return mArguments.size();
 }
 
 
