@@ -1111,7 +1111,7 @@ void MainLoop::registerPollHandler(int aFD, int aPollFlags, IOPollCB aPollEventH
       }
       #endif
     }
-    // Note: just assigning to map 
+    // Note: just assigning to map
     ioPollHandlers [aFD] = h; // copies h
     ev_io* w = &(ioPollHandlers[aFD].mIoWatcher);
     w->data = this; // only now the watcher is considered active (and stopped when destructed)
@@ -1264,8 +1264,10 @@ void MainLoop::handleIOPoll(MLMicroSeconds aTimeout)
     ev_timer_stop(mLibEvLoopP, &mLibEvTimer);
   }
   else {
-    // no timers, just FDs -> completely pass control indefinitely
-    ev_run(mLibEvLoopP, 0);
+    // no timers, just FDs -> run until one event has occurred (which can mean
+    //   a handler might have added a new p44 timer, which must be taken into acount
+    //   before passing control to libev mainloop again)
+    ev_run(mLibEvLoopP, EVRUN_ONCE);
   }
   #else
   // use poll() - create poll structure
