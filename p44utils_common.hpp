@@ -44,7 +44,11 @@
 #include <boost/intrusive_ptr.hpp>
 #include <boost/shared_ptr.hpp>
 #include <boost/function.hpp>
-#include <boost/bind.hpp>
+
+// including this instead of boost/bind.hpp puts argument placeholder into boost::placeholders namespace
+#include <boost/bind/bind.hpp>
+// to still allow using the placeholders w/o qualifier:
+using namespace boost::placeholders;
 
 #ifndef __printflike
 #define __printflike(...)
