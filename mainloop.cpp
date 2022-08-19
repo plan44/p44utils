@@ -57,9 +57,8 @@
 using namespace p44;
 
 
-#ifdef ESP_PLATFORM
-
-// this would be in a library we don't link for ESP_PLATFORM, so we need to implement it here
+#ifdef BOOST_NO_EXCEPTIONS
+// boost calls this when throwing C++ exceptions is disabled, e.g. ESP32 builds
 void boost::throw_exception(std::exception const & e){
   // log and exit
   LOG(LOG_ERR, "Exception thrown -> exit");
