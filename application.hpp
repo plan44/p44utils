@@ -77,7 +77,7 @@ namespace p44 {
     /// main routine
     /// @param argc argument count as passed to C-level main() entry point
     /// @param argv argument pointer array as passed to C-level main() entry point
-    virtual int main(int argc, char **argv);
+    virtual int main(int argc, char** argv);
 
     /// get shared instance (singleton)
     static Application *sharedApplication();
@@ -193,11 +193,11 @@ namespace p44 {
 
     /// set the resource path
     /// @param aResourcePath path to resource directory, with or without path delimiter at end
-    void setResourcePath(const char *aResourcePath);
+    void setResourcePath(const char* aResourcePath);
 
     /// set the resource path
     /// @param aDataPath path to the r/w data directory for persistent app data
-    void setDataPath(const char *aDataPath);
+    void setDataPath(const char* aDataPath);
 
   private:
 
@@ -239,9 +239,9 @@ namespace p44 {
   /// @note a descriptor with both longOptionName==NULL and shortOptionChar=0 terminates a list of option descriptors
   typedef struct {
     char shortOptionChar; ///< the short option name (single character) or 0/NUL if none
-    const char *longOptionName; ///< the long option name (string) or NULL if none
+    const char* longOptionName; ///< the long option name (string) or NULL if none
     bool withArgument; ///< true if option has an argument (separated by = or next argument)
-    const char *optionDescription; ///< the description of the option, can have multiple lines separated by \n
+    const char* optionDescription; ///< the description of the option, can have multiple lines separated by \n
     int optionIdentifier; ///< an optional identifier
   } CmdLineOptionDescriptor;
 
@@ -276,7 +276,7 @@ namespace p44 {
     /// @param aOptionDescriptors pointer to array of descriptors for the options
     /// @note you can use CMDLINE_APPLICATION_STDOPTIONS and CMDLINE_APPLICATION_LOGOPTIONS as part of the
     ///   aOptionDescriptors list
-    void setCommandDescriptors(const char *aSynopsis, const CmdLineOptionDescriptor *aOptionDescriptors);
+    void setCommandDescriptors(const char* aSynopsis, const CmdLineOptionDescriptor* aOptionDescriptors);
 
     /// show usage, consisting of invocationName + synopsis + option descriptions
     void showUsage();
@@ -288,7 +288,7 @@ namespace p44 {
     /// @note this method might call terminateApp() in case of command line syntax errors or standard application
     ///   options such as help or version.
     /// @return false when app got terminated due to syntax errors or standard application options, true otherwise
-    bool parseCommandLine(int aArgc, char **aArgv);
+    bool parseCommandLine(int aArgc, char** aArgv);
 
     /// reset internal argument lists (to save memory when arguments are all processed)
     void resetCommandLine();
@@ -299,18 +299,18 @@ namespace p44 {
     /// @return true if option has been processed; false if option should be stored for later reference via getOption()
     /// @note will be called from parseCommandLine()
     /// @note base class will process some options (see CMDLINE_APPLICATION_STDOPTIONS and CMDLINE_APPLICATION_PATHOPTIONS)
-    virtual bool processOption(const CmdLineOptionDescriptor &aOptionDescriptor, const char *aOptionValue);
+    virtual bool processOption(const CmdLineOptionDescriptor &aOptionDescriptor, const char* aOptionValue);
 
     /// process a non-option command line argument
     /// @param aArgument non-option argument
     /// @return true if argument has been processed; false if argument should be stored for later reference via getArgument()
     /// @note will be called from parseCommandLine()
-    virtual bool processArgument(const char *aArgument) { return false; /* not processed, store */ };
+    virtual bool processArgument(const char* aArgument) { return false; /* not processed, store */ };
 
     /// get app invocation name
     /// @return application invocation name (argv[0])
     /// @note parseCommandLine() must be called before using this method
-    const char *getInvocationName();
+    const char* getInvocationName();
 
     /// parse standard logging options and configure logger
     /// @param aForDaemon if set, logger is configured for daemon (rather than command line utility)
@@ -328,27 +328,27 @@ namespace p44 {
     /// @param aDefaultValue this is returned in case the option is not specified, defaults to NULL
     /// @return aDefaultValue if option was not specified on the command line, empty string for options without argument, option's argument otherwise
     /// @note parseCommandLine() must be called before using this method
-    const char *getOption(const char *aOptionName, const char *aDefaultValue = NULL);
+    const char* getOption(const char* aOptionName, const char* aDefaultValue = NULL);
 
     /// @param aOptionName the name of the option (longOptionName if exists, shortOptionChar if no longOptionName exists)
     /// @param aInteger will be set with the integer value of the option, if any
     /// @return true if option was specified and had a valid integer argument, false otherwise (aInteger will be untouched then)
     /// @note parseCommandLine() must be called before using this method
     /// @note integer option can be specified as decimal (NO leading zeroes!!), hex ('0x' prefix) or octal ('0' prefix)
-    bool getIntOption(const char *aOptionName, int &aInteger);
-    bool getUIntOption(const char *aOptionName, unsigned int &aInteger);
+    bool getIntOption(const char* aOptionName, int &aInteger);
+    bool getUIntOption(const char* aOptionName, unsigned int &aInteger);
 
     /// @param aOptionName the name of the option (longOptionName if exists, shortOptionChar if no longOptionName exists)
     /// @param aCString will be set to point to the option argument cstring, if any
     /// @return true if option was specified and had an option argument
     /// @note parseCommandLine() must be called before using this method
-    bool getStringOption(const char *aOptionName, const char *&aCString);
+    bool getStringOption(const char* aOptionName, const char*& aCString);
 
     /// @param aOptionName the name of the option (longOptionName if exists, shortOptionChar if no longOptionName exists)
     /// @param aString will be set to point to the option argument cstring, if any
     /// @return true if option was specified and had an option argument
     /// @note parseCommandLine() must be called before using this method
-    bool getStringOption(const char *aOptionName, string &aString);
+    bool getStringOption(const char* aOptionName, string &aString);
 
 
     /// get number of stored options
@@ -360,7 +360,7 @@ namespace p44 {
     /// @param aArgumentIndex the index of the argument (0=first non-option argument, 1=second non-option argument, etc.)
     /// @return NULL if aArgumentIndex>=numArguments(), argument otherwise
     /// @note parseCommandLine() must be called before using this method
-    const char *getArgument(size_t aArgumentIndex);
+    const char* getArgument(size_t aArgumentIndex);
 
     /// get non-option string argument
     /// @param aArgumentIndex the index of the argument (0=first non-option argument, 1=second non-option argument, etc.)

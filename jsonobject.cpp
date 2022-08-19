@@ -113,7 +113,7 @@ static const char *nextParsableSegment(const char*& aText, ssize_t& aTextLen, si
       aTextLen -= aText-seg;
       if (aInComment) {
         // segment is from beginning to here
-        aSegmentLen = cc-seg;
+        aSegmentLen = (size_t)(cc-seg);
         return seg;
       }
       else {
@@ -131,7 +131,7 @@ static const char *nextParsableSegment(const char*& aText, ssize_t& aTextLen, si
   }
   // everything from here to end can be parsed
   seg = aTextLen ? aText : NULL; // must return NULL if no more text
-  aSegmentLen = aTextLen;
+  aSegmentLen = (size_t)aTextLen;
   aText += aTextLen;
   aTextLen = 0;
   return seg;
@@ -156,7 +156,7 @@ static void countLines(int &aLineCount, size_t& aLastLineLenght, const char*& aF
 JsonObjectPtr JsonObject::objFromText(const char *aJsonText, ssize_t aMaxChars, ErrorPtr *aErrorP, bool aAllowCComments, ssize_t* aParsedCharsP)
 {
   JsonObjectPtr obj;
-  if (aMaxChars<0) aMaxChars = strlen(aJsonText);
+  if (aMaxChars<0) aMaxChars = (ssize_t)strlen(aJsonText);
   struct json_tokener* tokener = json_tokener_new();
   bool inComment = false;
   const char *seg;
@@ -219,7 +219,7 @@ JsonObjectPtr JsonObject::objFromFile(const char *aJsonFilePath, ErrorPtr *aErro
     // opened, check buffer needs
     struct stat fs;
     fstat(fd, &fs);
-    if (fs.st_size<bufSize) bufSize = fs.st_size; // don't need the entire buffer
+    if (fs.st_size<(ssize_t)bufSize) bufSize = (size_t)fs.st_size; // don't need the entire buffer
     // decode
     struct json_tokener* tokener = json_tokener_new();
     char *jsonbuf = new char[bufSize];
@@ -424,7 +424,7 @@ void JsonObject::arrayAppend(JsonObjectPtr aObj)
 JsonObjectPtr JsonObject::arrayGet(int aAtIndex)
 {
   JsonObjectPtr p;
-  json_object *weakObjRef = json_object_array_get_idx(mJson_obj, aAtIndex);
+  json_object *weakObjRef = json_object_array_get_idx(mJson_obj, (size_t)aAtIndex);
   if (weakObjRef) {
     // found object
     // - claim ownership as json_object_array_get_idx does not do that automatically
@@ -441,7 +441,7 @@ void JsonObject::arrayPut(int aAtIndex, JsonObjectPtr aObj)
   if (type()==json_type_array) {
     // - claim ownership as json_object_array_put_idx does not do that automatically
     json_object_get(aObj->mJson_obj);
-    json_object_array_put_idx(mJson_obj, aAtIndex, aObj->mJson_obj);
+    json_object_array_put_idx(mJson_obj, (size_t)aAtIndex, aObj->mJson_obj);
   }
 }
 
@@ -459,7 +459,7 @@ void JsonObject::arrayDel(int aAtIndex, int aNumElements)
     int n = arrayLength();
     for (int i=0; i<n; i++) {
       if (i<aAtIndex || i>=aAtIndex+aNumElements) {
-        json_object *weakObjRef = json_object_array_get_idx(mJson_obj, i);
+        json_object *weakObjRef = json_object_array_get_idx(mJson_obj, (size_t)i);
         if (weakObjRef) {
           // - claim ownership as neither json_object_array_get_idx nor json_object_array_add does not do that automatically
           //   (and we *need* to own the object because deleting the old array will put all of its contained objects)

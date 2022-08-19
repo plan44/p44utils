@@ -41,44 +41,44 @@ using namespace std;
 
 namespace p44 {
 
-  /// printf-style format into std::string
+  /// printf-style format into string
   /// @param aFormat printf-style format string
   /// @param aStringObj string to receive formatted result
   /// @param aAppend if true, aStringObj will be appended to, otherwise contents will be replaced
   /// @param aArgs va_list of vprintf arguments
-  void string_format_v(std::string &aStringObj, bool aAppend, const char *aFormat, va_list aArgs);
+  void string_format_v(string &aStringObj, bool aAppend, const char *aFormat, va_list aArgs) __printflike(3,0);
 
-  /// printf-style format into std::string
+  /// printf-style format into string
   /// @param aFormat printf-style format string
   /// @return formatted string
-  std::string string_format(const char *aFormat, ...) __printflike(1,2);
+  string string_format(const char *aFormat, ...) __printflike(1,2);
 
-  /// printf-style format appending to std::string
-  /// @param aStringToAppendTo std::string to append formatted string to
+  /// printf-style format appending to string
+  /// @param aStringToAppendTo string to append formatted string to
   /// @param aFormat printf-style format string
-  void string_format_append(std::string &aStringToAppendTo, const char *aFormat, ...) __printflike(2,3);
+  void string_format_append(string &aStringToAppendTo, const char *aFormat, ...) __printflike(2,3);
 
   /// printf-style format appending a path element to an existing file path
-  /// @param aPathToAppendTo std::string to append formatted string to
+  /// @param aPathToAppendTo string to append formatted string to
   /// @param aFormat printf-style format string
   /// @note if the path is not empty, and does not yet end in a path delimiter, a path delimiter will be appended first
-  void pathstring_format_append(std::string &aPathToAppendTo, const char *aFormat, ...) __printflike(2,3);
+  void pathstring_format_append(string &aPathToAppendTo, const char *aFormat, ...) __printflike(2,3);
 
   /// make path a directory, i.e. make sure it ends in a path delimiter
   /// @param aPathToMakeDir path string
-  void pathstring_make_dir(std::string &aPathToMakeDir);
+  void pathstring_make_dir(string &aPathToMakeDir);
 
-  /// strftime with output to std::string
+  /// strftime with output to string
   /// @param aFormat strftime-style format string
   /// @param aTimeP aTime time to format, or NULL for current local time
   /// @return formatted time string
-  std::string string_ftime(const char *aFormat, const struct tm *aTimeP = NULL);
+  string string_ftime(const char *aFormat, const struct tm *aTimeP = NULL);
 
-  /// strftime appending to std::string
-  /// @param aStringToAppendTo std::string to append formatted time to
+  /// strftime appending to string
+  /// @param aStringToAppendTo string to append formatted time to
   /// @param aFormat strftime-style format string
   /// @param aTimeP aTime time to format, or NULL for current local time
-  void string_ftime_append(std::string &aStringToAppendTo, const char *aFormat, const struct tm *aTimeP = NULL);
+  void string_ftime_append(string &aStringToAppendTo, const char *aFormat, const struct tm *aTimeP = NULL);
 
   /// get next line from file into string
   /// @param aFile file open for read

@@ -39,24 +39,24 @@ using namespace p44;
 
 SocketComm::SocketComm(MainLoop &aMainLoop) :
   FdComm(aMainLoop),
-  mConnectionOpen(false),
-  mIsConnecting(false),
-  mIsClosing(false),
+  mProtocolFamily(PF_UNSPEC),
+  mSocketType(SOCK_STREAM),
+  mProtocol(0),
   mServing(false),
   mNonLocal(true),
-  mClearHandlersAtClose(false),
+  mConnectionLess(false),
+  mBroadcast(false),
+  mConnectionFd(-1),
   mAddressInfoList(NULL),
   mCurrentAddressInfo(NULL),
   mCurrentSockAddrP(NULL),
   mPeerSockAddrP(NULL),
-  mMaxServerConnections(1),
-  mServerConnection(NULL),
-  mBroadcast(false),
-  mConnectionFd(-1),
-  mProtocolFamily(PF_UNSPEC),
-  mSocketType(SOCK_STREAM),
-  mProtocol(0),
-  mConnectionLess(false)
+  mPeerSockAddrLen(0),
+  mIsConnecting(false),
+  mIsClosing(false),
+  mConnectionOpen(false),
+  mClearHandlersAtClose(false),
+  mMaxServerConnections(1)
 {
 }
 
@@ -795,7 +795,7 @@ size_t SocketComm::transmitBytes(size_t aNumBytes, const uint8_t *aBytes, ErrorP
       aError = SysError::errNo("SocketComm::transmitBytes (connectionless): ");
       return 0; // nothing transmitted
     }
-    return res;
+    return (size_t)res;
   }
   else {
     return inherited::transmitBytes(aNumBytes, aBytes, aError);
@@ -823,7 +823,7 @@ size_t SocketComm::receiveBytes(size_t aNumBytes, uint8_t *aBytes, ErrorPtr &aEr
             return 0; // nothing received
           }
         }
-        return res;
+        return (size_t)res;
       }
     }
     return 0; // no fd set, nothing to read

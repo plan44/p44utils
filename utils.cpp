@@ -29,11 +29,12 @@
 using namespace p44;
 
 // old-style C-formatted output into string object
-void p44::string_format_v(std::string &aStringObj, bool aAppend, const char *aFormat, va_list aArgs)
+void __printflike(3,0) p44::string_format_v(string &aStringObj, bool aAppend, const char *aFormat, va_list aArgs)
 {
   const size_t bufsiz=128;
-  ssize_t actualsize;
+  size_t actualsize;
   char buf[bufsiz];
+  int ret;
 
   buf[0]='\0';
   char *bufP = NULL;
@@ -42,31 +43,33 @@ void p44::string_format_v(std::string &aStringObj, bool aAppend, const char *aFo
   // case we call the function a second time
   va_list args;
   va_copy(args, aArgs);
-  actualsize = vsnprintf(buf, bufsiz, aFormat, aArgs);
-  if (actualsize>=(ssize_t)bufsiz) {
-    // default buffer was too small, create bigger dynamic buffer
-    bufP = new char[actualsize+1];
-    actualsize = vsnprintf(bufP, actualsize+1, aFormat, args);
-    if (actualsize>0) {
-      aStringObj += bufP;
+  ret = vsnprintf(buf, bufsiz, aFormat, aArgs);
+  if (ret>=0) {
+    actualsize = (size_t)ret;
+    if (actualsize>=bufsiz) {
+      // default buffer was too small, create bigger dynamic buffer
+      bufP = new char[actualsize+1];
+      ret = vsnprintf(bufP, actualsize+1, aFormat, args);
+      if (ret>0) {
+        aStringObj += bufP;
+      }
+      delete [] bufP;
     }
-    delete [] bufP;
-  }
-  else {
-    // small default buffer was big enough, add it
-    if (actualsize<0) return; // abort, error
-    aStringObj += buf;
+    else {
+      // small default buffer was big enough, add it
+      aStringObj += buf;
+    }
   }
   va_end(args);
 } // vStringObjPrintf
 
 
-// old-style C-formatted output as std::string
-std::string p44::string_format(const char *aFormat, ...)
+// old-style C-formatted output as string
+string p44::string_format(const char *aFormat, ...)
 {
   va_list args;
   va_start(args, aFormat);
-  std::string s;
+  string s;
   // now make the string
   string_format_v(s, false, aFormat, args);
   va_end(args);
@@ -74,8 +77,8 @@ std::string p44::string_format(const char *aFormat, ...)
 } // string_format
 
 
-// old-style C-formatted output appending to std::string
-void p44::string_format_append(std::string &aStringToAppendTo, const char *aFormat, ...)
+// old-style C-formatted output appending to string
+void p44::string_format_append(string &aStringToAppendTo, const char *aFormat, ...)
 {
   va_list args;
 
@@ -88,7 +91,7 @@ void p44::string_format_append(std::string &aStringToAppendTo, const char *aForm
 
 
 
-void p44::pathstring_make_dir(std::string &aPathToMakeDir)
+void p44::pathstring_make_dir(string &aPathToMakeDir)
 {
   if (!aPathToMakeDir.empty() && aPathToMakeDir[aPathToMakeDir.length()-1]!='/') {
     aPathToMakeDir.append("/");
@@ -96,7 +99,7 @@ void p44::pathstring_make_dir(std::string &aPathToMakeDir)
 }
 
 
-void p44::pathstring_format_append(std::string &aPathToAppendTo, const char *aFormat, ...)
+void p44::pathstring_format_append(string &aPathToAppendTo, const char *aFormat, ...)
 {
   va_list args;
 
@@ -109,17 +112,17 @@ void p44::pathstring_format_append(std::string &aPathToAppendTo, const char *aFo
 
 
 
-/// strftime with output to std::string
-std::string p44::string_ftime(const char *aFormat, const struct tm *aTimeP)
+/// strftime with output to string
+string p44::string_ftime(const char *aFormat, const struct tm *aTimeP)
 {
-  std::string s;
+  string s;
   string_ftime_append(s, aFormat, aTimeP);
   return s;
 }
 
 
-/// strftime appending to std::string
-void p44::string_ftime_append(std::string &aStringToAppendTo, const char *aFormat, const struct tm *aTimeP)
+/// strftime appending to string
+void p44::string_ftime_append(string &aStringToAppendTo, const char *aFormat, const struct tm *aTimeP)
 {
   // get time if none passed
   struct tm nowtime;
@@ -267,7 +270,7 @@ string p44::lowerCase(const char *aString, size_t aMaxSize)
 {
   string s;
   while (char c=*aString++) {
-    s += tolower(c);
+    s += (char)tolower(c);
     if (aMaxSize>0 && --aMaxSize==0) break;
   }
   return s;
@@ -284,7 +287,7 @@ string p44::upperCase(const char *aString, size_t aMaxSize)
 {
   string s;
   while (char c=*aString++) {
-    s += toupper(c);
+    s += (char)toupper(c);
     if (aMaxSize>0 && --aMaxSize==0) break;
   }
   return s;
@@ -389,7 +392,7 @@ bool p44::nextLine(const char * &aCursor, string &aLine)
     c = *p;
     if (c==0 || c=='\n' || c=='\r') {
       // end of line or end of text
-      aLine.assign(aCursor,p-aCursor);
+      aLine.assign(aCursor,(size_t)(p-aCursor));
       if (c) {
         // skip line end
         ++p;
@@ -413,7 +416,7 @@ bool p44::nextPart(const char *&aCursor, string &aPart, char aSeparator, bool aS
     c = *p;
     if (c==0 || c==aSeparator || (aStopAtEOL && (c=='\n' || c=='\r')) ) {
       // end of part
-      aPart.assign(aCursor,p-aCursor);
+      aPart.assign(aCursor,(size_t)(p-aCursor));
       if (c==aSeparator) p++; // skip the separator
       aCursor = p; // return start of next part or end of line/string
       return true;
@@ -544,7 +547,7 @@ void p44::splitURL(const char *aURI,string *aProtocol,string *aHost,string *aDoc
   q=strchr(p,':');
   if (q) {
     // protocol found
-    if (aProtocol) aProtocol->assign(p,q-p);
+    if (aProtocol) aProtocol->assign(p,(size_t)(q-p));
     p=q+1; // past colon
     while (*p=='/') p++; // past trailing slashes
     // if protocol specified, check for auth info
@@ -553,12 +556,12 @@ void p44::splitURL(const char *aURI,string *aProtocol,string *aHost,string *aDoc
       r=strchr(p,':');
       if (r && r<q) {
         // user and password specified
-        if (aUser) aUser->assign(p,r-p);
-        if (aPasswd) aPasswd->assign(r+1,q-r-1);
+        if (aUser) aUser->assign(p,(size_t)(r-p));
+        if (aPasswd) aPasswd->assign(r+1,(size_t)(q-r-1));
       }
       else {
         // only user, no password
-        if (aUser) aUser->assign(p,q-p);
+        if (aUser) aUser->assign(p,(size_t)(q-p));
         if (aPasswd) aPasswd->erase();
       }
       p=q+1; // past "@"
@@ -596,7 +599,7 @@ void p44::splitURL(const char *aURI,string *aProtocol,string *aHost,string *aDoc
       if (*q=='?') (*aDoc)+='/'; // if doc starts with CGI, we are at root
       aDoc->append(r); // till end of string
     }
-    if (aHost) aHost->assign(p,q-p); // assign host (all up to / or ?)
+    if (aHost) aHost->assign(p,(size_t)(q-p)); // assign host (all up to / or ?)
   }
   else {
     if (aDoc) aDoc->erase(); // empty document name
@@ -619,7 +622,7 @@ void p44::splitHost(const char *aHostSpec, string *aHostName, uint16_t *aPortNum
     if (sscanf(q+1,"%hd", &port)==1) {
       if (aPortNumber) *aPortNumber = port;
     }
-    if (aHostName) aHostName->assign(p,q-p);
+    if (aHostName) aHostName->assign(p,(size_t)(q-p));
   }
   else {
     if (aHostName) aHostName->assign(p);
@@ -663,16 +666,16 @@ string p44::hexToBinaryString(const char *aHexString, bool aSpacesAllowed, size_
       if (c==0) break; // done
       continue; // skip delimiter
     }
-    c = toupper(c)-'0';
+    c = (char)toupper(c)-'0';
     if (c>9) c -= ('A'-'9'-1);
     if (c<0 || c>0xF)
       break; // invalid char, done
     if (firstNibble) {
-      b = c;
+      b = (uint8_t)c;
       firstNibble = false;
     }
     else {
-      b = (b<<4) | c;
+      b = (uint8_t)((b<<4) | c);
       bs.append((char *)&b,1);
       firstNibble = true;
     }
@@ -685,7 +688,7 @@ string p44::binaryToHexString(const string &aBinaryString, char aSeparator)
 {
   string s;
   size_t n = aBinaryString.size();
-  for (int i=0; i<n; i++) {
+  for (size_t i=0; i<n; i++) {
     if (aSeparator && i!=0) s += aSeparator;
     string_format_append(s, "%02X", (uint8_t)aBinaryString[i]);
   }
@@ -697,7 +700,7 @@ string p44::macAddressToString(uint64_t aMacAddress, char aSeparator)
 {
   string b;
   for (int i=0; i<6; ++i) {
-    b += (aMacAddress>>((5-i)*8)) & 0xFF;
+    b += (char)((aMacAddress>>((5-i)*8)) & 0xFF);
   }
   return binaryToHexString(b, aSeparator);
 }
@@ -708,7 +711,7 @@ uint64_t p44::stringToMacAddress(const char *aMacString, bool aSpacesAllowed)
   uint64_t mac = 0;
   string b = hexToBinaryString(aMacString, aSpacesAllowed, 6);
   if (b.size()==6) {
-    for (int i=0; i<6; ++i) {
+    for (size_t i=0; i<6; ++i) {
       mac <<= 8;
       mac += (uint8_t)b[i];
     }
@@ -732,7 +735,7 @@ uint32_t p44::stringToIpv4(const char *aIPv4String)
 {
   short ib[4];
   if (sscanf(aIPv4String, "%hd.%hd.%hd.%hd", &ib[0], &ib[1], &ib[2], &ib[3])==4) {
-    return (ib[0]<<24) | (ib[1]<<16) | (ib[2]<<8) | ib[3];
+    return ((uint32_t)ib[0]<<24) | ((uint32_t)ib[1]<<16) | ((uint32_t)ib[2]<<8) | (uint32_t)ib[3];
   }
   return 0; // failed
 }

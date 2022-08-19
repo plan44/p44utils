@@ -124,7 +124,7 @@ namespace p44 {
     /// @param aFmt error message format string
     /// @param aArgs argument list for formatting
     /// @param aAppend if set, append to message rather than replacing it
-    void setFormattedMessage(const char *aFmt, va_list aArgs, bool aAppend = true);
+    void setFormattedMessage(const char *aFmt, va_list aArgs, bool aAppend = true) __printflike(2,0);
 
     /// insert additional message context
     void prefixMessage(const char *aFmt, ...) __printflike(2,3);

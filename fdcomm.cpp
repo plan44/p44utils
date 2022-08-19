@@ -254,7 +254,7 @@ size_t FdComm::transmitBytes(size_t aNumBytes, const uint8_t *aBytes, ErrorPtr &
     aError = SysError::errNo("FdComm::transmitBytes: ");
     return 0; // nothing transmitted
   }
-  return res;
+  return (size_t)res;
 }
 
 
@@ -286,7 +286,7 @@ size_t FdComm::receiveBytes(size_t aNumBytes, uint8_t *aBytes, ErrorPtr &aError)
           return 0; // nothing received
         }
       }
-      return res;
+      return (size_t)res;
     }
   }
 	return 0; // no fd set, nothing to read
@@ -297,7 +297,7 @@ ErrorPtr FdComm::receiveAndAppendToString(string &aString, ssize_t aMaxBytes)
 {
   ErrorPtr err;
   size_t max = numBytesReady();
-  if (aMaxBytes>0 && max>aMaxBytes) max = aMaxBytes;
+  if (aMaxBytes>0 && max>(size_t)aMaxBytes) max = (size_t)aMaxBytes;
   uint8_t *buf = new uint8_t[max];
   size_t b = receiveBytes(max, buf, err);
   if (Error::isOK(err)) {
@@ -323,7 +323,7 @@ size_t FdComm::numBytesReady()
     // get number of bytes ready for reading
     int numBytes; // must be int!! FIONREAD defines parameter as *int
     int res = ioctl(dataFd, FIONREAD, &numBytes);
-    return res!=0 ? 0 : numBytes;
+    return (size_t)(res!=0 ? 0 : numBytes);
   }
 	return 0; // no fd set, nothing to read
 }

@@ -115,18 +115,19 @@ void Logger::logStr_always(int aErrLevel, string aMessage)
 {
   pthread_mutex_lock(&reportMutex);
   // create date + level
-  char tsbuf[42];
+  const size_t bufSz = 42;
+  char tsbuf[bufSz];
   char *p = tsbuf;
   struct timeval t;
   gettimeofday(&t, NULL);
   p += strftime(p, sizeof(tsbuf), "[%Y-%m-%d %H:%M:%S", localtime(&t.tv_sec));
-  p += sprintf(p, ".%03d", (int)(t.tv_usec/1000));
+  p += snprintf(p, bufSz-(size_t)(p-tsbuf), ".%03d", (int)(t.tv_usec/1000));
   if (deltaTime) {
-    long long millisPassed = ((t.tv_sec*1e6+t.tv_usec) - (lastLogTS.tv_sec*1e6+lastLogTS.tv_usec))/1000; // in mS
-    p += sprintf(p, "%6lldmS", millisPassed);
+    long long millisPassed = (long long)(((t.tv_sec*1e6+t.tv_usec) - (lastLogTS.tv_sec*1e6+lastLogTS.tv_usec))/1000); // in mS
+    p += snprintf(p, bufSz-(size_t)(p-tsbuf), "%6lldmS", millisPassed);
   }
   lastLogTS = t;
-  p += sprintf(p, " %c] ", levelChars[aErrLevel]);
+  p += snprintf(p, bufSz-(size_t)(p-tsbuf), " %c] ", levelChars[aErrLevel]);
   // generate empty leading lines, if any
   string::size_type i=0;
   while (i<aMessage.length() && aMessage[i]=='\n') {

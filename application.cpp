@@ -143,7 +143,7 @@ void Application::signalOccurred(int aSignal, siginfo_t *aSiginfo)
 
 
 
-int Application::main(int argc, char **argv)
+int Application::main(int argc, char** argv)
 {
 	// NOP application
 	return EXIT_SUCCESS;
@@ -194,7 +194,7 @@ void Application::terminateAppWith(ErrorPtr aError)
     if (!LOGENABLED(LOG_ERR)) {
       // if even error logging is off, which is standard case for command line utilies (not daemons),
       // just output the error message to stderr, with no logging adornments
-      const char *msg = aError->text();
+      const char* msg = aError->text();
       if (*msg) fprintf(stderr, "Error: %s\n", msg);
     }
     else {
@@ -223,7 +223,7 @@ string Application::resourcePath(const string aResource, const string aPrefix)
 }
 
 
-void Application::setResourcePath(const char *aResourcePath)
+void Application::setResourcePath(const char* aResourcePath)
 {
   mResourcepath = aResourcePath;
   if (mResourcepath.size()>1 && mResourcepath[mResourcepath.size()-1]=='/') {
@@ -269,7 +269,7 @@ string Application::dataPath(const string aDataFile, const string aPrefix, bool 
 }
 
 
-void Application::setDataPath(const char *aDataPath)
+void Application::setDataPath(const char* aDataPath)
 {
   mDatapath = aDataPath;
   if (mDatapath.size()>1 && mDatapath[mDatapath.size()-1]=='/') {
@@ -418,7 +418,7 @@ CmdLineApp *CmdLineApp::sharedCmdLineApp()
 }
 
 
-void CmdLineApp::setCommandDescriptors(const char *aSynopsis, const CmdLineOptionDescriptor *aOptionDescriptors)
+void CmdLineApp::setCommandDescriptors(const char* aSynopsis, const CmdLineOptionDescriptor *aOptionDescriptors)
 {
   mOptionDescriptors = aOptionDescriptors;
   mSynopsis = aSynopsis ? aSynopsis : "Usage: %1$s";
@@ -439,19 +439,19 @@ void CmdLineApp::showUsage()
   const CmdLineOptionDescriptor *optionDescP = mOptionDescriptors;
   bool anyShortOpts = false;
   while (optionDescP && (optionDescP->longOptionName!=NULL || optionDescP->shortOptionChar!='\x00')) {
-    const char *desc = optionDescP->optionDescription;
+    const char* desc = optionDescP->optionDescription;
     if (desc) {
       // documented option
       numDocumentedOptions++;
       if (optionDescP->shortOptionChar) {
         anyShortOpts = true;
       }
-      size_t n = 0;
+      ssize_t n = 0;
       if (optionDescP->longOptionName) {
         n += strlen(optionDescP->longOptionName)+2; // "--XXXXX"
       }
       if (optionDescP->withArgument) {
-        const char *p = strchr(desc, ';');
+        const char* p = strchr(desc, ';');
         if (p) {
           n += 3 + (p-desc); // add room for argument description
         }
@@ -469,7 +469,7 @@ void CmdLineApp::showUsage()
     optionDescP = mOptionDescriptors;
     while (optionDescP && (optionDescP->longOptionName!=NULL || optionDescP->shortOptionChar!='\x00')) {
       //  fprintf(stderr, "\n");
-      const char *desc = optionDescP->optionDescription;
+      const char* desc = optionDescP->optionDescription;
       if (desc) {
         ssize_t remaining = indent;
         fprintf(stderr, "  "); // start indent
@@ -497,10 +497,10 @@ void CmdLineApp::showUsage()
         }
         // argument
         if (optionDescP->withArgument) {
-          const char *p = strchr(desc, ';');
+          const char* p = strchr(desc, ';');
           if (p) {
-            size_t n = (p-desc);
-            string argDesc(desc,n);
+            ssize_t n = (p-desc);
+            string argDesc(desc,(size_t)n);
             fprintf(stderr, " <%s>", argDesc.c_str());
             remaining -= argDesc.length()+3;
             desc += n+1; // desc starts after semicolon
@@ -529,7 +529,7 @@ void CmdLineApp::showUsage()
               while (desc[++listindent]==' ');
             }
             // scan for end of text, last space or line end
-            const char *e = desc;
+            const char* e = desc;
             while (*e) {
               if (*e==' ') lastWs = l;
               else if (*e=='\n') {
@@ -575,13 +575,13 @@ void CmdLineApp::showUsage()
 }
 
 
-bool CmdLineApp::parseCommandLine(int aArgc, char **aArgv)
+bool CmdLineApp::parseCommandLine(int aArgc, char** aArgv)
 {
   if (aArgc>0) {
     mInvocationName = aArgv[0];
     int rawArgIndex=1;
     while(rawArgIndex<aArgc) {
-      const char *argP = aArgv[rawArgIndex];
+      const char* argP = aArgv[rawArgIndex];
       if (*argP=='-') {
         // option argument
         argP++;
@@ -690,7 +690,7 @@ bool CmdLineApp::parseCommandLine(int aArgc, char **aArgv)
 }
 
 
-bool CmdLineApp::processOption(const CmdLineOptionDescriptor &aOptionDescriptor, const char *aOptionValue)
+bool CmdLineApp::processOption(const CmdLineOptionDescriptor &aOptionDescriptor, const char* aOptionValue)
 {
   // directly process "help" option (long name must be "help", short name can be anything but usually is 'h')
   if (!aOptionDescriptor.withArgument && strucmp(aOptionDescriptor.longOptionName,"help")==0) {
@@ -717,7 +717,7 @@ bool CmdLineApp::processOption(const CmdLineOptionDescriptor &aOptionDescriptor,
 }
 
 
-const char *CmdLineApp::getInvocationName()
+const char* CmdLineApp::getInvocationName()
 {
   return mInvocationName.c_str();
 }
@@ -732,9 +732,9 @@ void CmdLineApp::resetCommandLine()
 }
 
 
-const char *CmdLineApp::getOption(const char *aOptionName, const char *aDefaultValue)
+const char* CmdLineApp::getOption(const char* aOptionName, const char* aDefaultValue)
 {
-  const char *opt = aDefaultValue;
+  const char* opt = aDefaultValue;
   OptionsMap::iterator pos = mOptions.find(aOptionName);
   if (pos!=mOptions.end()) {
     opt = pos->second.c_str();
@@ -743,11 +743,11 @@ const char *CmdLineApp::getOption(const char *aOptionName, const char *aDefaultV
 }
 
 
-bool CmdLineApp::getIntOption(const char *aOptionName, int &aInteger)
+bool CmdLineApp::getIntOption(const char* aOptionName, int &aInteger)
 {
-  const char *opt = getOption(aOptionName);
+  const char* opt = getOption(aOptionName);
   if (opt) {
-    char *e = NULL;
+    char* e = NULL;
     long i = strtol(opt, &e, 0);
     if (e && *e==0) {
       aInteger = (int)i;
@@ -758,11 +758,11 @@ bool CmdLineApp::getIntOption(const char *aOptionName, int &aInteger)
 }
 
 
-bool CmdLineApp::getUIntOption(const char *aOptionName, unsigned int &aInteger)
+bool CmdLineApp::getUIntOption(const char* aOptionName, unsigned int &aInteger)
 {
-  const char *opt = getOption(aOptionName);
+  const char* opt = getOption(aOptionName);
   if (opt) {
-    char *e = NULL;
+    char* e = NULL;
     unsigned long i = strtoul(opt, &e, 0);
     if (e && *e==0) {
       aInteger = (unsigned int)i;
@@ -774,9 +774,9 @@ bool CmdLineApp::getUIntOption(const char *aOptionName, unsigned int &aInteger)
 
 
 
-bool CmdLineApp::getStringOption(const char *aOptionName, const char *&aCString)
+bool CmdLineApp::getStringOption(const char* aOptionName, const char* &aCString)
 {
-  const char *opt = getOption(aOptionName);
+  const char* opt = getOption(aOptionName);
   if (opt) {
     aCString = opt;
     return true;
@@ -785,9 +785,9 @@ bool CmdLineApp::getStringOption(const char *aOptionName, const char *&aCString)
 }
 
 
-bool CmdLineApp::getStringOption(const char *aOptionName, string &aString)
+bool CmdLineApp::getStringOption(const char* aOptionName, string &aString)
 {
-  const char *opt = getOption(aOptionName);
+  const char* opt = getOption(aOptionName);
   if (opt) {
     aString = opt;
     return true;
@@ -803,7 +803,7 @@ size_t CmdLineApp::numOptions()
 }
 
 
-const char *CmdLineApp::getArgument(size_t aArgumentIndex)
+const char* CmdLineApp::getArgument(size_t aArgumentIndex)
 {
   if (aArgumentIndex>=mArguments.size()) return NULL;
   return mArguments[aArgumentIndex].c_str();
@@ -812,7 +812,7 @@ const char *CmdLineApp::getArgument(size_t aArgumentIndex)
 
 bool CmdLineApp::getStringArgument(size_t aArgumentIndex, string &aArg)
 {
-  const char *a = getArgument(aArgumentIndex);
+  const char* a = getArgument(aArgumentIndex);
   if (!a) return false;
   aArg = a;
   return true;
@@ -821,9 +821,9 @@ bool CmdLineApp::getStringArgument(size_t aArgumentIndex, string &aArg)
 
 bool CmdLineApp::getIntArgument(size_t aArgumentIndex, int &aInteger)
 {
-  const char *a = getArgument(aArgumentIndex);
+  const char* a = getArgument(aArgumentIndex);
   if (!a || *a==0) return false;
-  char *e = NULL;
+  char* e = NULL;
   long i = strtol(a, &e, 0);
   if (e && *e==0) {
     aInteger = (int)i;

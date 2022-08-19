@@ -177,14 +177,14 @@ long long _p44_now()
   struct timespec tsp;
   clock_gettime(CLOCK_MONOTONIC, &tsp);
   // return microseconds
-  return ((uint64_t)(tsp.tv_sec))*1000000ll + tsp.tv_nsec/1000; // uS
+  return ((long long)(tsp.tv_sec))*1000000ll + (long long)(tsp.tv_nsec/1000); // uS
   #endif
 }
 
 
 unsigned long _p44_millis()
 {
-  return _p44_now()/1000; // mS
+  return (unsigned long)(_p44_now()/1000); // mS
 }
 
 
@@ -212,7 +212,7 @@ MLMicroSeconds MainLoop::unixtime()
   struct timespec tsp;
   clock_gettime(CLOCK_REALTIME, &tsp);
   // return unix epoch microseconds
-  return ((uint64_t)(tsp.tv_sec))*1000000ll + tsp.tv_nsec/1000; // uS
+  return ((long long)(tsp.tv_sec))*1000000ll + (long long)(tsp.tv_nsec/1000); // uS
   #endif
 }
 
@@ -258,7 +258,7 @@ MLMicroSeconds MainLoop::localTimeToMainLoopTime(const struct tm& aLocalTime)
 void MainLoop::getLocalTime(struct tm& aLocalTime, double* aFractionalSecondsP, MLMicroSeconds aUnixTime, bool aGMT)
 {
   double unixsecs = aUnixTime/Second;
-  time_t t = unixsecs;
+  time_t t = (time_t)unixsecs;
   if (aGMT) gmtime_r(&t, &aLocalTime);
   else localtime_r(&t, &aLocalTime);
   if (aFractionalSecondsP) {
@@ -287,7 +287,7 @@ string MainLoop::string_fmltime(const char *aFormat, MLMicroSeconds aTime, int a
     double fracSecs;
     mainLoopTimeTolocalTime(aTime, tim, &fracSecs);
     string_ftime_append(ts, aFormat, &tim);
-    int f = fracSecs*pow(10, aFractionals);
+    int f = (int)(fracSecs*pow(10, aFractionals));
     string_format_append(ts, ".%0*d", aFractionals, f);
   }
   return ts;
@@ -439,11 +439,11 @@ void p44::libev_sleep_timer_done(EV_P_ struct ev_timer *t, int revents)
 
 
 MainLoop::MainLoop() :
-	terminated(false),
-  hasStarted(false),
-  exitCode(EXIT_SUCCESS),
+  timersChanged(false),
   ticketNo(0),
-  timersChanged(false)
+  hasStarted(false),
+  terminated(false),
+  exitCode(EXIT_SUCCESS)
 {
   #ifdef ESP_PLATFORM
   FOCUSLOG("mainloop: ESP32 specific initialisation of mainloop@%p", this);
@@ -1530,12 +1530,14 @@ void *ChildThreadWrapper::startFunction()
 
 
 ChildThreadWrapper::ChildThreadWrapper(MainLoop &aParentThreadMainLoop, ThreadRoutine aThreadRoutine, ThreadSignalHandler aThreadSignalHandler) :
+  threadRunning(false),
   parentThreadMainLoop(aParentThreadMainLoop),
-  threadRoutine(aThreadRoutine),
+  childSignalFd(-1),
+  parentSignalFd(-1),
   parentSignalHandler(aThreadSignalHandler),
+  threadRoutine(aThreadRoutine),
   terminationPending(false),
-  myMainLoopP(NULL),
-  threadRunning(false)
+  myMainLoopP(NULL)
 {
   // create a signal pipe
   int pipeFdPair[2];
