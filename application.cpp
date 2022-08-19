@@ -431,7 +431,10 @@ void CmdLineApp::setCommandDescriptors(const char* aSynopsis, const CmdLineOptio
 void CmdLineApp::showUsage()
 {
   // print synopsis
-  fprintf(stderr, mSynopsis.c_str(), mInvocationName.c_str());
+  string usage = string_substitute(mSynopsis, "%1$s", mInvocationName); // catch old-style printf reference to invocation (path)name
+  usage = string_substitute(usage, "${toolpath}", mInvocationName); // full invocation name
+  usage = string_substitute(usage, "${toolname}", getToolName()); // just name of tool
+  fprintf(stderr, "%s", usage.c_str());
   // print options
   int numDocumentedOptions = 0;
   // - calculate indent
@@ -572,6 +575,15 @@ void CmdLineApp::showUsage()
     }
   } // if any options to show
   fprintf(stderr, "\n");
+}
+
+
+const char* CmdLineApp::getToolName()
+{
+  const char* p = mInvocationName.c_str();
+  const char* n = strrchr(p, '/');
+  if (n) return n+1; // last path element w/o leading slash
+  else return p; // entire invocation string
 }
 
 

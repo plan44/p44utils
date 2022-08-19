@@ -312,6 +312,10 @@ namespace p44 {
     /// @note parseCommandLine() must be called before using this method
     const char* getInvocationName();
 
+    /// get name of tool as it was invocated, without path
+    /// @return application name (last path element of argv[0])
+    const char* getToolName();
+
     /// parse standard logging options and configure logger
     /// @param aForDaemon if set, logger is configured for daemon (rather than command line utility)
     /// @param aDefaultErrLevel sets the default error level for daemons (usually LOG_ERR)
