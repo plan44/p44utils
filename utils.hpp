@@ -53,6 +53,13 @@ namespace p44 {
   /// @return formatted string
   string string_format(const char *aFormat, ...) __printflike(1,2);
 
+  /// replace occurrence of one string by another
+  /// @param aString string to search for placeholders
+  /// @param aPlaceholder string to search for
+  /// @param aSubstitute string to substitute wherever the placeholder is found
+  /// @return string with placeholders substituted
+  string string_substitute(const string aString, const string aPlaceholder, const string aSubstitute);
+
   /// printf-style format appending to string
   /// @param aStringToAppendTo string to append formatted string to
   /// @param aFormat printf-style format string

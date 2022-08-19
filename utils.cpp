@@ -90,6 +90,20 @@ void p44::string_format_append(string &aStringToAppendTo, const char *aFormat, .
 
 
 
+string p44::string_substitute(const string aString, const string aPlaceholder, const string aSubstitute)
+{
+  string s = aString;
+  size_t i = 0;
+  while (true) {
+    i = s.find(aPlaceholder, i);
+    if (i==string::npos) break;
+    s.replace(i, aPlaceholder.size(), aSubstitute);
+    i += aSubstitute.size();
+  }
+  return s;
+}
+
+
 
 void p44::pathstring_make_dir(string &aPathToMakeDir)
 {
