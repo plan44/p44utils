@@ -6768,7 +6768,7 @@ static void abort_func(BuiltinFunctionContextPtr f)
 // delay(seconds)
 static void delay_abort(TicketObjPtr aTicket)
 {
-  aTicket->ticket.cancel();
+  aTicket->mTicket.cancel();
 }
 static const BuiltInArgDesc delayx_args[] = { { numeric } };
 static const size_t delayx_numargs = sizeof(delayx_args)/sizeof(BuiltInArgDesc);
@@ -6776,7 +6776,7 @@ static void delay_func(BuiltinFunctionContextPtr f)
 {
   MLMicroSeconds delay = f->arg(0)->doubleValue()*Second;
   TicketObjPtr delayTicket = TicketObjPtr(new TicketObj);
-  delayTicket->ticket.executeOnce(boost::bind(&BuiltinFunctionContext::finish, f, new AnnotatedNullValue("delayed")), delay);
+  delayTicket->mTicket.executeOnce(boost::bind(&BuiltinFunctionContext::finish, f, new AnnotatedNullValue("delayed")), delay);
   f->setAbortCallback(boost::bind(&delay_abort, delayTicket));
 }
 static void delayuntil_func(BuiltinFunctionContextPtr f)
@@ -6795,7 +6795,7 @@ static void delayuntil_func(BuiltinFunctionContextPtr f)
   // now u is epoch time in seconds
   until = MainLoop::unixTimeToMainLoopTime(u*Second);
   TicketObjPtr delayTicket = TicketObjPtr(new TicketObj);
-  delayTicket->ticket.executeOnceAt(boost::bind(&BuiltinFunctionContext::finish, f, new AnnotatedNullValue("delayed")), until);
+  delayTicket->mTicket.executeOnceAt(boost::bind(&BuiltinFunctionContext::finish, f, new AnnotatedNullValue("delayed")), until);
   f->setAbortCallback(boost::bind(&delay_abort, delayTicket));
 }
 
