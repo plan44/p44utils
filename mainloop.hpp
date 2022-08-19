@@ -147,19 +147,19 @@ namespace p44 {
 
   class MLTimer P44_FINAL {
     friend class MainLoop;
-    MLTicketNo ticketNo;
-    MLMicroSeconds executionTime;
-    MLMicroSeconds tolerance;
-    TimerCB callback;
-    bool reinsert; // if set after running a callback, the timer was re-triggered and must be re-inserted into the timer queue
+    MLTicketNo mTicketNo;
+    MLMicroSeconds mExecutionTime;
+    MLMicroSeconds mTolerance;
+    TimerCB mCallback;
+    bool mReinsert; // if set after running a callback, the timer was re-triggered and must be re-inserted into the timer queue
   public:
-    MLTicketNo getTicket() { return ticketNo; };
+    MLTicketNo getTicket() { return mTicketNo; };
   };
 
 
   class MLTicket
   {
-    MLTicketNo ticketNo;
+    MLTicketNo mTicketNo;
 
     MLTicket(MLTicket &aTicket); ///< private copy constructor, must not be used
 
@@ -216,7 +216,7 @@ namespace p44 {
   class TicketObj : public P44Obj
   {
   public:
-    MLTicket ticket;
+    MLTicket mTicket;
   };
   typedef boost::intrusive_ptr<TicketObj> TicketObjPtr;
 
@@ -233,9 +233,9 @@ namespace p44 {
 
     // timers
     typedef std::list<MLTimer> TimerList;
-    TimerList timers;
-    bool timersChanged;
-    MLTicketNo ticketNo;
+    TimerList mTimers;
+    bool mTimersChanged;
+    MLTicketNo mTicketNo;
 
     // wait handlers
     typedef struct {
@@ -243,7 +243,7 @@ namespace p44 {
       WaitCB callback;
     } WaitHandler;
     typedef std::map<pid_t, WaitHandler> WaitHandlerMap;
-    WaitHandlerMap waitHandlers;
+    WaitHandlerMap mWaitHandlers;
 
     // IO poll handlers
     #if MAINLOOP_LIBEV_BASED
@@ -271,14 +271,14 @@ namespace p44 {
     #endif
 
     typedef std::map<int, IOPollHandler> IOPollHandlerMap;
-    IOPollHandlerMap ioPollHandlers;
+    IOPollHandlerMap mIoPollHandlers;
 
     // Configuration
-    MLMicroSeconds maxSleep; ///< how long to sleep maximally per mainloop cycle, can be set to Infinite to allow unlimited sleep
-    MLMicroSeconds throttleSleep; ///< how long to sleep after a mainloop cycle that had no chance to sleep at all. Can be 0.
-    MLMicroSeconds maxRun; ///< how long to run maximally without any interruption. Note that this cannot limit the runtime for a single handler.
-    MLMicroSeconds maxCoalescing; ///< how much to shift timer execution points maximally (always within limits given by timer's tolerance) to coalesce executions
-    MLMicroSeconds waitCheckInterval; ///< max interval between checks for termination of running child processes
+    MLMicroSeconds mMaxSleep; ///< how long to sleep maximally per mainloop cycle, can be set to Infinite to allow unlimited sleep
+    MLMicroSeconds mThrottleSleep; ///< how long to sleep after a mainloop cycle that had no chance to sleep at all. Can be 0.
+    MLMicroSeconds mMaxRun; ///< how long to run maximally without any interruption. Note that this cannot limit the runtime for a single handler.
+    MLMicroSeconds mMaxCoalescing; ///< how much to shift timer execution points maximally (always within limits given by timer's tolerance) to coalesce executions
+    MLMicroSeconds mWaitCheckInterval; ///< max interval between checks for termination of running child processes
 
     #ifdef ESP_PLATFORM
     TaskHandle_t mTaskHandle; ///< task handle of task that started this mainloop
@@ -293,20 +293,20 @@ namespace p44 {
 
   protected:
 
-    bool hasStarted;
-    bool terminated;
-    int exitCode;
+    bool mHasStarted;
+    bool mTerminated;
+    int mExitCode;
 
     #if MAINLOOP_STATISTICS
-    MLMicroSeconds statisticsStartTime;
-    size_t maxTimers;
-    MLMicroSeconds ioHandlerTime;
-    MLMicroSeconds timedHandlerTime;
-    MLMicroSeconds maxTimerExecutionDelay;
-    long timesTimersRanToLong;
-    long timesThrottlingApplied;
-    MLMicroSeconds waitHandlerTime;
-    MLMicroSeconds threadSignalHandlerTime;
+    MLMicroSeconds mStatisticsStartTime;
+    size_t mMaxTimers;
+    MLMicroSeconds mIoHandlerTime;
+    MLMicroSeconds mTimedHandlerTime;
+    MLMicroSeconds mMaxTimerExecutionDelay;
+    long mTimesTimersRanToLong;
+    long mTimesThrottlingApplied;
+    MLMicroSeconds mWaitHandlerTime;
+    MLMicroSeconds mThreadSignalHandlerTime;
     #endif
 
 
@@ -570,11 +570,11 @@ namespace p44 {
 
     /// ask if mainloop has already been asked to terminate
     /// @return returns true if terminate() has been called before
-    bool isTerminated() { return terminated; };
+    bool isTerminated() { return mTerminated; };
 
     /// ask if mainloop is normally running
     /// @return will return false as soon as mainloop has been requested to terminate, or before run() has been called
-    bool isRunning() { return hasStarted && !terminated; };
+    bool isRunning() { return mHasStarted && !mTerminated; };
 
     /// register a cleanup handler, which will be called when the main loop has terminated
     /// @param aCleanupHandler the routine to be called
