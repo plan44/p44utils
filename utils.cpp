@@ -90,15 +90,17 @@ void p44::string_format_append(string &aStringToAppendTo, const char *aFormat, .
 
 
 
-string p44::string_substitute(const string aString, const string aPlaceholder, const string aSubstitute)
+string p44::string_substitute(const string aString, const string aPlaceholder, const string aSubstitute, int aNumTimes)
 {
   string s = aString;
   size_t i = 0;
-  while (true) {
+  int n = aNumTimes;
+  while (n>0 || aNumTimes==0) {
     i = s.find(aPlaceholder, i);
     if (i==string::npos) break;
     s.replace(i, aPlaceholder.size(), aSubstitute);
     i += aSubstitute.size();
+    n--;
   }
   return s;
 }

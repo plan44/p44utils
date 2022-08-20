@@ -57,8 +57,10 @@ namespace p44 {
   /// @param aString string to search for placeholders
   /// @param aPlaceholder string to search for
   /// @param aSubstitute string to substitute wherever the placeholder is found
+  /// @param aNumTimes how many times to substitute (default = 0 = all occurrences)
+  /// @param aCaseInsensitive if set, comparison is case insensitive
   /// @return string with placeholders substituted
-  string string_substitute(const string aString, const string aPlaceholder, const string aSubstitute);
+  string string_substitute(const string aString, const string aPlaceholder, const string aSubstitute, int aNumTimes = 0);
 
   /// printf-style format appending to string
   /// @param aStringToAppendTo string to append formatted string to

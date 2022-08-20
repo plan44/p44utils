@@ -6015,6 +6015,34 @@ static void find_func(BuiltinFunctionContextPtr f)
 }
 
 
+// replace(haystack, needle, replacement)
+// replace(haystack, needle, replacement, howmany)
+static const BuiltInArgDesc replace_args[] = { { text|undefres }, { text }, { text }, { numeric|optionalarg } };
+static const size_t replace_numargs = sizeof(replace_args)/sizeof(BuiltInArgDesc);
+static void replace_func(BuiltinFunctionContextPtr f)
+{
+  string haystack;
+  string needle;
+  if (f->arg(4)->boolValue()) {
+    haystack = lowerCase(f->arg(0)->stringValue());
+    needle = lowerCase(f->arg(1)->stringValue());
+  }
+  else {
+    haystack = f->arg(0)->stringValue();
+    needle = f->arg(1)->stringValue();
+  }
+  int rep = 0;
+  if (f->arg(3)->defined()) {
+    rep = f->arg(3)->intValue();
+  }
+  f->finish(new StringValue(string_substitute(
+    f->arg(0)->stringValue(), f->arg(1)->stringValue(),
+    f->arg(2)->stringValue(), rep
+  )));
+}
+
+
+
 // uppercase(string)
 // lowercase(string)
 static const BuiltInArgDesc xcase_args[] = { { text|undefres } };
@@ -7386,6 +7414,7 @@ static const BuiltinMemberDescriptor standardFunctions[] = {
   { "strrep", executable|text, strrep_numargs, strrep_args, &strrep_func },
   { "substr", executable|text|null, substr_numargs, substr_args, &substr_func },
   { "find", executable|numeric|null, find_numargs, find_args, &find_func },
+  { "replace", executable|text, replace_numargs, replace_args, &replace_func },
   { "lowercase", executable|text, xcase_numargs, xcase_args, &lowercase_func },
   { "uppercase", executable|text, xcase_numargs, xcase_args, &uppercase_func },
   { "shellquote", executable|text, shellquote_numargs, shellquote_args, &shellquote_func },
