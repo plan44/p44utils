@@ -6228,7 +6228,7 @@ static void errormessage_func(BuiltinFunctionContextPtr f)
 }
 
 
-// eval(string, [args...])    have string executed as script code, with access to optional args as arg0, arg1, argN...
+// eval(string, [args...])    have string executed as script code, with access to optional args as arg1, arg2, ... argN
 static const BuiltInArgDesc eval_args[] = { { text|executable }, { any|null|error|multiple } };
 static const size_t eval_numargs = sizeof(eval_args)/sizeof(BuiltInArgDesc);
 static void eval_func(BuiltinFunctionContextPtr f)
