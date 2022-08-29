@@ -58,7 +58,6 @@ namespace p44 {
   /// @param aPlaceholder string to search for
   /// @param aSubstitute string to substitute wherever the placeholder is found
   /// @param aNumTimes how many times to substitute (default = 0 = all occurrences)
-  /// @param aCaseInsensitive if set, comparison is case insensitive
   /// @return string with placeholders substituted
   string string_substitute(const string aString, const string aPlaceholder, const string aSubstitute, int aNumTimes = 0);
 
@@ -81,13 +80,13 @@ namespace p44 {
   /// @param aFormat strftime-style format string
   /// @param aTimeP aTime time to format, or NULL for current local time
   /// @return formatted time string
-  string string_ftime(const char *aFormat, const struct tm *aTimeP = NULL);
+  string string_ftime(const char *aFormat, const struct tm *aTimeP = NULL) __strftimelike(1);
 
   /// strftime appending to string
   /// @param aStringToAppendTo string to append formatted time to
   /// @param aFormat strftime-style format string
   /// @param aTimeP aTime time to format, or NULL for current local time
-  void string_ftime_append(string &aStringToAppendTo, const char *aFormat, const struct tm *aTimeP = NULL);
+  void string_ftime_append(string &aStringToAppendTo, const char *aFormat, const struct tm *aTimeP = NULL) __strftimelike(2);
 
   /// get next line from file into string
   /// @param aFile file open for read

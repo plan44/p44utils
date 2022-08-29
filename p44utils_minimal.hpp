@@ -58,6 +58,23 @@
   #define P44_CPP20_FEATURE 0
 #endif
 
+#ifndef __printflike
+  // old compilers not having printflike at all
+  #define __printflike(...)
+  // these do not have mechanism for strftime, either -> define it empty
+  #define __strftimelike(arg)
+#endif
+#ifdef ESP_PLATFORM
+  #define __printflike_template(...)
+#else
+  #define __printflike_template(...) __printflike(__VA_ARGS__)
+#endif
+
+// not all platforms that have __printflike also have __strftimelike
+#ifndef __strftimelike
+  #define __strftimelike(argno) __attribute__((format (strftime, argno, 0)))
+#endif
+
 #include "p44utils_config.hpp"
 
 // some minimal defs

@@ -368,7 +368,7 @@ namespace p44 {
     /// @param aTime time in mainloop now() scale
     /// @param aFractionals number of fractional second digits to append at end of string
     /// @return formatted time string (in local time)
-    static string string_fmltime(const char *aFormat, MLMicroSeconds aTime, int aFractionals = 0);
+    static string string_fmltime(const char *aFormat, MLMicroSeconds aTime, int aFractionals = 0) __strftimelike(1);
 
     /// format mainloop time as localtime in YYYY-MM-DD HH:MM:SS format with output to std::string
     /// @param aTime time in mainloop now() scale

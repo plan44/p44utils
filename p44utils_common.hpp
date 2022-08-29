@@ -50,15 +50,6 @@
 // to still allow using the placeholders w/o qualifier:
 using namespace boost::placeholders;
 
-#ifndef __printflike
-#define __printflike(...)
-#endif
-#ifdef ESP_PLATFORM
-  #define __printflike_template(...)
-#else
-  #define __printflike_template(...) __printflike(__VA_ARGS__)
-#endif
-
 #include "p44utils_defs.hpp"
 #include "p44obj.hpp"
 #include "logger.hpp"

@@ -123,7 +123,7 @@ void Logger::logStr_always(int aErrLevel, string aMessage)
   p += strftime(p, sizeof(tsbuf), "[%Y-%m-%d %H:%M:%S", localtime(&t.tv_sec));
   p += snprintf(p, bufSz-(size_t)(p-tsbuf), ".%03d", (int)(t.tv_usec/1000));
   if (deltaTime) {
-    long long millisPassed = (long long)(((t.tv_sec*1e6+t.tv_usec) - (lastLogTS.tv_sec*1e6+lastLogTS.tv_usec))/1000); // in mS
+    long long millisPassed = (long long)(((t.tv_sec*1000000ll+t.tv_usec) - (lastLogTS.tv_sec*1000000ll+lastLogTS.tv_usec))/1000); // in mS
     p += snprintf(p, bufSz-(size_t)(p-tsbuf), "%6lldmS", millisPassed);
   }
   lastLogTS = t;

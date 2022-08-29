@@ -31,8 +31,11 @@
 #include <sys/ioctl.h>
 #ifdef ESP_PLATFORM
 const struct in6_addr in6addr_loopback = IN6ADDR_LOOPBACK_INIT;
-#else
+#elif P44_BUILD_DIGI
+// old build environment, nowadays deperecated location
 #include <sys/poll.h>
+#else
+#include <poll.h>
 #endif
 
 using namespace p44;
@@ -520,8 +523,8 @@ ErrorPtr SocketComm::connectNextAddress()
           );
           if (s==0) {
             // convert to numeric port number
-            int port;
-            if (sscanf(sbuf, "%d", &port)==1) {
+            uint16_t port;
+            if (sscanf(sbuf, "%hd", &port)==1) {
               if (mCurrentAddressInfo->ai_family==AF_INET6) {
                 struct sockaddr_in6 recvaddr;
                 memset(&recvaddr, 0, sizeof recvaddr);

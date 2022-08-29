@@ -242,7 +242,7 @@ void MainLoop::mainLoopTimeTolocalTime(MLMicroSeconds aMLTime, struct tm& aLocal
   MLMicroSeconds ut = mainLoopTimeToUnixTime(aMLTime);
   time_t t = ut/Second;
   if (aFractionalSecondsP) {
-    *aFractionalSecondsP = (double)ut/Second-t;
+    *aFractionalSecondsP = (double)ut/Second-(double)t;
   }
   localtime_r(&t, &aLocalTime);
 }
@@ -257,7 +257,7 @@ MLMicroSeconds MainLoop::localTimeToMainLoopTime(const struct tm& aLocalTime)
 
 void MainLoop::getLocalTime(struct tm& aLocalTime, double* aFractionalSecondsP, MLMicroSeconds aUnixTime, bool aGMT)
 {
-  double unixsecs = aUnixTime/Second;
+  double unixsecs = (double)(aUnixTime/Second);
   time_t t = (time_t)unixsecs;
   if (aGMT) gmtime_r(&t, &aLocalTime);
   else localtime_r(&t, &aLocalTime);
@@ -302,7 +302,7 @@ void MainLoop::sleep(MLMicroSeconds aSleepTime)
   // Linux/MacOS has nanosleep in nanoseconds
   timespec sleeptime;
   sleeptime.tv_sec=aSleepTime/Second;
-  sleeptime.tv_nsec=(aSleepTime % Second)*1000L; // nS = 1000 uS
+  sleeptime.tv_nsec=(long)((aSleepTime % Second)*1000ll); // nS = 1000 uS
   nanosleep(&sleeptime,NULL);
   #endif
 }
@@ -1126,9 +1126,9 @@ void MainLoop::registerPollHandler(int aFD, int aPollFlags, IOPollCB aPollEventH
   }
 }
 
-// older libev do not have ev_io_modify yet
+// older libev do not yet have ev_io_modify
 #ifndef ev_io_modify
-#define ev_io_modify(ev,events_) do { (ev)->events = (ev)->events & EV__IOFDSET | (events_); } while (0)
+#define ev_io_modify(ev,events_) do { (ev)->events = ((ev)->events & EV__IOFDSET) | (events_); } while (0)
 #endif
 
 void MainLoop::changePollFlags(int aFD, int aSetPollFlags, int aClearPollFlags)
