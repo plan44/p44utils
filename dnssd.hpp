@@ -66,6 +66,14 @@
 #include <avahi-common/domain.h>
 
 
+#if ENABLE_P44SCRIPT && !defined(ENABLE_DNSSD_SCRIPT_FUNCS)
+  #define ENABLE_DNSSD_SCRIPT_FUNCS 1
+#endif
+
+#if ENABLE_DNSSD_SCRIPT_FUNCS
+  #include "p44script.hpp"
+#endif
+
 using namespace std;
 
 namespace p44 {
@@ -224,7 +232,13 @@ namespace p44 {
     /// browse third-party services
     /// @param aServiceType the service type such as "_http._tcp"
     /// @param aServiceBrowserCB will be called (possibly multiple times) to report found services
+    /// @note while browsing, the DnsSdServiceBrowser is kept alive in the manager's list, calling stopBrowsing()
+    ///    or returning false in the callback removes the DnsSdServiceBrowser from the list so it might get deleted
+    ///    when not kept otherwise.
     void browse(const char *aServiceType, DnsSdServiceBrowserCB aServiceBrowserCB);
+
+    /// stop browsing, no callback will happen
+    void stopBrowsing();
 
   private:
 
@@ -236,6 +250,9 @@ namespace p44 {
     // internally called when service is stopped, unlinks this object from actual avahi object
     void invalidate();
 
+    // stop avahi level browsing, and then invalidate()
+    void deactivate();
+
   };
   typedef boost::intrusive_ptr<DnsSdServiceBrowser> DnsSdServiceBrowserPtr;
 
@@ -246,7 +263,7 @@ namespace p44 {
   typedef boost::function<bool (ErrorPtr aError)> ServiceStatusCB;
 
 
-  /// Implements service announcement and discovery (via avahi) for vdc host and (if configured) a associated vdsm
+  /// Implements service announcement and discovery (via avahi)
   class DnsSdManager : public P44LoggingObj
   {
     typedef P44LoggingObj inherited;
@@ -365,6 +382,20 @@ namespace p44 {
 
   };
 
+
+  #if ENABLE_DNSSD_SCRIPT_FUNCS && ENABLE_P44SCRIPT
+  namespace P44Script {
+
+    /// represents the global objects related to http
+    class DnsSdLookup : public BuiltInMemberLookup
+    {
+      typedef BuiltInMemberLookup inherited;
+    public:
+      DnsSdLookup();
+    };
+
+  }
+  #endif
 
 
 } // namespace p44

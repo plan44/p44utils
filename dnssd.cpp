@@ -101,7 +101,7 @@ string DnsSdServiceInfo::url(Tristate aSecure, bool aURLFormat)
     proto = "sftp";
     aSecure = no;
   }
-  // assume auto http/https for all which have undefined at this point
+  // assume auto http/https for all which have undefined aSecure at this point
   if ((aSecure==undefined && port==443) || aSecure==yes) {
     proto += "s";
   }
@@ -734,6 +734,28 @@ void DnsSdServiceBrowser::invalidate()
   mServiceBrowser = NULL;
 }
 
+void DnsSdServiceBrowser::deactivate()
+{
+  if (mServiceBrowser) {
+    avahi_service_browser_free(mServiceBrowser);
+    invalidate();
+  }
+}
+
+
+void DnsSdServiceBrowser::stopBrowsing()
+{
+  mServiceBrowserCB = NoOP;
+  deactivate();
+  // remove myself from manager's list
+  for (DnsSdManager::ServiceBrowsersList::iterator pos = mManager.mServiceBrowsers.begin(); pos!=mManager.mServiceBrowsers.end(); ++pos) {
+    if (pos->get() == this) {
+      mManager.mServiceBrowsers.erase(pos);
+      break;
+    }
+  }
+}
+
 
 DnsSdServiceBrowser::~DnsSdServiceBrowser()
 {
@@ -902,8 +924,92 @@ void DnsSdServiceBrowser::resolve_callback(AvahiServiceResolver *r, AvahiIfIndex
   avahi_service_resolver_free(r);
   // maybe also kill browser now
   if (!keepBrowsing) {
-    avahi_service_browser_free(mServiceBrowser);
-    mServiceBrowser = NULL;
+    stopBrowsing();
   }
 }
 
+
+// MARK: - script support
+
+#if ENABLE_DNSSD_SCRIPT_FUNCS && ENABLE_P44SCRIPT
+
+using namespace P44Script;
+
+// dnssdbrowse(type [,host])
+static const BuiltInArgDesc dnssdbrowse_args[] = { { text } , { text|optionalarg } };
+static const size_t dnssdbrowse_numargs = sizeof(dnssdbrowse_args)/sizeof(BuiltInArgDesc);
+// handler
+static bool dnssdbrowsehandler(BuiltinFunctionContextPtr f, JsonObjectPtr aBrowsingresults, ErrorPtr aError, DnsSdServiceInfoPtr aServiceInfo)
+{
+  if (Error::notOK(aError)) {
+    if (aError->isError(DnsSdError::domain(), p44::DnsSdError::AllForNow)) {
+      // allForNow: return the list we have collected so far
+      f->finish(new JsonValue(aBrowsingresults));
+    }
+    else {
+      f->finish(new ErrorValue(aError));
+    }
+    return false; // stop browsing
+  }
+  else {
+    // got some result
+    if (f->numArgs()>1) {
+      // must match hostname
+      if (aServiceInfo->hostname!=f->arg(1)->stringValue()) {
+        // not the host we are looking for
+        return true; // continue browsing
+      }
+    }
+    if (!aServiceInfo->disappeared) {
+      // actually existing service, add it to our results
+      JsonObjectPtr r = JsonObject::newObj();
+      r->add("name", JsonObject::newString(aServiceInfo->name));
+      r->add("hostname", JsonObject::newString(aServiceInfo->hostname));
+      r->add("hostaddress", JsonObject::newString(aServiceInfo->hostaddress));
+      r->add("ipv6", JsonObject::newBool(aServiceInfo->ipv6));
+      r->add("port", JsonObject::newInt32(aServiceInfo->port));
+      r->add("interface", JsonObject::newInt32(aServiceInfo->ifIndex));
+      r->add("url", JsonObject::newString(aServiceInfo->url()));
+      JsonObjectPtr txts = JsonObject::newObj();
+      for (DnsSdServiceInfo::TxtRecordsMap::iterator pos = aServiceInfo->txtRecords.begin(); pos!=aServiceInfo->txtRecords.end(); ++pos) {
+        txts->add(pos->first.c_str(), JsonObject::newString(pos->second));
+      }
+      r->add("txts", txts);
+      aBrowsingresults->arrayAppend(r);
+    }
+    return true; // continue collecting until AllForNow
+  }
+}
+// abort
+void dnssdbrowse_abort(DnsSdServiceBrowserPtr aDnssdbrowser)
+{
+  aDnssdbrowser->stopBrowsing();
+}
+// initiator
+static void dnssdbrowse_func(BuiltinFunctionContextPtr f)
+{
+  DnsSdServiceBrowserPtr dnssdbrowser = DnsSdManager::sharedDnsSdManager().newServiceBrowser();
+  if (!dnssdbrowser) {
+    f->finish(new AnnotatedNullValue("DNS-SD services not available"));
+    return;
+  }
+  f->setAbortCallback(boost::bind(&dnssdbrowse_abort, dnssdbrowser));
+  JsonObjectPtr browsingresults = JsonObject::newArray();
+  dnssdbrowser->browse(
+    f->arg(0)->stringValue().c_str(), // type
+    boost::bind(&dnssdbrowsehandler, f, browsingresults, _1, _2)
+  );
+}
+
+
+static const BuiltinMemberDescriptor dnssdGlobals[] = {
+  { "dnssdbrowse", executable|async|json, dnssdbrowse_numargs, dnssdbrowse_args, &dnssdbrowse_func },
+  { NULL } // terminator
+};
+
+DnsSdLookup::DnsSdLookup() :
+  inherited(dnssdGlobals)
+{
+}
+
+#endif // ENABLE_HTTP_SCRIPT_FUNCS && ENABLE_P44SCRIPT
