@@ -1111,7 +1111,7 @@ void MainLoop::registerPollHandler(int aFD, int aPollFlags, IOPollCB aPollEventH
       #endif
     }
     // Note: just assigning to map
-    mIoPollHandlers [aFD] = h; // copies h
+    mIoPollHandlers[aFD] = h; // copies h
     ev_io* w = &(mIoPollHandlers[aFD].mIoWatcher);
     w->data = this; // only now the watcher is considered active (and stopped when destructed)
     ev_io_set(w, aFD, pollToEv(aPollFlags));
@@ -1154,7 +1154,16 @@ void MainLoop::changePollFlags(int aFD, int aSetPollFlags, int aClearPollFlags)
     #if MAINLOOP_LIBEV_BASED
     // TODO: for now, changing flags beyond POLLIN and POLLOUT is not supported with libev
     assert((f & ~(POLLIN|POLLOUT))==0);
+    // Note: it is *essential* not to call ev_io_modify() before stopping the IOWatcher first!
+    //   Otherwise, it seems that (at least when the modification removes EV_WRITE from
+    //   a socket FD from a callback of the same watcher) libev can get into a state
+    //   where ev_poll() always immediately exits with no event callback called.
+    // - stop
+    ev_io_stop(mLibEvLoopP, &pos->second.mIoWatcher);
+    // - modify flags
     ev_io_modify(&pos->second.mIoWatcher, pollToEv(f));
+    // - restart
+    ev_io_start(mLibEvLoopP, &pos->second.mIoWatcher);
     #else
     pos->second.pollFlags = f;
     #endif
@@ -1266,10 +1275,16 @@ void MainLoop::handleIOPoll(MLMicroSeconds aTimeout)
     // no timers, just FDs -> run until one event has occurred (which can mean
     //   a handler might have added a new p44 timer, which must be taken into acount
     //   before passing control to libev mainloop again)
-    bool runagain = ev_run(mLibEvLoopP, EVRUN_ONCE);
-    if (!runagain) {
-      LOG(LOG_WARNING, "Probably dead app - no candidates any more for generating mainloop events");
-      sleep(10*Second);
+    if (!ev_run(mLibEvLoopP, EVRUN_ONCE)) {
+      // libev thinks there is nothing to possibly generate an event any more.
+      // However: as we manage the timers ourselves, it could be that in the run that has just occurred,
+      // a libev callbacks has caused scheduling a new p44 mainloop timer! So check that before declaring the app dead.
+      if (mTimers.empty()) {
+        // still no timers
+        LOG(LOG_WARNING, "Probably dead - no candidates any more for generating mainloop events (except signals)");
+        // keep loop running, because a signal could revive it (unlikely, ugly but still).
+        sleep(10*Second);
+      }
     }
   }
   #else
