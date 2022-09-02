@@ -828,7 +828,7 @@ void MainLoop::childAnswerCollected(ExecCB aCallback, FdStringCollectorPtr aAnsw
   // close my end of the pipe
   aAnswerCollector->stopMonitoringAndClose();
   // now get answer
-  string answer = aAnswerCollector->collectedData;
+  string answer = aAnswerCollector->mCollectedData;
   LOG(LOG_DEBUG, "- Answer = %s", answer.c_str());
   // call back directly
   aCallback(aError, answer);
@@ -1266,7 +1266,11 @@ void MainLoop::handleIOPoll(MLMicroSeconds aTimeout)
     // no timers, just FDs -> run until one event has occurred (which can mean
     //   a handler might have added a new p44 timer, which must be taken into acount
     //   before passing control to libev mainloop again)
-    ev_run(mLibEvLoopP, EVRUN_ONCE);
+    bool runagain = ev_run(mLibEvLoopP, EVRUN_ONCE);
+    if (!runagain) {
+      LOG(LOG_WARNING, "Probably dead app - no candidates any more for generating mainloop events");
+      sleep(10*Second);
+    }
   }
   #else
   // use poll() - create poll structure

@@ -53,17 +53,17 @@ namespace p44 {
   /// wrapper for non-blocking I/O on a file descriptor
   class FdComm : public P44Obj
   {
-    StatusCB receiveHandler;
-    StatusCB transmitHandler;
+    StatusCB mReceiveHandler;
+    StatusCB mTransmitHandler;
 
   protected:
 
-    int dataFd;
-    MainLoop &mainLoop;
-    char delimiter;
-    string receiveBuffer;
-    string transmitBuffer;
-    size_t delimiterPos;
+    int mDataFd;
+    MainLoop &mMainLoop;
+    char mDelimiter;
+    string mReceiveBuffer;
+    string mTransmitBuffer;
+    size_t mDelimiterPos;
 
   public:
 
@@ -71,7 +71,7 @@ namespace p44 {
     virtual ~FdComm();
 
     /// place to attach a related object
-    P44ObjPtr relatedObject;
+    P44ObjPtr mRelatedObject;
 
     /// Set file descriptor
     /// @param aFd the file descriptor to monitor, -1 to cancel monitoring
@@ -81,7 +81,7 @@ namespace p44 {
     void stopMonitoringAndClose();
 
     /// Get file descriptor
-    int getFd() { return dataFd; };
+    int getFd() { return mDataFd; };
 
     /// write data (non-blocking)
     /// @param aNumBytes number of bytes to transfer
@@ -142,7 +142,7 @@ namespace p44 {
 
     /// clear all callbacks
     /// @note this is important because handlers might cause retain cycles when they have smart ptr arguments
-    virtual void clearCallbacks() { receiveHandler = NoOP; transmitHandler = NoOP; }
+    virtual void clearCallbacks() { mReceiveHandler = NoOP; mTransmitHandler = NoOP; }
 
   protected:
     /// this is intended to be overridden in subclases, and is called when
@@ -162,12 +162,12 @@ namespace p44 {
   {
     typedef FdComm inherited;
 
-    bool ended; ///< set when FD returns error or HUP
-    StatusCB endedCallback; ///< called when collecting ends (after setup by collectToEnd())
+    bool mEnded; ///< set when FD returns error or HUP
+    StatusCB mEndedCallback; ///< called when collecting ends (after setup by collectToEnd())
 
   public:
 
-    string collectedData; ///< all data received from the fd is collected into this string
+    string mCollectedData; ///< all data received from the fd is collected into this string
 
     FdStringCollector(MainLoop &aMainLoop);
 
@@ -176,7 +176,7 @@ namespace p44 {
 
     /// clear all callbacks
     /// @note this is important because handlers might cause retain cycles when they have smart ptr arguments
-    virtual void clearCallbacks() { endedCallback = NoOP; inherited::clearCallbacks(); }
+    virtual void clearCallbacks() { mEndedCallback = NoOP; inherited::clearCallbacks(); }
 
   protected:
 

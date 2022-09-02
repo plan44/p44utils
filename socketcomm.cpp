@@ -237,7 +237,7 @@ ErrorPtr SocketComm::startServer(ServerConnectionCB aServerConnectionHandler, in
       mServing = true;
       mServerConnectionHandler = aServerConnectionHandler;
       // - install callback for when FD becomes writable (or errors out)
-      mainLoop.registerPollHandler(
+      mMainLoop.registerPollHandler(
         mConnectionFd,
         POLLIN,
         boost::bind(&SocketComm::connectionAcceptHandler, this, _1, _2)
@@ -595,7 +595,7 @@ ErrorPtr SocketComm::connectNextAddress()
       // - save FD
       mConnectionFd = socketFD;
       // - install callback for when FD becomes writable (or errors out)
-      mainLoop.registerPollHandler(
+      mMainLoop.registerPollHandler(
         mConnectionFd,
         POLLOUT,
         boost::bind(&SocketComm::connectionMonitorHandler, this, _1, _2)
@@ -723,7 +723,7 @@ void SocketComm::internalCloseConnection()
   if (!mConnectionLess && mServing) {
     // serving TCP socket
     // - close listening socket
-    mainLoop.unregisterPollHandler(mConnectionFd);
+    mMainLoop.unregisterPollHandler(mConnectionFd);
     close(mConnectionFd);
     mConnectionFd = -1;
     mServing = false;
@@ -739,7 +739,7 @@ void SocketComm::internalCloseConnection()
     if (mConnectionFd==getFd()) mConnectionFd = -1; // is the same descriptor, don't double-close
     stopMonitoringAndClose(); // close the data connection
     // to make sure, also unregister handler for connectionFd (in case FdComm had no fd set yet)
-    mainLoop.unregisterPollHandler(mConnectionFd);
+    mMainLoop.unregisterPollHandler(mConnectionFd);
     if (mServerConnection) {
       shutdown(mConnectionFd, SHUT_RDWR);
     }
@@ -791,9 +791,9 @@ bool SocketComm::connecting()
 size_t SocketComm::transmitBytes(size_t aNumBytes, const uint8_t *aBytes, ErrorPtr &aError)
 {
   if (mConnectionLess) {
-    if (dataFd<0)
+    if (mDataFd<0)
       return 0; // not ready yet
-    ssize_t res = sendto(dataFd, aBytes, aNumBytes, 0, mCurrentSockAddrP, mCurrentSockAddrLen);
+    ssize_t res = sendto(mDataFd, aBytes, aNumBytes, 0, mCurrentSockAddrP, mCurrentSockAddrLen);
     if (res<0) {
       aError = SysError::errNo("SocketComm::transmitBytes (connectionless): ");
       return 0; // nothing transmitted
@@ -809,7 +809,7 @@ size_t SocketComm::transmitBytes(size_t aNumBytes, const uint8_t *aBytes, ErrorP
 size_t SocketComm::receiveBytes(size_t aNumBytes, uint8_t *aBytes, ErrorPtr &aError)
 {
   if (mConnectionLess) {
-    if (dataFd>=0) {
+    if (mDataFd>=0) {
       // read
       ssize_t res = 0;
       if (aNumBytes>0) {
@@ -817,7 +817,7 @@ size_t SocketComm::receiveBytes(size_t aNumBytes, uint8_t *aBytes, ErrorPtr &aEr
           free(mPeerSockAddrP);
         mPeerSockAddrLen = sizeof(sockaddr); // pass in buffer size
         mPeerSockAddrP = (sockaddr *)malloc(mPeerSockAddrLen); // prepare buffer
-        res = recvfrom(dataFd, (void *)aBytes, aNumBytes, 0, mPeerSockAddrP, &mPeerSockAddrLen);
+        res = recvfrom(mDataFd, (void *)aBytes, aNumBytes, 0, mPeerSockAddrP, &mPeerSockAddrLen);
         if (res<0) {
           if (errno==EWOULDBLOCK)
             return 0; // nothing received

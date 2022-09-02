@@ -37,10 +37,10 @@
 using namespace p44;
 
 FdComm::FdComm(MainLoop &aMainLoop) :
-  dataFd(-1),
-  mainLoop(aMainLoop),
-  delimiter(0),
-  delimiterPos(string::npos)
+  mDataFd(-1),
+  mMainLoop(aMainLoop),
+  mDelimiter(0),
+  mDelimiterPos(string::npos)
 {
 }
 
@@ -54,19 +54,19 @@ FdComm::~FdComm()
 
 void FdComm::setFd(int aFd)
 {
-  if (dataFd!=aFd) {
-    if (dataFd>=0) {
+  if (mDataFd!=aFd) {
+    if (mDataFd>=0) {
       // unregister previous fd
-      mainLoop.unregisterPollHandler(dataFd);
-      dataFd = -1;
+      mMainLoop.unregisterPollHandler(mDataFd);
+      mDataFd = -1;
     }
-    dataFd = aFd;
-    if (dataFd>=0) {
+    mDataFd = aFd;
+    if (mDataFd>=0) {
       // register new fd
-      mainLoop.registerPollHandler(
-        dataFd,
-        (receiveHandler ? POLLIN : 0) | // report ready to read if we have a handler
-        (transmitHandler ? POLLOUT : 0), // report ready to transmit if we have a handler
+      mMainLoop.registerPollHandler(
+        mDataFd,
+        (mReceiveHandler ? POLLIN : 0) | // report ready to read if we have a handler
+        (mTransmitHandler ? POLLOUT : 0), // report ready to transmit if we have a handler
         boost::bind(&FdComm::dataMonitorHandler, this, _1, _2)
       );
     }
@@ -76,10 +76,10 @@ void FdComm::setFd(int aFd)
 
 void FdComm::stopMonitoringAndClose()
 {
-  if (dataFd>=0) {
-    mainLoop.unregisterPollHandler(dataFd);
-    close(dataFd);
-    dataFd = -1;
+  if (mDataFd>=0) {
+    mMainLoop.unregisterPollHandler(mDataFd);
+    close(mDataFd);
+    mDataFd = -1;
   }
 }
 
@@ -97,21 +97,21 @@ bool FdComm::dataMonitorHandler(int aFd, int aPollFlags)
   FdCommPtr keepMeAlive(this); // make sure this object lives until routine terminates
   FOCUSLOG("FdComm::dataMonitorHandler(time==%lld, fd==%d, pollflags==0x%X)", MainLoop::now(), aFd, aPollFlags);
   // Note: test POLLIN first, because we might get a POLLHUP in parallel - so make sure we process data before hanging up
-  if ((aPollFlags & POLLIN) && receiveHandler) {
+  if ((aPollFlags & POLLIN) && mReceiveHandler) {
     // Note: on linux a socket closed server side does not return POLLHUP, but POLLIN with no data
     size_t bytes = numBytesReady();
     FOCUSLOG("- POLLIN with %zd bytes ready", bytes);
     if (bytes>0) {
       // check if in delimited mode (e.g. line by line)
-      if (delimiter) {
+      if (mDelimiter) {
         // receive into buffer
-        receiveAndAppendToString(receiveBuffer);
+        receiveAndAppendToString(mReceiveBuffer);
         // check data and call back if we have collected a delimited string already
         checkReceiveData();
       }
       else {
         FOCUSLOG("- calling receive handler");
-        receiveHandler(ErrorPtr());
+        mReceiveHandler(ErrorPtr());
       }
     }
     else {
@@ -127,9 +127,9 @@ bool FdComm::dataMonitorHandler(int aFd, int aPollFlags)
     dataExceptionHandler(aFd, aPollFlags);
   }
   else if ((aPollFlags & POLLOUT)) {
-    if (!sendBufferedData() && transmitHandler) {
+    if (!sendBufferedData() && mTransmitHandler) {
       FOCUSLOG("- POLLOUT - calling data transmit handler");
-      transmitHandler(ErrorPtr());
+      mTransmitHandler(ErrorPtr());
     }
   }
   else if (aPollFlags & POLLERR) {
@@ -144,12 +144,12 @@ bool FdComm::dataMonitorHandler(int aFd, int aPollFlags)
 
 void FdComm::checkReceiveData()
 {
-  if (delimiterPos==string::npos) {
+  if (mDelimiterPos==string::npos) {
     // no delimiter pending
-    delimiterPos = receiveBuffer.find(delimiter);
-    if (delimiterPos!=string::npos) {
+    mDelimiterPos = mReceiveBuffer.find(mDelimiter);
+    if (mDelimiterPos!=string::npos) {
       FOCUSLOG("- found delimiter, calling receive handler");
-      receiveHandler(ErrorPtr());
+      mReceiveHandler(ErrorPtr());
     }
   }
 }
@@ -157,50 +157,50 @@ void FdComm::checkReceiveData()
 
 bool FdComm::sendBufferedData()
 {
-  size_t toSend = transmitBuffer.size();
+  size_t toSend = mTransmitBuffer.size();
   if (toSend==0) {
-    if (transmitHandler.empty())
-      mainLoop.changePollFlags(dataFd, 0, POLLOUT); // done, we don't need POLLOUT any more
+    if (mTransmitHandler.empty())
+      mMainLoop.changePollFlags(mDataFd, 0, POLLOUT); // done, we don't need POLLOUT any more
     return false;
   }
   // send as much as possible
   ErrorPtr err;
-  size_t sent = transmitBytes(toSend, (const uint8_t *)transmitBuffer.c_str(), err);
+  size_t sent = transmitBytes(toSend, (const uint8_t *)mTransmitBuffer.c_str(), err);
   if (sent<toSend)
-    transmitBuffer.erase(0,sent);
+    mTransmitBuffer.erase(0,sent);
   else
-    transmitBuffer.clear();
+    mTransmitBuffer.clear();
   return true; // buffered send still in progress
 }
 
 
 bool FdComm::receiveDelimitedString(string &aString)
 {
-  if (delimiterPos==string::npos) return false; // none ready
+  if (mDelimiterPos==string::npos) return false; // none ready
   // also remove CR if delimiter is LF
-  size_t eraseSz = delimiterPos+1;
-  if (delimiter=='\n' && delimiterPos>0 && receiveBuffer[delimiterPos-1]=='\r') {
-    delimiterPos--;
+  size_t eraseSz = mDelimiterPos+1;
+  if (mDelimiter=='\n' && mDelimiterPos>0 && mReceiveBuffer[mDelimiterPos-1]=='\r') {
+    mDelimiterPos--;
   }
-  aString.assign(receiveBuffer, 0, delimiterPos);
-  receiveBuffer.erase(0, eraseSz);
-  delimiterPos = string::npos; // consumed this one, ready for next
+  aString.assign(mReceiveBuffer, 0, mDelimiterPos);
+  mReceiveBuffer.erase(0, eraseSz);
+  mDelimiterPos = string::npos; // consumed this one, ready for next
   // check for more delimited strings that might already be in the buffer
-  mainLoop.executeNow(boost::bind(&FdComm::checkReceiveData, this));
+  mMainLoop.executeNow(boost::bind(&FdComm::checkReceiveData, this));
   return true;
 }
 
 
 void FdComm::sendString(const string &aString)
 {
-  if (transmitBuffer.empty()) {
-    if (transmitHandler.empty())
-      mainLoop.changePollFlags(dataFd, POLLOUT, 0); // we need POLLOUT even if no transmit handler is set
-    transmitBuffer = aString;
+  if (mTransmitBuffer.empty()) {
+    if (mTransmitHandler.empty())
+      mMainLoop.changePollFlags(mDataFd, POLLOUT, 0); // we need POLLOUT even if no transmit handler is set
+    mTransmitBuffer = aString;
     sendBufferedData();
   }
   else {
-    transmitBuffer.append(aString);
+    mTransmitBuffer.append(aString);
   }
 }
 
@@ -208,34 +208,34 @@ void FdComm::sendString(const string &aString)
 
 void FdComm::setReceiveHandler(StatusCB aReceiveHandler, char aDelimiter)
 {
-  if (receiveHandler.empty()!=aReceiveHandler.empty()) {
-    receiveHandler = aReceiveHandler;
-    if (dataFd>=0) {
+  if (mReceiveHandler.empty()!=aReceiveHandler.empty()) {
+    mReceiveHandler = aReceiveHandler;
+    if (mDataFd>=0) {
       // If connected already, update poll flags to include data-ready-to-read
       // (otherwise, flags will be set when connection opens)
-      if (receiveHandler.empty())
-        mainLoop.changePollFlags(dataFd, 0, POLLIN); // clear POLLIN
+      if (mReceiveHandler.empty())
+        mMainLoop.changePollFlags(mDataFd, 0, POLLIN); // clear POLLIN
       else
-        mainLoop.changePollFlags(dataFd, POLLIN, 0); // set POLLIN
+        mMainLoop.changePollFlags(mDataFd, POLLIN, 0); // set POLLIN
     }
   }
-  delimiter = aDelimiter;
-  delimiterPos = string::npos;
-  receiveHandler = aReceiveHandler;
+  mDelimiter = aDelimiter;
+  mDelimiterPos = string::npos;
+  mReceiveHandler = aReceiveHandler;
 }
 
 
 void FdComm::setTransmitHandler(StatusCB aTransmitHandler)
 {
-  if (transmitHandler.empty()!=aTransmitHandler.empty()) {
-    transmitHandler = aTransmitHandler;
-    if (dataFd>=0) {
+  if (mTransmitHandler.empty()!=aTransmitHandler.empty()) {
+    mTransmitHandler = aTransmitHandler;
+    if (mDataFd>=0) {
       // If connected already, update poll flags to include ready-for-transmit
       // (otherwise, flags will be set when connection opens)
-      if (transmitHandler.empty())
-        mainLoop.changePollFlags(dataFd, 0, POLLOUT); // clear POLLOUT
+      if (mTransmitHandler.empty())
+        mMainLoop.changePollFlags(mDataFd, 0, POLLOUT); // clear POLLOUT
       else
-        mainLoop.changePollFlags(dataFd, POLLOUT, 0); // set POLLOUT
+        mMainLoop.changePollFlags(mDataFd, POLLOUT, 0); // set POLLOUT
     }
   }
 }
@@ -244,12 +244,12 @@ void FdComm::setTransmitHandler(StatusCB aTransmitHandler)
 size_t FdComm::transmitBytes(size_t aNumBytes, const uint8_t *aBytes, ErrorPtr &aError)
 {
   // if not connected now, we can't write
-  if (dataFd<0) {
+  if (mDataFd<0) {
     // waiting for connection to open
     return 0; // cannot transmit data yet
   }
   // connection is open, write now
-  ssize_t res = write(dataFd,aBytes,aNumBytes);
+  ssize_t res = write(mDataFd,aBytes,aNumBytes);
   if (res<0) {
     aError = SysError::errNo("FdComm::transmitBytes: ");
     return 0; // nothing transmitted
@@ -273,11 +273,11 @@ bool FdComm::transmitString(const string &aString)
 
 size_t FdComm::receiveBytes(size_t aNumBytes, uint8_t *aBytes, ErrorPtr &aError)
 {
-  if (dataFd>=0) {
+  if (mDataFd>=0) {
 		// read
     ssize_t res = 0;
 		if (aNumBytes>0) {
-			res = read(dataFd,aBytes,aNumBytes); // read
+			res = read(mDataFd,aBytes,aNumBytes); // read
       if (res<0) {
         if (errno==EWOULDBLOCK)
           return 0; // nothing received
@@ -319,10 +319,10 @@ ErrorPtr FdComm::receiveIntoString(string &aString, ssize_t aMaxBytes)
 
 size_t FdComm::numBytesReady()
 {
-  if (dataFd>=0) {
+  if (mDataFd>=0) {
     // get number of bytes ready for reading
     int numBytes; // must be int!! FIONREAD defines parameter as *int
-    int res = ioctl(dataFd, FIONREAD, &numBytes);
+    int res = ioctl(mDataFd, FIONREAD, &numBytes);
     return (size_t)(res!=0 ? 0 : numBytes);
   }
 	return 0; // no fd set, nothing to read
@@ -331,7 +331,7 @@ size_t FdComm::numBytesReady()
 
 void FdComm::makeNonBlocking(int aFd)
 {
-  if (aFd<0) aFd = dataFd;
+  if (aFd<0) aFd = mDataFd;
   int flags;
   if ((flags = fcntl(aFd, F_GETFL, 0))==-1)
     flags = 0;
@@ -344,7 +344,7 @@ void FdComm::makeNonBlocking(int aFd)
 
 FdStringCollector::FdStringCollector(MainLoop &aMainLoop) :
   FdComm(aMainLoop),
-  ended(false)
+  mEnded(false)
 {
   setReceiveHandler(boost::bind(&FdStringCollector::gotData, this, _1));
 }
@@ -353,11 +353,11 @@ FdStringCollector::FdStringCollector(MainLoop &aMainLoop) :
 void FdStringCollector::gotData(ErrorPtr aError)
 {
   if (Error::isOK(aError)) {
-    receiveAndAppendToString(collectedData);
+    receiveAndAppendToString(mCollectedData);
   }
   else {
     // error ends collecting
-    ended = true;
+    mEnded = true;
   }
 }
 
@@ -374,12 +374,12 @@ void FdStringCollector::dataExceptionHandler(int aFd, int aPollFlags)
     // end polling for data
     setReceiveHandler(NoOP);
     // if ending first time, call back
-    if (!ended && endedCallback) {
-      endedCallback(ErrorPtr());
+    if (!mEnded && mEndedCallback) {
+      mEndedCallback(ErrorPtr());
       // Note: we do not clear the callback here, as it might hold references which are not cleanly disposable right now
     }
     // anyway, ended now
-    ended = true;
+    mEnded = true;
   }
 }
 
@@ -387,12 +387,12 @@ void FdStringCollector::dataExceptionHandler(int aFd, int aPollFlags)
 void FdStringCollector::collectToEnd(StatusCB aEndedCallback)
 {
   FdCommPtr keepMeAlive(this); // make sure this object lives until routine terminates
-  endedCallback = aEndedCallback;
-  if (ended) {
+  mEndedCallback = aEndedCallback;
+  if (mEnded) {
     // if already ended when called, end right away
-    if (endedCallback) {
-      endedCallback(ErrorPtr());
-      endedCallback = NoOP;
+    if (mEndedCallback) {
+      mEndedCallback(ErrorPtr());
+      mEndedCallback = NoOP;
     }
   }
 }
