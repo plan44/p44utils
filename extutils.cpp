@@ -188,5 +188,5 @@ double WindowEvaluator::evaluate()
     }
     count++;
   }
-  return divisor ? result/divisor : 0;
+  return divisor!=0 ? result/divisor : 0;
 }
