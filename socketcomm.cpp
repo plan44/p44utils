@@ -372,6 +372,13 @@ void SocketComm::eachClient(SocketCommCB aEachClientCB)
 }
 
 
+size_t SocketComm::numClients()
+{
+  return mClientConnections.size();
+}
+
+
+
 // MARK: - connecting to a client
 
 

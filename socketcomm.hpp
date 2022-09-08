@@ -253,6 +253,9 @@ namespace p44 {
     /// @param aEachClient is called once for every client
     void eachClient(SocketCommCB aEachClientCB);
 
+    /// number of current client connections
+    size_t numClients();
+
   private:
     void freeAddressInfo();
     ErrorPtr socketError(int aSocketFd);
