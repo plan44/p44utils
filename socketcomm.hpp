@@ -186,6 +186,9 @@ namespace p44 {
     ///   local connections are accepted
     ErrorPtr startServer(ServerConnectionCB aServerConnectionHandler, int aMaxConnections);
 
+    /// @return true if socket is serving (is listening for connections made from outside)
+    bool isServing() { return mServing; }
+
     /// initiate the connection (non-blocking)
     /// This starts the connection process
     /// @return if no error is returned, this means the connection could be initiated
