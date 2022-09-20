@@ -7334,6 +7334,7 @@ static void contextbuiltins_func(BuiltinFunctionContextPtr f)
   f->finish(new JsonValue(f->thread()->owner()->scriptmain()->builtinsInfo()));
 }
 
+#if P44SCRIPT_FULL_SUPPORT
 
 static void globalhandlers_func(BuiltinFunctionContextPtr f)
 {
@@ -7345,6 +7346,8 @@ static void contexthandlers_func(BuiltinFunctionContextPtr f)
 {
   f->finish(new JsonValue(f->thread()->owner()->scriptmain()->handlersInfo()));
 }
+
+#endif // P44SCRIPT_FULL_SUPPORT
 
 
 static void globalvars_func(BuiltinFunctionContextPtr f)
@@ -7460,8 +7463,10 @@ static const BuiltinMemberDescriptor standardFunctions[] = {
   { "globals", builtinmember|json, 0, NULL, (BuiltinFunctionImplementation)&globals_accessor }, // Note: correct '.accessor=&lrg_accessor' form does not work with OpenWrt g++, so need ugly cast here
   { "contextvars", executable|json, 0, NULL, &contextvars_func },
   { "localvars", executable|json, 0, NULL, &localvars_func },
+  #if P44SCRIPT_FULL_SUPPORT
   { "globalhandlers", executable|json, 0, NULL, &globalhandlers_func },
   { "contexthandlers", executable|json, 0, NULL, &contexthandlers_func },
+  #endif
   { "globalbuiltins", executable|json, 0, NULL, &globalbuiltins_func },
   { "contextbuiltins", executable|json, 0, NULL, &contextbuiltins_func },
   #endif
