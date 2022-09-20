@@ -1121,7 +1121,7 @@ void MainLoop::registerPollHandler(int aFD, int aPollFlags, IOPollCB aPollEventH
     h.monitoredFD = aFD;
     h.pollFlags = aPollFlags;
     h.pollHandler = aPollEventHandler;
-    ioPollHandlers[aFD] = h;
+    mIoPollHandlers[aFD] = h;
     #endif
   }
 }
@@ -1290,16 +1290,16 @@ void MainLoop::handleIOPoll(MLMicroSeconds aTimeout)
   #else
   // use poll() - create poll structure
   struct pollfd *pollFds = NULL;
-  size_t maxFDsToTest = ioPollHandlers.size();
+  size_t maxFDsToTest = mIoPollHandlers.size();
   if (maxFDsToTest>0) {
     // allocate pollfd array (max, in case some are disabled, we'll need less)
     pollFds = new struct pollfd[maxFDsToTest];
   }
   // fill poll structure
-  IOPollHandlerMap::iterator pos = ioPollHandlers.begin();
+  IOPollHandlerMap::iterator pos = mIoPollHandlers.begin();
   size_t numFDsToTest = 0;
   // collect FDs
-  while (pos!=ioPollHandlers.end()) {
+  while (pos!=mIoPollHandlers.end()) {
     IOPollHandler h = pos->second;
     if (h.pollFlags) {
       // don't include handlers that are currently disabled (no flags set)
@@ -1333,12 +1333,12 @@ void MainLoop::handleIOPoll(MLMicroSeconds aTimeout)
         ML_STAT_START
         // an event has occurred for this FD
         // - get handler, note that it might have been deleted in the meantime
-        IOPollHandlerMap::iterator pos = ioPollHandlers.find(pollfdP->fd);
-        if (pos!=ioPollHandlers.end()) {
+        IOPollHandlerMap::iterator pos = mIoPollHandlers.find(pollfdP->fd);
+        if (pos!=mIoPollHandlers.end()) {
           // - there is a handler, call it
           pos->second.pollHandler(pollfdP->fd, pollfdP->revents);
         }
-        ML_STAT_ADD(ioHandlerTime);
+        ML_STAT_ADD(mIoHandlerTime);
       }
     }
   }
