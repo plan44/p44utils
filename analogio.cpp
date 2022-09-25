@@ -174,9 +174,11 @@ double AnalogIo::value()
   if (!mUpdating) {
     mUpdating = true; // prevent recursion through event requesting the value again (prevents unneeded HW reads, too)
     mLastValue = mIoPin->getValue();
+    #if ENABLE_ANALOGIO_FILTER_SUPPORT
     if (mWindowEvaluator) {
       mWindowEvaluator->addValue(mLastValue);
     }
+    #endif
     #if ENABLE_ANALOGIO_SCRIPT_FUNCS  && ENABLE_P44SCRIPT
     if (hasSinks()) {
       sendEvent(getValueObj());
@@ -212,11 +214,14 @@ double AnalogIo::lastValue()
 double AnalogIo::processedValue()
 {
   if (!mAutoPollTicket) value(); // not autopolling: update value (and add it to processor if enabled)
+  #if ENABLE_ANALOGIO_FILTER_SUPPORT
   if (mWindowEvaluator) return mWindowEvaluator->evaluate(); // processed value
+  #endif
   return mLastValue; // just last raw value
 }
 
 
+#if ENABLE_ANALOGIO_FILTER_SUPPORT
 void AnalogIo::setFilter(WinEvalMode aEvalType, MLMicroSeconds aWindowTime, MLMicroSeconds aDataPointCollTime)
 {
   mWindowEvaluator.reset();
@@ -224,7 +229,7 @@ void AnalogIo::setFilter(WinEvalMode aEvalType, MLMicroSeconds aWindowTime, MLMi
   mWindowEvaluator = WindowEvaluatorPtr(new WindowEvaluator(aWindowTime, aDataPointCollTime, aEvalType));
   value(); // cause initialisation
 }
-
+#endif // ENABLE_ANALOGIO_FILTER_SUPPORT
 
 void AnalogIo::setAutopoll(MLMicroSeconds aPollInterval, MLMicroSeconds aTolerance, SimpleCB aPollCB)
 {
@@ -255,6 +260,8 @@ bool AnalogIo::getRange(double &aMin, double &aMax, double &aResolution)
 }
 
 
+#if ENABLE_ANALOGIO_ANIMATION_SUPPORT
+
 /// get value setter for animations
 ValueSetterCB AnalogIo::getValueSetter(double& aCurrentValue)
 {
@@ -271,6 +278,7 @@ ValueAnimatorPtr AnalogIo::animator()
   return animator->from(startValue);
 }
 
+#endif // ENABLE_ANALOGIO_ANIMATION_SUPPORT
 
 
 #if ENABLE_ANALOGIO_COLOR_SUPPORT

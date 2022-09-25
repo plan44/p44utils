@@ -27,8 +27,23 @@
 #ifndef ENABLE_ANALOGIO_COLOR_SUPPORT
   #define ENABLE_ANALOGIO_COLOR_SUPPORT 1
 #endif
+#ifndef ENABLE_ANALOGIO_ANIMATION_SUPPORT
+  #define ENABLE_ANALOGIO_ANIMATION_SUPPORT 1 // not needed
+#endif
+#ifndef ENABLE_ANALOGIO_FILTER_SUPPORT
+  #define ENABLE_ANALOGIO_FILTER_SUPPORT 1 // not needed
+#endif
+
+#include "iopin.hpp"
+
 #if ENABLE_ANALOGIO_COLOR_SUPPORT
   #include "colorutils.hpp"
+#endif
+#if ENABLE_ANALOGIO_ANIMATION_SUPPORT
+  #include "valueanimator.hpp"
+#endif
+#if ENABLE_ANALOGIO_FILTER_SUPPORT
+  #include "extutils.hpp"
 #endif
 
 #if ENABLE_P44SCRIPT && !defined(ENABLE_ANALOGIO_SCRIPT_FUNCS)
@@ -39,11 +54,6 @@
   #include "p44script.hpp"
 #endif
 
-
-
-#include "iopin.hpp"
-#include "valueanimator.hpp"
-#include "extutils.hpp"
 
 using namespace std;
 
@@ -62,7 +72,9 @@ namespace p44 {
     bool mOutput;
     double mLastValue;
     MLTicket mAutoPollTicket;
+    #if ENABLE_ANALOGIO_FILTER_SUPPORT
     WindowEvaluatorPtr mWindowEvaluator;
+    #endif
     bool mUpdating;
     SimpleCB mPollCB;
 
@@ -122,11 +134,13 @@ namespace p44 {
     /// @return false if no range information is available (arguments are not touched then)
     bool getRange(double &aMin, double &aMax, double &aResolution);
 
+    #if ENABLE_ANALOGIO_ANIMATION_SUPPORT
     /// get value setter for animations
     ValueSetterCB getValueSetter(double& aCurrentValue);
 
     /// get animator
     ValueAnimatorPtr animator();
+    #endif // ENABLE_ANALOGIO_ANIMATION_SUPPORT
 
     /// setup automatic polling
     /// @param aPollInterval if set to <=0, polling will stop
@@ -135,11 +149,13 @@ namespace p44 {
     /// @note every poll cycle generates an event in the EventSource and invokes the callback
     void setAutopoll(MLMicroSeconds aPollInterval, MLMicroSeconds aTolerance = 0, SimpleCB aPollCB = NoOP);
 
+    #if ENABLE_ANALOGIO_FILTER_SUPPORT
     /// setup value filtering
     /// @param aEvalType the type of filtering to perform
     /// @param aWindowTime width (timespan) of evaluation window
     /// @param aDataPointCollTime within that timespan, new values reported will be collected into a single datapoint
     void setFilter(WinEvalMode aEvalType, MLMicroSeconds aWindowTime, MLMicroSeconds aDataPointCollTime);
+    #endif // ENABLE_ANALOGIO_FILTER_SUPPORT
 
     #if ENABLE_ANALOGIO_SCRIPT_FUNCS && ENABLE_P44SCRIPT
     /// get a analog input value object. This is also what is sent to event sinks
