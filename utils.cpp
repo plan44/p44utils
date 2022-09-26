@@ -684,7 +684,7 @@ string p44::hexToBinaryString(const char *aHexString, bool aSpacesAllowed, size_
     }
     c = (char)toupper(c)-'0';
     if (c>9) c -= ('A'-'9'-1);
-    if (c<0 || c>0xF)
+    if ((uint8_t)c>0xF)
       break; // invalid char, done
     if (firstNibble) {
       b = (uint8_t)c;
