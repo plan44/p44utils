@@ -4272,6 +4272,7 @@ CompiledTrigger::CompiledTrigger(const string aName, ScriptMainContextPtr aMainC
   mBoolState(p44::undefined),
   mEvalFlags(expression|synchronously),
   mNextEvaluation(Never),
+  mMostRecentEvaluation(Never),
   mFrozenEventPos(0),
   mOneShotEval(false),
   mMetAt(Never),
@@ -4298,6 +4299,7 @@ ScriptObjPtr CompiledTrigger::initializeTrigger()
   FOCUSLOG("\n---------- Initializing Trigger  : %s", mCursor.displaycode(130).c_str());
   mReEvaluationTicket.cancel();
   mNextEvaluation = Never; // reset
+  mMostRecentEvaluation = MainLoop::now();
   mFrozenResults.clear(); // (re)initializing trigger unfreezes all values
   clearSources(); // forget all event sources
   ExecutionContextPtr ctx = contextForCallingFrom(NULL, NULL);
@@ -4357,6 +4359,7 @@ void CompiledTrigger::triggerEvaluation(EvaluationFlags aEvalMode)
   FOCUSLOG("\n---------- Evaluating Trigger    : %s", mCursor.displaycode(130).c_str());
   mReEvaluationTicket.cancel();
   mNextEvaluation = Never; // reset
+  mMostRecentEvaluation = MainLoop::now();
   mOneShotEval = false; // no oneshot encountered yet. Evaluation will set it via checkFrozenEventValue(), which is called for every leaf value (frozen or not)
   ExecutionContextPtr ctx = contextForCallingFrom(NULL, NULL);
   EvaluationFlags runFlags = ((aEvalMode&~runModeMask) ? aEvalMode : (mEvalFlags&~runModeMask)|aEvalMode)|keepvars; // always keep vars, use only runmode from aEvalMode if nothing else is set
@@ -4506,6 +4509,16 @@ bool CompiledTrigger::updateNextEval(const MLMicroSeconds aLatestEval)
   if (aLatestEval==Never || aLatestEval==Infinite) return false; // no next evaluation needed, no need to update
   if (mNextEvaluation==Never || aLatestEval<mNextEvaluation) {
     // new time is more recent than previous, update
+    if (aLatestEval<=mMostRecentEvaluation) {
+      // requesting past evaluation: not allowed!
+      OLOG(LOG_WARNING, "%s: immediate or past re-evaluation requested -> delaying it up to 10 seconds", getIdentifier().c_str());
+      if (mNextEvaluation==Never || mNextEvaluation>mMostRecentEvaluation+10*Second) {
+        // no other re-evaluation before 10 seconds scheduled yet, make sure we re-evaluate once in 10 secs for safety
+        mNextEvaluation = mMostRecentEvaluation+10*Second;
+        return true;
+      }
+      return false;
+    }
     mNextEvaluation = aLatestEval;
     return true;
   }

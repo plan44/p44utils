@@ -2102,6 +2102,7 @@ namespace p44 { namespace P44Script {
     EvaluationFlags mEvalFlags;
     ScriptObjPtr mCurrentResult;
     Tristate mBoolState;
+    MLMicroSeconds mMostRecentEvaluation;
     MLMicroSeconds mNextEvaluation;
 
     bool mOneShotEval; ///< the current evaluation runs in one-shot mode (means: the trigger can only fire, but must not change state)
