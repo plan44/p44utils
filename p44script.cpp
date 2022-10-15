@@ -7132,19 +7132,57 @@ static const size_t between_dates_numargs = sizeof(between_dates_args)/sizeof(Bu
 static void between_dates_func(BuiltinFunctionContextPtr f)
 {
   struct tm loctim; MainLoop::getLocalTime(loctim);
-  int smaller = (int)(f->arg(0)->doubleValue());
-  int larger = (int)(f->arg(1)->doubleValue());
+  // days in year, 0=Jan 1st
+  int from = (int)(f->arg(0)->doubleValue()); // from the START of this day
+  int until = (int)(f->arg(1)->doubleValue()); // until the END of this day
   int currentYday = loctim.tm_yday;
+  // start of the day
   loctim.tm_hour = 0; loctim.tm_min = 0; loctim.tm_sec = 0;
   loctim.tm_mon = 0;
-  bool lastBeforeFirst = smaller>larger;
-  if (lastBeforeFirst) swap(larger, smaller);
-  if (currentYday<smaller) loctim.tm_mday = 1+smaller;
-  else if (currentYday<=larger) loctim.tm_mday = 1+larger;
-  else { loctim.tm_mday = smaller; loctim.tm_year += 1; } // check one day too early, to make sure no day is skipped in a leap year to non leap year transition
+  // determine if inside range and when to check next
+  bool inside = false;
+  int checkYday;
+  bool checkNextYear = false;
+  if (until<from) {
+    // end day is in next year
+    inside = currentYday>=from || currentYday<=until;
+    // when to check next again
+    if (inside) {
+      checkYday = until+1; // inside: check again at the NEXT day after the last day inside...
+      checkNextYear = currentYday>until; // ...which might be next year
+    }
+    else {
+      checkYday = from; // outside: check again AT the first day inside
+    }
+  }
+  else {
+    // end day is same or after start day
+    inside = currentYday>=from && currentYday<=until;
+    // when to check next again - Note that tm_mday is 1 based!
+    if (inside) {
+      checkYday = until+1; // inside: check again at the NEXT day after the last day inside
+    }
+    else {
+      checkYday = from; // outside: check again AT the first day inside...
+      checkNextYear = currentYday>=from; // ...which might be next year
+    }
+  }
+  // update next eval time
   CompiledTrigger* trigger = f->trigger();
-  if (trigger) trigger->updateNextEval(loctim);
-  f->finish(new BoolValue((currentYday>=smaller && currentYday<=larger)!=lastBeforeFirst));
+  if (trigger) {
+    // tm_mday is 1 based!
+    if (checkNextYear) {
+      loctim.tm_year += 1;
+    }
+    if (checkNextYear || currentYday+1!=checkYday) {
+      // checkday is not tomorrow: schedule the check one day before to catch the day even over leap years and DST offsets
+      checkYday--;
+    }
+    loctim.tm_mday = 1+checkYday;
+    //DBGLOG(LOG_NOTICE, "between_dates_func: wants next check at %s", MainLoop::string_mltime(MainLoop::localTimeToMainLoopTime(loctim)).c_str());
+    trigger->updateNextEval(loctim);
+  }
+  f->finish(new BoolValue(inside));
 }
 
 
