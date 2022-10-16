@@ -685,7 +685,7 @@ namespace p44 { namespace P44Script {
 
   /// a NULL value that event sinks can register to, so in case it is replaced (i.e. as a global variable) it can
   /// pass over the registered sinks to the replacing object
-  class EventPlaceholderNullValue : public AnnotatedNullValue, public EventSource
+  class EventPlaceholderNullValue P44_FINAL : public AnnotatedNullValue, public EventSource
   {
     typedef AnnotatedNullValue inherited;
   public:

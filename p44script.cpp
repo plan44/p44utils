@@ -519,11 +519,21 @@ void StandardLValue::assignLValue(EvaluationCB aEvaluationCB, ScriptObjPtr aNewV
       aNewValue = new ErrorValue(err);
     }
     else {
-      // if current value has event sinks, and new value is a event source, too, new value must inherit those sinks
-      EventSource* oldSource = mCurrentValue ? mCurrentValue->eventSource() : NULL;
-      EventSource* newSource = aNewValue ? aNewValue->eventSource() : NULL;
-      if (newSource) {
-        newSource->copySinksFrom(oldSource);
+      // If current value is a placeholder with event sinks, and new value is a event source, too
+      // the new value must inherit those sinks. The ONLY application is that a global on() handlers might
+      // get declared (at compile time) watching a declared global (which is created as EventPlaceholderNullValue)
+      // but will only at script run time get the actual value to watch, e.g. a socket or similar.
+      // This is a use case of early p44script days, when non-global, run-time-defined handlers did not yet
+      // exist - so declaring a global and then a handler on it and THEN then running code that assigns a socket
+      // to that global was the ONLY way.
+      // Before 2022-10-16 this was not limited to EventPlaceholderNullValue, which caused unwanted
+      // accumulation of event sinks and really hard-to-explain outcomes.
+      if (dynamic_cast<EventPlaceholderNullValue*>(mCurrentValue.get())) {
+        EventSource* oldSource = mCurrentValue->eventSource();
+        EventSource* newSource = aNewValue ? aNewValue->eventSource() : NULL;
+        if (newSource) {
+          newSource->copySinksFrom(oldSource);
+        }
       }
       // previous value can now be overwritten
       mCurrentValue = aNewValue;
