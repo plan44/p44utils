@@ -265,6 +265,13 @@ namespace p44 {
   /// @return hex string
   string binaryToHexString(const string &aBinaryString, char aSeparator = 0);
 
+  /// data buffer to binary string conversion
+  /// @param aDataP data pointer
+  /// @param aDataSize number of bytes
+  /// @param aSeparator character to be used to separate hex bytes, 0 for no separator
+  /// @return hex string
+  string dataToHexString(const void* aDataP, size_t aDataSize, char aSeparator = 0);
+
   /// mac address to string
   /// @param aMacAddress MAC address as 48bit integer number
   /// @param aSeparator character to be used to separate MAC bytes, 0 for no separator

@@ -702,14 +702,21 @@ string p44::hexToBinaryString(const char *aHexString, bool aSpacesAllowed, size_
 
 string p44::binaryToHexString(const string &aBinaryString, char aSeparator)
 {
+  return dataToHexString(aBinaryString.c_str(), aBinaryString.size());
+}
+
+
+string p44::dataToHexString(const void* aDataP, size_t aDataSize, char aSeparator)
+{
   string s;
-  size_t n = aBinaryString.size();
-  for (size_t i=0; i<n; i++) {
+  for (size_t i=0; i<aDataSize; i++) {
     if (aSeparator && i!=0) s += aSeparator;
-    string_format_append(s, "%02X", (uint8_t)aBinaryString[i]);
+    string_format_append(s, "%02X", ((uint8_t*)aDataP)[i]);
   }
   return s;
 }
+
+
 
 
 string p44::macAddressToString(uint64_t aMacAddress, char aSeparator)
