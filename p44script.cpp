@@ -5144,6 +5144,7 @@ void ScriptCodeThread::deactivate()
   mCodeObj.reset();
   mThreadLocals.reset();
   mChainOriginThread.reset();
+  mRunningSince = Never; // just to make sure
 }
 
 
@@ -5204,6 +5205,7 @@ void ScriptCodeThread::run()
 
 bool ScriptCodeThread::isExecutingSource(SourceContainerPtr aSource)
 {
+  if (mRunningSince==Never) return false; // not running at all
   if (mCodeObj && mCodeObj->originatesFrom(aSource)) return true; // this thread's starting point is in aSource
   if (mChainedExecutionContext && mChainedExecutionContext->isExecutingSource(aSource)) return true; // chained thread runs from aSource
   return false; // not running this source
@@ -5212,6 +5214,10 @@ bool ScriptCodeThread::isExecutingSource(SourceContainerPtr aSource)
 
 void ScriptCodeThread::abort(ScriptObjPtr aAbortResult)
 {
+  if (mRunningSince==Never) {
+    OLOG(LOG_DEBUG, "prevent aborting already completed %04d again", threadId());
+    return;
+  }
   // Note: calling abort must execute the callback passed to this thread when starting it
   inherited::abort(aAbortResult); // set the result
   if (mChainedExecutionContext) {
@@ -5244,6 +5250,7 @@ ScriptObjPtr ScriptCodeThread::finalResult()
 void ScriptCodeThread::complete(ScriptObjPtr aFinalResult)
 {
   mAutoResumeTicket.cancel();
+  mRunningSince = Never; // flag non-running, prevents getting aborted (again)
   if (aFinalResult && aFinalResult->isErr()) {
     ErrorPtr err = aFinalResult->errorValue();
     bool fatal = err->isDomain(ScriptError::domain()) && err->getErrorCode()>=ScriptError::FatalErrors;

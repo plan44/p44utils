@@ -2328,7 +2328,7 @@ namespace p44 { namespace P44Script {
     MLMicroSeconds mMaxBlockTime; ///< how long the thread is allowed to block in evaluate()
     MLMicroSeconds mMaxRunTime; ///< how long the thread is allowed to run overall
 
-    MLMicroSeconds mRunningSince; ///< time the thread was started
+    MLMicroSeconds mRunningSince; ///< time the thread was started. Also acts as flag, if Never this means the thread is not yet started or already complete
     ExecutionContextPtr mChainedExecutionContext; ///< set during calls to other contexts, e.g. to propagate abort()
     ScriptCodeThreadPtr mChainOriginThread; ///< the origin of this sequentially chained thread, if any
     MLTicket mAutoResumeTicket; ///< auto-resume ticket
