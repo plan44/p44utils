@@ -45,10 +45,15 @@
 #include <boost/shared_ptr.hpp>
 #include <boost/function.hpp>
 
-// including this instead of boost/bind.hpp puts argument placeholder into boost::placeholders namespace
-#include <boost/bind/bind.hpp>
-// to still allow using the placeholders w/o qualifier:
-using namespace boost::placeholders;
+#if P44_BUILD_DIGI
+  // old build environment needs old-style bind with global namespace placeholders
+  #include <boost/bind.hpp>
+#else
+  // including this instead of boost/bind.hpp puts argument placeholder into boost::placeholders namespace
+  #include <boost/bind/bind.hpp>
+  // to still allow using the placeholders w/o qualifier:
+  using namespace boost::placeholders;
+#endif
 
 #include "p44utils_defs.hpp"
 #include "p44obj.hpp"
