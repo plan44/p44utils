@@ -40,8 +40,7 @@ using namespace p44;
 
 #if ENABLE_RPIWS281X
   #define TARGET_FREQ WS2811_TARGET_FREQ // in Hz, default is 800kHz
-  #define GPIO_PIN 18 // P1 Pin 12, GPIO 18 (PCM_CLK)
-  #define GPIO_INVERT 0 // set to 1 if there is an inverting driver between GPIO 18 and the WS281x LEDs
+  #define GPIO_DEFAULT_PIN 18 // P1 Pin 12, GPIO 18 (PCM_CLK)
   #define DMA 5 // don't change unless you know why
   #define MAX_BRIGHTNESS 255 // full brightness range
 #endif
@@ -65,7 +64,16 @@ static const char* ledLayoutNames[LEDChainComm::num_ledlayouts] = {
   "RGB",
   "GRB",
   "RGBW",
-  "GRBW"
+  "GRBW",
+  // new since 2022-11-23
+  "RBG",
+  "GBR",
+  "BRG",
+  "BGR",
+  "RBGW",
+  "GBRW",
+  "BRGW",
+  "BGRW",
 };
 
 
@@ -256,37 +264,74 @@ bool LEDChainComm::begin(size_t aHintAtTotalChains)
         return false; // cannot initialize LED chain
       }
       #elif ENABLE_RPIWS281X
-      // prepare hardware related stuff
-      memset(&ledstring, 0, sizeof(ledstring));
-      // initialize the led string structure
-      ledstring.freq = TARGET_FREQ;
-      ledstring.dmanum = DMA;
-      ledstring.device = NULL; // private data pointer for library
-      // channel 0
-      ledstring.channel[0].gpionum = GPIO_PIN;
-      ledstring.channel[0].count = mNumLeds;
-      ledstring.channel[0].invert = GPIO_INVERT;
-      ledstring.channel[0].brightness = MAX_BRIGHTNESS;
-      // TODO: map more chips/layouts
-      switch (mLedChip) {
-        case ledchip_sk6812: ledstring.channel[0].strip_type = mLedLayout==ledlayout_rgbw ? SK6812_STRIP_RGBW : SK6812_STRIP_GRBW; break;
-        case ledchip_p9823: ledstring.channel[0].strip_type = WS2811_STRIP_RGB; break; // some WS2811 might also use RGB order
-        default: ledstring.channel[0].strip_type = mLedLayout==ledlayout_rgb ? WS2811_STRIP_RGB : WS2811_STRIP_GRB; break;
+      int gpio = GPIO_DEFAULT_PIN;
+      bool inverted = false;
+      size_t n=0;
+      if (mDeviceName.substr(n,1)=="!") {
+        inverted = true;
+        n++;
       }
-      ledstring.channel[0].leds = NULL; // will be allocated by the library
+      if (mDeviceName.substr(n,4)=="gpio") {
+        sscanf(mDeviceName.c_str()+4, "%d", &gpio);
+      }
+      // prepare hardware related stuff
+      memset(&mRPiWS281x, 0, sizeof(mRPiWS281x));
+      // initialize the led string structure
+      mRPiWS281x.freq = TARGET_FREQ;
+      mRPiWS281x.dmanum = DMA;
+      mRPiWS281x.device = NULL; // private data pointer for library
+      // channel 0
+      mRPiWS281x.channel[0].gpionum = gpio;
+      mRPiWS281x.channel[0].count = mNumLeds;
+      mRPiWS281x.channel[0].invert = inverted ? 1 : 0;
+      mRPiWS281x.channel[0].brightness = MAX_BRIGHTNESS;
+      // map chips/layouts
+      switch (mLedChip) {
+        case ledchip_sk6812: {
+          // 4 channel, "SK6812" in RPIWS281X lingo
+          switch (mLedLayout) {
+            default:
+            case ledlayout_rgbw: mRPiWS281x.channel[0].strip_type = SK6812_STRIP_RGBW; break;
+            case ledlayout_rbgw: mRPiWS281x.channel[0].strip_type = SK6812_STRIP_RBGW; break;
+            case ledlayout_grbw: mRPiWS281x.channel[0].strip_type = SK6812_STRIP_GRBW; break;
+            case ledlayout_gbrw: mRPiWS281x.channel[0].strip_type = SK6812_STRIP_GBRW; break;
+            case ledlayout_brgw: mRPiWS281x.channel[0].strip_type = SK6812_STRIP_BRGW; break;
+            case ledlayout_bgrw: mRPiWS281x.channel[0].strip_type = SK6812_STRIP_BGRW; break;
+          }
+          break;
+        }
+        default:
+        case ledchip_ws2811:
+        case ledchip_ws2812:
+        case ledchip_ws2813:
+        case ledchip_ws2815:
+        case ledchip_p9823: {
+          switch (mLedLayout) {
+            case ledlayout_rgb: mRPiWS281x.channel[0].strip_type = WS2811_STRIP_RGB; break;
+            case ledlayout_rbg: mRPiWS281x.channel[0].strip_type = WS2811_STRIP_RBG; break;
+            default:
+            case ledlayout_grb: mRPiWS281x.channel[0].strip_type = WS2811_STRIP_GRB; break;
+            case ledlayout_gbr: mRPiWS281x.channel[0].strip_type = WS2811_STRIP_GBR; break;
+            case ledlayout_brg: mRPiWS281x.channel[0].strip_type = WS2811_STRIP_BRG; break;
+            case ledlayout_bgr: mRPiWS281x.channel[0].strip_type = WS2811_STRIP_BGR; break;
+          }
+          break;
+        }
+      }
+      mRPiWS281x.channel[0].leds = NULL; // will be allocated by the library
       // channel 1 - unused
-      ledstring.channel[1].gpionum = 0;
-      ledstring.channel[1].count = 0;
-      ledstring.channel[1].invert = 0;
-      ledstring.channel[1].brightness = MAX_BRIGHTNESS;
-      ledstring.channel[1].leds = NULL; // will be allocated by the library
+      mRPiWS281x.channel[1].gpionum = 0;
+      mRPiWS281x.channel[1].count = 0;
+      mRPiWS281x.channel[1].invert = 0;
+      mRPiWS281x.channel[1].brightness = MAX_BRIGHTNESS;
+      mRPiWS281x.channel[1].leds = NULL; // will be allocated by the library
       // initialize library
-      ws2811_return_t ret = ws2811_init(&ledstring);
+      ws2811_return_t ret = ws2811_init(&mRPiWS281x);
       if (ret==WS2811_SUCCESS) {
         mInitialized = true;
       }
       else {
-        LOG(LOG_ERR, "Error: ws2811_init failed: %s", ws2811_get_return_t_str(ret));
+        LOG(LOG_ERR, "Error: ws281x init for GPIO%d failed: %s", gpio, ws2811_get_return_t_str(ret));
         mInitialized = false;
       }
       #else
@@ -346,7 +391,7 @@ void LEDChainComm::clear()
     #ifdef ESP_PLATFORM
     for (uint16_t i=0; i<mNumLeds; i++) pixels[i].num = 0;
     #elif ENABLE_RPIWS281X
-    for (uint16_t i=0; i<mNumLeds; i++) ledstring.channel[0].leds[i] = 0;
+    for (uint16_t i=0; i<mNumLeds; i++) mRPiWS281x.channel[0].leds[i] = 0;
     #else
     memset(ledBuffer, 0, mNumColorComponents*mNumLeds);
     #endif
@@ -367,7 +412,7 @@ void LEDChainComm::end()
       espLedChain = NULL;
       #elif ENABLE_RPIWS281X
       // deinitialize library
-      ws2811_fini(&ledstring);
+      ws2811_fini(&mRPiWS281x);
       #else
       if (rawBuffer) {
         delete[] rawBuffer;
@@ -394,7 +439,7 @@ void LEDChainComm::show()
     #ifdef ESP_PLATFORM
     esp_ws281x_setColors(espLedChain, mNumLeds, pixels);
     #elif ENABLE_RPIWS281X
-    ws2811_render(&ledstring);
+    ws2811_render(&mRPiWS281x);
     #else
     write(ledFd, rawBuffer, rawBytes); // with header
     #endif
@@ -448,7 +493,7 @@ void LEDChainComm::setPowerAtLedIndex(uint16_t aLedIndex, uint8_t aRed, uint8_t 
     if (mNumColorComponents>3) {
       pixel |= ((uint32_t)aWhite << 24);
     }
-    ledstring.channel[0].leds[aLedIndex] = pixel;
+    mRPiWS281x.channel[0].leds[aLedIndex] = pixel;
     #else
     ledBuffer[mNumColorComponents*aLedIndex] = aRed;
     ledBuffer[mNumColorComponents*aLedIndex+1] = aGreen;
@@ -477,7 +522,7 @@ void LEDChainComm::getPowerAtLedIndex(uint16_t aLedIndex, uint8_t &aRed, uint8_t
     aBlue = pixel.b;
     aWhite = pixel.w;
     #elif ENABLE_RPIWS281X
-    ws2811_led_t pixel = ledstring.channel[0].leds[aLedIndex];
+    ws2811_led_t pixel = mRPiWS281x.channel[0].leds[aLedIndex];
     aRed = (pixel>>16) & 0xFF;
     aGreen = (pixel>>8) & 0xFF;
     aBlue = pixel & 0xFF;

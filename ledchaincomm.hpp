@@ -81,6 +81,15 @@ namespace p44 {
       ledlayout_grb,
       ledlayout_rgbw,
       ledlayout_grbw,
+      // new modes added 2022-11-23 (also in p44-ledchain)
+      ledlayout_rbg,
+      ledlayout_gbr,
+      ledlayout_brg,
+      ledlayout_bgr,
+      ledlayout_rbgw,
+      ledlayout_gbrw,
+      ledlayout_brgw,
+      ledlayout_bgrw,
       num_ledlayouts
     } LedLayout;
 
@@ -133,7 +142,7 @@ namespace p44 {
     Esp_ws281x_LedChain* espLedChain; // handle for the chain
     Esp_ws281x_pixel* pixels; // the pixel buffer
     #elif ENABLE_RPIWS281X
-    ws2811_t ledstring; // the descriptor for the rpi_ws2811 library
+    ws2811_t mRPiWS281x; // the descriptor for the rpi_ws281x library
     #else
     int ledFd; // the file descriptor for the LED device
     uint8_t *rawBuffer; // the raw bytes to be sent to the WS2812 device
@@ -435,7 +444,7 @@ namespace p44 {
                                      " enable support for adressable LED chains forming RGB(W) pixel display areas:" \
                                      "\n- ledtype is of <chip>.<layout> form, or one of WS2812, WS2813, SK6812, P9823 standard types." \
                                      "\n  Chips: WS2811,WS2812,WS2813,WS2815,SK6812,P9823,none" \
-                                     "\n  Layouts: RGB,GRB,RGBW,GRBW" \
+                                     "\n  Layouts: RGB,GRB,RGBW,GRBW,RBG,GBR,BRG,BGR,RBGW,GBRW,BRGW,BGRW" \
                                      "\n- leddevicename specifies the hardware output (usually LED device path)" \
                                      "\n- x,dx,y,dy,firstoffs,betweenoffs specify how the chain is mapped to the display space." \
                                      "\n- XYSA are flags: X or Y: x or y reversed, S: x/y swapped, A: alternating (zigzag)." \
