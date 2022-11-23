@@ -82,7 +82,7 @@ namespace p44 {
     /// @return device type identifier
     virtual const char *deviceType() { return "generic"; };
 
-    /// @return true if this device or one of it's ancestors is of the given type
+    /// @return true if this device or one of its ancestors is of the given type
     virtual bool isKindOf(const char *aDeviceType);
 
     /// create device
@@ -277,7 +277,7 @@ namespace p44 {
     /// @return device type identifier
     virtual const char *deviceType() P44_OVERRIDE { return "BitPort"; };
 
-    /// @return true if this device or one of it's ancestors is of the given type
+    /// @return true if this device or one of its ancestors is of the given type
     virtual bool isKindOf(const char *aDeviceType) P44_OVERRIDE;
 
     bool getBitState(int aBitNo);
@@ -311,7 +311,7 @@ namespace p44 {
     /// @return device type identifier
     virtual const char *deviceType() P44_OVERRIDE { return "MCP23S17"; };
 
-    /// @return true if this device or one of it's ancestors is of the given type
+    /// @return true if this device or one of its ancestors is of the given type
     virtual bool isKindOf(const char *aDeviceType) P44_OVERRIDE;
 
   };
@@ -336,7 +336,7 @@ namespace p44 {
     /// @return device type identifier
     virtual const char *deviceType() P44_OVERRIDE { return "AnalogPort"; };
 
-    /// @return true if this device or one of it's ancestors is of the given type
+    /// @return true if this device or one of its ancestors is of the given type
     virtual bool isKindOf(const char *aDeviceType) P44_OVERRIDE;
 
     virtual double getPinValue(int aPinNo) = 0;
@@ -363,7 +363,7 @@ namespace p44 {
     /// @return device type identifier
     virtual const char *deviceType() P44_OVERRIDE { return "MCP3008"; };
 
-    /// @return true if this device or one of it's ancestors is of the given type
+    /// @return true if this device or one of its ancestors is of the given type
     virtual bool isKindOf(const char *aDeviceType) P44_OVERRIDE;
 
     virtual double getPinValue(int aPinNo) P44_OVERRIDE;
@@ -389,7 +389,7 @@ namespace p44 {
     /// @return device type identifier
     virtual const char *deviceType() P44_OVERRIDE { return "MCP3002"; };
 
-    /// @return true if this device or one of it's ancestors is of the given type
+    /// @return true if this device or one of its ancestors is of the given type
     virtual bool isKindOf(const char *aDeviceType) P44_OVERRIDE;
 
     virtual double getPinValue(int aPinNo) P44_OVERRIDE;
