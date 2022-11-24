@@ -349,14 +349,10 @@ namespace p44 {
     uint32_t mActualLightPowerMw; // light power actually used after dimming down because of limit
     bool mPowerLimited; // set while power is limited
 
+    MLMicroSeconds mMinUpdateInterval; ///< minimum interval kept between updates to LED chain hardware
+    MLMicroSeconds mMaxPriorityInterval; ///< maximum interval during which noisy view children are prevented from requesting rendering updates after prioritized (localTimingPriority==true) parent view did
+
   public:
-
-    /// minimum interval kept between updates to LED chain hardware
-    MLMicroSeconds mMinUpdateInterval;
-
-    /// maximum interval during which noisy view children are prevented from requesting rendering updates
-    /// after prioritized (localTimingPriority==true) parent view did
-    MLMicroSeconds mMaxPriorityInterval;
 
     LEDChainArrangement();
     virtual ~LEDChainArrangement();
@@ -413,6 +409,23 @@ namespace p44 {
     /// Return the current power (possibly limited)
     /// @return how many milliwatts (approximatively) all chains currently consume
     int getCurrentPower();
+
+    /// Return minimal update interval between LED chain updates (= max frame rate)
+    /// @param aMinUpdateInterval the minimal interval between LED chain updates
+    MLMicroSeconds getMinUpdateInterval() { return mMinUpdateInterval; }
+
+    /// Set the minimal update interval between LED chain updates (= max frame rate)
+    /// The installed LED chain drivers will not be called more often than that, and
+    /// the root view will get informed of that update interval as a hint for scheduling
+    /// of animations etc.
+    /// @param aMinUpdateInterval the minimal interval between LED chain updates
+    void setMinUpdateInterval(MLMicroSeconds aMinUpdateInterval);
+
+    /// Set the maximum priority interval, that is the interval after an display update when only prioritized views
+    /// (such as scrollers that must run smoothly) will request updates when they get dirty. Other views
+    /// getting dirty during that time will have to wait.
+    /// @param aMaxPriorityInterval the maximum interval after display updates can only be requested by prioritized views
+    void setMaxPriorityInterval(MLMicroSeconds aMaxPriorityInterval);
 
     /// start LED chains
     /// @param aAutoStep if true, step() will be called automatically as demanded by the view hierarchy

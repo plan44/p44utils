@@ -732,11 +732,25 @@ void LEDChainArrangement::clear()
 void LEDChainArrangement::setRootView(P44ViewPtr aRootView)
 {
   if (mRootView) {
-    mRootView->setNeedUpdateCB(NoOP, 0); // make sure previous rootview will not call back any more!
+    mRootView->setNeedUpdateCB(NoOP); // make sure previous rootview will not call back any more!
   }
   mRootView = aRootView;
   mRootView->setDefaultLabel("rootview");
-  mRootView->setNeedUpdateCB(boost::bind(&LEDChainArrangement::externalUpdateRequest, this), mMinUpdateInterval);
+  mRootView->setNeedUpdateCB(boost::bind(&LEDChainArrangement::externalUpdateRequest, this));
+  mRootView->setMinUpdateInterval(mMinUpdateInterval);
+}
+
+
+void LEDChainArrangement::setMinUpdateInterval(MLMicroSeconds aMinUpdateInterval)
+{
+  mMinUpdateInterval = aMinUpdateInterval;
+  if (mRootView) mRootView->setMinUpdateInterval(mMinUpdateInterval);
+}
+
+
+void LEDChainArrangement::setMaxPriorityInterval(MLMicroSeconds aMaxPriorityInterval)
+{
+  mMaxPriorityInterval = aMaxPriorityInterval;
 }
 
 
@@ -989,7 +1003,7 @@ MLMicroSeconds LEDChainArrangement::updateDisplay()
       // needs update
       if (now<mLastUpdate+mMinUpdateInterval) {
         // cannot update now, but return the time when we can update next time
-        DBGFOCUSOLOG("updateDisplay update postponed by %lld, mRootView.dirty=%d", lastUpdate+minUpdateInterval-now, dirty);
+        DBGFOCUSOLOG("- updateDisplay update postponed, needed in %lld µS, mRootView.dirty=%d", mLastUpdate+mMinUpdateInterval-now, dirty);
         return mLastUpdate+mMinUpdateInterval;
       }
       else {
@@ -1139,19 +1153,25 @@ void LEDChainArrangement::begin(bool aAutoStep)
 MLMicroSeconds LEDChainArrangement::step()
 {
   MLMicroSeconds nextStep = Infinite;
+  MLMicroSeconds now;
   if (mRootView) {
     do {
       nextStep = mRootView->step(mLastUpdate+mMaxPriorityInterval);
     } while (nextStep==0);
     MLMicroSeconds nextDisp = updateDisplay();
+    now = MainLoop::now();
+    DBGFOCUSOLOG("- step: next view stepping / next update : %10lld µS / %10lld", nextStep-now, nextDisp-now);
     if (nextStep<0 || (nextDisp>0 && nextDisp<nextStep)) {
       nextStep = nextDisp;
     }
   }
-  MLMicroSeconds now = MainLoop::now();
+  else {
+    now = MainLoop::now();
+  }
   // now we have nextStep according to the view hierarchy's step needs and the display's updating needs
   // - insert extra steps to avoid stalling completeley in case something goes wrong
   if (nextStep<0 || nextStep-now>MAX_STEP_INTERVAL) {
+    DBGFOCUSOLOG("- step: insert step to prevent stalling in %lld µS (view's step() requested %lld µS)", MAX_STEP_INTERVAL, nextStep-now);
     nextStep = now+MAX_STEP_INTERVAL;
   }
   // caller MUST call again at nextStep!
@@ -1183,10 +1203,8 @@ void LEDChainArrangement::externalUpdateRequest()
   if (mRootView) {
     if (mAutoStepTicket) {
       // interrupt autostepping timer
+      DBGFOCUSOLOG("- externalUpdateRequest: interrupts scheduled autostop and inserts step right now");
       mAutoStepTicket.cancel();
-// FIXME: delete these lines, autoStep -> step already includes calling updateDisplay(), without loosing updateDisplay()'s return value!
-//      // update display if dirty
-//      updateDisplay();
       // start new with immediate step call
       mAutoStepTicket.executeOnce(boost::bind(&LEDChainArrangement::autoStep, this, _1));
     }
@@ -1265,9 +1283,9 @@ static const size_t setledrefresh_numargs = sizeof(setledrefresh_args)/sizeof(Bu
 static void setledrefresh_func(BuiltinFunctionContextPtr f)
 {
   LEDChainLookup* l = dynamic_cast<LEDChainLookup*>(f->funcObj()->getMemberLookup());
-  l->ledChainArrangement().mMinUpdateInterval = f->arg(0)->doubleValue()*Second;
+  l->ledChainArrangement().setMinUpdateInterval(f->arg(0)->doubleValue()*Second);
   if (f->arg(1)->defined()) {
-    l->ledChainArrangement().mMaxPriorityInterval = f->arg(1)->doubleValue()*Second;
+    l->ledChainArrangement().setMaxPriorityInterval(f->arg(1)->doubleValue()*Second);
   }
   f->finish();
 }
