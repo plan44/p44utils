@@ -481,7 +481,7 @@ namespace p44 {
     MLMicroSeconds step();
 
     void recalculateCover();
-    MLMicroSeconds updateDisplay();
+    MLMicroSeconds updateDisplay(MLMicroSeconds aDispNow);
 
     void autoStep(MLTimer &aTimer);
 

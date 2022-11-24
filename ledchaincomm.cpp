@@ -994,21 +994,20 @@ int LEDChainArrangement::getCurrentPower()
 
 
 
-MLMicroSeconds LEDChainArrangement::updateDisplay()
+MLMicroSeconds LEDChainArrangement::updateDisplay(MLMicroSeconds aDispNow)
 {
-  MLMicroSeconds now = MainLoop::now();
   if (mRootView) {
     bool dirty = mRootView->isDirty();
-    if (dirty || now>mLastUpdate+MAX_UPDATE_INTERVAL) {
+    if (dirty || aDispNow>mLastUpdate+MAX_UPDATE_INTERVAL) {
       // needs update
-      if (now<mLastUpdate+mMinUpdateInterval) {
+      if (aDispNow<mLastUpdate+mMinUpdateInterval) {
         // cannot update now, but return the time when we can update next time
-        DBGFOCUSOLOG("- updateDisplay update postponed, needed in %lld µS, mRootView.dirty=%d", mLastUpdate+mMinUpdateInterval-now, dirty);
+        DBGFOCUSOLOG("- updateDisplay update postponed, needed in %lld µS, mRootView.dirty=%d", mLastUpdate+mMinUpdateInterval-aDispNow, dirty);
         return mLastUpdate+mMinUpdateInterval;
       }
       else {
         // update now
-        mLastUpdate = now;
+        mLastUpdate = aDispNow;
         uint32_t idlePowerMw = 0;
         uint32_t lightPowerMw = 0;
         uint32_t lightPowerPWM = 0;
@@ -1124,7 +1123,7 @@ MLMicroSeconds LEDChainArrangement::updateDisplay()
     }
   }
   // latest possible update
-  return now+MAX_UPDATE_INTERVAL;
+  return aDispNow+MAX_UPDATE_INTERVAL;
 }
 
 
@@ -1153,26 +1152,22 @@ void LEDChainArrangement::begin(bool aAutoStep)
 MLMicroSeconds LEDChainArrangement::step()
 {
   MLMicroSeconds nextStep = Infinite;
-  MLMicroSeconds now;
+  MLMicroSeconds stepNow = MainLoop::now();
   if (mRootView) {
     do {
-      nextStep = mRootView->step(mLastUpdate+mMaxPriorityInterval);
+      nextStep = mRootView->step(mLastUpdate+mMaxPriorityInterval, stepNow);
     } while (nextStep==0);
-    MLMicroSeconds nextDisp = updateDisplay();
-    now = MainLoop::now();
-    DBGFOCUSOLOG("- step: next view stepping / next update : %10lld µS / %10lld", nextStep-now, nextDisp-now);
+    MLMicroSeconds nextDisp = updateDisplay(stepNow);
+    DBGFOCUSOLOG("- step: next view stepping / next update : step+%10lld µS / step+%10lld µS", nextStep-stepNow, nextDisp-stepNow);
     if (nextStep<0 || (nextDisp>0 && nextDisp<nextStep)) {
       nextStep = nextDisp;
     }
   }
-  else {
-    now = MainLoop::now();
-  }
   // now we have nextStep according to the view hierarchy's step needs and the display's updating needs
   // - insert extra steps to avoid stalling completeley in case something goes wrong
-  if (nextStep<0 || nextStep-now>MAX_STEP_INTERVAL) {
-    DBGFOCUSOLOG("- step: insert step to prevent stalling in %lld µS (view's step() requested %lld µS)", MAX_STEP_INTERVAL, nextStep-now);
-    nextStep = now+MAX_STEP_INTERVAL;
+  if (nextStep<0 || nextStep-stepNow>MAX_STEP_INTERVAL) {
+    DBGFOCUSOLOG("- step: insert step to prevent stalling in %lld µS (view's step() requested step+%lld µS)", MAX_STEP_INTERVAL, nextStep-stepNow);
+    nextStep = stepNow+MAX_STEP_INTERVAL;
   }
   // caller MUST call again at nextStep!
   return nextStep;
@@ -1183,7 +1178,7 @@ MLMicroSeconds LEDChainArrangement::step()
 
 void LEDChainArrangement::autoStep(MLTimer &aTimer)
 {
-  DBGFOCUSOLOG("######## autostep() called");
+  DBGFOCUSOLOG("\n\n######## autostep() called");
   MLMicroSeconds nextCall = step();
   MainLoop::currentMainLoop().retriggerTimer(aTimer, nextCall, 0, MainLoop::absolute);
 }
