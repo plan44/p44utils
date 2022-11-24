@@ -313,13 +313,13 @@ MLMicroSeconds ValueAnimator::cycleComplete(MLMicroSeconds aNow)
 }
 
 
-MLMicroSeconds ValueAnimator::step()
+MLMicroSeconds ValueAnimator::step(MLMicroSeconds aNow)
 {
   if (mAwaitingTrigger) return Infinite; // still waiting for getting triggered
-  MLMicroSeconds now = MainLoop::now();
+  if (aNow==Never) aNow = MainLoop::now();
   if (mStartTimeOrDelay) {
     // delayed start
-    if (now<mStartTimeOrDelay) {
+    if (aNow<mStartTimeOrDelay) {
       // still waiting for start
       return mStartTimeOrDelay; // need to be called again at start time
     }
@@ -327,10 +327,10 @@ MLMicroSeconds ValueAnimator::step()
     return start();
   }
   if (!inProgress()) return Infinite;
-  double progress = (double)(now-mStartedAt)/mDuration;
+  double progress = (double)(aNow-mStartedAt)/mDuration;
   if (progress>=1) {
     // reached end of cycle
-    return cycleComplete(now);
+    return cycleComplete(aNow);
   }
   else if (progress<0) {
     progress = 0; // should not happen
@@ -339,11 +339,11 @@ MLMicroSeconds ValueAnimator::step()
   double fprog = mAnimationFunction(progress, mAnimationParam);
   FOCUSLOG(
     "--- Animation step: time since cycle start: %3.3f S, start=%3.2f, distance=%+3.2f: progress %.3f -> %.3f (delta = %.3f) -> newValue=%3.2f",
-    (double)(now-mStartedAt)/Second, mStartValue, mDistance, progress, fprog, mStartValue+mDistance*fprog-mCurrentValue, mStartValue+mDistance*fprog
+    (double)(aNow-mStartedAt)/Second, mStartValue, mDistance, progress, fprog, mStartValue+mDistance*fprog-mCurrentValue, mStartValue+mDistance*fprog
   );
   mCurrentValue = mStartValue+mDistance*fprog;
   mValueSetter(mCurrentValue);
-  return now+mStepTime;
+  return aNow+mStepTime;
 }
 
 

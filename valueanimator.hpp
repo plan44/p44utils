@@ -165,8 +165,9 @@ namespace p44 {
     ///   still keep the overall timing as good as possible.
     /// @note do not call step() too often, as it always causes the value setter to be executed, which might not be
     ///   efficent to do much more often than needed
+    /// @param aNow can be set to a externally determined "now" of a single update step, if set to Never, actual mainloop now() will be used
     /// @return Infinite if there is no immediate need to call step again, otherwise mainloop time of when to call again (latest)
-    MLMicroSeconds step();
+    MLMicroSeconds step(MLMicroSeconds aNow = Never);
 
     /// @return true when an animation is in progress, including waiting for start (after delay or at trigger)
     bool inProgress();
