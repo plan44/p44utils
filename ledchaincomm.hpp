@@ -343,11 +343,13 @@ namespace p44 {
     PixelRect mCovers;
 
     MLMicroSeconds mLastUpdate;
+    MLMicroSeconds mLastStep;
     MLTicket mAutoStepTicket;
     uint32_t mPowerLimitMw; // max power (accumulated PWM values of all LEDs)
     uint32_t mRequestedLightPowerMw; // light power currently requested (but possibly not actually output if >powerLimit)
     uint32_t mActualLightPowerMw; // light power actually used after dimming down because of limit
     bool mPowerLimited; // set while power is limited
+    MLMicroSeconds mSlowDetected; // when last timing hickup was detected and warned
 
     MLMicroSeconds mMinUpdateInterval; ///< minimum interval kept between updates to LED chain hardware
     MLMicroSeconds mMaxPriorityInterval; ///< maximum interval during which noisy view children are prevented from requesting rendering updates after prioritized (localTimingPriority==true) parent view did
@@ -481,7 +483,10 @@ namespace p44 {
     MLMicroSeconds step();
 
     void recalculateCover();
-    MLMicroSeconds updateDisplay(MLMicroSeconds aDispNow);
+
+    /// Update the display by actually sending data to LED chains when needed (views dirty or minimal refresh interval reached)
+    /// @return time when updateDisplay() can/should actually perform the next update
+    MLMicroSeconds updateDisplay();
 
     void autoStep(MLTimer &aTimer);
 
