@@ -293,7 +293,7 @@ namespace p44 {
 
   protected:
 
-    bool mHasStarted;
+    MLMicroSeconds mStartedAt;
     bool mTerminated;
     int mExitCode;
 
@@ -574,7 +574,10 @@ namespace p44 {
 
     /// ask if mainloop is normally running
     /// @return will return false as soon as mainloop has been requested to terminate, or before run() has been called
-    bool isRunning() { return mHasStarted && !mTerminated; };
+    bool isRunning() { return mStartedAt!=Never && !mTerminated; };
+
+    /// @return mainloop time when started
+    MLMicroSeconds startedAt() { return mStartedAt; }
 
     /// register a cleanup handler, which will be called when the main loop has terminated
     /// @param aCleanupHandler the routine to be called

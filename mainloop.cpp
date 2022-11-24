@@ -441,7 +441,7 @@ void p44::libev_sleep_timer_done(EV_P_ struct ev_timer *t, int revents)
 MainLoop::MainLoop() :
   mTimersChanged(false),
   mTicketNo(0),
-  mHasStarted(false),
+  mStartedAt(Never),
   mTerminated(false),
   mExitCode(EXIT_SUCCESS)
 {
@@ -1353,7 +1353,7 @@ void MainLoop::handleIOPoll(MLMicroSeconds aTimeout)
 void MainLoop::startupMainLoop(bool aRestart)
 {
   if (aRestart) mTerminated = false;
-  mHasStarted = true;
+  mStartedAt = MainLoop::now();
 }
 
 
