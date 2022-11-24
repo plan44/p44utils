@@ -222,7 +222,7 @@ void JsonRpcComm::gotJson(ErrorPtr aError, JsonObjectPtr aJsonObject)
           // this is a response (requests always have a method member)
           // - check if result or error
           JsonObjectPtr respObj;
-          if (!aJsonObject->get("result", respObj)) {
+          if (!aJsonObject->get("result", respObj, false)) { // NULL result also counts as having a result!
             // must be error, need further decoding
             respObj = aJsonObject->get("error");
             if (!respObj)

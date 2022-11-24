@@ -128,9 +128,14 @@ namespace p44 {
     /// get object by key
     /// @param aKey key of object
     /// @param aJsonObject will be set to the value of the key when return value is true
-    /// @param aNonNull if set, existing keys with NULL values will return false
-    /// @return true if key exists (but aJsonObject might still be empty in case of a NULL object)
-    bool get(const char *aKey, JsonObjectPtr &aJsonObject, bool aNonNull = false);
+    /// @param aIgnoreNullValues if set (default since 2022-11-24, but not before!), existing keys with
+    ///   NULL values will be ignored, that is, return false - as if the key would not exist.
+    ///   In this mode the function returning true guarantees that aJsonObject is not nullPtr,
+    ///   so no testing is needed before trying to extract a value from it.
+    ///   If not set, the method always returns true when the key exists, and aJsonObject will
+    ///   be nullPtr when the key's value is NULL.
+    /// @return true if key exists and (only if aIgnoreNullValues is set) has a non-null value.
+    bool get(const char *aKey, JsonObjectPtr &aJsonObject, bool aIgnoreNullValues = true);
 
     /// get object's string value by key
     /// @return NULL if key does not exists or actually has NULL value, string object otherwise
