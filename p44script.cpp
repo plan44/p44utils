@@ -6188,7 +6188,7 @@ static void formattime_func(BuiltinFunctionContextPtr f)
   if (f->numArgs()>ai) {
     fmt = f->arg(ai)->stringValue();
   }
-  else if (t>Day) fmt = "%Y-%m-%d %H:%M:%S";
+  else if (t>Day || t<0) fmt = "%Y-%m-%d %H:%M:%S"; // negatives are dates before 1970 (only 1970-01-01 will be shown as time-only by default)
   else fmt = "%H:%M:%S";
   MainLoop::getLocalTime(disptim, NULL, t, t<Day);
   f->finish(new StringValue(string_ftime(fmt.c_str(), &disptim)));
@@ -7216,55 +7216,67 @@ static void between_dates_func(BuiltinFunctionContextPtr f)
 }
 
 
-// helper for geolocation dependent functions, returns annotated NULL when no location is set
-static bool checkGeoLocation(BuiltinFunctionContextPtr f)
+// helper for geolocation and datetime dependent functions, returns annotated NULL when no location is set
+static bool checkSunParams(BuiltinFunctionContextPtr f, time_t &aTime)
 {
   if (!f->geoLocation()) {
     f->finish(new AnnotatedNullValue("no geolocation information available"));
     return false;
   }
+  //
+  if (f->arg(0)->defined()) {
+    aTime = f->arg(0)->int64Value(); // get
+  }
+  else {
+    aTime = time(NULL);
+  }
   return true;
 }
 
-// sunrise()
+// sunrise([epochtime])
 static void sunrise_func(BuiltinFunctionContextPtr f)
 {
-  if (checkGeoLocation(f)) {
-    f->finish(new NumericValue(sunrise(time(NULL), *(f->geoLocation()), false)*3600));
+  time_t time;
+  if (checkSunParams(f, time)) {
+    f->finish(new NumericValue(sunrise(time, *(f->geoLocation()), false)*3600));
   }
 }
 
 
-// dawn()
+// dawn([epochtime])
 static void dawn_func(BuiltinFunctionContextPtr f)
 {
-  if (checkGeoLocation(f)) {
-    f->finish(new NumericValue(sunrise(time(NULL), *(f->geoLocation()), true)*3600));
+  time_t time;
+  if (checkSunParams(f, time)) {
+    f->finish(new NumericValue(sunrise(time, *(f->geoLocation()), true)*3600));
   }
 }
 
 
-// sunset()
+// sunset([epochtime])
 static void sunset_func(BuiltinFunctionContextPtr f)
 {
-  if (checkGeoLocation(f)) {
-    f->finish(new NumericValue(sunset(time(NULL), *(f->geoLocation()), false)*3600));
+  time_t time;
+  if (checkSunParams(f, time)) {
+    f->finish(new NumericValue(sunset(time, *(f->geoLocation()), false)*3600));
   }
 }
 
 
-// dusk()
+// dusk([epochtime])
 static void dusk_func(BuiltinFunctionContextPtr f)
 {
-  if (checkGeoLocation(f)) {
-    f->finish(new NumericValue(sunset(time(NULL), *(f->geoLocation()), true)*3600));
+  time_t time;
+  if (checkSunParams(f, time)) {
+    f->finish(new NumericValue(sunset(time, *(f->geoLocation()), true)*3600));
   }
 }
 
 
 // epochtime() - epoch time of right now
 // epochtime(daysecond [, yearday [, year]]) - epoch time of given daysecond, yearday, year
-static const BuiltInArgDesc epochtime_args[] = { { numeric|optionalarg }, { numeric|optionalarg }, { numeric|optionalarg } };
+// epochtime(hour, minute, second [,day [,month [,year]]]) - epoch time of given time and optional date components (second<1900)
+static const BuiltInArgDesc epochtime_args[] = { { numeric|optionalarg }, { numeric|optionalarg }, { numeric|optionalarg }, { numeric|optionalarg }, { numeric|optionalarg }, { numeric|optionalarg } };
 static const size_t epochtime_numargs = sizeof(epochtime_args)/sizeof(BuiltInArgDesc);
 static void epochtime_func(BuiltinFunctionContextPtr f)
 {
@@ -7273,18 +7285,41 @@ static void epochtime_func(BuiltinFunctionContextPtr f)
     return;
   }
   struct tm loctim; MainLoop::getLocalTime(loctim);
-  double r = f->arg(0)->doubleValue();
-  loctim.tm_sec = (int)r;
-  loctim.tm_hour = 0;
-  loctim.tm_min = 0;
-  r -= loctim.tm_sec; // fractional need to be added later
-  if (f->numArgs()>1) {
-    // note: tm_yday is not processed by mktime, so we base on Jan 1st and add yeardays later
-    loctim.tm_mon = 0;
-    loctim.tm_mday = 1;
-    r += f->arg(1)->doubleValue()*24*60*60; // seconds
-    if (f->numArgs()>2) {
-      loctim.tm_year = f->arg(2)->intValue()-1900;
+  double r;
+  if ((f->numArgs()==3 && f->arg(2)->intValue()<1900) || f->numArgs()>3) {
+    // time component variant
+    loctim.tm_hour = f->arg(0)->intValue();
+    loctim.tm_min = f->arg(1)->intValue();
+    r = f->arg(2)->doubleValue();
+    loctim.tm_sec = (int)r;
+    r -= loctim.tm_sec; // fractional need to be added later
+    if (f->numArgs()>3) {
+      // date specified
+      loctim.tm_isdst = -1; // A negative value of arg->tm_isdst causes mktime to attempt to determine if Daylight Saving Time was in effect in the specified time.
+      loctim.tm_mday = f->arg(3)->intValue();
+      if (f->numArgs()>4) loctim.tm_mon = f->arg(4)->intValue()-1;
+      if (f->numArgs()>5) loctim.tm_year = f->arg(5)->intValue()-1900;
+    }
+  }
+  else {
+    // daysecond + yearday + year variant
+    r = f->arg(0)->doubleValue();
+    loctim.tm_sec = (int)r;
+    loctim.tm_hour = 0;
+    loctim.tm_min = 0;
+    r -= loctim.tm_sec; // fractional need to be added later
+    if (f->numArgs()>1) {
+      // date specified
+      // note: this may not be precise, as day.month yeardays literals resolve to yeardays
+      //   of the current year, not the specified one!
+      // note: tm_yday is not processed by mktime, so we base on Jan 1st and add yeardays later
+      loctim.tm_mon = 0;
+//      loctim.tm_mday = 1;
+//      r += f->arg(1)->doubleValue()*24*60*60; // seconds
+      loctim.tm_mday = 1+f->arg(1)->doubleValue(); // use mday like tm_yday
+      if (f->numArgs()>2) {
+        loctim.tm_year = f->arg(2)->intValue()-1900;
+      }
     }
   }
   f->finish(new NumericValue(mktime(&loctim)+r));
@@ -7297,21 +7332,21 @@ static void epochdays_func(BuiltinFunctionContextPtr f)
   f->finish(new NumericValue((double)MainLoop::unixtime()/Day)); // epoch time in days with fractional time
 }
 
+// common helper for all timegetter functions
+static double prepTime(BuiltinFunctionContextPtr f, struct tm &aLocTim)
+{
+  MLMicroSeconds t;
+  if (f->arg(0)->defined()) {
+    t = f->arg(0)->doubleValue()*Second;
+  }
+  else {
+    t = MainLoop::unixtime();
+  }
+  double fracSecs;
+  MainLoop::getLocalTime(aLocTim, &fracSecs, t, t<=Day);
+  return fracSecs;
+}
 
-// TODO: convert into single function returning a structured time object
-
-// helper macro for getting time
-#define prepTime \
-  MLMicroSeconds t; \
-  if (f->arg(0)->defined()) { \
-    t = f->arg(0)->doubleValue()*Second; \
-  } \
-  else { \
-    t = MainLoop::unixtime(); \
-  } \
-  double fracSecs; \
-  struct tm loctim; \
-  MainLoop::getLocalTime(loctim, &fracSecs, t, t<=Day);
 
 // common argument descriptor for all time funcs
 static const BuiltInArgDesc timegetter_args[] = { { numeric|optionalarg } };
@@ -7320,7 +7355,7 @@ static const size_t timegetter_numargs = sizeof(timegetter_args)/sizeof(BuiltInA
 // timeofday([epochtime])
 static void timeofday_func(BuiltinFunctionContextPtr f)
 {
-  prepTime
+  struct tm loctim; double fracSecs = prepTime(f, loctim);
   f->finish(new NumericValue(((loctim.tm_hour*60)+loctim.tm_min)*60+loctim.tm_sec+fracSecs));
 }
 
@@ -7328,7 +7363,7 @@ static void timeofday_func(BuiltinFunctionContextPtr f)
 // hour([epochtime])
 static void hour_func(BuiltinFunctionContextPtr f)
 {
-  prepTime
+  struct tm loctim; prepTime(f, loctim);
   f->finish(new NumericValue(loctim.tm_hour));
 }
 
@@ -7336,7 +7371,7 @@ static void hour_func(BuiltinFunctionContextPtr f)
 // minute([epochtime])
 static void minute_func(BuiltinFunctionContextPtr f)
 {
-  prepTime
+  struct tm loctim; prepTime(f, loctim);
   f->finish(new NumericValue(loctim.tm_min));
 }
 
@@ -7344,7 +7379,7 @@ static void minute_func(BuiltinFunctionContextPtr f)
 // second([epochtime])
 static void second_func(BuiltinFunctionContextPtr f)
 {
-  prepTime
+  struct tm loctim; prepTime(f, loctim);
   f->finish(new NumericValue(loctim.tm_sec));
 }
 
@@ -7352,7 +7387,7 @@ static void second_func(BuiltinFunctionContextPtr f)
 // year([epochtime])
 static void year_func(BuiltinFunctionContextPtr f)
 {
-  prepTime
+  struct tm loctim; prepTime(f, loctim);
   f->finish(new NumericValue(loctim.tm_year+1900));
 }
 
@@ -7360,7 +7395,7 @@ static void year_func(BuiltinFunctionContextPtr f)
 // month([epochtime])
 static void month_func(BuiltinFunctionContextPtr f)
 {
-  prepTime
+  struct tm loctim; prepTime(f, loctim);
   f->finish(new NumericValue(loctim.tm_mon+1));
 }
 
@@ -7368,7 +7403,7 @@ static void month_func(BuiltinFunctionContextPtr f)
 // day([epochtime])
 static void day_func(BuiltinFunctionContextPtr f)
 {
-  prepTime
+  struct tm loctim; prepTime(f, loctim);
   f->finish(new NumericValue(loctim.tm_mday));
 }
 
@@ -7376,7 +7411,7 @@ static void day_func(BuiltinFunctionContextPtr f)
 // weekday([epochtime])
 static void weekday_func(BuiltinFunctionContextPtr f)
 {
-  prepTime
+  struct tm loctim; prepTime(f, loctim);
   f->finish(new NumericValue(loctim.tm_wday));
 }
 
@@ -7384,7 +7419,7 @@ static void weekday_func(BuiltinFunctionContextPtr f)
 // yearday([epochtime])
 static void yearday_func(BuiltinFunctionContextPtr f)
 {
-  prepTime
+  struct tm loctim; prepTime(f, loctim);
   f->finish(new NumericValue(loctim.tm_yday));
 }
 
@@ -7510,10 +7545,10 @@ static const BuiltinMemberDescriptor standardFunctions[] = {
   { "testlater", executable|numeric, testlater_numargs, testlater_args, &testlater_func },
   { "every", executable|numeric, every_numargs, every_args, &every_func },
   { "between_dates", executable|numeric, between_dates_numargs, between_dates_args, &between_dates_func },
-  { "sunrise", executable|numeric|null, 0, NULL, &sunrise_func },
-  { "dawn", executable|numeric|null, 0, NULL, &dawn_func },
-  { "sunset", executable|numeric|null, 0, NULL, &sunset_func },
-  { "dusk", executable|numeric|null, 0, NULL, &dusk_func },
+  { "sunrise", executable|numeric|null, timegetter_numargs, timegetter_args, &sunrise_func },
+  { "dawn", executable|numeric|null, timegetter_numargs, timegetter_args, &dawn_func },
+  { "sunset", executable|numeric|null, timegetter_numargs, timegetter_args, &sunset_func },
+  { "dusk", executable|numeric|null, timegetter_numargs, timegetter_args, &dusk_func },
   { "epochtime", executable|any, epochtime_numargs, epochtime_args, &epochtime_func },
   { "epochdays", executable|any, 0, NULL, &epochdays_func },
   { "timeofday", executable|numeric, timegetter_numargs, timegetter_args, &timeofday_func },

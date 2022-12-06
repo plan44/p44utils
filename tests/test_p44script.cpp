@@ -591,6 +591,9 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "expressions", "[scripting],[FOCUS]") {
     REQUIRE(s.test(expression, "maprange(120,100,0,0,1)")->doubleValue() == Approx(0));
     REQUIRE(s.test(expression, "epochdays()")->int64Value() == floor(MainLoop::unixtime()/Day));
     REQUIRE(s.test(expression, "epochtime()")->doubleValue() == Approx((double)MainLoop::unixtime()/Second));
+    REQUIRE(s.test(expression, "epochtime(0:00, 1.Jan, 1970)")->intValue() == -3600); // assuming we are in CET, epoch is GMT
+    // REQUIRE(s.test(expression, "formattime(epochtime(22:42:05, 29.Jun, 2007))")->stringValue() == "2007-06-29 22:42:05"); // is not DST safe
+    REQUIRE(s.test(expression, "formattime(epochtime(22, 42, 05, 29, 06, 2007))")->stringValue() == "2007-06-29 22:42:05");
     REQUIRE(s.test(expression, "hour(23:42)")->doubleValue() == 23);
     REQUIRE(s.test(expression, "minute(23:42)")->doubleValue() == 42);
     REQUIRE(s.test(expression, "formattime(23:42)")->stringValue() == "23:42:00");
