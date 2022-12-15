@@ -191,6 +191,14 @@ namespace p44 {
     /// @param aFmt ... printf style error message
     void log(int aErrLevel, const char *aFmt, ... ) __printflike(3,4);
 
+    /// log a message if logging
+    /// @param aErrLevel error level of the message
+    /// @param aAlways if set, always log the message without checking current loglevel, otherwise
+    ///   only if logging is enabled for the specified aErrLevel
+    /// @param aFmt printf-style format string
+    /// @param aArgs va_list of argumments
+    void logV(int aErrLevel, bool aAlways, const char *aFmt, va_list aArgs);
+
     /// log a message unconditionally (even if aErrLevel is not enabled)
     /// @param aErrLevel error level of the message, for inclusion into log message prefix
     /// @param aFmt ... printf style error message

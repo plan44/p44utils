@@ -84,16 +84,25 @@ const static char levelChars[8] = {
 };
 
 
+void Logger::logV(int aErrLevel, bool aAlways, const char *aFmt, va_list aArgs)
+{
+  // format the message
+  string message;
+  string_format_v(message, false, aFmt, aArgs);
+  if (aAlways || logEnabled(aErrLevel)) {
+    logStr_always(aErrLevel, message);
+  }
+}
+
+
+
 void Logger::log(int aErrLevel, const char *aFmt, ... )
 {
   if (logEnabled(aErrLevel)) {
     va_list args;
     va_start(args, aFmt);
-    // format the message
-    string message;
-    string_format_v(message, false, aFmt, args);
+    logV(aErrLevel, false, aFmt, args);
     va_end(args);
-    logStr_always(aErrLevel, message);
   }
 }
 
@@ -102,11 +111,8 @@ void Logger::log_always(int aErrLevel, const char *aFmt, ... )
 {
   va_list args;
   va_start(args, aFmt);
-  // format the message
-  string message;
-  string_format_v(message, false, aFmt, args);
+  logV(aErrLevel, false, aFmt, args);
   va_end(args);
-  logStr_always(aErrLevel, message);
 }
 
 
