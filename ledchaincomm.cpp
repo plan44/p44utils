@@ -687,6 +687,7 @@ void LEDChainComm::getPowerXY(uint16_t aX, uint16_t aY, uint8_t &aRed, uint8_t &
 #define MAX_SLOW_WARN_INTERVAL (10*Second) // how often (max) the timing violation detection will be logged
 
 LEDChainArrangement::LEDChainArrangement() :
+  mStarted(false),
   mCovers(zeroRect),
   mPowerLimitMw(0),
   mRequestedLightPowerMw(0),
@@ -1143,9 +1144,15 @@ void LEDChainArrangement::startChains()
 
 void LEDChainArrangement::begin(bool aAutoStep)
 {
-  startChains();
-  if (aAutoStep) {
-    mAutoStepTicket.executeOnce(boost::bind(&LEDChainArrangement::autoStep, this, _1));
+  if (!mStarted) {
+    mStarted = true;
+    startChains();
+    if (aAutoStep) {
+      mAutoStepTicket.executeOnce(boost::bind(&LEDChainArrangement::autoStep, this, _1));
+    }
+  }
+  else {
+    OLOG(LOG_DEBUG, "LEDChainArrangement::begin() called while already started before");
   }
 }
 
@@ -1263,10 +1270,12 @@ void LEDChainArrangement::externalUpdateRequest()
 
 void LEDChainArrangement::end()
 {
+  // note: can be repeatedly done, so do not check mStarted here
   mAutoStepTicket.cancel();
   for(LedChainVector::iterator pos = mLedChains.begin(); pos!=mLedChains.end(); ++pos) {
     pos->ledChain->end();
   }
+  mStarted = false;
 }
 
 

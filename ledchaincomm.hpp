@@ -340,6 +340,7 @@ namespace p44 {
 
     LedChainVector mLedChains;
     P44ViewPtr mRootView;
+    bool mStarted; // set when started
     PixelRect mCovers;
 
     MLMicroSeconds mLastUpdate;
