@@ -79,19 +79,19 @@ namespace p44 {
 
   private:
 
-    SPIDevicePtr spidev;
-    int readerIndex;
-    SelectCB readerSelectFunc;
+    SPIDevicePtr mSpiDev;
+    int mReaderIndex;
+    SelectCB mReaderSelectFunc;
 
     // execPICCCmd state
-    ExecResultCB execResultCB;
-    uint8_t cmd; ///< the command being executed
-    uint8_t irqEn; ///< enabled IRQs
-    uint8_t waitIrq; ///< IRQs we are waiting for to terminate execPICCCmd
+    ExecResultCB mExecResultCB;
+    uint8_t mCmd; ///< the command being executed
+    uint8_t mIrqEn; ///< enabled IRQs
+    uint8_t mWaitIrq; ///< IRQs we are waiting for to terminate execPICCCmd
     #if IRQ_WATCHDOG
-    MLTicket irqWatchdog;
+    MLTicket mIrqWatchdog;
     #else
-    MLMicroSeconds cmdStart;
+    MLMicroSeconds mCmdStart;
     #endif
 
   public:
@@ -104,7 +104,7 @@ namespace p44 {
     virtual ~RFID522();
 
     /// get this reader's index
-    int getReaderIndex() { return readerIndex; };
+    int getReaderIndex() { return mReaderIndex; };
 
     void init();
 

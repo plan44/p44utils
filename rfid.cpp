@@ -141,13 +141,13 @@ using namespace p44;
 
 
 RFID522::RFID522(SPIDevicePtr aSPIGenericDev, int aReaderIndex, SelectCB aReaderSelectFunc) :
-  cmd(0),
-  irqEn(0),
-  waitIrq(0)
+  mCmd(0),
+  mIrqEn(0),
+  mWaitIrq(0)
 {
-  spidev = aSPIGenericDev;
-  readerIndex = aReaderIndex;
-  readerSelectFunc = aReaderSelectFunc;
+  mSpiDev = aSPIGenericDev;
+  mReaderIndex = aReaderIndex;
+  mReaderSelectFunc = aReaderSelectFunc;
 }
 
 
@@ -165,9 +165,9 @@ void RFID522::writeReg(uint8_t aReg, uint8_t aVal)
   uint8_t out[2];
   out[0] = (aReg<<1)&0x7E;
   out[1] = aVal;
-  if (readerSelectFunc) readerSelectFunc(readerIndex);
-  spidev->SPIRawWriteRead(2, out, 0, NULL);
-  if (readerSelectFunc) readerSelectFunc(Deselect);
+  if (mReaderSelectFunc) mReaderSelectFunc(mReaderIndex);
+  mSpiDev->SPIRawWriteRead(2, out, 0, NULL);
+  if (mReaderSelectFunc) mReaderSelectFunc(Deselect);
 }
 
 void RFID522::writeFIFO(const uint8_t* aData, size_t aNumBytes)
@@ -177,9 +177,9 @@ void RFID522::writeFIFO(const uint8_t* aData, size_t aNumBytes)
   buf[0] = (FIFODataReg<<1)&0x7E;
   if (aNumBytes>maxBytes) aNumBytes = maxBytes;
   memcpy(buf+1, aData, aNumBytes);
-  if (readerSelectFunc) readerSelectFunc(readerIndex);
-  spidev->SPIRawWriteRead((unsigned int )(aNumBytes+1), buf, 0, NULL);
-  if (readerSelectFunc) readerSelectFunc(Deselect);
+  if (mReaderSelectFunc) mReaderSelectFunc(mReaderIndex);
+  mSpiDev->SPIRawWriteRead((unsigned int )(aNumBytes+1), buf, 0, NULL);
+  if (mReaderSelectFunc) mReaderSelectFunc(Deselect);
 }
 
 
@@ -187,9 +187,9 @@ uint8_t RFID522::readReg(uint8_t addr)
 {
   uint8_t val, ad;
   ad = ((addr<<1)&0x7E) | 0x80; // WR=Bit7, addr=Bit6..1, bit0=0
-  if (readerSelectFunc) readerSelectFunc(readerIndex);
-  spidev->SPIRawWriteRead(1, &ad, 1, &val);
-  if (readerSelectFunc) readerSelectFunc(Deselect);
+  if (mReaderSelectFunc) mReaderSelectFunc(mReaderIndex);
+  mSpiDev->SPIRawWriteRead(1, &ad, 1, &val);
+  if (mReaderSelectFunc) mReaderSelectFunc(Deselect);
   return val;
 }
 
@@ -201,9 +201,9 @@ void RFID522::readFIFO(uint8_t* aData, size_t aNumBytes)
   uint8_t reg = ((FIFODataReg<<1)&0x7E) | 0x80;
   memset(obuf, reg, maxBytes+1); // always send the register address
   if (aNumBytes>maxBytes) aNumBytes = maxBytes;
-  if (readerSelectFunc) readerSelectFunc(readerIndex);
-  spidev->SPIRawWriteRead((unsigned int )(aNumBytes+1), obuf, (unsigned int )(aNumBytes+1), ibuf, true);
-  if (readerSelectFunc) readerSelectFunc(Deselect);
+  if (mReaderSelectFunc) mReaderSelectFunc(mReaderIndex);
+  mSpiDev->SPIRawWriteRead((unsigned int )(aNumBytes+1), obuf, (unsigned int )(aNumBytes+1), ibuf, true);
+  if (mReaderSelectFunc) mReaderSelectFunc(Deselect);
   memcpy(aData, ibuf+1, aNumBytes);
 }
 
@@ -229,13 +229,13 @@ void RFID522::clrRegBits(uint8_t aReg, uint8_t aBitMask)
 void RFID522::reset()
 {
   #if IRQ_WATCHDOG
-  irqWatchdog.cancel();
+  mIrqWatchdog.cancel();
   #endif
   // Soft reset, all registers set to reset values, buffer unchanged
   writeReg(CommandReg, PCD_SOFTRESET);
-  cmd = 0;
-  irqEn = 0;
-  waitIrq = 0;
+  mCmd = 0;
+  mIrqEn = 0;
+  mWaitIrq = 0;
 }
 
 
@@ -310,28 +310,28 @@ void RFID522::energyFieldOn(void)
 
 void RFID522::execPICCCmd(uint8_t aCmd, const string aTxData, ExecResultCB aResultCB)
 {
-  execResultCB = aResultCB;
+  mExecResultCB = aResultCB;
 
-  irqEn = 0x00;
-  waitIrq = 0x00;
+  mIrqEn = 0x00;
+  mWaitIrq = 0x00;
   // IRQ enable bits:
   //            |    7   |   6   |   5   |    4    ||     3      |      2     |    1   |    0     |
   // CommIEnReg | IRqInv | TxIEn | RxIEn | IdleIEn || HiAlertIEn | LoAlertIEn | ErrIEn | TimerIEn |
   // CommIrqReg |  Set1  | TxIRq | RxIRq | IdleIRq || HiAlertIRq | LoAlertIRq | ErrIRq | TimerIRq |
-  cmd = aCmd;
-  switch (cmd) {
+  mCmd = aCmd;
+  switch (mCmd) {
     case PCD_MFAUTHENT: {
       // MiFare authentication
-      irqEn = 0x12; // IdleIEn + ErrIEn interupt enable
-      waitIrq = 0x11; // wait for Idle (or Timer, even if not enabled)
+      mIrqEn = 0x12; // IdleIEn + ErrIEn interupt enable
+      mWaitIrq = 0x11; // wait for Idle (or Timer, even if not enabled)
       break;
     }
     case PCD_TRANSCEIVE: {
       // Transmit and then receive data
       //irqEn = 0x77; // TxIen + RxIen + IdleIEn + LoAlertIEn + ErrIEn + TimerIEn interrupt enable
-      irqEn = 0x73; // TxIen + RxIen + IdleIEn + ErrIEn + TimerIEn interrupt enable
+      mIrqEn = 0x73; // TxIen + RxIen + IdleIEn + ErrIEn + TimerIEn interrupt enable
       //irqEn = 0x13; // IdleIEn, ErrIEn, TimerIEn
-      waitIrq = 0x31; // wait for Idle, Rx, Timer
+      mWaitIrq = 0x31; // wait for Idle, Rx, Timer
       break;
     }
     default: {
@@ -340,7 +340,7 @@ void RFID522::execPICCCmd(uint8_t aCmd, const string aTxData, ExecResultCB aResu
     }
   }
   // set up interrupts
-  writeReg(CommIEnReg, irqEn|0x80); // also set IRqInv=1, IRQ line is inverted
+  writeReg(CommIEnReg, mIrqEn|0x80); // also set IRqInv=1, IRQ line is inverted
   //clrRegBits(CommIrqReg, 0x80); // Clear all interrupt request bits %%% not really, probably bug
   writeReg(CommIrqReg, 0x7F); // Clear all interrupt request bits
   FOCUSLOG("### debug: initial irqflags after clearing = 0x%02X, enabled = 0x%02X", readReg(CommIrqReg), readReg(CommIEnReg));
@@ -350,16 +350,16 @@ void RFID522::execPICCCmd(uint8_t aCmd, const string aTxData, ExecResultCB aResu
   // put data into FIFO
   writeFIFO((uint8_t *)aTxData.c_str(), aTxData.size());
   // Execute the command
-  FOCUSLOG("rfid reader %d: starting command 0x%02X with %lu data bytes, FIFO level = %d", readerIndex, cmd, aTxData.size(), readReg(FIFOLevelReg));
-  writeReg(CommandReg, cmd);
-  if (cmd==PCD_TRANSCEIVE) {
+  FOCUSLOG("rfid reader %d: starting command 0x%02X with %lu data bytes, FIFO level = %d", mReaderIndex, mCmd, aTxData.size(), readReg(FIFOLevelReg));
+  writeReg(CommandReg, mCmd);
+  if (mCmd==PCD_TRANSCEIVE) {
     setRegBits(BitFramingReg, 0x80); // StartSend=1, transmission of data starts
   }
   #if IRQ_WATCHDOG
   // setup IRQ watchdog, wait for irqHandler() to get called
-  irqWatchdog.executeOnce(boost::bind(&RFID522::irqTimeout, this, _1), COMMAND_TIMEOUT);
+  mIrqWatchdog.executeOnce(boost::bind(&RFID522::irqTimeout, this, _1), COMMAND_TIMEOUT);
   #else
-  cmdStart = MainLoop::now();
+  mCmdStart = MainLoop::now();
   #endif
   return; // wait for IRQ now
 }
@@ -383,11 +383,11 @@ void RFID522::irqTimeout(MLTimer &aTimer)
 
 void RFID522::commandTimeout()
 {
-  FOCUSLOG("!!!! rfid reader %d: command timed out -> cancel", readerIndex);
+  FOCUSLOG("!!!! rfid reader %d: command timed out -> cancel", mReaderIndex);
   writeReg(CommandReg, PCD_IDLE);   // Cancel command
   writeReg(CommIEnReg, 0x80); // disable all interrupts, but keep polarity inverse!
-  irqEn = 0;
-  waitIrq = 0;
+  mIrqEn = 0;
+  mWaitIrq = 0;
   execResult(Error::err<RFIDError>(RFIDError::IRQTimeout, "IRQ Timeout -> cancelled command"));
 }
 
@@ -399,27 +399,27 @@ bool RFID522::irqHandler()
   FOCUSLOG("\nirqHandler()");
   // Bits: Set1 TxIRq RxIRq IdleIRq HiAlerIRq LoAlertIRq ErrIRq TimerIRq
   uint8_t irqflags = readReg(CommIrqReg) & 0x7F; // Set1 masked out (probably not needed because reads 0 anyway)
-  if (irqflags & irqEn) {
+  if (irqflags & mIrqEn) {
     FOCUSLOG(
       "### debug: found enabled IRQ: CommIrqReg=0x%02X, irqEn=0x%02X, CommIEnReg=0x%02X, waitIrq=0x%02X, status1=0x%02X, FIFOlevel=%d",
-      irqflags, irqEn, readReg(CommIEnReg), waitIrq, readReg(Status1Reg), readReg(FIFOLevelReg)
+      irqflags, mIrqEn, readReg(CommIEnReg), mWaitIrq, readReg(Status1Reg), readReg(FIFOLevelReg)
     );
     writeReg(CommIrqReg, irqflags); // ALWAYS clear the flags that are set
-    if (irqflags & waitIrq) {
+    if (irqflags & mWaitIrq) {
       ErrorPtr err;
       string response;
       uint16_t totalBits = 0;
       // one of the interrupts we should handle
-      FOCUSLOG("rfid reader %d: IRQ arrived we are waiting for, flags = 0x%02X", readerIndex, irqflags);
+      FOCUSLOG("rfid reader %d: IRQ arrived we are waiting for, flags = 0x%02X", mReaderIndex, irqflags);
       // - any of BufferOvfl Collerr CRCErr ProtecolErr ?
       uint8_t errReg = readReg(ErrorReg);
       if(!(errReg & 0x1B)) {
         // no, everything ok
-        if (irqflags&irqEn&0x01) {
+        if (irqflags&mIrqEn&0x01) {
           // we were waiting for timer IRQ
           err = Error::err<RFIDError>(RFIDError::Timeout, "chip timer timeout");
         }
-        if (cmd==PCD_TRANSCEIVE) {
+        if (mCmd==PCD_TRANSCEIVE) {
           uint8_t receivedBytes = readReg(FIFOLevelReg); // number of bytes (including possibly partially valid last byte)
           uint8_t lastBits = readReg(ControlReg) & 0x07; // number of valid bits in last byte, 0=all
           // number of bits
@@ -446,34 +446,34 @@ bool RFID522::irqHandler()
         err = Error::err<RFIDError>(RFIDError::ChipErr, "chip error register = 0x%02X", errReg);
       }
       // done with command
-      waitIrq = 0;
+      mWaitIrq = 0;
       #if IRQ_WATCHDOG
-      irqWatchdog.cancel();
+      mIrqWatchdog.cancel();
       #else
-      cmdStart = Never;
+      mCmdStart = Never;
       #endif
       execResult(err, totalBits, response);
     }
     #if !IRQ_WATCHDOG
-    else if (cmdStart) {
+    else if (mCmdStart) {
       // no IRQ and command started: check command timeout
-      if (MainLoop::now()>cmdStart+COMMAND_TIMEOUT) {
+      if (MainLoop::now()>mCmdStart+COMMAND_TIMEOUT) {
         commandTimeout();
       }
     }
     #endif
   }
-  FOCUSLOG("irqHandler() done with CommIrqReg=0x%02X, waitIrq=0x%02X\n", irqflags, waitIrq);
-  return waitIrq!=0;
+  FOCUSLOG("irqHandler() done with CommIrqReg=0x%02X, waitIrq=0x%02X\n", irqflags, mWaitIrq);
+  return mWaitIrq!=0;
 }
 
 
 void RFID522::execResult(ErrorPtr aErr, uint16_t aResultBits, const string aResult)
 {
-  FOCUSLOG("### execResult: resultBits=%d, result=%s, err=%s, callback=%s", aResultBits, binaryToHexString(aResult).c_str(), Error::text(aErr), execResultCB ? "YES" : "NO");
-  if (execResultCB) {
-    ExecResultCB cb = execResultCB;
-    execResultCB = NoOP;
+  FOCUSLOG("### execResult: resultBits=%d, result=%s, err=%s, callback=%s", aResultBits, binaryToHexString(aResult).c_str(), Error::text(aErr), mExecResultCB ? "YES" : "NO");
+  if (mExecResultCB) {
+    ExecResultCB cb = mExecResultCB;
+    mExecResultCB = NoOP;
     cb(aErr, aResultBits, aResult);
   }
 }
