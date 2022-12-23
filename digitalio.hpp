@@ -90,7 +90,7 @@ namespace p44 {
     bool isOutput() { return mOutput; };
 
     /// get state of GPIO
-    /// @return current state (from actual GPIO pin for inputs, from last set state for outputs)
+    /// @return current state (from actual IO pin for inputs, from last set state for outputs)
     bool isSet();
 
     /// set state of output (NOP for inputs)

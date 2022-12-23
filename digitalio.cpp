@@ -269,7 +269,7 @@ DigitalIoBus::DigitalIoBus(const char* aBusPinSpecs, int aNumBits, bool aOutputs
       size_t e = spec.find(")", 1);
       if (e!=string::npos) {
         prefix = spec.substr(1,e-1);
-        spec.erase(0,e);
+        spec.erase(0,e+1);
       }
     }
     string pinspec = prefix+spec;
@@ -291,9 +291,9 @@ DigitalIoBus::~DigitalIoBus()
 
 uint32_t DigitalIoBus::getBusValue()
 {
-  mCurrentValue = 0;
   if (!mOutputs) {
     // actually read
+    mCurrentValue = 0;
     for (BusPinVector::iterator pos=mBusPins.begin(); pos<mBusPins.end(); ++pos) {
       mCurrentValue = (mCurrentValue<<1)|((*pos)->isSet() ? 1 : 0);
     }
@@ -316,7 +316,7 @@ uint8_t DigitalIoBus::getBusWidth()
 
 void DigitalIoBus::setBusValue(uint32_t aBusValue)
 {
-  if (aBusValue!=mCurrentValue) {
+  if (mOutputs && aBusValue!=mCurrentValue) {
     uint32_t m = 0x01;
     for (BusPinVector::iterator pos=mBusPins.begin(); pos<mBusPins.end(); ++pos) {
       bool sta = (aBusValue & m)!=0;
@@ -652,7 +652,7 @@ static void maxvalue_func(BuiltinFunctionContextPtr f)
 }
 
 
-// biswidth() // bus width in number of bits
+// buswidth() // bus width in number of bits
 static void buswidth_func(BuiltinFunctionContextPtr f)
 {
   DigitalIoBusObj* b = dynamic_cast<DigitalIoBusObj *>(f->thisObj().get());
@@ -771,7 +771,7 @@ static void digitalio_func(BuiltinFunctionContextPtr f)
 }
 
 
-// digitalbus(pinspecs, areOutputs [, initialBusValue])
+// digitalbus(pinspecs, areOutputs [, initialPinValues])
 static const BuiltInArgDesc digitalbus_args[] = { { text }, { numeric }, { numeric|optionalarg } };
 static const size_t digitalbus_numargs = sizeof(digitalbus_args)/sizeof(BuiltInArgDesc);
 static void digitalbus_func(BuiltinFunctionContextPtr f)
@@ -782,8 +782,8 @@ static void digitalbus_func(BuiltinFunctionContextPtr f)
   }
   #endif
   bool out = f->arg(1)->boolValue();
-  int v = 0;
-  if (f->arg(2)->defined()) v = f->arg(2)->intValue();
+  bool v = false;
+  if (f->arg(2)->defined()) v = f->arg(2)->boolValue();
   DigitalIoBusPtr digitalbus = new DigitalIoBus(f->arg(0)->stringValue().c_str(), 32, out, v);
   f->finish(new DigitalIoBusObj(digitalbus));
 }
