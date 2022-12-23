@@ -308,6 +308,12 @@ uint32_t DigitalIoBus::getMaxBusValue()
 }
 
 
+uint8_t DigitalIoBus::getBusWidth()
+{
+  return (uint8_t)mBusPins.size();
+}
+
+
 void DigitalIoBus::setBusValue(uint32_t aBusValue)
 {
   if (aBusValue!=mCurrentValue) {
@@ -617,6 +623,62 @@ DigitalIoPtr DigitalIoObj::digitalIoFromArg(ScriptObjPtr aArg, bool aOutput, boo
 }
 
 
+// value() // get value
+// value(val) // set value
+static const BuiltInArgDesc value_args[] = { { numeric|optionalarg } };
+static const size_t value_numargs = sizeof(value_args)/sizeof(BuiltInArgDesc);
+static void value_func(BuiltinFunctionContextPtr f)
+{
+  DigitalIoBusObj* b = dynamic_cast<DigitalIoBusObj *>(f->thisObj().get());
+  assert(b);
+  if (f->numArgs()>0) {
+    // set new bus value
+    b->digitalIoBus()->setBusValue(f->arg(0)->intValue());
+    f->finish();
+  }
+  else {
+    // return current value
+    f->finish(new NumericValue((int64_t)b->digitalIoBus()->getBusValue()));
+  }
+}
+
+
+// maxvalue() // get max value this bus can represent
+static void maxvalue_func(BuiltinFunctionContextPtr f)
+{
+  DigitalIoBusObj* b = dynamic_cast<DigitalIoBusObj *>(f->thisObj().get());
+  assert(b);
+  f->finish(new NumericValue((int64_t)b->digitalIoBus()->getMaxBusValue()));
+}
+
+
+// biswidth() // bus width in number of bits
+static void buswidth_func(BuiltinFunctionContextPtr f)
+{
+  DigitalIoBusObj* b = dynamic_cast<DigitalIoBusObj *>(f->thisObj().get());
+  assert(b);
+  f->finish(new NumericValue(b->digitalIoBus()->getBusWidth()));
+}
+
+
+static const BuiltinMemberDescriptor digitalIoBusFunctions[] = {
+  { "value", executable|numeric, value_numargs, value_args, &value_func },
+  { "buswidth", executable|numeric, 0, NULL, &buswidth_func },
+  { "maxvalue", executable|numeric, 0, NULL, &maxvalue_func },
+  { NULL } // terminator
+};
+
+static BuiltInMemberLookup* sharedDigitalIoBusFunctionLookupP = NULL;
+
+DigitalIoBusObj::DigitalIoBusObj(DigitalIoBusPtr aDigitalIoBus) :
+  mDigitalIoBus(aDigitalIoBus)
+{
+  registerSharedLookup(sharedDigitalIoBusFunctionLookupP, digitalIoBusFunctions);
+}
+
+
+
+
 // blink([period [, onpercent [, timeout]]])
 static const BuiltInArgDesc blink_args[] = { { numeric|optionalarg }, { numeric|optionalarg }, { numeric|optionalarg } };
 static const size_t blink_numargs = sizeof(blink_args)/sizeof(BuiltInArgDesc);
@@ -709,6 +771,25 @@ static void digitalio_func(BuiltinFunctionContextPtr f)
 }
 
 
+// digitalbus(pinspecs, areOutputs [, initialBusValue])
+static const BuiltInArgDesc digitalbus_args[] = { { text }, { numeric }, { numeric|optionalarg } };
+static const size_t digitalbus_numargs = sizeof(digitalbus_args)/sizeof(BuiltInArgDesc);
+static void digitalbus_func(BuiltinFunctionContextPtr f)
+{
+  #if ENABLE_APPLICATION_SUPPORT
+  if (Application::sharedApplication()->userLevel()<1) { // user level >=1 is needed for IO access
+    f->finish(new ErrorValue(ScriptError::NoPrivilege, "no IO privileges"));
+  }
+  #endif
+  bool out = f->arg(1)->boolValue();
+  int v = 0;
+  if (f->arg(2)->defined()) v = f->arg(2)->intValue();
+  DigitalIoBusPtr digitalbus = new DigitalIoBus(f->arg(0)->stringValue().c_str(), 32, out, v);
+  f->finish(new DigitalIoBusObj(digitalbus));
+}
+
+
+
 // indicator(pinspec [, initialValue])
 static const BuiltInArgDesc indicator_args[] = { { text }, { numeric|optionalarg } };
 static const size_t indicator_numargs = sizeof(indicator_args)/sizeof(BuiltInArgDesc);
@@ -728,6 +809,7 @@ static void indicator_func(BuiltinFunctionContextPtr f)
 
 static const BuiltinMemberDescriptor digitalioGlobals[] = {
   { "digitalio", executable|null, digitalio_numargs, digitalio_args, &digitalio_func },
+  { "digitalbus", executable|null, digitalbus_numargs, digitalbus_args, &digitalbus_func },
   { "indicator", executable|null, indicator_numargs, indicator_args, &indicator_func },
   { NULL } // terminator
 };

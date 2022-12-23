@@ -158,7 +158,7 @@ namespace p44 {
   public:
     /// Create bus consiting of multiple general purpose I/O pins
     /// @param aBusPinSpecs comma separated list of bus pin specifications, MSB first.
-    ///
+    ///   `(prefix)` can be used to define multiple similar pins, such as `(gpio.)1,2,3,4,(i2c0.MCP23017@24.)6,7`
     /// @param aNumBits (max) number of bits
     /// @param aOutputs use as outputs
     /// @param aInitialStates initial state of all bus pins
@@ -170,6 +170,9 @@ namespace p44 {
 
     /// get the max bus value
     uint32_t getMaxBusValue();
+
+    /// get the bus width in number of bits
+    uint8_t getBusWidth();
 
     /// set the current bus value
     /// @param aBusValue new value
@@ -307,6 +310,19 @@ namespace p44 {
       /// factory method to get a DigitalIo either by creating it from pinspec
       /// string or by using existing DigitalIoObj passed
       static DigitalIoPtr digitalIoFromArg(ScriptObjPtr aArg, bool aOutput, bool aInitialState);
+    };
+
+
+    /// represents a digital bus
+    /// @note is an event source, but does not expose it directly, only via DigitalInputEventObjs
+    class DigitalIoBusObj : public StructuredLookupObject
+    {
+      typedef StructuredLookupObject inherited;
+      DigitalIoBusPtr mDigitalIoBus;
+    public:
+      DigitalIoBusObj(DigitalIoBusPtr aDigitalIoBus);
+      virtual string getAnnotation() const P44_OVERRIDE { return "digitalBus"; };
+      DigitalIoBusPtr digitalIoBus() { return mDigitalIoBus; }
     };
 
 
