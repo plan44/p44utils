@@ -54,8 +54,8 @@ namespace p44 { namespace P44Script {
 
   class ScriptObj;
   typedef boost::intrusive_ptr<ScriptObj> ScriptObjPtr;
-  class ExpressionValue;
-  typedef boost::intrusive_ptr<ExpressionValue> ExpressionValuePtr;
+  class ValueIterator;
+  typedef boost::intrusive_ptr<ValueIterator> ValueIteratorPtr;
   class ErrorValue;
   typedef boost::intrusive_ptr<ErrorValue> ErrorValuePtr;
   class NumericValue;
@@ -406,6 +406,7 @@ namespace p44 { namespace P44Script {
       { return typeRequirementMet(getTypeInfo(), aRequirements, aMask); }
 
     /// check type compatibility
+    /// @param aInfo the flags to check
     /// @param aRequirements what type flags MUST be set
     /// @param aMask what type flags are checked (defaults to typeMask)
     /// @return true if this object has all of the type flags requested within the mask
@@ -503,7 +504,7 @@ namespace p44 { namespace P44Script {
 
     /// get object subfield/member by index, for example positional arguments in a ExecutionContext
     /// @param aIndex index of the member to find
-    /// @param aMemberAccessFlags what type and type attributes the returned member must have, defaults to no restriction.
+    /// @param aMemberAccessFlags what type and type attributes the returned member must have.
     ///   If lvalue is set and the member can be created and/or assigned to, an ScriptLvalue might be returned
     /// @return ScriptObj representing the member with index
     /// @note only possibly returns something in objects with type attribute "array"
@@ -525,6 +526,10 @@ namespace p44 { namespace P44Script {
     /// @return ok or Error describing reason for assignment failure
     /// @note only possibly works on objects with type attribute "mutablemembers"
     virtual ErrorPtr setMemberAtIndex(size_t aIndex, const ScriptObjPtr aMember, const string aName = "");
+
+    /// create and initialize a iterator for iterating over this objects members
+    /// @return iterator over members of this object
+    virtual ValueIteratorPtr newIterator();
 
     /// @}
 
@@ -606,7 +611,6 @@ namespace p44 { namespace P44Script {
 
   // MARK: - lvalues
 
-
   /// Base class for a value reference that might be assigned to
   class ScriptLValue  : public ScriptObj
   {
@@ -637,6 +641,7 @@ namespace p44 { namespace P44Script {
     virtual void assignLValue(EvaluationCB aEvaluationCB, ScriptObjPtr aNewValue) P44_OVERRIDE = 0;
 
   };
+  typedef boost::intrusive_ptr<ScriptLValue> ScriptLValuePtr;
 
 
   class StandardLValue : public ScriptLValue
@@ -667,6 +672,68 @@ namespace p44 { namespace P44Script {
     virtual string getIdentifier() const P44_OVERRIDE { return mMemberName; };
 
   };
+
+
+  // MARK: - iterators
+
+  class ValueIterator : public P44Obj
+  {
+  public:
+    /// reset iterator to its initial state (beginning of the iterating sequence)
+    /// @note implementation might just flag internal state for resetting, actually doing it at obtainValue()/obtainKey()
+    virtual void reset() = 0;
+
+    /// advance the iterator to the next
+    /// @note implementation might just flag internal state for incrementing, actually doing it at obtainValue()/obtainKey()
+    virtual void next() = 0;
+
+    /// Perform the calculations, possibly asynchronously, to get the current value
+    /// @param aEvaluationCB will be called with the current value, or NULL if iterator is exhausted
+    /// @param aMemberAccessFlags what type and type attributes the returned member must have.
+    ///   If lvalue is set and the current value can be assigned to, an ScriptLvalue might be returned
+    virtual void obtainValue(EvaluationCB aEvaluationCB, TypeInfo aMemberAccessFlags) = 0;
+
+    /// Perform the calculations, possibly asynchronously, to get the current key
+    /// @param aEvaluationCB will be called with the current key, or NULL if iterator is exhausted
+    /// @param aNumericPreferred if set, key is returned as number/index if possible for the container
+    virtual void obtainKey(EvaluationCB aEvaluationCB, bool aNumericPreferred) = 0;
+  };
+
+
+  /// iterator using memberAtIndex() and numIndexedMembers()
+  class IndexedValueIterator : public ValueIterator
+  {
+    typedef ValueIterator inherited;
+
+  protected:
+
+    size_t mCurrentIndex;
+    ScriptObjPtr mIteratedObj;
+
+    /// @return true if internal index is in range of the indexable values
+    bool validIndex();
+
+  public:
+
+    /// iterator over a regular ScriptObj
+    /// @param aObj the object that will be iterated over
+    IndexedValueIterator(ScriptObjPtr aObj);
+
+    virtual void reset() P44_OVERRIDE;
+    virtual void next() P44_OVERRIDE;
+    virtual void obtainValue(EvaluationCB aEvaluationCB, TypeInfo aMemberAccessFlags) P44_OVERRIDE;
+    virtual void obtainKey(EvaluationCB aEvaluationCB, bool aNumericPreferred) P44_OVERRIDE;
+  };
+
+
+  class LoopController : public P44Obj
+  {
+  public:
+    ValueIteratorPtr mIterator;
+    ScriptLValuePtr mLoopValue;
+    ScriptLValuePtr mLoopKey;
+  };
+  typedef boost::intrusive_ptr<LoopController> LoopControllerPtr;
 
 
   // MARK: - Special NULL values
@@ -773,6 +840,7 @@ namespace p44 { namespace P44Script {
     NumericValue(bool aBool) : num(aBool ? 1 : 0) {};
     NumericValue(int aInt) : num(aInt) {};
     NumericValue(int64_t aInt) : num(aInt) {};
+    NumericValue(size_t aInt) : num(aInt) {};
     virtual string getAnnotation() const P44_OVERRIDE { return "numeric"; };
     virtual TypeInfo getTypeInfo() const P44_OVERRIDE { return numeric; };
     // value getters
@@ -846,11 +914,28 @@ namespace p44 { namespace P44Script {
     virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aMemberAccessFlags = none) P44_OVERRIDE;
     virtual size_t numIndexedMembers() const P44_OVERRIDE;
     virtual const ScriptObjPtr memberAtIndex(size_t aIndex, TypeInfo aMemberAccessFlags = none) P44_OVERRIDE;
+    virtual ValueIteratorPtr newIterator() P44_OVERRIDE;
     // operators
     virtual bool operator<(const ScriptObj& aRightSide) const P44_OVERRIDE;
     virtual bool operator==(const ScriptObj& aRightSide) const P44_OVERRIDE;
     virtual ScriptObjPtr operator+(const ScriptObj& aRightSide) const P44_OVERRIDE;
   };
+
+
+  class JsonValueIterator : public IndexedValueIterator
+  {
+    typedef IndexedValueIterator inherited;
+  public:
+    /// iterator over a json represented value which might have members with non-numeric keys
+    /// @param aObj the object that will be iterated over
+    JsonValueIterator(ScriptObjPtr aObj);
+
+    virtual void obtainKey(EvaluationCB aEvaluationCB, bool aNumericPreferred) P44_OVERRIDE;
+    virtual void obtainValue(EvaluationCB aEvaluationCB, TypeInfo aMemberAccessFlags) P44_OVERRIDE;
+  };
+
+
+
 
 
   class JsonValue : public JsonRepresentedValue
@@ -1711,9 +1796,16 @@ namespace p44 { namespace P44Script {
     virtual void start();
 
     /// resume processing
-    /// @param aNewResult if not NULL, this object will be stored to result as first step of the resume
     /// @note must be called for every step of the process that does not lead to completion
-    void resume(ScriptObjPtr aNewResult = ScriptObjPtr());
+    void resume();
+
+    /// resume processing with result
+    /// @param aNewResult if not NULL, this object will be stored to result as first step of the resume
+    void resume(ScriptObjPtr aNewResult);
+
+    /// resume processing
+    /// @param aNewResultOrNull this object or nullPtr will be stored to result as first step of the resume
+    void resumeAllowingNull(ScriptObjPtr aNewResultOrNull);
 
     /// abort processing
     /// @param aAbortResult if set, this is what aborted process will report back
@@ -1833,6 +1925,7 @@ namespace p44 { namespace P44Script {
     // state that can be pushed
     SourceCursor mSrc; ///< the scanning position within code
     SourcePos mPoppedPos; ///< the position popped from the stack (can be applied to jump back for loops)
+    LoopControllerPtr mLoopController; ///< the loop controller, if any
     StateHandler mCurrentState; ///< next state to call
     ScriptObjPtr mResult; ///< the current result object
     ScriptObjPtr mOlderResult; ///< an older result, e.g. the result popped from stack, or previous lookup in nested member lookups
@@ -1853,6 +1946,7 @@ namespace p44 { namespace P44Script {
         StateHandler aReturnToState,
         ScriptObjPtr aResult,
         ExecutionContextPtr aFuncCallContext,
+        LoopControllerPtr aLoopController,
         int aPrecedence,
         ScriptOperator aPendingOperation
       ) :
@@ -1861,6 +1955,7 @@ namespace p44 { namespace P44Script {
         returnToState(aReturnToState),
         result(aResult),
         funcCallContext(aFuncCallContext),
+        loopController(aLoopController),
         precedence(aPrecedence),
         pendingOperation(aPendingOperation)
       {}
@@ -1869,6 +1964,7 @@ namespace p44 { namespace P44Script {
       StateHandler returnToState; ///< next state to run after pop
       ScriptObjPtr result; ///< the current result object
       ExecutionContextPtr funcCallContext; ///< the context of the currently preparing function call
+      LoopControllerPtr loopController; ///< the loop controller, if any
       int precedence; ///< encountering a binary operator with smaller precedence will end the expression
       ScriptOperator pendingOperation; ///< operator
     };
@@ -1970,6 +2066,17 @@ namespace p44 { namespace P44Script {
     // - if/then/else
     void s_ifCondition(); ///< executing the condition of an if
     void s_ifTrueStatement(); ///< executing the if statement
+    // - foreach
+    void s_foreachTarget(); ///< executing the target expression of a foreach
+    void s_foreachLoopVar1(); ///< finding the first loop lvalue
+    void s_foreachLoopVars(); ///< finding the final/second loop lvalue
+    void s_foreachLoopStart(); ///< starting the loop
+    void s_foreachLoopIteration(); ///< starting a new loop iteration
+    void s_foreachValue(); ///< obtained the forach loop value
+    void s_foreachKeyNeeded(); ///< obtained the forach loop value
+    void s_foreachKey(); ///< obtained the foreach key
+    void s_foreachBody(); ///< loop vars obtained
+    void s_foreachStatement(); ///< executing the foreach statement
     // - while
     void s_whileCondition(); ///< executing the condition of a while
     void s_whileStatement(); ///< executing the while statement

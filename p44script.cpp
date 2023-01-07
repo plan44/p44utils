@@ -205,6 +205,12 @@ ErrorPtr ScriptObj::setMemberAtIndex(size_t aIndex, const ScriptObjPtr aMember, 
   return ScriptError::err(ScriptError::NotFound, "cannot assign at %zu", aIndex);
 }
 
+ValueIteratorPtr ScriptObj::newIterator()
+{
+  // by default, iterate by index
+  return new IndexedValueIterator(this);
+}
+
 
 void ScriptObj::makeValid(EvaluationCB aEvaluationCB)
 {
@@ -471,6 +477,52 @@ ScriptObjPtr NumericValue::operator%(const ScriptObj& aRightSide) const
     double b = aRightSide.doubleValue();
     int64_t q = a/b;
     return new NumericValue(a-b*q);
+  }
+}
+
+
+// MARK: - iterator
+
+IndexedValueIterator::IndexedValueIterator(ScriptObjPtr aObj) :
+  mIteratedObj(aObj),
+  mCurrentIndex(0)
+{
+}
+
+void IndexedValueIterator::reset()
+{
+  mCurrentIndex = 0;
+}
+
+void IndexedValueIterator::next()
+{
+  if (validIndex()) mCurrentIndex += 1;
+}
+
+bool IndexedValueIterator::validIndex()
+{
+  return mCurrentIndex<mIteratedObj->numIndexedMembers();
+}
+
+
+void IndexedValueIterator::obtainKey(EvaluationCB aEvaluationCB, bool aNumericPreferred)
+{
+  if (!validIndex()) {
+    aEvaluationCB(nullptr);
+  }
+  else {
+    aEvaluationCB(new NumericValue(mCurrentIndex));
+  }
+}
+
+
+void IndexedValueIterator::obtainValue(EvaluationCB aEvaluationCB, TypeInfo aMemberAccessFlags)
+{
+  if (!validIndex()) {
+    aEvaluationCB(nullptr);
+  }
+  else {
+    aEvaluationCB(mIteratedObj->memberAtIndex(mCurrentIndex, aMemberAccessFlags));
   }
 }
 
@@ -907,6 +959,53 @@ const ScriptObjPtr JsonRepresentedValue::memberAtIndex(size_t aIndex, TypeInfo a
     }
   }
   return m;
+}
+
+
+ValueIteratorPtr JsonRepresentedValue::newIterator()
+{
+  return new JsonValueIterator(this);
+}
+
+
+JsonValueIterator::JsonValueIterator(ScriptObjPtr aObj) :
+  inherited(aObj)
+{
+}
+
+
+void JsonValueIterator::obtainKey(EvaluationCB aEvaluationCB, bool aNumericPreferred)
+{
+  if (validIndex() && !aNumericPreferred) {
+    // obtain the field name of the currently indexed object field
+    JsonObjectPtr j = mIteratedObj->jsonValue();
+    if (j && j->isType(json_type_object)) {
+      string key;
+      if (j->keyValueByIndex((int)mCurrentIndex, key, NULL)) {
+        aEvaluationCB(new StringValue(key));
+        return;
+      }
+    }
+  }
+  inherited::obtainKey(aEvaluationCB, aNumericPreferred);
+}
+
+
+void JsonValueIterator::obtainValue(EvaluationCB aEvaluationCB, TypeInfo aMemberAccessFlags)
+{
+  if (validIndex()) {
+    // obtain the field contents of the currently indexed object field
+    JsonObjectPtr j = mIteratedObj->jsonValue();
+    if (j && j->isType(json_type_object)) {
+      JsonObjectPtr val;
+      string key;
+      if (j->keyValueByIndex((int)mCurrentIndex, key, &val)) {
+        aEvaluationCB(new JsonValue(val));
+        return;
+      }
+    }
+  }
+  inherited::obtainValue(aEvaluationCB, aMemberAccessFlags);
 }
 
 
@@ -2528,12 +2627,8 @@ void SourceProcessor::start()
 }
 
 
-void SourceProcessor::resume(ScriptObjPtr aResult)
+void SourceProcessor::resume()
 {
-  // Store latest result, if any (resuming with NULL pointer does not change the result)
-  if (aResult) {
-    mResult = aResult;
-  }
   // Am I getting called from a chain of calls originating from
   // myself via step() in the execution loop below?
   if (mResuming) {
@@ -2552,6 +2647,23 @@ void SourceProcessor::resume(ScriptObjPtr aResult)
   // not resumed in the current chain of calls, resume will be called from
   // an independent call site later -> re-enable normal processing
   mResuming = false;
+}
+
+
+void SourceProcessor::resume(ScriptObjPtr aResult)
+{
+  // Store latest result, if any (resuming with NULL pointer does not change the result)
+  if (aResult) {
+    mResult = aResult;
+  }
+  resume();
+}
+
+
+void SourceProcessor::resumeAllowingNull(ScriptObjPtr aResultOrNull)
+{
+  mResult = aResultOrNull;
+  resume();
 }
 
 
@@ -2639,7 +2751,7 @@ void SourceProcessor::checkAndResume()
 void SourceProcessor::push(StateHandler aReturnToState, bool aPushPoppedPos)
 {
   FOCUSLOG("                        push[%2lu] :                             result = %s", mStack.size()+1, ScriptObj::describe(mResult).c_str());
-  mStack.push_back(StackFrame(aPushPoppedPos ? mPoppedPos : mSrc.pos, mSkipping, aReturnToState, mResult, mFuncCallContext, mPrecedence, mPendingOperation));
+  mStack.push_back(StackFrame(aPushPoppedPos ? mPoppedPos : mSrc.pos, mSkipping, aReturnToState, mResult, mFuncCallContext, mLoopController, mPrecedence, mPendingOperation));
 }
 
 
@@ -2655,6 +2767,7 @@ void SourceProcessor::pop()
   mPrecedence = s.precedence;
   mPendingOperation = s.pendingOperation;
   mFuncCallContext = s.funcCallContext;
+  mLoopController = s.loopController;
   // these are restored separately, returnToState must decide what to do
   mPoppedPos = s.pos;
   mOlderResult = s.result;
@@ -3711,8 +3824,21 @@ void SourceProcessor::processStatement()
       resumeAt(&SourceProcessor::s_expression);
       return;
     }
+    if (uequals(mIdentifier, "foreach")) {
+      // Syntax: foreach container as member {}
+      //     or: foreach container as key,member {}
+      push(mCurrentState); // return to current state when foreach finishes
+      push(&SourceProcessor::s_foreachTarget);
+      resumeAt(&SourceProcessor::s_expression);
+      return;
+    }
+    if (uequals(mIdentifier, "for")) {
+      // TODO: implement using a fully scripted iterator
+      exitWithSyntaxError("for not yet implemented");
+    }
     if (uequals(mIdentifier, "while")) {
       // "while" statement
+      // TODO: refactor to use check-only scripted iterator
       if (!mSrc.nextIf('(')) {
         exitWithSyntaxError("missing '(' after 'while'");
         return;
@@ -3725,7 +3851,7 @@ void SourceProcessor::processStatement()
     if (uequals(mIdentifier, "break")) {
       if (!mSkipping) {
         if (!skipUntilReaching(&SourceProcessor::s_whileStatement)) {
-          exitWithSyntaxError("'break' must be within 'while' statement");
+          exitWithSyntaxError("'break' must be within 'while', 'for' or 'foreach' statement");
           return;
         }
         checkAndResume();
@@ -3735,7 +3861,7 @@ void SourceProcessor::processStatement()
     if (uequals(mIdentifier, "continue")) {
       if (!mSkipping) {
         if (!unWindStackTo(&SourceProcessor::s_whileStatement)) {
-          exitWithSyntaxError("'continue' must be within 'while' statement");
+          exitWithSyntaxError("'continue' must be within 'while', 'for' or 'foreach' statement");
           return;
         }
         checkAndResume();
@@ -3998,6 +4124,147 @@ void SourceProcessor::s_ifTrueStatement()
 }
 
 
+
+
+void SourceProcessor::s_foreachTarget()
+{
+  FOCUSLOGSTATE
+  // foreach target expression is evaluated in result
+  // - result contains target object to be iterated
+  if (!mSrc.checkForIdentifier("as")) {
+    exitWithSyntaxError("missing 'as' in 'foreach'");
+    return;
+  }
+  // capture loop variable(s)
+  mSrc.skipNonCode();
+  if (!mSrc.parseIdentifier(mIdentifier)) {
+    exitWithSyntaxError("missing variable name after 'as'");
+    return;
+  }
+  setState(&SourceProcessor::s_foreachLoopVar1);
+  if (!mSkipping) {
+    mLoopController = new LoopController;
+    mLoopController->mIterator = mResult->newIterator();
+    mResult.reset(); // create error variable on scope level
+    memberByIdentifier(lvalue+create);
+    return;
+  }
+  checkAndResume();
+  return;
+}
+
+void SourceProcessor::s_foreachLoopVar1()
+{
+  mSrc.skipNonCode();
+  if (!mSrc.nextIf(',')) {
+    // only value, we're done
+    if (!mSkipping) mLoopController->mLoopValue = boost::dynamic_pointer_cast<ScriptLValue>(mResult); // first lvalue will receive value
+    checkAndResumeAt(&SourceProcessor::s_foreachLoopStart);
+    return;
+  }
+  // get second identifier
+  mSrc.skipNonCode();
+  if (!mSrc.parseIdentifier(mIdentifier)) {
+    exitWithSyntaxError("missing value variable name after 'as key,'");
+    return;
+  }
+  setState(&SourceProcessor::s_foreachLoopVars);
+  if (!mSkipping) {
+    mLoopController->mLoopKey = boost::dynamic_pointer_cast<ScriptLValue>(mResult); // first lvalue will receive key
+    mResult.reset(); // create error variable on scope level
+    memberByIdentifier(lvalue+create);
+    return;
+  }
+  checkAndResume();
+}
+
+
+void SourceProcessor::s_foreachLoopVars()
+{
+  if (!mSkipping) mLoopController->mLoopValue = boost::dynamic_pointer_cast<ScriptLValue>(mResult); // this lvalue will receive value
+  checkAndResumeAt(&SourceProcessor::s_foreachLoopStart);
+}
+
+
+void SourceProcessor::s_foreachLoopStart()
+{
+  // head parsed, this is where we need to return to in the loop
+  if (mSkipping) {
+    // no need to get loop vars
+    s_foreachBody();
+    return;
+  }
+  // reset iterator, obtain value
+  mLoopController->mIterator->reset();
+  resumeAt(&SourceProcessor::s_foreachLoopIteration);
+}
+
+void SourceProcessor::s_foreachLoopIteration()
+{
+  FOCUSLOGSTATE
+  setState(&SourceProcessor::s_foreachValue);
+  mLoopController->mIterator->obtainValue(boost::bind(&SourceProcessor::resumeAllowingNull, this, _1), none);
+}
+
+
+void SourceProcessor::s_foreachValue()
+{
+  FOCUSLOGSTATE
+  if (mResult) {
+    // there is a value, loop continues
+    setState(mLoopController->mLoopKey ?  &SourceProcessor::s_foreachKeyNeeded : &SourceProcessor::s_foreachBody);
+    mLoopController->mLoopValue->assignLValue(boost::bind(&SourceProcessor::resume, this, _1), mResult);
+    return;
+  }
+  // no loop value -> done with loop
+  mSkipping = true;
+  s_foreachBody();
+}
+
+
+void SourceProcessor::s_foreachKeyNeeded()
+{
+  setState(&SourceProcessor::s_foreachKey);
+  mLoopController->mIterator->obtainKey(boost::bind(&SourceProcessor::resume, this, _1), false);
+}
+
+
+void SourceProcessor::s_foreachKey()
+{
+  setState(&SourceProcessor::s_foreachBody);
+  mLoopController->mLoopKey->assignLValue(boost::bind(&SourceProcessor::resume, this, _1), mResult);
+}
+
+
+void SourceProcessor::s_foreachBody()
+{
+  FOCUSLOGSTATE
+  // mSkipping and loop variables are set, now run the body
+  push(&SourceProcessor::s_foreachStatement, false); // beginning of loop statement (block) = position we'll have as mPoppedPos at s_foreachStatement
+  checkAndResumeAt(&SourceProcessor::s_oneStatement);
+}
+
+
+void SourceProcessor::s_foreachStatement()
+{
+  FOCUSLOGSTATE
+  // foreach statement (or block of statements) is executed
+  // - mPoppedPos points to beginning of foreach body statement
+  if (mSkipping) {
+    // skipping because iterator exhausted or "break" set skipping in the stack with skipUntilReaching()
+    pop(); // end foreach
+    checkAndResume();
+    return;
+  }
+  // not skipping, means we need to advance the iterator and possibly loop back
+  mLoopController->mIterator->next();
+  // TODO: optimize to avoid skip run at the end
+  // go back to loop beginning
+  mSrc.pos = mPoppedPos;
+  resumeAt(&SourceProcessor::s_foreachLoopIteration);
+}
+
+
 void SourceProcessor::s_whileCondition()
 {
   FOCUSLOGSTATE
@@ -4009,7 +4276,7 @@ void SourceProcessor::s_whileCondition()
     return;
   }
   if (!mSkipping) mSkipping = !mResult->boolValue(); // set now, because following push must include "skipping" according to the decision!
-  push(&SourceProcessor::s_whileStatement, true); // push poopedPos (again) = loopback position we'll need at s_whileStatement
+  push(&SourceProcessor::s_whileStatement, true); // push poppedPos (again) = loopback position we'll need at s_whileStatement
   checkAndResumeAt(&SourceProcessor::s_oneStatement);
 }
 
