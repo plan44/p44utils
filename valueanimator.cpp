@@ -39,6 +39,7 @@ ValueAnimator::ValueAnimator(ValueSetterCB aValueSetter, bool aSelfTiming, MLMic
   mValueSetter(aValueSetter),
   mSelfTiming(aSelfTiming),
   mDefaultMinStepTime(aDefaultMinStepTime>0 ? aDefaultMinStepTime : ANIMATION_MIN_STEP_TIME),
+  mStepSize(0), // auto-calculate step size
   mStartValue(0),
   mDistance(0),
   mCurrentValue(0),

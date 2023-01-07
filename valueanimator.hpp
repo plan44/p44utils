@@ -106,7 +106,8 @@ namespace p44 {
     MLMicroSeconds animate(double aTo, MLMicroSeconds aDuration, AnimationDoneCB aDoneCB = NoOP);
 
     /// set stepping params
-    /// @param aMinStepTime the minimum time between steps. If 0, ANIMATION_MIN_STEP_TIME is used
+    /// @param aMinStepTime the minimum time between steps. If 0, previously set step time (which defaults to
+    ///   mDefaultMinStepTime which defaults to ANIMATION_MIN_STEP_TIME) is used.
     /// @param aStepSize the desired step size. If 0, step size is determined by aMinStepTime (or its default)
     /// @note stepsize and steptime is only used when autostepping and for the recommended call-again time returned by step()
     ///   Actual stepping is done whenever step() is called, relative to the start time
