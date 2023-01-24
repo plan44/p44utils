@@ -34,7 +34,7 @@ namespace p44 {
   /// @note see getIfInfo() for details how MAC address is obtained
   uint64_t macAddress(const char *aIfName = NULL);
 
-  /// get MAC address of this machine
+  /// get IPv4 address of this machine
   /// @return IPv4 address as 32bit int or 0 if none could be determined
   /// @note see getIfInfo() for details how interface is determined
   uint32_t ipv4Address(const char *aIfName = NULL);
