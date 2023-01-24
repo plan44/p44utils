@@ -2033,7 +2033,7 @@ BuiltinFunctionContext::BuiltinFunctionContext(ScriptMainContextPtr aMainContext
 
 void BuiltinFunctionContext::setAbortCallback(SimpleCB aAbortCB)
 {
-  abortCB = aAbortCB;
+  mAbortCB = aAbortCB;
 }
 
 
@@ -2045,18 +2045,21 @@ void BuiltinFunctionContext::execute(ScriptObjPtr aToExecute, EvaluationFlags aE
     if (aEvaluationCB) aEvaluationCB(new AnnotatedNullValue("undefined argument caused undefined function result"));
     return;
   }
-  func = boost::dynamic_pointer_cast<BuiltinFunctionObj>(aToExecute);
-  if (!func || !func->descriptor) {
-    func.reset();
+  mFunc = boost::dynamic_pointer_cast<BuiltinFunctionObj>(aToExecute);
+  if (!mFunc || !mFunc->descriptor) {
+    mFunc.reset();
     aEvaluationCB(new ErrorValue(ScriptError::Internal, "builtin function call inconsistency"));
   }
-  else if ((aEvalFlags & synchronously) && (func->descriptor->returnTypeInfo & async)) {
-    aEvaluationCB(new ErrorValue(ScriptError::AsyncNotAllowed, "builtin function '%s' cannot be used in synchronous evaluation", func->descriptor->name));
+  else if ((aEvalFlags & synchronously) && (mFunc->descriptor->returnTypeInfo & async)) {
+    aEvaluationCB(new ErrorValue(ScriptError::AsyncNotAllowed,
+      "builtin function '%s' cannot be used in synchronous evaluation",
+      mFunc->descriptor->name
+    ));
   }
   else {
-    abortCB = NoOP; // no abort callback so far, implementation must set one if it returns before finishing
-    evaluationCB = aEvaluationCB;
-    func->descriptor->implementation(this);
+    mAbortCB = NoOP; // no abort callback so far, implementation must set one if it returns before finishing
+    mEvaluationCB = aEvaluationCB;
+    mFunc->descriptor->implementation(this);
   }
 }
 
@@ -2084,11 +2087,11 @@ ScriptObjPtr BuiltinFunctionContext::arg(size_t aArgIndex)
 
 bool BuiltinFunctionContext::abort(EvaluationFlags aAbortFlags, ScriptObjPtr aAbortResult, ScriptCodeThreadPtr aExceptThread)
 {
-  if (func) {
-    if (abortCB) abortCB(); // stop external things the function call has started
-    abortCB = NoOP;
-    if (!aAbortResult) aAbortResult = new ErrorValue(ScriptError::Aborted, "builtin function '%s' aborted", func->descriptor->name);
-    func = NULL;
+  if (mFunc) {
+    if (mAbortCB) mAbortCB(); // stop external things the function call has started
+    mAbortCB = NoOP;
+    if (!aAbortResult) aAbortResult = new ErrorValue(ScriptError::Aborted, "builtin function '%s' aborted", mFunc->descriptor->name);
+    mFunc = NULL;
     finish(aAbortResult);
     return true;
   }
@@ -2098,11 +2101,11 @@ bool BuiltinFunctionContext::abort(EvaluationFlags aAbortFlags, ScriptObjPtr aAb
 
 void BuiltinFunctionContext::finish(ScriptObjPtr aResult)
 {
-  abortCB = NoOP; // finished
-  func = NULL;
-  if (evaluationCB) {
-    EvaluationCB cb = evaluationCB;
-    evaluationCB = NoOP;
+  mAbortCB = NoOP; // finished
+  mFunc = NULL;
+  if (mEvaluationCB) {
+    EvaluationCB cb = mEvaluationCB;
+    mEvaluationCB = NoOP;
     cb(aResult);
   }
 }
@@ -4901,12 +4904,12 @@ bool CompiledTrigger::unfreezeTimed(SourceCursor::UniquePos aFreezeId)
 
 void CompiledHandler::installAndInitializeTrigger(ScriptObjPtr aTrigger)
 {
-  trigger = boost::dynamic_pointer_cast<CompiledTrigger>(aTrigger);
+  mTrigger = boost::dynamic_pointer_cast<CompiledTrigger>(aTrigger);
   // link trigger with my handler action
-  if (trigger) {
-    trigger->setTriggerCB(boost::bind(&CompiledHandler::triggered, this, _1));
-    trigger->setTriggerEvalFlags(expression|synchronously|concurrently); // need to be concurrent because handler might run in same shared context as trigger does
-    trigger->initializeTrigger();
+  if (mTrigger) {
+    mTrigger->setTriggerCB(boost::bind(&CompiledHandler::triggered, this, _1));
+    mTrigger->setTriggerEvalFlags(expression|synchronously|concurrently); // need to be concurrent because handler might run in same shared context as trigger does
+    mTrigger->initializeTrigger();
   }
 }
 
@@ -4919,9 +4922,9 @@ void CompiledHandler::triggered(ScriptObjPtr aTriggerResult)
     ExecutionContextPtr ctx = contextForCallingFrom(mMainContext->domain(), NULL);
     if (ctx) {
       SimpleVarContainer* handlerThreadLocals = NULL;
-      if (!trigger->mResultVarName.empty()) {
+      if (!mTrigger->mResultVarName.empty()) {
         handlerThreadLocals = new SimpleVarContainer();
-        handlerThreadLocals->setMemberByName(trigger->mResultVarName, aTriggerResult);
+        handlerThreadLocals->setMemberByName(mTrigger->mResultVarName, aTriggerResult);
       }
       ctx->execute(this, scriptbody|keepvars|concurrently, boost::bind(&CompiledHandler::actionExecuted, this, _1), NULL, handlerThreadLocals);
       return;
@@ -4939,9 +4942,9 @@ void CompiledHandler::actionExecuted(ScriptObjPtr aActionResult)
 
 void CompiledHandler::deactivate()
 {
-  if (trigger) {
-    trigger->deactivate();
-    trigger.reset();
+  if (mTrigger) {
+    mTrigger->deactivate();
+    mTrigger.reset();
   }
   inherited::deactivate();
 }

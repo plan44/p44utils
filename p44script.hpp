@@ -2336,7 +2336,7 @@ namespace p44 { namespace P44Script {
   {
     typedef CompiledScript inherited;
 
-    CompiledTriggerPtr trigger; ///< the trigger
+    CompiledTriggerPtr mTrigger; ///< the trigger
   public:
     CompiledHandler(const string aName, ScriptMainContextPtr aMainContext) : inherited(aName, aMainContext) {};
     virtual ~CompiledHandler() { deactivate(); } // even if deactivate() is usually called before dtor, make sure it happens even if not
@@ -2345,9 +2345,9 @@ namespace p44 { namespace P44Script {
 
     void installAndInitializeTrigger(ScriptObjPtr aTrigger);
     virtual bool originatesFrom(SourceContainerPtr aSource) const P44_OVERRIDE
-      { return inherited::originatesFrom(aSource) || (trigger && trigger->originatesFrom(aSource)); };
+      { return inherited::originatesFrom(aSource) || (mTrigger && mTrigger->originatesFrom(aSource)); };
     virtual void deactivate() P44_OVERRIDE;
-    virtual bool floating() const P44_OVERRIDE { return inherited::floating() || (trigger && trigger->floating()); }
+    virtual bool floating() const P44_OVERRIDE { return inherited::floating() || (mTrigger && mTrigger->floating()); }
 
   private:
     void triggered(ScriptObjPtr aTriggerResult);
@@ -2705,9 +2705,9 @@ namespace p44 { namespace P44Script {
     typedef ExecutionContext inherited;
     friend class BuiltinFunctionObj;
 
-    BuiltinFunctionObjPtr func; ///< the currently executing function
-    EvaluationCB evaluationCB; ///< to be called when built-in function has finished
-    SimpleCB abortCB; ///< called when aborting. async built-in might set this to cause external operations to stop at abort
+    BuiltinFunctionObjPtr mFunc; ///< the currently executing function
+    EvaluationCB mEvaluationCB; ///< to be called when built-in function has finished
+    SimpleCB mAbortCB; ///< called when aborting. async built-in might set this to cause external operations to stop at abort
     CompiledTrigger* mTrigger; ///< set when the function executes as part of a trigger expression
     ScriptCodeThreadPtr mThread; ///< thread this call originates from
     SourceCursor::UniquePos mCallSite; ///< from where in the source code the function was called
@@ -2757,10 +2757,10 @@ namespace p44 { namespace P44Script {
     void finish(const ScriptObjPtr aResult = ScriptObjPtr());
 
     /// @return the object this function was called on as a method, NULL for plain functions
-    ScriptObjPtr thisObj() { return func->thisObj; }
+    ScriptObjPtr thisObj() { return mFunc->thisObj; }
 
     /// @return the function object
-    BuiltinFunctionObjPtr funcObj() { return func; }
+    BuiltinFunctionObjPtr funcObj() { return mFunc; }
 
     /// @return the thread this function was called in
     ScriptCodeThreadPtr thread() { return mThread; }
