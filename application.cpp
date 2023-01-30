@@ -219,7 +219,7 @@ string Application::resourcePath(const string aResource, const string aPrefix)
   else if (aResource.substr(0,2)=="_/")
     return tempPath(aResource.substr(2)); // make it temppath-relative, w/o prefix
   else
-    return mResourcepath + aPrefix + "/" + aResource; // resource path with prefix
+    return mResourcepath + "/" + aPrefix + aResource; // resource path with prefix (which must end with "/" when it is to be a subdirectory)
 }
 
 
@@ -238,7 +238,8 @@ string Application::dataPath(const string aDataFile, const string aPrefix, bool 
     return mDatapath; // just return data path
   if (aDataFile[0]=='/')
     return aDataFile; // argument is absolute path, use it as-is
-  // relative to data directory (with the option to be relative to temp when prefixed with "_/")
+  // relative to data directory, with the option to be relative to temp with
+  // prefix "_/" and resource with prefix "+/". Prefix "=/" is ignored.
   string p;
   string f = aDataFile;
   if (f.substr(0,2)=="_/") {
@@ -257,15 +258,22 @@ string Application::dataPath(const string aDataFile, const string aPrefix, bool 
     }
     p = mDatapath;
   }
-  if (!aPrefix.empty()) {
-    p += aPrefix;
-    if (aCreatePrefix) {
+  if (aPrefix.empty()) {
+    p += '/'; // just a base path, need a separator
+  }
+  else {
+    p += "/" + aPrefix; // separator and prefix
+    if (aCreatePrefix && p[p.size()-1]=='/') {
+      // prefix denotes a subdirectory and should be created
+      p.erase(p.size()-1); // remove trailing slash for check&creation of dir
       if (access(p.c_str(), F_OK)<0) {
+        // does not yet exist, create now
         mkdir(p.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
       }
+      p += '/'; // re-add the separator the prefix had
     }
   }
-  return p + "/" + f;
+  return p + f;
 }
 
 

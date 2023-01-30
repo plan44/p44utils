@@ -6686,7 +6686,7 @@ static void writefile_func(BuiltinFunctionContextPtr f)
     return;
   }
   #endif
-  fn = Application::sharedApplication()->dataPath(fn, "/" P44SCRIPT_DATA_SUBDIR, true);
+  fn = Application::sharedApplication()->dataPath(fn, P44SCRIPT_DATA_SUBDIR "/", true);
   ErrorPtr err;
   if (f->arg(1)->defined()) {
     // write or append
@@ -6737,7 +6737,7 @@ static void readfile_func(BuiltinFunctionContextPtr f)
   }
   #endif
   string data;
-  ErrorPtr err = string_fromfile(Application::sharedApplication()->dataPath(fn, "/" P44SCRIPT_DATA_SUBDIR, false), data);
+  ErrorPtr err = string_fromfile(Application::sharedApplication()->dataPath(fn, P44SCRIPT_DATA_SUBDIR "/", false), data);
   if (Error::notOK(err)) {
     f->finish(new ErrorValue(err));
     return;
