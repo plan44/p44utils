@@ -324,7 +324,7 @@ void WebSocketObj::gotMessage(const string aMessage, ErrorPtr aError)
 
 
 // websocket(url_or_config_obj [,protocol [, pinginterval]])
-static const BuiltInArgDesc websocket_args[] = { { text|json|object }, { text|optionalarg }, { numeric|optionalarg } };
+static const BuiltInArgDesc websocket_args[] = { { text|object }, { text|optionalarg }, { numeric|optionalarg } };
 static const size_t websocket_numargs = sizeof(websocket_args)/sizeof(BuiltInArgDesc);
 static void websocket_connected(BuiltinFunctionContextPtr f, WebSocketClientPtr aWebsocket, ErrorPtr aError)
 {

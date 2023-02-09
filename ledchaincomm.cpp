@@ -1382,7 +1382,7 @@ static const size_t setmaxledpower_numargs = sizeof(setmaxledpower_args)/sizeof(
 static const BuiltinMemberDescriptor ledChainArrangementGlobals[] = {
   { "addledchain", executable, addledchain_numargs, addledchain_args, &addledchain_func },
   { "removeledchains", executable, 0, NULL, &removeledchains_func },
-  { "ledchaincover", executable|json|object, 0, NULL, &ledchaincover_func },
+  { "ledchaincover", executable|object, 0, NULL, &ledchaincover_func },
   { "neededledpower", executable|numeric, 0, NULL, &neededledpower_func },
   { "currentledpower", executable|numeric, 0, NULL, &currentledpower_func },
   { "setmaxledpower", executable, setmaxledpower_numargs, setmaxledpower_args, &setmaxledpower_func },

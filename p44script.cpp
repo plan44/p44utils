@@ -1428,11 +1428,14 @@ ScriptObjPtr ExecutionContext::checkAndSetArgument(ScriptObjPtr aArgument, size_
     TypeInfo allowed = info.typeInfo;
     // now check argument we DO have
     TypeInfo argInfo = aArgument->getTypeInfo();
-    if ((argInfo & allowed & typeMask) != (argInfo & typeMask)) {
+    // check JSON-agnostic, because any type can have the additional json type, when it comes out of a json value
+    if ((argInfo & allowed & jsonagnosticMask) != (argInfo & jsonagnosticMask)) {
+      // arg has type bits set that are not allowed
       if (
         (allowed & exacttype) || // exact checking required...
-        (argInfo & typeMask &~scalar)!=(allowed & typeMask &~scalar) // ...or non-scalar requirements not met
+        (argInfo & jsonagnosticMask &~scalar)!=(allowed & jsonagnosticMask &~scalar) // ...or non-scalar requirements not met
       ) {
+        // argument type mismatch
         if (allowed & undefres) {
           // type mismatch is not an error, but just enforces undefined function result w/o executing
           undefinedResult = true;
@@ -6062,7 +6065,7 @@ static const BuiltInArgDesc elements_args[] = { { any|undefres } };
 static const size_t elements_numargs = sizeof(elements_args)/sizeof(BuiltInArgDesc);
 static void elements_func(BuiltinFunctionContextPtr f)
 {
-  if (f->arg(0)->hasType(json)) {
+  if (f->arg(0)->hasType(structured)) {
     f->finish(new NumericValue((int)f->arg(0)->numIndexedMembers()));
     return;
   }
@@ -7833,16 +7836,16 @@ static const BuiltinMemberDescriptor standardFunctions[] = {
   { "yearday", executable|numeric, timegetter_numargs, timegetter_args, &yearday_func },
   // Introspection
   #if SCRIPTING_JSON_SUPPORT
-  { "globalvars", executable|json, 0, NULL, &globalvars_func},
-  { "globals", builtinmember|json, 0, NULL, (BuiltinFunctionImplementation)&globals_accessor }, // Note: correct '.accessor=&lrg_accessor' form does not work with OpenWrt g++, so need ugly cast here
-  { "contextvars", executable|json, 0, NULL, &contextvars_func },
-  { "localvars", executable|json, 0, NULL, &localvars_func },
+  { "globalvars", executable|structured, 0, NULL, &globalvars_func},
+  { "globals", builtinmember|structured, 0, NULL, (BuiltinFunctionImplementation)&globals_accessor }, // Note: correct '.accessor=&lrg_accessor' form does not work with OpenWrt g++, so need ugly cast here
+  { "contextvars", executable|structured, 0, NULL, &contextvars_func },
+  { "localvars", executable|structured, 0, NULL, &localvars_func },
   #if P44SCRIPT_FULL_SUPPORT
-  { "globalhandlers", executable|json, 0, NULL, &globalhandlers_func },
-  { "contexthandlers", executable|json, 0, NULL, &contexthandlers_func },
+  { "globalhandlers", executable|structured, 0, NULL, &globalhandlers_func },
+  { "contexthandlers", executable|structured, 0, NULL, &contexthandlers_func },
   #endif
-  { "globalbuiltins", executable|json, 0, NULL, &globalbuiltins_func },
-  { "contextbuiltins", executable|json, 0, NULL, &contextbuiltins_func },
+  { "globalbuiltins", executable|structured, 0, NULL, &globalbuiltins_func },
+  { "contextbuiltins", executable|structured, 0, NULL, &contextbuiltins_func },
   #endif
   #if P44SCRIPT_FULL_SUPPORT
   { "lock", executable|any, lock_numargs, lock_args, &lock_func },

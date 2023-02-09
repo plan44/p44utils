@@ -536,7 +536,7 @@ static const BuiltinMemberDescriptor dcmotorFunctions[] = {
   { "currentsensor", executable|null, currentsensor_numargs, currentsensor_args, &currentsensor_func },
   { "currentlimit", executable|null, currentlimit_numargs, currentlimit_args, &currentlimit_func },
   { "power", executable|null, power_numargs, power_args, &power_func },
-  { "status", executable|json, 0, NULL, &status_func },
+  { "status", executable|object, 0, NULL, &status_func },
   { "stop", executable|null, 0, NULL, &stop_func },
   { NULL } // terminator
 };

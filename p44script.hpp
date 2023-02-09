@@ -218,6 +218,7 @@ namespace p44 { namespace P44Script {
     object = 0x400, ///< is a object with named members
     array = 0x800, ///< is an array with indexed elements
     // type classes
+    jsonagnosticMask = typeMask-json, ///< all types, but agnostic to json or not
     any = typeMask-null-error, ///< any type except null and error
     scalar = numeric+text+json, ///< scalar types (json can also be structured)
     structured = object+array, ///< structured types

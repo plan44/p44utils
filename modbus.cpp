@@ -2337,7 +2337,7 @@ static void slaveid_func(BuiltinFunctionContextPtr f)
 
 // setmodel(registermodel_json)
 //   { "coils" : { "first":100, "num":10 }, "registers":{ "first":100, "num":20 } }
-static const BuiltInArgDesc setmodel_args[] = { { json|object } };
+static const BuiltInArgDesc setmodel_args[] = { { object } };
 static const size_t setmodel_numargs = sizeof(setmodel_args)/sizeof(BuiltInArgDesc);
 static void setmodel_func(BuiltinFunctionContextPtr f)
 {
