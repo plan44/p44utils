@@ -193,8 +193,8 @@ uint8_t RFID522::readReg(uint8_t aReg)
   if (mReaderSelectFunc) mReaderSelectFunc(mReaderIndex);
   mSpiDev->SPIRawWriteRead(1, &ad, 1, &val);
   if (mReaderSelectFunc) mReaderSelectFunc(Deselect);
-  return val;
   FOCUSLOG("rfid reader %d: readReg(0x%02x) = 0x%02x)", mReaderIndex, aReg, val);
+  return val;
 }
 
 void RFID522::readFIFO(uint8_t* aData, size_t aNumBytes)
@@ -468,7 +468,7 @@ bool RFID522::irqHandler()
     }
     #endif
   }
-  FOCUSLOG("irqHandler(%d) done with CommIrqReg=0x%02X, waitIrq=0x%02X\n", irqflags, mWaitIrq);
+  FOCUSLOG("irqHandler(%d) done with CommIrqReg=0x%02X, waitIrq=0x%02X\n", mReaderIndex, irqflags, mWaitIrq);
   return mWaitIrq!=0;
 }
 
