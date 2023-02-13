@@ -169,6 +169,7 @@ void RFID522::writeReg(uint8_t aReg, uint8_t aVal)
   if (mReaderSelectFunc) mReaderSelectFunc(mReaderIndex);
   mSpiDev->SPIRawWriteRead(2, out, 0, NULL);
   if (mReaderSelectFunc) mReaderSelectFunc(Deselect);
+  FOCUSLOG("rfid reader %d: writeReg(0x%02x, 0x%02x)", mReaderIndex, aReg, aVal);
 }
 
 void RFID522::writeFIFO(const uint8_t* aData, size_t aNumBytes)
@@ -181,17 +182,19 @@ void RFID522::writeFIFO(const uint8_t* aData, size_t aNumBytes)
   if (mReaderSelectFunc) mReaderSelectFunc(mReaderIndex);
   mSpiDev->SPIRawWriteRead((unsigned int )(aNumBytes+1), buf, 0, NULL);
   if (mReaderSelectFunc) mReaderSelectFunc(Deselect);
+  FOCUSLOG("rfid reader %d: writeFIFO([%s], %zu)", mReaderIndex, dataToHexString(aData, aNumBytes, ',').c_str(), aNumBytes);
 }
 
 
-uint8_t RFID522::readReg(uint8_t addr)
+uint8_t RFID522::readReg(uint8_t aReg)
 {
   uint8_t val, ad;
-  ad = ((addr<<1)&0x7E) | 0x80; // WR=Bit7, addr=Bit6..1, bit0=0
+  ad = ((aReg<<1)&0x7E) | 0x80; // WR=Bit7, addr=Bit6..1, bit0=0
   if (mReaderSelectFunc) mReaderSelectFunc(mReaderIndex);
   mSpiDev->SPIRawWriteRead(1, &ad, 1, &val);
   if (mReaderSelectFunc) mReaderSelectFunc(Deselect);
   return val;
+  FOCUSLOG("rfid reader %d: readReg(0x%02x) = 0x%02x)", mReaderIndex, aReg, val);
 }
 
 void RFID522::readFIFO(uint8_t* aData, size_t aNumBytes)
@@ -206,6 +209,7 @@ void RFID522::readFIFO(uint8_t* aData, size_t aNumBytes)
   mSpiDev->SPIRawWriteRead((unsigned int )(aNumBytes+1), obuf, (unsigned int )(aNumBytes+1), ibuf, true);
   if (mReaderSelectFunc) mReaderSelectFunc(Deselect);
   memcpy(aData, ibuf+1, aNumBytes);
+  FOCUSLOG("rfid reader %d: readFIFO(buf, %zu) = [%s]", mReaderIndex, aNumBytes, dataToHexString(aData, aNumBytes, ',').c_str());
 }
 
 
@@ -397,7 +401,7 @@ void RFID522::commandTimeout()
 
 bool RFID522::irqHandler()
 {
-  FOCUSLOG("\nirqHandler()");
+  FOCUSLOG("\nirqHandler(%d)", mReaderIndex);
   // Bits: Set1 TxIRq RxIRq IdleIRq HiAlerIRq LoAlertIRq ErrIRq TimerIRq
   uint8_t irqflags = readReg(CommIrqReg) & 0x7F; // Set1 masked out (probably not needed because reads 0 anyway)
   if (irqflags & mIrqEn) {
@@ -464,7 +468,7 @@ bool RFID522::irqHandler()
     }
     #endif
   }
-  FOCUSLOG("irqHandler() done with CommIrqReg=0x%02X, waitIrq=0x%02X\n", irqflags, mWaitIrq);
+  FOCUSLOG("irqHandler(%d) done with CommIrqReg=0x%02X, waitIrq=0x%02X\n", irqflags, mWaitIrq);
   return mWaitIrq!=0;
 }
 
