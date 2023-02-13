@@ -459,15 +459,15 @@ bool RFID522::irqHandler()
       #endif
       execResult(err, totalBits, response);
     }
-    #if !IRQ_WATCHDOG
-    else if (mCmdStart) {
-      // no IRQ and command started: check command timeout
-      if (MainLoop::now()>mCmdStart+COMMAND_TIMEOUT) {
-        commandTimeout();
-      }
-    }
-    #endif
   }
+  #if !IRQ_WATCHDOG
+  else if (mCmdStart) {
+    // no IRQ and command started: check command timeout
+    if (MainLoop::now()>mCmdStart+COMMAND_TIMEOUT) {
+      commandTimeout();
+    }
+  }
+  #endif
   FOCUSLOG("irqHandler(%d) done with CommIrqReg=0x%02X, waitIrq=0x%02X\n", mReaderIndex, irqflags, mWaitIrq);
   return mWaitIrq!=0;
 }
