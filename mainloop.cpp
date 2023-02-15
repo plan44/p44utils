@@ -438,6 +438,10 @@ void p44::libev_sleep_timer_done(EV_P_ struct ev_timer *t, int revents)
 
 #endif // MAINLOOP_LIBEV_BASED
 
+#if MAINLOOP_LIBEV_BASED
+static bool gDefaultMainloopInUse = false;
+#endif
+
 
 MainLoop::MainLoop() :
   mTimersChanged(false),
@@ -470,7 +474,15 @@ MainLoop::MainLoop() :
     DBGFOCUSLOG("- select trigger event pseudo file, FD=%d", evFsFD);
   }
   #elif MAINLOOP_LIBEV_BASED
-  mLibEvLoopP = EV_DEFAULT;
+  if (gDefaultMainloopInUse) {
+    // this must be a subthread's mainloop, must create a new libev mainloop for it
+    mLibEvLoopP = ev_loop_new();
+  }
+  else {
+    // this is the main main loop
+    gDefaultMainloopInUse = true; // all further mainloops must create a new ev_loop
+    mLibEvLoopP = EV_DEFAULT;
+  }
   // init timer we need when we allow libev to "sleep"
   ev_timer_init(&mLibEvTimer, &libev_sleep_timer_done, 1, 0);
   mLibEvTimer.data = this;
