@@ -271,13 +271,14 @@ void P44LoggingObj::log(int aErrLevel, const char *aFmt, ... )
     string message;
     if (*aFmt!='\r') {
       // to be prefixed, check for leading line feeds
+      string prefix = logContextPrefix();
       while (*aFmt=='\n') {
         // append leading line feeds BEFORE the prefix
-        message += aFmt++;
+        message += *(aFmt++);
       }
       // append the prefix
-      message.append(logContextPrefix());
-      if (!message.empty()) message+=": ";
+      message.append(prefix);
+      if (!prefix.empty()) message+=": ";
     }
     else {
       // prefix disabled, skip marker
