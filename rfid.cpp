@@ -141,10 +141,12 @@ using namespace p44;
 
 
 
-RFID522::RFID522(SPIDevicePtr aSPIGenericDev, int aReaderIndex, SelectCB aReaderSelectFunc) :
+RFID522::RFID522(SPIDevicePtr aSPIGenericDev, int aReaderIndex, SelectCB aReaderSelectFunc, uint16_t aChipTimer, bool aUseIrqWatchdog) :
   mCmd(0),
   mIrqEn(0),
-  mWaitIrq(0)
+  mWaitIrq(0),
+  mChipTimer(aChipTimer),
+  mUseIrqWatchdog(aUseIrqWatchdog)
 {
   mSpiDev = aSPIGenericDev;
   mReaderIndex = aReaderIndex;
@@ -155,6 +157,11 @@ RFID522::RFID522(SPIDevicePtr aSPIGenericDev, int aReaderIndex, SelectCB aReader
 RFID522::~RFID522()
 {
   reset();
+}
+
+string RFID522::logContextPrefix()
+{
+  return string_format("RFID522 #%d", mReaderIndex);
 }
 
 
@@ -169,7 +176,7 @@ void RFID522::writeReg(uint8_t aReg, uint8_t aVal)
   if (mReaderSelectFunc) mReaderSelectFunc(mReaderIndex);
   mSpiDev->SPIRawWriteRead(2, out, 0, NULL);
   if (mReaderSelectFunc) mReaderSelectFunc(Deselect);
-  FOCUSLOG("rfid reader %d: writeReg(0x%02x, 0x%02x)", mReaderIndex, aReg, aVal);
+  FOCUSOLOG("writeReg(0x%02x, 0x%02x)", aReg, aVal);
 }
 
 void RFID522::writeFIFO(const uint8_t* aData, size_t aNumBytes)
@@ -182,7 +189,7 @@ void RFID522::writeFIFO(const uint8_t* aData, size_t aNumBytes)
   if (mReaderSelectFunc) mReaderSelectFunc(mReaderIndex);
   mSpiDev->SPIRawWriteRead((unsigned int )(aNumBytes+1), buf, 0, NULL);
   if (mReaderSelectFunc) mReaderSelectFunc(Deselect);
-  FOCUSLOG("rfid reader %d: writeFIFO([%s], %zu)", mReaderIndex, dataToHexString(aData, aNumBytes, ',').c_str(), aNumBytes);
+  FOCUSOLOG("writeFIFO([%s], %zu)", dataToHexString(aData, aNumBytes, ',').c_str(), aNumBytes);
 }
 
 
@@ -193,7 +200,7 @@ uint8_t RFID522::readReg(uint8_t aReg)
   if (mReaderSelectFunc) mReaderSelectFunc(mReaderIndex);
   mSpiDev->SPIRawWriteRead(1, &ad, 1, &val);
   if (mReaderSelectFunc) mReaderSelectFunc(Deselect);
-  FOCUSLOG("rfid reader %d: readReg(0x%02x) = 0x%02x)", mReaderIndex, aReg, val);
+  FOCUSOLOG("readReg(0x%02x) = 0x%02x)", aReg, val);
   return val;
 }
 
@@ -209,7 +216,7 @@ void RFID522::readFIFO(uint8_t* aData, size_t aNumBytes)
   mSpiDev->SPIRawWriteRead((unsigned int )(aNumBytes+1), obuf, (unsigned int )(aNumBytes+1), ibuf, true);
   if (mReaderSelectFunc) mReaderSelectFunc(Deselect);
   memcpy(aData, ibuf+1, aNumBytes);
-  FOCUSLOG("rfid reader %d: readFIFO(buf, %zu) = [%s]", mReaderIndex, aNumBytes, dataToHexString(aData, aNumBytes, ',').c_str());
+  FOCUSOLOG("readFIFO(buf, %zu) = [%s]", aNumBytes, dataToHexString(aData, aNumBytes, ',').c_str());
 }
 
 
@@ -233,9 +240,9 @@ void RFID522::clrRegBits(uint8_t aReg, uint8_t aBitMask)
 
 void RFID522::reset()
 {
-  #if IRQ_WATCHDOG
-  mIrqWatchdog.cancel();
-  #endif
+  if (mUseIrqWatchdog) {
+    mIrqWatchdog.cancel();
+  }
   // Soft reset, all registers set to reset values, buffer unchanged
   writeReg(CommandReg, PCD_SOFTRESET);
   mCmd = 0;
@@ -264,7 +271,7 @@ void RFID522::init()
   // - Bit7..0 : TPrescalerLo=0x3E
   writeReg(TPrescalerReg, 0x3E);  //TModeReg[3..0] + TPrescalerReg
   // Timer Reload Value
-  setTimer(30);
+  setTimer(mChipTimer);
   // Transmit modulation settings
   // TxASKReg
   // - Bit 6   : Force100ASK=1: force 100% ASK modulation independent of ModGsPReg setting
@@ -348,28 +355,27 @@ void RFID522::execPICCCmd(uint8_t aCmd, const string aTxData, ExecResultCB aResu
   writeReg(CommIEnReg, mIrqEn|0x80); // also set IRqInv=1, IRQ line is inverted
   //clrRegBits(CommIrqReg, 0x80); // Clear all interrupt request bits %%% not really, probably bug
   writeReg(CommIrqReg, 0x7F); // Clear all interrupt request bits
-  FOCUSLOG("### debug: initial irqflags after clearing = 0x%02X, enabled = 0x%02X", readReg(CommIrqReg), readReg(CommIEnReg));
+  FOCUSOLOG("### debug: initial irqflags after clearing = 0x%02X, enabled = 0x%02X", readReg(CommIrqReg), readReg(CommIEnReg));
   // prepare
   writeReg(CommandReg, PCD_IDLE); // Cancel previously pending command, if any
   writeReg(FIFOLevelReg, 0x80); // FlushBuffer=1, FIFO initialization
   // put data into FIFO
   writeFIFO((uint8_t *)aTxData.c_str(), aTxData.size());
   // Execute the command
-  FOCUSLOG("rfid reader %d: starting command 0x%02X with %lu data bytes, FIFO level = %d", mReaderIndex, mCmd, aTxData.size(), readReg(FIFOLevelReg));
+  FOCUSOLOG(">>> starting command 0x%02X with %lu data bytes, FIFO level = %d", mCmd, aTxData.size(), readReg(FIFOLevelReg));
   writeReg(CommandReg, mCmd);
   if (mCmd==PCD_TRANSCEIVE) {
     setRegBits(BitFramingReg, 0x80); // StartSend=1, transmission of data starts
   }
-  #if IRQ_WATCHDOG
-  // setup IRQ watchdog, wait for irqHandler() to get called
-  mIrqWatchdog.executeOnce(boost::bind(&RFID522::irqTimeout, this, _1), COMMAND_TIMEOUT);
-  #else
-  mCmdStart = MainLoop::now();
-  #endif
+  if (mUseIrqWatchdog) {
+    // setup IRQ watchdog, wait for irqHandler() to get called
+    mIrqWatchdog.executeOnce(boost::bind(&RFID522::irqTimeout, this, _1), COMMAND_TIMEOUT);
+  }
+  else {
+    mCmdStart = MainLoop::now();
+  }
   return; // wait for IRQ now
 }
-
-#if IRQ_WATCHDOG
 
 void RFID522::irqTimeout(MLTimer &aTimer)
 {
@@ -383,12 +389,10 @@ void RFID522::irqTimeout(MLTimer &aTimer)
   }
 }
 
-#endif
-
 
 void RFID522::commandTimeout()
 {
-  FOCUSLOG("!!!! rfid reader %d: command timed out -> cancel", mReaderIndex);
+  FOCUSOLOG("!!!! command timed out -> cancel");
   writeReg(CommandReg, PCD_IDLE);   // Cancel command
   writeReg(CommIEnReg, 0x80); // disable all interrupts, but keep polarity inverse!
   mIrqEn = 0;
@@ -401,11 +405,11 @@ void RFID522::commandTimeout()
 
 bool RFID522::irqHandler()
 {
-  FOCUSLOG("\nirqHandler(%d)", mReaderIndex);
+  FOCUSOLOG("\nirqHandler");
   // Bits: Set1 TxIRq RxIRq IdleIRq HiAlerIRq LoAlertIRq ErrIRq TimerIRq
   uint8_t irqflags = readReg(CommIrqReg) & 0x7F; // Set1 masked out (probably not needed because reads 0 anyway)
   if (irqflags & mIrqEn) {
-    FOCUSLOG(
+    FOCUSOLOG(
       "### debug: found enabled IRQ: CommIrqReg=0x%02X, irqEn=0x%02X, CommIEnReg=0x%02X, waitIrq=0x%02X, status1=0x%02X, FIFOlevel=%d",
       irqflags, mIrqEn, readReg(CommIEnReg), mWaitIrq, readReg(Status1Reg), readReg(FIFOLevelReg)
     );
@@ -415,7 +419,7 @@ bool RFID522::irqHandler()
       string response;
       uint16_t totalBits = 0;
       // one of the interrupts we should handle
-      FOCUSLOG("rfid reader %d: IRQ arrived we are waiting for, flags = 0x%02X", mReaderIndex, irqflags);
+      FOCUSOLOG("IRQ arrived we are waiting for, CommIrqReg = 0x%02X", irqflags);
       // - any of BufferOvfl Collerr CRCErr ProtecolErr ?
       uint8_t errReg = readReg(ErrorReg);
       if(!(errReg & 0x1B)) {
@@ -427,6 +431,7 @@ bool RFID522::irqHandler()
         if (mCmd==PCD_TRANSCEIVE) {
           uint8_t receivedBytes = readReg(FIFOLevelReg); // number of bytes (including possibly partially valid last byte)
           uint8_t lastBits = readReg(ControlReg) & 0x07; // number of valid bits in last byte, 0=all
+          FOCUSOLOG("<<< end of PCD_TRANSCEIVE, receivedBytes=%d, lastBits=%d", receivedBytes, lastBits);
           // number of bits
           if (lastBits) {
             // not complete
@@ -452,30 +457,29 @@ bool RFID522::irqHandler()
       }
       // done with command
       mWaitIrq = 0;
-      #if IRQ_WATCHDOG
-      mIrqWatchdog.cancel();
-      #else
-      mCmdStart = Never;
-      #endif
+      if (mUseIrqWatchdog) {
+        mIrqWatchdog.cancel();
+      }
+      else {
+        mCmdStart = Never;
+      }
       execResult(err, totalBits, response);
     }
   }
-  #if !IRQ_WATCHDOG
-  else if (mCmdStart) {
+  else if (!mUseIrqWatchdog && mCmdStart) {
     // no IRQ and command started: check command timeout
     if (MainLoop::now()>mCmdStart+COMMAND_TIMEOUT) {
       commandTimeout();
     }
   }
-  #endif
-  FOCUSLOG("irqHandler(%d) done with CommIrqReg=0x%02X, waitIrq=0x%02X\n", mReaderIndex, irqflags, mWaitIrq);
+  FOCUSOLOG("irqHandler() done with CommIrqReg=0x%02X, waitIrq=0x%02X\n", irqflags, mWaitIrq);
   return mWaitIrq!=0;
 }
 
 
 void RFID522::execResult(ErrorPtr aErr, uint16_t aResultBits, const string aResult)
 {
-  FOCUSLOG("### execResult: resultBits=%d, result=%s, err=%s, callback=%s", aResultBits, binaryToHexString(aResult).c_str(), Error::text(aErr), mExecResultCB ? "YES" : "NO");
+  FOCUSOLOG("### execResult: resultBits=%d, result=%s, err=%s, callback=%s", aResultBits, binaryToHexString(aResult).c_str(), Error::text(aErr), mExecResultCB ? "YES" : "NO");
   if (mExecResultCB) {
     ExecResultCB cb = mExecResultCB;
     mExecResultCB = NoOP;

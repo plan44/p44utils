@@ -42,8 +42,6 @@
 #include "digitalio.hpp"
 #include "spi.hpp"
 
-#define IRQ_WATCHDOG 0
-
 using namespace std;
 
 namespace p44 {
@@ -67,7 +65,7 @@ namespace p44 {
   };
 
 
-  class RFID522 : public P44Obj
+  class RFID522 : public P44LoggingObj
   {
 
   public:
@@ -89,11 +87,11 @@ namespace p44 {
     uint8_t mCmd; ///< the command being executed
     uint8_t mIrqEn; ///< enabled IRQs
     uint8_t mWaitIrq; ///< IRQs we are waiting for to terminate execPICCCmd
-    #if IRQ_WATCHDOG
+
+    uint16_t mChipTimer; ///< the chip timer (preload) value to set
+    bool mUseIrqWatchdog;
     MLTicket mIrqWatchdog;
-    #else
     MLMicroSeconds mCmdStart;
-    #endif
 
   public:
 
@@ -101,8 +99,13 @@ namespace p44 {
     /// @param aSPIGenericDev a generic SPI device for the bus this reader is connected to
     /// @param aReaderIndex the selection address of this reader
     /// @param aReaderSelectFunc will be called to select this particular reader by aSelectAddress
-    RFID522(SPIDevicePtr aSPIGenericDev, int aReaderIndex, SelectCB aReaderSelectFunc);
+    /// @param aChipTimer the chip timer (preload) value to set, a default that used to work is 30
+    /// @param aUserIrqWatchdog if set, the IRQ watchdog is used
+    RFID522(SPIDevicePtr aSPIGenericDev, int aReaderIndex, SelectCB aReaderSelectFunc, uint16_t aChipTimer = 30, bool aUseIrqWatchdog = false);
     virtual ~RFID522();
+
+    /// @return the prefix to be used for logging from this object
+    virtual string logContextPrefix();
 
     /// get this reader's index
     int getReaderIndex() { return mReaderIndex; };
@@ -153,9 +156,7 @@ namespace p44 {
     // execPICCCmd helpers
     void execResult(ErrorPtr aErr, uint16_t aResultBits = 0, const string aResult = "");
     void commandTimeout();
-    #if IRQ_WATCHDOG
     void irqTimeout(MLTimer &aTimer);
-    #endif
 
     /// Search for cards in field
     /// @param aReqCmd - REQA, REQB, WUPA, WUPB
