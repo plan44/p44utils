@@ -270,10 +270,17 @@ void P44LoggingObj::log(int aErrLevel, const char *aFmt, ... )
     // get the prefix (can be disabled by starting log line with \r)
     string message;
     if (*aFmt!='\r') {
-      message = logContextPrefix();
+      // to be prefixed, check for leading line feeds
+      while (*aFmt=='\n') {
+        // append leading line feeds BEFORE the prefix
+        message += aFmt++;
+      }
+      // append the prefix
+      message.append(logContextPrefix());
       if (!message.empty()) message+=": ";
     }
     else {
+      // prefix disabled, skip marker
       aFmt++; // skip \r
     }
     // format the message
