@@ -492,7 +492,7 @@ bool RFID522::irqHandler()
         }
         else if ((irqflags&mIrqEn) & TimerIRq_Mask) {
           // we were waiting for timer IRQ and have NOT seen the end of a command
-          err = Error::err<RFIDError>(RFIDError::Timeout, "chip timer timeout");
+          err = Error::err<RFIDError>(RFIDError::ChipTimeout, "chip timer timeout");
         }
       }
       // done with command
@@ -546,7 +546,7 @@ void RFID522::requestResponse(uint8_t aReqCmd, StatusCB aStatusCB, bool aWait, E
       aErr = Error::err<RFIDError>(RFIDError::BadAnswer, "bad ATQ answer: bits = %d: data=%s", aResultBits, binaryToHexString(aResult).c_str());
     }
   }
-  else if (aWait && aErr->isError(RFIDError::domain(), RFIDError::Timeout)) {
+  else if (aWait && aErr->isError(RFIDError::domain(), RFIDError::ChipTimeout)) {
     // just timeout, try again
     RFID522::requestPICC(aReqCmd, true, aStatusCB);
     return;

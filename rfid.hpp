@@ -54,7 +54,7 @@ namespace p44 {
     // Errors
     typedef enum {
       OK,
-      Timeout, ///< timeout
+      ChipTimeout, ///< timeout
       ChipErr, ///< chip error
       UnknownCmd, ///< unknown command
       BadAnswer, ///< bad answer (e.g. wrong number of bits, checksum error)
