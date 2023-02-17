@@ -260,9 +260,11 @@ void RFID522::reset()
 }
 
 
-void RFID522::init()
+void RFID522::init(const string aRegValPairs)
 {
   reset();
+  uint8_t version = readReg(VersionReg);
+  FOCUSOLOG("initializing, VersionReg=0x%02x", version);
 
   // ??Timer: TPrescaler*TreloadVal/6.78MHz = 24ms
 
@@ -291,6 +293,13 @@ void RFID522::init()
   // - Bit3    : PolMFin=1: Polarity of MFIN is active HIGH
   // - Bit1,0  : CRCPreset=01: CRC Preset is 0x6363
   writeReg(ModeReg, 0x3D);
+
+  // extra config
+  for(size_t i=0; i+1<aRegValPairs.size(); i+=2) {
+    FOCUSOLOG("- Custom init of Register 0x%02x: original value 0x%02x -> set to new value 0x%02x", aRegValPairs[i], readReg(aRegValPairs[i]), aRegValPairs[i+1]);
+    writeReg(aRegValPairs[i], aRegValPairs[i+1]);
+    FOCUSOLOG("                                                  register reads back value 0x%02x", readReg(aRegValPairs[i]));
+  }
 
   //ClearBitMask(Status2Reg, 0x08); // MFCrypto1On=0
   //writeMFRC522(RxSelReg, 0x86); // RxWait = RxSelReg[5..0]
@@ -341,14 +350,16 @@ void RFID522::energyField(bool aEnable) {
 
 void RFID522::returnToIdle()
 {
-  FOCUSOLOG("### return to idle (from mCmd=0x%02x)", mCmd);
-  mCmd = PCD_IDLE;
-  mIrqEn = 0x00;
-  mWaitIrq = 0x00;
-  mCmdStart = Never;
-  writeReg(CommIEnReg, 0x80); // disable all interrupts, but keep polarity inverse!
-  writeReg(CommandReg, PCD_IDLE); // Cancel previously pending command, if any
-  writeReg(FIFOLevelReg, 0x80); // FlushBuffer=1, FIFO initialization
+  if (mCmd!=PCD_IDLE) {
+    FOCUSOLOG("### return to idle (from mCmd=0x%02x)", mCmd);
+    mCmd = PCD_IDLE;
+    mIrqEn = 0x00;
+    mWaitIrq = 0x00;
+    mCmdStart = Never;
+    writeReg(CommIEnReg, 0x80); // disable all interrupts, but keep polarity inverse!
+    writeReg(CommandReg, PCD_IDLE); // Cancel previously pending command, if any
+    writeReg(FIFOLevelReg, 0x80); // FlushBuffer=1, FIFO initialization
+  }
   if (mUseIrqWatchdog) {
     mIrqWatchdog.cancel();
   }

@@ -117,7 +117,9 @@ namespace p44 {
     /// get this reader's index
     int getReaderIndex() { return mReaderIndex; };
 
-    void init();
+    /// init this reader
+    /// @param aRegValPairs byte pairs of register addresses/values for extra initialisation
+    void init(const string aRegValPairs);
 
     void reset();
 
