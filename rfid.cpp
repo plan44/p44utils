@@ -260,11 +260,24 @@ void RFID522::reset()
 }
 
 
-void RFID522::init(const string aRegValPairs)
+bool RFID522::init(const string aRegValPairs)
 {
   reset();
   uint8_t version = readReg(VersionReg);
-  FOCUSOLOG("initializing, VersionReg=0x%02x", version);
+  OLOG(LOG_NOTICE, "initializing, VersionReg=0x%02x", version);
+  switch (version) {
+    case 0x00: // most likely no reader connected
+      OLOG(LOG_ERR, "probably no reader connected, version reads zero");
+      return false;
+    case 0x92:
+    case 0xB2:
+      // known versions
+      break;
+    default:
+      OLOG(LOG_ERR, "unknown version byte: 0x%02x", version);
+      return false;
+  }
+  if (version==0x00) return false;
 
   // ??Timer: TPrescaler*TreloadVal/6.78MHz = 24ms
 
@@ -296,9 +309,9 @@ void RFID522::init(const string aRegValPairs)
 
   // extra config
   for(size_t i=0; i+1<aRegValPairs.size(); i+=2) {
-    FOCUSOLOG("- Custom init of Register 0x%02x: original value 0x%02x -> set to new value 0x%02x", aRegValPairs[i], readReg(aRegValPairs[i]), aRegValPairs[i+1]);
+    OLOG(LOG_INFO, "- Custom init of Register 0x%02x: original value 0x%02x -> set to new value 0x%02x", aRegValPairs[i], readReg(aRegValPairs[i]), aRegValPairs[i+1]);
     writeReg(aRegValPairs[i], aRegValPairs[i+1]);
-    FOCUSOLOG("                                                  register reads back value 0x%02x", readReg(aRegValPairs[i]));
+    OLOG(LOG_INFO, "                                              register reads back value 0x%02x", readReg(aRegValPairs[i]));
   }
 
   //ClearBitMask(Status2Reg, 0x08); // MFCrypto1On=0
@@ -307,6 +320,8 @@ void RFID522::init(const string aRegValPairs)
 
   // no longer automatically!!
   //energyField(true); // Turn on RF field
+
+  return true;
 }
 
 

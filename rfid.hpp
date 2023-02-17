@@ -119,7 +119,8 @@ namespace p44 {
 
     /// init this reader
     /// @param aRegValPairs byte pairs of register addresses/values for extra initialisation
-    void init(const string aRegValPairs);
+    /// @return true if version register did return a sensible value, false when no or malfunctioning reader is connected
+    bool init(const string aRegValPairs);
 
     void reset();
 
