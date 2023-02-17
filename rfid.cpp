@@ -349,8 +349,7 @@ void RFID522::execPICCCmd(uint8_t aCmd, const string aTxData, ExecResultCB aResu
       //mIrqEn = TxIRq_Mask+RxIRq_Mask+IdleIRq_Mask+LoAlertIRq_Mask+ErrIRq_Mask+TimerIRq_Mask; // TxIen + RxIen + IdleIEn + LoAlertIEn + ErrIEn + TimerIEn interrupt enable
       mIrqEn = TxIRq_Mask+RxIRq_Mask+IdleIRq_Mask+ErrIRq_Mask+TimerIRq_Mask; // TxIen + RxIen + IdleIEn + ErrIEn + TimerIEn interrupt enable
       //mIrqEn = IdleIRq_Mask+ErrIRq_Mask+TimerIRq_Mask; // IdleIEn, ErrIEn, TimerIEn
-      //mWaitIrq = RxIRq_Mask+IdleIRq_Mask+TimerIRq_Mask; // wait for Idle, Rx, Timer
-      mWaitIrq = IdleIRq_Mask+TimerIRq_Mask; // wait for Idle, Timer
+      mWaitIrq = RxIRq_Mask+IdleIRq_Mask+TimerIRq_Mask; // wait for Idle, Rx, Timer
       break;
     }
     default: {
@@ -430,16 +429,14 @@ bool RFID522::irqHandler()
       FOCUSOLOG("IRQ arrived we are waiting for: relevant bits in CommIrqReg = 0x%02X", irqflags & mWaitIrq);
       // - any of BufferOvfl Collerr CRCErr ProtecolErr ?
       uint8_t errReg = readReg(ErrorReg);
-      uint8_t handledIrqFlags = 0;
       if (errReg & 0x1B) {
         // error overrides everything
         err = Error::err<RFIDError>(RFIDError::ChipErr, "chip error register = 0x%02X", errReg);
       }
       else {
         // no error
-        if ((irqflags&mIrqEn) & IdleIRq_Mask) {
-          handledIrqFlags |= IdleIRq_Mask;
-          // idle IRQ, means command has executed
+        if ((irqflags&mIrqEn) & (IdleIRq_Mask+RxIRq_Mask)) {
+          // idle or Rx IRQ, means command has executed (note: PCD_TRANSCEIVE never terminates, so Rx is essential!)
           // NOTE: this has PRECEDENCE over timer
           if (mCmd==PCD_TRANSCEIVE) {
             // end of transceive, get data
