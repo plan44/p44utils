@@ -141,6 +141,9 @@ namespace p44 {
     /// abort running command
     void returnToIdle();
 
+    /// continue transceiving (e.g. probing)
+    void continueTransceiving();
+
   private:
 
     /// write single byte to a register

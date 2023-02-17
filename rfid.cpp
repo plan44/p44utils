@@ -363,6 +363,14 @@ void RFID522::commandTimeout()
 }
 
 
+void RFID522::continueTransceiving()
+{
+  if (mCmd==PCD_TRANSCEIVE) {
+    FOCUSOLOG("PCD_TRANSCEIVE still running: re-start data transmission");
+    setRegBits(BitFramingReg, 0x80); // StartSend=1, transmission of data starts
+  }
+}
+
 
 
 void RFID522::execPICCCmd(uint8_t aCmd, const string aTxData, ExecResultCB aResultCB)
@@ -407,9 +415,7 @@ void RFID522::execPICCCmd(uint8_t aCmd, const string aTxData, ExecResultCB aResu
   // Execute the command
   FOCUSOLOG(">>> starting command 0x%02X with %lu data bytes, FIFO level = %d", mCmd, aTxData.size(), readReg(FIFOLevelReg));
   writeReg(CommandReg, mCmd);
-  if (mCmd==PCD_TRANSCEIVE) {
-    setRegBits(BitFramingReg, 0x80); // StartSend=1, transmission of data starts
-  }
+  continueTransceiving();
   if (mUseIrqWatchdog) {
     // setup IRQ watchdog, wait for irqHandler() to get called
     mIrqWatchdog.executeOnce(boost::bind(&RFID522::irqTimeout, this, _1), mCmdTimeout);
@@ -521,7 +527,7 @@ bool RFID522::irqHandler()
 
 void RFID522::execResult(ErrorPtr aErr, uint16_t aResultBits, const string aResult)
 {
-  FOCUSOLOG("### execResult: resultBits=%d, result=%s, err=%s, callback=%s", aResultBits, binaryToHexString(aResult).c_str(), Error::text(aErr), mExecResultCB ? "YES" : "NO");
+  FOCUSOLOG("### execResult: mCmd=0x%02x, resultBits=%d, result=%s, err=%s, callback=%s", mCmd, aResultBits, binaryToHexString(aResult).c_str(), Error::text(aErr), mExecResultCB ? "YES" : "NO");
   if (mExecResultCB) {
     ExecResultCB cb = mExecResultCB;
     mExecResultCB = NoOP;
