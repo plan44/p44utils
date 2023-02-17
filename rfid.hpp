@@ -135,6 +135,12 @@ namespace p44 {
     /// @param aStoreNUID if set, the winning card's nUID is stored for selecting later
     void antiCollision(ExecResultCB aResultCB, bool aStoreNUID = false);
 
+    /// switch the energy field
+    void energyField(bool aEnable);
+
+    /// abort running command
+    void returnToIdle();
+
   private:
 
     /// write single byte to a register
@@ -149,9 +155,6 @@ namespace p44 {
     void setRegBits(uint8_t reg, uint8_t mask);
     /// clear some bits in a register (read-modify-write)
     void clrRegBits(uint8_t reg, uint8_t mask);
-
-    /// turn on the energy field
-    void energyFieldOn();
 
     /// set the timeout timer
     void setTimer(uint16_t aTimerReload);

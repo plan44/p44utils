@@ -149,12 +149,13 @@ using namespace p44;
 
 
 RFID522::RFID522(SPIDevicePtr aSPIGenericDev, int aReaderIndex, SelectCB aReaderSelectFunc, uint16_t aChipTimer, bool aUseIrqWatchdog, MLMicroSeconds aCmdTimeout) :
-  mCmd(0),
+  mCmd(PCD_IDLE),
   mIrqEn(0),
   mWaitIrq(0),
   mChipTimer(aChipTimer),
   mUseIrqWatchdog(aUseIrqWatchdog),
-  mCmdTimeout(aCmdTimeout)
+  mCmdTimeout(aCmdTimeout),
+  mCmdStart(Never)
 {
   mSpiDev = aSPIGenericDev;
   mReaderIndex = aReaderIndex;
@@ -295,12 +296,14 @@ void RFID522::init()
   //writeMFRC522(RxSelReg, 0x86); // RxWait = RxSelReg[5..0]
   //writeMFRC522(RFCfgReg, 0x7F); // RxGain = 48dB
 
-  energyFieldOn(); // Turn on RF field
+  // no longer automatically!!
+  //energyField(true); // Turn on RF field
 }
 
 
 void RFID522::setTimer(uint16_t aTimerReload)
 {
+  FOCUSOLOG("### setting timer reload to %d", aTimerReload);
   writeReg(TReloadRegL, aTimerReload & 0xFF);
   writeReg(TReloadRegH, (aTimerReload>>8) & 0xFF);
 }
@@ -308,8 +311,7 @@ void RFID522::setTimer(uint16_t aTimerReload)
 
 
 
-void RFID522::energyFieldOn(void)
-{
+void RFID522::energyField(bool aEnable) {
   uint8_t temp;
 
   // Antenna driver settings
@@ -317,27 +319,63 @@ void RFID522::energyFieldOn(void)
   // - Bit1  : Tx2RFEn=1: TX2 drives modulated energy carrier
   // - Bit0  : Tx1RFEn=1: TX1 drives modulated energy carrier
   temp = readReg(TxControlReg);
-  if (!(temp & 0x03)) {
-    // none of the driver bits set -> set both
-    setRegBits(TxControlReg, 0x03);
+  if (aEnable) {
+    if (!(temp & 0x03)) {
+      // none of the driver bits set -> set both
+      FOCUSOLOG("+++ enabling energy field");
+      setRegBits(TxControlReg, 0x03);
+    }
+  }
+  else {
+    if (temp & 0x03) {
+      // at least one driver bits is set -> clear both
+      FOCUSOLOG("--- disabling energy field");
+      clrRegBits(TxControlReg, 0x03);
+    }
   }
 }
 
 
 // MARK: ==== Low Level
 
+
+void RFID522::returnToIdle()
+{
+  FOCUSOLOG("### return to idle (from mCmd=0x%02x)", mCmd);
+  mCmd = PCD_IDLE;
+  mIrqEn = 0x00;
+  mWaitIrq = 0x00;
+  mCmdStart = Never;
+  writeReg(CommIEnReg, 0x80); // disable all interrupts, but keep polarity inverse!
+  writeReg(CommandReg, PCD_IDLE); // Cancel previously pending command, if any
+  writeReg(FIFOLevelReg, 0x80); // FlushBuffer=1, FIFO initialization
+  if (mUseIrqWatchdog) {
+    mIrqWatchdog.cancel();
+  }
+}
+
+
+void RFID522::commandTimeout()
+{
+  FOCUSOLOG("!!!! command timed out -> cancel");
+  returnToIdle();
+  execResult(Error::err<RFIDError>(RFIDError::IRQTimeout, "IRQ Timeout -> cancelled command"));
+}
+
+
+
+
 void RFID522::execPICCCmd(uint8_t aCmd, const string aTxData, ExecResultCB aResultCB)
 {
   mExecResultCB = aResultCB;
 
-  mIrqEn = 0x00;
-  mWaitIrq = 0x00;
+  // prepare (clears mCmd, IRQ enable/wait, command start)
+  returnToIdle();
   // IRQ enable bits:
   //            |    7   |   6   |   5   |    4    ||     3      |      2     |    1   |    0     |
   // CommIEnReg | IRqInv | TxIEn | RxIEn | IdleIEn || HiAlertIEn | LoAlertIEn | ErrIEn | TimerIEn |
   // CommIrqReg |  Set1  | TxIRq | RxIRq | IdleIRq || HiAlertIRq | LoAlertIRq | ErrIRq | TimerIRq |
-  mCmd = aCmd;
-  switch (mCmd) {
+  switch (aCmd) {
     case PCD_MFAUTHENT: {
       // MiFare authentication
       mIrqEn = IdleIRq_Mask+ErrIRq_Mask; // IdleIEn + ErrIEn interupt enable
@@ -357,9 +395,8 @@ void RFID522::execPICCCmd(uint8_t aCmd, const string aTxData, ExecResultCB aResu
       return;
     }
   }
-  // prepare
-  writeReg(CommandReg, PCD_IDLE); // Cancel previously pending command, if any
-  writeReg(FIFOLevelReg, 0x80); // FlushBuffer=1, FIFO initialization
+  // now set new command running
+  mCmd = aCmd;
   // put data into FIFO
   writeFIFO((uint8_t *)aTxData.c_str(), aTxData.size());
   // set up interrupts
@@ -377,11 +414,12 @@ void RFID522::execPICCCmd(uint8_t aCmd, const string aTxData, ExecResultCB aResu
     // setup IRQ watchdog, wait for irqHandler() to get called
     mIrqWatchdog.executeOnce(boost::bind(&RFID522::irqTimeout, this, _1), mCmdTimeout);
   }
-  else {
+  else if (mCmd!=PCD_IDLE) {
     mCmdStart = MainLoop::now();
   }
   return; // wait for IRQ now
 }
+
 
 void RFID522::irqTimeout(MLTimer &aTimer)
 {
@@ -396,24 +434,13 @@ void RFID522::irqTimeout(MLTimer &aTimer)
 }
 
 
-void RFID522::commandTimeout()
-{
-  FOCUSOLOG("!!!! command timed out -> cancel");
-  writeReg(CommandReg, PCD_IDLE);   // Cancel command
-  writeReg(CommIEnReg, 0x80); // disable all interrupts, but keep polarity inverse!
-  mIrqEn = 0;
-  mWaitIrq = 0;
-  execResult(Error::err<RFIDError>(RFIDError::IRQTimeout, "IRQ Timeout -> cancelled command"));
-}
-
-
-
-
 bool RFID522::irqHandler()
 {
-  FOCUSOLOG("\nirqHandler");
+  FOCUSOLOG("\nirqHandler: mIqrEn=0x%02x", mIrqEn);
   // Bits: Set1 TxIRq RxIRq IdleIRq HiAlerIRq LoAlertIRq ErrIRq TimerIRq
-  uint8_t irqflags = readReg(CommIrqReg) & 0x7F; // Set1 masked out (probably not needed because reads 0 anyway)
+  uint8_t irqflags;
+  if (mIrqEn) irqflags = readReg(CommIrqReg) & 0x7F; // Set1 masked out (probably not needed because reads 0 anyway)
+  else return false; // optimization: none enabled -> none pending without need to read flags
   if (irqflags & mIrqEn) {
     FOCUSOLOG(
       "### debug: found enabled IRQ: CommIrqReg=0x%02X, irqEn=0x%02X, CommIEnReg=0x%02X, waitIrq=0x%02X, status1=0x%02X, FIFOlevel=%d",
@@ -436,7 +463,7 @@ bool RFID522::irqHandler()
       else {
         // no error
         if ((irqflags&mIrqEn) & (IdleIRq_Mask+RxIRq_Mask)) {
-          // idle or Rx IRQ, means command has executed (note: PCD_TRANSCEIVE never terminates, so Rx is essential!)
+          // idle or Rx IRQ, means command has executed (note: PCD_TRANSCEIVE never gets idle by itself, so Rx is essential!)
           // NOTE: this has PRECEDENCE over timer
           if (mCmd==PCD_TRANSCEIVE) {
             // end of transceive, get data
@@ -476,13 +503,13 @@ bool RFID522::irqHandler()
       else {
         mCmdStart = Never;
       }
-      // Note: may already schedule the next command and thus set mWaitIrq again to pending
-      execResult(err, totalBits, response);
+      // Only report if not idle
+      if (mCmd!=PCD_IDLE) execResult(err, totalBits, response);
     }
   }
   else if (!mUseIrqWatchdog && mCmdStart) {
     // no IRQ and command started: check command timeout
-    if (MainLoop::now()>mCmdStart+mCmdTimeout) {
+    if (mCmd && (MainLoop::now()>mCmdStart+mCmdTimeout)) {
       commandTimeout();
     }
   }
