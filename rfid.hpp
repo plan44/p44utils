@@ -42,6 +42,8 @@
 #include "digitalio.hpp"
 #include "spi.hpp"
 
+#define DEFAULT_COMMAND_TIMEOUT (250*MilliSecond)
+
 using namespace std;
 
 namespace p44 {
@@ -92,6 +94,7 @@ namespace p44 {
     bool mUseIrqWatchdog;
     MLTicket mIrqWatchdog;
     MLMicroSeconds mCmdStart;
+    MLMicroSeconds mCmdTimeout;
 
   public:
 
@@ -101,7 +104,11 @@ namespace p44 {
     /// @param aReaderSelectFunc will be called to select this particular reader by aSelectAddress
     /// @param aChipTimer the chip timer (preload) value to set, a default that used to work is 30
     /// @param aUserIrqWatchdog if set, the IRQ watchdog is used
-    RFID522(SPIDevicePtr aSPIGenericDev, int aReaderIndex, SelectCB aReaderSelectFunc, uint16_t aChipTimer = 30, bool aUseIrqWatchdog = false);
+    /// @param aCmdTimeout command timeout
+    RFID522(
+      SPIDevicePtr aSPIGenericDev, int aReaderIndex, SelectCB aReaderSelectFunc,
+      uint16_t aChipTimer = 30, bool aUseIrqWatchdog = false, MLMicroSeconds aCmdTimeout = DEFAULT_COMMAND_TIMEOUT
+    );
     virtual ~RFID522();
 
     /// @return the prefix to be used for logging from this object
