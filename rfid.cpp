@@ -152,7 +152,7 @@ RFID522::RFID522(SPIDevicePtr aSPIGenericDev, int aReaderIndex, SelectCB aReader
   mCmd(PCD_IDLE),
   mIrqEn(0),
   mWaitIrq(0),
-  mChipTimer(aChipTimer),
+  mChipTimer(aChipTimer), // 0 means default
   mUseIrqWatchdog(aUseIrqWatchdog),
   mCmdTimeout(aCmdTimeout),
   mCmdStart(Never)
@@ -260,6 +260,8 @@ void RFID522::reset()
 }
 
 
+#define NEW_INIT 1
+
 bool RFID522::init(const string aRegValPairs)
 {
   reset();
@@ -279,6 +281,27 @@ bool RFID522::init(const string aRegValPairs)
   }
   if (version==0x00) return false;
 
+  #if NEW_INIT
+  // new init according to https://github.com/miguelbalboa/rfid.git
+  // - Reset baud rates
+  writeReg(TxModeReg, 0x00);
+  writeReg(RxModeReg, 0x00);
+  // Reset ModWidthReg
+  writeReg(ModWidthReg, 0x26);
+
+  // When communicating with a PICC we need a timeout if something goes wrong.
+  // f_timer = 13.56 MHz / (2*TPreScaler+1) where TPreScaler = [TPrescaler_Hi:TPrescaler_Lo].
+  // TPrescaler_Hi are the four low bits in TModeReg. TPrescaler_Lo is TPrescalerReg.
+  writeReg(TModeReg, 0x80);      // TAuto=1; timer starts automatically at the end of the transmission in all communication modes at all speeds
+  writeReg(TPrescalerReg, 0xA9);    // TPreScaler = TModeReg[3..0]:TPrescalerReg, ie 0x0A9 = 169 => f_timer=40kHz, ie a timer period of 25μs.
+
+  // Reload timer with 0x3E8 = 1000, ie 25ms before timeout.
+  setTimer(mChipTimer>0 ? mChipTimer : 1000);
+
+  writeReg(TxASKReg, 0x40);    // Default 0x00. Force a 100 % ASK modulation independent of the ModGsPReg register setting
+  writeReg(ModeReg, 0x3D);    // Default 0x3F. Set the preset value for the CRC coprocessor for the CalcCRC command to 0x6363 (ISO 14443-3 part 6.2.4)
+
+  #else
   // ??Timer: TPrescaler*TreloadVal/6.78MHz = 24ms
 
   // Timer Frequency
@@ -295,7 +318,7 @@ bool RFID522::init(const string aRegValPairs)
   // - Bit7..0 : TPrescalerLo=0x3E
   writeReg(TPrescalerReg, 0x3E);  //TModeReg[3..0] + TPrescalerReg
   // Timer Reload Value
-  setTimer(mChipTimer);
+  setTimer(mChipTimer>0 ? mChipTimer : 30);
   // Transmit modulation settings
   // TxASKReg
   // - Bit 6   : Force100ASK=1: force 100% ASK modulation independent of ModGsPReg setting
@@ -306,6 +329,7 @@ bool RFID522::init(const string aRegValPairs)
   // - Bit3    : PolMFin=1: Polarity of MFIN is active HIGH
   // - Bit1,0  : CRCPreset=01: CRC Preset is 0x6363
   writeReg(ModeReg, 0x3D);
+  #endif
 
   // extra config
   for(size_t i=0; i+1<aRegValPairs.size(); i+=2) {
@@ -371,8 +395,9 @@ void RFID522::returnToIdle()
     mIrqEn = 0x00;
     mWaitIrq = 0x00;
     mCmdStart = Never;
-    writeReg(CommIEnReg, 0x80); // disable all interrupts, but keep polarity inverse!
     writeReg(CommandReg, PCD_IDLE); // Cancel previously pending command, if any
+    writeReg(CommIrqReg, 0x7F); // clear all IRQ bits
+    writeReg(CommIEnReg, 0x80); // disable all interrupts, but keep polarity inverse!
     writeReg(FIFOLevelReg, 0x80); // FlushBuffer=1, FIFO initialization
   }
   if (mUseIrqWatchdog) {
@@ -399,7 +424,7 @@ void RFID522::continueTransceiving()
 
 
 
-void RFID522::execPICCCmd(uint8_t aCmd, const string aTxData, ExecResultCB aResultCB)
+void RFID522::execPICCCmd(uint8_t aCmd, const string aTxData, uint8_t aBitFraming, ExecResultCB aResultCB)
 {
   mExecResultCB = aResultCB;
 
@@ -431,6 +456,7 @@ void RFID522::execPICCCmd(uint8_t aCmd, const string aTxData, ExecResultCB aResu
   }
   // now set new command running
   mCmd = aCmd;
+  writeReg(BitFramingReg, aBitFraming); // Bit framing adjustments
   // put data into FIFO
   writeFIFO((uint8_t *)aTxData.c_str(), aTxData.size());
   // set up interrupts
@@ -564,10 +590,13 @@ void RFID522::execResult(ErrorPtr aErr, uint16_t aResultBits, const string aResu
 
 void RFID522::requestPICC(uint8_t aReqCmd, bool aWait, StatusCB aStatusCB)
 {
-  writeReg(BitFramingReg, 0x07); // TxLastBists: BitFramingReg[2..0]=7: alignment: start at bit7 of first byte, then continue in next byte
+  #if NEW_INIT
+  clrRegBits(CollReg, 0x80);
+  #endif
+  uint8_t bitframing = 0x07; // RxAlign=0, TxLastBits: BitFramingReg[2..0]=7: alignment: start at bit7 of first byte, then continue in next byte
   string data;
   data.append(1,aReqCmd);
-  execPICCCmd(PCD_TRANSCEIVE, data, boost::bind(&RFID522::requestResponse, this, aReqCmd, aStatusCB, aWait, _1, _2, _3));
+  execPICCCmd(PCD_TRANSCEIVE, data, bitframing, boost::bind(&RFID522::requestResponse, this, aReqCmd, aStatusCB, aWait, _1, _2, _3));
 }
 
 
@@ -591,6 +620,13 @@ void RFID522::requestResponse(uint8_t aReqCmd, StatusCB aStatusCB, bool aWait, E
 
 void RFID522::probeTypeA(StatusCB aStatusCB, bool aWait)
 {
+  #if NEW_INIT
+  // Reset baud rates
+  writeReg(TxModeReg, 0x00);
+  writeReg(RxModeReg, 0x00);
+  // Reset ModWidthReg
+  writeReg(ModWidthReg, 0x26);
+  #endif
   requestPICC(PICC_REQA, aWait, aStatusCB);
 }
 
@@ -599,11 +635,10 @@ void RFID522::antiCollision(ExecResultCB aResultCB, bool aStoreNUID)
 {
   //ClearBitMask(Status2Reg, 0x08); // TempSensclear
   //ClearBitMask(CollReg,0x80); // ValuesAfterColl
-  writeReg(BitFramingReg, 0x00); // TxLastBists = BitFramingReg[2..0]
   string cmd;
   cmd.append(1,PICC_ANTICOLL);
   cmd.append(1,0x20);
-  execPICCCmd(PCD_TRANSCEIVE, cmd, boost::bind(&RFID522::anticollResponse, this, aResultCB, aStoreNUID, _1, _2, _3));
+  execPICCCmd(PCD_TRANSCEIVE, cmd, 0x00, boost::bind(&RFID522::anticollResponse, this, aResultCB, aStoreNUID, _1, _2, _3));
 }
 
 

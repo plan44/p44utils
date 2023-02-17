@@ -102,12 +102,12 @@ namespace p44 {
     /// @param aSPIGenericDev a generic SPI device for the bus this reader is connected to
     /// @param aReaderIndex the selection address of this reader
     /// @param aReaderSelectFunc will be called to select this particular reader by aSelectAddress
-    /// @param aChipTimer the chip timer (preload) value to set, a default that used to work is 30
+    /// @param aChipTimer the chip timer (preload) value to set, 0 means using default
     /// @param aUserIrqWatchdog if set, the IRQ watchdog is used
     /// @param aCmdTimeout command timeout
     RFID522(
       SPIDevicePtr aSPIGenericDev, int aReaderIndex, SelectCB aReaderSelectFunc,
-      uint16_t aChipTimer = 30, bool aUseIrqWatchdog = false, MLMicroSeconds aCmdTimeout = DEFAULT_COMMAND_TIMEOUT
+      uint16_t aChipTimer = 0, bool aUseIrqWatchdog = false, MLMicroSeconds aCmdTimeout = DEFAULT_COMMAND_TIMEOUT
     );
     virtual ~RFID522();
 
@@ -167,7 +167,7 @@ namespace p44 {
 
     /// execute PICC command
     //void execPICCCmd(uint8_t aCmd, uint8_t *aTxDataP, uint8_t aTxBytes, uint8_t *aRxDataP, uint16_t &aRxBits);
-    void execPICCCmd(uint8_t aCmd, const string aTxData, ExecResultCB aResultCB);
+    void execPICCCmd(uint8_t aCmd, const string aTxData, uint8_t aBitFraming, ExecResultCB aResultCB);
 
     // execPICCCmd helpers
     void execResult(ErrorPtr aErr, uint16_t aResultBits = 0, const string aResult = "");
