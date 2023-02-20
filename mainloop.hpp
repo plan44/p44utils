@@ -634,21 +634,21 @@ namespace p44 {
   {
     typedef P44Obj inherited;
 
-    pthread_t pthread; ///< the pthread
-    bool threadRunning; ///< set if thread is active
+    pthread_t mPthread; ///< the pthread
+    bool mThreadRunning; ///< set if thread is active
 
-    MainLoop &parentThreadMainLoop; ///< the parent mainloop which created this thread
-    int childSignalFd; ///< the pipe used to transmit signals from the child thread
-    int parentSignalFd; ///< the pipe monitored by parentThreadMainLoop to get signals from child
+    MainLoop &mParentThreadMainLoop; ///< the parent mainloop which created this thread
+    int mChildSignalFd; ///< the pipe used to transmit signals from the child thread
+    int mParentSignalFd; ///< the pipe monitored by parentThreadMainLoop to get signals from child
 
-    ThreadSignalHandler parentSignalHandler; ///< the handler to call to deliver signals to the main thread
-    ThreadRoutine threadRoutine; ///< the actual thread routine to run
+    ThreadSignalHandler mParentSignalHandler; ///< the handler to call to deliver signals to the main thread
+    ThreadRoutine mThreadRoutine; ///< the actual thread routine to run
 
-    ChildThreadWrapperPtr selfRef;
+    ChildThreadWrapperPtr mSelfRef;
 
-    bool terminationPending; ///< set if termination has been requested by requestTermination()
+    bool mTerminationPending; ///< set if termination has been requested by requestTermination()
 
-    MainLoop *myMainLoopP; ///< the (optional) mainloop of this thread
+    MainLoop *mMyMainLoopP; ///< the (optional) mainloop of this thread
 
 
   public:
@@ -675,6 +675,11 @@ namespace p44 {
 
     /// confirm termination
     void confirmTerminated();
+
+    /// disconnect this child wrapper, that is, prevent it from calling back via mParentSignalHandler
+    /// @note thread will continue to run, but no longer call back
+    void disconnect();
+
 
     /// @}
 

@@ -1553,7 +1553,7 @@ static void *thread_start_function(void *arg)
 void *ChildThreadWrapper::startFunction()
 {
   // run the routine
-  threadRoutine(*this);
+  mThreadRoutine(*this);
   // signal termination
   confirmTerminated();
   return NULL;
@@ -1562,42 +1562,42 @@ void *ChildThreadWrapper::startFunction()
 
 
 ChildThreadWrapper::ChildThreadWrapper(MainLoop &aParentThreadMainLoop, ThreadRoutine aThreadRoutine, ThreadSignalHandler aThreadSignalHandler) :
-  threadRunning(false),
-  parentThreadMainLoop(aParentThreadMainLoop),
-  childSignalFd(-1),
-  parentSignalFd(-1),
-  parentSignalHandler(aThreadSignalHandler),
-  threadRoutine(aThreadRoutine),
-  terminationPending(false),
-  myMainLoopP(NULL)
+  mThreadRunning(false),
+  mParentThreadMainLoop(aParentThreadMainLoop),
+  mChildSignalFd(-1),
+  mParentSignalFd(-1),
+  mParentSignalHandler(aThreadSignalHandler),
+  mThreadRoutine(aThreadRoutine),
+  mTerminationPending(false),
+  mMyMainLoopP(NULL)
 {
   // create a signal pipe
   int pipeFdPair[2];
   if (pipe(pipeFdPair)==0) {
     // pipe could be created
     // - save FDs
-    parentSignalFd = pipeFdPair[0]; // 0 is the reading end
-    childSignalFd = pipeFdPair[1]; // 1 is the writing end
+    mParentSignalFd = pipeFdPair[0]; // 0 is the reading end
+    mChildSignalFd = pipeFdPair[1]; // 1 is the writing end
     // - install poll handler in the parent mainloop
-    parentThreadMainLoop.registerPollHandler(parentSignalFd, POLLIN, boost::bind(&ChildThreadWrapper::signalPipeHandler, this, _2));
+    mParentThreadMainLoop.registerPollHandler(mParentSignalFd, POLLIN, boost::bind(&ChildThreadWrapper::signalPipeHandler, this, _2));
     // create a pthread (with default attrs for now
-    threadRunning = true; // before creating it, to make sure it is set when child starts to run
-    if (pthread_create(&pthread, NULL, thread_start_function, this)!=0) {
+    mThreadRunning = true; // before creating it, to make sure it is set when child starts to run
+    if (pthread_create(&mPthread, NULL, thread_start_function, this)!=0) {
       // error, could not create thread, fake a signal callback immediately
-      threadRunning = false;
-      if (parentSignalHandler) {
-        parentSignalHandler(*this, threadSignalFailedToStart);
+      mThreadRunning = false;
+      if (mParentSignalHandler) {
+        mParentSignalHandler(*this, threadSignalFailedToStart);
       }
     }
     else {
       // thread created ok, keep wrapper object alive
-      selfRef = ChildThreadWrapperPtr(this);
+      mSelfRef = ChildThreadWrapperPtr(this);
     }
   }
   else {
     // pipe could not be created
-    if (parentSignalHandler) {
-      parentSignalHandler(*this, threadSignalFailedToStart);
+    if (mParentSignalHandler) {
+      mParentSignalHandler(*this, threadSignalFailedToStart);
     }
   }
 }
@@ -1608,26 +1608,26 @@ ChildThreadWrapper::~ChildThreadWrapper()
   // cancel thread
   cancel();
   // delete mainloop if any
-  if (myMainLoopP) {
-    delete myMainLoopP;
-    myMainLoopP = NULL;
+  if (mMyMainLoopP) {
+    delete mMyMainLoopP;
+    mMyMainLoopP = NULL;
   }
 }
 
 
 MainLoop &ChildThreadWrapper::threadMainLoop()
 {
-  myMainLoopP = &MainLoop::currentMainLoop();
-  return *myMainLoopP;
+  mMyMainLoopP = &MainLoop::currentMainLoop();
+  return *mMyMainLoopP;
 }
 
 
 // can be called from main thread to request termination from thread routine
 void ChildThreadWrapper::terminate()
 {
-  terminationPending = true;
-  if (myMainLoopP) {
-    myMainLoopP->terminate(0);
+  mTerminationPending = true;
+  if (mMyMainLoopP) {
+    mMyMainLoopP->terminate(0);
   }
 }
 
@@ -1647,7 +1647,7 @@ void ChildThreadWrapper::confirmTerminated()
 void ChildThreadWrapper::signalParentThread(ThreadSignals aSignalCode)
 {
   uint8_t sigByte = aSignalCode;
-  write(childSignalFd, &sigByte, 1);
+  write(mChildSignalFd, &sigByte, 1);
 }
 
 
@@ -1655,13 +1655,13 @@ void ChildThreadWrapper::signalParentThread(ThreadSignals aSignalCode)
 void ChildThreadWrapper::finalizeThreadExecution()
 {
   // synchronize with actual end of thread execution
-  pthread_join(pthread, NULL);
-  threadRunning = false;
+  pthread_join(mPthread, NULL);
+  mThreadRunning = false;
   // unregister the handler
-  MainLoop::currentMainLoop().unregisterPollHandler(parentSignalFd);
+  MainLoop::currentMainLoop().unregisterPollHandler(mParentSignalFd);
   // close the pipes
-  close(childSignalFd);
-  close(parentSignalFd);
+  close(mChildSignalFd);
+  close(mParentSignalFd);
 }
 
 
@@ -1669,19 +1669,19 @@ void ChildThreadWrapper::finalizeThreadExecution()
 // can be called from parent thread
 void ChildThreadWrapper::cancel()
 {
-  if (threadRunning) {
+  if (mThreadRunning) {
     // cancel it
-    pthread_cancel(pthread);
+    pthread_cancel(mPthread);
     // wait for cancellation to complete
     finalizeThreadExecution();
     // cancelled
-    if (parentSignalHandler) {
-      ML_STAT_START_AT(parentThreadMainLoop.now());
-      parentSignalHandler(*this, threadSignalCancelled);
-      ML_STAT_ADD_AT(parentThreadMainLoop.mThreadSignalHandlerTime, parentThreadMainLoop.now());
+    if (mParentSignalHandler) {
+      ML_STAT_START_AT(mParentThreadMainLoop.now());
+      mParentSignalHandler(*this, threadSignalCancelled);
+      ML_STAT_ADD_AT(mParentThreadMainLoop.mThreadSignalHandlerTime, mParentThreadMainLoop.now());
     }
     // thread has ended now, object must not retain itself beyond this point
-    selfRef.reset();
+    mSelfRef.reset();
   }
 }
 
@@ -1694,7 +1694,7 @@ bool ChildThreadWrapper::signalPipeHandler(int aPollFlags)
   //DBGLOG(LOG_DEBUG, "\nMAINTHREAD: signalPipeHandler with pollFlags=0x%X", aPollFlags);
   if (aPollFlags & POLLIN) {
     uint8_t sigByte;
-    ssize_t res = read(parentSignalFd, &sigByte, 1); // read signal byte
+    ssize_t res = read(mParentSignalFd, &sigByte, 1); // read signal byte
     if (res==1) {
       sig = (ThreadSignals)sigByte;
     }
@@ -1711,15 +1711,15 @@ bool ChildThreadWrapper::signalPipeHandler(int aPollFlags)
       finalizeThreadExecution();
     }
     // got signal byte, call handler
-    if (parentSignalHandler) {
-      ML_STAT_START_AT(parentThreadMainLoop.now());
-      parentSignalHandler(*this, sig);
-      ML_STAT_ADD_AT(parentThreadMainLoop.mThreadSignalHandlerTime, parentThreadMainLoop.now());
+    if (mParentSignalHandler) {
+      ML_STAT_START_AT(mParentThreadMainLoop.now());
+      mParentSignalHandler(*this, sig);
+      ML_STAT_ADD_AT(mParentThreadMainLoop.mThreadSignalHandlerTime, mParentThreadMainLoop.now());
     }
     if (sig==threadSignalCompleted || sig==threadSignalFailedToStart || sig==threadSignalCancelled) {
       // signal indicates thread has ended (successfully or not)
       // - in case nobody keeps this object any more, it should be deleted now
-      selfRef.reset();
+      mSelfRef.reset();
     }
     // handled some i/O
     return true;
