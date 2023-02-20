@@ -1641,6 +1641,10 @@ void ChildThreadWrapper::confirmTerminated()
 }
 
 
+void ChildThreadWrapper::disconnect()
+{
+  mParentSignalHandler = NULL;
+}
 
 
 // called from child thread to send signal

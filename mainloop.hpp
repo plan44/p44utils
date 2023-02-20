@@ -663,7 +663,7 @@ namespace p44 {
     /// @{
 
     /// check if termination is requested
-    bool shouldTerminate() { return terminationPending; }
+    bool shouldTerminate() { return mTerminationPending; }
 
     /// signal parent thread
     /// @param aSignalCode a signal code to be sent to the parent thread
