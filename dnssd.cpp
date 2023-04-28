@@ -569,6 +569,7 @@ ErrorPtr DnsSdServiceGroup::addService(DnsSdServiceInfoPtr aService)
     const size_t maxtxtrecs = 5;
     string txtrecs[maxtxtrecs];
     size_t i = 0;
+    // TODO: create a AvahiStringList and then use avahi_entry_group_add_service_strlst() / avahi_server_add_service_strlst()
     for (DnsSdServiceInfo::TxtRecordsMap::iterator pos = aService->txtRecords.begin(); i<maxtxtrecs && pos!=aService->txtRecords.end(); pos++) {
       if (pos->second.empty()) txtrecs[i] = pos->first.c_str(); // just key as flag, no value
       else txtrecs[i] = string_format("%s=%s", pos->first.c_str(), pos->second.c_str()); // key=value
@@ -590,7 +591,7 @@ ErrorPtr DnsSdServiceGroup::addService(DnsSdServiceInfoPtr aService)
       NULL, // no separate domain
       NULL, // no separate host
       aService->port, // port
-      // txt records
+      // txt records // TODO: use avahi_entry_group_add_service_strlst() / avahi_server_add_service_strlst() instead
       txtrecs[0].empty() ? NULL : txtrecs[0].c_str(),
       txtrecs[1].empty() ? NULL : txtrecs[1].c_str(),
       txtrecs[2].empty() ? NULL : txtrecs[2].c_str(),
