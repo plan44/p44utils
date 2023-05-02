@@ -1643,7 +1643,7 @@ void ChildThreadWrapper::confirmTerminated()
 
 void ChildThreadWrapper::disconnect()
 {
-  mParentSignalHandler = NULL;
+  mParentSignalHandler = NoOP;
 }
 
 
