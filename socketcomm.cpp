@@ -212,7 +212,7 @@ ErrorPtr SocketComm::startServer(ServerConnectionCB aServerConnectionHandler, in
           err = TextError::err("SO_BINDTODEVICE not supported on macOS");
         }
         #else
-        if (!mInterface.empty() && setsockopt(socketFD, SOL_SOCKET, SO_BINDTODEVICE, mInterface.c_str(), mInterface.size()) == -1) {
+        if (!mInterface.empty() && setsockopt(socketFD, SOL_SOCKET, SO_BINDTODEVICE, mInterface.c_str(), (socklen_t)mInterface.size()) == -1) {
           err = SysError::errNo("Cannot setsockopt(SO_BINDTODEVICE): ");
         }
         #endif
