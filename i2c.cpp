@@ -35,9 +35,15 @@
 #endif
 
 #if !DISABLE_I2C
+  #include <sys/ioctl.h>
   #if P44_BUILD_OW
-    #include <linux/lib-i2c-dev.h>
+    // former i2c-dev.h SMBUS static inlines are now functions in libi2c (available since OpenWrt 19.07)
+    extern "C" {
+      #include <i2c/smbus.h>
+    }
+    #include <linux/i2c-dev.h>
   #else
+    // TODO: check if this is still the best way to go on standard linux
     #include <linux/i2c-dev.h>
     #ifndef LIB_I2CDEV_H
       #warning "Extended i2c-dev.h header not available - including local i2c-dev-extensions.h to augment existing i2c-dev.h"
