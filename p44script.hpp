@@ -2036,6 +2036,7 @@ namespace p44 { namespace P44Script {
     void s_simpleTerm(); ///< at the beginning of a term
     void s_member(); ///< immediately after accessing a member for reading
     void s_subscriptArg(); ///< immediately after subscript expression evaluation
+    void process_subscript(TypeInfo aAccessFlags); ///< process the subscript in mResult and apply to mOlderResult
     void s_nextSubscript(); ///< multi-dimensional subscripts, 2nd and further arguments
     void assignOrAccess(TypeInfo aAccessFlags); ///< access or assign identifier (lvalue and create are valid options)
     void s_funcArg(); ///< immediately after function argument evaluation

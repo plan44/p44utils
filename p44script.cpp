@@ -3089,6 +3089,13 @@ void SourceProcessor::s_member()
   else if (mSrc.nextIf('[')) {
     // subscript access to sub-members
     mSrc.skipNonCode();
+    if (mSrc.nextIf(']')) {
+      // nothing in the subscript bracket
+      mOlderResult = mResult; // the object the subscript applies to
+      mResult.reset(); // NO subscript (not a NULL subscript)
+      process_subscript(create);
+      return;
+    }
     push(&SourceProcessor::s_subscriptArg);
     resumeAt(&SourceProcessor::s_expression);
     return;
@@ -3137,6 +3144,12 @@ void SourceProcessor::s_subscriptArg()
     exitWithSyntaxError("missing , or ] after subscript");
     return;
   }
+  process_subscript(accessFlags);
+}
+
+
+void SourceProcessor::process_subscript(TypeInfo aAccessFlags)
+{
   if (mSkipping) {
     // no actual member access
     // Note: when skipping, we do NOT need to do complicated check for assignment.
@@ -3146,7 +3159,7 @@ void SourceProcessor::s_subscriptArg()
   }
   else {
     // now either get or assign the member indicated by the subscript
-    ScriptObjPtr subScript = mResult;
+    ScriptObjPtr subscript = mResult;
     mResult = mOlderResult; // object to access member from
     if (mPendingOperation==op_delete) {
       // COULD be deleting the member
@@ -3154,7 +3167,7 @@ void SourceProcessor::s_subscriptArg()
       if (mSrc.c()!='.' && mSrc.c()!='[') {
         // this is the leaf member to be deleted. We need to obtain an lvalue and unset it
         setState(&SourceProcessor::s_unsetMember);
-        accessFlags |= lvalue; // we need an lvalue
+        aAccessFlags |= lvalue; // we need an lvalue
       }
     }
     else if (mPrecedence==0) {
@@ -3165,7 +3178,7 @@ void SourceProcessor::s_subscriptArg()
         // this IS an assignment. We need to obtain an lvalue and the right hand expression to assign
         push(&SourceProcessor::s_assignExpression);
         setState(&SourceProcessor::s_validResult);
-        accessFlags |= lvalue; // we need an lvalue
+        aAccessFlags |= lvalue; // we need an lvalue
       }
       else {
         // not an assignment, continue pocessing normally
@@ -3173,16 +3186,22 @@ void SourceProcessor::s_subscriptArg()
       }
     }
     // now get member
-    if (subScript->hasType(numeric)) {
+    if (!subscript) {
+      // no subscript specified (means appending to array)
+      size_t nextIndex = mResult->numIndexedMembers(); // index of next to-be-added array element
+      memberByIndex(nextIndex, aAccessFlags);
+      return;
+    }
+    else if (subscript->hasType(numeric)) {
       // array access by index
-      size_t index = subScript->int64Value();
-      memberByIndex(index, accessFlags);
+      size_t index = subscript->int64Value();
+      memberByIndex(index, aAccessFlags);
       return;
     }
     else {
       // member access by name
-      mIdentifier = subScript->stringValue();
-      memberByIdentifier(accessFlags);
+      mIdentifier = subscript->stringValue();
+      memberByIdentifier(aAccessFlags);
       return;
     }
   }
