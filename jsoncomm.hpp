@@ -52,6 +52,9 @@ namespace p44 {
     // Raw message receiving
     string textLine;
 
+    // JSON parameters
+    char mEOM; /// the end-of-message character separating JSON messages in the socket data stream
+
     // JSON parsing
     struct json_tokener* tokener;
     bool ignoreUntilNextEOM;
@@ -64,6 +67,10 @@ namespace p44 {
 
     JsonComm(MainLoop &aMainLoop = MainLoop::currentMainLoop());
     virtual ~JsonComm();
+
+    /// set message separator
+    /// @param aEOM end of message char. Defaults to '\n' (line feed).
+    void setEndOfMessageChar(char aEOM) { mEOM = aEOM; };
 
     /// install callback for received JSON messages
     /// @param aJsonMessageHandler will be called when a JSON message has been received

@@ -27,6 +27,7 @@ using namespace p44;
 
 JsonComm::JsonComm(MainLoop &aMainLoop) :
   inherited(aMainLoop),
+  mEOM('\n'), // default to linefeed
   tokener(NULL),
   ignoreUntilNextEOM(false),
   closeWhenSent(false)
@@ -69,7 +70,7 @@ void JsonComm::gotData(ErrorPtr aError)
       uint8_t *buf = new uint8_t[dataSz];
       size_t receivedBytes = receiveBytes(dataSz, buf, aError);
       if (Error::isOK(aError)) {
-        // check for end-of-message (LF), make spaces from any other ctrl char
+        // check for end-of-message (mEOM or NULL char), make spaces from any other ctrl char
         size_t bom = 0;
         while (bom<receivedBytes) {
           // data to process, scan for EOM
@@ -77,7 +78,7 @@ void JsonComm::gotData(ErrorPtr aError)
           bool messageComplete = false;
           while (eom<receivedBytes) {
             if (buf[eom]<0x20) {
-              if (buf[eom]=='\n') {
+              if (buf[eom]==mEOM || buf[eom]==0) {
                 // end of message
                 buf[eom] = 0; // terminate message here
                 messageComplete = true;
@@ -165,7 +166,7 @@ void JsonComm::gotData(ErrorPtr aError)
 ErrorPtr JsonComm::sendMessage(JsonObjectPtr aJsonObject)
 {
   string json_string = aJsonObject->json_c_str();
-  json_string.append("\n");
+  json_string.append(1, mEOM);
   return sendRaw(json_string);
 }
 

@@ -61,7 +61,7 @@ namespace p44 {
   typedef boost::function<void (const char *aMethod, const char *aJsonRpcId, JsonObjectPtr aParams)> JsonRpcRequestCB;
 
   /// callback for delivering a received JSON-RPC method result
-  /// @param aResponseId the response Id (
+  /// @param aResponseId the response Id (always integer for requests we send, as the id originates from us)
   /// @param aError the referenced ErrorPtr will be set when an error occurred.
   ///   If the error returned is an JsonRpcError, aError.getErrorCode() will return the "code" member from the JSON-RPC error object,
   ///   and aError.description() will return the "message" member from the JSON-RPC error object.
@@ -101,19 +101,19 @@ namespace p44 {
 
     /// send a JSON-RPC request
     /// @param aMethod the JSON-RPC (2.0) method or notification request to be sent
-    /// @param aParams the parameters for the method or notification request as a JsonObject. Can be NULL.
+    /// @param aParams the parameters for the method or notification request as a JsonObject. Can be nullptr.
     /// @param aResponseHandler if the request is a method call, this handler will be called when the method result arrives
     ///   Note that the aResponseHandler might not be called at all in case of lost messages etc. So do not rely on
-    ///   this callback for chaining a execution thread.
+    ///   this callback for chaining an execution thread.
     /// @return empty or Error object in case of error
-    ErrorPtr sendRequest(const char *aMethod, JsonObjectPtr aParams, JsonRpcResponseCB aResponseHandler = JsonRpcResponseCB());
+    ErrorPtr sendRequest(const char *aMethod, JsonObjectPtr aParams, JsonRpcResponseCB aResponseHandler = NoOP);
 
     /// @return Id generated for last sendRequest. 
     int32_t lastRequestId() { return requestIdCounter; };
 
     /// send a JSON-RPC result (answer for successful method call)
     /// @param aJsonRpcId this must be the aJsonRpcId as received in the JsonRpcRequestCB handler.
-    /// @param aResult the result as a JsonObject. Can be NULL for procedure calls without return value
+    /// @param aResult the result as a JsonObject. Can be nullptr for procedure calls without return value
     /// @result empty or Error object in case of error sending result response
     ErrorPtr sendResult(const char *aJsonRpcId, JsonObjectPtr aResult);
 
