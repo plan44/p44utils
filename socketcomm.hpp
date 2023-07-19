@@ -254,7 +254,7 @@ namespace p44 {
     SocketCommPtr getServerConnection() { return mServerConnection; }
 
     /// iterate over clients
-    /// @param aEachClient is called once for every client
+    /// @param aEachClientCB is called once for every client
     void eachClient(SocketCommCB aEachClientCB);
 
     /// number of current client connections
