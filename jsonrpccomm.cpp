@@ -129,7 +129,7 @@ ErrorPtr JsonRpcComm::sendError(const char *aJsonRpcId, uint32_t aErrorCode, con
   JsonObjectPtr response = jsonRPCObj();
   // create the error object
   JsonObjectPtr errorObj = JsonObject::newObj();
-  errorObj->add("code", JsonObject::newInt32(aErrorCode));
+  errorObj->add("code", JsonObject::newInt32((int32_t)aErrorCode));
   string errMsg;
   if (aErrorMessage) {
     errMsg = aErrorMessage;
@@ -251,7 +251,7 @@ void JsonRpcComm::gotJson(ErrorPtr aError, JsonObjectPtr aJsonObject)
           }
           else {
             // dispatch by ID
-            uint32_t requestId = idObj->int32Value();
+            int32_t requestId = idObj->int32Value();
             PendingAnswerMap::iterator pos = pendingAnswers.find(requestId);
             if (pos==pendingAnswers.end()) {
               // errors without ID cannot be associated with calls made earlier, so just log the error
