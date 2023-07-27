@@ -233,7 +233,7 @@ void JsonRpcComm::gotJson(ErrorPtr aError, JsonObjectPtr aJsonObject)
               ErrorCode errCode = JsonRpcError::InternalError; // Internal RPC error
               const char *errMsg = "malformed Error response";
               // - try to get error code
-              JsonObjectPtr o = respObj->get("code");
+              o = respObj->get("code");
               if (o) errCode = o->int32Value();
               // - try to get error message
               o = respObj->get("message");
