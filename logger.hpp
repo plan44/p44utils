@@ -63,6 +63,10 @@
   #define IFNOTREDUCEDFOOTPRINT(lvl) (lvl)
 #endif
 
+#ifndef ENABLE_LOG_COLORS
+  #define ENABLE_LOG_COLORS 1
+#endif
+
 
 #include "p44obj.hpp"
 
@@ -76,6 +80,7 @@
 #define SETLOGHANDLER(lh,ctx) globalLogger.setLogHandler(lh,ctx)
 #define DAEMONMODE globalLogger.getDaemonMode()
 #define SETDAEMONMODE(d) globalLogger.setDaemonMode(d)
+#define SETCOLORMODE(ac, cd) globalLogger.setColorMode(ac, cd)
 
 
 // logging from within a P44LoggingObj (messages prefixed with object's logContextPrefix(), object's logoffset applied)
@@ -166,6 +171,10 @@ namespace p44 {
     LoggerCB mLoggerCB; ///< custom logger output function to use (instead of stderr/stdout)
     void *mLoggerContextPtr; ///< custom logger output context
     FILE *mLogFILE; ///< file to log to (instead of stderr/stdout)
+    #if ENABLE_LOG_COLORS
+    bool mLogColors; ///< if set, logger uses ANSI colors to differentiate levels
+    bool mLogSymbols; ///< if set, logger uses UTF-8 color dots to differentiate levels
+    #endif
 
   public:
     Logger();
@@ -192,7 +201,7 @@ namespace p44 {
     /// @param aFmt ... printf style error message
     void log(int aErrLevel, const char *aFmt, ... ) __printflike(3,4);
 
-    /// log a message if logging
+    /// log a message
     /// @param aErrLevel error level of the message
     /// @param aAlways if set, always log the message without checking current loglevel, otherwise
     ///   only if logging is enabled for the specified aErrLevel
@@ -209,6 +218,12 @@ namespace p44 {
     /// @param aErrLevel error level of the message, for inclusion into log message prefix
     /// @param aMessage the message string
     void logStr_always(int aErrLevel, std::string aMessage);
+
+    /// log a message with context prefix (unconditionally)
+    /// @param aErrLevel error level of the message, for inclusion into log message prefix
+    /// @param aContext a context string, to be inserted before the message itself
+    /// @param aMessage the message string
+    void contextLogStr_always(int aErrLevel, const std::string& aContext, const std::string& aMessage);
 
     /// set log file
     /// @param aLogFilePath file to write log to instead of stdout
@@ -242,6 +257,11 @@ namespace p44 {
 
     // @param true to enable daemon mode (on by default)
     void setDaemonMode(bool aDaemonMode) { mDaemonMode = aDaemonMode; }
+
+    /// set color mode
+    /// @param aANSIColors if set, logger uses ANSI colors to differentiate levels
+    /// @param aColorDots if set, logger uses UTF-8 color dots to differentiate levels
+    void setColorMode(bool aANSIColors, bool aColorDots) { mLogColors = aANSIColors; mLogSymbols = aColorDots; };
 
   private:
 

@@ -42,6 +42,10 @@ Logger::Logger() :
   mDeltaTime = false;
   mErrToStdout = true;
   mDaemonMode = true;
+  #if ENABLE_LOG_COLORS
+  mLogSymbols = false;
+  mLogColors = false;
+  #endif
 }
 
 
@@ -85,6 +89,44 @@ const static char levelChars[8] = {
 };
 
 
+#if ENABLE_LOG_COLORS
+
+#define ESC "\x1B"
+// Colors
+#define NORMAL ESC "[m"
+#define GRAY ESC "[90m"
+#define BRIGHT_GREEN ESC "[92m"
+#define BRIGHT_RED ESC "[91m"
+#define BRIGHT_YELLOW ESC "[93m"
+#define DARK_BLUE ESC "[34m"
+#define DARK_CYAN ESC "[36m"
+
+
+static const struct {
+  const char* ansiColor;
+  const char* symbol;
+} levelColors[8] = {
+  { .ansiColor = BRIGHT_RED,    .symbol =  "🚫" }, // LOG_EMERG    - system is unusable
+  { .ansiColor = BRIGHT_RED,    .symbol =  "‼️" }, // LOG_ALERT   - action must be taken immediately
+  { .ansiColor = BRIGHT_RED,    .symbol =  "⁉️" }, // LOG_CRIT    - critical conditions
+  { .ansiColor = BRIGHT_RED,    .symbol =  "🔴" }, // LOG_ERR     - error conditions
+  { .ansiColor = BRIGHT_YELLOW, .symbol =  "⚠️" }, // LOG_WARNING - warning conditions
+  { .ansiColor = BRIGHT_GREEN,  .symbol =  "✅" }, // LOG_NOTICE  - normal but significant condition
+  { .ansiColor = NORMAL,        .symbol =  "ℹ️" }, // LOG_INFO    - informational
+  { .ansiColor = DARK_CYAN,     .symbol =  "🛠️" }  // LOG_DEBUG   - debug-level messages
+};
+
+static const char* gTextContextPostfix = ": ";
+static const char* gSymbolContextPostfix = " ➡️ ";
+
+static const char* gContextPrefixColor = GRAY;
+static const char* gNormalColor = NORMAL;
+
+#endif // ENABLE_LOG_COLORS
+
+
+
+
 void Logger::logV(int aErrLevel, bool aAlways, const char *aFmt, va_list aArgs)
 {
   // format the message
@@ -94,7 +136,6 @@ void Logger::logV(int aErrLevel, bool aAlways, const char *aFmt, va_list aArgs)
     logStr_always(aErrLevel, message);
   }
 }
-
 
 
 void Logger::log(int aErrLevel, const char *aFmt, ... )
@@ -118,58 +159,85 @@ void Logger::log_always(int aErrLevel, const char *aFmt, ... )
 
 
 
-void Logger::logStr_always(int aErrLevel, string aMessage)
+void Logger::logStr_always(int aErrLevel, const string aMessage)
+{
+  contextLogStr_always(aErrLevel, "", aMessage);
+}
+
+
+void Logger::contextLogStr_always(int aErrLevel, const string& aContext, const string& aMessage)
 {
   pthread_mutex_lock(&mReportMutex);
   // create date + level
-  const size_t bufSz = 42;
-  char tsbuf[bufSz];
-  char *p = tsbuf;
   struct timeval t;
   gettimeofday(&t, NULL);
-  p += strftime(p, sizeof(tsbuf), "[%Y-%m-%d %H:%M:%S", localtime(&t.tv_sec));
-  p += snprintf(p, bufSz-(size_t)(p-tsbuf), ".%03d", (int)(t.tv_usec/1000));
+  string prefix = string_ftime("[%Y-%m-%d %H:%M:%S", localtime(&t.tv_sec));
+  string_format_append(prefix, ".%03d", (int)(t.tv_usec/1000));
   if (mDeltaTime) {
     long long millisPassed = (long long)(((t.tv_sec*1000000ll+t.tv_usec) - (mLastLogTS.tv_sec*1000000ll+mLastLogTS.tv_usec))/1000); // in mS
-    p += snprintf(p, bufSz-(size_t)(p-tsbuf), "%6lldmS", millisPassed);
+    string_format_append(prefix, "%6lldmS", millisPassed);
   }
   mLastLogTS = t;
-  p += snprintf(p, bufSz-(size_t)(p-tsbuf), " %c] ", levelChars[aErrLevel]);
+  string_format_append(prefix, " %c] ", levelChars[aErrLevel]);
   // generate empty leading lines, if any
   string::size_type i=0;
   while (i<aMessage.length() && aMessage[i]=='\n') {
     logOutput_always(aErrLevel, "", "");
     i++;
   }
-  // now process message, possibly multi-lined
-  const char *prefix = tsbuf;
-  string::size_type linestart=i;
+  string msg;
+  // create message
+  #if ENABLE_LOG_COLORS
+  if (mLogSymbols) {
+    msg += levelColors[aErrLevel].symbol;
+    msg += " ";
+  }
+  #endif
+  if (!aContext.empty()) {
+    #if ENABLE_LOG_COLORS
+    if (mLogColors) msg += gContextPrefixColor;
+    #endif
+    msg += aContext;
+    #if ENABLE_LOG_COLORS
+    if (mLogSymbols) {
+      msg += gSymbolContextPostfix;
+    }
+    else
+    #endif
+    {
+      msg += gTextContextPostfix;
+    }
+  }
+  #if ENABLE_LOG_COLORS
+  // Switch to loglevel color
+  if (mLogColors) msg += levelColors[aErrLevel].ansiColor;
+  #endif
+  // now process input message, possibly multi-lined
   while (i<aMessage.length()) {
     char c = aMessage[i];
     if (c=='\n') {
       // end of line
-      aMessage[i] = 0; // terminate
-      // print it
-      logOutput_always(aErrLevel, prefix, aMessage.c_str()+linestart);
-      // set indent instead of date prefix for subsequent lines: 28 chars
-      //   01234567890123456789012345678
-      prefix = mDeltaTime ? "                                    " : "                            ";
-      // new line starts after terminator
-      i++;
-      linestart = i;
+      logOutput_always(aErrLevel, prefix.c_str(), msg.c_str());
+      msg.clear();
+      prefix.assign(prefix.size(), ' '); // replace by spaces
     }
     else if (!isprint(c) && (uint8_t)c<0x80) {
       // ASCII control character, but not bit 7 set (UTF8 component char)
-      aMessage.replace(i, 1, string_format("\\x%02x", (unsigned)(c & 0xFF)));
-      i += 4; // single char replaced by 4 chars: \xNN
+      string_format_append(msg, "\\x%02x", (unsigned)(c & 0xFF));
     }
     else {
-      i++;
+      msg += c;
     }
+    i++;
   }
-  logOutput_always(aErrLevel, prefix, aMessage.c_str()+linestart);
+  #if ENABLE_LOG_COLORS
+  // Switch to loglevel color
+  if (mLogColors) msg += gNormalColor;
+  #endif
+  logOutput_always(aErrLevel, prefix.c_str(), msg.c_str());
   pthread_mutex_unlock(&mReportMutex);
 }
+
 
 
 void Logger::logOutput_always(int aLevel, const char *aLinePrefix, const char *aLogMessage)
@@ -269,16 +337,9 @@ void P44LoggingObj::log(int aErrLevel, const char *aFmt, ... )
     va_start(args, aFmt);
     // get the prefix (can be disabled by starting log line with \r)
     string message;
+    string context;
     if (*aFmt!='\r') {
-      // to be prefixed, check for leading line feeds
-      string prefix = logContextPrefix();
-      while (*aFmt=='\n') {
-        // append leading line feeds BEFORE the prefix
-        message += *(aFmt++);
-      }
-      // append the prefix
-      message.append(prefix);
-      if (!prefix.empty()) message+=": ";
+      context = logContextPrefix();
     }
     else {
       // prefix disabled, skip marker
@@ -287,7 +348,7 @@ void P44LoggingObj::log(int aErrLevel, const char *aFmt, ... )
     // format the message
     string_format_v(message, true, aFmt, args);
     va_end(args);
-    globalLogger.logStr_always(aErrLevel, message);
+    globalLogger.contextLogStr_always(aErrLevel, context, message);
   }
 }
 

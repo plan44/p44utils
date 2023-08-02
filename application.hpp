@@ -222,9 +222,17 @@ namespace p44 {
   /// standard option texts, can be used as part of setCommandDescriptors() string
   /// - logging options matching processStandardLogOptions()
   /// - for all apps
-  #define CMDLINE_APPLICATION_LOGOPTIONS \
+  #define CMDLINE_APPLICATION_BASIC_LOGOPTIONS \
     { 'l', "loglevel",       true,  "level;set max level of log message detail to show on stderr" }, \
     { 0  , "deltatstamps",   false, "show timestamp delta between log lines" }
+  #define CMDLINE_APPLICATION_COLOR_LOGOPTIONS \
+    { 0  , "logcolors",      false, "use colors (ANSI terminal) to clarify log context" }, \
+    { 0  , "logsymbols",     false, "use UTF-8 emoji symbols to clarify log context" }
+  #if ENABLE_LOG_COLORS
+  #define CMDLINE_APPLICATION_LOGOPTIONS CMDLINE_APPLICATION_BASIC_LOGOPTIONS, CMDLINE_APPLICATION_COLOR_LOGOPTIONS
+  #else
+  #define CMDLINE_APPLICATION_LOGOPTIONS CMDLINE_APPLICATION_BASIC_LOGOPTIONS
+  #endif
   /// - for daemon apps
   #define DAEMON_APPLICATION_LOGOPTIONS \
     CMDLINE_APPLICATION_LOGOPTIONS, \

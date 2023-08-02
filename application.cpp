@@ -883,6 +883,9 @@ void CmdLineApp::processStandardLogOptions(bool aForDaemon, int aDefaultErrLevel
     SETLOGLEVEL(loglevel);
   }
   SETDELTATIME(getOption("deltatstamps"));
+  #if ENABLE_LOG_COLORS
+  SETCOLORMODE(getOption("logcolors"), getOption("logsymbols"));
+  #endif
 }
 
 #endif // !ESP_PLATFORM
