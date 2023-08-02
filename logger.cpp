@@ -31,25 +31,25 @@ using namespace p44;
 p44::Logger globalLogger;
 
 Logger::Logger() :
-  loggerCB(NoOP),
-  loggerContextPtr(NULL),
-  logFILE(NULL)
+  mLoggerCB(NoOP),
+  mLoggerContextPtr(NULL),
+  mLogFILE(NULL)
 {
-  pthread_mutex_init(&reportMutex, NULL);
-  gettimeofday(&lastLogTS, NULL);
-  logLevel = LOGGER_DEFAULT_LOGLEVEL;
-  stderrLevel = LOG_ERR;
-  deltaTime = false;
-  errToStdout = true;
-  daemonMode = true;
+  pthread_mutex_init(&mReportMutex, NULL);
+  gettimeofday(&mLastLogTS, NULL);
+  mLogLevel = LOGGER_DEFAULT_LOGLEVEL;
+  mStderrLevel = LOG_ERR;
+  mDeltaTime = false;
+  mErrToStdout = true;
+  mDaemonMode = true;
 }
 
 
 Logger::~Logger()
 {
-  if (logFILE) {
-    fclose(logFILE);
-    logFILE = NULL;
+  if (mLogFILE) {
+    fclose(mLogFILE);
+    mLogFILE = NULL;
   }
 }
 
@@ -58,7 +58,7 @@ Logger::~Logger()
 
 bool Logger::stdoutLogEnabled(int aErrLevel)
 {
-  return (aErrLevel<=logLevel);
+  return (aErrLevel<=mLogLevel);
 }
 
 
@@ -69,7 +69,7 @@ bool Logger::logEnabled(int aErrLevel, int aLevelOffset)
     if (aErrLevel<LOG_NOTICE) aErrLevel = LOG_NOTICE;
     else if (aErrLevel>LOG_DEBUG) aErrLevel = LOG_DEBUG;
   }
-  return stdoutLogEnabled(aErrLevel) || (daemonMode && aErrLevel<=stderrLevel);
+  return stdoutLogEnabled(aErrLevel) || (mDaemonMode && aErrLevel<=mStderrLevel);
 }
 
 
@@ -120,7 +120,7 @@ void Logger::log_always(int aErrLevel, const char *aFmt, ... )
 
 void Logger::logStr_always(int aErrLevel, string aMessage)
 {
-  pthread_mutex_lock(&reportMutex);
+  pthread_mutex_lock(&mReportMutex);
   // create date + level
   const size_t bufSz = 42;
   char tsbuf[bufSz];
@@ -129,11 +129,11 @@ void Logger::logStr_always(int aErrLevel, string aMessage)
   gettimeofday(&t, NULL);
   p += strftime(p, sizeof(tsbuf), "[%Y-%m-%d %H:%M:%S", localtime(&t.tv_sec));
   p += snprintf(p, bufSz-(size_t)(p-tsbuf), ".%03d", (int)(t.tv_usec/1000));
-  if (deltaTime) {
-    long long millisPassed = (long long)(((t.tv_sec*1000000ll+t.tv_usec) - (lastLogTS.tv_sec*1000000ll+lastLogTS.tv_usec))/1000); // in mS
+  if (mDeltaTime) {
+    long long millisPassed = (long long)(((t.tv_sec*1000000ll+t.tv_usec) - (mLastLogTS.tv_sec*1000000ll+mLastLogTS.tv_usec))/1000); // in mS
     p += snprintf(p, bufSz-(size_t)(p-tsbuf), "%6lldmS", millisPassed);
   }
-  lastLogTS = t;
+  mLastLogTS = t;
   p += snprintf(p, bufSz-(size_t)(p-tsbuf), " %c] ", levelChars[aErrLevel]);
   // generate empty leading lines, if any
   string::size_type i=0;
@@ -153,7 +153,7 @@ void Logger::logStr_always(int aErrLevel, string aMessage)
       logOutput_always(aErrLevel, prefix, aMessage.c_str()+linestart);
       // set indent instead of date prefix for subsequent lines: 28 chars
       //   01234567890123456789012345678
-      prefix = deltaTime ? "                                    " : "                            ";
+      prefix = mDeltaTime ? "                                    " : "                            ";
       // new line starts after terminator
       i++;
       linestart = i;
@@ -168,27 +168,27 @@ void Logger::logStr_always(int aErrLevel, string aMessage)
     }
   }
   logOutput_always(aErrLevel, prefix, aMessage.c_str()+linestart);
-  pthread_mutex_unlock(&reportMutex);
+  pthread_mutex_unlock(&mReportMutex);
 }
 
 
 void Logger::logOutput_always(int aLevel, const char *aLinePrefix, const char *aLogMessage)
 {
   // output
-  if (loggerCB) {
-    loggerCB(loggerContextPtr, aLevel, aLinePrefix, aLogMessage);
+  if (mLoggerCB) {
+    mLoggerCB(mLoggerContextPtr, aLevel, aLinePrefix, aLogMessage);
   }
-  else if (logFILE) {
-    fputs(aLinePrefix, logFILE);
-    fputs(aLogMessage, logFILE);
-    fputs("\n", logFILE);
-    fflush(logFILE);
+  else if (mLogFILE) {
+    fputs(aLinePrefix, mLogFILE);
+    fputs(aLogMessage, mLogFILE);
+    fputs("\n", mLogFILE);
+    fflush(mLogFILE);
   }
   else {
     // normal logging to stdout/err
-    // - in daemon mode, only level<=stderrLevel goes to stderr
+    // - in daemon mode, only level<=mStderrLevel goes to stderr
     // - in cmdline tool mode all log goes to stderr
-    if (aLevel<=stderrLevel || !daemonMode) {
+    if (aLevel<=mStderrLevel || !mDaemonMode) {
       // must go to stderr anyway
       fputs(aLinePrefix, stderr);
       fputs(aLogMessage, stderr);
@@ -196,7 +196,7 @@ void Logger::logOutput_always(int aLevel, const char *aLinePrefix, const char *a
       fflush(stderr);
     }
     // - in daemon mode only, normal log goes to stdout (and errors are duplicated to stdout as well)
-    if (daemonMode && (aLevel>stderrLevel || errToStdout)) {
+    if (mDaemonMode && (aLevel>mStderrLevel || mErrToStdout)) {
       // must go to stdout as well
       fputs(aLinePrefix, stdout);
       fputs(aLogMessage, stdout);
@@ -210,12 +210,12 @@ void Logger::logOutput_always(int aLevel, const char *aLinePrefix, const char *a
 void Logger::setLogFile(const char *aLogFilePath)
 {
   if (aLogFilePath) {
-    logFILE = fopen(aLogFilePath, "a");
+    mLogFILE = fopen(aLogFilePath, "a");
   }
   else {
-    if (logFILE) {
-      fclose(logFILE);
-      logFILE = NULL;
+    if (mLogFILE) {
+      fclose(mLogFILE);
+      mLogFILE = NULL;
     }
   }
 }
@@ -224,22 +224,22 @@ void Logger::setLogFile(const char *aLogFilePath)
 void Logger::setLogLevel(int aLogLevel)
 {
   if (aLogLevel<LOG_EMERG || aLogLevel>LOG_DEBUG) return;
-  logLevel = aLogLevel;
+  mLogLevel = aLogLevel;
 }
 
 
 void Logger::setErrLevel(int aStderrLevel, bool aErrToStdout)
 {
   if (aStderrLevel<LOG_EMERG || aStderrLevel>LOG_DEBUG) return;
-  stderrLevel = aStderrLevel;
-  errToStdout = aErrToStdout;
+  mStderrLevel = aStderrLevel;
+  mErrToStdout = aErrToStdout;
 }
 
 
 void Logger::setLogHandler(LoggerCB aLoggerCB, void *aContextPtr)
 {
-  loggerCB = aLoggerCB;
-  loggerContextPtr = aContextPtr;
+  mLoggerCB = aLoggerCB;
+  mLoggerContextPtr = aContextPtr;
 }
 
 

@@ -156,16 +156,16 @@ namespace p44 {
 
   class Logger : public P44Obj
   {
-    pthread_mutex_t reportMutex;
-    struct timeval lastLogTS; ///< timestamp of last log line
-    int logLevel; ///< log level
-    int stderrLevel; ///< lowest level that also goes to stderr
-    bool deltaTime; ///< if set, log timestamps will show delta time relative to previous log line
-    bool errToStdout; ///< if set, even log lines that go to stderr are still shown on stdout as well
-    bool daemonMode; ///< if set, normal log goes to stdout and log<=stderrLevel goes to stderr. If cleared, all log goes to stderr according to logLevel
-    LoggerCB loggerCB; ///< custom logger output function to use (instead of stderr/stdout)
-    void *loggerContextPtr; ///< custom logger output context
-    FILE *logFILE; ///< file to log to (instead of stderr/stdout)
+    pthread_mutex_t mReportMutex;
+    struct timeval mLastLogTS; ///< timestamp of last log line
+    int mLogLevel; ///< log level
+    int mStderrLevel; ///< lowest level that also goes to stderr
+    bool mDeltaTime; ///< if set, log timestamps will show delta time relative to previous log line
+    bool mErrToStdout; ///< if set, even log lines that go to stderr are still shown on stdout as well
+    bool mDaemonMode; ///< if set, normal log goes to stdout and log<=mStderrLevel goes to stderr. If cleared, all log goes to stderr according to mLogLevel
+    LoggerCB mLoggerCB; ///< custom logger output function to use (instead of stderr/stdout)
+    void *mLoggerContextPtr; ///< custom logger output context
+    FILE *mLogFILE; ///< file to log to (instead of stderr/stdout)
 
   public:
     Logger();
@@ -222,7 +222,7 @@ namespace p44 {
 
     /// return current log level
     /// @return current log level
-    int getLogLevel() { return logLevel; }
+    int getLogLevel() { return mLogLevel; }
 
     /// set level required to send messages to stderr
     /// @param aStderrLevel any messages with this or a lower (=higher priority) level will be sent to stderr (default = LOG_ERR)
@@ -235,13 +235,13 @@ namespace p44 {
 
     /// set delta time display
     /// @param aDeltaTime if set, time passed since last log line will be displayed
-    void setDeltaTime(bool aDeltaTime) { deltaTime = aDeltaTime; };
+    void setDeltaTime(bool aDeltaTime) { mDeltaTime = aDeltaTime; };
 
     // @return true if in daemonmode (log goes to stdout, only higher importance errors to stderr)
-    bool getDaemonMode() { return daemonMode; }
+    bool getDaemonMode() { return mDaemonMode; }
 
     // @param true to enable daemon mode (on by default)
-    void setDaemonMode(bool aDaemonMode) { daemonMode = aDaemonMode; }
+    void setDaemonMode(bool aDaemonMode) { mDaemonMode = aDaemonMode; }
 
   private:
 
