@@ -884,7 +884,8 @@ void CmdLineApp::processStandardLogOptions(bool aForDaemon, int aDefaultErrLevel
   }
   SETDELTATIME(getOption("deltatstamps"));
   #if ENABLE_LOG_COLORS
-  SETCOLORMODE(getOption("logcolors"), getOption("logsymbols"));
+  SETLOGCOLORING(getOption("logcolors"));
+  SETLOGSYMBOLS(getOption("logsymbols"));
   #endif
 }
 

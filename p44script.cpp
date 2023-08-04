@@ -7201,27 +7201,35 @@ static void log_func(BuiltinFunctionContextPtr f)
 
 
 // loglevel()
-// loglevel(newlevel [, deltatime])
-static const BuiltInArgDesc loglevel_args[] = { { numeric|optionalarg } };
+// loglevel(newlevel [, deltatime, [, symbols [, coloring]])
+static const BuiltInArgDesc loglevel_args[] = { { numeric|optionalarg }, { numeric|optionalarg } };
 static const size_t loglevel_numargs = sizeof(loglevel_args)/sizeof(BuiltInArgDesc);
 static void loglevel_func(BuiltinFunctionContextPtr f)
 {
   int oldLevel = LOGLEVEL;
   if (f->numArgs()>0) {
-    int newLevel = f->arg(0)->intValue();
-    if (newLevel==8) {
-      // trigger statistics
-      LOG(LOG_NOTICE, "\n========== script requested mainloop statistics");
-      LOG(LOG_NOTICE, "\n%s", MainLoop::currentMainLoop().description().c_str());
-      MainLoop::currentMainLoop().statistics_reset();
-      LOG(LOG_NOTICE, "========== statistics shown\n");
+    if (f->arg(1)->hasType(numeric)) {
+      int newLevel = f->arg(0)->intValue();
+      if (newLevel==8) {
+        // trigger statistics
+        LOG(LOG_NOTICE, "\n========== script requested mainloop statistics");
+        LOG(LOG_NOTICE, "\n%s", MainLoop::currentMainLoop().description().c_str());
+        MainLoop::currentMainLoop().statistics_reset();
+        LOG(LOG_NOTICE, "========== statistics shown\n");
+      }
+      else if (newLevel>=0 && newLevel<=7) {
+        SETLOGLEVEL(newLevel);
+        LOG(newLevel, "\n\n========== script changed log level from %d to %d ===============", oldLevel, newLevel);
+      }
     }
-    else if (newLevel>=0 && newLevel<=7) {
-      SETLOGLEVEL(newLevel);
-      LOG(newLevel, "\n\n========== script changed log level from %d to %d ===============", oldLevel, newLevel);
-    }
-    if (f->numArgs()>1) {
+    if (f->numArgs()>1 && f->arg(1)->hasType(value)) {
       SETDELTATIME(f->arg(1)->boolValue());
+    }
+    if (f->numArgs()>2 && f->arg(2)->hasType(value)) {
+      SETLOGSYMBOLS(f->arg(2)->boolValue());
+    }
+    if (f->numArgs()>3 && f->arg(3)->hasType(value)) {
+      SETLOGCOLORING(f->arg(3)->boolValue());
     }
   }
   f->finish(new NumericValue(oldLevel));

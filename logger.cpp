@@ -116,6 +116,9 @@ static const struct {
   { .ansiColor = DARK_CYAN,     .symbol =  "🛠️" }  // LOG_DEBUG   - debug-level messages
 };
 
+static const char* gIncreasedLevelPrefix = "🔸 ";
+static const char* gReducedLevelPrefix = "🔹 ";
+
 static const char* gTextContextPostfix = ": ";
 static const char* gSymbolContextPostfix = " ➡️ ";
 
@@ -338,8 +341,19 @@ void P44LoggingObj::log(int aErrLevel, const char *aFmt, ... )
     // get the prefix (can be disabled by starting log line with \r)
     string message;
     string context;
+    int offs = getLogLevelOffset();
+    #if ENABLE_LOG_COLORS
+    if (globalLogger.logSymbols()) {
+      if (offs>0) context = gIncreasedLevelPrefix;
+      else if (offs<0) context = gReducedLevelPrefix;
+    }
+    else
+    #endif
+    {
+      if (offs!=0) context = string_format("[%+d] ", offs);
+    }
     if (*aFmt!='\r') {
-      context = logContextPrefix();
+      context += logContextPrefix();
     }
     else {
       // prefix disabled, skip marker

@@ -80,8 +80,13 @@
 #define SETLOGHANDLER(lh,ctx) globalLogger.setLogHandler(lh,ctx)
 #define DAEMONMODE globalLogger.getDaemonMode()
 #define SETDAEMONMODE(d) globalLogger.setDaemonMode(d)
-#define SETCOLORMODE(ac, cd) globalLogger.setColorMode(ac, cd)
-
+#if ENABLE_LOG_COLORS
+#define SETLOGSYMBOLS(s) globalLogger.setSymbols(s)
+#define SETLOGCOLORING(c) globalLogger.setColoring(c)
+#else
+#define SETLOGSYMBOLS(s)
+#define SETLOGCOLORING(c)
+#endif
 
 // logging from within a P44LoggingObj (messages prefixed with object's logContextPrefix(), object's logoffset applied)
 #define OLOGENABLED(lvl) logEnabled(lvl)
@@ -239,6 +244,9 @@ namespace p44 {
     /// @return current log level
     int getLogLevel() { return mLogLevel; }
 
+    /// @return true if log symbols are enabled
+    bool logSymbols() { return mLogSymbols; }
+
     /// set level required to send messages to stderr
     /// @param aStderrLevel any messages with this or a lower (=higher priority) level will be sent to stderr (default = LOG_ERR)
     /// @param aErrToStdout if set, messages that qualify for stderr will STILL be duplicated to stdout as well (default = true)
@@ -258,10 +266,11 @@ namespace p44 {
     // @param true to enable daemon mode (on by default)
     void setDaemonMode(bool aDaemonMode) { mDaemonMode = aDaemonMode; }
 
-    /// set color mode
-    /// @param aANSIColors if set, logger uses ANSI colors to differentiate levels
-    /// @param aColorDots if set, logger uses UTF-8 color dots to differentiate levels
-    void setColorMode(bool aANSIColors, bool aColorDots) { mLogColors = aANSIColors; mLogSymbols = aColorDots; };
+    /// @param aSymbols if set, logger uses UTF-8 symbols to differentiate levels and separate prefix from actual log content
+    void setSymbols(bool aSymbols) { mLogSymbols = aSymbols; };
+
+    /// @param aColoring if set, ANSI terminal colors are used to differentiate levels and separate prefix from actual log content
+    void setColoring(bool aColoring) { mLogColors = aColoring; };
 
   private:
 
