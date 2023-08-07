@@ -166,13 +166,20 @@ namespace p44 {
   string cstringQuote(const char *aString);
   string cstringQuote(const string &aString);
 
-
   /// return string with trailimg and/or leading spaces removed
   /// @param aString a string
   /// @param aLeading if set, remove leading spaces
   /// @param aTrailing if set, remove trailing spaces
   /// @return trimmed string
   string trimWhiteSpace(const string &aString, bool aLeading = true, bool aTrailing = true);
+
+  typedef enum { truncate, middle_ellipsis, end_ellipsis } AbbreviationStyle;
+  /// Abbreviate string
+  /// @param aString string to abbreviate in place, if needed
+  /// @param aMaxChars max size aString may have
+  /// @param aStyle how to abbreviate
+  /// @return true if abbreviation was needed, fals if aString is untouched
+  bool abbreviate(string& aString, size_t aMaxChars, AbbreviationStyle aStyle);
 
   /// return string as single line (LF, CR, TAB converted to spaces)
   /// @param aString a string

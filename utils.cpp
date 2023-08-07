@@ -332,6 +332,30 @@ string p44::trimWhiteSpace(const string &aString, bool aLeading, bool aTrailing)
 }
 
 
+bool p44::abbreviate(string& aString, size_t aMaxChars, AbbreviationStyle aStyle)
+{
+  if (aString.size()>aMaxChars) {
+    // needs to be abbreviated
+    if (aMaxChars<=3 || aStyle==truncate) {
+      aString.erase(aMaxChars);
+    }
+    else if (aStyle==middle_ellipsis && aMaxChars>=7) {
+      aMaxChars-=3;
+      size_t sz2 = aMaxChars/2;
+      aString = aString.substr(0, aMaxChars-sz2) + "..." + aString.substr(aString.size()-sz2);
+    }
+    else {
+      aString.erase(aMaxChars-3);
+      aString += "...";
+    }
+    return true; // abbreviated
+  }
+  // not abbreviated
+  return false;
+}
+
+
+
 string p44::singleLine(const char *aString, bool aCompactWSRuns, size_t aEllipsisAtMax)
 {
   string s;
