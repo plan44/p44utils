@@ -1459,9 +1459,30 @@ struct ev_loop* MainLoop::libevLoop()
   return mLibEvLoopP;
 }
 
-#endif
 
+#if DEBUG
+// FIXME: maybe remove later
+void logP44ClockRefs(long long aForeignClockRef)
+{
+  long long ref_now = aForeignClockRef;
+  long long ml_now = MainLoop::now() / MilliSecond;
+  long long libev_now = (long long)(ev_now(MainLoop::currentMainLoop().libevLoop()) * 1000);
+  long long libev_time = (long long)(ev_time() * 1000);
+  LOG(LOG_NOTICE,
+    "‼️ NOW[mS]: reference=%lld, mainloop=%lld (%+lld), ev_now=%lld (%+lld), ev_time=%lld (%+lld), ev_now-ev_time=%+lld",
+      ref_now,
+    ml_now,
+    ml_now-ref_now,
+    libev_now,
+    libev_now-ref_now,
+    libev_time,
+    libev_time-ref_now,
+    libev_now-libev_time
+  );
+}
+#endif // DEBUG
 
+#endif // MAINLOOP_LIBEV_BASED
 
 
 string MainLoop::description()
