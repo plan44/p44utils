@@ -122,7 +122,7 @@ namespace p44 {
   int strucmp(const char *s1, const char *s2, size_t len1=0, size_t len2=0);
 
   /// case insensitive comparison functor for std containers, based on strucmp
-  struct lessStrucmp : public std::binary_function<string, string, bool> {
+  struct lessStrucmp {
     bool operator()(const string &lhs, const string &rhs) const {
       return strucmp(lhs.c_str(), rhs.c_str()) < 0 ;
     }
