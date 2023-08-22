@@ -607,7 +607,7 @@ static void httpFuncImpl(BuiltinFunctionContextPtr f, string aMethod)
   if (params) {
     // auth can also be in request object
     if (params->get("user", o)) user = o->stringValue();
-    if (params->get("password", o)) user = o->stringValue();
+    if (params->get("password", o)) password = o->stringValue();
     if (params->get("basicauth", o)) {
       string as = o->stringValue();
       if (as=="immediate") authMode = HttpComm::basic_first;
