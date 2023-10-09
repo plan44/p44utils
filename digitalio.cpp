@@ -505,7 +505,7 @@ DigitalInputEventObj::DigitalInputEventObj(DigitalIoPtr aDigitalIo) :
   inherited(false),
   mDigitalIo(aDigitalIo)
 {
-  if (mDigitalIo) num = mDigitalIo->isSet() ? 1 : 0;
+  if (mDigitalIo) mNum = mDigitalIo->isSet() ? 1 : 0;
 }
 
 

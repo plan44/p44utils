@@ -193,7 +193,7 @@ TEST_CASE("CodeCursor", "[scripting]" )
     cursor2start.advance(4);
     SourceCursor cursor2end(cursor2start);
     cursor2end.advance(7); // only "part of" should be visible
-    SourceCursor cursor2part(cursor2.source, cursor2start.pos, cursor2end.pos);
+    SourceCursor cursor2part(cursor2.mSource, cursor2start.mPos, cursor2end.mPos);
     // only "part of" should be visible
     REQUIRE(cursor2part.charsleft() == 7);
     REQUIRE(cursor2part.advance(5) == true);

@@ -384,18 +384,18 @@ DcMotorStatusObj::DcMotorStatusObj(DcMotorDriverPtr aDcMotorDriver) :
   mDcMotorDriver(aDcMotorDriver)
 {
   // create snapshot of status right now
-  jsonval = JsonObject::newObj();
-  jsonval->add("power", JsonObject::newDouble(mDcMotorDriver->mCurrentPower));
-  jsonval->add("direction", JsonObject::newInt32(mDcMotorDriver->mCurrentDirection));
+  mJsonval = JsonObject::newObj();
+  mJsonval->add("power", JsonObject::newDouble(mDcMotorDriver->mCurrentPower));
+  mJsonval->add("direction", JsonObject::newInt32(mDcMotorDriver->mCurrentDirection));
   if (mDcMotorDriver->mStopCause) {
     string cause;
     if (mDcMotorDriver->mStopCause->isError(DcMotorDriverError::domain(), DcMotorDriverError::overcurrentStop)) cause = "overcurrent";
     else if (mDcMotorDriver->mStopCause->isError(DcMotorDriverError::domain(), DcMotorDriverError::endswitchStop)) cause = "endswitch";
     else cause = mDcMotorDriver->mStopCause->text();
-    jsonval->add("stoppedby", JsonObject::newString(cause));
+    mJsonval->add("stoppedby", JsonObject::newString(cause));
   }
   if (mDcMotorDriver->mCurrentSensor) {
-    jsonval->add("current", JsonObject::newDouble(mDcMotorDriver->mCurrentSensor->lastValue()));
+    mJsonval->add("current", JsonObject::newDouble(mDcMotorDriver->mCurrentSensor->lastValue()));
   }
 }
 

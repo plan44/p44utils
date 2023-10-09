@@ -280,7 +280,7 @@ namespace p44 { namespace P44Script {
   {
     friend class EventSource;
     typedef std::set<EventSource *> EventSourceSet;
-    EventSourceSet eventSources;
+    EventSourceSet mEventSources;
   public:
     virtual ~EventSink();
 
@@ -294,10 +294,10 @@ namespace p44 { namespace P44Script {
     void clearSources();
 
     /// @return number of event sources (senders) this sink currently has
-    size_t numSources() { return eventSources.size(); }
+    size_t numSources() { return mEventSources.size(); }
 
     /// @return true if sink has any sources
-    bool hasSources() { return !eventSources.empty(); }
+    bool hasSources() { return !mEventSources.empty(); }
 
   };
 
@@ -331,8 +331,8 @@ namespace p44 { namespace P44Script {
   {
     friend class EventSink;
     typedef std::map<EventSink *, intptr_t> EventSinkMap;
-    EventSinkMap eventSinks;
-    bool sinksModified;
+    EventSinkMap mEventSinks;
+    bool mSinksModified;
   public:
     virtual ~EventSource();
 
@@ -356,10 +356,10 @@ namespace p44 { namespace P44Script {
     void unregisterFromEvents(EventSink& aEventSink);
 
     /// @return number of event sinks (reveivers) this source currently has
-    size_t numSinks() { return eventSinks.size(); }
+    size_t numSinks() { return mEventSinks.size(); }
 
     /// @return true if source has any sinks
-    bool hasSinks() { return !eventSinks.empty(); }
+    bool hasSinks() { return !mEventSinks.empty(); }
 
     /// copy all sinks from another source
     /// @param aOtherSource the source to copy sinks from (can be NULL -> NOP)
@@ -744,10 +744,10 @@ namespace p44 { namespace P44Script {
   class AnnotatedNullValue : public ScriptObj
   {
     typedef ScriptObj inherited;
-    string annotation;
+    string mAnnotation;
   public:
-    AnnotatedNullValue(string aAnnotation) : annotation(aAnnotation) {};
-    virtual string getAnnotation() const P44_OVERRIDE { return annotation; }; // specific annotation...
+    AnnotatedNullValue(string aAnnotation) : mAnnotation(aAnnotation) {};
+    virtual string getAnnotation() const P44_OVERRIDE { return mAnnotation; }; // specific annotation...
     virtual string stringValue() const P44_OVERRIDE { return inherited::getAnnotation(); }; // ...but stringValue must return the default annotation!
   };
 
@@ -814,13 +814,13 @@ namespace p44 { namespace P44Script {
   {
     typedef ScriptObj inherited;
     ScriptCodeThreadPtr mThread;
-    ScriptObjPtr threadExitValue;
+    ScriptObjPtr mThreadExitValue;
   public:
     ThreadValue(ScriptCodeThreadPtr aThread);
     virtual ~ThreadValue() { deactivate(); } // even if deactivate() is usually called before dtor, make sure it happens even if not
     virtual string getAnnotation() const P44_OVERRIDE { return "thread"; };
     virtual TypeInfo getTypeInfo() const P44_OVERRIDE;
-    virtual void deactivate() P44_OVERRIDE { threadExitValue.reset(); mThread.reset(); inherited::deactivate(); }
+    virtual void deactivate() P44_OVERRIDE { mThreadExitValue.reset(); mThread.reset(); inherited::deactivate(); }
     virtual ScriptObjPtr calculationValue() P44_OVERRIDE; /// < ThreadValue calculates to NULL as long as running or to the thread's exit value
     virtual EventSource *eventSource() const P44_OVERRIDE; ///< ThreadValue is an event source, event is the exit value of a thread terminating
     ScriptCodeThreadPtr thread() { return mThread; }; ///< @return the thread
@@ -836,17 +836,17 @@ namespace p44 { namespace P44Script {
   {
     typedef ScriptObj inherited;
   protected:
-    double num;
+    double mNum;
   public:
-    NumericValue(double aNumber) : num(aNumber) {};
-    NumericValue(bool aBool) : num(aBool ? 1 : 0) {};
-    NumericValue(int aInt) : num(aInt) {};
-    NumericValue(int64_t aInt) : num(aInt) {};
-    NumericValue(size_t aInt) : num(aInt) {};
+    NumericValue(double aNumber) : mNum(aNumber) {};
+    NumericValue(bool aBool) : mNum(aBool ? 1 : 0) {};
+    NumericValue(int aInt) : mNum(aInt) {};
+    NumericValue(int64_t aInt) : mNum(aInt) {};
+    NumericValue(size_t aInt) : mNum(aInt) {};
     virtual string getAnnotation() const P44_OVERRIDE { return "numeric"; };
     virtual TypeInfo getTypeInfo() const P44_OVERRIDE { return numeric; };
     // value getters
-    virtual double doubleValue() const P44_OVERRIDE { return num; }; // native
+    virtual double doubleValue() const P44_OVERRIDE { return mNum; }; // native
     virtual string stringValue() const P44_OVERRIDE { return string_format("%lg", doubleValue()); };
     #if SCRIPTING_JSON_SUPPORT
     virtual JsonObjectPtr jsonValue() const P44_OVERRIDE { return JsonObject::newDouble(doubleValue()); };
@@ -880,13 +880,13 @@ namespace p44 { namespace P44Script {
   class StringValue : public ScriptObj
   {
     typedef ScriptObj inherited;
-    string str;
+    string mStr;
   public:
-    StringValue(string aString) : str(aString) {};
+    StringValue(string aString) : mStr(aString) {};
     virtual string getAnnotation() const P44_OVERRIDE { return "string"; };
     virtual TypeInfo getTypeInfo() const P44_OVERRIDE { return text; };
     // value getters
-    virtual string stringValue() const P44_OVERRIDE { return str; }; // native
+    virtual string stringValue() const P44_OVERRIDE { return mStr; }; // native
     virtual double doubleValue() const P44_OVERRIDE;
     virtual bool boolValue() const P44_OVERRIDE;
     #if SCRIPTING_JSON_SUPPORT
@@ -944,14 +944,14 @@ namespace p44 { namespace P44Script {
   {
     typedef JsonRepresentedValue inherited;
   protected:
-    JsonObjectPtr jsonval;
+    JsonObjectPtr mJsonval;
   public:
     virtual ScriptObjPtr assignmentValue() P44_OVERRIDE;
-    JsonValue(JsonObjectPtr aJson) : jsonval(aJson) {};
+    JsonValue(JsonObjectPtr aJson) : mJsonval(aJson) {};
     virtual TypeInfo getTypeInfo() const P44_OVERRIDE;
     virtual string getAnnotation() const P44_OVERRIDE { return "json"; };
     // value getters
-    virtual JsonObjectPtr jsonValue() const P44_OVERRIDE { return jsonval; } // native
+    virtual JsonObjectPtr jsonValue() const P44_OVERRIDE { return mJsonval; } // native
     // modifying
     virtual ErrorPtr setMemberByName(const string aName, const ScriptObjPtr aMember) P44_OVERRIDE;
     virtual ErrorPtr setMemberAtIndex(size_t aIndex, const ScriptObjPtr aMember, const string aName = "") P44_OVERRIDE;
@@ -994,7 +994,7 @@ namespace p44 { namespace P44Script {
     typedef StructuredObject inherited;
 
     typedef std::map<string, ScriptObjPtr, lessStrucmp> NamedVarMap;
-    NamedVarMap namedVars; ///< the named local variables/objects of this context
+    NamedVarMap mNamedVars; ///< the named local variables/objects of this context
 
   public:
 
@@ -1031,7 +1031,7 @@ namespace p44 { namespace P44Script {
   {
     typedef StructuredObject inherited;
     typedef std::list<MemberLookupPtr> LookupList;
-    LookupList lookups;
+    LookupList mLookups;
     MemberLookupPtr mSingleMembers;
   public:
 
@@ -1039,7 +1039,7 @@ namespace p44 { namespace P44Script {
     virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aTypeRequirements) P44_OVERRIDE;
     virtual ~StructuredLookupObject() { deactivate(); } // even if deactivate() is usually called before dtor, make sure it happens even if not
 
-    virtual void deactivate() P44_OVERRIDE { mSingleMembers.reset(); lookups.clear(); inherited::deactivate(); }
+    virtual void deactivate() P44_OVERRIDE { mSingleMembers.reset(); mLookups.clear(); inherited::deactivate(); }
 
     /// register an additional lookup
     /// @param aMemberLookup a lookup object.
@@ -1106,7 +1106,7 @@ namespace p44 { namespace P44Script {
     typedef MemberLookup inherited;
 
     typedef std::map<string, ScriptObjPtr, lessStrucmp> NamedVarMap;
-    NamedVarMap members; ///< predefined scriptobjs (immutable)
+    NamedVarMap mMembers; ///< predefined scriptobjs (immutable)
 
     virtual ScriptObjPtr memberByNameFrom(ScriptObjPtr aThisObj, const string aName, TypeInfo aTypeRequirements) const P44_OVERRIDE;
     virtual void registerMember(const string aName, ScriptObjPtr aMember) P44_OVERRIDE;
@@ -1136,19 +1136,19 @@ namespace p44 { namespace P44Script {
     friend class BuiltinFunctionContext;
 
     typedef std::vector<ScriptObjPtr> IndexedVarVector;
-    IndexedVarVector indexedVars;
-    ScriptMainContextPtr mainContext; ///< the main context
+    IndexedVarVector mIndexedVars;
+    ScriptMainContextPtr mMainContext; ///< the main context
 
     ExecutionContext(ScriptMainContextPtr aMainContext);
 
   protected:
 
-    bool undefinedResult; ///< special shortcut to make a execution return a "undefined" result w/o actually executing
+    bool mUndefinedResult; ///< special shortcut to make a execution return a "undefined" result w/o actually executing
 
   public:
 
     virtual ~ExecutionContext() { deactivate(); } // even if deactivate() is usually called before dtor, make sure it happens even if not
-    virtual void deactivate() P44_OVERRIDE { clearVars(); mainContext.reset(); inherited::deactivate(); }
+    virtual void deactivate() P44_OVERRIDE { clearVars(); mMainContext.reset(); inherited::deactivate(); }
 
     /// clear local variables (indexed arguments)
     virtual void clearVars();
@@ -1195,7 +1195,7 @@ namespace p44 { namespace P44Script {
     /// @{
 
     /// @return the main context from which this context was called (as a subroutine)
-    virtual ScriptMainContextPtr scriptmain() const { return mainContext; }
+    virtual ScriptMainContextPtr scriptmain() const { return mMainContext; }
 
     /// @return the object _instance_ that is the implicit "this" for the context
     /// @note plain execution contexts do not have a thisObj() of their own, but use the linked mainContext's
@@ -1223,11 +1223,11 @@ namespace p44 { namespace P44Script {
     friend class CompiledCode;
     friend class CompiledScript;
 
-    SimpleVarContainer localVars;
+    SimpleVarContainer mLocalVars;
 
     typedef std::list<ScriptCodeThreadPtr> ThreadList;
-    ThreadList threads; ///< the running "threads" in this context. First is the main thread of the evaluation.
-    ThreadList queuedThreads; ///< the queued threads in this context
+    ThreadList mThreads; ///< the running "threads" in this context. First is the main thread of the evaluation.
+    ThreadList mQueuedThreads; ///< the queued threads in this context
 
     ScriptCodeContext(ScriptMainContextPtr aMainContext);
 
@@ -1308,12 +1308,12 @@ namespace p44 { namespace P44Script {
     typedef ScriptCodeContext inherited;
     friend class ScriptingDomain;
 
-    ScriptingDomainPtr domainObj; ///< the scripting domain (unless it's myself to avoid locking)
-    ScriptObjPtr thisObj; ///< the object _instance_ scope of this execution context (if any)
+    ScriptingDomainPtr mDomainObj; ///< the scripting domain (unless it's myself to avoid locking)
+    ScriptObjPtr mThisObj; ///< the object _instance_ scope of this execution context (if any)
 
     #if P44SCRIPT_FULL_SUPPORT
     typedef std::list<CompiledHandlerPtr> HandlerList;
-    HandlerList handlers;
+    HandlerList mHandlers;
     #endif // P44SCRIPT_FULL_SUPPORT
 
     /// private constructor, only ScriptingDomain should use it
@@ -1332,10 +1332,10 @@ namespace p44 { namespace P44Script {
     virtual void deactivate() P44_OVERRIDE
     {
       #if P44SCRIPT_FULL_SUPPORT
-      handlers.clear();
+      mHandlers.clear();
       #endif
-      domainObj.reset();
-      thisObj.reset();
+      mDomainObj.reset();
+      mThisObj.reset();
       inherited::deactivate();
     }
 
@@ -1354,8 +1354,8 @@ namespace p44 { namespace P44Script {
     virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aMemberAccessFlags) P44_OVERRIDE;
 
     // direct access to this and domain (not via mainContext, as we can't set maincontext w/o self-locking)
-    virtual ScriptObjPtr instance() const P44_OVERRIDE { return thisObj; }
-    virtual ScriptingDomainPtr domain() const P44_OVERRIDE { return domainObj; }
+    virtual ScriptObjPtr instance() const P44_OVERRIDE { return mThisObj; }
+    virtual ScriptingDomainPtr domain() const P44_OVERRIDE { return mDomainObj; }
     virtual ScriptMainContextPtr scriptmain() const P44_OVERRIDE { return ScriptMainContextPtr(const_cast<ScriptMainContext*>(this)); }
 
     #if P44SCRIPT_FULL_SUPPORT
@@ -1433,11 +1433,11 @@ namespace p44 { namespace P44Script {
     friend class SourceCursor;
     friend class SourceContainer;
 
-    const char* bot; ///< beginning of text (beginning of first line)
-    const char* ptr; ///< pointer to current position in the source text
-    const char* bol; ///< pointer to beginning of current line
-    const char* eot; ///< pointer to where the text ends (0 char or not)
-    size_t line; ///< line number
+    const char* mBot; ///< beginning of text (beginning of first line)
+    const char* mPtr; ///< pointer to current position in the source text
+    const char* mBol; ///< pointer to beginning of current line
+    const char* mEot; ///< pointer to where the text ends (0 char or not)
+    size_t mLine; ///< line number
   public:
     SourcePos(const string &aText);
     SourcePos(const SourcePos &aCursor);
@@ -1457,16 +1457,16 @@ namespace p44 { namespace P44Script {
     SourceCursor(SourceContainerPtr aContainer, SourcePos aStart, SourcePos aEnd);
     SourceCursor(string aString, const char *aLabel = NULL); ///< create cursor on the passed string
 
-    SourceContainerPtr source; ///< the source containing the string we're pointing to
-    SourcePos pos; ///< the position within the source
+    SourceContainerPtr mSource; ///< the source containing the string we're pointing to
+    SourcePos mPos; ///< the position within the source
 
-    bool refersTo(SourceContainerPtr aSource) const { return source==aSource; } ///< check if this sourceref refers to a particular source
+    bool refersTo(SourceContainerPtr aSource) const { return mSource==aSource; } ///< check if this sourceref refers to a particular source
 
     // info
     size_t lineno() const; ///< 0-based line counter
     size_t charpos() const; ///< 0-based character offset
     size_t textpos() const; ///< offset of current text from beginning of text
-    UniquePos posId() const { return pos.ptr; } ///< unique position within a source, only for comparison (call site for frozen arguments...)
+    UniquePos posId() const { return mPos.mPtr; } ///< unique position within a source, only for comparison (call site for frozen arguments...)
 
     /// @name source text access and parsing utilities
     /// @{
@@ -1475,9 +1475,9 @@ namespace p44 { namespace P44Script {
     bool valid() const; ///< @return true when the cursor points to something
     char c(size_t aOffset=0) const; ///< @return character at offset from current position, 0 if none
     size_t charsleft() const; ///< @return number of chars to end of code
-    const char* text() const { return nonNullCStr(pos.bot); } ///< @return c string starting at current pos
-    const char* linetext() const { return nonNullCStr(pos.bol); } ///< @return c string starting at beginning of current line
-    const char *postext() const { return nonNullCStr(pos.ptr); } ///< @return c string starting at current pos
+    const char* text() const { return nonNullCStr(mPos.mBot); } ///< @return c string starting at current pos
+    const char* linetext() const { return nonNullCStr(mPos.mBol); } ///< @return c string starting at beginning of current line
+    const char *postext() const { return nonNullCStr(mPos.mPtr); } ///< @return c string starting at current pos
     bool EOT() const; ///< true if we are at end of text
     bool next(); ///< advance to next char, @return false if not possible to advance
     bool advance(size_t aNumChars); ///< advance by specified number of chars, includes counting lines
@@ -1506,7 +1506,7 @@ namespace p44 { namespace P44Script {
   class ErrorPosValue : public ErrorValue
   {
     typedef ErrorValue inherited;
-    SourceCursor sourceCursor;
+    SourceCursor mSourceCursor;
   public:
     /// Create new positional error with formatted text
     /// @param aCursor source position that should be the error's position
@@ -1521,8 +1521,8 @@ namespace p44 { namespace P44Script {
     /// @note created ErrorPosValue also inherits aErrValue's thrown status flag
     ErrorPosValue(const SourceCursor &aCursor, ScriptObjPtr aErrValue);
 
-    void setErrorCursor(const SourceCursor &aCursor) { sourceCursor = aCursor; };
-    virtual SourceCursor* cursor() P44_OVERRIDE { return &sourceCursor; } // has a position
+    void setErrorCursor(const SourceCursor &aCursor) { mSourceCursor = aCursor; };
+    virtual SourceCursor* cursor() P44_OVERRIDE { return &mSourceCursor; } // has a position
     virtual string stringValue() const P44_OVERRIDE;
   };
 
@@ -1540,6 +1540,8 @@ namespace p44 { namespace P44Script {
     P44LoggingObj* mLoggingContextP; ///< the logging context
     string mSource; ///< the source code as written by the script author
     bool mFloating; ///< if set, the source is not linked but is a private copy
+
+
   public:
     /// create source container
     SourceContainer(const char *aOriginLabel, P44LoggingObj* aLoggingContextP, const string aSource);
@@ -1654,6 +1656,7 @@ namespace p44 { namespace P44Script {
     EvaluationCB mTriggerCB;
     TriggerMode mTriggerMode;
     MLMicroSeconds mHoldOffTime;
+
   public:
     TriggerSource(const char* aOriginLabel, P44LoggingObj* aLoggingContextP, EvaluationCB aTriggerCB, TriggerMode aTriggerMode, MLMicroSeconds aHoldOffTime, EvaluationFlags aEvalFlags) :
       inherited(aEvalFlags|triggered, aOriginLabel, aLoggingContextP), // make sure one of the trigger flags is set for the compile to produce a CompiledTrigger
@@ -1730,25 +1733,25 @@ namespace p44 { namespace P44Script {
   {
     typedef ScriptMainContext inherited;
 
-    GeoLocation *geoLocationP;
-    MLMicroSeconds maxBlockTime;
+    GeoLocation *mGeoLocationP;
+    MLMicroSeconds mMaxBlockTime;
 
   public:
 
-    ScriptingDomain() : inherited(ScriptingDomainPtr(), ScriptObjPtr()), geoLocationP(NULL), maxBlockTime(DEFAULT_MAX_BLOCK_TIME) {};
+    ScriptingDomain() : inherited(ScriptingDomainPtr(), ScriptObjPtr()), mGeoLocationP(NULL), mMaxBlockTime(DEFAULT_MAX_BLOCK_TIME) {};
 
     /// set geolocation to use for functions that refer to location
-    void setGeoLocation(GeoLocation* aGeoLocationP) { geoLocationP = aGeoLocationP; };
+    void setGeoLocation(GeoLocation* aGeoLocationP) { mGeoLocationP = aGeoLocationP; };
 
     /// set max block time (how long async scripts run in sync mode maximally until
     /// releasing execution and schedule continuation later)
     /// @param aMaxBlockTime max block time - if reached, execution will pause for 2 * aMaxBlockTime
-    void setMaxBlockTime(MLMicroSeconds aMaxBlockTime) { maxBlockTime = aMaxBlockTime; };
+    void setMaxBlockTime(MLMicroSeconds aMaxBlockTime) { mMaxBlockTime = aMaxBlockTime; };
 
 
     // environment
-    virtual GeoLocation* geoLocation() P44_OVERRIDE { return geoLocationP; };
-    MLMicroSeconds getMaxBlockTime() { return maxBlockTime; };
+    virtual GeoLocation* geoLocation() P44_OVERRIDE { return mGeoLocationP; };
+    MLMicroSeconds getMaxBlockTime() { return mMaxBlockTime; };
 
     /// get new execution context
     /// @param aInstanceObj the object _instance_ scope for scripts running in this context.
@@ -1952,23 +1955,23 @@ namespace p44 { namespace P44Script {
         int aPrecedence,
         ScriptOperator aPendingOperation
       ) :
-        pos(aPos),
-        skipping(aSkipping),
-        returnToState(aReturnToState),
-        result(aResult),
-        funcCallContext(aFuncCallContext),
-        loopController(aLoopController),
-        precedence(aPrecedence),
-        pendingOperation(aPendingOperation)
+        mPos(aPos),
+        mSkipping(aSkipping),
+        mReturnToState(aReturnToState),
+        mResult(aResult),
+        mFuncCallContext(aFuncCallContext),
+        mLoopController(aLoopController),
+        mPrecedence(aPrecedence),
+        mPendingOperation(aPendingOperation)
       {}
-      SourcePos pos; ///< scanning position
-      bool skipping; ///< set if only skipping code, not evaluating
-      StateHandler returnToState; ///< next state to run after pop
-      ScriptObjPtr result; ///< the current result object
-      ExecutionContextPtr funcCallContext; ///< the context of the currently preparing function call
-      LoopControllerPtr loopController; ///< the loop controller, if any
-      int precedence; ///< encountering a binary operator with smaller precedence will end the expression
-      ScriptOperator pendingOperation; ///< operator
+      SourcePos mPos; ///< scanning position
+      bool mSkipping; ///< set if only skipping code, not evaluating
+      StateHandler mReturnToState; ///< next state to run after pop
+      ScriptObjPtr mResult; ///< the current result object
+      ExecutionContextPtr mFuncCallContext; ///< the context of the currently preparing function call
+      LoopControllerPtr mLoopController; ///< the loop controller, if any
+      int mPrecedence; ///< encountering a binary operator with smaller precedence will end the expression
+      ScriptOperator mPendingOperation; ///< operator
     };
 
     typedef std::list<StackFrame> StackList;
@@ -2138,8 +2141,8 @@ namespace p44 { namespace P44Script {
     void setCursor(const SourceCursor& aCursor);
     bool codeFromSameSourceAs(const CompiledCode &aCode) const; ///< return true if both compiled codes are from the same source position
     virtual bool originatesFrom(SourceContainerPtr aSource) const P44_OVERRIDE { return mCursor.refersTo(aSource); };
-    virtual bool floating() const P44_OVERRIDE { return mCursor.source->floating(); }
-    virtual P44LoggingObj* loggingContext() const P44_OVERRIDE { return mCursor.source ? mCursor.source->mLoggingContextP : NULL; };
+    virtual bool floating() const P44_OVERRIDE { return mCursor.mSource->floating(); }
+    virtual P44LoggingObj* loggingContext() const P44_OVERRIDE { return mCursor.mSource ? mCursor.mSource->mLoggingContextP : NULL; };
 
     /// get subroutine context to call this object as a subroutine/function call from a given context
     /// @param aMainContext the context from where this function is now called (the same function can be called
@@ -2198,8 +2201,8 @@ namespace p44 { namespace P44Script {
     class FrozenResult
     {
     public:
-      ScriptObjPtr frozenResult; ///< the frozen result
-      MLMicroSeconds frozenUntil; ///< until when the value remains frozen, Infinite if forever (until explicitly unfrozen)
+      ScriptObjPtr mFrozenResult; ///< the frozen result
+      MLMicroSeconds mFrozenUntil; ///< until when the value remains frozen, Infinite if forever (until explicitly unfrozen)
       /// @return true if still frozen (not expired yet)
       bool frozen();
     };
@@ -2367,13 +2370,13 @@ namespace p44 { namespace P44Script {
   {
     typedef SourceProcessor inherited;
 
-    ScriptingDomainPtr domain; ///< the domain to store compiled functions and handlers
-    SourceCursor bodyRef; ///< where the script body starts
-    ScriptMainContextPtr compileForContext; ///< the main context this script is compiled for and should execute in later
+    ScriptingDomainPtr mDomain; ///< the domain to store compiled functions and handlers
+    SourceCursor mBodyRef; ///< where the script body starts
+    ScriptMainContextPtr mCompileForContext; ///< the main context this script is compiled for and should execute in later
 
   public:
 
-    ScriptCompiler(ScriptingDomainPtr aDomain) : domain(aDomain) {}
+    ScriptCompiler(ScriptingDomainPtr aDomain) : mDomain(aDomain) {}
 
     /// Scan code, extract function definitions, global vars, event handlers into scripting domain, return actual code
     /// @param aSource the source code
@@ -2414,7 +2417,7 @@ namespace p44 { namespace P44Script {
     /// source (e.g. "on"-handlers) with a execution context to call them later
     /// Note: For triggers/handlers created in the declaration part of a script, this is the compiler's context
     ///   (no script running yet), and thus usually the ScriptingDomain
-    virtual ScriptMainContextPtr getTriggerAndHandlerMainContext() P44_OVERRIDE { return compileForContext; }
+    virtual ScriptMainContextPtr getTriggerAndHandlerMainContext() P44_OVERRIDE { return mCompileForContext; }
 
   };
 
@@ -2633,11 +2636,11 @@ namespace p44 { namespace P44Script {
     typedef ScriptLValue inherited;
     BuiltInMemberLookupPtr mLookup;
     ScriptObjPtr mThisObj;
-    const BuiltinMemberDescriptor *descriptor; ///< function signature, name and pointer to actual implementation function
+    const BuiltinMemberDescriptor *mDescriptor; ///< function signature, name and pointer to actual implementation function
   public:
     BuiltInLValue(const BuiltInMemberLookupPtr aLookup, const BuiltinMemberDescriptor *aMemberDescriptor, ScriptObjPtr aThisObj, ScriptObjPtr aCurrentValue);
     virtual void assignLValue(EvaluationCB aEvaluationCB, ScriptObjPtr aNewValue) P44_OVERRIDE;
-    virtual string getIdentifier() const P44_OVERRIDE { return descriptor ? descriptor->name : ""; };
+    virtual string getIdentifier() const P44_OVERRIDE { return mDescriptor ? mDescriptor->name : ""; };
   };
 
   /// member lookup for built-in functions, driven by static const struct table to describe functions and link implementations
@@ -2670,8 +2673,8 @@ namespace p44 { namespace P44Script {
     typedef ImplementationObj inherited;
     friend class BuiltinFunctionContext;
 
-    const BuiltinMemberDescriptor *descriptor; ///< function signature, name and pointer to actual implementation function
-    ScriptObjPtr thisObj; ///< the object this function is a method of (if it's not a plain function)
+    const BuiltinMemberDescriptor *mDescriptor; ///< function signature, name and pointer to actual implementation function
+    ScriptObjPtr mThisObj; ///< the object this function is a method of (if it's not a plain function)
     const BuiltInMemberLookup* mMemberLookupP; ///< where the function was found (might be needed as context for executing it later)
 
   public:
@@ -2679,7 +2682,7 @@ namespace p44 { namespace P44Script {
     virtual string getAnnotation() const P44_OVERRIDE { return "built-in function"; };
 
     BuiltinFunctionObj(const BuiltinMemberDescriptor *aDescriptor, ScriptObjPtr aThisObj, const BuiltInMemberLookup* aMemberLookupP) :
-      descriptor(aDescriptor), thisObj(aThisObj), mMemberLookupP(aMemberLookupP) {};
+      mDescriptor(aDescriptor), mThisObj(aThisObj), mMemberLookupP(aMemberLookupP) {};
 
     /// get the lookup object
     BuiltInMemberLookup* getMemberLookup() { return const_cast<BuiltInMemberLookup*>(mMemberLookupP); }
@@ -2688,7 +2691,7 @@ namespace p44 { namespace P44Script {
     virtual bool argumentInfo(size_t aIndex, ArgumentDescriptor& aArgDesc) const P44_OVERRIDE;
 
     /// get identifier (name) of this function object
-    virtual string getIdentifier() const P44_OVERRIDE { return descriptor->name; };
+    virtual string getIdentifier() const P44_OVERRIDE { return mDescriptor->name; };
 
     /// get context to call this object as a (sub)routine of a given context
     /// @param aMainContext the main context from where this function is called.
@@ -2760,7 +2763,7 @@ namespace p44 { namespace P44Script {
     void finish(const ScriptObjPtr aResult = ScriptObjPtr());
 
     /// @return the object this function was called on as a method, NULL for plain functions
-    ScriptObjPtr thisObj() { return mFunc->thisObj; }
+    ScriptObjPtr thisObj() { return mFunc->mThisObj; }
 
     /// @return the function object
     BuiltinFunctionObjPtr funcObj() { return mFunc; }

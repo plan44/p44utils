@@ -503,7 +503,7 @@ AnalogInputEventObj::AnalogInputEventObj(AnalogIoPtr aAnalogIo) :
   inherited(0)
 {
   // capture current value
-  if (mAnalogIo) num = mAnalogIo->processedValue();
+  if (mAnalogIo) mNum = mAnalogIo->processedValue();
 }
 
 
