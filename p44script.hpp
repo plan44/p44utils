@@ -1439,9 +1439,20 @@ namespace p44 { namespace P44Script {
     const char* mEot; ///< pointer to where the text ends (0 char or not)
     size_t mLine; ///< line number
   public:
+    typedef const char* UniquePos;
+
     SourcePos(const string &aText);
     SourcePos(const SourcePos &aCursor);
     SourcePos();
+    UniquePos posId() const { return mPtr; } ///< unique position within a source, only for comparison (call site for frozen arguments, breakpoints...)
+  };
+
+
+  class BreakPoint
+  {
+    friend class SourceContainer;
+
+    size_t mBreakLine; ///< line number of breakpoint
   };
 
 
@@ -1451,7 +1462,6 @@ namespace p44 { namespace P44Script {
   class SourceCursor
   {
   public:
-    typedef const char* UniquePos;
     SourceCursor() {};
     SourceCursor(SourceContainerPtr aContainer);
     SourceCursor(SourceContainerPtr aContainer, SourcePos aStart, SourcePos aEnd);
@@ -1466,7 +1476,9 @@ namespace p44 { namespace P44Script {
     size_t lineno() const; ///< 0-based line counter
     size_t charpos() const; ///< 0-based character offset
     size_t textpos() const; ///< offset of current text from beginning of text
-    UniquePos posId() const { return mPos.mPtr; } ///< unique position within a source, only for comparison (call site for frozen arguments...)
+
+    /// @return true if source cursor is on breakpoint
+    bool onBreakPoint() const;
 
     /// @name source text access and parsing utilities
     /// @{
@@ -1541,6 +1553,8 @@ namespace p44 { namespace P44Script {
     string mSource; ///< the source code as written by the script author
     bool mFloating; ///< if set, the source is not linked but is a private copy
 
+    typedef std::map<SourcePos::UniquePos, BreakPoint> BreakPointMap;
+    BreakPointMap mBreakPoints; ///< breakpoints by unique position, normalized to next non-space
 
   public:
     /// create source container
@@ -1554,6 +1568,9 @@ namespace p44 { namespace P44Script {
 
     /// @return true if this source is floating, i.e. not part of a still existing script
     bool floating() { return mFloating; }
+
+    /// @return breakpoint at aPosId, or nullPtr in
+    const BreakPoint* breakPointAt(const SourcePos::UniquePos aPosId) const;
 
     /// return a logging context
     P44LoggingObj *loggingContext() { return mLoggingContextP; };
@@ -1740,6 +1757,9 @@ namespace p44 { namespace P44Script {
 
     ScriptingDomain() : inherited(ScriptingDomainPtr(), ScriptObjPtr()), mGeoLocationP(NULL), mMaxBlockTime(DEFAULT_MAX_BLOCK_TIME) {};
 
+    /// @name environment
+    /// @{
+
     /// set geolocation to use for functions that refer to location
     void setGeoLocation(GeoLocation* aGeoLocationP) { mGeoLocationP = aGeoLocationP; };
 
@@ -1748,10 +1768,13 @@ namespace p44 { namespace P44Script {
     /// @param aMaxBlockTime max block time - if reached, execution will pause for 2 * aMaxBlockTime
     void setMaxBlockTime(MLMicroSeconds aMaxBlockTime) { mMaxBlockTime = aMaxBlockTime; };
 
-
-    // environment
+    /// @return domain's geolocation
     virtual GeoLocation* geoLocation() P44_OVERRIDE { return mGeoLocationP; };
+
+    /// @return domain's maxblocktime
     MLMicroSeconds getMaxBlockTime() { return mMaxBlockTime; };
+
+    /// @}
 
     /// get new execution context
     /// @param aInstanceObj the object _instance_ scope for scripts running in this context.
@@ -1761,6 +1784,17 @@ namespace p44 { namespace P44Script {
     ///   The class scope can also bring in aInstanceObj related member functions (methods), but also
     ///   plain functions (static methods) and other members.
     ScriptMainContextPtr newContext(ScriptObjPtr aInstanceObj = ScriptObjPtr());
+
+    /// @name debugging
+    /// @{
+
+    /// @return true when debugging is enabled in the domain (usually means that a debugger UI is attached)
+    bool debuggerEnabled() const;
+
+    /// called by threads when they get paused
+    void threadPaused(ScriptCodeThreadPtr aThread);
+
+    /// @}
 
   };
 
@@ -1870,6 +1904,10 @@ namespace p44 { namespace P44Script {
 
     /// check if member can issue event that should be connected to trigger
     virtual void memberEventCheck();
+
+    /// @param aStatementBoundary set when at statement boundary (for singlestepping)
+    /// @return true if execution should pause here
+    virtual bool pauseCheck(bool aStatementBoundary) { return false; /* never pause in base class */ }
 
     #if P44SCRIPT_FULL_SUPPORT
 
@@ -2220,9 +2258,9 @@ namespace p44 { namespace P44Script {
 
     bool mOneShotEval; ///< the current evaluation runs in one-shot mode (means: the trigger can only fire, but must not change state)
     ScriptObjPtr mFrozenEventValue; ///< the value of the event that triggered current evaluation
-    SourceCursor::UniquePos mFrozenEventPos; ///< the source position of the member value that represents the frozen result
+    SourcePos::UniquePos mFrozenEventPos; ///< the source position of the member value that represents the frozen result
 
-    typedef std::map<SourceCursor::UniquePos, FrozenResult> FrozenResultsMap;
+    typedef std::map<SourcePos::UniquePos, FrozenResult> FrozenResultsMap;
     FrozenResultsMap mFrozenResults; ///< map of expression starting indices and associated frozen results
     MLTicket mReEvaluationTicket; ///< ticket for re-evaluation timer
 
@@ -2290,7 +2328,7 @@ namespace p44 { namespace P44Script {
     ///   On return: replaced by a frozen event result, if one exists
     /// @param aFreezeId the reference position that identifies the frozen result
     /// @return the frozen event value if one exists, null otherwise
-    void checkFrozenEventValue(ScriptObjPtr &aResult, SourceCursor::UniquePos aFreezeId);
+    void checkFrozenEventValue(ScriptObjPtr &aResult, SourcePos::UniquePos aFreezeId);
 
     /// @name API for timed evaluation and freezing values in functions that can be used in timed evaluations
     /// @{
@@ -2299,7 +2337,7 @@ namespace p44 { namespace P44Script {
     /// @param aResult On call: the current result of a (sub)expression
     ///   On return: replaced by a frozen result, if one exists
     /// @param aFreezeId the reference position that identifies the frozen result
-    FrozenResult* getTimeFrozenValue(ScriptObjPtr &aResult, SourceCursor::UniquePos aFreezeId);
+    FrozenResult* getTimeFrozenValue(ScriptObjPtr &aResult, SourcePos::UniquePos aFreezeId);
 
     /// update existing or create new frozen result
     /// @param aExistingFreeze the pointer obtained from getFrozen(), can be NULL
@@ -2307,12 +2345,12 @@ namespace p44 { namespace P44Script {
     /// @param aFreezeId te reference position that identifies the frozen result
     /// @param aFreezeUntil The new freeze date. Specify Infinite to freeze indefinitely, Never to release any previous freeze.
     /// @param aUpdate if set, freeze will be updated/extended unconditionally, even when previous freeze is still running
-    FrozenResult* newTimedFreeze(FrozenResult* aExistingFreeze, ScriptObjPtr aNewResult, SourceCursor::UniquePos aFreezeId, MLMicroSeconds aFreezeUntil, bool aUpdate = false);
+    FrozenResult* newTimedFreeze(FrozenResult* aExistingFreeze, ScriptObjPtr aNewResult, SourcePos::UniquePos aFreezeId, MLMicroSeconds aFreezeUntil, bool aUpdate = false);
 
     /// unfreeze time-frozen value at aAtPos
     /// @param aFreezeId the starting character index of the subexpression to unfreeze
     /// @return true if there was a frozen result at aAtPos
-    bool unfreezeTimed(SourceCursor::UniquePos aFreezeId);
+    bool unfreezeTimed(SourcePos::UniquePos aFreezeId);
 
     /// Set time when next evaluation must happen, latest
     /// @param aLatestEval new time when evaluation must happen latest, Never if no next evaluation is needed
@@ -2446,6 +2484,10 @@ namespace p44 { namespace P44Script {
     ScriptCodeThreadPtr mChainOriginThread; ///< the origin of this sequentially chained thread, if any
     MLTicket mAutoResumeTicket; ///< auto-resume ticket
 
+    bool mPaused; ///< if set, the thread is paused (for example after singlestepping or hitting a breakpoint)
+    bool mSingleStep; ///< if set, pause after a single statement
+    bool mContinue; ///< if set
+
   public:
 
     /// @param aOwner the context which owns this thread and will be notified when it ends
@@ -2485,6 +2527,10 @@ namespace p44 { namespace P44Script {
 
     /// run the thread
     virtual void run();
+
+    /// debug control for this thread
+    /// @param aPause set or
+    SourceCursor debugControl(bool aPause, bool aSingleStep);
 
     /// get the maximum blocking time for script execution
     MLMicroSeconds getMaxBlockTime() { return mMaxBlockTime; };
@@ -2576,6 +2622,10 @@ namespace p44 { namespace P44Script {
     /// check if member can issue events that should be connected to trigger to cause trigger expression
     /// evaluation, or if member is a one-shot result that must return a previously frozen value
     virtual void memberEventCheck() P44_OVERRIDE;
+
+    /// @param aStatementBoundary set when at statement boundary (for singlestepping)
+    /// @return true if execution should pause here
+    virtual bool pauseCheck(bool aStatementBoundary) P44_OVERRIDE;
 
     /// @}
 
@@ -2716,7 +2766,7 @@ namespace p44 { namespace P44Script {
     SimpleCB mAbortCB; ///< called when aborting. async built-in might set this to cause external operations to stop at abort
     CompiledTrigger* mTrigger; ///< set when the function executes as part of a trigger expression
     ScriptCodeThreadPtr mThread; ///< thread this call originates from
-    SourceCursor::UniquePos mCallSite; ///< from where in the source code the function was called
+    SourcePos::UniquePos mCallSite; ///< from where in the source code the function was called
 
   public:
 
@@ -2747,7 +2797,7 @@ namespace p44 { namespace P44Script {
     ScriptObjPtr arg(size_t aArgIndex);
 
     /// @return unique (opaque) id for re-identifying this argument's definition for this call in the source code
-    SourceCursor::UniquePos argId(size_t aArgIndex) const;
+    SourcePos::UniquePos argId(size_t aArgIndex) const;
 
     /// @return argument as reference for applying C++ operators to them (and not to the smart pointers)
     inline ScriptObj& argval(size_t aArgIndex) { return *(arg(aArgIndex)); }

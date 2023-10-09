@@ -1836,7 +1836,7 @@ JsonObjectPtr ScriptMainContext::handlersInfo()
     if (l) hi->add("logcontext", JsonObject::newString(l->logContextPrefix()));
     hi->add("line", JsonObject::newInt64(h->mCursor.lineno()+1));
     hi->add("char", JsonObject::newInt64(h->mCursor.charpos()+1));
-    hi->add("posid", JsonObject::newInt64((intptr_t)h->mCursor.posId()));
+    hi->add("posid", JsonObject::newInt64((intptr_t)h->mCursor.mPos.posId()));
     hl->arrayAppend(hi);
   }
   return hl;
@@ -2030,7 +2030,7 @@ bool BuiltinFunctionObj::argumentInfo(size_t aIndex, ArgumentDescriptor& aArgDes
 BuiltinFunctionContext::BuiltinFunctionContext(ScriptMainContextPtr aMainContext, ScriptCodeThreadPtr aThread) :
   inherited(aMainContext),
   mThread(aThread),
-  mCallSite(aThread->mSrc.posId()) // from where in the source the context was created, which is just after the opening arg '(?
+  mCallSite(aThread->mSrc.mPos.posId()) // from where in the source the context was created, which is just after the opening arg '(?
 {
 }
 
@@ -2067,7 +2067,7 @@ void BuiltinFunctionContext::execute(ScriptObjPtr aToExecute, EvaluationFlags aE
   }
 }
 
-SourceCursor::UniquePos BuiltinFunctionContext::argId(size_t aArgIndex) const
+SourcePos::UniquePos BuiltinFunctionContext::argId(size_t aArgIndex) const
 {
   if (aArgIndex<numArgs()) {
     // Note: as arguments in source occupy AT LEAST one separator, the following simplificaton
@@ -2531,6 +2531,12 @@ ScriptObjPtr SourceCursor::parseCodeLiteral()
 }
 
 
+bool SourceCursor::onBreakPoint() const
+{
+  return mSource->breakPointAt(mPos.posId())!=nullptr;
+}
+
+
 
 #if SCRIPTING_JSON_SUPPORT
 
@@ -2652,7 +2658,8 @@ void SourceProcessor::resume()
   mResuming = true; // now actually start resuming
   stepLoop();
   // not resumed in the current chain of calls, resume will be called from
-  // an independent call site later -> re-enable normal processing
+  // an independent call site later -> re-enable normal processing,
+  // OR when debugging/singlestepping, by continuing execution from the debugger
   mResuming = false;
 }
 
@@ -3807,6 +3814,11 @@ void SourceProcessor::processStatement()
     complete(mResult);
     return;
   }
+  // beginning of a new statement
+  if (pauseCheck(true)) {
+    // stop processing, debugger might continue execution later
+    return;
+  }
   if (mSrc.nextIf('{')) {
     // new block starts
     push(mCurrentState); // return to current state when block finishes
@@ -4494,7 +4506,7 @@ void CompiledCode::setCursor(const SourceCursor& aCursor)
 
 bool CompiledCode::codeFromSameSourceAs(const CompiledCode &aCode) const
 {
-  return mCursor.refersTo(aCode.mCursor.mSource) && mCursor.posId()==aCode.mCursor.posId();
+  return mCursor.refersTo(aCode.mCursor.mSource) && mCursor.mPos.posId()==aCode.mCursor.mPos.posId();
 }
 
 
@@ -4649,7 +4661,7 @@ void CompiledTrigger::processEvent(ScriptObjPtr aEvent, EventSource &aSource, in
     // event was registered for a one-shot value
     // Note: the aEvent that is delivered here might be a completely regular value, neither an event
     //   source nor being of type oneshot!
-    mFrozenEventPos = (SourceCursor::UniquePos)aRegId;
+    mFrozenEventPos = (SourcePos::UniquePos)aRegId;
     mFrozenEventValue = aEvent;
   }
   triggerEvaluation(triggered);
@@ -4836,7 +4848,7 @@ bool CompiledTrigger::updateNextEval(const struct tm& aLatestEvalTm)
 }
 
 
-void CompiledTrigger::checkFrozenEventValue(ScriptObjPtr &aResult, SourceCursor::UniquePos aFreezeId)
+void CompiledTrigger::checkFrozenEventValue(ScriptObjPtr &aResult, SourcePos::UniquePos aFreezeId)
 {
   // Note: this is called for every leaf value, no matter if freezable or not
   // if the original value is a oneshot, switch to oneshot evaluation
@@ -4853,7 +4865,7 @@ void CompiledTrigger::checkFrozenEventValue(ScriptObjPtr &aResult, SourceCursor:
 
 
 
-CompiledTrigger::FrozenResult* CompiledTrigger::getTimeFrozenValue(ScriptObjPtr &aResult, SourceCursor::UniquePos aFreezeId)
+CompiledTrigger::FrozenResult* CompiledTrigger::getTimeFrozenValue(ScriptObjPtr &aResult, SourcePos::UniquePos aFreezeId)
 {
   FrozenResultsMap::iterator frozenVal = mFrozenResults.find(aFreezeId);
   FrozenResult* frozenResultP = NULL;
@@ -4879,7 +4891,7 @@ bool CompiledTrigger::FrozenResult::frozen()
 }
 
 
-CompiledTrigger::FrozenResult* CompiledTrigger::newTimedFreeze(FrozenResult* aExistingFreeze, ScriptObjPtr aNewResult, SourceCursor::UniquePos aFreezeId, MLMicroSeconds aFreezeUntil, bool aUpdate)
+CompiledTrigger::FrozenResult* CompiledTrigger::newTimedFreeze(FrozenResult* aExistingFreeze, ScriptObjPtr aNewResult, SourcePos::UniquePos aFreezeId, MLMicroSeconds aFreezeUntil, bool aUpdate)
 {
   if (!aExistingFreeze) {
     // nothing frozen yet, freeze it now
@@ -4909,7 +4921,7 @@ CompiledTrigger::FrozenResult* CompiledTrigger::newTimedFreeze(FrozenResult* aEx
 }
 
 
-bool CompiledTrigger::unfreezeTimed(SourceCursor::UniquePos aFreezeId)
+bool CompiledTrigger::unfreezeTimed(SourcePos::UniquePos aFreezeId)
 {
   FrozenResultsMap::iterator frozenVal = mFrozenResults.find(aFreezeId);
   if (frozenVal!=mFrozenResults.end()) {
@@ -5104,6 +5116,15 @@ SourceContainer::SourceContainer(const SourceCursor &aCodeFrom, const SourcePos 
 SourceCursor SourceContainer::getCursor()
 {
   return SourceCursor(this);
+}
+
+
+const BreakPoint* SourceContainer::breakPointAt(const SourcePos::UniquePos aPosId) const
+{
+  if (mBreakPoints.empty()) return nullptr; // optimization
+  BreakPointMap::const_iterator pos = mBreakPoints.find(aPosId);
+  if (pos==mBreakPoints.end()) return nullptr;
+  return &pos->second;
 }
 
 
@@ -5417,7 +5438,8 @@ ScriptCodeThread::ScriptCodeThread(ScriptCodeContextPtr aOwner, CompiledCodePtr 
   mChainOriginThread(aChainOriginThread),
   mMaxBlockTime(0),
   mMaxRunTime(Infinite),
-  mRunningSince(Never)
+  mRunningSince(Never),
+  mPaused(false)
 {
   setCursor(aStartCursor);
   FOCUSLOG("\n%04x START        thread created : %s", (uint32_t)((intptr_t)static_cast<SourceProcessor *>(this)) & 0xFFFF, mSrc.displaycode(130).c_str());
@@ -5580,7 +5602,25 @@ void ScriptCodeThread::stepLoop()
   MLMicroSeconds loopingSince = MainLoop::now();
   do {
     MLMicroSeconds now = MainLoop::now();
-    // check for abort
+    // check hitting a breakpoint
+    if (pauseCheck(false)) {
+      return;
+    }
+    if (mOwner->domain()->debuggerEnabled()) {
+      if (mSrc.onBreakPoint()) {
+        // toggle: if running into this unpaused, pause. Otherwise, continue running
+        mPaused = !mPaused;
+        if (!mPaused) {
+          // restarted
+          mRunningSince = now; // re-start
+        }
+      }
+      // check paused status
+      if (mPaused) {
+        // stop for now
+        mOwner->domain()->threadPaused(this);
+      }
+    }
     // Check maximum execution time
     if (mMaxRunTime!=Infinite && now-mRunningSince>mMaxRunTime) {
       // Note: not calling abort as we are WITHIN the call chain
@@ -5820,7 +5860,7 @@ void ScriptCodeThread::memberEventCheck()
           // register the result as event source, along with the source position (for later freezing in trigger evaluation)
           // Note: only if this event source has type freezable, the source position is recorded for identifying frozen event values later
           FOCUSLOG("  leaf member is event source in trigger initialisation : register%s", mResult->hasType(freezable) ? " and record for freezing" : "");
-          eventSource->registerForEvents(triggerEventSink, mResult->hasType(freezable) ? (intptr_t)mSrc.posId() : 0);
+          eventSource->registerForEvents(triggerEventSink, mResult->hasType(freezable) ? (intptr_t)mSrc.mPos.posId() : 0);
         }
       }
     }
@@ -5828,10 +5868,34 @@ void ScriptCodeThread::memberEventCheck()
       // we might have a frozen one-shot value delivered via event (which triggered this evaluation)
       CompiledTrigger* trigger = dynamic_cast<CompiledTrigger*>(mCodeObj.get());
       if (trigger) {
-        trigger->checkFrozenEventValue(mResult, mSrc.posId());
+        trigger->checkFrozenEventValue(mResult, mSrc.mPos.posId());
       }
     }
   }
+}
+
+
+bool ScriptCodeThread::pauseCheck(bool aStatementBoundary)
+{
+  if (
+    mOwner->domain()->debuggerEnabled() && // debugging enabled
+    ((mSingleStep && aStatementBoundary) || mSrc.onBreakPoint()) // singlestepping at statement boundary or breakpoint
+  ) {
+    if (!mContinue) {
+      // not continuing -> pause here
+      OLOG(LOG_NOTICE, "Thread paused %s", mSingleStep ? "after singlestep" : "at breakpoint");
+      mOwner->domain()->threadPaused(this);
+      mSingleStep = false; // next single step must set flag again explicitily
+      return true; // signal pausing
+    }
+    else {
+      // continuing after a pause
+      OLOG(LOG_NOTICE, "Thread continues after pause in debugger");
+      mContinue = false;
+      mRunningSince = MainLoop::currentMainLoop().now(); // re-start run time restriction
+    }
+  }
+  return false;
 }
 
 
@@ -7261,7 +7325,7 @@ static void is_weekday_func(BuiltinFunctionContextPtr f)
   struct tm loctim; MainLoop::getLocalTime(loctim);
   // check if any of the weekdays match
   int weekday = loctim.tm_wday; // 0..6, 0=sunday
-  SourceCursor::UniquePos freezeId = f->argId(0); // Note: we use pos of first argument for freezing the function's result (no need to freeze every single weekday)
+  SourcePos::UniquePos freezeId = f->argId(0); // Note: we use pos of first argument for freezing the function's result (no need to freeze every single weekday)
   bool isday = false;
   for (int i = 0; i<f->numArgs(); i++) {
     int w = (int)f->arg(i)->doubleValue();
@@ -7294,7 +7358,7 @@ static void timeCheckFunc(bool aIsTime, BuiltinFunctionContextPtr f)
 {
   struct tm loctim; MainLoop::getLocalTime(loctim);
   int newSecs;
-  SourceCursor::UniquePos freezeId = f->argId(0);
+  SourcePos::UniquePos freezeId = f->argId(0);
   if (f->numArgs()==2) {
     // TODO: get rid of legacy syntax later
     // legacy time spec in hours and minutes
@@ -7378,7 +7442,7 @@ static void testlater_func(BuiltinFunctionContextPtr f)
   }
   ScriptObjPtr secs = new NumericValue(s);
   ScriptObjPtr currentSecs = secs;
-  SourceCursor::UniquePos  freezeId = f->argId(0);
+  SourcePos::UniquePos freezeId = f->argId(0);
   CompiledTrigger::FrozenResult* frozenP = trigger->getTimeFrozenValue(currentSecs, freezeId);
   bool evalNow = frozenP && !frozenP->frozen();
   if ((f->evalFlags()&timed)==0) {
@@ -7431,7 +7495,7 @@ static void every_func(BuiltinFunctionContextPtr f)
   }
   ScriptObjPtr secs = new NumericValue(s);
   ScriptObjPtr currentSecs = secs;
-  SourceCursor::UniquePos freezeId = f->argId(0);
+  SourcePos::UniquePos freezeId = f->argId(0);
   CompiledTrigger::FrozenResult* frozenP = trigger->getTimeFrozenValue(currentSecs, freezeId);
   bool triggered = frozenP && !frozenP->frozen();
   if (triggered || (f->evalFlags()&initial)!=0) {
