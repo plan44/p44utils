@@ -37,6 +37,12 @@
 #ifndef SCRIPTING_JSON_SUPPORT
   #define SCRIPTING_JSON_SUPPORT 1 // on by default
 #endif
+#ifndef P44SCRIPT_REGISTERED_SOURCE
+  #define P44SCRIPT_REGISTERED_SOURCE P44SCRIPT_FULL_SUPPORT // on for full script support
+#endif
+#ifndef P44SCRIPT_DEBUGGING_SUPPORT
+  #define P44SCRIPT_DEBUGGING_SUPPORT P44SCRIPT_FULL_SUPPORT // on for full script support
+#endif
 
 #if SCRIPTING_JSON_SUPPORT
   #include "jsonobject.hpp"
@@ -1553,8 +1559,10 @@ namespace p44 { namespace P44Script {
     string mSource; ///< the source code as written by the script author
     bool mFloating; ///< if set, the source is not linked but is a private copy
 
+    #if P44SCRIPT_DEBUGGING_SUPPORT
     typedef std::map<SourcePos::UniquePos, BreakPoint> BreakPointMap;
     BreakPointMap mBreakPoints; ///< breakpoints by unique position, normalized to next non-space
+    #endif
 
   public:
     /// create source container
@@ -1569,11 +1577,18 @@ namespace p44 { namespace P44Script {
     /// @return true if this source is floating, i.e. not part of a still existing script
     bool floating() { return mFloating; }
 
+    /// return a logging context
+    P44LoggingObj *loggingContext() { return mLoggingContextP; };
+
+    #if P44SCRIPT_DEBUGGING_SUPPORT
+    /// @name debugging
+    /// @{
+
     /// @return breakpoint at aPosId, or nullPtr in
     const BreakPoint* breakPointAt(const SourcePos::UniquePos aPosId) const;
 
-    /// return a logging context
-    P44LoggingObj *loggingContext() { return mLoggingContextP; };
+    /// @}
+    #endif
 
   };
 
@@ -1590,11 +1605,27 @@ namespace p44 { namespace P44Script {
     P44LoggingObj* mLoggingContextP; ///< the logging context
     SourceContainerPtr mSourceContainer; ///< the container of the source
 
+    #if P44SCRIPT_REGISTERED_SOURCE
+    string mScriptSourceUid; ///< domain-unique, persistent ID for this source
+    #endif
+
   public:
     /// create empty script source
     ScriptSource(EvaluationFlags aDefaultFlags, const char* aOriginLabel = NULL, P44LoggingObj* aLoggingContextP = NULL);
 
     ~ScriptSource();
+
+    #if P44SCRIPT_REGISTERED_SOURCE
+
+    /// register script source at domain level for access via unique ID
+    /// @param aScriptSourceUid a persistent unique ID for this source. This is used to
+    ///   manage script sources at the domain level for debugging and editing.
+    void registerWithId(const string aScriptSourceUid);
+
+    /// @return the script source UID
+    string scriptSourceUid() { return mScriptSourceUid; };
+
+    #endif
 
     /// set domain (where global objects from compilation will be stored)
     /// @param aDomain the domain. Defaults to StandardScriptingDomain::sharedDomain() if not explicitly set
@@ -1753,6 +1784,11 @@ namespace p44 { namespace P44Script {
     GeoLocation *mGeoLocationP;
     MLMicroSeconds mMaxBlockTime;
 
+    #if P44SCRIPT_REGISTERED_SOURCE
+    typedef std::set<ScriptSource*> ScriptSourcesSet;
+    ScriptSourcesSet mScriptSources;
+    #endif
+
   public:
 
     ScriptingDomain() : inherited(ScriptingDomainPtr(), ScriptObjPtr()), mGeoLocationP(NULL), mMaxBlockTime(DEFAULT_MAX_BLOCK_TIME) {};
@@ -1785,6 +1821,7 @@ namespace p44 { namespace P44Script {
     ///   plain functions (static methods) and other members.
     ScriptMainContextPtr newContext(ScriptObjPtr aInstanceObj = ScriptObjPtr());
 
+    #if P44SCRIPT_DEBUGGING_SUPPORT
     /// @name debugging
     /// @{
 
@@ -1795,6 +1832,29 @@ namespace p44 { namespace P44Script {
     void threadPaused(ScriptCodeThreadPtr aThread);
 
     /// @}
+    #endif
+
+    #if P44SCRIPT_REGISTERED_SOURCE
+    /// @name domain level source registry
+    /// @{
+
+    /// @param aScriptSource register this source under its ScriptSourceUid.
+    void registerScriptSource(ScriptSource &aScriptSource);
+
+    /// @param aScriptSource the scriptsource to unregister. Nothing will happen if this source is not registered.
+    void unregisterScriptSource(ScriptSource &aScriptSource);
+
+    /// @return number of registered sources
+    size_t numRegisteredSources() const { return mScriptSources.size(); }
+
+    /// @return script source specified by index or NULL if it does not exist
+    ScriptSource* getSourceByIndex(size_t aSourceIndex) const;
+
+    /// @return script source specified by index or NULL if it does not exist
+    ScriptSource* getSourceByUid(const string aSourceUid) const;
+
+    /// @}
+    #endif
 
   };
 
@@ -2841,7 +2901,14 @@ namespace p44 { namespace P44Script {
   public:
 
     /// get shared global scripting domain with standard functions
+    /// @note if no standard scripting domain exists (neither sharedDomain() nor
+    ///    setStandardScriptingDomain() called yet, a instance of this class will
+    ///    be created.
     static ScriptingDomain& sharedDomain();
+
+    /// set standard scripting domain (e.g. when app wants a derived class for it)
+    /// @param aStandardScriptingDomain set standard scripting domain or nullptr to remove it
+    static void setStandardScriptingDomain(ScriptingDomainPtr aStandardScriptingDomain);
 
   };
 

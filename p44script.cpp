@@ -2531,11 +2531,14 @@ ScriptObjPtr SourceCursor::parseCodeLiteral()
 }
 
 
+#if P44SCRIPT_DEBUGGING_SUPPORT
+
 bool SourceCursor::onBreakPoint() const
 {
   return mSource->breakPointAt(mPos.posId())!=nullptr;
 }
 
+#endif // P44SCRIPT_DEBUGGING_SUPPORT
 
 
 #if SCRIPTING_JSON_SUPPORT
@@ -3815,10 +3818,12 @@ void SourceProcessor::processStatement()
     return;
   }
   // beginning of a new statement
+  #if P44SCRIPT_DEBUGGING_SUPPORT
   if (pauseCheck(true)) {
     // stop processing, debugger might continue execution later
     return;
   }
+  #endif
   if (mSrc.nextIf('{')) {
     // new block starts
     push(mCurrentState); // return to current state when block finishes
@@ -5119,6 +5124,8 @@ SourceCursor SourceContainer::getCursor()
 }
 
 
+#if P44SCRIPT_DEBUGGING_SUPPORT
+
 const BreakPoint* SourceContainer::breakPointAt(const SourcePos::UniquePos aPosId) const
 {
   if (mBreakPoints.empty()) return nullptr; // optimization
@@ -5127,6 +5134,7 @@ const BreakPoint* SourceContainer::breakPointAt(const SourcePos::UniquePos aPosI
   return &pos->second;
 }
 
+#endif // P44SCRIPT_DEBUGGING_SUPPORT
 
 
 // MARK: - ScriptSource
@@ -5141,7 +5149,21 @@ ScriptSource::ScriptSource(EvaluationFlags aDefaultFlags, const char* aOriginLab
 ScriptSource::~ScriptSource()
 {
   setSource(""); // force removal of global objects depending on this
+  #if P44SCRIPT_REGISTERED_SOURCE
+  domain()->unregisterScriptSource(*this);
+  #endif
 }
+
+
+#if P44SCRIPT_REGISTERED_SOURCE
+void ScriptSource::registerWithId(const string aScriptSourceUid)
+{
+  if (!aScriptSourceUid.empty()) {
+    mScriptSourceUid = aScriptSourceUid;
+    domain()->registerScriptSource(*this);
+  }
+}
+#endif
 
 
 void ScriptSource::setDomain(ScriptingDomainPtr aDomain)
@@ -5429,6 +5451,40 @@ ScriptMainContextPtr ScriptingDomain::newContext(ScriptObjPtr aInstanceObj)
 }
 
 
+#if P44SCRIPT_DEBUGGING_SUPPORT
+
+bool ScriptingDomain::debuggerEnabled() const
+{
+  // FIXME: implement
+  #warning %%% TBD
+  return false;
+}
+
+/// called by threads when they get paused
+void ScriptingDomain::threadPaused(ScriptCodeThreadPtr aThread)
+{
+  OLOG(LOG_DEBUG, "threadPaused: %04d", aThread->threadId());
+}
+
+#endif // P44SCRIPT_DEBUGGING_SUPPORT
+
+
+#if P44SCRIPT_REGISTERED_SOURCE
+
+void ScriptingDomain::registerScriptSource(ScriptSource &aScriptSource)
+{
+  mScriptSources.insert(&aScriptSource);
+}
+
+
+void ScriptingDomain::unregisterScriptSource(ScriptSource &aScriptSource)
+{
+  mScriptSources.erase(&aScriptSource);
+}
+
+#endif // P44SCRIPT_REGISTERED_SOURCE
+
+
 // MARK: - ScriptCodeThread
 
 ScriptCodeThread::ScriptCodeThread(ScriptCodeContextPtr aOwner, CompiledCodePtr aCode, const SourceCursor& aStartCursor, ScriptObjPtr aThreadLocals, ScriptCodeThreadPtr aChainOriginThread) :
@@ -5603,24 +5659,11 @@ void ScriptCodeThread::stepLoop()
   do {
     MLMicroSeconds now = MainLoop::now();
     // check hitting a breakpoint
+    #if P44SCRIPT_DEBUGGING_SUPPORT
     if (pauseCheck(false)) {
       return;
     }
-    if (mOwner->domain()->debuggerEnabled()) {
-      if (mSrc.onBreakPoint()) {
-        // toggle: if running into this unpaused, pause. Otherwise, continue running
-        mPaused = !mPaused;
-        if (!mPaused) {
-          // restarted
-          mRunningSince = now; // re-start
-        }
-      }
-      // check paused status
-      if (mPaused) {
-        // stop for now
-        mOwner->domain()->threadPaused(this);
-      }
-    }
+    #endif
     // Check maximum execution time
     if (mMaxRunTime!=Infinite && now-mRunningSince>mMaxRunTime) {
       // Note: not calling abort as we are WITHIN the call chain
@@ -5875,6 +5918,8 @@ void ScriptCodeThread::memberEventCheck()
 }
 
 
+#if P44SCRIPT_DEBUGGING_SUPPORT
+
 bool ScriptCodeThread::pauseCheck(bool aStatementBoundary)
 {
   if (
@@ -5898,6 +5943,7 @@ bool ScriptCodeThread::pauseCheck(bool aStatementBoundary)
   return false;
 }
 
+#endif // P44SCRIPT_DEBUGGING_SUPPORT
 
 
 // MARK: - Built-in Standard functions
@@ -7966,17 +8012,24 @@ static const BuiltinMemberDescriptor standardFunctions[] = {
 
 // MARK: - Standard Scripting Domain
 
-static ScriptingDomainPtr standardScriptingDomain;
+static ScriptingDomainPtr gStandardScriptingDomain;
 
 ScriptingDomain& StandardScriptingDomain::sharedDomain()
 {
-  if (!standardScriptingDomain) {
-    standardScriptingDomain = new StandardScriptingDomain();
+  if (!gStandardScriptingDomain) {
+    gStandardScriptingDomain = new StandardScriptingDomain();
     // the standard scripting domains has the standard functions
-    standardScriptingDomain->registerMemberLookup(new BuiltInMemberLookup(BuiltinFunctions::standardFunctions));
+    gStandardScriptingDomain->registerMemberLookup(new BuiltInMemberLookup(BuiltinFunctions::standardFunctions));
   }
-  return *standardScriptingDomain.get();
+  return *gStandardScriptingDomain.get();
 };
+
+
+void setStandardScriptingDomain(ScriptingDomainPtr aStandardScriptingDomain)
+{
+  gStandardScriptingDomain = aStandardScriptingDomain;
+}
+
 
 
 
