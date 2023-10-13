@@ -707,8 +707,8 @@ string p44::hexToBinaryString(const char *aHexString, bool aSpacesAllowed, size_
       if (c==0) break; // done
       continue; // skip delimiter
     }
-    c = (char)toupper(c)-'0';
-    if (c>9) c -= ('A'-'9'-1);
+    c = (char) (toupper(c)-'0');
+    if (c>9) c = (char) (c-'A'+'9'+1);
     if ((uint8_t)c>0xF)
       break; // invalid char, done
     if (firstNibble) {

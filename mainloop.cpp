@@ -1672,7 +1672,7 @@ void ChildThreadWrapper::disconnect()
 void ChildThreadWrapper::signalParentThread(ThreadSignals aSignalCode)
 {
   uint8_t sigByte = aSignalCode;
-  write(mChildSignalFd, &sigByte, 1);
+  (void) !write(mChildSignalFd, &sigByte, 1);
 }
 
 
