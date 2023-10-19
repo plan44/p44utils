@@ -5139,12 +5139,23 @@ const BreakPoint* SourceContainer::breakPointAt(const SourcePos::UniquePos aPosI
 
 // MARK: - ScriptSource
 
-ScriptSource::ScriptSource(EvaluationFlags aDefaultFlags, const char* aOriginLabel, P44LoggingObj* aLoggingContextP) :
-  mDefaultFlags(aDefaultFlags),
-  mOriginLabel(aOriginLabel),
-  mLoggingContextP(aLoggingContextP)
+
+ScriptSource::ScriptSource() :
+  mActiveParams(nullptr)
 {
 }
+
+
+ScriptSource::ScriptSource(
+  EvaluationFlags aDefaultFlags,
+  const char* aOriginLabel,
+  P44LoggingObj* aLoggingContextP
+) :
+  mActiveParams(nullptr)
+{
+  activate(aDefaultFlags, aOriginLabel, aLoggingContextP);
+}
+
 
 ScriptSource::~ScriptSource()
 {
@@ -5152,125 +5163,305 @@ ScriptSource::~ScriptSource()
   #if P44SCRIPT_REGISTERED_SOURCE
   domain()->unregisterScriptSource(*this);
   #endif
+  if (mActiveParams) {
+    delete mActiveParams;
+    mActiveParams = nullptr;
+  }
+}
+
+
+void ScriptSource::activate(EvaluationFlags aDefaultFlags, const char* aOriginLabel, P44LoggingObj* aLoggingContextP)
+{
+  if (!mActiveParams) {
+    mActiveParams = new ActiveParams;
+    mActiveParams->mDefaultFlags = aDefaultFlags;
+    mActiveParams->mOriginLabel = aOriginLabel;
+    mActiveParams->mLoggingContextP = aLoggingContextP;
+    mActiveParams->mSourceDirty = false;
+  }
+}
+
+
+bool ScriptSource::active() const
+{
+  return mActiveParams!=nullptr;
 }
 
 
 #if P44SCRIPT_REGISTERED_SOURCE
-void ScriptSource::registerWithId(const string aScriptSourceUid)
+
+void ScriptSource::setScriptSourceUid(const string aScriptSourceUid)
 {
-  if (!aScriptSourceUid.empty()) {
-    mScriptSourceUid = aScriptSourceUid;
-    domain()->registerScriptSource(*this);
-  }
+  assert(active());
+  mActiveParams->mScriptSourceUid = aScriptSourceUid;
 }
-#endif
+
+
+string ScriptSource::scriptSourceUid()
+{
+  if (!active()) return "<inactive>";
+  return mActiveParams->mScriptSourceUid;
+}
+
+
+bool ScriptSource::loadAndActivate(
+  const string& aScriptSourceUid,
+  EvaluationFlags aDefaultFlags,
+  const char* aOriginLabel,
+  P44LoggingObj* aLoggingContextP,
+  ScriptingDomainPtr aInDomain,
+  const char* aLocallyStoredSource
+)
+{
+  // we need the domain before we decide about activation
+  if (!aInDomain) aInDomain = ScriptingDomainPtr(&StandardScriptingDomain::sharedDomain());
+  bool domainSource = false;
+  string source;
+  if (!aScriptSourceUid.empty()) {
+    // try to load from domain level
+    domainSource = aInDomain->loadSource(aScriptSourceUid, source);
+  }
+  if (!domainSource && aLocallyStoredSource && *aLocallyStoredSource) {
+    source = aLocallyStoredSource;
+  }
+  if (!source.empty()) {
+    // we do have non-empty source code
+    activate(aDefaultFlags, aOriginLabel, aLoggingContextP);
+    // now activated, we can set the domain
+    setDomain(aInDomain);
+    // and the source text
+    setSource(source);
+    if (!aScriptSourceUid.empty()) {
+      mActiveParams->mScriptSourceUid = aScriptSourceUid;
+      // now register in the domain
+      domain()->registerScriptSource(*this);
+      #if P44SCRIPT_MIGRATE_TO_DOMAIN_SOURCE
+      if (!domainSource) {
+        // migrate to domain store
+        mActiveParams->mSourceDirty = true;
+        storeSource();
+      }
+      #endif // P44SCRIPT_MIGRATE_TO_DOMAIN_SOURCE
+      // after load, source save status is always clean
+      mActiveParams->mSourceDirty = false;
+    }
+  }
+  return !source.empty();
+}
+
+
+bool ScriptSource::setSourceAndActivate(
+  const string& aSource,
+  const string& aScriptSourceUid,
+  EvaluationFlags aDefaultFlags,
+  const char* aOriginLabel,
+  P44LoggingObj* aLoggingContextP,
+  ScriptingDomainPtr aInDomain
+)
+{
+  if (!active() && !aSource.empty()) {
+    // we need to activate first
+    activate(aDefaultFlags, aOriginLabel, aLoggingContextP);
+    setDomain(aInDomain);
+    mActiveParams->mScriptSourceUid = aScriptSourceUid;
+    if (!aScriptSourceUid.empty()) {
+      domain()->registerScriptSource(*this);
+    }
+  }
+  bool changed = setSource(aSource);
+  storeSource();
+  return changed;
+}
+
+
+bool ScriptSource::setAndStoreSource(const string& aSource)
+{
+  bool changed = setSource(aSource);
+  if (changed) {
+    if (storeSource()) {
+      // stored successfully at domain level
+      changed=false; // all set, no need to propagate changed status to caller
+    }
+  }
+  return changed;
+}
+
+
+
+bool ScriptSource::loadSource(const char* aLocallyStoredSource)
+{
+  assert(active());
+  string source;
+  bool changed = false;
+  if (!domain()->loadSource(mActiveParams->mScriptSourceUid, source)) {
+    // use locally stored source, if any
+    if (aLocallyStoredSource) source = aLocallyStoredSource;
+    #if P44SCRIPT_MIGRATE_TO_DOMAIN_SOURCE
+    if (!source.empty()) {
+      POLOG(mActiveParams->mLoggingContextP, LOG_WARNING,
+        "migrating '%s' source to domain store with UID='%s'",
+        nonNullCStr(mActiveParams->mOriginLabel),
+        mActiveParams->mScriptSourceUid.c_str()
+      );
+      changed = setSource(source);
+      storeSource();
+    }
+    #endif
+  }
+  else {
+    changed = setSource(source);
+  }
+  mActiveParams->mSourceDirty = false;
+  return changed;
+}
+
+
+bool ScriptSource::storeSource()
+{
+  if (!active()) return false; // inactive storage is NOP (but ok)
+  if (mActiveParams->mSourceDirty && !mActiveParams->mScriptSourceUid.empty()) {
+    mActiveParams->mDomainSource = domain()->storeSource(mActiveParams->mScriptSourceUid, getSource());
+    mActiveParams->mSourceDirty = !mActiveParams->mDomainSource; // remains dirty when not actually stored
+    return mActiveParams->mDomainSource;
+  }
+  return false; // no need or ability to store
+}
+
+
+#endif // P44SCRIPT_REGISTERED_SOURCE
 
 
 void ScriptSource::setDomain(ScriptingDomainPtr aDomain)
 {
-  mScriptingDomain = aDomain;
+  assert(active());
+  mActiveParams->mScriptingDomain = aDomain;
 };
 
 
 ScriptingDomainPtr ScriptSource::domain()
 {
-  if (!mScriptingDomain) {
+  assert(active());
+  if (!mActiveParams->mScriptingDomain) {
     // none assigned so far, assign default
-    mScriptingDomain = ScriptingDomainPtr(&StandardScriptingDomain::sharedDomain());
+    mActiveParams->mScriptingDomain = ScriptingDomainPtr(&StandardScriptingDomain::sharedDomain());
   }
-  return mScriptingDomain;
+  return mActiveParams->mScriptingDomain;
 }
 
 
 void ScriptSource::setSharedMainContext(ScriptMainContextPtr aSharedMainContext)
 {
+  if (!aSharedMainContext && !active()) return; // no specific context can be set for inactive script
+  assert(active());
   // cached executable gets invalid when setting new context
-  if (mSharedMainContext!=aSharedMainContext) {
-    if (mCachedExecutable) {
-      mCachedExecutable.reset(); // release cached executable (will release SourceCursor holding our source)
+  if (mActiveParams->mSharedMainContext!=aSharedMainContext) {
+    if (mActiveParams->mCachedExecutable) {
+      mActiveParams->mCachedExecutable.reset(); // release cached executable (will release SourceCursor holding our source)
     }
-    mSharedMainContext = aSharedMainContext; // use this particular context for executing scripts
+    mActiveParams->mSharedMainContext = aSharedMainContext; // use this particular context for executing scripts
   }
 }
 
 
 void ScriptSource::uncompile(bool aNoAbort)
 {
-  if (mSharedMainContext && !aNoAbort) {
-    mSharedMainContext->abortThreadsRunningSource(mSourceContainer);
+  if (!active()) return; // cannot be compiled or running, just NOP
+  if (mActiveParams->mSharedMainContext && !aNoAbort) {
+    mActiveParams->mSharedMainContext->abortThreadsRunningSource(mActiveParams->mSourceContainer);
   }
-  if (mCachedExecutable) {
-    mCachedExecutable.reset(); // release cached executable (will release SourceCursor holding our source)
+  if (mActiveParams->mCachedExecutable) {
+    mActiveParams->mCachedExecutable.reset(); // release cached executable (will release SourceCursor holding our source)
   }
-  if (mSourceContainer) {
-    if (mScriptingDomain) mScriptingDomain->releaseObjsFromSource(mSourceContainer); // release all global objects from this source
-    if (mSharedMainContext) mSharedMainContext->releaseObjsFromSource(mSourceContainer); // release all main context objects from this source
+  if (mActiveParams->mSourceContainer) {
+    if (mActiveParams->mScriptingDomain) mActiveParams->mScriptingDomain->releaseObjsFromSource(mActiveParams->mSourceContainer); // release all global objects from this source
+    if (mActiveParams->mSharedMainContext) mActiveParams->mSharedMainContext->releaseObjsFromSource(mActiveParams->mSourceContainer); // release all main context objects from this source
   }
 }
 
 
 bool ScriptSource::setSource(const string aSource, EvaluationFlags aEvaluationFlags)
 {
-  if (aEvaluationFlags==inherit || mDefaultFlags==aEvaluationFlags) {
+  if (!active()) {
+    if (aSource.empty()) return false; // setting empty source on a non-active script is the only allowed option, but is not a change
+    assert(false); // must be active for everything else
+  }
+  if (aEvaluationFlags==inherit || mActiveParams->mDefaultFlags==aEvaluationFlags) {
     // same flags, check source
-    if (mSourceContainer && mSourceContainer->mSource == aSource) {
+    if (mActiveParams->mSourceContainer && mActiveParams->mSourceContainer->mSource == aSource) {
       return false; // no change at all -> NOP
     }
   }
   // changed, invalidate everything related to the previous code
-  uncompile(mDefaultFlags & ephemeralSource);
-  if (aEvaluationFlags!=inherit) mDefaultFlags = aEvaluationFlags;
-  mSourceContainer.reset(); // release it myself
+  uncompile(mActiveParams->mDefaultFlags & ephemeralSource);
+  if (aEvaluationFlags!=inherit) mActiveParams->mDefaultFlags = aEvaluationFlags;
+  mActiveParams->mSourceContainer.reset(); // release it myself
   // create new source container
   if (!aSource.empty()) {
-    mSourceContainer = SourceContainerPtr(new SourceContainer(mOriginLabel, mLoggingContextP, aSource));
+    mActiveParams->mSourceContainer = SourceContainerPtr(new SourceContainer(mActiveParams->mOriginLabel, mActiveParams->mLoggingContextP, aSource));
   }
+  mActiveParams->mSourceDirty = true;
   return true; // source has changed
 }
 
 
 string ScriptSource::getSource() const
 {
-  return mSourceContainer ? mSourceContainer->mSource : "";
+  return active() && mActiveParams->mSourceContainer ? mActiveParams->mSourceContainer->mSource : "";
+}
+
+
+string ScriptSource::getSourceToStoreLocally() const
+{
+  #if P44SCRIPT_MIGRATE_TO_DOMAIN_SOURCE
+  if (active() && mActiveParams->mDomainSource) return "<domain>"; // mark having moved to domain
+  #endif
+  // no source from domain, just return it to be stored locally by the caller (e.g. in DB field)
+  return getSource();
 }
 
 
 bool ScriptSource::empty() const
 {
-  return mSourceContainer ? mSourceContainer->mSource.empty() : true;
+  return active() && mActiveParams->mSourceContainer ? mActiveParams->mSourceContainer->mSource.empty() : true;
+}
+
+
+const char *ScriptSource::getOriginLabel()
+{
+  return nonNullCStr(active() ? mActiveParams->mOriginLabel : nullptr);
 }
 
 
 bool ScriptSource::refersTo(const SourceCursor& aCursor)
 {
-  return aCursor.refersTo(mSourceContainer);
+  return active() ? aCursor.refersTo(mActiveParams->mSourceContainer) : false; // can't refer to inactive source
 }
 
 
 ScriptObjPtr ScriptSource::getExecutable()
 {
-  if (mSourceContainer) {
-    if (!mCachedExecutable) {
+  if (active() && mActiveParams->mSourceContainer) {
+    if (!mActiveParams->mCachedExecutable) {
       // need to compile
       ScriptCompiler compiler(domain());
-      ScriptMainContextPtr mctx = mSharedMainContext; // use shared context if one is set
+      ScriptMainContextPtr mctx = mActiveParams->mSharedMainContext; // use shared context if one is set
       if (!mctx) {
         // default to independent execution in a non-object context (no instance pointer)
         mctx = domain()->newContext();
       }
       CompiledCodePtr code;
-      if (mDefaultFlags & anonymousfunction) {
+      if (mActiveParams->mDefaultFlags & anonymousfunction) {
         code = new CompiledCode("anonymous");
       }
-      else if (mDefaultFlags & (triggered|timed|initial)) {
-        code = new CompiledTrigger(mOriginLabel ? mOriginLabel : "trigger", mctx);
+      else if (mActiveParams->mDefaultFlags & (triggered|timed|initial)) {
+        code = new CompiledTrigger(mActiveParams->mOriginLabel ? mActiveParams->mOriginLabel : "trigger", mctx);
       }
       else {
-        code = new CompiledScript(mOriginLabel ? mOriginLabel : "script", mctx);
+        code = new CompiledScript(mActiveParams->mOriginLabel ? mActiveParams->mOriginLabel : "script", mctx);
       }
-      mCachedExecutable = compiler.compile(mSourceContainer, code, mDefaultFlags, mctx);
+      mActiveParams->mCachedExecutable = compiler.compile(mActiveParams->mSourceContainer, code, mActiveParams->mDefaultFlags, mctx);
     }
-    return mCachedExecutable;
+    return mActiveParams->mCachedExecutable;
   }
   return new ErrorValue(ScriptError::Internal, "no source -> no executable");
 }
@@ -5278,20 +5469,22 @@ ScriptObjPtr ScriptSource::getExecutable()
 
 ScriptObjPtr ScriptSource::syntaxcheck()
 {
-  EvaluationFlags checkFlags = (mDefaultFlags&~runModeMask)|scanning|checking;
+  if (!active()) return ScriptObjPtr(); // no script at all is ok
+  EvaluationFlags checkFlags = (mActiveParams->mDefaultFlags&~runModeMask)|scanning|checking;
   ScriptCompiler compiler(domain());
-  ScriptMainContextPtr mctx = mSharedMainContext; // use shared context if one is set
+  ScriptMainContextPtr mctx = mActiveParams->mSharedMainContext; // use shared context if one is set
   if (!mctx) {
     // default to independent execution in a non-object context (no instance pointer)
     mctx = domain()->newContext();
   }
-  return compiler.compile(mSourceContainer, CompiledCodePtr(), checkFlags, mctx);
+  return compiler.compile(mActiveParams->mSourceContainer, CompiledCodePtr(), checkFlags, mctx);
 }
 
 
 ScriptObjPtr ScriptSource::run(EvaluationFlags aRunFlags, EvaluationCB aEvaluationCB, ScriptObjPtr aThreadLocals, MLMicroSeconds aMaxRunTime)
 {
-  EvaluationFlags flags = mDefaultFlags; // default to compile flags
+  if (!active()) return new AnnotatedNullValue("no script");
+  EvaluationFlags flags = mActiveParams->mDefaultFlags; // default to compile flags
   if (aRunFlags & runModeMask) {
     // runmode set in run flags -> use it
     flags = (flags&~runModeMask) | (aRunFlags&runModeMask);
@@ -5336,14 +5529,32 @@ ScriptObjPtr ScriptSource::run(EvaluationFlags aRunFlags, EvaluationCB aEvaluati
 
 // MARK: - TriggerSource
 
-bool TriggerSource::setTriggerSource(const string aSource, bool aAutoInit)
+
+bool TriggerSource::setAndStoreTriggerSource(const string& aSource, bool aAutoInit)
 {
-  bool changed = setSource(aSource); // actual run mode is set when run, but a trigger related mode must be set to generate a CompiledTrigger object
+  bool changed = setSource(aSource);
+  if (changed) {
+    if (storeSource()) {
+      // stored successfully at domain level
+      changed=false; // all set, no need to propagate changed status to caller
+    }
+    if (aAutoInit) {
+      compileAndInit();
+    }
+  }
+  return changed;
+}
+
+
+bool TriggerSource::loadTriggerSource(const char* aLocallyStoredSource, bool aAutoInit)
+{
+  bool changed = loadSource(aLocallyStoredSource);
   if (changed && aAutoInit) {
     compileAndInit();
   }
   return changed;
 }
+
 
 
 bool TriggerSource::setTriggerHoldoff(MLMicroSeconds aHoldOffTime, bool aAutoInit)
@@ -5379,7 +5590,7 @@ ScriptObjPtr TriggerSource::compileAndInit()
   if (!trigger) return  new ErrorValue(ScriptError::Internal, "is not a trigger");
   trigger->setTriggerMode(mTriggerMode, mHoldOffTime);
   trigger->setTriggerCB(mTriggerCB);
-  trigger->setTriggerEvalFlags(mDefaultFlags);
+  trigger->setTriggerEvalFlags(mActiveParams->mDefaultFlags);
   return trigger->initializeTrigger();
 }
 
@@ -5471,16 +5682,43 @@ void ScriptingDomain::threadPaused(ScriptCodeThreadPtr aThread)
 
 #if P44SCRIPT_REGISTERED_SOURCE
 
+
 void ScriptingDomain::registerScriptSource(ScriptSource &aScriptSource)
 {
-  mScriptSources.insert(&aScriptSource);
+  for(ScriptSourcesVector::const_iterator pos = mScriptSources.begin(); pos!=mScriptSources.end(); ++pos) {
+    if (&aScriptSource==*pos) return; // already registered
+  }
+  // not yet registered
+  mScriptSources.push_back(&aScriptSource);
 }
 
 
 void ScriptingDomain::unregisterScriptSource(ScriptSource &aScriptSource)
 {
-  mScriptSources.erase(&aScriptSource);
+  for(ScriptSourcesVector::const_iterator pos = mScriptSources.begin(); pos!=mScriptSources.end(); ++pos) {
+    if (&aScriptSource==*pos) {
+      mScriptSources.erase(pos);
+      return;
+    }
+  }
 }
+
+
+ScriptSource* ScriptingDomain::getSourceByIndex(size_t aSourceIndex) const
+{
+  if (aSourceIndex>mScriptSources.size()) return nullptr;
+  return mScriptSources[aSourceIndex];
+}
+
+
+ScriptSource* ScriptingDomain::getSourceByUid(const string aSourceUid) const
+{
+  for(ScriptSourcesVector::const_iterator pos = mScriptSources.begin(); pos!=mScriptSources.end(); ++pos) {
+    if (aSourceUid==(*pos)->scriptSourceUid()) return *pos;
+  }
+  return nullptr;
+}
+
 
 #endif // P44SCRIPT_REGISTERED_SOURCE
 
@@ -8025,7 +8263,7 @@ ScriptingDomain& StandardScriptingDomain::sharedDomain()
 };
 
 
-void setStandardScriptingDomain(ScriptingDomainPtr aStandardScriptingDomain)
+void StandardScriptingDomain::setStandardScriptingDomain(ScriptingDomainPtr aStandardScriptingDomain)
 {
   gStandardScriptingDomain = aStandardScriptingDomain;
 }

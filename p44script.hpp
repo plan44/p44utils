@@ -40,6 +40,9 @@
 #ifndef P44SCRIPT_REGISTERED_SOURCE
   #define P44SCRIPT_REGISTERED_SOURCE P44SCRIPT_FULL_SUPPORT // on for full script support
 #endif
+#ifndef P44SCRIPT_MIGRATE_TO_DOMAIN_SOURCE
+  #define P44SCRIPT_MIGRATE_TO_DOMAIN_SOURCE P44SCRIPT_REGISTERED_SOURCE // include migration when we have registered sources
+#endif
 #ifndef P44SCRIPT_DEBUGGING_SUPPORT
   #define P44SCRIPT_DEBUGGING_SUPPORT P44SCRIPT_FULL_SUPPORT // on for full script support
 #endif
@@ -1597,35 +1600,138 @@ namespace p44 { namespace P44Script {
   class ScriptSource
   {
   protected:
-    ScriptingDomainPtr mScriptingDomain; ///< the scripting domain
-    ScriptMainContextPtr mSharedMainContext; ///< a shared context to always run this source in. If not set, each script gets a new main context
-    ScriptObjPtr mCachedExecutable; ///< the compiled executable for the script's body.
-    EvaluationFlags mDefaultFlags; ///< default flags for how to compile (as expression, scriptbody, source), also used as default run flags
-    const char *mOriginLabel; ///< a label used for logging and error reporting
-    P44LoggingObj* mLoggingContextP; ///< the logging context
-    SourceContainerPtr mSourceContainer; ///< the container of the source
 
-    #if P44SCRIPT_REGISTERED_SOURCE
-    string mScriptSourceUid; ///< domain-unique, persistent ID for this source
-    #endif
+    typedef struct {
+      ScriptingDomainPtr mScriptingDomain; ///< the scripting domain
+      ScriptMainContextPtr mSharedMainContext; ///< a shared context to always run this source in. If not set, each script gets a new main context
+      ScriptObjPtr mCachedExecutable; ///< the compiled executable for the script's body.
+      EvaluationFlags mDefaultFlags; ///< default flags for how to compile (as expression, scriptbody, source), also used as default run flags
+      const char *mOriginLabel; ///< a label used for logging and error reporting
+      P44LoggingObj* mLoggingContextP; ///< the logging context
+      SourceContainerPtr mSourceContainer; ///< the container of the source
+      #if P44SCRIPT_REGISTERED_SOURCE
+      string mScriptSourceUid; ///< domain-unique, persistent ID for this source
+      bool mSourceDirty; ///< set when source gets modified via setSource(), cleared by storeSource()
+      #if P44SCRIPT_MIGRATE_TO_DOMAIN_SOURCE
+      bool mDomainSource; ///< source is stored in domain, DB level can be deleted
+      #endif
+      #endif
+    } ActiveParams;
+
+    ActiveParams* mActiveParams; ///< parameters allocated and created at activation only
 
   public:
-    /// create empty script source
-    ScriptSource(EvaluationFlags aDefaultFlags, const char* aOriginLabel = NULL, P44LoggingObj* aLoggingContextP = NULL);
 
+    /// create non-activated script source
+    /// @note this is suitable for scripts with potentially large number of different instances
+    ///   (such as vdcd scene scripts), which should not consume memory before they are actually in use
+    ///   Those need to be activated at load or set (using loadAndActivate() or setSourceAndActivate().
+    ScriptSource();
+
+    /// create empty script source, activate it
+    /// @param aDefaultFlags default execution flags
+    /// @param aOriginLabel origin label to specify script's origin or nullptr if none (will fall back to default labels)
+    /// @param aLoggingContextP the logging object to log script related info or nullptr if none
+    /// @note this is suitable for likely-used scripts which can be active before any source is loaded as it does
+    ///   not really matter if they stay allocated empty.
+    ScriptSource(
+      EvaluationFlags aDefaultFlags,
+      const char* aOriginLabel = nullptr,
+      P44LoggingObj* aLoggingContextP = nullptr
+    );
+
+    /// Destructor
     ~ScriptSource();
+
+    /// @return true if active (i.e. activated sometime before
+    bool active() const;
+
+    /// activate the script for actually being used
+    /// @note once activated, the function can be called again but is NOP and ignores activation params
+    /// @param aDefaultFlags default execution flags
+    /// @param aOriginLabel origin label to specify script's origin or nullptr if none (will fall back to default labels)
+    /// @param aLoggingContextP the logging object to log script related info or nullptr if none
+    void activate(EvaluationFlags aDefaultFlags, const char* aOriginLabel = nullptr, P44LoggingObj* aLoggingContextP = nullptr);
 
     #if P44SCRIPT_REGISTERED_SOURCE
 
-    /// register script source at domain level for access via unique ID
-    /// @param aScriptSourceUid a persistent unique ID for this source. This is used to
-    ///   manage script sources at the domain level for debugging and editing.
-    void registerWithId(const string aScriptSourceUid);
+    /// checks and loads source by aScriptSourceId from scripting domain if available
+    /// or, if not known in domain, uses contents of aDBStoreSource
+    /// to activate the source, if the resulting source text is not empty
+    /// @param aScriptSourceUid the sourceUid - if non-empty, the script will be attempted to load from the domain via the ID
+    ///   and will become registered under this id as a activated script if non-empty source code could be loaded.
+    /// @param aDefaultFlags default execution flags
+    /// @param aOriginLabel origin label to specify script's origin or nullptr if none (will fall back to default labels)
+    /// @param aLoggingContextP the logging object to log script related info or nullptr if none
+    /// @param aInDomain the scripting domain, if not specified, the standard scripting domain will be used
+    /// @param aLocallyStoredSource if not nullptr, this is source code as locally stored (eg. in DB). This might get migrated to
+    ///   scripting domain managed store.
+    /// @return true if a non-empty source was activated
+    /// @note once activated, the function can be called again to re-load changed sources, but will not change
+    ///   activation params (flags, label, loggingcontext) and will also ignore a new a changed aScriptSourceUid.
+    /// @note will possibly migrate locally stored script sources to domain managed store (if the latter is available).
+    bool loadAndActivate(
+      const string& aScriptSourceUid,
+      EvaluationFlags aDefaultFlags,
+      const char* aOriginLabel = nullptr,
+      P44LoggingObj* aLoggingContextP = nullptr,
+      ScriptingDomainPtr aInDomain = ScriptingDomainPtr(),
+      const char* aLocallyStoredSource = nullptr
+    );
 
-    /// @return the script source UID
-    string scriptSourceUid() { return mScriptSourceUid; };
+    /// Set new script source and activate script if it is not yet activated and aSource is not empty.
+    /// Also store the source text if it has changed
+    /// @param aSource the source text to set
+    /// @param aScriptSourceUid the sourceUid - if non-empty, the script will be saved in the domain level
+    ///   storage under this id (if the text has changed from already stored version)
+    /// @param aDefaultFlags default execution flags
+    /// @param aOriginLabel origin label to specify script's origin or nullptr if none (will fall back to default labels)
+    /// @param aLoggingContextP the logging object to log script related info or nullptr if none
+    /// @param aInDomain the scripting domain, if not specified, the standard scripting domain will be used
+    /// @return true if aSource was different from previously stored (or empty) source
+    /// @note This is for lazily activated scripts (those with potentially many instances, but only few actually used
+    ///   ones, such as vdcd scene scripts). Use pre-activated scripts / setAndStore() for scripts that very likely
+    ///   in use, or can exist in few instances only.
+    /// @note once activated, the function can be called again to change and store sources, but it will not change
+    ///   activation params (flags, label, loggingcontext) and will also ignore a new a changed aScriptSourceUid.
+    bool setSourceAndActivate(
+      const string& aSource,
+      const string& aScriptSourceUid,
+      EvaluationFlags aDefaultFlags,
+      const char* aOriginLabel = nullptr,
+      P44LoggingObj* aLoggingContextP = nullptr,
+      ScriptingDomainPtr aInDomain = ScriptingDomainPtr()
+    );
 
-    #endif
+    /// load source by scriptSourceUid from domain level store
+    /// @note must be activated before calling
+    /// @param aLocallyStoredSource if not nullptr, this is source code as locally stored (eg. in DB). This might get migrated to
+    ///   scripting domain managed store.
+    /// @return true if source text has changed due to (re)loading
+    bool loadSource(const char* aLocallyStoredSource = nullptr);
+
+    /// sets source text and stores source by scriptSourceUid to domain level if different from previous version
+    /// @param aSource the source text to set
+    /// @return true if aSource was different from the previous source AND is not stored in domain-level store.
+    ///   This return value is indended for the caller to to mark a locally persisted object dirty if the changed
+    ///   source must be stored locally.
+    bool setAndStoreSource(const string& aSource);
+
+    /// stores source by scriptSourceUid to domain level store if it was changed by setSource since last load or store
+    /// @note if called when inactive, it is just NOP (no script -> nothing to store)
+    /// @return true if actually anything was saved (because previous version was different)
+    bool storeSource();
+
+    /// set the scriptSourceUid
+    /// @note must be activated before calling
+    /// @param aScriptSourceUid the sourceUid - if non-empty, this is used to load and store the script
+    ///   at scripting domain level and register non-empty sources there for debugging and inspection.
+    void setScriptSourceUid(const string aScriptSourceUid);
+
+    /// @return the script source UID or a dummy placeholder in case it is not set
+    string scriptSourceUid();
+
+    #endif // P44SCRIPT_REGISTERED_SOURCE
 
     /// set domain (where global objects from compilation will be stored)
     /// @param aDomain the domain. Defaults to StandardScriptingDomain::sharedDomain() if not explicitly set
@@ -1651,8 +1757,12 @@ namespace p44 { namespace P44Script {
     /// @return the source code as set by setSource()
     string getSource() const;
 
+    /// get the source code to be stored in callers local store (e.g. DB field)
+    /// @return the source code as set by setSource() or a dummy when script source is stored in domain level store
+    string getSourceToStoreLocally() const;
+
     /// @return the origin label string
-    const char *getOriginLabel() { return nonNullCStr(mOriginLabel); }
+    const char *getOriginLabel();
 
     /// check if a cursor refers to this source
     /// @param aCursor the cursor to check
@@ -1714,11 +1824,21 @@ namespace p44 { namespace P44Script {
     {
     }
 
-    /// set new trigger source with the callback/mode/evalFlags as set with the constructor
-    /// @param aSource the trigger source code to set
+    /// load trigger source by scriptSourceUid from domain level store
+    /// @note must be activated before calling
+    /// @param aLocallyStoredSource if not nullptr, this is source code as locally stored (eg. in DB). This might get migrated to
+    ///   scripting domain managed store.
     /// @param aAutoInit if set, and source code has actually changed, compileAndInit() will be called
-    /// @return true if changed.
-    bool setTriggerSource(const string aSource, bool aAutoInit = false);
+    /// @return true if source text has changed due to (re)loading
+    bool loadTriggerSource(const char* aLocallyStoredSource = nullptr, bool aAutoInit = false);
+
+    /// sets source text and stores source by scriptSourceUid to domain level if different from previous version
+    /// @param aSource the source text to set
+    /// @param aAutoInit if set, and source code has actually changed, compileAndInit() will be called
+    /// @return true if aSource was different from the previous source AND is not stored in domain-level store.
+    ///   This return value is indended for the caller to to mark a locally persisted object dirty if the changed
+    ///   source must be stored locally.
+    bool setAndStoreTriggerSource(const string& aSource, bool aAutoInit);
 
     /// set new trigger mode
     /// @param aHoldOffTime the new holdoff time
@@ -1785,8 +1905,8 @@ namespace p44 { namespace P44Script {
     MLMicroSeconds mMaxBlockTime;
 
     #if P44SCRIPT_REGISTERED_SOURCE
-    typedef std::set<ScriptSource*> ScriptSourcesSet;
-    ScriptSourcesSet mScriptSources;
+    typedef std::vector<ScriptSource*> ScriptSourcesVector;
+    ScriptSourcesVector mScriptSources;
     #endif
 
   public:
@@ -1852,6 +1972,16 @@ namespace p44 { namespace P44Script {
 
     /// @return script source specified by index or NULL if it does not exist
     ScriptSource* getSourceByUid(const string aSourceUid) const;
+
+    /// try to load source text from domain level script storage
+    /// @param aSource will be set to the source code loaded
+    /// @return true if source code (even empty) was found in the domain level store
+    virtual bool loadSource(const string &aScriptSourceUid, string &aSource) { return false; /* no actual storage in base class */ }
+
+    /// try to store source text to domain level script storage
+    /// @param aSource source text to be stored
+    /// @return true if aSource (even empty) could be persisted in the domain level storage
+    virtual bool storeSource(const string &aScriptSourceUid, const string &aSource) { return false; /* no actual storage in base class */ }
 
     /// @}
     #endif
