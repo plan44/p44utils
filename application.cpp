@@ -265,13 +265,8 @@ string Application::dataPath(const string aDataFile, const string aPrefix, bool 
   else {
     p += "/" + aPrefix; // separator and prefix
     if (aCreatePrefix && p[p.size()-1]=='/') {
-      // prefix denotes a subdirectory and should be created
-      p.erase(p.size()-1); // remove trailing slash for check&creation of dir
-      if (access(p.c_str(), F_OK)<0) {
-        // does not yet exist, create now
-        mkdir(p.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
-      }
-      p += '/'; // re-add the separator the prefix had
+      // prefix denotes a subdirectory and should be created - limit to max 3 levels!
+      ensureDirExists(p.substr(0,p.size()-1), 3, S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
     }
   }
   return p + f;
