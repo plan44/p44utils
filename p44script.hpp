@@ -1722,6 +1722,9 @@ namespace p44 { namespace P44Script {
     /// @return true if actually anything was saved (because previous version was different)
     bool storeSource();
 
+    /// register the script if it is active and has a non-empty sourceUID. Otherwise: NOP
+    void registerScript();
+
     /// set the scriptSourceUid
     /// @note must be activated before calling
     /// @param aScriptSourceUid the sourceUid - if non-empty, this is used to load and store the script
@@ -1730,6 +1733,11 @@ namespace p44 { namespace P44Script {
 
     /// @return the script source UID or a dummy placeholder in case it is not set
     string scriptSourceUid();
+
+    /// register the script under a UID, but do not store it
+    /// @param the sourceUid to register the script with, but prevent storing the source
+    /// @note this is for ephemeral scripts that should be registered while running for possible debugging
+    void registerUnstoredScript(const string aScriptSourceUid);
 
     #endif // P44SCRIPT_REGISTERED_SOURCE
 
@@ -3028,6 +3036,13 @@ namespace p44 { namespace P44Script {
   {
     typedef ScriptingDomain inherited;
 
+  protected:
+
+    /// @note this is for derived, specialized classes only which can be set as
+    ///   standard scripting domain via setStandardScriptingDomain() before
+    ///   sharedDomain() is used the first time.
+    StandardScriptingDomain();
+
   public:
 
     /// get shared global scripting domain with standard functions
@@ -3042,6 +3057,36 @@ namespace p44 { namespace P44Script {
 
   };
 
+
+  #if P44SCRIPT_REGISTERED_SOURCE
+
+  // MARK: - File storage based standard scripting domain
+
+  // Standard scripting domain with script storage to files
+  class FileStorageStandardScriptingDomain : public StandardScriptingDomain
+  {
+    typedef StandardScriptingDomain inherited;
+
+    string mScriptDir;
+
+  public:
+
+    /// set the script dir
+    void setScriptSourceDirectory(const string aScriptDir) { mScriptDir = aScriptDir; }
+
+    /// try to load source text from domain level script storage
+    /// @param aSource will be set to the source code loaded
+    /// @return true if source code (even empty) was found in the domain level store
+    virtual bool loadSource(const string &aScriptSourceUid, string &aSource) P44_OVERRIDE;
+
+    /// try to store source text to domain level script storage
+    /// @param aSource source text to be stored
+    /// @return true if aSource (even empty) could be persisted in the domain level storage
+    virtual bool storeSource(const string &aScriptSourceUid, const string &aSource) P44_OVERRIDE;
+
+  };
+
+  #endif // P44SCRIPT_REGISTERED_SOURCE
 
 }} // namespace p44::Script
 

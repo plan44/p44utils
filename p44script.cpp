@@ -5160,10 +5160,10 @@ ScriptSource::ScriptSource(
 ScriptSource::~ScriptSource()
 {
   setSource(""); // force removal of global objects depending on this
-  #if P44SCRIPT_REGISTERED_SOURCE
-  domain()->unregisterScriptSource(*this);
-  #endif
   if (mActiveParams) {
+    #if P44SCRIPT_REGISTERED_SOURCE
+    domain()->unregisterScriptSource(*this);
+    #endif
     delete mActiveParams;
     mActiveParams = nullptr;
   }
@@ -5194,6 +5194,21 @@ void ScriptSource::setScriptSourceUid(const string aScriptSourceUid)
 {
   assert(active());
   mActiveParams->mScriptSourceUid = aScriptSourceUid;
+}
+
+
+void ScriptSource::registerScript()
+{
+  if (active() && !mActiveParams->mScriptSourceUid.empty()) {
+    domain()->registerScriptSource(*this);
+  }
+}
+
+
+void ScriptSource::registerUnstoredScript(const string aScriptSourceUid)
+{
+  setScriptSourceUid(aScriptSourceUid);
+  registerScript();
 }
 
 
@@ -5234,7 +5249,7 @@ bool ScriptSource::loadAndActivate(
     if (!aScriptSourceUid.empty()) {
       mActiveParams->mScriptSourceUid = aScriptSourceUid;
       // now register in the domain
-      domain()->registerScriptSource(*this);
+      registerScript();
       #if P44SCRIPT_MIGRATE_TO_DOMAIN_SOURCE
       if (!domainSource) {
         // migrate to domain store
@@ -5264,9 +5279,7 @@ bool ScriptSource::setSourceAndActivate(
     activate(aDefaultFlags, aOriginLabel, aLoggingContextP);
     setDomain(aInDomain);
     mActiveParams->mScriptSourceUid = aScriptSourceUid;
-    if (!aScriptSourceUid.empty()) {
-      domain()->registerScriptSource(*this);
-    }
+    registerScript();
   }
   bool changed = setSource(aSource);
   storeSource();
@@ -5298,13 +5311,14 @@ bool ScriptSource::loadSource(const char* aLocallyStoredSource)
     if (aLocallyStoredSource) source = aLocallyStoredSource;
     #if P44SCRIPT_MIGRATE_TO_DOMAIN_SOURCE
     if (!source.empty()) {
+      changed = setSource(source);
+      storeSource();
       POLOG(mActiveParams->mLoggingContextP, LOG_WARNING,
-        "migrating '%s' source to domain store with UID='%s'",
+        "%s migrating '%s' source to domain store with UID='%s'",
+        mActiveParams->mDomainSource ? "completed" : "FAILED",
         nonNullCStr(mActiveParams->mOriginLabel),
         mActiveParams->mScriptSourceUid.c_str()
       );
-      changed = setSource(source);
-      storeSource();
     }
     #endif
   }
@@ -5312,6 +5326,7 @@ bool ScriptSource::loadSource(const char* aLocallyStoredSource)
     changed = setSource(source);
   }
   mActiveParams->mSourceDirty = false;
+  registerScript();
   return changed;
 }
 
@@ -5413,7 +5428,9 @@ string ScriptSource::getSource() const
 string ScriptSource::getSourceToStoreLocally() const
 {
   #if P44SCRIPT_MIGRATE_TO_DOMAIN_SOURCE
-  if (active() && mActiveParams->mDomainSource) return "<domain>"; // mark having moved to domain
+  if (active() && mActiveParams->mDomainSource) {
+    return "<domain>"; // mark having moved to domain
+  }
   #endif
   // no source from domain, just return it to be stored locally by the caller (e.g. in DB field)
   return getSource();
@@ -8248,16 +8265,23 @@ static const BuiltinMemberDescriptor standardFunctions[] = {
 
 } // BuiltinFunctions
 
+
 // MARK: - Standard Scripting Domain
 
 static ScriptingDomainPtr gStandardScriptingDomain;
+
+
+StandardScriptingDomain::StandardScriptingDomain()
+{
+  // a standard scripting domains has the standard functions
+  registerMemberLookup(new BuiltInMemberLookup(BuiltinFunctions::standardFunctions));
+}
+
 
 ScriptingDomain& StandardScriptingDomain::sharedDomain()
 {
   if (!gStandardScriptingDomain) {
     gStandardScriptingDomain = new StandardScriptingDomain();
-    // the standard scripting domains has the standard functions
-    gStandardScriptingDomain->registerMemberLookup(new BuiltInMemberLookup(BuiltinFunctions::standardFunctions));
   }
   return *gStandardScriptingDomain.get();
 };
@@ -8269,6 +8293,43 @@ void StandardScriptingDomain::setStandardScriptingDomain(ScriptingDomainPtr aSta
 }
 
 
+#if P44SCRIPT_REGISTERED_SOURCE
+
+// MARK: - File storage based standard scripting domain
+
+#define P44SCRIPT_FILE_EXTENSION ".p44s"
+
+bool FileStorageStandardScriptingDomain::loadSource(const string &aScriptSourceUid, string &aSource)
+{
+  if (mScriptDir.empty()) return false;
+  ErrorPtr err = string_fromfile(mScriptDir+"/"+aScriptSourceUid+P44SCRIPT_FILE_EXTENSION, aSource);
+  if (Error::isOK(err)) return true;
+  if (Error::isError(err, SysError::domain(), ENOENT)) return false; // no such file, but that's ok
+  LOG(LOG_ERR, "Cannot load script '%s" P44SCRIPT_FILE_EXTENSION "'", aScriptSourceUid.c_str());
+  return false; // error, nothing loaded
+}
+
+
+bool FileStorageStandardScriptingDomain::storeSource(const string &aScriptSourceUid, const string &aSource)
+{
+  if (mScriptDir.empty()) return false;
+  string scriptfn = mScriptDir+"/"+aScriptSourceUid+P44SCRIPT_FILE_EXTENSION;
+  ErrorPtr err;
+  if (aSource.empty()) {
+    // remove entirely empty script files
+    err = SysError::err(unlink(scriptfn.c_str()));
+  }
+  else {
+    // save as file
+    err = string_tofile(scriptfn, aSource);
+  }
+  if (Error::isOK(err)) return true;
+  LOG(LOG_ERR, "Cannot save source '%s" P44SCRIPT_FILE_EXTENSION "'", aScriptSourceUid.c_str());
+  return false;
+}
+
+
+#endif // P44SCRIPT_REGISTERED_SOURCE
 
 
 #if SIMPLE_REPL_APP
