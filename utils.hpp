@@ -207,7 +207,6 @@ namespace p44 {
   /// @return true if a CSV field could be extracted, false if no more fields found
   bool nextCSVField(const char * &aCursor, string &aField, char aSeparator = 0, bool aContinueQuoted = false);
 
-
   /// return next part from a separated string
   /// @param aCursor at entry, must point to the beginning of a string
   ///   After return, this is updated to point to next char following aSeparator or to end-of-string
