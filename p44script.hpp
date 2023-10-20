@@ -1613,7 +1613,8 @@ namespace p44 { namespace P44Script {
       string mScriptSourceUid; ///< domain-unique, persistent ID for this source
       bool mSourceDirty; ///< set when source gets modified via setSource(), cleared by storeSource()
       #if P44SCRIPT_MIGRATE_TO_DOMAIN_SOURCE
-      bool mDomainSource; ///< source is stored in domain, DB level can be deleted
+      bool mDomainSource; ///< source is stored in domain, locally stored data can be deleted
+      bool mLocalDataReportedRemoved; ///< locally stored data at least once reported as removed
       #endif
       #endif
     } ActiveParams;
@@ -1739,6 +1740,12 @@ namespace p44 { namespace P44Script {
     /// @note this is for ephemeral scripts that should be registered while running for possible debugging
     void registerUnstoredScript(const string aScriptSourceUid);
 
+    #if P44SCRIPT_MIGRATE_TO_DOMAIN_SOURCE
+    /// get the source code to be stored in callers local store (e.g. DB field)
+    /// @return the source code as set by setSource() or empty string when script source is already migrated to domain level store
+    string getSourceToStoreLocally() const;
+    #endif // P44SCRIPT_MIGRATE_TO_DOMAIN_SOURCE
+
     #endif // P44SCRIPT_REGISTERED_SOURCE
 
     /// set domain (where global objects from compilation will be stored)
@@ -1764,10 +1771,6 @@ namespace p44 { namespace P44Script {
     /// get the source code
     /// @return the source code as set by setSource()
     string getSource() const;
-
-    /// get the source code to be stored in callers local store (e.g. DB field)
-    /// @return the source code as set by setSource() or a dummy when script source is stored in domain level store
-    string getSourceToStoreLocally() const;
 
     /// @return the origin label string
     const char *getOriginLabel();
@@ -1847,6 +1850,12 @@ namespace p44 { namespace P44Script {
     ///   This return value is indended for the caller to to mark a locally persisted object dirty if the changed
     ///   source must be stored locally.
     bool setAndStoreTriggerSource(const string& aSource, bool aAutoInit);
+
+    /// set new trigger source with the callback/mode/evalFlags as set with the constructor
+    /// @param aSource the trigger source code to set
+    /// @param aAutoInit if set, and source code has actually changed, compileAndInit() will be called
+    /// @return true if changed.
+    bool setTriggerSource(const string aSource, bool aAutoInit = false);
 
     /// set new trigger mode
     /// @param aHoldOffTime the new holdoff time
@@ -3071,8 +3080,7 @@ namespace p44 { namespace P44Script {
 
   public:
 
-    /// set the script dir
-    void setScriptSourceDirectory(const string aScriptDir) { mScriptDir = aScriptDir; }
+    FileStorageStandardScriptingDomain(const string aScriptDir) : mScriptDir(aScriptDir) {};
 
     /// try to load source text from domain level script storage
     /// @param aSource will be set to the source code loaded

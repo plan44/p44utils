@@ -5178,6 +5178,10 @@ void ScriptSource::activate(EvaluationFlags aDefaultFlags, const char* aOriginLa
     mActiveParams->mOriginLabel = aOriginLabel;
     mActiveParams->mLoggingContextP = aLoggingContextP;
     mActiveParams->mSourceDirty = false;
+    #if P44SCRIPT_MIGRATE_TO_DOMAIN_SOURCE
+    mActiveParams->mDomainSource = false;
+    mActiveParams->mLocalDataReportedRemoved = false;
+    #endif
   }
 }
 
@@ -5254,7 +5258,13 @@ bool ScriptSource::loadAndActivate(
       if (!domainSource) {
         // migrate to domain store
         mActiveParams->mSourceDirty = true;
-        storeSource();
+        bool storedok = storeSource();
+        POLOG(mActiveParams->mLoggingContextP, LOG_NOTICE,
+          "%s copying '%s' lazily activated source to domain store with UID='%s'",
+          storedok ? "succeeded" : "FAILED",
+          nonNullCStr(mActiveParams->mOriginLabel),
+          mActiveParams->mScriptSourceUid.c_str()
+        );
       }
       #endif // P44SCRIPT_MIGRATE_TO_DOMAIN_SOURCE
       // after load, source save status is always clean
@@ -5293,12 +5303,16 @@ bool ScriptSource::setAndStoreSource(const string& aSource)
   if (changed) {
     if (storeSource()) {
       // stored successfully at domain level
-      changed=false; // all set, no need to propagate changed status to caller
+      #if P44SCRIPT_MIGRATE_TO_DOMAIN_SOURCE
+      // report as changed as long as getSourceToStoreLocally() has not been called at least once
+      changed = !mActiveParams->mLocalDataReportedRemoved;
+      #else
+      changed = false; // all set, no need to propagate changed status to caller
+      #endif
     }
   }
   return changed;
 }
-
 
 
 bool ScriptSource::loadSource(const char* aLocallyStoredSource)
@@ -5313,9 +5327,9 @@ bool ScriptSource::loadSource(const char* aLocallyStoredSource)
     if (!source.empty()) {
       changed = setSource(source);
       storeSource();
-      POLOG(mActiveParams->mLoggingContextP, LOG_WARNING,
-        "%s migrating '%s' source to domain store with UID='%s'",
-        mActiveParams->mDomainSource ? "completed" : "FAILED",
+      POLOG(mActiveParams->mLoggingContextP, LOG_NOTICE,
+        "%s copying '%s' source to domain store with UID='%s'",
+        mActiveParams->mDomainSource ? "succeeded" : "FAILED",
         nonNullCStr(mActiveParams->mOriginLabel),
         mActiveParams->mScriptSourceUid.c_str()
       );
@@ -5323,6 +5337,13 @@ bool ScriptSource::loadSource(const char* aLocallyStoredSource)
     #endif
   }
   else {
+    #if P44SCRIPT_MIGRATE_TO_DOMAIN_SOURCE
+    mActiveParams->mDomainSource = true; // source from domain at load
+    if (!aLocallyStoredSource || *aLocallyStoredSource==0) {
+      // apparently, locally stored data is already gone
+      mActiveParams->mLocalDataReportedRemoved = true;
+    }
+    #endif
     changed = setSource(source);
   }
   mActiveParams->mSourceDirty = false;
@@ -5335,12 +5356,37 @@ bool ScriptSource::storeSource()
 {
   if (!active()) return false; // inactive storage is NOP (but ok)
   if (mActiveParams->mSourceDirty && !mActiveParams->mScriptSourceUid.empty()) {
-    mActiveParams->mDomainSource = domain()->storeSource(mActiveParams->mScriptSourceUid, getSource());
-    mActiveParams->mSourceDirty = !mActiveParams->mDomainSource; // remains dirty when not actually stored
+    bool storedok = domain()->storeSource(mActiveParams->mScriptSourceUid, getSource());
+    #if P44SCRIPT_MIGRATE_TO_DOMAIN_SOURCE
+    mActiveParams->mDomainSource = storedok;
+    #endif
+    mActiveParams->mSourceDirty = !storedok; // remains dirty when not actually stored
     return mActiveParams->mDomainSource;
   }
   return false; // no need or ability to store
 }
+
+
+#if P44SCRIPT_MIGRATE_TO_DOMAIN_SOURCE
+string ScriptSource::getSourceToStoreLocally() const
+{
+  #if P44SCRIPT_MIGRATE_TO_DOMAIN_SOURCE
+  if (active() && mActiveParams->mDomainSource) {
+    if (!mActiveParams->mLocalDataReportedRemoved) {
+      mActiveParams->mLocalDataReportedRemoved = true; // flag for preventing further caller-local storage changed reporting
+      POLOG(mActiveParams->mLoggingContextP, LOG_WARNING,
+        "migration of '%s' source to domain store with UID='%s' complete - locally stored version NOW EMPTY",
+        nonNullCStr(mActiveParams->mOriginLabel),
+        mActiveParams->mScriptSourceUid.c_str()
+      );
+    }
+    return ""; // empty
+  }
+  #endif
+  // no source from domain, just return it to be stored locally by the caller (e.g. in DB field)
+  return getSource();
+}
+#endif // P44SCRIPT_MIGRATE_TO_DOMAIN_SOURCE
 
 
 #endif // P44SCRIPT_REGISTERED_SOURCE
@@ -5422,18 +5468,6 @@ bool ScriptSource::setSource(const string aSource, EvaluationFlags aEvaluationFl
 string ScriptSource::getSource() const
 {
   return active() && mActiveParams->mSourceContainer ? mActiveParams->mSourceContainer->mSource : "";
-}
-
-
-string ScriptSource::getSourceToStoreLocally() const
-{
-  #if P44SCRIPT_MIGRATE_TO_DOMAIN_SOURCE
-  if (active() && mActiveParams->mDomainSource) {
-    return "<domain>"; // mark having moved to domain
-  }
-  #endif
-  // no source from domain, just return it to be stored locally by the caller (e.g. in DB field)
-  return getSource();
 }
 
 
@@ -5545,6 +5579,15 @@ ScriptObjPtr ScriptSource::run(EvaluationFlags aRunFlags, EvaluationCB aEvaluati
 
 
 // MARK: - TriggerSource
+
+bool TriggerSource::setTriggerSource(const string aSource, bool aAutoInit)
+{
+  bool changed = setSource(aSource);
+  if (changed && aAutoInit) {
+    compileAndInit();
+  }
+  return changed;
+}
 
 
 bool TriggerSource::setAndStoreTriggerSource(const string& aSource, bool aAutoInit)
