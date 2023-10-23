@@ -294,6 +294,15 @@ namespace p44 {
     /// @return the prefix to be used for logging from this object
     virtual string logContextPrefix();
 
+    /// @return name (usually user-defined) of the context object
+    virtual string contextName() const;
+
+    /// @return type (such as: device, element, vdc, trigger) of the context object
+    virtual string contextType() const;
+
+    /// @return id identifying the context object
+    virtual string contextId() const;
+
     /// test if log is enabled from this object at a given level
     /// @param aLogLevel level to check
     bool logEnabled(int aLogLevel);

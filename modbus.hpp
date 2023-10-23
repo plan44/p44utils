@@ -473,7 +473,8 @@ namespace p44 {
     ModbusMaster();
     virtual ~ModbusMaster();
 
-    virtual string logContextPrefix() P44_OVERRIDE { return "modbus master"; };
+    /// @return the object type (used for context descriptions such as logging context)
+    virtual string contextType() const P44_OVERRIDE { return "modbus master"; };
 
     /// same as connect(), but also checks that a slave address is set
     ErrorPtr connectAsMaster();
@@ -688,7 +689,8 @@ namespace p44 {
     ModbusSlave();
     virtual ~ModbusSlave();
 
-    virtual string logContextPrefix() P44_OVERRIDE { return "modbus slave"; };
+    /// @return the object type (used for context descriptions such as logging context)
+    virtual string contextType() const P44_OVERRIDE { return "modbus slave"; };
 
     /// set the text to be returned by "Report Server/Slave ID"
     void setSlaveId(const string aSlaveId);

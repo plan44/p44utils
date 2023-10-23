@@ -322,9 +322,40 @@ P44LoggingObj::P44LoggingObj() :
 }
 
 
+string P44LoggingObj::contextName() const
+{
+  return "";
+}
+
+
+string P44LoggingObj::contextType() const
+{
+  // type is not optional, all derivates should define it - if they don't just identify the object
+  return string_format("P44LoggingObj @%p", this);
+}
+
+
+string P44LoggingObj::contextId() const
+{
+  // do NOT identify the object here, implementing this is optional for subclasses
+  return "";
+}
+
+
 string P44LoggingObj::logContextPrefix()
 {
-  return string_format("P44LoggingObj @%p", this);
+  // type[ ID][ (name)]
+  const char* sep = nullptr;
+  // - type
+  string desc = contextType();
+  if (!desc.empty()) { sep = " "; }
+  // - ID
+  string s = contextId();
+  if (!s.empty()) { desc += sep + s; sep = " "; }
+  // - Name
+  s = contextName();
+  if (!s.empty()) { desc += sep; desc += "(" + s + ")"; }
+  return desc;
 }
 
 

@@ -1773,7 +1773,10 @@ namespace p44 { namespace P44Script {
     string getSource() const;
 
     /// @return the origin label string
-    const char *getOriginLabel();
+    const char* getOriginLabel();
+
+    /// @return the context object that uses this script source
+    P44LoggingObj* getLoggingContext();
 
     /// check if a cursor refers to this source
     /// @param aCursor the cursor to check

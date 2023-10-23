@@ -168,9 +168,9 @@ RFID522::~RFID522()
   reset();
 }
 
-string RFID522::logContextPrefix()
+string RFID522::contextId() const
 {
-  return string_format("RFID522 #%d", mReaderIndex);
+  return string_format("#%d", mReaderIndex);
 }
 
 

@@ -172,7 +172,7 @@ DigitalIo::~DigitalIo()
 }
 
 
-string DigitalIo::getName()
+string DigitalIo::getName() const
 {
   return string_format("%s%s%s", mPull==yes ? "+" : (mPull==no ? "-" : ""), mInverted ? "/" : "", mPinSpec.c_str());
 }

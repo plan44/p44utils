@@ -5477,10 +5477,17 @@ bool ScriptSource::empty() const
 }
 
 
-const char *ScriptSource::getOriginLabel()
+const char* ScriptSource::getOriginLabel()
 {
   return nonNullCStr(active() ? mActiveParams->mOriginLabel : nullptr);
 }
+
+
+P44LoggingObj* ScriptSource::getLoggingContext()
+{
+  return active() ? mActiveParams->mLoggingContextP : nullptr;
+}
+
 
 
 bool ScriptSource::refersTo(const SourceCursor& aCursor)

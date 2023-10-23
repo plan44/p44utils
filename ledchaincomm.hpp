@@ -361,8 +361,8 @@ namespace p44 {
     LEDChainArrangement();
     virtual ~LEDChainArrangement();
 
-    /// @return the prefix to be used for logging from this object
-    virtual string logContextPrefix() P44_OVERRIDE;
+    /// @return the object type (used for context descriptions such as logging context)
+    virtual string contextType() const P44_OVERRIDE { return "LEDchains"; };
 
     /// clear all LEDs to off
     void clear();

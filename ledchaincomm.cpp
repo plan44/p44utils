@@ -716,12 +716,6 @@ LEDChainArrangement::~LEDChainArrangement()
 }
 
 
-string LEDChainArrangement::logContextPrefix()
-{
-  return "LEDchains";
-}
-
-
 void LEDChainArrangement::clear()
 {
   for(LedChainVector::iterator pos = mLedChains.begin(); pos!=mLedChains.end(); ++pos) {

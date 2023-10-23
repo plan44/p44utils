@@ -111,8 +111,11 @@ namespace p44 {
     );
     virtual ~RFID522();
 
-    /// @return the prefix to be used for logging from this object
-    virtual string logContextPrefix();
+    /// @return the object type (used for context descriptions such as logging context)
+    virtual string contextType() const P44_OVERRIDE { return "RFID522"; };
+
+    /// @return the object type (used for context descriptions such as logging context)
+    virtual string contextId() const P44_OVERRIDE;
 
     /// get this reader's index
     int getReaderIndex() { return mReaderIndex; };
