@@ -1606,7 +1606,7 @@ namespace p44 { namespace P44Script {
       ScriptMainContextPtr mSharedMainContext; ///< a shared context to always run this source in. If not set, each script gets a new main context
       ScriptObjPtr mCachedExecutable; ///< the compiled executable for the script's body.
       EvaluationFlags mDefaultFlags; ///< default flags for how to compile (as expression, scriptbody, source), also used as default run flags
-      const char *mOriginLabel; ///< a label used for logging and error reporting
+      string mOriginLabel; ///< a label used for logging and error reporting
       P44LoggingObj* mLoggingContextP; ///< the logging context
       SourceContainerPtr mSourceContainer; ///< the container of the source
       #if P44SCRIPT_REGISTERED_SOURCE

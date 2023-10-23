@@ -5262,7 +5262,7 @@ bool ScriptSource::loadAndActivate(
         POLOG(mActiveParams->mLoggingContextP, LOG_NOTICE,
           "%s copying '%s' lazily activated source to domain store with UID='%s'",
           storedok ? "succeeded" : "FAILED",
-          nonNullCStr(mActiveParams->mOriginLabel),
+          mActiveParams->mOriginLabel.c_str(),
           mActiveParams->mScriptSourceUid.c_str()
         );
       }
@@ -5330,7 +5330,7 @@ bool ScriptSource::loadSource(const char* aLocallyStoredSource)
       POLOG(mActiveParams->mLoggingContextP, LOG_NOTICE,
         "%s copying '%s' source to domain store with UID='%s'",
         mActiveParams->mDomainSource ? "succeeded" : "FAILED",
-        nonNullCStr(mActiveParams->mOriginLabel),
+        mActiveParams->mOriginLabel.c_str(),
         mActiveParams->mScriptSourceUid.c_str()
       );
     }
@@ -5376,7 +5376,7 @@ string ScriptSource::getSourceToStoreLocally() const
       mActiveParams->mLocalDataReportedRemoved = true; // flag for preventing further caller-local storage changed reporting
       POLOG(mActiveParams->mLoggingContextP, LOG_WARNING,
         "migration of '%s' source to domain store with UID='%s' complete - locally stored version NOW EMPTY",
-        nonNullCStr(mActiveParams->mOriginLabel),
+        mActiveParams->mOriginLabel.c_str(),
         mActiveParams->mScriptSourceUid.c_str()
       );
     }
@@ -5458,7 +5458,7 @@ bool ScriptSource::setSource(const string aSource, EvaluationFlags aEvaluationFl
   mActiveParams->mSourceContainer.reset(); // release it myself
   // create new source container
   if (!aSource.empty()) {
-    mActiveParams->mSourceContainer = SourceContainerPtr(new SourceContainer(mActiveParams->mOriginLabel, mActiveParams->mLoggingContextP, aSource));
+    mActiveParams->mSourceContainer = SourceContainerPtr(new SourceContainer(mActiveParams->mOriginLabel.c_str(), mActiveParams->mLoggingContextP, aSource));
   }
   mActiveParams->mSourceDirty = true;
   return true; // source has changed
@@ -5479,7 +5479,7 @@ bool ScriptSource::empty() const
 
 const char* ScriptSource::getOriginLabel()
 {
-  return nonNullCStr(active() ? mActiveParams->mOriginLabel : nullptr);
+  return nonNullCStr(active() ? mActiveParams->mOriginLabel.c_str() : nullptr);
 }
 
 
@@ -5512,10 +5512,10 @@ ScriptObjPtr ScriptSource::getExecutable()
         code = new CompiledCode("anonymous");
       }
       else if (mActiveParams->mDefaultFlags & (triggered|timed|initial)) {
-        code = new CompiledTrigger(mActiveParams->mOriginLabel ? mActiveParams->mOriginLabel : "trigger", mctx);
+        code = new CompiledTrigger(!mActiveParams->mOriginLabel.empty() ? mActiveParams->mOriginLabel : "trigger", mctx);
       }
       else {
-        code = new CompiledScript(mActiveParams->mOriginLabel ? mActiveParams->mOriginLabel : "script", mctx);
+        code = new CompiledScript(!mActiveParams->mOriginLabel.empty() ? mActiveParams->mOriginLabel : "script", mctx);
       }
       mActiveParams->mCachedExecutable = compiler.compile(mActiveParams->mSourceContainer, code, mActiveParams->mDefaultFlags, mctx);
     }
