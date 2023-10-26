@@ -5303,6 +5303,10 @@ bool ScriptSource::setAndStoreSource(const string& aSource)
   if (changed) {
     if (storeSource()) {
       // stored successfully at domain level
+      if (!aSource.empty()) {
+        // make sure non-empty source gets registered
+        registerScript();
+      }
       #if P44SCRIPT_MIGRATE_TO_DOMAIN_SOURCE
       // report as changed as long as getSourceToStoreLocally() has not been called at least once
       changed = !mActiveParams->mLocalDataReportedRemoved;
