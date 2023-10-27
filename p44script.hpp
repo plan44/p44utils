@@ -3111,7 +3111,11 @@ namespace p44 { namespace P44Script {
 
   public:
 
-    FileStorageStandardScriptingDomain(const string aScriptDir) : mScriptDir(aScriptDir) {};
+    FileStorageStandardScriptingDomain() {};
+
+    /// set the file storage path
+    /// @aScriptDir
+    void setFileStoragePath(const string aScriptDir) { mScriptDir = aScriptDir; }
 
     /// try to load source text from domain level script storage
     /// @param aSource will be set to the source code loaded
