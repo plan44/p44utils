@@ -396,9 +396,9 @@ void Application::daemonize()
   }
 
   /* Redirect standard files to /dev/null */
-  stdin  = freopen( "/dev/null", "r", stdin);
-  stdout = freopen( "/dev/null", "w", stdout);
-  stderr = freopen( "/dev/null", "w", stderr);
+  freopen( "/dev/null", "r", stdin);
+  freopen( "/dev/null", "w", stdout);
+  freopen( "/dev/null", "w", stderr);
 }
 
 
