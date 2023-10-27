@@ -5149,11 +5149,12 @@ ScriptSource::ScriptSource() :
 ScriptSource::ScriptSource(
   EvaluationFlags aDefaultFlags,
   const char* aOriginLabel,
+  const char* aTitleTemplate,
   P44LoggingObj* aLoggingContextP
 ) :
   mActiveParams(nullptr)
 {
-  activate(aDefaultFlags, aOriginLabel, aLoggingContextP);
+  activate(aDefaultFlags, aOriginLabel, aTitleTemplate, aLoggingContextP);
 }
 
 
@@ -5170,12 +5171,13 @@ ScriptSource::~ScriptSource()
 }
 
 
-void ScriptSource::activate(EvaluationFlags aDefaultFlags, const char* aOriginLabel, P44LoggingObj* aLoggingContextP)
+void ScriptSource::activate(EvaluationFlags aDefaultFlags, const char* aOriginLabel, const char* aTitleTemplate, P44LoggingObj* aLoggingContextP)
 {
   if (!mActiveParams) {
     mActiveParams = new ActiveParams;
     mActiveParams->mDefaultFlags = aDefaultFlags;
-    mActiveParams->mOriginLabel = aOriginLabel;
+    mActiveParams->mOriginLabel = nonNullCStr(aOriginLabel);
+    mActiveParams->mTitleTemplate = nonNullCStr(aTitleTemplate);
     mActiveParams->mLoggingContextP = aLoggingContextP;
     mActiveParams->mSourceDirty = false;
     #if P44SCRIPT_MIGRATE_TO_DOMAIN_SOURCE
@@ -5223,10 +5225,49 @@ string ScriptSource::scriptSourceUid()
 }
 
 
+string ScriptSource::getContextTitle()
+{
+  string t;
+  if (active()) {
+    P44LoggingObj* lcP = mActiveParams->mLoggingContextP;
+    if (lcP) {
+      t = lcP->contextName();
+      if (t.empty()) {
+        t = lcP->contextType() + " " + lcP->contextId();
+      }
+    }
+  }
+  return t;
+}
+
+
+string ScriptSource::getScriptTitle()
+{
+  string t;
+  if (active()) {
+    string tmpl = mActiveParams->mTitleTemplate;
+    P44LoggingObj* lcP = mActiveParams->mLoggingContextP;
+    if (tmpl.empty()) {
+      // use default title
+      tmpl = "%C (%O)";
+    }
+    t = string_substitute(tmpl, "%C", getContextTitle());
+    t = string_substitute(t, "%O", getOriginLabel());
+    if (lcP) {
+      t = string_substitute(t, "%N", lcP->contextName());
+      t = string_substitute(t, "%T", lcP->contextType());
+      t = string_substitute(t, "%I", lcP->contextId());
+    }
+  }
+  return t;
+}
+
+
 bool ScriptSource::loadAndActivate(
   const string& aScriptSourceUid,
   EvaluationFlags aDefaultFlags,
   const char* aOriginLabel,
+  const char* aTitleTemplate,
   P44LoggingObj* aLoggingContextP,
   ScriptingDomainPtr aInDomain,
   const char* aLocallyStoredSource
@@ -5245,7 +5286,7 @@ bool ScriptSource::loadAndActivate(
   }
   if (!source.empty()) {
     // we do have non-empty source code
-    activate(aDefaultFlags, aOriginLabel, aLoggingContextP);
+    activate(aDefaultFlags, aOriginLabel, aTitleTemplate, aLoggingContextP);
     // now activated, we can set the domain
     setDomain(aInDomain);
     // and the source text
@@ -5280,13 +5321,14 @@ bool ScriptSource::setSourceAndActivate(
   const string& aScriptSourceUid,
   EvaluationFlags aDefaultFlags,
   const char* aOriginLabel,
+  const char* aTitleTemplate,
   P44LoggingObj* aLoggingContextP,
   ScriptingDomainPtr aInDomain
 )
 {
   if (!active() && !aSource.empty()) {
     // we need to activate first
-    activate(aDefaultFlags, aOriginLabel, aLoggingContextP);
+    activate(aDefaultFlags, aOriginLabel, aTitleTemplate, aLoggingContextP);
     setDomain(aInDomain);
     mActiveParams->mScriptSourceUid = aScriptSourceUid;
     registerScript();
@@ -6983,7 +7025,7 @@ static void eval_func(BuiltinFunctionContextPtr f)
     // need to compile string first
     ScriptSource src(
       scriptbody|anonymousfunction,
-      "eval function",
+      "eval function", nullptr,
       f->instance() ? f->instance()->loggingContext() : NULL
     );
     src.setDomain(f->domain());

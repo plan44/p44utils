@@ -1611,6 +1611,7 @@ namespace p44 { namespace P44Script {
       SourceContainerPtr mSourceContainer; ///< the container of the source
       #if P44SCRIPT_REGISTERED_SOURCE
       string mScriptSourceUid; ///< domain-unique, persistent ID for this source
+      string mTitleTemplate; ///< user facing template for title
       bool mSourceDirty; ///< set when source gets modified via setSource(), cleared by storeSource()
       #if P44SCRIPT_MIGRATE_TO_DOMAIN_SOURCE
       bool mDomainSource; ///< source is stored in domain, locally stored data can be deleted
@@ -1632,12 +1633,16 @@ namespace p44 { namespace P44Script {
     /// create empty script source, activate it
     /// @param aDefaultFlags default execution flags
     /// @param aOriginLabel origin label to specify script's origin or nullptr if none (will fall back to default labels)
+    /// @param aTitleTemplate specific user-facing title template for this script (e.g. for p44script IDE),
+    ///   can contain %x placeholders for inserting context and other info. Should uniquely identify script when expanded.
+    ///   (will use a standard template when not specified).
     /// @param aLoggingContextP the logging object to log script related info or nullptr if none
     /// @note this is suitable for likely-used scripts which can be active before any source is loaded as it does
     ///   not really matter if they stay allocated empty.
     ScriptSource(
       EvaluationFlags aDefaultFlags,
       const char* aOriginLabel = nullptr,
+      const char* aTitleTemplate = nullptr,
       P44LoggingObj* aLoggingContextP = nullptr
     );
 
@@ -1651,8 +1656,9 @@ namespace p44 { namespace P44Script {
     /// @note once activated, the function can be called again but is NOP and ignores activation params
     /// @param aDefaultFlags default execution flags
     /// @param aOriginLabel origin label to specify script's origin or nullptr if none (will fall back to default labels)
+    /// @param aTitleTemplate specific user-facing title template for this script
     /// @param aLoggingContextP the logging object to log script related info or nullptr if none
-    void activate(EvaluationFlags aDefaultFlags, const char* aOriginLabel = nullptr, P44LoggingObj* aLoggingContextP = nullptr);
+    void activate(EvaluationFlags aDefaultFlags, const char* aOriginLabel = nullptr, const char* aTitleTemplate = nullptr, P44LoggingObj* aLoggingContextP = nullptr);
 
     #if P44SCRIPT_REGISTERED_SOURCE
 
@@ -1663,6 +1669,9 @@ namespace p44 { namespace P44Script {
     ///   and will become registered under this id as a activated script if non-empty source code could be loaded.
     /// @param aDefaultFlags default execution flags
     /// @param aOriginLabel origin label to specify script's origin or nullptr if none (will fall back to default labels)
+    /// @param aTitleTemplate specific user-facing title template for this script (e.g. for p44script IDE),
+    ///   can contain %x placeholders for inserting context and other info. Should uniquely identify script when expanded.
+    ///   (will use a standard template when not specified).
     /// @param aLoggingContextP the logging object to log script related info or nullptr if none
     /// @param aInDomain the scripting domain, if not specified, the standard scripting domain will be used
     /// @param aLocallyStoredSource if not nullptr, this is source code as locally stored (eg. in DB). This might get migrated to
@@ -1675,6 +1684,7 @@ namespace p44 { namespace P44Script {
       const string& aScriptSourceUid,
       EvaluationFlags aDefaultFlags,
       const char* aOriginLabel = nullptr,
+      const char* aTitleTemplate = nullptr,
       P44LoggingObj* aLoggingContextP = nullptr,
       ScriptingDomainPtr aInDomain = ScriptingDomainPtr(),
       const char* aLocallyStoredSource = nullptr
@@ -1687,6 +1697,9 @@ namespace p44 { namespace P44Script {
     ///   storage under this id (if the text has changed from already stored version)
     /// @param aDefaultFlags default execution flags
     /// @param aOriginLabel origin label to specify script's origin or nullptr if none (will fall back to default labels)
+    /// @param aTitleTemplate specific user-facing title template for this script (e.g. for p44script IDE),
+    ///   can contain %x placeholders for inserting context and other info. Should uniquely identify script when expanded.
+    ///   (will use a standard template when not specified).
     /// @param aLoggingContextP the logging object to log script related info or nullptr if none
     /// @param aInDomain the scripting domain, if not specified, the standard scripting domain will be used
     /// @return true if aSource was different from previously stored (or empty) source
@@ -1700,6 +1713,7 @@ namespace p44 { namespace P44Script {
       const string& aScriptSourceUid,
       EvaluationFlags aDefaultFlags,
       const char* aOriginLabel = nullptr,
+      const char* aTitleTemplate = nullptr,
       P44LoggingObj* aLoggingContextP = nullptr,
       ScriptingDomainPtr aInDomain = ScriptingDomainPtr()
     );
@@ -1772,11 +1786,25 @@ namespace p44 { namespace P44Script {
     /// @return the source code as set by setSource()
     string getSource() const;
 
-    /// @return the origin label string
-    const char* getOriginLabel();
-
     /// @return the context object that uses this script source
     P44LoggingObj* getLoggingContext();
+
+    /// @return the origin label string
+    /// @note can be inserted into script title template using %O
+    const char* getOriginLabel();
+
+    /// @return title of script context (such as: device name or UID when unnamed, etc.) for the script
+    /// @note can be inserted into script title using %C
+    string getContextTitle();
+
+    /// @return title for this script, created from script title template when available, with
+    ///    inserts from context etc. From template:
+    ///    - %C will be replaced by getContextTitle()
+    ///    - %N will be replaced by context name (which might be empty)
+    ///    - %T will be replaced by context type
+    ///    - %I will be replaced by technical context ID
+    ///    - %O will be replaced by origin label
+    string getScriptTitle();
 
     /// check if a cursor refers to this source
     /// @param aCursor the cursor to check
@@ -1830,8 +1858,8 @@ namespace p44 { namespace P44Script {
     MLMicroSeconds mHoldOffTime;
 
   public:
-    TriggerSource(const char* aOriginLabel, P44LoggingObj* aLoggingContextP, EvaluationCB aTriggerCB, TriggerMode aTriggerMode, MLMicroSeconds aHoldOffTime, EvaluationFlags aEvalFlags) :
-      inherited(aEvalFlags|triggered, aOriginLabel, aLoggingContextP), // make sure one of the trigger flags is set for the compile to produce a CompiledTrigger
+    TriggerSource(const char* aOriginLabel, const char* aTitleTemplate, P44LoggingObj* aLoggingContextP, EvaluationCB aTriggerCB, TriggerMode aTriggerMode, MLMicroSeconds aHoldOffTime, EvaluationFlags aEvalFlags) :
+      inherited(aEvalFlags|triggered, aOriginLabel, aTitleTemplate, aLoggingContextP), // make sure one of the trigger flags is set for the compile to produce a CompiledTrigger
       mTriggerCB(aTriggerCB),
       mTriggerMode(aTriggerMode),
       mHoldOffTime(aHoldOffTime)
