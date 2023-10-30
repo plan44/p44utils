@@ -1737,6 +1737,10 @@ namespace p44 { namespace P44Script {
     /// @return true if actually anything was saved (because previous version was different)
     bool storeSource();
 
+    /// delete script source from persistent storage
+    /// @note if called when inactive, it is just NOP (no script -> nothing to delete)
+    void deleteSource();
+
     /// register the script if it is active and has a non-empty sourceUID. Otherwise: NOP
     void registerScript();
 

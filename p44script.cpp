@@ -5413,6 +5413,14 @@ bool ScriptSource::storeSource()
 }
 
 
+void ScriptSource::deleteSource()
+{
+  if (!active()) return; // inactive storage is NOP (but ok)
+  setSource(""); // empty
+  storeSource(); // make sure it gets stored
+}
+
+
 #if P44SCRIPT_MIGRATE_TO_DOMAIN_SOURCE
 string ScriptSource::getSourceToStoreLocally() const
 {
