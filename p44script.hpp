@@ -206,6 +206,7 @@ namespace p44 { namespace P44Script {
     concurrently = 0x10000, ///< run concurrently with already executing code (when whith queued, thread is started when all previously queued threads are done)
     keepvars = 0x20000, ///< keep the local variables already set in the context
     mainthread = 0x40000, ///< if a thread with this flag set terminates, it also terminates all of its siblings
+    singlestep = 0x80000, ///< thread must start with pausing mode = singlestep (means: stopping at first statement of a function body, handler or script)
     // compilation modifiers
     ephemeralSource = 0x100000, ///< threads are kept running and global function+handler definitions are not deleted when originating source code is changed/deleted
     anonymousfunction = 0x200000, ///< compile and run as anonymous function body
@@ -259,6 +260,20 @@ namespace p44 { namespace P44Script {
     nowait = 0x40000000, ///< special flags for event sources, indicating that await() should not wait for an event to occur
   };
   typedef uint32_t TypeInfo;
+
+
+  /// script thread run/debug mode or pause reason
+  /// @note higher pausing mode include all of the lower ones
+  typedef enum {
+    nodebug, ///< run normally, never pause
+    breakpoint, ///< run normally, but pause at breakpoints (breakpoint() in code or by cursor position)
+    end_of_function, /// pause at end of user defined functions (aka step out)
+    statement, ///< pause at beginning of a statement (aka step over)
+    into_function, ///< when entering a function, pass "statements" runmode into function's "child thread" (aka step into)
+    scriptstep, ///< at every script processing step. Usually only as argument for pauseCheck, because too detailed except for debugging the engine itself
+    interrupt, ///< externally set interrupt
+    numPausingModes
+  } PausingMode;
 
 
   /// trigger modes (note: enum values exposed in some API properties, do not change!)
@@ -1946,6 +1961,12 @@ namespace p44 { namespace P44Script {
 
 
 
+  #if P44SCRIPT_DEBUGGING_SUPPORT
+  /// called when a thread is paused
+  /// @param aPausedThread the thread that got paused
+  /// @param aPausingReason the reason for the pause
+  typedef boost::function<void (ScriptCodeThreadPtr aPausedThread, PausingMode aPausingReason)> PauseHandlerCB;
+  #endif
 
   /// Scripting domain, usually singleton, containing global variables and event handlers
   /// No code runs directly in this context
@@ -1961,9 +1982,20 @@ namespace p44 { namespace P44Script {
     ScriptSourcesVector mScriptSources;
     #endif
 
+    #if P44SCRIPT_DEBUGGING_SUPPORT
+    PausingMode mDefaultPausingMode; ///< default mode to start scripts in this domain (usually: nodebug or breakpoint)
+    PauseHandlerCB mPauseHandlerCB; ///< will be called when a thread is reported paused
+    #endif
+
   public:
 
-    ScriptingDomain() : inherited(ScriptingDomainPtr(), ScriptObjPtr()), mGeoLocationP(NULL), mMaxBlockTime(DEFAULT_MAX_BLOCK_TIME) {};
+    ScriptingDomain() :
+      inherited(ScriptingDomainPtr(), ScriptObjPtr()), mGeoLocationP(NULL),
+      mMaxBlockTime(DEFAULT_MAX_BLOCK_TIME)
+      #if P44SCRIPT_DEBUGGING_SUPPORT
+      , mDefaultPausingMode(nodebug)
+      #endif
+    {};
 
     /// @name environment
     /// @{
@@ -1997,11 +2029,19 @@ namespace p44 { namespace P44Script {
     /// @name debugging
     /// @{
 
-    /// @return true when debugging is enabled in the domain (usually means that a debugger UI is attached)
-    bool debuggerEnabled() const;
+    /// @return the default pausing mode to start new scripts with
+    PausingMode defaultPausingMode() const { return mDefaultPausingMode; }
+
+    /// @param aDefaultPausingMode default pausing mode for new scripts
+    void setDefaultPausingMode(PausingMode aDefaultPausingMode) { mDefaultPausingMode = aDefaultPausingMode; };
 
     /// called by threads when they get paused
-    void threadPaused(ScriptCodeThreadPtr aThread);
+    /// @param aThread the thread that got paused
+    /// @param aPausingReason the reason for getting paused
+    void threadPaused(ScriptCodeThreadPtr aThread, PausingMode aPausingReason);
+
+    /// @param aPauseHandlerCB the pause handler to install (or null when no debugger is active that could continue)
+    void setPauseHandler(PauseHandlerCB aPauseHandlerCB) { mPauseHandlerCB = aPauseHandlerCB; }
 
     /// @}
     #endif
@@ -2147,9 +2187,13 @@ namespace p44 { namespace P44Script {
     /// check if member can issue event that should be connected to trigger
     virtual void memberEventCheck();
 
-    /// @param aStatementBoundary set when at statement boundary (for singlestepping)
-    /// @return true if execution should pause here
-    virtual bool pauseCheck(bool aStatementBoundary) { return false; /* never pause in base class */ }
+    #if P44SCRIPT_DEBUGGING_SUPPORT
+
+    /// @param aPausingReason the occasion for checking for a pause now
+    /// @return true if execution has paused here and must not call resume() directly or indirectly
+    virtual bool pauseCheck(PausingMode aPausingOccasion) { return false; /* never pause in base class */ }
+
+    #endif // P44SCRIPT_DEBUGGING_SUPPORT
 
     #if P44SCRIPT_FULL_SUPPORT
 
@@ -2726,9 +2770,12 @@ namespace p44 { namespace P44Script {
     ScriptCodeThreadPtr mChainOriginThread; ///< the origin of this sequentially chained thread, if any
     MLTicket mAutoResumeTicket; ///< auto-resume ticket
 
-    bool mPaused; ///< if set, the thread is paused (for example after singlestepping or hitting a breakpoint)
-    bool mSingleStep; ///< if set, pause after a single statement
-    bool mContinue; ///< if set
+    #if P44SCRIPT_DEBUGGING_SUPPORT
+
+    PausingMode mPausingMode; ///< current pausing mode of this thread
+    bool mContinue; ///< if set, we are exiting from a pause condition, so if we ARE on a breakpoint/statement boundary, do not pause again
+
+    #endif // P44SCRIPT_DEBUGGING_SUPPORT
 
   public:
 
@@ -2757,9 +2804,9 @@ namespace p44 { namespace P44Script {
     /// prepare for running
     /// @param aTerminationCB will be called to deliver when the thread ends
     /// @param aEvalFlags evaluation control flags
-    ///   (not how long it takes until aEvaluationCB is called, which can be much later for async execution)
     /// @param aMaxBlockTime max time this call may continue evaluating before returning
     /// @param aMaxRunTime max time this evaluation might take, even when call does not block
+    ///   (not how long it takes until aEvaluationCB is called, which can be much later for async execution)
     void prepareRun(
       EvaluationCB aTerminationCB,
       EvaluationFlags aEvalFlags,
@@ -2772,7 +2819,7 @@ namespace p44 { namespace P44Script {
 
     /// debug control for this thread
     /// @param aPause set or
-    SourceCursor debugControl(bool aPause, bool aSingleStep);
+    //SourceCursor debugControl(bool aPause, bool aSingleStep);
 
     /// get the maximum blocking time for script execution
     MLMicroSeconds getMaxBlockTime() { return mMaxBlockTime; };
@@ -2865,9 +2912,20 @@ namespace p44 { namespace P44Script {
     /// evaluation, or if member is a one-shot result that must return a previously frozen value
     virtual void memberEventCheck() P44_OVERRIDE;
 
-    /// @param aStatementBoundary set when at statement boundary (for singlestepping)
+    #if P44SCRIPT_DEBUGGING_SUPPORT
+
+    /// @param aPausingReason the reason for checking for a pause now
     /// @return true if execution should pause here
-    virtual bool pauseCheck(bool aStatementBoundary) P44_OVERRIDE;
+    virtual bool pauseCheck(PausingMode aPausingReason) P44_OVERRIDE;
+
+    /// continue the thread after a pause with new pausing mode
+    /// @param aNewPausingMode the new pausing mode to continue execution with
+    void continueWithMode(PausingMode aNewPausingMode);
+
+    /// get name for pause mode / reason
+    static const char* pausingName(PausingMode aPausingMode);
+
+    #endif // P44SCRIPT_DEBUGGING_SUPPORT
 
     /// @}
 

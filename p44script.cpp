@@ -2007,7 +2007,7 @@ void BuiltInMemberLookup::addJsonValues(JsonObjectPtr &aObj) const
 
 ExecutionContextPtr BuiltinFunctionObj::contextForCallingFrom(ScriptMainContextPtr aMainContext, ScriptCodeThreadPtr aThread) const
 {
-  // built-in functions get their this from the lookup they come from
+  // built-in functions get their "this" from the lookup they come from
   return new BuiltinFunctionContext(aMainContext, aThread);
 }
 
@@ -3819,8 +3819,8 @@ void SourceProcessor::processStatement()
   }
   // beginning of a new statement
   #if P44SCRIPT_DEBUGGING_SUPPORT
-  if (pauseCheck(true)) {
-    // stop processing, debugger might continue execution later
+  if (pauseCheck(statement)) {
+    // single stepping statements, thread is paused, debugger needs to call resume() to continue
     return;
   }
   #endif
@@ -5785,17 +5785,17 @@ ScriptMainContextPtr ScriptingDomain::newContext(ScriptObjPtr aInstanceObj)
 
 #if P44SCRIPT_DEBUGGING_SUPPORT
 
-bool ScriptingDomain::debuggerEnabled() const
-{
-  // FIXME: implement
-  #warning %%% TBD
-  return false;
-}
-
 /// called by threads when they get paused
-void ScriptingDomain::threadPaused(ScriptCodeThreadPtr aThread)
+void ScriptingDomain::threadPaused(ScriptCodeThreadPtr aThread, PausingMode aPausingReason)
 {
-  OLOG(LOG_DEBUG, "threadPaused: %04d", aThread->threadId());
+  if (!mPauseHandlerCB) {
+    OLOG(LOG_WARNING, "Thread %04d requested pause (reason: %s) but no pause handling active (any more) -> continuing w/o debugging", aThread->threadId(), ScriptCodeThread::pausingName(aPausingReason));
+    aThread->continueWithMode(nodebug);
+  }
+  else {
+    // call handler
+    mPauseHandlerCB(aThread, aPausingReason);
+  }
 }
 
 #endif // P44SCRIPT_DEBUGGING_SUPPORT
@@ -5854,7 +5854,7 @@ ScriptCodeThread::ScriptCodeThread(ScriptCodeContextPtr aOwner, CompiledCodePtr 
   mMaxBlockTime(0),
   mMaxRunTime(Infinite),
   mRunningSince(Never),
-  mPaused(false)
+  mPausingMode(nodebug)
 {
   setCursor(aStartCursor);
   FOCUSLOG("\n%04x START        thread created : %s", (uint32_t)((intptr_t)static_cast<SourceProcessor *>(this)) & 0xFFFF, mSrc.displaycode(130).c_str());
@@ -5915,6 +5915,17 @@ void ScriptCodeThread::prepareRun(
 {
   setCompletedCB(aTerminationCB);
   initProcessing(aEvalFlags);
+  #if P44SCRIPT_DEBUGGING_SUPPORT
+  // setup pausing mode
+  if (aEvalFlags & singlestep) {
+    // thread explicitly started for singlestepping
+    mPausingMode = statement;
+  }
+  else {
+    // use domain's standard mode
+    mPausingMode = owner()->domain()->defaultPausingMode();
+  }
+  #endif // P44SCRIPT_DEBUGGING_SUPPORT
   mMaxBlockTime = aMaxBlockTime;
   mMaxRunTime = aMaxRunTime;
 }
@@ -6017,9 +6028,11 @@ void ScriptCodeThread::stepLoop()
   MLMicroSeconds loopingSince = MainLoop::now();
   do {
     MLMicroSeconds now = MainLoop::now();
-    // check hitting a breakpoint
+    // check pausing
+    // @note if pausing happens here, no state change has occurred in this step, so
+    //   we can continue by just calling resume() (with mContinue set if we want to get past positional breakpoints etc.)
     #if P44SCRIPT_DEBUGGING_SUPPORT
-    if (pauseCheck(false)) {
+    if (pauseCheck(scriptstep)) {
       return;
     }
     #endif
@@ -6220,7 +6233,12 @@ void ScriptCodeThread::executeResult()
       // Note: functions must not inherit their caller's evalscope but be run as script bodies
       // Note: must pass on threadvars. Custom functions technically run in a separate "thread", but that should be the same from a user's perspective
       // Note: must pass on chainOriginThread() so all nested function calls will have the same value for chainOriginThread()
-      mFuncCallContext->execute(mResult, (mEvaluationFlags&~scopeMask)|scriptbody|keepvars, boost::bind(&ScriptCodeThread::executedResult, this, _1), chainOriginThread(), mThreadLocals);
+      EvaluationFlags dbg = 0;
+      #if P44SCRIPT_DEBUGGING_SUPPORT
+      // Note: must pass singlestep flag when current thread is in `into_function` (step-into) pausing mode
+      if (mPausingMode==into_function) dbg |= singlestep;
+      #endif
+      mFuncCallContext->execute(mResult, (mEvaluationFlags&~scopeMask)|scriptbody|keepvars|dbg, boost::bind(&ScriptCodeThread::executedResult, this, _1), chainOriginThread(), mThreadLocals);
       #else
       // only built-in functions can occur, eval scope flags are not relevant (only existing scope is expression)
       mFuncCallContext->execute(mResult, (mEvaluationFlags&~scopeMask)|expression|keepvars, boost::bind(&ScriptCodeThread::executedResult, this, _1), chainOriginThread(), mThreadLocals);
@@ -6244,7 +6262,13 @@ void ScriptCodeThread::executedResult(ScriptObjPtr aResult)
     // update (or add) position of error occurring to call site (log will show "call stack" as LOG_ERR messages)
     aResult = new ErrorPosValue(mSrc, aResult);
   }
-  resume(aResult);
+  mResult = aResult;
+  #if P44SCRIPT_DEBUGGING_SUPPORT
+  if (!pauseCheck(end_of_function))
+  #endif
+  {
+    resume();
+  }
 }
 
 
@@ -6279,28 +6303,71 @@ void ScriptCodeThread::memberEventCheck()
 
 #if P44SCRIPT_DEBUGGING_SUPPORT
 
-bool ScriptCodeThread::pauseCheck(bool aStatementBoundary)
+const char* ScriptCodeThread::pausingName(PausingMode aPausingMode)
 {
-  if (
-    mOwner->domain()->debuggerEnabled() && // debugging enabled
-    ((mSingleStep && aStatementBoundary) || mSrc.onBreakPoint()) // singlestepping at statement boundary or breakpoint
-  ) {
-    if (!mContinue) {
-      // not continuing -> pause here
-      OLOG(LOG_NOTICE, "Thread paused %s", mSingleStep ? "after singlestep" : "at breakpoint");
-      mOwner->domain()->threadPaused(this);
-      mSingleStep = false; // next single step must set flag again explicitily
-      return true; // signal pausing
-    }
-    else {
-      // continuing after a pause
-      OLOG(LOG_NOTICE, "Thread continues after pause in debugger");
-      mContinue = false;
-      mRunningSince = MainLoop::currentMainLoop().now(); // re-start run time restriction
-    }
-  }
-  return false;
+  const char* pausingModeNames[numPausingModes] = {
+    "none",
+    "breakpoint",
+    "end_of_function",
+    "statement",
+    "into_function",
+    "scriptstep",
+    "interrupt"
+  };
+  return pausingModeNames[aPausingMode];
 }
+
+
+bool ScriptCodeThread::pauseCheck(PausingMode aPausingOccasion)
+{
+  if (mPausingMode==nodebug) return false; // not debugging
+  if (mContinue) {
+    // continuing after a pause, must overcome the current pausing reason
+    OLOG(LOG_NOTICE, "Thread continues after pause in debugger in mode: %s", pausingName(mPausingMode));
+    mRunningSince = MainLoop::currentMainLoop().now(); // re-start run time restriction
+    mContinue = false; // next check will be active again
+    return false;
+  }
+  // Actually check for pausing
+  PausingMode pausingReason = aPausingOccasion; // default to the occasion
+  switch (aPausingOccasion) {
+    case breakpoint: // breakpoint() in code
+    case interrupt: // interrupt from outside
+      // unconditionally pause
+      break;
+    case end_of_function:
+      if (mPausingMode!=end_of_function) return false; // mode is not "step out"
+      // stop at end of function
+      break;
+    case statement:
+      if (mPausingMode<statement) return false; // not in any of the singlestep modes
+      // stop at statement
+      break;
+    case scriptstep:
+      if (mPausingMode==scriptstep) break; // fine-grain stepping (p44script enginge debugging only, usually)
+      // otherwise, reason to check pauses at script step are breakpoints
+      if (!mSrc.onBreakPoint()) return false; // not on a cursor position based breakpoint
+      // stop at position based breakpoint
+      pausingReason = breakpoint; // report as breakpoint
+      break;
+    default:
+      return false; // do not pause
+  }
+  // not continuing -> pause here
+  OLOG(LOG_NOTICE, "Thread paused with reason: %s - ", pausingName(pausingReason));
+  mOwner->domain()->threadPaused(this, pausingReason);
+  return true; // signal pausing
+}
+
+
+void ScriptCodeThread::continueWithMode(PausingMode aNewPausingMode)
+{
+  mContinue = true;
+  mPausingMode = aNewPausingMode;
+  resume();
+}
+
+
 
 #endif // P44SCRIPT_DEBUGGING_SUPPORT
 
@@ -7093,6 +7160,17 @@ static void maxruntime_func(BuiltinFunctionContextPtr f)
   }
 }
 
+
+static void breakpoint_func(BuiltinFunctionContextPtr f)
+{
+  #if P44SCRIPT_DEBUGGING_SUPPORT
+  if (f->thread()->pauseCheck(breakpoint)) {
+    FLOG(f, LOG_NOTICE, "breakpoint() in script source");
+    return;
+  }
+  #endif
+  f->finish();
+}
 
 
 #if !ESP_PLATFORM
@@ -8353,6 +8431,7 @@ static const BuiltinMemberDescriptor standardFunctions[] = {
   { "eval", executable|async|any, eval_numargs, eval_args, &eval_func },
   { "maxblocktime", executable|any, maxblocktime_numargs, maxblocktime_args, &maxblocktime_func },
   { "maxruntime", executable|any, maxruntime_numargs, maxruntime_args, &maxruntime_func },
+  { "breakpoint", executable|any, 0, NULL, &breakpoint_func },
   #if !ESP_PLATFORM
   { "system", executable|async|text, system_numargs, system_args, &system_func },
   // Other system/app stuff
