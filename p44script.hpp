@@ -1319,6 +1319,12 @@ namespace p44 { namespace P44Script {
     virtual JsonObjectPtr jsonValue() const P44_OVERRIDE;
     #endif
 
+    #if P44SCRIPT_DEBUGGING_SUPPORT
+    /// @param aCodeObj the object to check for
+    /// @return true if aCodeObj already has a paused thread in this context
+    bool hasThreadPausedIn(CompiledCodePtr aCodeObj);
+    #endif
+
   private:
 
     /// called by threads ending

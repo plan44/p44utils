@@ -1632,8 +1632,6 @@ bool ScriptCodeContext::abortThreadsRunningSource(SourceContainerPtr aSource)
 }
 
 
-
-
 #if SCRIPTING_JSON_SUPPORT
 
 JsonObjectPtr ScriptCodeContext::jsonValue() const
@@ -1641,7 +1639,24 @@ JsonObjectPtr ScriptCodeContext::jsonValue() const
   return mLocalVars.jsonValue();
 }
 
-#endif
+#endif // SCRIPTING_JSON_SUPPORT
+
+
+#if P44SCRIPT_DEBUGGING_SUPPORT
+
+/// @param aCodeObj the object to check for
+/// @return true if aCodeObj already has a paused thread in this context
+bool ScriptCodeContext::hasThreadPausedIn(CompiledCodePtr aCodeObj)
+{
+  for (ThreadList::iterator pos = mThreads.begin(); pos!=mThreads.end(); ++pos) {
+    if ((*pos)->pauseReason()>unpause && (*pos)->mCodeObj==aCodeObj) {
+      return true;
+    }
+  }
+  return false;
+}
+
+#endif // P44SCRIPT_DEBUGGING_SUPPORT
 
 
 
@@ -1659,6 +1674,13 @@ void ScriptCodeContext::execute(ScriptObjPtr aToExecute, EvaluationFlags aEvalFl
     if (aEvaluationCB) aEvaluationCB(new ErrorValue(ScriptError::Internal, "Object to be run must be compiled code!"));
     return;
   }
+  #if P44SCRIPT_DEBUGGING_SUPPORT
+  // if debugging is enabled, make sure no paused thread is already running this same code
+  if (domain()->defaultPausingMode()>nopause && hasThreadPausedIn(code)) {
+    OLOG(LOG_WARNING, "'%s' is already executing in paused thread -> SUPPRESSED start in new thread", code->getIdentifier().c_str());
+    return;
+  }
+  #endif // P44SCRIPT_DEBUGGING_SUPPORT
   if ((aEvalFlags & keepvars)==0) {
     clearVars();
   }
