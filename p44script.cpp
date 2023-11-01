@@ -1832,7 +1832,7 @@ JsonObjectPtr ScriptMainContext::handlersInfo()
     JsonObjectPtr hi = JsonObject::newObj();
     hi->add("name", JsonObject::newString(h->mName));
     hi->add("origin", JsonObject::newString(h->mCursor.originLabel()));
-    P44LoggingObj *l = h->mCursor.mSource->loggingContext();
+    P44LoggingObj *l = h->mCursor.mSourceContainer->loggingContext();
     if (l) hi->add("logcontext", JsonObject::newString(l->logContextPrefix()));
     hi->add("line", JsonObject::newInt64(h->mCursor.lineno()+1));
     hi->add("char", JsonObject::newInt64(h->mCursor.charpos()+1));
@@ -2151,24 +2151,24 @@ SourcePos::SourcePos(const SourcePos &aCursor) :
 
 
 SourceCursor::SourceCursor(string aString, const char *aLabel) :
-  mSource(new SourceContainer(aLabel ? aLabel : "hidden", NULL, aString)),
-  mPos(mSource->mSource)
+  mSourceContainer(new SourceContainer(aLabel ? aLabel : "hidden", NULL, aString)),
+  mPos(mSourceContainer->mSource)
 {
 }
 
 
 SourceCursor::SourceCursor(SourceContainerPtr aContainer) :
-  mSource(aContainer),
+  mSourceContainer(aContainer),
   mPos(aContainer->mSource)
 {
 }
 
 
 SourceCursor::SourceCursor(SourceContainerPtr aContainer, SourcePos aStart, SourcePos aEnd) :
-  mSource(aContainer),
+  mSourceContainer(aContainer),
   mPos(aStart)
 {
-  assert(mPos.mPtr>=mSource->mSource.c_str() && mPos.mEot-mPos.mPtr<mSource->mSource.size());
+  assert(mPos.mPtr>=mSourceContainer->mSource.c_str() && mPos.mEot-mPos.mPtr<mSourceContainer->mSource.size());
   if(aEnd.mPtr>=mPos.mPtr && aEnd.mPtr<=mPos.mEot) mPos.mEot = aEnd.mPtr;
 }
 
@@ -2299,9 +2299,9 @@ string SourceCursor::displaycode(size_t aMaxLen)
 
 const char *SourceCursor::originLabel() const
 {
-  if (!mSource) return "<none>";
-  if (!mSource->mOriginLabel) return "<unlabeled>";
-  return mSource->mOriginLabel;
+  if (!mSourceContainer) return "<none>";
+  if (!mSourceContainer->mOriginLabel) return "<unlabeled>";
+  return mSourceContainer->mOriginLabel;
 }
 
 
@@ -2535,7 +2535,7 @@ ScriptObjPtr SourceCursor::parseCodeLiteral()
 
 bool SourceCursor::onBreakPoint() const
 {
-  return mSource->breakPointAt(mPos.posId())!=nullptr;
+  return mSourceContainer->breakPointAt(mPos.posId())!=nullptr;
 }
 
 #endif // P44SCRIPT_DEBUGGING_SUPPORT
@@ -2594,7 +2594,7 @@ SourceProcessor::SourceProcessor() :
 
 P44LoggingObj* SourceProcessor::loggingContext()
 {
-  return (mSrc.mSource ? mSrc.mSource->loggingContext() : NULL);
+  return (mSrc.mSourceContainer ? mSrc.mSourceContainer->loggingContext() : NULL);
 }
 
 
@@ -2602,6 +2602,13 @@ void SourceProcessor::setCursor(const SourceCursor& aCursor)
 {
   mSrc = aCursor;
 }
+
+
+const SourceCursor& SourceProcessor::cursor() const
+{
+  return mSrc;
+}
+
 
 
 void SourceProcessor::initProcessing(EvaluationFlags aEvalFlags)
@@ -2614,6 +2621,13 @@ void SourceProcessor::setCompletedCB(EvaluationCB aCompletedCB)
 {
   mCompletedCB = aCompletedCB;
 }
+
+
+const ScriptObjPtr SourceProcessor::currentResult() const
+{
+  return mResult;
+}
+
 
 
 void SourceProcessor::start()
@@ -2931,7 +2945,7 @@ ScriptObjPtr SourceProcessor::captureCode(ScriptObjPtr aCodeContainer)
     }
     else {
       // refer to the source code part that defines the function
-      code->setCursor(SourceCursor(mSrc.mSource, mPoppedPos, mSrc.mPos));
+      code->setCursor(SourceCursor(mSrc.mSourceContainer, mPoppedPos, mSrc.mPos));
     }
   }
   return code;
@@ -4511,7 +4525,7 @@ void CompiledCode::setCursor(const SourceCursor& aCursor)
 
 bool CompiledCode::codeFromSameSourceAs(const CompiledCode &aCode) const
 {
-  return mCursor.refersTo(aCode.mCursor.mSource) && mCursor.mPos.posId()==aCode.mCursor.mPos.posId();
+  return mCursor.refersTo(aCode.mCursor.mSourceContainer) && mCursor.mPos.posId()==aCode.mCursor.mPos.posId();
 }
 
 
@@ -4561,7 +4575,7 @@ void CompiledScript::deactivate()
   if (mMainContext) {
     ScriptMainContextPtr mc = mMainContext;
     mMainContext.reset();
-    mc->abortThreadsRunningSource(mCursor.mSource);
+    mc->abortThreadsRunningSource(mCursor.mSourceContainer);
   }
   inherited::deactivate();
 }
@@ -5100,19 +5114,33 @@ void ScriptCompiler::storeHandler()
 
 // MARK: - SourceContainer
 
+
+SourceContainer::SourceContainer(ScriptHost* aHostSourceP, const string aSource) :
+  mFloating(false),
+  mScriptHostP(aHostSourceP)
+{
+  assert(mScriptHostP);
+  mOriginLabel = mScriptHostP->getOriginLabel();
+  mLoggingContextP = mScriptHostP->getLoggingContext();
+  mSource = aSource;
+}
+
+
 SourceContainer::SourceContainer(const char *aOriginLabel, P44LoggingObj* aLoggingContextP, const string aSource) :
   mOriginLabel(aOriginLabel),
   mLoggingContextP(aLoggingContextP),
   mSource(aSource),
-  mFloating(false)
+  mFloating(false),
+  mScriptHostP(nullptr)
 {
 }
 
 
 SourceContainer::SourceContainer(const SourceCursor &aCodeFrom, const SourcePos &aStartPos, const SourcePos &aEndPos) :
   mOriginLabel("copied"),
-  mLoggingContextP(aCodeFrom.mSource->mLoggingContextP),
-  mFloating(true) // copied source is floating
+  mLoggingContextP(aCodeFrom.mSourceContainer->mLoggingContextP),
+  mFloating(true), // copied source is floating
+  mScriptHostP(nullptr)
 {
   mSource.assign(aStartPos.mPtr, aEndPos.mPtr-aStartPos.mPtr);
 }
@@ -5137,16 +5165,17 @@ const BreakPoint* SourceContainer::breakPointAt(const SourcePos::UniquePos aPosI
 #endif // P44SCRIPT_DEBUGGING_SUPPORT
 
 
-// MARK: - ScriptSource
+// MARK: - ScriptHost
 
 
-ScriptSource::ScriptSource() :
+ScriptHost::ScriptHost() :
   mActiveParams(nullptr)
 {
+  isMemberVariable();
 }
 
 
-ScriptSource::ScriptSource(
+ScriptHost::ScriptHost(
   EvaluationFlags aDefaultFlags,
   const char* aOriginLabel,
   const char* aTitleTemplate,
@@ -5154,24 +5183,31 @@ ScriptSource::ScriptSource(
 ) :
   mActiveParams(nullptr)
 {
+  isMemberVariable();
   activate(aDefaultFlags, aOriginLabel, aTitleTemplate, aLoggingContextP);
 }
 
 
-ScriptSource::~ScriptSource()
+ScriptHost::~ScriptHost()
 {
-  setSource(""); // force removal of global objects depending on this
+  if (storable()) setSource(""); // force removal of global objects depending on this source
   if (mActiveParams) {
+    // remove non-retaining references
+    // - unregister
     #if P44SCRIPT_REGISTERED_SOURCE
-    domain()->unregisterScriptSource(*this);
+    domain()->unregisterScriptHost(*this);
     #endif
+    // - possible backreference in container
+    if (mActiveParams->mSourceContainer && mActiveParams->mSourceContainer->mScriptHostP==this) {
+      mActiveParams->mSourceContainer->mScriptHostP = nullptr;
+    }
     delete mActiveParams;
     mActiveParams = nullptr;
   }
 }
 
 
-void ScriptSource::activate(EvaluationFlags aDefaultFlags, const char* aOriginLabel, const char* aTitleTemplate, P44LoggingObj* aLoggingContextP)
+void ScriptHost::activate(EvaluationFlags aDefaultFlags, const char* aOriginLabel, const char* aTitleTemplate, P44LoggingObj* aLoggingContextP)
 {
   if (!mActiveParams) {
     mActiveParams = new ActiveParams;
@@ -5188,44 +5224,61 @@ void ScriptSource::activate(EvaluationFlags aDefaultFlags, const char* aOriginLa
 }
 
 
-bool ScriptSource::active() const
+bool ScriptHost::active() const
 {
   return mActiveParams!=nullptr;
 }
 
 
-#if P44SCRIPT_REGISTERED_SOURCE
-
-void ScriptSource::setScriptSourceUid(const string aScriptSourceUid)
+bool ScriptHost::storable() const
 {
-  assert(active());
-  mActiveParams->mScriptSourceUid = aScriptSourceUid;
+  return active() && !mActiveParams->mUnstored;
 }
 
 
-void ScriptSource::registerScript()
+
+#if P44SCRIPT_REGISTERED_SOURCE
+
+
+ScriptHost::ScriptHost(SourceContainerPtr aSourceContainer) :
+  mActiveParams(nullptr)
 {
-  if (active() && !mActiveParams->mScriptSourceUid.empty()) {
-    domain()->registerScriptSource(*this);
+  activate(sourcecode|regular|keepvars|queue|ephemeralSource, aSourceContainer->mOriginLabel, nullptr, aSourceContainer->loggingContext());
+  mActiveParams->mSourceContainer = aSourceContainer;
+}
+
+
+void ScriptHost::setScriptHostUid(const string aScriptHostUid, bool aUnstored)
+{
+  assert(active());
+  mActiveParams->mUnstored = aUnstored;
+  mActiveParams->mScriptHostUid = aScriptHostUid;
+}
+
+
+void ScriptHost::registerScript()
+{
+  if (active() && !mActiveParams->mScriptHostUid.empty()) {
+    domain()->registerScriptHost(*this);
   }
 }
 
 
-void ScriptSource::registerUnstoredScript(const string aScriptSourceUid)
+void ScriptHost::registerUnstoredScript(const string aScriptHostUid)
 {
-  setScriptSourceUid(aScriptSourceUid);
+  setScriptHostUid(aScriptHostUid);
   registerScript();
 }
 
 
-string ScriptSource::scriptSourceUid()
+string ScriptHost::scriptSourceUid()
 {
   if (!active()) return "<inactive>";
-  return mActiveParams->mScriptSourceUid;
+  return mActiveParams->mScriptHostUid;
 }
 
 
-string ScriptSource::getContextTitle()
+string ScriptHost::getContextTitle()
 {
   string t;
   if (active()) {
@@ -5241,7 +5294,7 @@ string ScriptSource::getContextTitle()
 }
 
 
-string ScriptSource::getScriptTitle()
+string ScriptHost::getScriptTitle()
 {
   string t;
   if (active()) {
@@ -5263,8 +5316,8 @@ string ScriptSource::getScriptTitle()
 }
 
 
-bool ScriptSource::loadAndActivate(
-  const string& aScriptSourceUid,
+bool ScriptHost::loadAndActivate(
+  const string& aScriptHostUid,
   EvaluationFlags aDefaultFlags,
   const char* aOriginLabel,
   const char* aTitleTemplate,
@@ -5277,9 +5330,9 @@ bool ScriptSource::loadAndActivate(
   if (!aInDomain) aInDomain = ScriptingDomainPtr(&StandardScriptingDomain::sharedDomain());
   bool domainSource = false;
   string source;
-  if (!aScriptSourceUid.empty()) {
+  if (!aScriptHostUid.empty()) {
     // try to load from domain level
-    domainSource = aInDomain->loadSource(aScriptSourceUid, source);
+    domainSource = aInDomain->loadSource(aScriptHostUid, source);
   }
   if (!domainSource && aLocallyStoredSource && *aLocallyStoredSource) {
     source = aLocallyStoredSource;
@@ -5291,8 +5344,8 @@ bool ScriptSource::loadAndActivate(
     setDomain(aInDomain);
     // and the source text
     setSource(source);
-    if (!aScriptSourceUid.empty()) {
-      mActiveParams->mScriptSourceUid = aScriptSourceUid;
+    if (!aScriptHostUid.empty()) {
+      mActiveParams->mScriptHostUid = aScriptHostUid;
       // now register in the domain
       registerScript();
       #if P44SCRIPT_MIGRATE_TO_DOMAIN_SOURCE
@@ -5304,7 +5357,7 @@ bool ScriptSource::loadAndActivate(
           "%s copying '%s' lazily activated source to domain store with UID='%s'",
           storedok ? "succeeded" : "FAILED",
           mActiveParams->mOriginLabel.c_str(),
-          mActiveParams->mScriptSourceUid.c_str()
+          mActiveParams->mScriptHostUid.c_str()
         );
       }
       #endif // P44SCRIPT_MIGRATE_TO_DOMAIN_SOURCE
@@ -5316,9 +5369,9 @@ bool ScriptSource::loadAndActivate(
 }
 
 
-bool ScriptSource::setSourceAndActivate(
+bool ScriptHost::setSourceAndActivate(
   const string& aSource,
-  const string& aScriptSourceUid,
+  const string& aScriptHostUid,
   EvaluationFlags aDefaultFlags,
   const char* aOriginLabel,
   const char* aTitleTemplate,
@@ -5330,7 +5383,7 @@ bool ScriptSource::setSourceAndActivate(
     // we need to activate first
     activate(aDefaultFlags, aOriginLabel, aTitleTemplate, aLoggingContextP);
     setDomain(aInDomain);
-    mActiveParams->mScriptSourceUid = aScriptSourceUid;
+    mActiveParams->mScriptHostUid = aScriptHostUid;
     registerScript();
   }
   bool changed = setSource(aSource);
@@ -5339,7 +5392,7 @@ bool ScriptSource::setSourceAndActivate(
 }
 
 
-bool ScriptSource::setAndStoreSource(const string& aSource)
+bool ScriptHost::setAndStoreSource(const string& aSource)
 {
   bool changed = setSource(aSource);
   if (changed) {
@@ -5361,23 +5414,23 @@ bool ScriptSource::setAndStoreSource(const string& aSource)
 }
 
 
-bool ScriptSource::loadSource(const char* aLocallyStoredSource)
+bool ScriptHost::loadSource(const char* aLocallyStoredSource)
 {
   assert(active());
   string source;
   bool changed = false;
-  if (!domain()->loadSource(mActiveParams->mScriptSourceUid, source)) {
+  if (!storable() || !domain()->loadSource(mActiveParams->mScriptHostUid, source)) {
     // use locally stored source, if any
     if (aLocallyStoredSource) source = aLocallyStoredSource;
     #if P44SCRIPT_MIGRATE_TO_DOMAIN_SOURCE
-    if (!source.empty()) {
+    if (!source.empty() && storable()) {
       changed = setSource(source);
       storeSource();
       POLOG(mActiveParams->mLoggingContextP, LOG_NOTICE,
         "%s copying '%s' source to domain store with UID='%s'",
         mActiveParams->mDomainSource ? "succeeded" : "FAILED",
         mActiveParams->mOriginLabel.c_str(),
-        mActiveParams->mScriptSourceUid.c_str()
+        mActiveParams->mScriptHostUid.c_str()
       );
     }
     #endif
@@ -5398,11 +5451,11 @@ bool ScriptSource::loadSource(const char* aLocallyStoredSource)
 }
 
 
-bool ScriptSource::storeSource()
+bool ScriptHost::storeSource()
 {
-  if (!active()) return false; // inactive storage is NOP (but ok)
-  if (mActiveParams->mSourceDirty && !mActiveParams->mScriptSourceUid.empty()) {
-    bool storedok = domain()->storeSource(mActiveParams->mScriptSourceUid, getSource());
+  if (!storable()) return false; // inactive or disabled storage is NOP (but ok)
+  if (mActiveParams->mSourceDirty && !mActiveParams->mScriptHostUid.empty()) {
+    bool storedok = domain()->storeSource(mActiveParams->mScriptHostUid, getSource());
     #if P44SCRIPT_MIGRATE_TO_DOMAIN_SOURCE
     mActiveParams->mDomainSource = storedok;
     #endif
@@ -5413,25 +5466,25 @@ bool ScriptSource::storeSource()
 }
 
 
-void ScriptSource::deleteSource()
+void ScriptHost::deleteSource()
 {
-  if (!active()) return; // inactive storage is NOP (but ok)
+  if (!storable()) return; // inactive storage is NOP (but ok)
   setSource(""); // empty
   storeSource(); // make sure it gets stored
 }
 
 
 #if P44SCRIPT_MIGRATE_TO_DOMAIN_SOURCE
-string ScriptSource::getSourceToStoreLocally() const
+string ScriptHost::getSourceToStoreLocally() const
 {
   #if P44SCRIPT_MIGRATE_TO_DOMAIN_SOURCE
-  if (active() && mActiveParams->mDomainSource) {
+  if (storable() && mActiveParams->mDomainSource) {
     if (!mActiveParams->mLocalDataReportedRemoved) {
       mActiveParams->mLocalDataReportedRemoved = true; // flag for preventing further caller-local storage changed reporting
       POLOG(mActiveParams->mLoggingContextP, LOG_WARNING,
         "migration of '%s' source to domain store with UID='%s' complete - locally stored version NOW EMPTY",
         mActiveParams->mOriginLabel.c_str(),
-        mActiveParams->mScriptSourceUid.c_str()
+        mActiveParams->mScriptHostUid.c_str()
       );
     }
     return ""; // empty
@@ -5446,14 +5499,14 @@ string ScriptSource::getSourceToStoreLocally() const
 #endif // P44SCRIPT_REGISTERED_SOURCE
 
 
-void ScriptSource::setDomain(ScriptingDomainPtr aDomain)
+void ScriptHost::setDomain(ScriptingDomainPtr aDomain)
 {
   assert(active());
   mActiveParams->mScriptingDomain = aDomain;
 };
 
 
-ScriptingDomainPtr ScriptSource::domain()
+ScriptingDomainPtr ScriptHost::domain()
 {
   assert(active());
   if (!mActiveParams->mScriptingDomain) {
@@ -5464,7 +5517,7 @@ ScriptingDomainPtr ScriptSource::domain()
 }
 
 
-void ScriptSource::setSharedMainContext(ScriptMainContextPtr aSharedMainContext)
+void ScriptHost::setSharedMainContext(ScriptMainContextPtr aSharedMainContext)
 {
   if (!aSharedMainContext && !active()) return; // no specific context can be set for inactive script
   assert(active());
@@ -5478,7 +5531,7 @@ void ScriptSource::setSharedMainContext(ScriptMainContextPtr aSharedMainContext)
 }
 
 
-void ScriptSource::uncompile(bool aNoAbort)
+void ScriptHost::uncompile(bool aNoAbort)
 {
   if (!active()) return; // cannot be compiled or running, just NOP
   if (mActiveParams->mSharedMainContext && !aNoAbort) {
@@ -5494,10 +5547,10 @@ void ScriptSource::uncompile(bool aNoAbort)
 }
 
 
-bool ScriptSource::setSource(const string aSource, EvaluationFlags aEvaluationFlags)
+bool ScriptHost::setSource(const string aSource, EvaluationFlags aEvaluationFlags)
 {
-  if (!active()) {
-    if (aSource.empty()) return false; // setting empty source on a non-active script is the only allowed option, but is not a change
+  if (!storable()) {
+    if (aSource.empty()) return false; // setting empty source on a non-active or non-storable script is the only allowed option, but is not a change
     assert(false); // must be active for everything else
   }
   if (aEvaluationFlags==inherit || mActiveParams->mDefaultFlags==aEvaluationFlags) {
@@ -5512,45 +5565,45 @@ bool ScriptSource::setSource(const string aSource, EvaluationFlags aEvaluationFl
   mActiveParams->mSourceContainer.reset(); // release it myself
   // create new source container
   if (!aSource.empty()) {
-    mActiveParams->mSourceContainer = SourceContainerPtr(new SourceContainer(mActiveParams->mOriginLabel.c_str(), mActiveParams->mLoggingContextP, aSource));
+    mActiveParams->mSourceContainer = SourceContainerPtr(new SourceContainer(this, aSource));
   }
   mActiveParams->mSourceDirty = true;
   return true; // source has changed
 }
 
 
-string ScriptSource::getSource() const
+string ScriptHost::getSource() const
 {
   return active() && mActiveParams->mSourceContainer ? mActiveParams->mSourceContainer->mSource : "";
 }
 
 
-bool ScriptSource::empty() const
+bool ScriptHost::empty() const
 {
   return active() && mActiveParams->mSourceContainer ? mActiveParams->mSourceContainer->mSource.empty() : true;
 }
 
 
-const char* ScriptSource::getOriginLabel()
+const char* ScriptHost::getOriginLabel()
 {
   return nonNullCStr(active() ? mActiveParams->mOriginLabel.c_str() : nullptr);
 }
 
 
-P44LoggingObj* ScriptSource::getLoggingContext()
+P44LoggingObj* ScriptHost::getLoggingContext()
 {
   return active() ? mActiveParams->mLoggingContextP : nullptr;
 }
 
 
 
-bool ScriptSource::refersTo(const SourceCursor& aCursor)
+bool ScriptHost::refersTo(const SourceCursor& aCursor)
 {
   return active() ? aCursor.refersTo(mActiveParams->mSourceContainer) : false; // can't refer to inactive source
 }
 
 
-ScriptObjPtr ScriptSource::getExecutable()
+ScriptObjPtr ScriptHost::getExecutable()
 {
   if (active() && mActiveParams->mSourceContainer) {
     if (!mActiveParams->mCachedExecutable) {
@@ -5579,7 +5632,7 @@ ScriptObjPtr ScriptSource::getExecutable()
 }
 
 
-ScriptObjPtr ScriptSource::syntaxcheck()
+ScriptObjPtr ScriptHost::syntaxcheck()
 {
   if (!active()) return ScriptObjPtr(); // no script at all is ok
   EvaluationFlags checkFlags = (mActiveParams->mDefaultFlags&~runModeMask)|scanning|checking;
@@ -5593,7 +5646,7 @@ ScriptObjPtr ScriptSource::syntaxcheck()
 }
 
 
-ScriptObjPtr ScriptSource::run(EvaluationFlags aRunFlags, EvaluationCB aEvaluationCB, ScriptObjPtr aThreadLocals, MLMicroSeconds aMaxRunTime)
+ScriptObjPtr ScriptHost::run(EvaluationFlags aRunFlags, EvaluationCB aEvaluationCB, ScriptObjPtr aThreadLocals, MLMicroSeconds aMaxRunTime)
 {
   if (!active()) return new AnnotatedNullValue("no script");
   EvaluationFlags flags = mActiveParams->mDefaultFlags; // default to compile flags
@@ -5786,15 +5839,15 @@ ScriptMainContextPtr ScriptingDomain::newContext(ScriptObjPtr aInstanceObj)
 #if P44SCRIPT_DEBUGGING_SUPPORT
 
 /// called by threads when they get paused
-void ScriptingDomain::threadPaused(ScriptCodeThreadPtr aThread, PausingMode aPausingReason)
+void ScriptingDomain::threadPaused(ScriptCodeThreadPtr aThread)
 {
   if (!mPauseHandlerCB) {
-    OLOG(LOG_WARNING, "Thread %04d requested pause (reason: %s) but no pause handling active (any more) -> continuing w/o debugging", aThread->threadId(), ScriptCodeThread::pausingName(aPausingReason));
-    aThread->continueWithMode(nodebug);
+    OLOG(LOG_WARNING, "Thread %04d requested pause (reason: %s) but no pause handling active (any more) -> continuing w/o debugging", aThread->threadId(), ScriptCodeThread::pausingName(aThread->pauseReason()));
+    aThread->continueWithMode(nopause);
   }
   else {
     // call handler
-    mPauseHandlerCB(aThread, aPausingReason);
+    mPauseHandlerCB(aThread);
   }
 }
 
@@ -5804,41 +5857,64 @@ void ScriptingDomain::threadPaused(ScriptCodeThreadPtr aThread, PausingMode aPau
 #if P44SCRIPT_REGISTERED_SOURCE
 
 
-void ScriptingDomain::registerScriptSource(ScriptSource &aScriptSource)
+bool ScriptingDomain::registerScriptHost(ScriptHost &aHostSource)
 {
-  for(ScriptSourcesVector::const_iterator pos = mScriptSources.begin(); pos!=mScriptSources.end(); ++pos) {
-    if (&aScriptSource==*pos) return; // already registered
+  for(ScriptHostsVector::const_iterator pos = mScriptHosts.begin(); pos!=mScriptHosts.end(); ++pos) {
+    if (&aHostSource==*pos) return false; // already registered
   }
   // not yet registered
-  mScriptSources.push_back(&aScriptSource);
+  mScriptHosts.push_back(&aHostSource);
+  return true;
 }
 
 
-void ScriptingDomain::unregisterScriptSource(ScriptSource &aScriptSource)
+bool ScriptingDomain::unregisterScriptHost(ScriptHost &aHostSource)
 {
-  for(ScriptSourcesVector::const_iterator pos = mScriptSources.begin(); pos!=mScriptSources.end(); ++pos) {
-    if (&aScriptSource==*pos) {
-      mScriptSources.erase(pos);
-      return;
+  for(ScriptHostsVector::const_iterator pos = mScriptHosts.begin(); pos!=mScriptHosts.end(); ++pos) {
+    if (&aHostSource==*pos) {
+      mScriptHosts.erase(pos);
+      return true;
     }
   }
+  return false;
 }
 
 
-ScriptSource* ScriptingDomain::getSourceByIndex(size_t aSourceIndex) const
+ScriptHostPtr ScriptingDomain::getHostByIndex(size_t aSourceIndex) const
 {
-  if (aSourceIndex>mScriptSources.size()) return nullptr;
-  return mScriptSources[aSourceIndex];
+  if (aSourceIndex>mScriptHosts.size()) return nullptr;
+  return mScriptHosts[aSourceIndex];
 }
 
 
-ScriptSource* ScriptingDomain::getSourceByUid(const string aSourceUid) const
+ScriptHostPtr ScriptingDomain::getHostByUid(const string aSourceUid) const
 {
-  for(ScriptSourcesVector::const_iterator pos = mScriptSources.begin(); pos!=mScriptSources.end(); ++pos) {
+  for(ScriptHostsVector::const_iterator pos = mScriptHosts.begin(); pos!=mScriptHosts.end(); ++pos) {
     if (aSourceUid==(*pos)->scriptSourceUid()) return *pos;
   }
   return nullptr;
 }
+
+
+ScriptHostPtr ScriptingDomain::getHostForThread(const ScriptCodeThreadPtr aScriptCodeThread)
+{
+  SourceContainerPtr container = aScriptCodeThread->cursor().mSourceContainer;
+  ScriptHostPtr host;
+  if (container) {
+    host = container->scriptHost();
+    if (!host) {
+      // create a ephemeral (unstored) host
+      host = new ScriptHost(container);
+      host->setScriptHostUid(string_format("thread_%08d", aScriptCodeThread->threadId()), true);
+      host->setSharedMainContext(aScriptCodeThread->owner()->scriptmain());
+      registerScriptHost(*host);
+    }
+    // register to make sure (usually already registered)
+    registerScriptHost(*host);
+  }
+  return host;
+}
+
 
 
 #endif // P44SCRIPT_REGISTERED_SOURCE
@@ -5853,8 +5929,11 @@ ScriptCodeThread::ScriptCodeThread(ScriptCodeContextPtr aOwner, CompiledCodePtr 
   mChainOriginThread(aChainOriginThread),
   mMaxBlockTime(0),
   mMaxRunTime(Infinite),
-  mRunningSince(Never),
-  mPausingMode(nodebug)
+  mRunningSince(Never)
+  #if P44SCRIPT_DEBUGGING_SUPPORT
+  ,mPausingMode(nopause) // not debugging
+  ,mPauseReason(nopause) // not paused
+  #endif
 {
   setCursor(aStartCursor);
   FOCUSLOG("\n%04x START        thread created : %s", (uint32_t)((intptr_t)static_cast<SourceProcessor *>(this)) & 0xFFFF, mSrc.displaycode(130).c_str());
@@ -6306,7 +6385,8 @@ void ScriptCodeThread::memberEventCheck()
 const char* ScriptCodeThread::pausingName(PausingMode aPausingMode)
 {
   const char* pausingModeNames[numPausingModes] = {
-    "none",
+    "nopause",
+    "unpause",
     "breakpoint",
     "end_of_function",
     "statement",
@@ -6320,16 +6400,16 @@ const char* ScriptCodeThread::pausingName(PausingMode aPausingMode)
 
 bool ScriptCodeThread::pauseCheck(PausingMode aPausingOccasion)
 {
-  if (mPausingMode==nodebug) return false; // not debugging
-  if (mContinue) {
+  if (mPausingMode==nopause) return false; // not debugging
+  if (mPauseReason==unpause) {
     // continuing after a pause, must overcome the current pausing reason
-    OLOG(LOG_NOTICE, "Thread continues after pause in debugger in mode: %s", pausingName(mPausingMode));
+    OLOG(LOG_NOTICE, "Thread continues after pause in mode: %s", pausingName(mPausingMode));
     mRunningSince = MainLoop::currentMainLoop().now(); // re-start run time restriction
-    mContinue = false; // next check will be active again
+    mPauseReason = nopause;
     return false;
   }
   // Actually check for pausing
-  PausingMode pausingReason = aPausingOccasion; // default to the occasion
+  mPauseReason = aPausingOccasion; // default to the occasion
   switch (aPausingOccasion) {
     case breakpoint: // breakpoint() in code
     case interrupt: // interrupt from outside
@@ -6345,24 +6425,28 @@ bool ScriptCodeThread::pauseCheck(PausingMode aPausingOccasion)
       break;
     case scriptstep:
       if (mPausingMode==scriptstep) break; // fine-grain stepping (p44script enginge debugging only, usually)
-      // otherwise, reason to check pauses at script step are breakpoints
+      // otherwise, thing to check at script step are breakpoints
       if (!mSrc.onBreakPoint()) return false; // not on a cursor position based breakpoint
       // stop at position based breakpoint
-      pausingReason = breakpoint; // report as breakpoint
+      mPauseReason = breakpoint; // report as breakpoint
       break;
     default:
       return false; // do not pause
   }
   // not continuing -> pause here
-  OLOG(LOG_NOTICE, "Thread paused with reason: %s - ", pausingName(pausingReason));
-  mOwner->domain()->threadPaused(this, pausingReason);
+  OLOG(LOG_NOTICE, "Thread paused with reason: %s", pausingName(mPauseReason));
+  mOwner->domain()->threadPaused(this);
   return true; // signal pausing
 }
 
 
 void ScriptCodeThread::continueWithMode(PausingMode aNewPausingMode)
 {
-  mContinue = true;
+  if (mPauseReason==nopause) {
+    OLOG(LOG_WARNING, "Trying to continue thread %04d which is NOT paused", threadId());
+    return;
+  }
+  mPauseReason = unpause;
   mPausingMode = aNewPausingMode;
   resume();
 }
@@ -7098,7 +7182,7 @@ static void eval_func(BuiltinFunctionContextPtr f)
   }
   else {
     // need to compile string first
-    ScriptSource src(
+    ScriptHost src(
       scriptbody|anonymousfunction,
       "eval function", nullptr,
       f->instance() ? f->instance()->loggingContext() : NULL
@@ -7165,7 +7249,7 @@ static void breakpoint_func(BuiltinFunctionContextPtr f)
 {
   #if P44SCRIPT_DEBUGGING_SUPPORT
   if (f->thread()->pauseCheck(breakpoint)) {
-    FLOG(f, LOG_NOTICE, "breakpoint() in script source");
+    FLOG(f, LOG_WARNING, "breakpoint() in script source");
     return;
   }
   #endif
@@ -8482,21 +8566,21 @@ void StandardScriptingDomain::setStandardScriptingDomain(ScriptingDomainPtr aSta
 
 #define P44SCRIPT_FILE_EXTENSION ".p44s"
 
-bool FileStorageStandardScriptingDomain::loadSource(const string &aScriptSourceUid, string &aSource)
+bool FileStorageStandardScriptingDomain::loadSource(const string &aScriptHostUid, string &aSource)
 {
   if (mScriptDir.empty()) return false;
-  ErrorPtr err = string_fromfile(mScriptDir+"/"+aScriptSourceUid+P44SCRIPT_FILE_EXTENSION, aSource);
+  ErrorPtr err = string_fromfile(mScriptDir+"/"+aScriptHostUid+P44SCRIPT_FILE_EXTENSION, aSource);
   if (Error::isOK(err)) return true;
   if (Error::isError(err, SysError::domain(), ENOENT)) return false; // no such file, but that's ok
-  LOG(LOG_ERR, "Cannot load script '%s" P44SCRIPT_FILE_EXTENSION "'", aScriptSourceUid.c_str());
+  LOG(LOG_ERR, "Cannot load script '%s" P44SCRIPT_FILE_EXTENSION "'", aScriptHostUid.c_str());
   return false; // error, nothing loaded
 }
 
 
-bool FileStorageStandardScriptingDomain::storeSource(const string &aScriptSourceUid, const string &aSource)
+bool FileStorageStandardScriptingDomain::storeSource(const string &aScriptHostUid, const string &aSource)
 {
   if (mScriptDir.empty()) return false;
-  string scriptfn = mScriptDir+"/"+aScriptSourceUid+P44SCRIPT_FILE_EXTENSION;
+  string scriptfn = mScriptDir+"/"+aScriptHostUid+P44SCRIPT_FILE_EXTENSION;
   ErrorPtr err;
   if (aSource.empty()) {
     // remove entirely empty script files
@@ -8507,7 +8591,7 @@ bool FileStorageStandardScriptingDomain::storeSource(const string &aScriptSource
     err = string_tofile(scriptfn, aSource);
   }
   if (Error::isOK(err)) return true;
-  LOG(LOG_ERR, "Cannot save source '%s" P44SCRIPT_FILE_EXTENSION "'", aScriptSourceUid.c_str());
+  LOG(LOG_ERR, "Cannot save source '%s" P44SCRIPT_FILE_EXTENSION "'", aScriptHostUid.c_str());
   return false;
 }
 
@@ -8529,7 +8613,7 @@ class SimpleREPLApp : public CmdLineApp
 {
   typedef CmdLineApp inherited;
 
-  ScriptSource source;
+  ScriptHost source;
   ScriptMainContextPtr replContext;
   FdCommPtr input;
 

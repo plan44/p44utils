@@ -83,7 +83,7 @@ class ScriptingCodeFixture
   ScriptMainContextPtr mainContext;
   TestLookup testLookup;
 public:
-  ScriptSource s;
+  ScriptHost s;
 
   ScriptingCodeFixture() :
     s(scriptbody)
@@ -109,7 +109,7 @@ public:
 class AsyncScriptingFixture
 {
 
-  ScriptSource s;
+  ScriptHost s;
   ScriptMainContextPtr mainContext;
   ScriptObjPtr testResult;
   MLMicroSeconds tm;
@@ -150,7 +150,7 @@ public:
     s.setSource(aSource, aEvalFlags);
     EvaluationCB cb = boost::bind(&AsyncScriptingFixture::resultCapture, this, _1);
     // Note: as we share an eval context with all triggers and handlers, main script must be concurrent as well
-    MainLoop::currentMainLoop().executeNow(boost::bind(&ScriptSource::run, &s, aEvalFlags|regular|concurrently, cb, ScriptObjPtr(), /* 20*Second */ Infinite));
+    MainLoop::currentMainLoop().executeNow(boost::bind(&ScriptHost::run, &s, aEvalFlags|regular|concurrently, cb, ScriptObjPtr(), /* 20*Second */ Infinite));
     tm = MainLoop::now();
     MainLoop::currentMainLoop().run(true);
     tm = MainLoop::now()-tm;
@@ -193,7 +193,7 @@ TEST_CASE("CodeCursor", "[scripting]" )
     cursor2start.advance(4);
     SourceCursor cursor2end(cursor2start);
     cursor2end.advance(7); // only "part of" should be visible
-    SourceCursor cursor2part(cursor2.mSource, cursor2start.mPos, cursor2end.mPos);
+    SourceCursor cursor2part(cursor2.mSourceContainer, cursor2start.mPos, cursor2end.mPos);
     // only "part of" should be visible
     REQUIRE(cursor2part.charsleft() == 7);
     REQUIRE(cursor2part.advance(5) == true);

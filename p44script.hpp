@@ -99,7 +99,8 @@ namespace p44 { namespace P44Script {
   class SourceCursor;
   class SourceContainer;
   typedef boost::intrusive_ptr<SourceContainer> SourceContainerPtr;
-  class ScriptSource;
+  class ScriptHost;
+  typedef boost::intrusive_ptr<ScriptHost> ScriptHostPtr;
 
   class SourceProcessor;
   typedef boost::intrusive_ptr<SourceProcessor> SourceProcessorPtr;
@@ -180,7 +181,7 @@ namespace p44 { namespace P44Script {
 
   /// Evaluation flags
   enum {
-    inherit = 0, ///< for ScriptSource::run() only: no flags, inherit from compile flags
+    inherit = 0, ///< for ScriptHost::run() only: no flags, inherit from compile flags
     // run mode
     runModeMask = 0x00FF,
     regular = 0x01, ///< regular script or expression code
@@ -265,7 +266,8 @@ namespace p44 { namespace P44Script {
   /// script thread run/debug mode or pause reason
   /// @note higher pausing mode include all of the lower ones
   typedef enum {
-    nodebug, ///< run normally, never pause
+    nopause, ///< run normally, never pause
+    unpause, ///< unpause, will prevent re-pausing because location is the same etc.
     breakpoint, ///< run normally, but pause at breakpoints (breakpoint() in code or by cursor position)
     end_of_function, /// pause at end of user defined functions (aka step out)
     statement, ///< pause at beginning of a statement (aka step over)
@@ -1491,10 +1493,10 @@ namespace p44 { namespace P44Script {
     SourceCursor(SourceContainerPtr aContainer, SourcePos aStart, SourcePos aEnd);
     SourceCursor(string aString, const char *aLabel = NULL); ///< create cursor on the passed string
 
-    SourceContainerPtr mSource; ///< the source containing the string we're pointing to
+    SourceContainerPtr mSourceContainer; ///< the source containing the string we're pointing to
     SourcePos mPos; ///< the position within the source
 
-    bool refersTo(SourceContainerPtr aSource) const { return mSource==aSource; } ///< check if this sourceref refers to a particular source
+    bool refersTo(SourceContainerPtr aSource) const { return mSourceContainer==aSource; } ///< check if this sourceref refers to a particular source
 
     // info
     size_t lineno() const; ///< 0-based line counter
@@ -1563,11 +1565,11 @@ namespace p44 { namespace P44Script {
   };
 
 
-  /// the actual script source text, shared among ScriptSource and possibly multiple SourceRefs
+  /// the actual script source text, shared among ScriptHost and possibly multiple SourceRefs
   class SourceContainer : public P44Obj
   {
     friend class SourceCursor;
-    friend class ScriptSource;
+    friend class ScriptHost;
     friend class CompiledScript;
     friend class CompiledCode;
     friend class ExecutionContext;
@@ -1576,6 +1578,7 @@ namespace p44 { namespace P44Script {
     P44LoggingObj* mLoggingContextP; ///< the logging context
     string mSource; ///< the source code as written by the script author
     bool mFloating; ///< if set, the source is not linked but is a private copy
+    ScriptHost* mScriptHostP; ///< the script host
 
     #if P44SCRIPT_DEBUGGING_SUPPORT
     typedef std::map<SourcePos::UniquePos, BreakPoint> BreakPointMap;
@@ -1583,14 +1586,23 @@ namespace p44 { namespace P44Script {
     #endif
 
   public:
-    /// create source container
+    /// create source container not attached to a script source
+    /// @note this kind of container cannot be used for debugging as there is no way for the debugger to find the source
     SourceContainer(const char *aOriginLabel, P44LoggingObj* aLoggingContextP, const string aSource);
+
+    /// create source container linked to script source
+    /// @note origin label, logging context, source will be taken from script source
+    SourceContainer(ScriptHost* aHostSourceP, const string aSource);
 
     /// create source container copying a source part from another container
     SourceContainer(const SourceCursor &aCodeFrom, const SourcePos &aStartPos, const SourcePos &aEndPos);
 
     /// @return a cursor for this source code, starting at the beginning
     SourceCursor getCursor();
+
+    /// @return script source host of this container, or nullptr when the container is not hosted by a ScriptHost
+    /// @note this is a non-retaining backreference
+    ScriptHost* scriptHost() { return mScriptHostP; }
 
     /// @return true if this source is floating, i.e. not part of a still existing script
     bool floating() { return mFloating; }
@@ -1611,8 +1623,9 @@ namespace p44 { namespace P44Script {
   };
 
 
-  /// class representing a script source in its entiety including all context needed to run it
-  class ScriptSource
+  /// class representing a script source in its entiety including all context needed to run it,
+  /// ie. is the object that "hosts" the script
+  class ScriptHost : public P44Obj
   {
   protected:
 
@@ -1625,9 +1638,10 @@ namespace p44 { namespace P44Script {
       P44LoggingObj* mLoggingContextP; ///< the logging context
       SourceContainerPtr mSourceContainer; ///< the container of the source
       #if P44SCRIPT_REGISTERED_SOURCE
-      string mScriptSourceUid; ///< domain-unique, persistent ID for this source
+      string mScriptHostUid; ///< domain-unique, persistent ID for this source
       string mTitleTemplate; ///< user facing template for title
       bool mSourceDirty; ///< set when source gets modified via setSource(), cleared by storeSource()
+      bool mUnstored; ///< set when source is not stored anywhere persistently (ephemeral sources like eval() or REPL)
       #if P44SCRIPT_MIGRATE_TO_DOMAIN_SOURCE
       bool mDomainSource; ///< source is stored in domain, locally stored data can be deleted
       bool mLocalDataReportedRemoved; ///< locally stored data at least once reported as removed
@@ -1639,22 +1653,24 @@ namespace p44 { namespace P44Script {
 
   public:
 
-    /// create non-activated script source
+    /// create non-activated script host
+    /// @note this constructor is for member variables only (disables refcounting)
     /// @note this is suitable for scripts with potentially large number of different instances
     ///   (such as vdcd scene scripts), which should not consume memory before they are actually in use
     ///   Those need to be activated at load or set (using loadAndActivate() or setSourceAndActivate().
-    ScriptSource();
+    ScriptHost();
 
-    /// create empty script source, activate it
+    /// create empty script host, activate it
     /// @param aDefaultFlags default execution flags
     /// @param aOriginLabel origin label to specify script's origin or nullptr if none (will fall back to default labels)
     /// @param aTitleTemplate specific user-facing title template for this script (e.g. for p44script IDE),
     ///   can contain %x placeholders for inserting context and other info. Should uniquely identify script when expanded.
     ///   (will use a standard template when not specified).
     /// @param aLoggingContextP the logging object to log script related info or nullptr if none
+    /// @note this constructor is for member variables only (disables refcounting)
     /// @note this is suitable for likely-used scripts which can be active before any source is loaded as it does
     ///   not really matter if they stay allocated empty.
-    ScriptSource(
+    ScriptHost(
       EvaluationFlags aDefaultFlags,
       const char* aOriginLabel = nullptr,
       const char* aTitleTemplate = nullptr,
@@ -1662,10 +1678,13 @@ namespace p44 { namespace P44Script {
     );
 
     /// Destructor
-    ~ScriptSource();
+    ~ScriptHost();
 
     /// @return true if active (i.e. activated sometime before
     bool active() const;
+
+    /// @return true if active and not unstored
+    bool storable() const;
 
     /// activate the script for actually being used
     /// @note once activated, the function can be called again but is NOP and ignores activation params
@@ -1677,10 +1696,16 @@ namespace p44 { namespace P44Script {
 
     #if P44SCRIPT_REGISTERED_SOURCE
 
-    /// checks and loads source by aScriptSourceId from scripting domain if available
+    /// create a script source from a source container
+    /// @param aSourceContainer the source container to host
+    /// @note this is usually to make unhosted script text temporarily hosted e.g. for debugging
+    /// @note this constructor is for ephemeral source hosts which are NOT member variables, but intrusive smart pointers
+    ScriptHost(SourceContainerPtr aSourceContainer);
+
+    /// checks and loads source by aScriptHostId from scripting domain if available
     /// or, if not known in domain, uses contents of aDBStoreSource
     /// to activate the source, if the resulting source text is not empty
-    /// @param aScriptSourceUid the sourceUid - if non-empty, the script will be attempted to load from the domain via the ID
+    /// @param aScriptHostUid the sourceUid - if non-empty, the script will be attempted to load from the domain via the ID
     ///   and will become registered under this id as a activated script if non-empty source code could be loaded.
     /// @param aDefaultFlags default execution flags
     /// @param aOriginLabel origin label to specify script's origin or nullptr if none (will fall back to default labels)
@@ -1693,10 +1718,10 @@ namespace p44 { namespace P44Script {
     ///   scripting domain managed store.
     /// @return true if a non-empty source was activated
     /// @note once activated, the function can be called again to re-load changed sources, but will not change
-    ///   activation params (flags, label, loggingcontext) and will also ignore a new a changed aScriptSourceUid.
+    ///   activation params (flags, label, loggingcontext) and will also ignore a new a changed aScriptHostUid.
     /// @note will possibly migrate locally stored script sources to domain managed store (if the latter is available).
     bool loadAndActivate(
-      const string& aScriptSourceUid,
+      const string& aScriptHostUid,
       EvaluationFlags aDefaultFlags,
       const char* aOriginLabel = nullptr,
       const char* aTitleTemplate = nullptr,
@@ -1708,7 +1733,7 @@ namespace p44 { namespace P44Script {
     /// Set new script source and activate script if it is not yet activated and aSource is not empty.
     /// Also store the source text if it has changed
     /// @param aSource the source text to set
-    /// @param aScriptSourceUid the sourceUid - if non-empty, the script will be saved in the domain level
+    /// @param aScriptHostUid the sourceUid - if non-empty, the script will be saved in the domain level
     ///   storage under this id (if the text has changed from already stored version)
     /// @param aDefaultFlags default execution flags
     /// @param aOriginLabel origin label to specify script's origin or nullptr if none (will fall back to default labels)
@@ -1722,10 +1747,10 @@ namespace p44 { namespace P44Script {
     ///   ones, such as vdcd scene scripts). Use pre-activated scripts / setAndStore() for scripts that very likely
     ///   in use, or can exist in few instances only.
     /// @note once activated, the function can be called again to change and store sources, but it will not change
-    ///   activation params (flags, label, loggingcontext) and will also ignore a new a changed aScriptSourceUid.
+    ///   activation params (flags, label, loggingcontext) and will also ignore a new a changed aScriptHostUid.
     bool setSourceAndActivate(
       const string& aSource,
-      const string& aScriptSourceUid,
+      const string& aScriptHostUid,
       EvaluationFlags aDefaultFlags,
       const char* aOriginLabel = nullptr,
       const char* aTitleTemplate = nullptr,
@@ -1761,17 +1786,21 @@ namespace p44 { namespace P44Script {
 
     /// set the scriptSourceUid
     /// @note must be activated before calling
-    /// @param aScriptSourceUid the sourceUid - if non-empty, this is used to load and store the script
+    /// @param aScriptHostUid the sourceUid - if non-empty, this is used to load and store the script
     ///   at scripting domain level and register non-empty sources there for debugging and inspection.
-    void setScriptSourceUid(const string aScriptSourceUid);
+    /// @param aUnstored if set, this source is not (to be) stored anywhere, only ephemerally present
+    void setScriptHostUid(const string aScriptHostUid, bool aUnstored = false);
 
     /// @return the script source UID or a dummy placeholder in case it is not set
     string scriptSourceUid();
 
+    /// @return true if script is unstored/unstorable (or not active)
+    bool isUnstored() { return active() ? mActiveParams->mUnstored : true; }
+
     /// register the script under a UID, but do not store it
     /// @param the sourceUid to register the script with, but prevent storing the source
     /// @note this is for ephemeral scripts that should be registered while running for possible debugging
-    void registerUnstoredScript(const string aScriptSourceUid);
+    void registerUnstoredScript(const string aScriptHostUid);
 
     #if P44SCRIPT_MIGRATE_TO_DOMAIN_SOURCE
     /// get the source code to be stored in callers local store (e.g. DB field)
@@ -1868,9 +1897,9 @@ namespace p44 { namespace P44Script {
 
 
   /// convenience class for standalone triggers
-  class TriggerSource : public ScriptSource
+  class TriggerSource : public ScriptHost
   {
-    typedef ScriptSource inherited;
+    typedef ScriptHost inherited;
 
     EvaluationCB mTriggerCB;
     TriggerMode mTriggerMode;
@@ -1965,7 +1994,7 @@ namespace p44 { namespace P44Script {
   /// called when a thread is paused
   /// @param aPausedThread the thread that got paused
   /// @param aPausingReason the reason for the pause
-  typedef boost::function<void (ScriptCodeThreadPtr aPausedThread, PausingMode aPausingReason)> PauseHandlerCB;
+  typedef boost::function<void (ScriptCodeThreadPtr aPausedThread)> PauseHandlerCB;
   #endif
 
   /// Scripting domain, usually singleton, containing global variables and event handlers
@@ -1978,8 +2007,8 @@ namespace p44 { namespace P44Script {
     MLMicroSeconds mMaxBlockTime;
 
     #if P44SCRIPT_REGISTERED_SOURCE
-    typedef std::vector<ScriptSource*> ScriptSourcesVector;
-    ScriptSourcesVector mScriptSources;
+    typedef std::vector<ScriptHost*> ScriptHostsVector;
+    ScriptHostsVector mScriptHosts;
     #endif
 
     #if P44SCRIPT_DEBUGGING_SUPPORT
@@ -1993,7 +2022,7 @@ namespace p44 { namespace P44Script {
       inherited(ScriptingDomainPtr(), ScriptObjPtr()), mGeoLocationP(NULL),
       mMaxBlockTime(DEFAULT_MAX_BLOCK_TIME)
       #if P44SCRIPT_DEBUGGING_SUPPORT
-      , mDefaultPausingMode(nodebug)
+      , mDefaultPausingMode(nopause)
       #endif
     {};
 
@@ -2037,8 +2066,7 @@ namespace p44 { namespace P44Script {
 
     /// called by threads when they get paused
     /// @param aThread the thread that got paused
-    /// @param aPausingReason the reason for getting paused
-    void threadPaused(ScriptCodeThreadPtr aThread, PausingMode aPausingReason);
+    void threadPaused(ScriptCodeThreadPtr aThread);
 
     /// @param aPauseHandlerCB the pause handler to install (or null when no debugger is active that could continue)
     void setPauseHandler(PauseHandlerCB aPauseHandlerCB) { mPauseHandlerCB = aPauseHandlerCB; }
@@ -2050,30 +2078,35 @@ namespace p44 { namespace P44Script {
     /// @name domain level source registry
     /// @{
 
-    /// @param aScriptSource register this source under its ScriptSourceUid.
-    void registerScriptSource(ScriptSource &aScriptSource);
+    /// @param aScriptHost register this source under its ScriptHostUid.
+    /// @return true if registered anew, false if source was registered already
+    bool registerScriptHost(ScriptHost &aScriptHost);
 
-    /// @param aScriptSource the scriptsource to unregister. Nothing will happen if this source is not registered.
-    void unregisterScriptSource(ScriptSource &aScriptSource);
+    /// @param aScriptHost the scriptsource to unregister. Nothing will happen if this source is not registered.
+    /// @return true if unregistered now, false if source was not registered
+    bool unregisterScriptHost(ScriptHost &aScriptHost);
 
-    /// @return number of registered sources
-    size_t numRegisteredSources() const { return mScriptSources.size(); }
+    /// @return number of registered source hosts
+    size_t numRegisteredHosts() const { return mScriptHosts.size(); }
 
     /// @return script source specified by index or NULL if it does not exist
-    ScriptSource* getSourceByIndex(size_t aSourceIndex) const;
+    ScriptHostPtr getHostByIndex(size_t aSourceIndex) const;
 
     /// @return script source specified by index or NULL if it does not exist
-    ScriptSource* getSourceByUid(const string aSourceUid) const;
+    ScriptHostPtr getHostByUid(const string aSourceUid) const;
+
+    /// @return script source host for given thread - auto-create/register one if thread does not originate from an already registered host
+    ScriptHostPtr getHostForThread(const ScriptCodeThreadPtr aScriptCodeThread);
 
     /// try to load source text from domain level script storage
     /// @param aSource will be set to the source code loaded
     /// @return true if source code (even empty) was found in the domain level store
-    virtual bool loadSource(const string &aScriptSourceUid, string &aSource) { return false; /* no actual storage in base class */ }
+    virtual bool loadSource(const string &aScriptHostUid, string &aSource) { return false; /* no actual storage in base class */ }
 
     /// try to store source text to domain level script storage
     /// @param aSource source text to be stored
     /// @return true if aSource (even empty) could be persisted in the domain level storage
-    virtual bool storeSource(const string &aScriptSourceUid, const string &aSource) { return false; /* no actual storage in base class */ }
+    virtual bool storeSource(const string &aScriptHostUid, const string &aSource) { return false; /* no actual storage in base class */ }
 
     /// @}
     #endif
@@ -2103,6 +2136,9 @@ namespace p44 { namespace P44Script {
     /// set the source to process
     /// @param aCursor the source (part) to process
     void setCursor(const SourceCursor& aCursor);
+
+    /// get the current execution cursor
+    const SourceCursor& cursor() const;
 
     /// set the source to process
     /// @param aCompletedCB will be called when process synchronously or asynchronously ends
@@ -2143,7 +2179,10 @@ namespace p44 { namespace P44Script {
     static void selfKeepingResume(ScriptCodeThreadPtr aContext, ScriptObjPtr aAbortResult);
 
     /// @return a unique ID for this source processor (which is the basis of any thread)
-    int threadId() { return mThreadId; }
+    int threadId() const { return mThreadId; }
+
+    /// @return the current result
+    const ScriptObjPtr currentResult() const;
 
   protected:
 
@@ -2465,8 +2504,8 @@ namespace p44 { namespace P44Script {
     void setCursor(const SourceCursor& aCursor);
     bool codeFromSameSourceAs(const CompiledCode &aCode) const; ///< return true if both compiled codes are from the same source position
     virtual bool originatesFrom(SourceContainerPtr aSource) const P44_OVERRIDE { return mCursor.refersTo(aSource); };
-    virtual bool floating() const P44_OVERRIDE { return mCursor.mSource->floating(); }
-    virtual P44LoggingObj* loggingContext() const P44_OVERRIDE { return mCursor.mSource ? mCursor.mSource->mLoggingContextP : NULL; };
+    virtual bool floating() const P44_OVERRIDE { return mCursor.mSourceContainer->floating(); }
+    virtual P44LoggingObj* loggingContext() const P44_OVERRIDE { return mCursor.mSourceContainer ? mCursor.mSourceContainer->mLoggingContextP : NULL; };
 
     /// get subroutine context to call this object as a subroutine/function call from a given context
     /// @param aMainContext the context from where this function is now called (the same function can be called
@@ -2773,7 +2812,7 @@ namespace p44 { namespace P44Script {
     #if P44SCRIPT_DEBUGGING_SUPPORT
 
     PausingMode mPausingMode; ///< current pausing mode of this thread
-    bool mContinue; ///< if set, we are exiting from a pause condition, so if we ARE on a breakpoint/statement boundary, do not pause again
+    PausingMode mPauseReason; ///< if paused, this is the reason - nodebug if not paused
 
     #endif // P44SCRIPT_DEBUGGING_SUPPORT
 
@@ -2817,18 +2856,14 @@ namespace p44 { namespace P44Script {
     /// run the thread
     virtual void run();
 
-    /// debug control for this thread
-    /// @param aPause set or
-    //SourceCursor debugControl(bool aPause, bool aSingleStep);
-
     /// get the maximum blocking time for script execution
-    MLMicroSeconds getMaxBlockTime() { return mMaxBlockTime; };
+    MLMicroSeconds getMaxBlockTime() const { return mMaxBlockTime; };
 
     /// get the maximum blocking time for script execution
     void setMaxBlockTime(MLMicroSeconds aMaxBlockTime) { mMaxBlockTime = aMaxBlockTime; };
 
     /// get the maximum running time for this thread
-    MLMicroSeconds getMaxRunTime() { return mMaxRunTime; };
+    MLMicroSeconds getMaxRunTime() const { return mMaxRunTime; };
 
     /// get the maximum running time for this thread
     void setMaxRunTime(MLMicroSeconds aMaxRunTime) { mMaxRunTime = aMaxRunTime; };
@@ -2855,7 +2890,7 @@ namespace p44 { namespace P44Script {
     virtual void complete(ScriptObjPtr aFinalResult) P44_OVERRIDE;
 
     /// @return the owner (the execution context that has started this thread)
-    ScriptCodeContextPtr owner() { return mOwner; }
+    ScriptCodeContextPtr owner() const { return mOwner; }
 
     /// convenience end of step using current result and checking for errors
     virtual void checkAndResume() P44_OVERRIDE;
@@ -2917,6 +2952,9 @@ namespace p44 { namespace P44Script {
     /// @param aPausingReason the reason for checking for a pause now
     /// @return true if execution should pause here
     virtual bool pauseCheck(PausingMode aPausingReason) P44_OVERRIDE;
+
+    /// @return the reason for being paused, or nopause when not paused
+    PausingMode pauseReason() { return mPauseReason; }
 
     /// continue the thread after a pause with new pausing mode
     /// @param aNewPausingMode the new pausing mode to continue execution with
@@ -3182,12 +3220,12 @@ namespace p44 { namespace P44Script {
     /// try to load source text from domain level script storage
     /// @param aSource will be set to the source code loaded
     /// @return true if source code (even empty) was found in the domain level store
-    virtual bool loadSource(const string &aScriptSourceUid, string &aSource) P44_OVERRIDE;
+    virtual bool loadSource(const string &aScriptHostUid, string &aSource) P44_OVERRIDE;
 
     /// try to store source text to domain level script storage
     /// @param aSource source text to be stored
     /// @return true if aSource (even empty) could be persisted in the domain level storage
-    virtual bool storeSource(const string &aScriptSourceUid, const string &aSource) P44_OVERRIDE;
+    virtual bool storeSource(const string &aScriptHostUid, const string &aSource) P44_OVERRIDE;
 
   };
 
