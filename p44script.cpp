@@ -6379,7 +6379,7 @@ void ScriptCodeThread::executedResult(ScriptObjPtr aResult)
     aResult = new AnnotatedNullValue("no return value");
   }
   #if P44SCRIPT_DEBUGGING_SUPPORT
-  bool wasChained = mChainedExecutionContext==nullptr;
+  bool wasChained = dynamic_cast<ScriptCodeContext*>(mChainedExecutionContext.get())!=nullptr;
   #endif
   mChainedExecutionContext.reset(); // release the child context
   if (aResult->isErr()) {
@@ -6460,11 +6460,11 @@ PausingMode ScriptCodeThread::pausingModeNamed(const string aPauseName)
 bool ScriptCodeThread::pauseCheck(PausingMode aPausingOccasion)
 {
   if (mPausingMode==nopause) return false; // not debugging
-  DBGOLOG(LOG_ERR,
-    "pauseCheck: Occasion=%s, Mode=%s, Reason==%s: %s",
-    pausingName(aPausingOccasion), pausingName(mPausingMode), pausingName(mPauseReason),
-    describePos(20).c_str()
-  );
+//  DBGOLOG(LOG_ERR,
+//    "pauseCheck: Occasion=%s, Mode=%s, Reason==%s: %s",
+//    pausingName(aPausingOccasion), pausingName(mPausingMode), pausingName(mPauseReason),
+//    describePos(20).c_str()
+//  );
   if (mPausingMode==terminate) {
     abort(new ErrorValue(ScriptError::Aborted, "terminated from debugging pause"));
     return true; // do not continue normally
@@ -6504,6 +6504,9 @@ bool ScriptCodeThread::pauseCheck(PausingMode aPausingOccasion)
       return false; // do not pause
   }
   // not continuing -> pause here
+  // - find next code, that's (visually) where we are pausing
+  mSrc.skipNonCode();
+  // - now pause
   OLOG(LOG_NOTICE, "Thread paused with reason '%s' at %s", pausingName(mPauseReason), describePos(20).c_str());
   mOwner->domain()->threadPaused(this);
   return true; // signal pausing
