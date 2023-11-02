@@ -1677,7 +1677,7 @@ void ScriptCodeContext::execute(ScriptObjPtr aToExecute, EvaluationFlags aEvalFl
   #if P44SCRIPT_DEBUGGING_SUPPORT
   // if debugging is enabled, make sure no paused thread is already running this same code
   if (domain()->defaultPausingMode()>nopause && hasThreadPausedIn(code)) {
-    OLOG(LOG_WARNING, "'%s' is already executing in paused thread -> SUPPRESSED start in new thread", code->getIdentifier().c_str());
+    OLOG(LOG_WARNING, "'%s' is already executing in paused thread -> SUPPRESSED starting again in new thread", code->getIdentifier().c_str());
     return;
   }
   #endif // P44SCRIPT_DEBUGGING_SUPPORT
@@ -2313,7 +2313,7 @@ void SourceCursor::skipNonCode()
 }
 
 
-string SourceCursor::displaycode(size_t aMaxLen)
+string SourceCursor::displaycode(size_t aMaxLen) const
 {
   return singleLine(mPos.mPtr, true, aMaxLen);
 }
@@ -3855,7 +3855,7 @@ void SourceProcessor::processStatement()
   }
   // beginning of a new statement
   #if P44SCRIPT_DEBUGGING_SUPPORT
-  if (pauseCheck(statement)) {
+  if (pauseCheck(step_over)) {
     // single stepping statements, thread is paused, debugger needs to call resume() to continue
     return;
   }
@@ -6020,7 +6020,7 @@ void ScriptCodeThread::prepareRun(
   // setup pausing mode
   if (aEvalFlags & singlestep) {
     // thread explicitly started for singlestepping
-    mPausingMode = statement;
+    mPausingMode = step_over;
   }
   else {
     // use domain's standard mode
@@ -6032,15 +6032,21 @@ void ScriptCodeThread::prepareRun(
 }
 
 
+string ScriptCodeThread::describePos(size_t aCodeMaxLen) const
+{
+  return string_format(
+    "(%s:%zu,%zu):  %s",
+    mSrc.originLabel(), mSrc.lineno()+1, mSrc.charpos()+1,
+    mSrc.displaycode(aCodeMaxLen).c_str()
+  );
+}
+
+
+
 void ScriptCodeThread::run()
 {
   mRunningSince = MainLoop::now();
-  OLOG(LOG_DEBUG,
-    "starting %04d at (%s:%zu,%zu):  %s",
-    threadId(),
-    mSrc.originLabel(), mSrc.lineno()+1, mSrc.charpos()+1,
-    mSrc.displaycode(90).c_str()
-  );
+  OLOG(LOG_DEBUG, "starting %04d at %s", threadId(), describePos(90).c_str());
   start();
 }
 
@@ -6114,7 +6120,10 @@ void ScriptCodeThread::complete(ScriptObjPtr aFinalResult)
   #if P44SCRIPT_DEBUGGING_SUPPORT
   if (mChainedFromThread && mPausingMode>breakpoint) {
     // we are stepping out or singlestepping -> caller must continue single stepping (or at least do end-of-function checking)
-    mChainedFromThread->mPausingMode = mPausingMode>end_of_function ? statement : end_of_function;
+    PausingMode needed = mPausingMode>step_out ? step_over : step_out;
+    if (mChainedFromThread->mPausingMode<needed) {
+      mChainedFromThread->mPausingMode = needed;
+    }
   }
   #endif // P44SCRIPT_DEBUGGING_SUPPORT
   // now calling out to methods that might release this thread is safe
@@ -6369,6 +6378,9 @@ void ScriptCodeThread::executedResult(ScriptObjPtr aResult)
   if (!aResult) {
     aResult = new AnnotatedNullValue("no return value");
   }
+  #if P44SCRIPT_DEBUGGING_SUPPORT
+  bool wasChained = mChainedExecutionContext==nullptr;
+  #endif
   mChainedExecutionContext.reset(); // release the child context
   if (aResult->isErr()) {
     // update (or add) position of error occurring to call site (log will show "call stack" as LOG_ERR messages)
@@ -6376,7 +6388,8 @@ void ScriptCodeThread::executedResult(ScriptObjPtr aResult)
   }
   mResult = aResult;
   #if P44SCRIPT_DEBUGGING_SUPPORT
-  if (!pauseCheck(end_of_function))
+  // only chained function executions are script functions (built-ins do not count for step_out)
+  if (!wasChained || !pauseCheck(step_out))
   #endif
   {
     resume();
@@ -6424,7 +6437,8 @@ static const char* pausingModeNames[numPausingModes] = {
   "step_over",
   "step_into",
   "scriptstep",
-  "interrupt"
+  "interrupt",
+  "terminate"
 };
 
 const char* ScriptCodeThread::pausingName(PausingMode aPausingMode)
@@ -6446,11 +6460,22 @@ PausingMode ScriptCodeThread::pausingModeNamed(const string aPauseName)
 bool ScriptCodeThread::pauseCheck(PausingMode aPausingOccasion)
 {
   if (mPausingMode==nopause) return false; // not debugging
+  DBGOLOG(LOG_ERR,
+    "pauseCheck: Occasion=%s, Mode=%s, Reason==%s: %s",
+    pausingName(aPausingOccasion), pausingName(mPausingMode), pausingName(mPauseReason),
+    describePos(20).c_str()
+  );
+  if (mPausingMode==terminate) {
+    abort(new ErrorValue(ScriptError::Aborted, "terminated from debugging pause"));
+    return true; // do not continue normally
+  }
   if (mPauseReason==unpause) {
-    // continuing after a pause, must overcome the current pausing reason
-    OLOG(LOG_NOTICE, "Thread continues after pause in mode: %s", pausingName(mPausingMode));
-    mRunningSince = MainLoop::currentMainLoop().now(); // re-start run time restriction
-    mPauseReason = nopause;
+    if (aPausingOccasion!=scriptstep || mPausingMode==scriptstep) {
+      // continuing after a pause, must overcome the current pausing reason
+      OLOG(LOG_NOTICE, "Thread continues in mode '%s' after pause", pausingName(mPausingMode));
+      mRunningSince = MainLoop::currentMainLoop().now(); // re-start run time restriction
+      mPauseReason = nopause;
+    }
     return false;
   }
   // Actually check for pausing
@@ -6460,12 +6485,12 @@ bool ScriptCodeThread::pauseCheck(PausingMode aPausingOccasion)
     case interrupt: // interrupt from outside
       // unconditionally pause
       break;
-    case end_of_function:
-      if (mPausingMode!=end_of_function) return false; // mode is not "step out"
+    case step_out:
+      if (mPausingMode!=step_out) return false; // mode is not "step out"
       // stop at end of function
       break;
-    case statement:
-      if (mPausingMode<statement) return false; // not in any of the singlestep modes
+    case step_over:
+      if (mPausingMode<step_over) return false; // not in any of the singlestep modes
       // stop at statement
       break;
     case scriptstep:
@@ -6479,7 +6504,7 @@ bool ScriptCodeThread::pauseCheck(PausingMode aPausingOccasion)
       return false; // do not pause
   }
   // not continuing -> pause here
-  OLOG(LOG_NOTICE, "Thread paused with reason: %s", pausingName(mPauseReason));
+  OLOG(LOG_NOTICE, "Thread paused with reason '%s' at %s", pausingName(mPauseReason), describePos(20).c_str());
   mOwner->domain()->threadPaused(this);
   return true; // signal pausing
 }

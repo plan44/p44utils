@@ -269,11 +269,12 @@ namespace p44 { namespace P44Script {
     nopause, ///< run normally, never pause
     unpause, ///< unpause, will prevent re-pausing because location is the same etc.
     breakpoint, ///< run normally, but pause at breakpoints (breakpoint() in code or by cursor position)
-    end_of_function, /// pause at end of user defined functions (aka step out)
-    statement, ///< pause at beginning of a statement (aka step over)
+    step_out, /// pause at end of user defined functions (aka step out)
+    step_over, ///< pause at beginning of a statement (aka step over)
     step_into, ///< when entering a function, pass "statements" runmode into function's "child thread" (aka step into)
     scriptstep, ///< at every script processing step. Usually only as argument for pauseCheck, because too detailed except for debugging the engine itself
     interrupt, ///< externally set interrupt
+    terminate, ///< as continuing mode only -> abort
     numPausingModes
   } PausingMode;
 
@@ -1528,7 +1529,7 @@ namespace p44 { namespace P44Script {
     bool nextIf(char aChar); ///< @return true and advance cursor if @param aChar matches current char, false otherwise
     void skipWhiteSpace(); ///< skip whitespace (but NOT comments)
     void skipNonCode(); ///< skip non-code, i.e. whitespace and comments
-    string displaycode(size_t aMaxLen); ///< @return code on single line for displaying from current position, @param aMaxLen how much to show max before abbreviating with "..."
+    string displaycode(size_t aMaxLen) const; ///< @return code on single line for displaying from current position, @param aMaxLen how much to show max before abbreviating with "..."
     const char *originLabel() const; ///< @return the origin label of the source container
 
     // parsing utilities
@@ -2862,6 +2863,9 @@ namespace p44 { namespace P44Script {
     /// run the thread
     virtual void run();
 
+    /// @return describe the execution position
+    string describePos(size_t aCodeMaxLen = 30) const;
+
     /// get the maximum blocking time for script execution
     MLMicroSeconds getMaxBlockTime() const { return mMaxBlockTime; };
 
@@ -2970,7 +2974,7 @@ namespace p44 { namespace P44Script {
     static const char* pausingName(PausingMode aPausingMode);
 
     /// get pause mode/reason from name
-    PausingMode pausingModeNamed(const string aPauseName);
+    static PausingMode pausingModeNamed(const string aPauseName);
 
     #endif // P44SCRIPT_DEBUGGING_SUPPORT
 
