@@ -1479,7 +1479,7 @@ ScriptObjPtr ExecutionContext::executeSynchronously(ScriptObjPtr aToExecute, Eva
 
   bool finished = false;
   aEvalFlags |= synchronously;
-  execute(aToExecute, aEvalFlags, boost::bind(&syncExecDone, &syncResult, &finished, _1), NULL, aThreadLocals, aMaxRunTime);
+  execute(aToExecute, aEvalFlags, boost::bind(&syncExecDone, &syncResult, &finished, _1), nullptr, aThreadLocals, aMaxRunTime);
   if (!finished) {
     // despite having requested synchronous execution, evaluation is not finished by now
     finished = true;
@@ -1660,7 +1660,7 @@ bool ScriptCodeContext::hasThreadPausedIn(CompiledCodePtr aCodeObj)
 
 
 
-void ScriptCodeContext::execute(ScriptObjPtr aToExecute, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB, ScriptCodeThreadPtr aChainOriginThread, ScriptObjPtr aThreadLocals, MLMicroSeconds aMaxRunTime)
+void ScriptCodeContext::execute(ScriptObjPtr aToExecute, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB, ScriptCodeThreadPtr aChainedFromThread, ScriptObjPtr aThreadLocals, MLMicroSeconds aMaxRunTime)
 {
   if (mUndefinedResult) {
     // just return undefined w/o even trying to execute
@@ -1690,7 +1690,7 @@ void ScriptCodeContext::execute(ScriptObjPtr aToExecute, EvaluationFlags aEvalFl
   if (aEvalFlags & sourcecode) aEvalFlags = (aEvalFlags & ~sourcecode) | scriptbody;
   #endif // P44SCRIPT_FULL_SUPPORT
   // - now run
-  ScriptCodeThreadPtr thread = newThreadFrom(code, code->mCursor, aEvalFlags, aEvaluationCB, aChainOriginThread, aThreadLocals, aMaxRunTime);
+  ScriptCodeThreadPtr thread = newThreadFrom(code, code->mCursor, aEvalFlags, aEvaluationCB, aChainedFromThread, aThreadLocals, aMaxRunTime);
   if (thread) {
     thread->run();
     return;
@@ -1699,12 +1699,12 @@ void ScriptCodeContext::execute(ScriptObjPtr aToExecute, EvaluationFlags aEvalFl
 }
 
 
-ScriptCodeThreadPtr ScriptCodeContext::newThreadFrom(CompiledCodePtr aCodeObj, SourceCursor &aFromCursor, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB, ScriptCodeThreadPtr aChainOriginThread, ScriptObjPtr aThreadLocals, MLMicroSeconds aMaxRunTime)
+ScriptCodeThreadPtr ScriptCodeContext::newThreadFrom(CompiledCodePtr aCodeObj, SourceCursor &aFromCursor, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB, ScriptCodeThreadPtr aChainedFromThread, ScriptObjPtr aThreadLocals, MLMicroSeconds aMaxRunTime)
 {
   // prepare a thread for executing now or later
   // Note: thread gets an owning Ptr back to this, so this context cannot be destructed before all
   //   threads have ended.
-  ScriptCodeThreadPtr newThread = ScriptCodeThreadPtr(new ScriptCodeThread(this, aCodeObj, aFromCursor, aThreadLocals, aChainOriginThread));
+  ScriptCodeThreadPtr newThread = ScriptCodeThreadPtr(new ScriptCodeThread(this, aCodeObj, aFromCursor, aThreadLocals, aChainedFromThread));
   MLMicroSeconds maxBlockTime = aEvalFlags&synchronously ? aMaxRunTime : domain()->getMaxBlockTime();
   newThread->prepareRun(aEvaluationCB, aEvalFlags, maxBlockTime, aMaxRunTime);
   // now check how and when to run it
@@ -2063,7 +2063,7 @@ void BuiltinFunctionContext::setAbortCallback(SimpleCB aAbortCB)
 }
 
 
-void BuiltinFunctionContext::execute(ScriptObjPtr aToExecute, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB, ScriptCodeThreadPtr aChainOriginThread, ScriptObjPtr aThreadLocals, MLMicroSeconds aMaxRunTime)
+void BuiltinFunctionContext::execute(ScriptObjPtr aToExecute, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB, ScriptCodeThreadPtr aChainedFromThread, ScriptObjPtr aThreadLocals, MLMicroSeconds aMaxRunTime)
 {
   if (mUndefinedResult) {
     // just return undefined w/o even trying to execute
@@ -4719,7 +4719,7 @@ void CompiledTrigger::triggerEvaluation(EvaluationFlags aEvalMode)
   mOneShotEval = false; // no oneshot encountered yet. Evaluation will set it via checkFrozenEventValue(), which is called for every leaf value (frozen or not)
   ExecutionContextPtr ctx = contextForCallingFrom(NULL, NULL);
   EvaluationFlags runFlags = ((aEvalMode&~runModeMask) ? aEvalMode : (mEvalFlags&~runModeMask)|aEvalMode)|keepvars; // always keep vars, use only runmode from aEvalMode if nothing else is set
-  ctx->execute(ScriptObjPtr(this), runFlags, boost::bind(&CompiledTrigger::triggerDidEvaluate, this, runFlags, _1), NULL, ScriptObjPtr(), 30*Second);
+  ctx->execute(ScriptObjPtr(this), runFlags, boost::bind(&CompiledTrigger::triggerDidEvaluate, this, runFlags, _1), nullptr, ScriptObjPtr(), 30*Second);
 }
 
 
@@ -5002,7 +5002,7 @@ void CompiledHandler::triggered(ScriptObjPtr aTriggerResult)
         handlerThreadLocals = new SimpleVarContainer();
         handlerThreadLocals->setMemberByName(mTrigger->mResultVarName, aTriggerResult);
       }
-      ctx->execute(this, scriptbody|keepvars|concurrently, boost::bind(&CompiledHandler::actionExecuted, this, _1), NULL, handlerThreadLocals);
+      ctx->execute(this, scriptbody|keepvars|concurrently, boost::bind(&CompiledHandler::actionExecuted, this, _1), nullptr, handlerThreadLocals);
       return;
     }
   }
@@ -5687,13 +5687,13 @@ ScriptObjPtr ScriptHost::run(EvaluationFlags aRunFlags, EvaluationCB aEvaluation
   // get the context to run it
   if (code) {
     if (code->hasType(executable)) {
-      ExecutionContextPtr ctx = code->contextForCallingFrom(domain(), NULL);
+      ExecutionContextPtr ctx = code->contextForCallingFrom(domain(), nullptr);
       if (ctx) {
         if (flags & synchronously) {
           result = ctx->executeSynchronously(code, flags, aThreadLocals, aMaxRunTime);
         }
         else {
-          ctx->execute(code, flags, aEvaluationCB, NULL, aThreadLocals, aMaxRunTime);
+          ctx->execute(code, flags, aEvaluationCB, nullptr, aThreadLocals, aMaxRunTime);
           return result; // null, callback will deliver result
         }
       }
@@ -5944,11 +5944,11 @@ ScriptHostPtr ScriptingDomain::getHostForThread(const ScriptCodeThreadPtr aScrip
 
 // MARK: - ScriptCodeThread
 
-ScriptCodeThread::ScriptCodeThread(ScriptCodeContextPtr aOwner, CompiledCodePtr aCode, const SourceCursor& aStartCursor, ScriptObjPtr aThreadLocals, ScriptCodeThreadPtr aChainOriginThread) :
+ScriptCodeThread::ScriptCodeThread(ScriptCodeContextPtr aOwner, CompiledCodePtr aCode, const SourceCursor& aStartCursor, ScriptObjPtr aThreadLocals, ScriptCodeThreadPtr aChainedFromThread) :
   mOwner(aOwner),
   mCodeObj(aCode),
   mThreadLocals(aThreadLocals),
-  mChainOriginThread(aChainOriginThread),
+  mChainedFromThread(aChainedFromThread),
   mMaxBlockTime(0),
   mMaxRunTime(Infinite),
   mRunningSince(Never)
@@ -5974,7 +5974,7 @@ void ScriptCodeThread::deactivate()
   mOwner.reset();
   mCodeObj.reset();
   mThreadLocals.reset();
-  mChainOriginThread.reset();
+  mChainedFromThread.reset();
   mRunningSince = Never; // just to make sure
 }
 
@@ -6053,6 +6053,12 @@ bool ScriptCodeThread::isExecutingSource(SourceContainerPtr aSource)
   return false; // not running this source
 }
 
+ScriptCodeThreadPtr ScriptCodeThread::chainOriginThread()
+{
+  if (!mChainedFromThread) return this; // I am the potential origin of the current chain (which is not yet a chain)
+  return mChainedFromThread->chainOriginThread(); // walk back recursively
+}
+
 
 void ScriptCodeThread::abort(ScriptObjPtr aAbortResult)
 {
@@ -6105,6 +6111,12 @@ void ScriptCodeThread::complete(ScriptObjPtr aFinalResult)
   }
   // make sure this object is not released early while unwinding completion
   ScriptCodeThreadPtr keepAlive = ScriptCodeThreadPtr(this);
+  #if P44SCRIPT_DEBUGGING_SUPPORT
+  if (mChainedFromThread && mPausingMode>breakpoint) {
+    // we are stepping out or singlestepping -> caller must continue single stepping (or at least do end-of-function checking)
+    mChainedFromThread->mPausingMode = mPausingMode>end_of_function ? statement : end_of_function;
+  }
+  #endif // P44SCRIPT_DEBUGGING_SUPPORT
   // now calling out to methods that might release this thread is safe
   inherited::complete(aFinalResult);
   OLOG(LOG_DEBUG,
@@ -6115,7 +6127,7 @@ void ScriptCodeThread::complete(ScriptObjPtr aFinalResult)
     ScriptObj::describe(mResult).c_str()
   );
   sendEvent(mResult); // send the final result as event to registered EventSinks
-  mChainOriginThread.reset();
+  mChainedFromThread.reset();
   if (mOwner) mOwner->threadTerminated(this, mEvaluationFlags);
   // deactivate myself to break any remaining retain loops
   deactivate();
@@ -6333,17 +6345,16 @@ void ScriptCodeThread::executeResult()
       // Note: must have keepvars because these are the arguments!
       // Note: functions must not inherit their caller's evalscope but be run as script bodies
       // Note: must pass on threadvars. Custom functions technically run in a separate "thread", but that should be the same from a user's perspective
-      // Note: must pass on chainOriginThread() so all nested function calls will have the same value for chainOriginThread()
       EvaluationFlags dbg = 0;
       #if P44SCRIPT_DEBUGGING_SUPPORT
       // Note: must pass singlestep flag when current thread is in `into_function` (step-into) pausing mode
-      if (mPausingMode==into_function) dbg |= singlestep;
-      #endif
-      mFuncCallContext->execute(mResult, (mEvaluationFlags&~scopeMask)|scriptbody|keepvars|dbg, boost::bind(&ScriptCodeThread::executedResult, this, _1), chainOriginThread(), mThreadLocals);
-      #else
+      if (mPausingMode==step_into) dbg |= singlestep;
+      #endif // P44SCRIPT_DEBUGGING_SUPPORT
+      mFuncCallContext->execute(mResult, (mEvaluationFlags&~scopeMask)|scriptbody|keepvars|dbg, boost::bind(&ScriptCodeThread::executedResult, this, _1), this, mThreadLocals);
+      #else // P44SCRIPT_FULL_SUPPORT
       // only built-in functions can occur, eval scope flags are not relevant (only existing scope is expression)
-      mFuncCallContext->execute(mResult, (mEvaluationFlags&~scopeMask)|expression|keepvars, boost::bind(&ScriptCodeThread::executedResult, this, _1), chainOriginThread(), mThreadLocals);
-      #endif
+      mFuncCallContext->execute(mResult, (mEvaluationFlags&~scopeMask)|expression|keepvars, boost::bind(&ScriptCodeThread::executedResult, this, _1), this, mThreadLocals);
+      #endif // !P44SCRIPT_FULL_SUPPORT
     }
     // function call completion will call resume
     return;
@@ -6404,20 +6415,32 @@ void ScriptCodeThread::memberEventCheck()
 
 #if P44SCRIPT_DEBUGGING_SUPPORT
 
+
+static const char* pausingModeNames[numPausingModes] = {
+  "nopause",
+  "unpause",
+  "breakpoint",
+  "step_out",
+  "step_over",
+  "step_into",
+  "scriptstep",
+  "interrupt"
+};
+
 const char* ScriptCodeThread::pausingName(PausingMode aPausingMode)
 {
-  const char* pausingModeNames[numPausingModes] = {
-    "nopause",
-    "unpause",
-    "breakpoint",
-    "end_of_function",
-    "statement",
-    "into_function",
-    "scriptstep",
-    "interrupt"
-  };
   return pausingModeNames[aPausingMode];
 }
+
+
+PausingMode ScriptCodeThread::pausingModeNamed(const string aPauseName)
+{
+  for (int i=0; i<numPausingModes; i++) {
+    if (aPauseName==pausingModeNames[i]) return static_cast<PausingMode>(i);
+  }
+  return nopause;
+}
+
 
 
 bool ScriptCodeThread::pauseCheck(PausingMode aPausingOccasion)

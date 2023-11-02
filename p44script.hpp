@@ -271,7 +271,7 @@ namespace p44 { namespace P44Script {
     breakpoint, ///< run normally, but pause at breakpoints (breakpoint() in code or by cursor position)
     end_of_function, /// pause at end of user defined functions (aka step out)
     statement, ///< pause at beginning of a statement (aka step over)
-    into_function, ///< when entering a function, pass "statements" runmode into function's "child thread" (aka step into)
+    step_into, ///< when entering a function, pass "statements" runmode into function's "child thread" (aka step into)
     scriptstep, ///< at every script processing step. Usually only as argument for pauseCheck, because too detailed except for debugging the engine itself
     interrupt, ///< externally set interrupt
     numPausingModes
@@ -1196,10 +1196,10 @@ namespace p44 { namespace P44Script {
     /// @param aToExecute the object to be executed in this context
     /// @param aEvalFlags evaluation control flags
     /// @param aEvaluationCB will be called to deliver the result of the execution
-    /// @param aChainOriginThread the origin of the sequential "thread" chain (as user defined functions always start a "thread")
+    /// @param aChainedFromThread the thread which chains to this thread (e.g. to execute a function), waiting for completion
     /// @param aThreadLocals optionally, the (structured) object that provides thread local members
     /// @param aMaxRunTime optionally, maximum time the thread may run before it is aborted by timeout
-    virtual void execute(ScriptObjPtr aToExecute, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB, ScriptCodeThreadPtr aChainOriginThread, ScriptObjPtr aThreadLocals = ScriptObjPtr(), MLMicroSeconds aMaxRunTime = Infinite) = 0;
+    virtual void execute(ScriptObjPtr aToExecute, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB, ScriptCodeThreadPtr aChainedFromThread, ScriptObjPtr aThreadLocals = ScriptObjPtr(), MLMicroSeconds aMaxRunTime = Infinite) = 0;
 
     /// abort evaluation (of all threads if context has more than one)
     /// @param aAbortFlags set stoprunning to abort currently running threads, queue to empty the queued threads
@@ -1285,20 +1285,20 @@ namespace p44 { namespace P44Script {
     /// @param aToExecute the object to be evaluated
     /// @param aEvalFlags evaluation mode/flags. Script thread can evaluate...
     /// @param aEvaluationCB will be called to deliver the result of the evaluation
-    /// @param aChainOriginThread the origin of the sequential "thread" chain (as user defined functions always start a "thread")
+    /// @param aChainedFromThread the thread which chains to this thread (e.g. to execute a function), waiting for completion
     /// @param aThreadLocals optionally, the (structured) object that provides thread local members
     /// @param aMaxRunTime optionally, maximum time the thread may run before it is aborted by timeout
-    virtual void execute(ScriptObjPtr aToExecute, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB, ScriptCodeThreadPtr aChainOriginThread, ScriptObjPtr aThreadLocals = ScriptObjPtr(), MLMicroSeconds aMaxRunTime = Infinite) P44_OVERRIDE;
+    virtual void execute(ScriptObjPtr aToExecute, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB, ScriptCodeThreadPtr aChainedFromThread, ScriptObjPtr aThreadLocals = ScriptObjPtr(), MLMicroSeconds aMaxRunTime = Infinite) P44_OVERRIDE;
 
     /// Start a new thread (usually, a block, concurrently) from a given cursor
     /// @param aCodeObj the code object this thread runs (maybe only a part of)
     /// @param aFromCursor where to start executing
     /// @param aEvalFlags how to initiate the thread and what syntax level to evaluate
     /// @param aEvaluationCB callback when thread has evaluated (ends)
-    /// @param aChainOriginThread the origin of the sequential "thread" chain (as user defined functions always start a "thread")
+    /// @param aChainedFromThread the thread which chains to this thread (e.g. to execute a function), waiting for completion
     /// @param aThreadLocals optionally, the (structured) object that provides thread local members
     /// @param aMaxRunTime optionally, maximum time the thread may run before it is aborted by timeout
-    ScriptCodeThreadPtr newThreadFrom(CompiledCodePtr aCodeObj, SourceCursor &aFromCursor, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB, ScriptCodeThreadPtr aChainOriginThread, ScriptObjPtr aThreadLocals = ScriptObjPtr(), MLMicroSeconds aMaxRunTime = Infinite);
+    ScriptCodeThreadPtr newThreadFrom(CompiledCodePtr aCodeObj, SourceCursor &aFromCursor, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB, ScriptCodeThreadPtr aChainedFromThread, ScriptObjPtr aThreadLocals = ScriptObjPtr(), MLMicroSeconds aMaxRunTime = Infinite);
 
     /// abort evaluation of all threads
     /// @param aAbortFlags set stoprunning to abort currently running threads, queue to empty the queued threads
@@ -2812,7 +2812,7 @@ namespace p44 { namespace P44Script {
 
     MLMicroSeconds mRunningSince; ///< time the thread was started. Also acts as flag, if Never this means the thread is not yet started or already complete
     ExecutionContextPtr mChainedExecutionContext; ///< set during calls to other contexts, e.g. to propagate abort()
-    ScriptCodeThreadPtr mChainOriginThread; ///< the origin of this sequentially chained thread, if any
+    ScriptCodeThreadPtr mChainedFromThread; ///< the thread from which this thread is a chained execution, if any
     MLTicket mAutoResumeTicket; ///< auto-resume ticket
 
     #if P44SCRIPT_DEBUGGING_SUPPORT
@@ -2829,7 +2829,7 @@ namespace p44 { namespace P44Script {
     /// @param aStartCursor the start point for the script
     /// @param aThreadLocals the (structured) object that provides thread local members (can be NULL)
     /// @param aChainOriginThread the origin of the sequential "thread" chain (as user defined functions always start a "thread")
-    ScriptCodeThread(ScriptCodeContextPtr aOwner, CompiledCodePtr aCode, const SourceCursor& aStartCursor, ScriptObjPtr aThreadLocals, ScriptCodeThreadPtr aChainOriginThread);
+    ScriptCodeThread(ScriptCodeContextPtr aOwner, CompiledCodePtr aCode, const SourceCursor& aStartCursor, ScriptObjPtr aThreadLocals, ScriptCodeThreadPtr aChainedFromThread);
 
     virtual ~ScriptCodeThread();
 
@@ -2875,7 +2875,7 @@ namespace p44 { namespace P44Script {
     void setMaxRunTime(MLMicroSeconds aMaxRunTime) { mMaxRunTime = aMaxRunTime; };
 
     /// the original thread this chain of threads started from (can be this)
-    ScriptCodeThreadPtr chainOriginThread() { if (mChainOriginThread) return mChainOriginThread; else return this; }
+    ScriptCodeThreadPtr chainOriginThread();
 
     /// request aborting the current thread, including child context
     /// @param aAbortResult if set, this is what abort will report back
@@ -2968,6 +2968,9 @@ namespace p44 { namespace P44Script {
 
     /// get name for pause mode / reason
     static const char* pausingName(PausingMode aPausingMode);
+
+    /// get pause mode/reason from name
+    PausingMode pausingModeNamed(const string aPauseName);
 
     #endif // P44SCRIPT_DEBUGGING_SUPPORT
 
@@ -3117,7 +3120,7 @@ namespace p44 { namespace P44Script {
     BuiltinFunctionContext(ScriptMainContextPtr aMainContext, ScriptCodeThreadPtr aThread);
 
     /// evaluate built-in function
-    virtual void execute(ScriptObjPtr aToExecute, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB, ScriptCodeThreadPtr aChainOriginThread, ScriptObjPtr aThreadLocals = ScriptObjPtr(), MLMicroSeconds aMaxRunTime = Infinite) P44_OVERRIDE;
+    virtual void execute(ScriptObjPtr aToExecute, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB, ScriptCodeThreadPtr aChainedFromThread, ScriptObjPtr aThreadLocals = ScriptObjPtr(), MLMicroSeconds aMaxRunTime = Infinite) P44_OVERRIDE;
 
     /// abort (async) built-in function
     /// @param aAbortFlags set stoprunning to abort currently running threads, queue to empty the queued threads
