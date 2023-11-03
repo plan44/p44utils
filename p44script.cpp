@@ -1618,14 +1618,14 @@ bool ScriptCodeContext::abort(EvaluationFlags aAbortFlags, ScriptObjPtr aAbortRe
 }
 
 
-bool ScriptCodeContext::abortThreadsRunningSource(SourceContainerPtr aSource)
+bool ScriptCodeContext::abortThreadsRunningSource(SourceContainerPtr aSource, ScriptObjPtr aError)
 {
   bool anyAborted = false;
   ThreadList tba = mThreads; // copy list as original get modified while aborting
   for (ThreadList::iterator pos = tba.begin(); pos!=tba.end(); ++pos) {
     if ((*pos)->isExecutingSource(aSource)) {
       anyAborted = true;
-      (*pos)->abort(new ErrorValue(ScriptError::Aborted, "Source code changed while executing")); // should cause threadTerminated to get called which will remove actually terminated thread from the list
+      (*pos)->abort(aError); // should cause threadTerminated to get called which will remove actually terminated thread from the list
     }
   }
   return anyAborted;
@@ -4597,7 +4597,7 @@ void CompiledScript::deactivate()
   if (mMainContext) {
     ScriptMainContextPtr mc = mMainContext;
     mMainContext.reset();
-    mc->abortThreadsRunningSource(mCursor.mSourceContainer);
+    mc->abortThreadsRunningSource(mCursor.mSourceContainer, new ErrorValue(ScriptError::Aborted, "deactivated"));
   }
   inherited::deactivate();
 }
@@ -5557,7 +5557,7 @@ void ScriptHost::uncompile(bool aNoAbort)
 {
   if (!active()) return; // cannot be compiled or running, just NOP
   if (mActiveParams->mSharedMainContext && !aNoAbort) {
-    mActiveParams->mSharedMainContext->abortThreadsRunningSource(mActiveParams->mSourceContainer);
+    mActiveParams->mSharedMainContext->abortThreadsRunningSource(mActiveParams->mSourceContainer, new ErrorValue(ScriptError::Aborted, "Source code changed while executing"));
   }
   if (mActiveParams->mCachedExecutable) {
     mActiveParams->mCachedExecutable.reset(); // release cached executable (will release SourceCursor holding our source)
@@ -5668,10 +5668,76 @@ ScriptObjPtr ScriptHost::syntaxcheck()
 }
 
 
-ScriptObjPtr ScriptHost::run(EvaluationFlags aRunFlags, EvaluationCB aEvaluationCB, ScriptObjPtr aThreadLocals, MLMicroSeconds aMaxRunTime)
+void ScriptHost::setScriptCommandHandler(ScriptCommandCB aScriptCommandCB)
+{
+  assert(active());
+  mActiveParams->mScriptCommandCB = aScriptCommandCB;
+}
+
+
+void ScriptHost::setScriptResultHandler(EvaluationCB aScriptResultCB)
+{
+  assert(active());
+  mActiveParams->mScriptResultCB = aScriptResultCB;
+}
+
+
+ScriptObjPtr ScriptHost::runCommand(ScriptCommand aCommand, EvaluationCB aScriptResultCB, ScriptObjPtr aThreadLocals)
+{
+  if (!active()) return new ErrorValue(ScriptError::Internal, "script is not active");
+  if (!aScriptResultCB) aScriptResultCB = mActiveParams->mScriptResultCB;
+  if (mActiveParams->mScriptCommandCB) {
+    // use customized command implementation
+    return mActiveParams->mScriptCommandCB(aCommand, aScriptResultCB, aThreadLocals, *this);
+  }
+  else {
+    // run my own default implementation
+    return defaultCommandImplementation(aCommand, aScriptResultCB, aThreadLocals);
+  }
+}
+
+
+ScriptObjPtr ScriptHost::defaultCommandImplementation(ScriptCommand aCommand, EvaluationCB aScriptResultCB, ScriptObjPtr aThreadLocals)
+{
+  ScriptObjPtr ret;
+  assert(active());
+  EvaluationFlags flags = inherit;
+  switch(aCommand) {
+    case check:
+      ret = syntaxcheck();
+      break;
+    case stop:
+      // stop
+      if (mActiveParams->mSharedMainContext) {
+        // abort via main context
+        mActiveParams->mSharedMainContext->abort(stopall, new ErrorValue(ScriptError::Aborted, "manually aborted: %s", getScriptTitle().c_str()));
+      }
+      else  {
+        ret = new ErrorValue(ScriptError::Internal, "cannot stop without context: %s", getScriptTitle().c_str());
+      }
+      break;
+    case debug:
+      // start in singlestep mode, i.e. break at first script statememnt
+      flags |= singlestep;
+      goto runnow;
+    case restart:
+      flags |= stopall;
+      goto runnow;
+    case start:
+    runnow:
+      // just start as configured at activation
+      ret = runX(flags, aScriptResultCB, aThreadLocals);
+      break;
+  }
+  return ret;
+}
+
+
+ScriptObjPtr ScriptHost::runX(EvaluationFlags aRunFlags, EvaluationCB aEvaluationCB, ScriptObjPtr aThreadLocals, MLMicroSeconds aMaxRunTime)
 {
   if (!active()) return new AnnotatedNullValue("no script");
-  EvaluationFlags flags = mActiveParams->mDefaultFlags; // default to compile flags
+  if (!aEvaluationCB && mActiveParams->mScriptResultCB) aEvaluationCB = mActiveParams->mScriptResultCB; // use predefined callback handler
+  EvaluationFlags flags = mActiveParams->mDefaultFlags; // default to predefined flags
   if (aRunFlags & runModeMask) {
     // runmode set in run flags -> use it
     flags = (flags&~runModeMask) | (aRunFlags&runModeMask);

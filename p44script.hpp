@@ -1310,8 +1310,9 @@ namespace p44 { namespace P44Script {
 
     /// abort evaluation of threads originating from aSource
     /// @param aSource source to check
+    /// @param aAbortResult value to pass to abort()
     /// @return true if any thread was aborted
-    bool abortThreadsRunningSource(SourceContainerPtr aSource);
+    bool abortThreadsRunningSource(SourceContainerPtr aSource, ScriptObjPtr aAbortResult);
 
 
     #if SCRIPTING_JSON_SUPPORT
@@ -1630,6 +1631,16 @@ namespace p44 { namespace P44Script {
   };
 
 
+  typedef enum {
+    check,
+    start,
+    debug,
+    restart,
+    stop
+  } ScriptCommand;
+
+  typedef boost::function<ScriptObjPtr (ScriptCommand aScriptCommand, EvaluationCB aScriptResultCB, ScriptObjPtr aThreadLocals, ScriptHost& aScriptHost)> ScriptCommandCB;
+
   /// class representing a script source in its entiety including all context needed to run it,
   /// ie. is the object that "hosts" the script
   class ScriptHost : public P44Obj
@@ -1653,6 +1664,8 @@ namespace p44 { namespace P44Script {
       bool mDomainSource; ///< source is stored in domain, locally stored data can be deleted
       bool mLocalDataReportedRemoved; ///< locally stored data at least once reported as removed
       #endif
+      ScriptCommandCB mScriptCommandCB; ///< will be called via scriptCommand
+      EvaluationCB mScriptResultCB; ///< will be called to deliver script results or errors
       #endif
     } ActiveParams;
 
@@ -1866,6 +1879,9 @@ namespace p44 { namespace P44Script {
     /// @return true if the cursor is in this source
     bool refersTo(const SourceCursor& aCursor);
 
+    /// @return true if empty
+    bool empty() const;
+
     /// get executable ((re-)compile if needed)
     /// @return executable from this source
     ScriptObjPtr getExecutable();
@@ -1881,8 +1897,24 @@ namespace p44 { namespace P44Script {
     /// @note running will re-compile and re-declare all handlers
     void uncompile(bool aNoAbort = false);
 
-    /// @return true if empty
-    bool empty() const;
+    /// @param aScriptCommandCB set the handler to implement script commands in a context specific way
+    void setScriptCommandHandler(ScriptCommandCB aScriptCommandCB);
+
+    /// @param aScriptResultCB set the handler to receive script evaluation results and errors
+    void setScriptResultHandler(EvaluationCB aScriptResultCB);
+
+    /// Run one of the generic script commands (e.g. for IDE)
+    /// @note actual command execution can be customized via setScriptCommandHandler()
+    /// @param aCommand the command to run
+    /// @param aScriptResultCB call this callback to deliver script termination value. If set,
+    ///   this overrides handler set by setScriptResultHandler().
+    /// @param aThreadLocals optionally, the (structured) object that provides thread local members
+    /// @return the result of the command or null
+    ScriptObjPtr runCommand(ScriptCommand aCommand, EvaluationCB aScriptResultCB = NoOP, ScriptObjPtr aThreadLocals = ScriptObjPtr());
+
+    /// This is the default command implementation, which is used when no callback is set,
+    /// and can be re-used by the callback for the cases that need no customisation
+    ScriptObjPtr defaultCommandImplementation(ScriptCommand aCommand, EvaluationCB aScriptResultCB, ScriptObjPtr aThreadLocals);
 
     /// convenience quick runner
     /// @param aRunFlags additional run flags.
@@ -1891,14 +1923,15 @@ namespace p44 { namespace P44Script {
     ///          - if a scope flag is set, all scope flags are used from aRunFlags
     ///          - if a run mode flag is set, all run mode flags are used from aRunFlags
     ///          - execution modfier flags from aRunFlags are ADDED to those already set with setSource()
-    /// @param aEvaluationCB will be called with the result
+    /// @param aEvaluationCB will be called with the result. If not set, handler set with setScriptResultHandler()
+    ///   will be used, if any.
     /// @param aThreadLocals optionally, the (structured) object that provides thread local members
     /// @param aMaxRunTime optionally, maximum time the thread may run before it is aborted by timeout
-    ScriptObjPtr run(EvaluationFlags aRunFlags, EvaluationCB aEvaluationCB = NoOP, ScriptObjPtr aThreadLocals = ScriptObjPtr(), MLMicroSeconds aMaxRunTime = Infinite);
+    ScriptObjPtr runX(EvaluationFlags aRunFlags, EvaluationCB aEvaluationCB = NoOP, ScriptObjPtr aThreadLocals = ScriptObjPtr(), MLMicroSeconds aMaxRunTime = Infinite);
 
     /// for single-line tests
     ScriptObjPtr test(EvaluationFlags aEvalFlags, const string aSource)
-      { setSource(aSource, aEvalFlags); return run(aEvalFlags|regular|synchronously, NoOP, ScriptObjPtr(), Infinite); }
+      { setSource(aSource, aEvalFlags); return runX(aEvalFlags|regular|synchronously, NoOP, ScriptObjPtr(), Infinite); }
 
   };
 
