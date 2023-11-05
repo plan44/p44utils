@@ -1535,7 +1535,7 @@ void ScriptCodeContext::clearFloating()
 
 void ScriptCodeContext::clearVars()
 {
-  FOCUSLOGCLEAR(mainContext ? "local" : (domain() ? "main" : "global"));
+  FOCUSLOGCLEAR(mMainContext ? "local" : (domain() ? "main" : "global"));
   mLocalVars.clearVars();
   inherited::clearVars();
 }
@@ -1543,7 +1543,7 @@ void ScriptCodeContext::clearVars()
 
 const ScriptObjPtr ScriptCodeContext::memberByName(const string aName, TypeInfo aMemberAccessFlags)
 {
-  FOCUSLOGLOOKUP(mainContext ? "local" : (domain() ? "main" : "global"));
+  FOCUSLOGLOOKUP(mMainContext ? "local" : (domain() ? "main" : "global"));
   ScriptObjPtr c;
   ScriptObjPtr m;
   // 0) first check if we have EXISTING var in main/global
@@ -6204,9 +6204,18 @@ void ScriptCodeThread::complete(ScriptObjPtr aFinalResult)
   sendEvent(mResult); // send the final result as event to registered EventSinks
   mChainedFromThread.reset();
   if (mOwner) mOwner->threadTerminated(this, mEvaluationFlags);
-  // deactivate myself to break any remaining retain loops
-  deactivate();
-  // now thread object might be actually released
+  #if P44SCRIPT_DEBUGGING_SUPPORT
+  if (pauseCheck(terminate)) {
+    // paused at termination
+    OLOG(LOG_NOTICE, "thread paused at termination");
+  }
+  else
+  #endif
+  {
+    // deactivate myself to break any remaining retain loops
+    deactivate();
+  }
+  // now thread object might be actually released (unless kept as paused thread)
   keepAlive.reset();
 }
 
@@ -6525,7 +6534,7 @@ PausingMode ScriptCodeThread::pausingModeNamed(const string aPauseName)
 
 bool ScriptCodeThread::pauseCheck(PausingMode aPausingOccasion)
 {
-  if (mPausingMode==nopause) return false; // not debugging
+  if (mSkipping || mPausingMode==nopause) return false; // not debugging or not executing (just skipping)
 //  DBGOLOG(LOG_ERR,
 //    "pauseCheck: Occasion=%s, Mode=%s, Reason==%s: %s",
 //    pausingName(aPausingOccasion), pausingName(mPausingMode), pausingName(mPauseReason),
@@ -6566,6 +6575,9 @@ bool ScriptCodeThread::pauseCheck(PausingMode aPausingOccasion)
       // stop at position based breakpoint
       mPauseReason = breakpoint; // report as breakpoint
       break;
+    case terminate:
+      if (!mResult || !mResult->isErr()) return false; // continue if this is not an error
+      break;
     default:
       return false; // do not pause
   }
@@ -6585,9 +6597,18 @@ void ScriptCodeThread::continueWithMode(PausingMode aNewPausingMode)
     OLOG(LOG_WARNING, "Trying to continue thread %04d which is NOT paused", threadId());
     return;
   }
-  mPauseReason = unpause;
-  mPausingMode = aNewPausingMode;
-  resume();
+  if (mPauseReason!=terminate) {
+    // not pausing in terminated state, we can continue
+    mPauseReason = unpause;
+    mPausingMode = aNewPausingMode;
+    resume();
+  }
+  else {
+    // now the thread can finally be disposed of
+    // - deactivate to break all retain loops
+    deactivate();
+    // when this call chain goes out of scope, thread object should get destructed
+  }
 }
 
 
