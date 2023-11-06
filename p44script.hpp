@@ -1843,6 +1843,11 @@ namespace p44 { namespace P44Script {
     /// @param aSharedMainContext a context previously obtained from the domain with newContext()
     void setSharedMainContext(ScriptMainContextPtr aSharedMainContext);
 
+    /// get the shared main context, which is the context this script will get executed in or
+    /// is already executing.
+    /// @return main context or nullptr when no maincontext is known (none set or not active)
+    ScriptMainContextPtr sharedMainContext() const;
+
     /// set source code and compile mode
     /// @param aSource the source code
     /// @param aEvaluationFlags if set (not ==0==inherit), these flags control compilation and are default
@@ -1927,11 +1932,11 @@ namespace p44 { namespace P44Script {
     ///   will be used, if any.
     /// @param aThreadLocals optionally, the (structured) object that provides thread local members
     /// @param aMaxRunTime optionally, maximum time the thread may run before it is aborted by timeout
-    ScriptObjPtr runX(EvaluationFlags aRunFlags, EvaluationCB aEvaluationCB = NoOP, ScriptObjPtr aThreadLocals = ScriptObjPtr(), MLMicroSeconds aMaxRunTime = Infinite);
+    ScriptObjPtr run(EvaluationFlags aRunFlags, EvaluationCB aEvaluationCB = NoOP, ScriptObjPtr aThreadLocals = ScriptObjPtr(), MLMicroSeconds aMaxRunTime = Infinite);
 
     /// for single-line tests
     ScriptObjPtr test(EvaluationFlags aEvalFlags, const string aSource)
-      { setSource(aSource, aEvalFlags); return runX(aEvalFlags|regular|synchronously, NoOP, ScriptObjPtr(), Infinite); }
+      { setSource(aSource, aEvalFlags); return run(aEvalFlags|regular|synchronously, NoOP, ScriptObjPtr(), Infinite); }
 
   };
 
@@ -2913,6 +2918,9 @@ namespace p44 { namespace P44Script {
 
     /// the original thread this chain of threads started from (can be this)
     ScriptCodeThreadPtr chainOriginThread();
+
+    /// @return the thread local vars of this thread, or nullptr if there are none
+    ScriptObjPtr threadLocals() const { return mThreadLocals; }
 
     /// request aborting the current thread, including child context
     /// @param aAbortResult if set, this is what abort will report back

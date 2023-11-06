@@ -5553,6 +5553,14 @@ void ScriptHost::setSharedMainContext(ScriptMainContextPtr aSharedMainContext)
 }
 
 
+ScriptMainContextPtr ScriptHost::sharedMainContext() const
+{
+  if (!active()) return nullptr;
+  return mActiveParams->mSharedMainContext;
+}
+
+
+
 void ScriptHost::uncompile(bool aNoAbort)
 {
   if (!active()) return; // cannot be compiled or running, just NOP
@@ -5726,14 +5734,14 @@ ScriptObjPtr ScriptHost::defaultCommandImplementation(ScriptCommand aCommand, Ev
     case start:
     runnow:
       // just start as configured at activation
-      ret = runX(flags, aScriptResultCB, aThreadLocals);
+      ret = run(flags, aScriptResultCB, aThreadLocals);
       break;
   }
   return ret;
 }
 
 
-ScriptObjPtr ScriptHost::runX(EvaluationFlags aRunFlags, EvaluationCB aEvaluationCB, ScriptObjPtr aThreadLocals, MLMicroSeconds aMaxRunTime)
+ScriptObjPtr ScriptHost::run(EvaluationFlags aRunFlags, EvaluationCB aEvaluationCB, ScriptObjPtr aThreadLocals, MLMicroSeconds aMaxRunTime)
 {
   if (!active()) return new AnnotatedNullValue("no script");
   if (!aEvaluationCB && mActiveParams->mScriptResultCB) aEvaluationCB = mActiveParams->mScriptResultCB; // use predefined callback handler
