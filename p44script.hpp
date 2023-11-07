@@ -208,9 +208,10 @@ namespace p44 { namespace P44Script {
     keepvars = 0x20000, ///< keep the local variables already set in the context
     mainthread = 0x40000, ///< if a thread with this flag set terminates, it also terminates all of its siblings
     singlestep = 0x80000, ///< thread must start with pausing mode = singlestep (means: stopping at first statement of a function body, handler or script)
+    neverpause = 0x100000, ///< thread must never pause, i.e. not inhert domain's defaultpausingmode
     // compilation modifiers
-    ephemeralSource = 0x100000, ///< threads are kept running and global function+handler definitions are not deleted when originating source code is changed/deleted
-    anonymousfunction = 0x200000, ///< compile and run as anonymous function body
+    ephemeralSource = 0x200000, ///< threads are kept running and global function+handler definitions are not deleted when originating source code is changed/deleted
+    anonymousfunction = 0x400000, ///< compile and run as anonymous function body
   };
   typedef uint32_t EvaluationFlags;
 
@@ -2791,7 +2792,7 @@ namespace p44 { namespace P44Script {
     /// @param aIntoCodeObj the CompiledCode object where to store the main code of the script compiled
     /// @param aParsingMode how to parse (as expression, scriptbody or full script with function+handler definitions)
     /// @param aMainContext the context in which this script should execute in. It is stored with the
-    /// @return an executable object or error (syntax, other fatal problems)
+    /// @return aIntoCodeObj on success or error on failure (syntax, other fatal problems)
     ScriptObjPtr compile(SourceContainerPtr aSource, CompiledCodePtr aIntoCodeObj, EvaluationFlags aParsingMode, ScriptMainContextPtr aMainContext);
 
     #if P44SCRIPT_FULL_SUPPORT

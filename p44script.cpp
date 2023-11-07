@@ -6096,6 +6096,9 @@ void ScriptCodeThread::prepareRun(
     // thread explicitly started for singlestepping
     mPausingMode = step_over;
   }
+  else if (aEvalFlags & neverpause) {
+    mPausingMode = nopause;
+  }
   else {
     // use domain's standard mode
     mPausingMode = owner()->domain()->defaultPausingMode();
