@@ -6,7 +6,7 @@ p44utils
 
 *p44utils* is a set of free (opensource, GPLv3) C++ utility classes and functions for creating single-threaded, mainloop event based applications, mainly targeted at linux daemons for automation.
 
-*p44utils* have been developed as part of the [vdcd project](https://github.com/plan44/vdcd) (a digitalSTROM virtual device container daemon), but are of more generic use, and thus have been separated from the vdcd repository (and made vdcd and other tools use p44utils as a submodule)
+*p44utils* have been developed as part of the [vdcd project](https://github.com/plan44/vdcd) (a Digital Strom virtual device container daemon), but are of more generic use, and thus have been separated from the vdcd repository (and made vdcd and other tools use p44utils as a submodule)
 
 *p44utils* makes very light use of boost (intrusive\_ptr, bind), and has some classes that use civetweb, sqlitepp, rpi_ws281x, json-c, uwsc, libmodbus, lvgl.
 
