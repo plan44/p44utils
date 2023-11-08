@@ -3854,12 +3854,6 @@ void SourceProcessor::processStatement()
     return;
   }
   // beginning of a new statement
-  #if P44SCRIPT_DEBUGGING_SUPPORT
-  if (pauseCheck(step_over)) {
-    // single stepping statements, thread is paused, debugger needs to call resume() to continue
-    return;
-  }
-  #endif
   if (mSrc.nextIf('{')) {
     // new block starts
     push(mCurrentState); // return to current state when block finishes
@@ -3886,7 +3880,15 @@ void SourceProcessor::processStatement()
     mSrc.skipNonCode();
   }
   // at the beginning of a statement which is not beginning of a new block
-  mResult.reset(); // no result to begin with at the beginning of a statement. Important for if/else, try/catch!
+  #if P44SCRIPT_DEBUGGING_SUPPORT
+  // - FIRST check for pause - only after that we may touch the result
+  if (pauseCheck(step_over)) {
+    // single stepping statements, thread is paused, debugger needs to call resume() to continue
+    return;
+  }
+  #endif
+  // - no result to begin with at the beginning of a statement. Important for if/else, try/catch!
+  mResult.reset();
   // - could be language keyword, variable assignment
   SourcePos memPos = mSrc.mPos; // remember
   if (mSrc.parseIdentifier(mIdentifier)) {
@@ -4149,7 +4151,7 @@ void SourceProcessor::s_ifCondition()
   if (!mSkipping) {
     // a real if decision
     mSkipping = !mResult->boolValue();
-    if (!mSkipping) mResult.reset(); // any executed if branch must cause skipping all following else branches
+    if (!mSkipping) mResult.reset(); // any executed "if" branch must cause skipping all following "else" branches
   }
   else {
     // nothing to decide any more
@@ -4163,7 +4165,7 @@ void SourceProcessor::s_ifCondition()
 void SourceProcessor::s_ifTrueStatement()
 {
   FOCUSLOGSTATE
-  // if statement (or block of statements) is executed or skipped
+  // if statement (or block of statements) has been executed or skipped
   // - if olderResult is set to something, else chain must be executed, which means
   //   else-ifs must be checked or last else must be executed. Otherwise, skip everything from here on.
   // Note: "skipping" at this point is not relevant for deciding further flow
@@ -6236,6 +6238,8 @@ void ScriptCodeThread::stepLoop()
   MLMicroSeconds loopingSince = MainLoop::now();
   do {
     MLMicroSeconds now = MainLoop::now();
+    // FIXME: I don't think we need this
+    /*
     // check pausing
     // @note if pausing happens here, no state change has occurred in this step, so
     //   we can continue by just calling resume() (with mContinue set if we want to get past positional breakpoints etc.)
@@ -6244,6 +6248,7 @@ void ScriptCodeThread::stepLoop()
       return;
     }
     #endif
+    */
     // Check maximum execution time
     if (mMaxRunTime!=Infinite && now-mRunningSince>mMaxRunTime) {
       // Note: not calling abort as we are WITHIN the call chain
@@ -6522,7 +6527,8 @@ static const char* pausingModeNames[numPausingModes] = {
   "step_out",
   "step_over",
   "step_into",
-  "scriptstep",
+  // FIXME: remove
+  //  "scriptstep",
   "interrupt",
   "terminate"
 };
@@ -6556,7 +6562,9 @@ bool ScriptCodeThread::pauseCheck(PausingMode aPausingOccasion)
     return true; // do not continue normally
   }
   if (mPauseReason==unpause) {
-    if (aPausingOccasion!=scriptstep || mPausingMode==scriptstep) {
+    // FIXME: remove
+    //if (aPausingOccasion!=scriptstep || mPausingMode==scriptstep)
+    {
       // continuing after a pause, must overcome the current pausing reason
       OLOG(LOG_NOTICE, "Thread continues in mode '%s' after pause", pausingName(mPausingMode));
       mRunningSince = MainLoop::currentMainLoop().now(); // re-start run time restriction
@@ -6576,9 +6584,18 @@ bool ScriptCodeThread::pauseCheck(PausingMode aPausingOccasion)
       // stop at end of function
       break;
     case step_over:
-      if (mPausingMode<step_over) return false; // not in any of the singlestep modes
+      if (mPausingMode<breakpoint) return false; // debugging disabled
+      if (mPausingMode<step_over) {
+        // not stepping, but check for breakpoints
+        if (!mSrc.onBreakPoint()) return false; // not on a cursor position based breakpoint
+        // stop at position based breakpoint
+        mPauseReason = breakpoint; // report as breakpoint
+        break;
+      }
       // stop at statement
       break;
+    // FIXME: probably remove, just eats performance, no real use
+    /*
     case scriptstep:
       if (mPausingMode==scriptstep) break; // fine-grain stepping (p44script enginge debugging only, usually)
       // otherwise, thing to check at script step are breakpoints
@@ -6586,6 +6603,7 @@ bool ScriptCodeThread::pauseCheck(PausingMode aPausingOccasion)
       // stop at position based breakpoint
       mPauseReason = breakpoint; // report as breakpoint
       break;
+    */
     case terminate:
       if (!mResult || !mResult->isErr()) return false; // continue if this is not an error
       break;

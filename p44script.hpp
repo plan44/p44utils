@@ -273,7 +273,8 @@ namespace p44 { namespace P44Script {
     step_out, /// pause at end of user defined functions (aka step out)
     step_over, ///< pause at beginning of a statement (aka step over)
     step_into, ///< when entering a function, pass "statements" runmode into function's "child thread" (aka step into)
-    scriptstep, ///< at every script processing step. Usually only as argument for pauseCheck, because too detailed except for debugging the engine itself
+    // FIXME: remove
+    // scriptstep, ///< at every script processing step. Usually only as argument for pauseCheck, because too detailed except for debugging the engine itself
     interrupt, ///< externally set interrupt
     terminate, ///< as occasion: thread has terminated. As continuing mode -> abort now
     numPausingModes
