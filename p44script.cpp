@@ -8028,7 +8028,7 @@ static void loglevel_func(BuiltinFunctionContextPtr f)
 {
   int oldLevel = LOGLEVEL;
   if (f->numArgs()>0) {
-    if (f->arg(1)->hasType(numeric)) {
+    if (f->arg(0)->hasType(numeric)) {
       int newLevel = f->arg(0)->intValue();
       if (newLevel==8) {
         // trigger statistics
