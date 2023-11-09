@@ -25,7 +25,7 @@
 #define ALWAYS_DEBUG 0
 // - set FOCUSLOGLEVEL to non-zero log level (usually, 5,6, or 7==LOG_DEBUG) to get focus (extensive logging) for this file
 //   Note: must be before including "logger.hpp" (or anything that includes "logger.hpp")
-#define FOCUSLOGLEVEL 0
+#define FOCUSLOGLEVEL 7
 
 #include "p44script.hpp"
 
@@ -2555,9 +2555,23 @@ ScriptObjPtr SourceCursor::parseCodeLiteral()
 
 #if P44SCRIPT_DEBUGGING_SUPPORT
 
-bool SourceCursor::onBreakPoint() const
+bool SourceCursor::onBreakPoint()
 {
-  return mSourceContainer->breakPointAt(mPos.posId())!=nullptr;
+  if (mSourceContainer->breakPointAtLine(lineno())) {
+    // there is a breakpoint on the current line
+    // - valid only for the first statement on that line
+    SourcePos savedPos(mPos); // save actual position
+    mPos.mPtr = mPos.mBol; // rewind to beginning of line
+    do {
+      skipNonCode();
+    } while (c()=='{' || c()==';'); // skip past block beginning and empty statements
+    // now, break if we are still before or at current pos
+    bool isbreak = savedPos.mLine==lineno() && savedPos.mPtr<=mPos.mPtr;
+    // restore position
+    mPos = savedPos;
+    return isbreak;
+  }
+  return false; // no breakpoint
 }
 
 #endif // P44SCRIPT_DEBUGGING_SUPPORT
@@ -5178,13 +5192,13 @@ SourceCursor SourceContainer::getCursor()
 
 #if P44SCRIPT_DEBUGGING_SUPPORT
 
-const BreakPoint* SourceContainer::breakPointAt(const SourcePos::UniquePos aPosId) const
+bool SourceContainer::breakPointAtLine(size_t aLine) const
 {
-  if (mBreakPoints.empty()) return nullptr; // optimization
-  BreakPointMap::const_iterator pos = mBreakPoints.find(aPosId);
-  if (pos==mBreakPoints.end()) return nullptr;
-  return &pos->second;
+  if (mBreakpointLines.empty()) return false; // optimisation
+  BreakpointLineSet::const_iterator pos = mBreakpointLines.find(aLine);
+  return pos!=mBreakpointLines.end();
 }
+
 
 #endif // P44SCRIPT_DEBUGGING_SUPPORT
 
@@ -5519,6 +5533,16 @@ string ScriptHost::getSourceToStoreLocally() const
 }
 #endif // P44SCRIPT_MIGRATE_TO_DOMAIN_SOURCE
 
+
+#if P44SCRIPT_DEBUGGING_SUPPORT
+
+SourceContainer::BreakpointLineSet& ScriptHost::breakpoints()
+{
+  assert(active());
+  return mActiveParams->mSourceContainer->breakpoints();
+}
+
+#endif // P44SCRIPT_DEBUGGING_SUPPORT
 
 #endif // P44SCRIPT_REGISTERED_SOURCE
 
@@ -6238,17 +6262,6 @@ void ScriptCodeThread::stepLoop()
   MLMicroSeconds loopingSince = MainLoop::now();
   do {
     MLMicroSeconds now = MainLoop::now();
-    // FIXME: I don't think we need this
-    /*
-    // check pausing
-    // @note if pausing happens here, no state change has occurred in this step, so
-    //   we can continue by just calling resume() (with mContinue set if we want to get past positional breakpoints etc.)
-    #if P44SCRIPT_DEBUGGING_SUPPORT
-    if (pauseCheck(scriptstep)) {
-      return;
-    }
-    #endif
-    */
     // Check maximum execution time
     if (mMaxRunTime!=Infinite && now-mRunningSince>mMaxRunTime) {
       // Note: not calling abort as we are WITHIN the call chain
@@ -6527,8 +6540,6 @@ static const char* pausingModeNames[numPausingModes] = {
   "step_out",
   "step_over",
   "step_into",
-  // FIXME: remove
-  //  "scriptstep",
   "interrupt",
   "terminate"
 };
@@ -6552,24 +6563,15 @@ PausingMode ScriptCodeThread::pausingModeNamed(const string aPauseName)
 bool ScriptCodeThread::pauseCheck(PausingMode aPausingOccasion)
 {
   if (mSkipping || mPausingMode==nopause) return false; // not debugging or not executing (just skipping)
-//  DBGOLOG(LOG_ERR,
-//    "pauseCheck: Occasion=%s, Mode=%s, Reason==%s: %s",
-//    pausingName(aPausingOccasion), pausingName(mPausingMode), pausingName(mPauseReason),
-//    describePos(20).c_str()
-//  );
   if (mPausingMode==terminate) {
     abort(new ErrorValue(ScriptError::Aborted, "terminated from debugging pause"));
     return true; // do not continue normally
   }
   if (mPauseReason==unpause) {
-    // FIXME: remove
-    //if (aPausingOccasion!=scriptstep || mPausingMode==scriptstep)
-    {
-      // continuing after a pause, must overcome the current pausing reason
-      OLOG(LOG_NOTICE, "Thread continues in mode '%s' after pause", pausingName(mPausingMode));
-      mRunningSince = MainLoop::currentMainLoop().now(); // re-start run time restriction
-      mPauseReason = nopause;
-    }
+    // continuing after a pause, must overcome the current pausing reason
+    OLOG(LOG_NOTICE, "Thread continues in mode '%s' after pause", pausingName(mPausingMode));
+    mRunningSince = MainLoop::currentMainLoop().now(); // re-start run time restriction
+    mPauseReason = nopause;
     return false;
   }
   // Actually check for pausing
@@ -6594,16 +6596,6 @@ bool ScriptCodeThread::pauseCheck(PausingMode aPausingOccasion)
       }
       // stop at statement
       break;
-    // FIXME: probably remove, just eats performance, no real use
-    /*
-    case scriptstep:
-      if (mPausingMode==scriptstep) break; // fine-grain stepping (p44script enginge debugging only, usually)
-      // otherwise, thing to check at script step are breakpoints
-      if (!mSrc.onBreakPoint()) return false; // not on a cursor position based breakpoint
-      // stop at position based breakpoint
-      mPauseReason = breakpoint; // report as breakpoint
-      break;
-    */
     case terminate:
       if (!mResult || !mResult->isErr()) return false; // continue if this is not an error
       break;

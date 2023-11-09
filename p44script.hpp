@@ -273,8 +273,6 @@ namespace p44 { namespace P44Script {
     step_out, /// pause at end of user defined functions (aka step out)
     step_over, ///< pause at beginning of a statement (aka step over)
     step_into, ///< when entering a function, pass "statements" runmode into function's "child thread" (aka step into)
-    // FIXME: remove
-    // scriptstep, ///< at every script processing step. Usually only as argument for pauseCheck, because too detailed except for debugging the engine itself
     interrupt, ///< externally set interrupt
     terminate, ///< as occasion: thread has terminated. As continuing mode -> abort now
     numPausingModes
@@ -1484,14 +1482,6 @@ namespace p44 { namespace P44Script {
   };
 
 
-  class BreakPoint
-  {
-    friend class SourceContainer;
-
-    size_t mBreakLine; ///< line number of breakpoint
-  };
-
-
   /// refers to a part of a source text, retains the container the source lives in
   /// provides basic element parsing generating values and possibly errors referring to
   /// the position they occur (and also retaining that source as long as the error lives)
@@ -1514,7 +1504,7 @@ namespace p44 { namespace P44Script {
     size_t textpos() const; ///< offset of current text from beginning of text
 
     /// @return true if source cursor is on breakpoint
-    bool onBreakPoint() const;
+    bool onBreakPoint();
 
     /// @name source text access and parsing utilities
     /// @{
@@ -1590,11 +1580,6 @@ namespace p44 { namespace P44Script {
     bool mFloating; ///< if set, the source is not linked but is a private copy
     ScriptHost* mScriptHostP; ///< the script host
 
-    #if P44SCRIPT_DEBUGGING_SUPPORT
-    typedef std::map<SourcePos::UniquePos, BreakPoint> BreakPointMap;
-    BreakPointMap mBreakPoints; ///< breakpoints by unique position, normalized to next non-space
-    #endif
-
   public:
     /// create source container not attached to a script source
     /// @note this kind of container cannot be used for debugging as there is no way for the debugger to find the source
@@ -1624,8 +1609,17 @@ namespace p44 { namespace P44Script {
     /// @name debugging
     /// @{
 
-    /// @return breakpoint at aPosId, or nullPtr in
-    const BreakPoint* breakPointAt(const SourcePos::UniquePos aPosId) const;
+    /// @return true if there is a breakpoint on this line
+    bool breakPointAtLine(size_t aLine) const;
+
+    typedef std::set<size_t> BreakpointLineSet;
+
+    /// @return the std::set of lines with breakpoints
+    BreakpointLineSet& breakpoints() { return mBreakpointLines; }
+
+private:
+
+    BreakpointLineSet mBreakpointLines;
 
     /// @}
     #endif
@@ -1829,6 +1823,13 @@ namespace p44 { namespace P44Script {
     /// @return the source code as set by setSource() or empty string when script source is already migrated to domain level store
     string getSourceToStoreLocally() const;
     #endif // P44SCRIPT_MIGRATE_TO_DOMAIN_SOURCE
+
+    #if P44SCRIPT_DEBUGGING_SUPPORT
+    /// @return breakpoint line numbers as std::set
+    SourceContainer::BreakpointLineSet& breakpoints();
+    #endif
+
+
 
     #endif // P44SCRIPT_REGISTERED_SOURCE
 
