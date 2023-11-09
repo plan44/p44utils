@@ -6122,7 +6122,7 @@ void ScriptCodeThread::prepareRun(
     // thread explicitly started for singlestepping
     mPausingMode = step_over;
   }
-  else if (aEvalFlags & neverpause) {
+  else if (aEvalFlags & (neverpause|scanning|checking)) {
     mPausingMode = nopause;
   }
   else {
@@ -6564,7 +6564,7 @@ bool ScriptCodeThread::pauseCheck(PausingMode aPausingOccasion)
 {
   if (mSkipping || mPausingMode==nopause) return false; // not debugging or not executing (just skipping)
   if (mPausingMode==terminate) {
-    abort(new ErrorValue(ScriptError::Aborted, "terminated from debugging pause"));
+    abort(new ErrorValue(ScriptError::Aborted, "terminated while paused"));
     return true; // do not continue normally
   }
   if (mPauseReason==unpause) {
@@ -6817,7 +6817,7 @@ static void string_func(BuiltinFunctionContextPtr f)
 
 // describe(anything)
 static const BuiltInArgDesc describe_args[] = { { any|error|null } };
-static const size_t describe_numargs = sizeof(string_args)/sizeof(BuiltInArgDesc);
+static const size_t describe_numargs = sizeof(describe_args)/sizeof(BuiltInArgDesc);
 static void describe_func(BuiltinFunctionContextPtr f)
 {
   f->finish(new StringValue(ScriptObj::describe(f->arg(0))));
@@ -6826,10 +6826,19 @@ static void describe_func(BuiltinFunctionContextPtr f)
 
 // annotation(anything)
 static const BuiltInArgDesc annotation_args[] = { { any|error|null } };
-static const size_t annotation_numargs = sizeof(string_args)/sizeof(BuiltInArgDesc);
+static const size_t annotation_numargs = sizeof(annotation_args)/sizeof(BuiltInArgDesc);
 static void annotation_func(BuiltinFunctionContextPtr f)
 {
   f->finish(new StringValue(f->arg(0)->getAnnotation()));
+}
+
+
+// null(annotation)
+static const BuiltInArgDesc null_args[] = { { text|optionalarg } };
+static const size_t null_numargs = sizeof(null_args)/sizeof(BuiltInArgDesc);
+static void null_func(BuiltinFunctionContextPtr f)
+{
+  f->finish(new AnnotatedNullValue(f->arg(0)->stringValue()));
 }
 
 
@@ -8612,6 +8621,7 @@ static const BuiltinMemberDescriptor standardFunctions[] = {
   { "boolean", executable|numeric, boolean_numargs, boolean_args, &boolean_func },
   { "describe", executable|text, describe_numargs, describe_args, &describe_func },
   { "annotation", executable|text, annotation_numargs, annotation_args, &annotation_func },
+  { "null", any, null_numargs, null_args, &null_func },
   { "lastarg", executable|any, lastarg_numargs, lastarg_args, &lastarg_func },
   #if SCRIPTING_JSON_SUPPORT
   { "json", executable|json, json_numargs, json_args, &json_func },
