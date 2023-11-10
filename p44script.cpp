@@ -5536,10 +5536,15 @@ string ScriptHost::getSourceToStoreLocally() const
 
 #if P44SCRIPT_DEBUGGING_SUPPORT
 
-SourceContainer::BreakpointLineSet& ScriptHost::breakpoints()
+SourceContainer::BreakpointLineSet* ScriptHost::breakpoints()
 {
-  assert(active());
-  return mActiveParams->mSourceContainer->breakpoints();
+  return active() && mActiveParams->mSourceContainer ? &mActiveParams->mSourceContainer->breakpoints() : nullptr;
+}
+
+
+size_t ScriptHost::numBreakPoints()
+{
+  return active() && mActiveParams->mSourceContainer ? mActiveParams->mSourceContainer->breakpoints().size() : 0;
 }
 
 #endif // P44SCRIPT_DEBUGGING_SUPPORT
@@ -5605,8 +5610,8 @@ void ScriptHost::uncompile(bool aNoAbort)
 
 bool ScriptHost::setSource(const string aSource, EvaluationFlags aEvaluationFlags)
 {
-  if (!storable()) {
-    if (aSource.empty()) return false; // setting empty source on a non-active or non-storable script is the only allowed option, but is not a change
+  if (!active()) {
+    if (aSource.empty()) return false; // setting empty source on a non-active script is the only allowed option, but is not a change
     assert(false); // must be active for everything else
   }
   if (aEvaluationFlags==inherit || mActiveParams->mDefaultFlags==aEvaluationFlags) {

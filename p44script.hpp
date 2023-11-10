@@ -1825,8 +1825,11 @@ private:
     #endif // P44SCRIPT_MIGRATE_TO_DOMAIN_SOURCE
 
     #if P44SCRIPT_DEBUGGING_SUPPORT
-    /// @return breakpoint line numbers as std::set
-    SourceContainer::BreakpointLineSet& breakpoints();
+    /// @return breakpoint line numbers as std::set or null if none exist
+    SourceContainer::BreakpointLineSet* breakpoints();
+
+    /// @return number of breakpoints
+    size_t numBreakPoints();
     #endif
 
 
