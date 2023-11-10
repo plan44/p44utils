@@ -32,7 +32,6 @@ p44::Logger globalLogger;
 
 Logger::Logger() :
   mLoggerCB(NoOP),
-  mLoggerContextPtr(NULL),
   mLogFILE(NULL)
 {
   pthread_mutex_init(&mReportMutex, NULL);
@@ -42,6 +41,7 @@ Logger::Logger() :
   mDeltaTime = false;
   mErrToStdout = true;
   mDaemonMode = true;
+  mAllowOther = false;
   #if ENABLE_LOG_COLORS
   mLogSymbols = false;
   mLogColors = false;
@@ -247,39 +247,40 @@ void Logger::logOutput_always(int aLevel, const char *aLinePrefix, const char *a
 {
   // output
   if (mLoggerCB) {
-    mLoggerCB(mLoggerContextPtr, aLevel, aLinePrefix, aLogMessage);
+    mLoggerCB(aLevel, aLinePrefix, aLogMessage);
+    if (!mAllowOther) return;
   }
-  else if (mLogFILE) {
+  if (mLogFILE) {
     fputs(aLinePrefix, mLogFILE);
     fputs(aLogMessage, mLogFILE);
     fputs("\n", mLogFILE);
     fflush(mLogFILE);
+    if (!mAllowOther) return;
   }
-  else {
-    // normal logging to stdout/err
-    // - in daemon mode, only level<=mStderrLevel goes to stderr
-    // - in cmdline tool mode all log goes to stderr
-    if (aLevel<=mStderrLevel || !mDaemonMode) {
-      // must go to stderr anyway
-      fputs(aLinePrefix, stderr);
-      fputs(aLogMessage, stderr);
-      fputs("\n", stderr);
-      fflush(stderr);
-    }
-    // - in daemon mode only, normal log goes to stdout (and errors are duplicated to stdout as well)
-    if (mDaemonMode && (aLevel>mStderrLevel || mErrToStdout)) {
-      // must go to stdout as well
-      fputs(aLinePrefix, stdout);
-      fputs(aLogMessage, stdout);
-      fputs("\n", stdout);
-      fflush(stdout);
-    }
+  // normal logging to stdout/err
+  // - in daemon mode, only level<=mStderrLevel goes to stderr
+  // - in cmdline tool mode all log goes to stderr
+  if (aLevel<=mStderrLevel || !mDaemonMode) {
+    // must go to stderr anyway
+    fputs(aLinePrefix, stderr);
+    fputs(aLogMessage, stderr);
+    fputs("\n", stderr);
+    fflush(stderr);
+  }
+  // - in daemon mode only, normal log goes to stdout (and errors are duplicated to stdout as well)
+  if (mDaemonMode && (aLevel>mStderrLevel || mErrToStdout)) {
+    // must go to stdout as well
+    fputs(aLinePrefix, stdout);
+    fputs(aLogMessage, stdout);
+    fputs("\n", stdout);
+    fflush(stdout);
   }
 }
 
 
-void Logger::setLogFile(const char *aLogFilePath)
+void Logger::setLogFile(const char *aLogFilePath, bool aAllowOther)
 {
+  mAllowOther = aAllowOther;
   if (aLogFilePath) {
     mLogFILE = fopen(aLogFilePath, "a");
   }
@@ -307,10 +308,10 @@ void Logger::setErrLevel(int aStderrLevel, bool aErrToStdout)
 }
 
 
-void Logger::setLogHandler(LoggerCB aLoggerCB, void *aContextPtr)
+void Logger::setLogHandler(LoggerCB aLoggerCB, bool aAllowOther)
 {
+  mAllowOther = aAllowOther;
   mLoggerCB = aLoggerCB;
-  mLoggerContextPtr = aContextPtr;
 }
 
 
