@@ -5538,13 +5538,13 @@ string ScriptHost::getSourceToStoreLocally() const
 
 SourceContainer::BreakpointLineSet* ScriptHost::breakpoints()
 {
-  return active() && mActiveParams->mSourceContainer ? &mActiveParams->mSourceContainer->breakpoints() : nullptr;
+  return active() && mActiveParams->mSourceContainer ? mActiveParams->mSourceContainer->breakpoints() : nullptr;
 }
 
 
 size_t ScriptHost::numBreakPoints()
 {
-  return active() && mActiveParams->mSourceContainer ? mActiveParams->mSourceContainer->breakpoints().size() : 0;
+  return active() && mActiveParams->mSourceContainer ? mActiveParams->mSourceContainer->breakpoints()->size() : 0;
 }
 
 #endif // P44SCRIPT_DEBUGGING_SUPPORT
