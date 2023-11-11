@@ -1305,7 +1305,7 @@ static void removeledchains_func(BuiltinFunctionContextPtr f)
 static void neededledpower_func(BuiltinFunctionContextPtr f)
 {
   LEDChainLookup* l = dynamic_cast<LEDChainLookup*>(f->funcObj()->getMemberLookup());
-  f->finish(new NumericValue(l->ledChainArrangement().getNeededPower()));
+  f->finish(new IntegerValue(l->ledChainArrangement().getNeededPower()));
 }
 
 
@@ -1313,7 +1313,7 @@ static void neededledpower_func(BuiltinFunctionContextPtr f)
 static void currentledpower_func(BuiltinFunctionContextPtr f)
 {
   LEDChainLookup* l = dynamic_cast<LEDChainLookup*>(f->funcObj()->getMemberLookup());
-  f->finish(new NumericValue(l->ledChainArrangement().getCurrentPower()));
+  f->finish(new IntegerValue(l->ledChainArrangement().getCurrentPower()));
 }
 
 

@@ -435,6 +435,7 @@ bool ScriptObj::operator<=(const ScriptObj& aRightSide) const
 
 // MARK: Arithmetic Operators (all value classes)
 
+
 ScriptObjPtr NumericValue::operator+(const ScriptObj& aRightSide) const
 {
   return new NumericValue(doubleValue() + aRightSide.doubleValue());
@@ -482,6 +483,30 @@ ScriptObjPtr NumericValue::operator%(const ScriptObj& aRightSide) const
 }
 
 
+ScriptObjPtr IntegerValue::operator+(const ScriptObj& aRightSide) const
+{
+  const IntegerValue* i = dynamic_cast<const IntegerValue*>(&aRightSide);
+  if (i) return new IntegerValue(int64Value() + aRightSide.int64Value());
+  return inherited::operator+(aRightSide);
+}
+
+
+ScriptObjPtr IntegerValue::operator-(const ScriptObj& aRightSide) const
+{
+  const IntegerValue* i = dynamic_cast<const IntegerValue*>(&aRightSide);
+  if (i) return new IntegerValue(int64Value() - aRightSide.int64Value());
+  return inherited::operator-(aRightSide);
+}
+
+
+ScriptObjPtr IntegerValue::operator*(const ScriptObj& aRightSide) const
+{
+  const IntegerValue* i = dynamic_cast<const IntegerValue*>(&aRightSide);
+  if (i) return new IntegerValue(int64Value() * aRightSide.int64Value());
+  return inherited::operator*(aRightSide);
+}
+
+
 // MARK: - iterator
 
 IndexedValueIterator::IndexedValueIterator(ScriptObjPtr aObj) :
@@ -512,7 +537,7 @@ void IndexedValueIterator::obtainKey(EvaluationCB aEvaluationCB, bool aNumericPr
     aEvaluationCB(nullptr);
   }
   else {
-    aEvaluationCB(new NumericValue(mCurrentIndex));
+    aEvaluationCB(new IntegerValue(mCurrentIndex));
   }
 }
 
@@ -803,7 +828,7 @@ ScriptObjPtr JsonRepresentedValue::calculationValue()
 {
   if (!jsonValue()) return new AnnotatedNullValue("json null");
   if (jsonValue()->isType(json_type_boolean)) return new BoolValue(jsonValue()->boolValue());
-  if (jsonValue()->isType(json_type_int)) return new NumericValue(jsonValue()->int64Value());
+  if (jsonValue()->isType(json_type_int)) return new IntegerValue(jsonValue()->int64Value());
   if (jsonValue()->isType(json_type_double)) return new NumericValue(jsonValue()->doubleValue());
   if (jsonValue()->isType(json_type_string)) return new StringValue(jsonValue()->stringValue());
   return inherited::calculationValue();
@@ -2423,12 +2448,14 @@ ScriptObjPtr SourceCursor::parseNumericLiteral()
 {
   double num;
   int o;
+  bool isFloat = false;
   if (sscanf(mPos.mPtr, "%lf%n", &num, &o)!=1) {
-    // Note: sscanf %d also handles hex!
+    // Note: sscanf %lf also handles hex!
     return new ErrorPosValue(*this, ScriptError::Syntax, "invalid number, time or date");
   }
   else {
     // o is now past consumation of sscanf
+    isFloat = strnstr(mPos.mPtr, ".", o); // when the sscanf'ed part contains a ".", this is a float
     // check for time/date literals
     // - time literals (returned in seconds) are in the form h:m or h:m:s, where all parts are allowed to be fractional
     // - month/day literals (returned in yeardays) are in the form dd.monthname or dd.mm. (mid the closing dot)
@@ -2443,11 +2470,13 @@ ScriptObjPtr SourceCursor::parseNumericLiteral()
           o += i+1; // past : and consumation of sscanf
           // we have v:t, take these as hours and minutes
           num = (num*60+t)*60; // in seconds
+          isFloat = false;
           if (c(o)==':') {
             // apparently we also have seconds
             if (sscanf(mPos.mPtr+o+1, "%lf%n", &t, &i)!=1) {
               return new ErrorPosValue(*this, ScriptError::Syntax, "Time specification has invalid seconds - use hh:mm:ss");
             }
+            isFloat = strnstr(mPos.mPtr+o+1, ".", i); // when the sscanf'ed seconds contains a ".", we have fractional seconds
             o += i+1; // past : and consumation of sscanf
             num += t; // add the seconds
           }
@@ -2488,12 +2517,18 @@ ScriptObjPtr SourceCursor::parseNumericLiteral()
           loctim.tm_mday = d;
           mktime(&loctim);
           num = loctim.tm_yday;
+          isFloat = false; // dates are integer
         }
       }
     }
   }
   advance(o);
-  return new NumericValue(num);
+  if (isFloat) {
+    return new NumericValue(num);
+  }
+  else {
+    return new IntegerValue(num);
+  }
 }
 
 
@@ -6341,7 +6376,7 @@ void ScriptCodeThread::memberByIdentifier(TypeInfo aMemberAccessFlags, bool aNoN
         // Optimisation, all weekdays have 3 chars
         for (int w=0; w<7; w++) {
           if (uequals(mIdentifier, weekdayNames[w])) {
-            mResult = new NumericValue(w);
+            mResult = new IntegerValue(w);
             break;
           }
         }
@@ -6716,7 +6751,7 @@ static const BuiltInArgDesc int_args[] = { { scalar|undefres } };
 static const size_t int_numargs = sizeof(int_args)/sizeof(BuiltInArgDesc);
 static void int_func(BuiltinFunctionContextPtr f)
 {
-  f->finish(new NumericValue(int(f->arg(0)->int64Value())));
+  f->finish(new IntegerValue(int(f->arg(0)->int64Value())));
 }
 
 
@@ -6900,7 +6935,7 @@ static const size_t elements_numargs = sizeof(elements_args)/sizeof(BuiltInArgDe
 static void elements_func(BuiltinFunctionContextPtr f)
 {
   if (f->arg(0)->hasType(structured)) {
-    f->finish(new NumericValue((int)f->arg(0)->numIndexedMembers()));
+    f->finish(new IntegerValue((int)f->arg(0)->numIndexedMembers()));
     return;
   }
   f->finish(new AnnotatedNullValue("not an array or object"));
@@ -6978,7 +7013,7 @@ static const BuiltInArgDesc ord_args[] = { { text } };
 static const size_t ord_numargs = sizeof(ord_args)/sizeof(BuiltInArgDesc);
 static void ord_func(BuiltinFunctionContextPtr f)
 {
-  f->finish(new NumericValue((uint8_t)*f->arg(0)->stringValue().c_str()));
+  f->finish(new IntegerValue((uint8_t)*f->arg(0)->stringValue().c_str()));
 }
 
 
@@ -7060,7 +7095,7 @@ static void setbit_func(BuiltinFunctionContextPtr f)
   if (nextarg==1) newbits = (newbits!=0); // for single bits, treat newbit as bool
   uint64_t v = f->arg(nextarg+1)->int64Value();
   v = (v & ~mask) | ((newbits<<loBit) & mask);
-  f->finish(new NumericValue((int64_t)v));
+  f->finish(new IntegerValue((int64_t)v));
 }
 
 
@@ -7075,7 +7110,7 @@ static void flipbit_func(BuiltinFunctionContextPtr f)
   uint64_t mask = bitmask(nextarg, loBit, hiBit, f);
   uint64_t v = f->arg(nextarg)->int64Value();
   v ^= mask;
-  f->finish(new NumericValue((int64_t)v));
+  f->finish(new IntegerValue((int64_t)v));
 }
 
 
@@ -7084,7 +7119,7 @@ static const BuiltInArgDesc strlen_args[] = { { text|undefres } };
 static const size_t strlen_numargs = sizeof(strlen_args)/sizeof(BuiltInArgDesc);
 static void strlen_func(BuiltinFunctionContextPtr f)
 {
-  f->finish(new NumericValue((double)f->arg(0)->stringValue().size())); // length of string
+  f->finish(new IntegerValue((double)f->arg(0)->stringValue().size())); // length of string
 }
 
 
@@ -7147,7 +7182,7 @@ static void find_func(BuiltinFunctionContextPtr f)
   }
   size_t p = haystack.find(needle, start);
   if (p!=string::npos)
-    f->finish(new NumericValue((double)p));
+    f->finish(new IntegerValue((int64_t)p));
   else
     f->finish(new AnnotatedNullValue("no such substring")); // not found
 }
@@ -7351,7 +7386,7 @@ static void errorcode_func(BuiltinFunctionContextPtr f)
 {
   ErrorPtr err = f->arg(0)->errorValue();
   if (Error::isOK(err)) f->finish(new AnnotatedNullValue("no error")); // no error, no code
-  f->finish(new NumericValue((double)err->getErrorCode()));
+  f->finish(new IntegerValue(err->getErrorCode()));
 }
 
 
@@ -8058,7 +8093,7 @@ static void loglevel_func(BuiltinFunctionContextPtr f)
       SETLOGCOLORING(f->arg(3)->boolValue());
     }
   }
-  f->finish(new NumericValue(oldLevel));
+  f->finish(new IntegerValue(oldLevel));
 }
 
 
@@ -8073,7 +8108,7 @@ static void logleveloffset_func(BuiltinFunctionContextPtr f)
     int newOffset = f->arg(0)->intValue();
     f->setLogLevelOffset(newOffset);
   }
-  f->finish(new NumericValue(oldOffset));
+  f->finish(new IntegerValue(oldOffset));
 }
 
 #endif // P44SCRIPT_FULL_SUPPORT
@@ -8491,7 +8526,7 @@ static void timeofday_func(BuiltinFunctionContextPtr f)
 static void hour_func(BuiltinFunctionContextPtr f)
 {
   struct tm loctim; prepTime(f, loctim);
-  f->finish(new NumericValue(loctim.tm_hour));
+  f->finish(new IntegerValue(loctim.tm_hour));
 }
 
 
@@ -8499,7 +8534,7 @@ static void hour_func(BuiltinFunctionContextPtr f)
 static void minute_func(BuiltinFunctionContextPtr f)
 {
   struct tm loctim; prepTime(f, loctim);
-  f->finish(new NumericValue(loctim.tm_min));
+  f->finish(new IntegerValue(loctim.tm_min));
 }
 
 
@@ -8507,7 +8542,7 @@ static void minute_func(BuiltinFunctionContextPtr f)
 static void second_func(BuiltinFunctionContextPtr f)
 {
   struct tm loctim; prepTime(f, loctim);
-  f->finish(new NumericValue(loctim.tm_sec));
+  f->finish(new IntegerValue(loctim.tm_sec));
 }
 
 
@@ -8515,7 +8550,7 @@ static void second_func(BuiltinFunctionContextPtr f)
 static void year_func(BuiltinFunctionContextPtr f)
 {
   struct tm loctim; prepTime(f, loctim);
-  f->finish(new NumericValue(loctim.tm_year+1900));
+  f->finish(new IntegerValue(loctim.tm_year+1900));
 }
 
 
@@ -8523,7 +8558,7 @@ static void year_func(BuiltinFunctionContextPtr f)
 static void month_func(BuiltinFunctionContextPtr f)
 {
   struct tm loctim; prepTime(f, loctim);
-  f->finish(new NumericValue(loctim.tm_mon+1));
+  f->finish(new IntegerValue(loctim.tm_mon+1));
 }
 
 
@@ -8531,7 +8566,7 @@ static void month_func(BuiltinFunctionContextPtr f)
 static void day_func(BuiltinFunctionContextPtr f)
 {
   struct tm loctim; prepTime(f, loctim);
-  f->finish(new NumericValue(loctim.tm_mday));
+  f->finish(new IntegerValue(loctim.tm_mday));
 }
 
 
@@ -8539,7 +8574,7 @@ static void day_func(BuiltinFunctionContextPtr f)
 static void weekday_func(BuiltinFunctionContextPtr f)
 {
   struct tm loctim; prepTime(f, loctim);
-  f->finish(new NumericValue(loctim.tm_wday));
+  f->finish(new IntegerValue(loctim.tm_wday));
 }
 
 
@@ -8547,7 +8582,7 @@ static void weekday_func(BuiltinFunctionContextPtr f)
 static void yearday_func(BuiltinFunctionContextPtr f)
 {
   struct tm loctim; prepTime(f, loctim);
-  f->finish(new NumericValue(loctim.tm_yday));
+  f->finish(new IntegerValue(loctim.tm_yday));
 }
 
 

@@ -904,6 +904,25 @@ namespace p44 { namespace P44Script {
   };
 
 
+  /// IntegerValue is a NumericValue that returns a JSON integer value
+  ///   when asked about its jsonValue()
+  class IntegerValue : public NumericValue
+  {
+    typedef NumericValue inherited;
+  public:
+    IntegerValue(int64_t aInt) : inherited(aInt) {};
+    virtual string getAnnotation() const P44_OVERRIDE { return "integer"; };
+    // value getters
+    #if SCRIPTING_JSON_SUPPORT
+    virtual JsonObjectPtr jsonValue() const P44_OVERRIDE { return JsonObject::newInt64(int64Value()); };
+    #endif
+    // operators
+    virtual ScriptObjPtr operator+(const ScriptObj& aRightSide) const P44_OVERRIDE;
+    virtual ScriptObjPtr operator-(const ScriptObj& aRightSide) const P44_OVERRIDE;
+    virtual ScriptObjPtr operator*(const ScriptObj& aRightSide) const P44_OVERRIDE;
+  };
+
+
   class StringValue : public ScriptObj
   {
     typedef ScriptObj inherited;

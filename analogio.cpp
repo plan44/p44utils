@@ -742,7 +742,7 @@ static void powerlimit_func(BuiltinFunctionContextPtr f)
   AnalogColorOutputObj* c = dynamic_cast<AnalogColorOutputObj*>(f->thisObj().get());
   assert(c);
   if (f->numArgs()==0) {
-    f->finish(new NumericValue(c->colorOutput()->getPowerLimit()));
+    f->finish(new IntegerValue(c->colorOutput()->getPowerLimit()));
   }
   else {
     c->colorOutput()->setPowerLimit(f->arg(0)->intValue());
@@ -756,7 +756,7 @@ static void neededpower_func(BuiltinFunctionContextPtr f)
 {
   AnalogColorOutputObj* c = dynamic_cast<AnalogColorOutputObj*>(f->thisObj().get());
   assert(c);
-  f->finish(new NumericValue(c->colorOutput()->getNeededPower()));
+  f->finish(new IntegerValue(c->colorOutput()->getNeededPower()));
 }
 
 
@@ -765,7 +765,7 @@ static void currentpower_func(BuiltinFunctionContextPtr f)
 {
   AnalogColorOutputObj* c = dynamic_cast<AnalogColorOutputObj*>(f->thisObj().get());
   assert(c);
-  f->finish(new NumericValue(c->colorOutput()->getCurrentPower()));
+  f->finish(new IntegerValue(c->colorOutput()->getCurrentPower()));
 }
 
 

@@ -639,7 +639,7 @@ static void value_func(BuiltinFunctionContextPtr f)
   }
   else {
     // return current value
-    f->finish(new NumericValue((int64_t)b->digitalIoBus()->getBusValue()));
+    f->finish(new IntegerValue((int64_t)b->digitalIoBus()->getBusValue()));
   }
 }
 
@@ -649,7 +649,7 @@ static void maxvalue_func(BuiltinFunctionContextPtr f)
 {
   DigitalIoBusObj* b = dynamic_cast<DigitalIoBusObj *>(f->thisObj().get());
   assert(b);
-  f->finish(new NumericValue((int64_t)b->digitalIoBus()->getMaxBusValue()));
+  f->finish(new IntegerValue((int64_t)b->digitalIoBus()->getMaxBusValue()));
 }
 
 
@@ -658,7 +658,7 @@ static void buswidth_func(BuiltinFunctionContextPtr f)
 {
   DigitalIoBusObj* b = dynamic_cast<DigitalIoBusObj *>(f->thisObj().get());
   assert(b);
-  f->finish(new NumericValue(b->digitalIoBus()->getBusWidth()));
+  f->finish(new IntegerValue(b->digitalIoBus()->getBusWidth()));
 }
 
 

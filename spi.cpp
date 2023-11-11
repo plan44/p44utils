@@ -961,7 +961,7 @@ static void regread_func(BuiltinFunctionContextPtr f)
     // 16 bit word
     uint16_t w;
     if (bus.SPIRegReadWord(dev, reg, w)) {
-      f->finish(new NumericValue(w));
+      f->finish(new IntegerValue(w));
       return;
     }
   }
@@ -980,7 +980,7 @@ static void regread_func(BuiltinFunctionContextPtr f)
     // byte
     uint8_t b;
     if (bus.SPIRegReadByte(dev, reg, b)) {
-      f->finish(new NumericValue(b));
+      f->finish(new IntegerValue(b));
       return;
     }
   }

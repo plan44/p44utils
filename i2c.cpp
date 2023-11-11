@@ -1125,7 +1125,7 @@ static void rawread_func(BuiltinFunctionContextPtr f)
     // read a single byte
     uint8_t b;
     if (bus.I2CReadByte(dev, b)) {
-      f->finish(new NumericValue(b));
+      f->finish(new IntegerValue(b));
       return;
     }
   }
@@ -1169,7 +1169,7 @@ static void smbusread_func(BuiltinFunctionContextPtr f)
     // 16 bit word
     uint16_t w;
     if (bus.SMBusReadWord(dev, reg, w)) {
-      f->finish(new NumericValue(w));
+      f->finish(new IntegerValue(w));
       return;
     }
   }
@@ -1186,7 +1186,7 @@ static void smbusread_func(BuiltinFunctionContextPtr f)
     // byte
     uint8_t b;
     if (bus.SMBusReadByte(dev, reg, b)) {
-      f->finish(new NumericValue(b));
+      f->finish(new IntegerValue(b));
       return;
     }
   }

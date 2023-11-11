@@ -2283,13 +2283,13 @@ static void getreg_func(BuiltinFunctionContextPtr f)
 {
   ModbusSlaveObj* o = dynamic_cast<ModbusSlaveObj*>(f->thisObj().get());
   assert(o);
-  f->finish(new NumericValue((uint16_t)(o->modbus()->getReg(f->arg(0)->intValue(), f->arg(1)->boolValue()))));
+  f->finish(new IntegerValue((uint16_t)(o->modbus()->getReg(f->arg(0)->intValue(), f->arg(1)->boolValue()))));
 }
 static void getsreg_func(BuiltinFunctionContextPtr f)
 {
   ModbusSlaveObj* o = dynamic_cast<ModbusSlaveObj*>(f->thisObj().get());
   assert(o);
-  f->finish(new NumericValue((int16_t)(o->modbus()->getReg(f->arg(0)->intValue(), f->arg(1)->boolValue()))));
+  f->finish(new IntegerValue((int16_t)(o->modbus()->getReg(f->arg(0)->intValue(), f->arg(1)->boolValue()))));
 }
 static void getbit_func(BuiltinFunctionContextPtr f)
 {
@@ -2319,7 +2319,7 @@ static void slaveaddress_func(BuiltinFunctionContextPtr f)
   if (f->arg(0)->defined()) {
     o->modbus()->setSlaveAddress(f->arg(0)->intValue());
   }
-  f->finish(new NumericValue(o->modbus()->getSlaveAddress()));
+  f->finish(new IntegerValue(o->modbus()->getSlaveAddress()));
 }
 
 
@@ -2506,7 +2506,7 @@ static void readreg_func(BuiltinFunctionContextPtr f)
     f->finish(new ErrorValue(err->withPrefix("reading register: ")));
     return;
   }
-  f->finish(new NumericValue(v));
+  f->finish(new IntegerValue(v));
 }
 static void readsreg_func(BuiltinFunctionContextPtr f)
 {
@@ -2518,7 +2518,7 @@ static void readsreg_func(BuiltinFunctionContextPtr f)
     f->finish(new ErrorValue(err->withPrefix("reading register: ")));
     return;
   }
-  f->finish(new NumericValue((int16_t)v));
+  f->finish(new IntegerValue((int16_t)v));
 }
 static void readbit_func(BuiltinFunctionContextPtr f)
 {
