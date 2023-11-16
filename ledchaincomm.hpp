@@ -299,13 +299,6 @@ namespace p44 {
     /// @return size of array in Y direction (y range is 0..getSizeY()-1)
     uint16_t getSizeY();
 
-    /// get the LED raw data (for displaying in simulators)
-    /// @param aIncludingInactives if set, inactive LEDs at start of chain and between rows are included, otherwise only active ones
-    /// @param aConvertToBrightness if set, pixels power is converted back to brightness scale
-    /// @param aHex if set, output is in hex format
-    /// @return binary or hex string in rrggbb format, no separator, as many as there are LEDs defined
-    void rawLedRGB(string& aRawRgb, bool aIncludingInactives, bool aConvertToBrightness, bool aHex);
-
   private:
 
     uint16_t ledIndexFromXY(uint16_t aX, uint16_t aY);
@@ -398,25 +391,8 @@ namespace p44 {
     /// remove all LED chains
     void removeAllChains();
 
-    /// get LED chain by device name
-    /// @param aDeviceName LED chain device name
-    LEDChainCommPtr ledChainByName(const string aDeviceName);
-
-    /// get LED chain by index
-    LEDChainCommPtr ledChainByIndex(size_t aIndex);
-
-    /// @return number of ledchains
-    size_t numLedChains();
-
     /// returns the enclosing rectangle over all LED chains
     PixelRect totalCover() { return mCovers; }
-
-    /// get the LED raw data (for displaying in simulators)
-    /// @param aRawRgb will be filled to contain the raw RGB data as specified by aArea
-    /// @param aArea the area to get data for
-    /// @param aHex if set, output is in hex format
-    /// @return binary or hex string in rrggbb format, no separator, as many as there are LEDs defined
-    void rawLedRGB(string& aRawRgb, PixelRect aArea, bool aHex);
 
     /// get minimal color intensity that does not completely switch off the color channel of the LED
     /// @return minimum r,g,b value
