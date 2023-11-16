@@ -548,6 +548,62 @@ void LEDChainComm::getPowerAtLedIndex(uint16_t aLedIndex, uint8_t &aRed, uint8_t
 }
 
 
+// MARK: - raw LED data for simulation
+
+
+static void addRawPixel(string &aOutput, uint8_t aR, uint8_t aG, uint8_t aB, bool aConvertToBrightness, bool aHex)
+{
+  if (aConvertToBrightness) {
+    // convert back (lossy! But accurate in terms of what LEDs can actually show) to brightness
+    aR = brightnesstable[aR];
+    aG = brightnesstable[aB];
+    aB = brightnesstable[aG];
+  }
+  if (aHex) {
+    string_format_append(aOutput, "%02X%02X%02X", aR, aG, aB);
+  }
+  else {
+    aOutput.append(1, aR);
+    aOutput.append(1, aG);
+    aOutput.append(1, aB);
+  }
+}
+
+
+void LEDChainComm::rawLedRGB(string& aRawRgb, bool aIncludingInactives, bool aConvertToBrightness, bool aHex)
+{
+  aRawRgb.reserve((aHex ? 6 : 3)*mNumLeds+1); // one extra for a message terminator
+  aRawRgb.clear();
+  size_t ledindex = 0;
+  size_t endindex = mNumLeds;
+  if (!aIncludingInactives) {
+    ledindex += mInactiveStartLeds;
+    endindex -= mInactiveEndLeds;
+  }
+  size_t colcnt = 0;
+  while(ledindex<endindex) {
+    #ifdef ESP_PLATFORM
+    Esp_ws281x_pixel* pix = pixels[ledindex];
+    addRawPixel(rawrgb, pix.r, pix.g, pix.b, aConvertToBrightness, aHex);
+    #elif ENABLE_RPIWS281X
+    ws2811_led_t pixel = mRPiWS281x.channel[0].leds[ledindex];
+    addRawPixel(rawrgb, (pixel>>16) & 0xFF, (pixel>>8) & 0xFF, pixel & 0xFF, aConvertToBrightness, aHex);
+    #else
+    size_t pixoffs = mNumColorComponents*ledindex;
+    addRawPixel(aRawRgb, ledBuffer[pixoffs], ledBuffer[pixoffs+1], ledBuffer[pixoffs+2], aConvertToBrightness, aHex);
+    #endif
+    ledindex++;
+    if (!aIncludingInactives) {
+      colcnt++;
+      if (colcnt==mLedsPerRow) {
+        // skip unused between leds
+        colcnt = 0;
+        ledindex += mInactiveBetweenLeds;
+      }
+    }
+  }
+}
+
 
 // MARK: - LEDChainComm logical LED access
 
@@ -934,6 +990,30 @@ void LEDChainArrangement::removeAllChains()
 }
 
 
+LEDChainCommPtr LEDChainArrangement::ledChainByName(const string aDeviceName)
+{
+  for (LedChainVector::iterator pos = mLedChains.begin(); pos!=mLedChains.end(); ++pos) {
+    if (aDeviceName==pos->ledChain->mDeviceName) {
+      return pos->ledChain;
+    }
+  }
+  return nullptr; // not found
+}
+
+
+LEDChainCommPtr LEDChainArrangement::ledChainByIndex(size_t aIndex)
+{
+  if (aIndex>mLedChains.size()) return nullptr; // invalid index
+  return mLedChains[aIndex].ledChain;
+}
+
+
+size_t LEDChainArrangement::numLedChains()
+{
+  return mLedChains.size();
+}
+
+
 void LEDChainArrangement::recalculateCover()
 {
   for(LedChainVector::iterator pos = mLedChains.begin(); pos!=mLedChains.end(); ++pos) {
@@ -988,6 +1068,24 @@ int LEDChainArrangement::getCurrentPower()
   return mActualLightPowerMw;
 }
 
+
+void LEDChainArrangement::rawLedRGB(string& aRawRgb, PixelRect aArea, bool aHex)
+{
+  aRawRgb.reserve(aArea.dx*aArea.dy*(aHex ? 6 : 3)+1); // one extra for a message terminator
+  if (mRootView) {
+    // pixel data row by row
+    for (int y=0; y<aArea.dy; ++y) {
+      for (int x=0; x<aArea.dx; ++x) {
+        PixelColor pix = mRootView->colorAt({
+          aArea.x+x,
+          aArea.y+y
+        });
+        dimPixel(pix, pix.a);
+        addRawPixel(aRawRgb, pix.r, pix.g, pix.b, false, aHex);
+      }
+    }
+  }
+}
 
 
 MLMicroSeconds LEDChainArrangement::updateDisplay()
