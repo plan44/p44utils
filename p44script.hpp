@@ -1634,9 +1634,12 @@ namespace p44 { namespace P44Script {
     typedef std::set<size_t> BreakpointLineSet;
 
     /// @return the std::set of lines with breakpoints
-    BreakpointLineSet* breakpoints() { return &mBreakpointLines; }
+    BreakpointLineSet& breakpoints() { return mBreakpointLines; }
 
-private:
+    /// @param aBreakpoins set the breakpoints
+    void setBreakpoints(const BreakpointLineSet& aBreakpoints) { mBreakpointLines = aBreakpoints; }
+
+  private:
 
     BreakpointLineSet mBreakpointLines;
 

@@ -5573,13 +5573,13 @@ string ScriptHost::getSourceToStoreLocally() const
 
 SourceContainer::BreakpointLineSet* ScriptHost::breakpoints()
 {
-  return active() && mActiveParams->mSourceContainer ? mActiveParams->mSourceContainer->breakpoints() : nullptr;
+  return active() && mActiveParams->mSourceContainer ? &mActiveParams->mSourceContainer->breakpoints() : nullptr;
 }
 
 
 size_t ScriptHost::numBreakPoints()
 {
-  return active() && mActiveParams->mSourceContainer ? mActiveParams->mSourceContainer->breakpoints()->size() : 0;
+  return active() && mActiveParams->mSourceContainer ? mActiveParams->mSourceContainer->breakpoints().size() : 0;
 }
 
 #endif // P44SCRIPT_DEBUGGING_SUPPORT
@@ -5658,10 +5658,21 @@ bool ScriptHost::setSource(const string aSource, EvaluationFlags aEvaluationFlag
   // changed, invalidate everything related to the previous code
   uncompile(mActiveParams->mDefaultFlags & ephemeralSource);
   if (aEvaluationFlags!=inherit) mActiveParams->mDefaultFlags = aEvaluationFlags;
+  #if P44SCRIPT_DEBUGGING_SUPPORT
+  // extract the breakpoints
+  SourceContainer::BreakpointLineSet breakpoints;
+  if (numBreakPoints()>0) {
+    breakpoints = mActiveParams->mSourceContainer->breakpoints();
+  }
+  #endif
   mActiveParams->mSourceContainer.reset(); // release it myself
   // create new source container
   if (!aSource.empty()) {
     mActiveParams->mSourceContainer = SourceContainerPtr(new SourceContainer(this, aSource));
+    #if P44SCRIPT_DEBUGGING_SUPPORT
+    // re-apply the breakpoints to new source
+    mActiveParams->mSourceContainer->setBreakpoints(breakpoints);
+    #endif
   }
   mActiveParams->mSourceDirty = true;
   return true; // source has changed
