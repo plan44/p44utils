@@ -2444,6 +2444,18 @@ ScriptOperator SourceCursor::parseOperator()
 }
 
 
+static bool is_instr(char aWhat, const char* aFrom, int aCount)
+{
+  while(aCount>0) {
+    if (*aFrom==0) break;
+    if (*aFrom==aWhat) return true;
+    aFrom++;
+    aCount--;
+  }
+  return false;
+}
+
+
 ScriptObjPtr SourceCursor::parseNumericLiteral()
 {
   double num;
@@ -2455,7 +2467,7 @@ ScriptObjPtr SourceCursor::parseNumericLiteral()
   }
   else {
     // o is now past consumation of sscanf
-    isFloat = strnstr(mPos.mPtr, ".", o); // when the sscanf'ed part contains a ".", this is a float
+    isFloat = is_instr('.', mPos.mPtr, o); // when the sscanf'ed part contains a ".", this is a float
     // check for time/date literals
     // - time literals (returned in seconds) are in the form h:m or h:m:s, where all parts are allowed to be fractional
     // - month/day literals (returned in yeardays) are in the form dd.monthname or dd.mm. (mid the closing dot)
@@ -2476,7 +2488,7 @@ ScriptObjPtr SourceCursor::parseNumericLiteral()
             if (sscanf(mPos.mPtr+o+1, "%lf%n", &t, &i)!=1) {
               return new ErrorPosValue(*this, ScriptError::Syntax, "Time specification has invalid seconds - use hh:mm:ss");
             }
-            isFloat = strnstr(mPos.mPtr+o+1, ".", i); // when the sscanf'ed seconds contains a ".", we have fractional seconds
+            isFloat = is_instr('.', mPos.mPtr+o+1, i); // when the sscanf'ed seconds contains a ".", we have fractional seconds
             o += i+1; // past : and consumation of sscanf
             num += t; // add the seconds
           }
