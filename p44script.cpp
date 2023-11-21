@@ -6657,10 +6657,14 @@ bool ScriptCodeThread::pauseCheck(PausingMode aPausingOccasion)
         reason = breakpoint; // report as breakpoint
         break;
       }
-      // stop at statement
+      // pause at statement
       break;
     case terminate:
-      if (!mResult || !mResult->isErr()) return false; // continue if this is not an error
+      if (mPausingMode<breakpoint) return false; // debugging disabled
+      if ((!mResult || !mResult->isErr()) && mPausingMode<step_over) return false; // terminating w/o error only pauses when stepped into
+      // terminated with error
+      if (mResult->errorValue()->isError(ScriptError::domain(), ScriptError::Aborted)) return false; // do not stop on explicit abort
+      // pause at termination of thread with non-abort error
       break;
     default:
       return false; // do not pause
