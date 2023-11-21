@@ -6638,7 +6638,7 @@ bool ScriptCodeThread::pauseCheck(PausingMode aPausingOccasion)
     return false;
   }
   // Actually check for pausing
-  mPauseReason = aPausingOccasion; // default to the occasion
+  PausingMode reason = aPausingOccasion; // default to the occasion
   switch (aPausingOccasion) {
     case breakpoint: // breakpoint() in code
     case interrupt: // interrupt from outside
@@ -6654,7 +6654,7 @@ bool ScriptCodeThread::pauseCheck(PausingMode aPausingOccasion)
         // not stepping, but check for breakpoints
         if (!mSrc.onBreakPoint()) return false; // not on a cursor position based breakpoint
         // stop at position based breakpoint
-        mPauseReason = breakpoint; // report as breakpoint
+        reason = breakpoint; // report as breakpoint
         break;
       }
       // stop at statement
@@ -6666,6 +6666,7 @@ bool ScriptCodeThread::pauseCheck(PausingMode aPausingOccasion)
       return false; // do not pause
   }
   // not continuing -> pause here
+  mPauseReason = reason;
   // - find next code, that's (visually) where we are pausing
   mSrc.skipNonCode();
   // - now pause
