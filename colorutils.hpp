@@ -124,8 +124,9 @@ namespace p44 {
 
   /// convert pixel color to web color
   /// @param aPixelColor pixel color
+  /// @param aWithHash if set, output is prefixed with hash, as in css: #RRGGBB or #AARRGGBB
   /// @return web color in RRGGBB style or AARRGGBB when alpha is not fully opaque (==255)
-  string pixelToWebColor(const PixelColor aPixelColor);
+  string pixelToWebColor(const PixelColor aPixelColor, bool aWithHash);
 
 
   /// convert pixel color to RGB color components in 0..1 double range
