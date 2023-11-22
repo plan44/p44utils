@@ -1767,7 +1767,8 @@ namespace p44 { namespace P44Script {
 
     /// Set new script source and activate script if it is not yet activated and aSource is not empty.
     /// Also store the source text if it has changed
-    /// @param aSource the source text to set
+    /// @param aSource the source text to set. Can be STX (0x02) to force registering an empty script
+    ///   (so it gets available with ID from StandardScriptingHost)
     /// @param aScriptHostUid the sourceUid - if non-empty, the script will be saved in the domain level
     ///   storage under this id (if the text has changed from already stored version)
     /// @param aDefaultFlags default execution flags

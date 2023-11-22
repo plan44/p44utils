@@ -5777,7 +5777,8 @@ bool ScriptHost::setSource(const string aSource, EvaluationFlags aEvaluationFlag
     if (aSource.empty()) return false; // setting empty source on a non-active script is the only allowed option, but is not a change
     assert(false); // must be active for everything else
   }
-  if (aEvaluationFlags==inherit || mActiveParams->mDefaultFlags==aEvaluationFlags) {
+  bool hasmarker = aSource.substr(0,1)=="\x02"; // STX at beginning forces save/registering
+  if (!hasmarker && (aEvaluationFlags==inherit || mActiveParams->mDefaultFlags==aEvaluationFlags)) {
     // same flags, check source
     if (mActiveParams->mSourceContainer && mActiveParams->mSourceContainer->mSource == aSource) {
       return false; // no change at all -> NOP
@@ -5796,7 +5797,9 @@ bool ScriptHost::setSource(const string aSource, EvaluationFlags aEvaluationFlag
   mActiveParams->mSourceContainer.reset(); // release it myself
   // create new source container
   if (!aSource.empty()) {
-    mActiveParams->mSourceContainer = SourceContainerPtr(new SourceContainer(this, aSource));
+    mActiveParams->mSourceContainer = SourceContainerPtr(
+      new SourceContainer(this, aSource.substr(hasmarker ? 1 : 0))
+    );
     #if P44SCRIPT_DEBUGGING_SUPPORT
     // re-apply the breakpoints to new source
     mActiveParams->mSourceContainer->setBreakpoints(breakpoints);
@@ -6161,7 +6164,9 @@ void ScriptingDomain::threadPaused(ScriptCodeThreadPtr aThread)
 bool ScriptingDomain::registerScriptHost(ScriptHost &aHostSource)
 {
   for(ScriptHostsVector::const_iterator pos = mScriptHosts.begin(); pos!=mScriptHosts.end(); ++pos) {
-    if (&aHostSource==*pos) return false; // already registered
+    if (&aHostSource==*pos) {
+      return false; // already registered
+    }
   }
   // not yet registered
   mScriptHosts.push_back(&aHostSource);
@@ -8959,7 +8964,9 @@ bool FileStorageStandardScriptingDomain::storeSource(const string &aScriptHostUi
   ErrorPtr err;
   if (aSource.empty()) {
     // remove entirely empty script files
-    err = SysError::err(unlink(scriptfn.c_str()));
+    err = SysError::retErr(unlink(scriptfn.c_str()));
+    // file not existing in the first place is ok
+    if (Error::isError(err, SysError::domain(), ENOENT)) err.reset();
   }
   else {
     // save as file
