@@ -2624,28 +2624,6 @@ bool SourceCursor::onBreakPoint()
 #endif // P44SCRIPT_DEBUGGING_SUPPORT
 
 
-#if SCRIPTING_JSON_SUPPORT
-
-ScriptObjPtr SourceCursor::parseJSONLiteral()
-{
-  if (c()!='{' && c()!='[') {
-    return new ErrorPosValue(*this, ScriptError::Syntax, "invalid JSON literal");
-  }
-  // JSON object or array literal
-  ssize_t n;
-  ErrorPtr err;
-  JsonObjectPtr json;
-  json = JsonObject::objFromText(mPos.mPtr, charsleft(), &err, false, &n);
-  if (Error::notOK(err)) {
-    return new ErrorPosValue(*this, ScriptError::Syntax, "invalid JSON literal: %s", err->text());
-  }
-  advance(n);
-  return new JsonValue(json);
-}
-
-#endif
-
-
 // MARK: - SourceProcessor
 
 #define FOCUSLOGSTATE FOCUSLOG( \
@@ -3035,6 +3013,133 @@ ScriptObjPtr SourceProcessor::captureCode(ScriptObjPtr aCodeContainer)
 }
 
 
+// MARK: Object construction
+
+void SourceProcessor::s_objectfield()
+{
+  // result is object to add fields to
+  // - object field name, quoted or unquoted, or [expr] calculated field name
+  mSrc.skipNonCode();
+  if (mSrc.nextIf('[')) {
+    // calculated object name
+    push(&SourceProcessor::s_varobjectfield);
+    mSrc.skipNonCode();
+    resumeAt(&SourceProcessor::s_expression);
+    return;
+  }
+  if (mSrc.c()=='"' || mSrc.c()=='\'') {
+    // object name as string literal = proper JSON style
+    mIdentifier = mSrc.parseStringLiteral()->stringValue();
+    fieldnamedefined();
+    return;
+  }
+  string fn;
+  if (mSrc.parseIdentifier(mIdentifier)) {
+    // field name as identifier, JS style field
+    fieldnamedefined();
+    return;
+  }
+  exitWithSyntaxError("invalid object field name");
+}
+
+
+void SourceProcessor::s_varobjectfield()
+{
+  mSrc.skipNonCode();
+  if (mSrc.nextIf(']')) {
+    mIdentifier = mResult->stringValue();
+    mResult = mOlderResult;
+    fieldnamedefined();
+    return;
+  }
+  exitWithSyntaxError("missing closing ']' in calculated object field name");
+}
+
+
+void SourceProcessor::fieldnamedefined()
+{
+  // mIdentifier is the field name now
+  // mResult is the object to add to
+  mSrc.skipNonCode();
+  if (!mSrc.nextIf(':')) {
+    exitWithSyntaxError("missing ':' after object field name");
+    return;
+  }
+  mSrc.skipNonCode();
+  push(&SourceProcessor::s_objectfielddone); // push object to add to
+  memberByIdentifier(lvalue+create); // get assignable lvalue for the field
+  // - get value
+  push(&SourceProcessor::s_objectvalue);
+  resumeAt(&SourceProcessor::s_expression);
+}
+
+
+void SourceProcessor::s_objectvalue()
+{
+  // olderResult = lvalue for the field
+  // result = value to assign
+  setState(&SourceProcessor::s_objectfielddone); // assignment expression ends here, will either result in assigned value or storage error
+  if (!mSkipping) {
+    if (mResult) mResult = mResult->assignmentValue(); // get a copy in case the value is mutable (i.e. copy-on-write, assignment is "writing")
+    mOlderResult->assignLValue(boost::bind(&SourceProcessor::resume, this, _1), mResult);
+    return;
+  }
+  resume();
+}
+
+
+void SourceProcessor::s_objectfielddone()
+{
+  pop(); // get back the object itself
+  mResult = mOlderResult;
+  mSrc.skipNonCode();
+  if (mSrc.nextIf(',')) {
+    // possibly, another field follows
+    mSrc.skipNonCode();
+    if (mSrc.c()!='}') {
+      // not just extra comma, scan next field
+      resumeAt(&SourceProcessor::s_objectfield);
+      return;
+    }
+  }
+  if (mSrc.nextIf('}')) {
+    // object done
+    popWithValidResult();
+    return;
+  }
+  exitWithSyntaxError("invalid object field");
+}
+
+
+void SourceProcessor::s_arrayelementdone()
+{
+  // older result is array to add to
+  // result is value to add
+  if (!mSkipping) {
+    size_t nextIndex = mOlderResult->numIndexedMembers(); // index of next to-be-added array element
+    mOlderResult->setMemberAtIndex(nextIndex, mResult);
+    mResult = mOlderResult;
+  }
+  mSrc.skipNonCode();
+  if (mSrc.nextIf(',')) {
+    // possibly, another element follows
+    mSrc.skipNonCode();
+    if (mSrc.c()!=']') {
+      // not just extra comma, scan next element
+      push(&SourceProcessor::s_arrayelementdone);
+      resumeAt(&SourceProcessor::s_expression);
+      return;
+    }
+  }
+  if (mSrc.nextIf(']')) {
+    // array done
+    popWithValidResult();
+    return;
+  }
+  exitWithSyntaxError("invalid array element");
+}
+
+
 // MARK: Simple Terms
 
 void SourceProcessor::s_simpleTerm()
@@ -3046,29 +3151,40 @@ void SourceProcessor::s_simpleTerm()
     popWithValidResult();
     return;
   }
-  else if (mSrc.c()=='{') {
+  else if (mSrc.nextIf('{')) {
     // json or code block literal
     #if SCRIPTING_JSON_SUPPORT
-    SourceCursor peek = mSrc;
-    peek.next();
-    peek.skipNonCode();
-    if (peek.c()=='"' || peek.c()=='\'' || peek.c()=='}') {
-      // empty "{}" or first thing within "{" is a quoted field name: must be JSON literal
-      mResult = mSrc.parseJSONLiteral();
+    // - JS type object construction
+    mResult = new JsonValue(JsonObject::newObj());
+    mSrc.skipNonCode();
+    if (mSrc.nextIf('}')) {
+      // empty object
       popWithValidResult();
       return;
     }
-    #endif
+    s_objectfield();
+    return;
+    /*
+    // TODO: code blocks might come later, but probably in different context
     // must be a code block
     mResult = mSrc.parseCodeLiteral();
     popWithValidResult();
     return;
+     */
+    #endif
   }
   #if SCRIPTING_JSON_SUPPORT
-  else if (mSrc.c()=='[') {
+  else if (mSrc.nextIf('[')) {
     // must be JSON literal array
-    mResult = mSrc.parseJSONLiteral();
-    popWithValidResult();
+    mResult = new JsonValue(JsonObject::newArray());
+    mSrc.skipNonCode();
+    if (mSrc.nextIf(']')) {
+      // empty array
+      popWithValidResult();
+      return;
+    }
+    push(&SourceProcessor::s_arrayelementdone);
+    s_expression();
     return;
   }
   #endif
@@ -4313,7 +4429,7 @@ void SourceProcessor::s_foreachLoopVar1()
   setState(&SourceProcessor::s_foreachLoopVars);
   if (!mSkipping) {
     mLoopController->mLoopKey = boost::dynamic_pointer_cast<ScriptLValue>(mResult); // first lvalue will receive key
-    mResult.reset(); // create error variable on scope level
+    mResult.reset(); // create key variable on scope level
     memberByIdentifier(lvalue+create);
     return;
   }
@@ -8856,148 +8972,6 @@ bool FileStorageStandardScriptingDomain::storeSource(const string &aScriptHostUi
 
 
 #endif // P44SCRIPT_REGISTERED_SOURCE
-
-
-#if SIMPLE_REPL_APP
-
-// MARK: - Simple REPL (Read Execute Print Loop) App
-#include "fdcomm.hpp"
-#include "httpcomm.hpp"
-#include "socketcomm.hpp"
-#include "analogio.hpp"
-#include "digitalio.hpp"
-#include "dcmotor.hpp"
-
-class SimpleREPLApp : public CmdLineApp
-{
-  typedef CmdLineApp inherited;
-
-  ScriptHost source;
-  ScriptMainContextPtr replContext;
-  FdCommPtr input;
-
-public:
-
-  SimpleREPLApp() :
-    source(sourcecode|regular|keepvars|concurrently|ephemeralSource, "REPL")
-  {
-  }
-
-  virtual int main(int argc, char **argv)
-  {
-    const char *usageText =
-      "Usage: %1$s [options]\n";
-    const CmdLineOptionDescriptor options[] = {
-      CMDLINE_APPLICATION_LOGOPTIONS,
-      CMDLINE_APPLICATION_STDOPTIONS,
-      { 0, NULL } // list terminator
-    };
-    // parse the command line, exits when syntax errors occur
-    setCommandDescriptors(usageText, options);
-    parseCommandLine(argc, argv);
-    processStandardLogOptions(false);
-    // app now ready to run (or cleanup when already terminated)
-    return run();
-  }
-
-  virtual void initialize()
-  {
-    // add some capabilities
-    #if ENABLE_HTTP_SCRIPT_FUNCS
-    source.domain()->registerMemberLookup(new HttpLookup);
-    #endif
-    #if ENABLE_SOCKET_SCRIPT_FUNCS
-    source.domain()->registerMemberLookup(new SocketLookup);
-    #endif
-    #if ENABLE_ANALOGIO_SCRIPT_FUNCS
-    source.domain()->registerMemberLookup(new AnalogIoLookup);
-    #endif
-    #if ENABLE_DIGITALIO_SCRIPT_FUNCS
-    source.domain()->registerMemberLookup(new DigitalIoLookup);
-    #endif
-    #if ENABLE_DCMOTOR_SCRIPT_FUNCS
-    source.domain()->registerMemberLookup(new DcMotorLookup);
-    #endif
-    // get context
-    replContext = source.domain()->newContext();
-    source.setSharedMainContext(replContext);
-    printf("p44Script REPL - type 'quit' to leave\n\n");
-    input = FdCommPtr(new FdComm);
-    R();
-    input->setFd(0); // stdin
-    input->makeNonBlocking();
-    input->setReceiveHandler(boost::bind(&SimpleREPLApp::E, this, _1), '\n');
-  }
-
-
-  void R()
-  {
-    printf("p44Script: ");
-  }
-
-
-  void E(ErrorPtr err)
-  {
-    string cmd;
-    if(Error::notOK(err)) {
-      printf("\nI/O error: %s\n", err->text());
-      terminateApp(EXIT_FAILURE);
-      return;
-    }
-    if (input->receiveDelimitedString(cmd)) {
-      cmd = trimWhiteSpace(cmd);
-      if (uequals(cmd, "quit")) {
-        printf("\nquitting p44Script REPL - bye!\n");
-        terminateApp(EXIT_SUCCESS);
-        return;
-      }
-      source.setSource(cmd);
-      source.run(inherit, boost::bind(&SimpleREPLApp::PL, this, _1));
-    }
-  }
-
-  void PL(ScriptObjPtr aResult)
-  {
-    if (aResult) {
-      SourceCursor *cursorP = aResult->cursor();
-      if (cursorP) {
-        const char* p = cursorP->linetext();
-        string line;
-        nextLine(p, line);
-        if (!source.refersTo(*cursorP)) {
-          printf("     code: %s\n", line.c_str());
-        }
-        if (cursorP->lineno()>0) {
-          printf(" line %3lu: %s\n", cursorP->lineno()+1, line.c_str());
-        }
-        string errInd;
-        errInd.append(cursorP->charpos(), '-');
-        errInd += '^';
-        printf("       at: %s\n", errInd.c_str());
-      }
-      printf("   result: %s [%s]\n\n", aResult->stringValue().c_str(), aResult->getAnnotation().c_str());
-    }
-    else {
-      printf("   result: <none>\n\n");
-    }
-    R();
-  }
-};
-
-
-int main(int argc, char **argv)
-{
-  // prevent debug output before application.main scans command line
-  SETLOGLEVEL(LOG_NOTICE);
-  SETERRLEVEL(0, false);
-  // create app with current mainloop
-  static SimpleREPLApp application;
-  // pass control
-  return application.main(argc, argv);
-}
-
-
-#endif // SIMPLE_REPL_APP
 
 #endif // ENABLE_P44SCRIPT
 

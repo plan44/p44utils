@@ -1552,9 +1552,6 @@ namespace p44 { namespace P44Script {
     ScriptObjPtr parseNumericLiteral(); ///< @return numeric or error, advances cursor on success
     ScriptObjPtr parseStringLiteral(); ///< @return string or error, advances cursor on success
     ScriptObjPtr parseCodeLiteral(); ///< @return executable or error, advances cursor on success
-    #if SCRIPTING_JSON_SUPPORT
-    ScriptObjPtr parseJSONLiteral(); ///< @return string or error, advances cursor on success
-    #endif
 
     /// @}
   };
@@ -2470,6 +2467,14 @@ namespace p44 { namespace P44Script {
     /// @note these all MUST eventually cause calling resume(). This can happen from
     ///   the implementation via checkAndResume(), doneAndGoto() or complete()
     ///   or via a callback which eventually calls resume().
+
+    // Object construction
+    void s_objectfield(); ///< object field name should follow
+    void s_varobjectfield(); ///< before closing ']', calculated object name now in result
+    void fieldnamedefined();
+    void s_objectvalue(); ///< object value in result
+    void s_objectfielddone(); ///< object value in result
+    void s_arrayelementdone(); ///< array element value in result
 
     // Simple Term
     void s_simpleTerm(); ///< at the beginning of a term
