@@ -220,6 +220,14 @@ ErrorPtr SysError::err(int aErrNo, const char *aContextMessage)
 }
 
 
+ErrorPtr SysError::retErr(int aRet, const char *aContextMessage)
+{
+  if (aRet>=0) return nullptr;
+  return SysError::errNo(aContextMessage);
+}
+
+
+
 #ifdef ESP_PLATFORM
 
 // MARK: - ESP IDF error
