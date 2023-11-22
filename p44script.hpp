@@ -1498,6 +1498,7 @@ namespace p44 { namespace P44Script {
     SourcePos(const SourcePos &aCursor);
     SourcePos();
     UniquePos posId() const { return mPtr; } ///< unique position within a source, only for comparison (call site for frozen arguments, breakpoints...)
+    size_t lineno() const { return mLine; }; ///< 0-based line counter
   };
 
 

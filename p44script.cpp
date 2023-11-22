@@ -2222,7 +2222,7 @@ SourceCursor::SourceCursor(SourceContainerPtr aContainer, SourcePos aStart, Sour
 
 size_t SourceCursor::lineno() const
 {
-  return mPos.mLine;
+  return mPos.lineno();
 }
 
 
@@ -4127,7 +4127,10 @@ void SourceProcessor::processStatement()
       }
     }
     if (uequals(mIdentifier, "return")) {
-      if (!mSrc.EOT() && mSrc.c()!=';') {
+      if (!mSrc.EOT() && (mSrc.c()!=';' && mSrc.lineno()==memPos.lineno())) {
+        // Note: return value must at least *begin* on the same line as the "return"
+        //   keyword was found. This is to make sure a single return on a line without ;
+        //   is not taking the next line as result expression.
         // return with return value
         if (mSkipping) {
           // we must parse over the return expression properly AND then continue parsing
