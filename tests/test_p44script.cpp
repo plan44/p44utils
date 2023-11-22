@@ -20,7 +20,7 @@
 //  along with p44utils. If not, see <http://www.gnu.org/licenses/>.
 //
 
-#include "catch.hpp"
+#include "catch_amalgamated.hpp"
 
 #include "p44script.hpp"
 #include <stdlib.h>
@@ -34,7 +34,6 @@
 
 using namespace p44;
 using namespace p44::P44Script;
-
 
 // derived numeric that decides to be null (as some real derived NumericValues might do dynamically)
 class NullNumeric : public NumericValue
@@ -284,9 +283,6 @@ TEST_CASE("CodeCursor", "[scripting]" )
     REQUIRE(SourceCursor("19.Feb").parseNumericLiteral()->doubleValue() == 49);
     REQUIRE(SourceCursor("19.FEB").parseNumericLiteral()->doubleValue() == 49);
     REQUIRE(SourceCursor("19.2.").parseNumericLiteral()->doubleValue() == 49);
-
-    REQUIRE(SourceCursor("{ 'type':'object', 'test':42 }").parseJSONLiteral()->stringValue() == "{\"type\":\"object\",\"test\":42}");
-    REQUIRE(SourceCursor("[ 'first', 2, 3, 'fourth', 6.6 ]").parseJSONLiteral()->stringValue() == "[\"first\",2,3,\"fourth\",6.6]");
   }
 
 }
@@ -363,7 +359,7 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "Literals", "[scripting]" )
     REQUIRE(s.test(expression, "thu")->intValue() == 4);
 
     REQUIRE(s.test(expression, "{ 'type':'object', 'test':42 }")->stringValue() == "{\"type\":\"object\",\"test\":42}");
-    REQUIRE(s.test(expression, "[ 'first', 2, 3, 'fourth', 6.6 ]")->stringValue() == "[\"first\",2,3,\"fourth\",6.6]");
+    REQUIRE(s.test(expression, "[ 'first', 2, 3, 'fourth', 6.25 ]")->stringValue() == "[\"first\",2,3,\"fourth\",6.25]");
   }
 
 
@@ -372,6 +368,7 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "Literals", "[scripting]" )
     REQUIRE(s.test(expression, "/* 43 */ 42")->doubleValue() == 42);
     REQUIRE(s.test(expression, "/* 43 // 42")->undefined() == true);
   }
+
 }
 
 
@@ -444,7 +441,7 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "expressions", "[scripting],[FOCUS]") {
     REQUIRE(s.test(expression, "5%1.5")->doubleValue() == 0.5);
     REQUIRE(s.test(expression, "5.5%2")->doubleValue() == 1.5);
     REQUIRE(s.test(expression, "78%9")->doubleValue() == 6.0);
-    REQUIRE(s.test(expression, "77.77%9")->doubleValue() == Approx(5.77));
+    REQUIRE(s.test(expression, "77.77%9")->doubleValue() == Catch::Approx(5.77));
     REQUIRE(s.test(expression, "78/0")->isErr() == true); // division by zero
     REQUIRE(s.test(expression, "1==true")->boolValue() == true);
     REQUIRE(s.test(expression, "1==yes")->boolValue() == true);
@@ -562,8 +559,8 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "expressions", "[scripting],[FOCUS]") {
     REQUIRE(s.test(expression, "round(33.6, 0.5)")->doubleValue() == 33.5);
     REQUIRE(s.test(expression, "frac(33)")->doubleValue() == 0);
     REQUIRE(s.test(expression, "frac(-33)")->doubleValue() == 0);
-    REQUIRE(s.test(expression, "frac(33.6)")->doubleValue() == Approx(0.6));
-    REQUIRE(s.test(expression, "frac(-33.6)")->doubleValue() == Approx(-0.6));
+    REQUIRE(s.test(expression, "frac(33.6)")->doubleValue() == Catch::Approx(0.6));
+    REQUIRE(s.test(expression, "frac(-33.6)")->doubleValue() == Catch::Approx(-0.6));
     REQUIRE(s.test(expression, "random(0,10)")->doubleValue() < 10);
     REQUIRE(s.test(expression, "random(0,10) != random(0,10)")->boolValue() == true);
     REQUIRE(s.test(expression, "number('33')")->doubleValue() == 33);
@@ -582,16 +579,16 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "expressions", "[scripting],[FOCUS]") {
     REQUIRE(s.test(expression, "cyclic(-18,10,20)")->doubleValue() == 12);
     REQUIRE(s.test(expression, "cyclic(22,10,20)")->doubleValue() == 12);
     REQUIRE(s.test(expression, "cyclic(42,10,20)")->doubleValue() == 12);
-    REQUIRE(s.test(expression, "cyclic(-10.8,1,2)")->doubleValue() == Approx(1.2));
-    REQUIRE(s.test(expression, "cyclic(-1.8,1,2)")->doubleValue() == Approx(1.2));
-    REQUIRE(s.test(expression, "cyclic(2.2,1,2)")->doubleValue() == Approx(1.2));
-    REQUIRE(s.test(expression, "cyclic(4.2,1,2)")->doubleValue() == Approx(1.2));
-    REQUIRE(s.test(expression, "maprange(30,0,100,1,0)")->doubleValue() == Approx(0.7));
-    REQUIRE(s.test(expression, "maprange(30,100,0,0,1)")->doubleValue() == Approx(0.7));
-    REQUIRE(s.test(expression, "maprange(-20,100,0,0,1)")->doubleValue() == Approx(1));
-    REQUIRE(s.test(expression, "maprange(120,100,0,0,1)")->doubleValue() == Approx(0));
+    REQUIRE(s.test(expression, "cyclic(-10.8,1,2)")->doubleValue() == Catch::Approx(1.2));
+    REQUIRE(s.test(expression, "cyclic(-1.8,1,2)")->doubleValue() == Catch::Approx(1.2));
+    REQUIRE(s.test(expression, "cyclic(2.2,1,2)")->doubleValue() == Catch::Approx(1.2));
+    REQUIRE(s.test(expression, "cyclic(4.2,1,2)")->doubleValue() == Catch::Approx(1.2));
+    REQUIRE(s.test(expression, "maprange(30,0,100,1,0)")->doubleValue() == Catch::Approx(0.7));
+    REQUIRE(s.test(expression, "maprange(30,100,0,0,1)")->doubleValue() == Catch::Approx(0.7));
+    REQUIRE(s.test(expression, "maprange(-20,100,0,0,1)")->doubleValue() == Catch::Approx(1));
+    REQUIRE(s.test(expression, "maprange(120,100,0,0,1)")->doubleValue() == Catch::Approx(0));
     REQUIRE(s.test(expression, "epochdays()")->int64Value() == floor(MainLoop::unixtime()/Day));
-    REQUIRE(s.test(expression, "epochtime()")->doubleValue() == Approx((double)MainLoop::unixtime()/Second));
+    REQUIRE(s.test(expression, "epochtime()")->doubleValue() == Catch::Approx((double)MainLoop::unixtime()/Second));
     REQUIRE(s.test(expression, "epochtime(0:00, 1.Jan, 1970)")->intValue() == -3600); // assuming we are in CET, epoch is GMT
     // REQUIRE(s.test(expression, "formattime(epochtime(22:42:05, 29.Jun, 2007))")->stringValue() == "2007-06-29 22:42:05"); // is not DST safe
     REQUIRE(s.test(expression, "formattime(epochtime(22, 42, 05, 29, 06, 2007))")->stringValue() == "2007-06-29 22:42:05");
@@ -753,6 +750,15 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "statements", "[scripting]" )
     REQUIRE(s.test(scriptbody, "var j = { 'number':42 }; j.number+2")->doubleValue() == 44.0); // calculatioValue() of json numeric field must be number that can be added to
   }
 
+  SECTION("JS type array and object construction") {
+    REQUIRE(s.test(scriptbody, "var js = { obj2: 42 }; return js.obj2")->doubleValue() == 42);
+    REQUIRE(s.test(scriptbody, "var js = { 'obj2': 43 }; return js.obj2")->doubleValue() == 43);
+    REQUIRE(s.test(scriptbody, "var js = { ['obj2']: 44 }; return js.obj2")->doubleValue() == 44);
+    REQUIRE(s.test(scriptbody, "var js = { obj2: 45, }; return js.obj2")->doubleValue() == 45);
+  }
+
+
+
   // MARK: - Scripting Control Flow
 
   SECTION("control flow") {
@@ -877,16 +883,16 @@ TEST_CASE_METHOD(AsyncScriptingFixture, "async", "[scripting]") {
 
   SECTION("delay") {
     REQUIRE(scriptTest(scriptbody, "delay(2)")->isErr() == false); // no error
-    REQUIRE(runningTime() ==  Approx(2).epsilon(0.01));
+    REQUIRE(runningTime() ==  Catch::Approx(2).epsilon(0.01));
   }
 
   SECTION("concurrency") {
     REQUIRE(scriptTest(scriptbody, "var res=''; log(4, 'will take 2 secs'); concurrent as test { delay(2); res = res + '2sec' } delay(1); res = res+'1sec'; await(test); res")->stringValue() == "1sec2sec");
-    REQUIRE(runningTime() ==  Approx(2).epsilon(0.05));
+    REQUIRE(runningTime() ==  Catch::Approx(2).epsilon(0.05));
     REQUIRE(scriptTest(scriptbody, "var res=''; log(4, 'will take 3 secs'); concurrent as test { delay(3); res = res + '3sec' } concurrent as test2 { delay(2); res = res + '2sec' } delay(1); res = res+'1sec'; await(test); res")->stringValue() == "1sec2sec3sec");
-    REQUIRE(runningTime() ==  Approx(3).epsilon(0.05));
+    REQUIRE(runningTime() ==  Catch::Approx(3).epsilon(0.05));
     REQUIRE(scriptTest(scriptbody, "var res=''; log(4, 'will take 3 secs'); concurrent as test { delay(3); res = res + '3sec' } concurrent as test2 { delay(2); res = res + '2sec' } delay(1); res = res+'1sec'; abort(test2) await(test); res")->stringValue() == "1sec3sec");
-    REQUIRE(runningTime() ==  Approx(3).epsilon(0.05));
+    REQUIRE(runningTime() ==  Catch::Approx(3).epsilon(0.05));
     // assignment of thread variables
     // - thread must be assigned by reference to a new variable
     REQUIRE(scriptTest(scriptbody, "var res=''; concurrent as test { delay(0.5); res = 'done' } var test2 = test; abort(test2); await(test); res")->stringValue() == "");
@@ -956,13 +962,13 @@ TEST_CASE_METHOD(AsyncScriptingFixture, "async", "[scripting]") {
       "res=res+'D*' "
       "return res "
       " ")->stringValue() == "TM EM T0 T1 LM E0 T2 E2 DM L2 L0 E1 L1 D*");
-    REQUIRE(runningTime() ==  Approx(11).epsilon(0.05));
+    REQUIRE(runningTime() ==  Catch::Approx(11).epsilon(0.05));
   }
 
   SECTION("event handlers") {
     // Note: might fail when execution is sluggish, because order of events might be affected then:  5/7  1  10/7  2  15/7  20/7  3  25/7  4  30/7   4.5  Seconds
     REQUIRE(scriptTest(sourcecode, "glob res='decl'; on(every(1) & !initial()) { res = res + 'Ping' } on(every(5/7) & !initial()) { res = res + 'Pong' } res='init'; log(4, 'will take 4.5 secs'); delay(4.5); res")->stringValue() == "initPongPingPongPingPongPongPingPongPingPong");
-    REQUIRE(runningTime() ==  Approx(4.5).epsilon(0.05));
+    REQUIRE(runningTime() ==  Catch::Approx(4.5).epsilon(0.05));
 }
 
 }
@@ -972,15 +978,15 @@ TEST_CASE_METHOD(AsyncScriptingFixture, "async", "[scripting]") {
 #define TEST_URL "plan44.ch/testing/httptest.php"
 #define DATA_IN_7SEC_TEST_URL "plan44.ch/testing/httptest.php?delay=7"
 
-TEST_CASE_METHOD(AsyncScriptingFixture, "http scripting", "[scripting]") {
+TEST_CASE_METHOD(AsyncScriptingFixture, "http scripting", "[scripting][http]") {
 
   SECTION("geturl") {
     REQUIRE(scriptTest(sourcecode, "find(geturl('http://" TEST_URL "'), 'Document OK')")->intValue() > 0);
     REQUIRE(scriptTest(sourcecode, "find(geturl('https://" TEST_URL "'), 'Document OK')")->intValue() > 0);
     REQUIRE(scriptTest(sourcecode, "log(4, 'will take 5 secs'); geturl('http://" DATA_IN_7SEC_TEST_URL "', 5)")->isErr() == true);
-    REQUIRE(runningTime() ==  Approx(5).epsilon(0.05));
+    REQUIRE(runningTime() ==  Catch::Approx(5).epsilon(0.05));
     REQUIRE(scriptTest(sourcecode, "glob res='not completed'; log(4, 'will take 3 secs'); concurrent as http { res=geturl('http://" DATA_IN_7SEC_TEST_URL "', 5) } delay(3); abort(http); return res")->stringValue() == "not completed");
-    REQUIRE(runningTime() ==  Approx(3).epsilon(0.05));
+    REQUIRE(runningTime() ==  Catch::Approx(3).epsilon(0.05));
   }
   SECTION("posturl") {
     REQUIRE(scriptTest(sourcecode, "find(posturl('http://" TEST_URL "', 'Gugus'), 'POST data=\"Gugus\"')")->intValue() > 0);

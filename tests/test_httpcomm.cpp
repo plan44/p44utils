@@ -20,7 +20,7 @@
 //  along with p44utils. If not, see <http://www.gnu.org/licenses/>.
 //
 
-#include "catch.hpp"
+#include "catch_amalgamated.hpp"
 
 #include "p44utils_common.hpp"
 #include "httpcomm.hpp"
@@ -204,7 +204,7 @@ TEST_CASE_METHOD(HttpFixture, "http data timeout", "[http]") {
   //WARN(string_format("time = %.3f", (double)tm/Second));
   INFO(URL);
   INFO(Error::text(httpErr));
-  REQUIRE(tm == Approx(2*Second).epsilon(0.2));
+  REQUIRE(tm == Catch::Approx(2*Second).epsilon(0.2));
   REQUIRE(Error::isError(httpErr, HttpCommError::domain(), HttpCommError::read));
 }
 
@@ -215,7 +215,7 @@ TEST_CASE_METHOD(HttpFixture, "http slow data", "[http]") {
   INFO(Error::text(httpErr));
   REQUIRE(Error::isOK(httpErr));
   REQUIRE(response.size()>0);
-  REQUIRE(tm == Approx(3*Second).epsilon(0.2));
+  REQUIRE(tm == Catch::Approx(3*Second).epsilon(0.2));
 }
 
 #endif

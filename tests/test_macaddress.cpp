@@ -20,7 +20,7 @@
 //  along with p44utils. If not, see <http://www.gnu.org/licenses/>.
 //
 
-#include "catch.hpp"
+#include "catch_amalgamated.hpp"
 
 #include "macaddress.hpp"
 
