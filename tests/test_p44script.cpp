@@ -30,7 +30,8 @@
 
 #define LOGLEVELOFFSET 0
 
-#define JSON_TEST_OBJ "{\"array\":[\"first\",2,3,\"fourth\",6.6],\"obj\":{\"objA\":\"A\",\"objB\":42,\"objC\":{\"objD\":\"D\",\"objE\":45}},\"string\":\"abc\",\"number\":42,\"bool\":true,\"bool2\":false,\"null\":null}"
+// sorted keys! Internal std::map based representation sorts keys, so we need to, too, to get same JSON text
+#define JSON_TEST_OBJ "{\"array\":[\"first\",2,3,\"fourth\",6.5],\"bool\":true,\"bool2\":false,\"null\":null,\"number\":42,\"obj\":{\"objA\":\"A\",\"objB\":42,\"objC\":{\"objD\":\"D\",\"objE\":45}},\"string\":\"abc\"}"
 
 using namespace p44;
 using namespace p44::P44Script;
@@ -95,7 +96,7 @@ public:
     mainContext = StandardScriptingDomain::sharedDomain().newContext();
     s.setSharedMainContext(mainContext);
     mainContext->registerMemberLookup(&testLookup);
-    mainContext->domain()->setMemberByName("jstest", new JsonValue(JsonObject::objFromText(JSON_TEST_OBJ)));
+    mainContext->domain()->setMemberByName("jstest", ScriptObj::valueFromJSON(JsonObject::objFromText(JSON_TEST_OBJ)));
   };
   virtual ~ScriptingCodeFixture()
   {
@@ -358,7 +359,7 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "Literals", "[scripting]" )
     REQUIRE(s.test(expression, "SUN")->intValue() == 0);
     REQUIRE(s.test(expression, "thu")->intValue() == 4);
 
-    REQUIRE(s.test(expression, "{ 'type':'object', 'test':42 }")->stringValue() == "{\"type\":\"object\",\"test\":42}");
+    REQUIRE(s.test(expression, "{ 'type':'object', 'test':42 }")->stringValue() == "{\"test\":42,\"type\":\"object\"}"); // keys get always sorted
     REQUIRE(s.test(expression, "[ 'first', 2, 3, 'fourth', 6.25 ]")->stringValue() == "[\"first\",2,3,\"fourth\",6.25]");
   }
 
@@ -387,8 +388,8 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "lookups", "[scripting]") {
   }
 
   SECTION("Json") {
-    // JSON access tests, see JSON_TEST_OBJ
-    // maybe: {"array":["first",2,3,"fourth",6.6],"obj":{"objA":"A","objB":42,"objC":{"objD":"D","objE":45}},"string":"abc","number":42,"bool":true, "bool2":false, "null":null }
+    // JSON access tests, see JSON_TEST_OBJ (sorted keys!)
+    // maybe: {"array":["first",2,3,"fourth",6.5],"bool":true,"bool2":false,"null":null,"number":42,"obj":{"objA":"A","objB":42,"objC":{"objD":"D","objE":45}},"string":"abc"}
     REQUIRE(s.test(expression, "jstest")->stringValue() == JSON_TEST_OBJ);
     REQUIRE(s.test(expression, "jstest.string")->stringValue() == "abc");
     REQUIRE(s.test(expression, "jstest.number")->doubleValue() == 42);
@@ -418,7 +419,7 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "lookups", "[scripting]") {
     // Access keys of json object via numeric subscript
     REQUIRE(s.test(expression, "elements(jstest)")->intValue() == 7);
     REQUIRE(s.test(expression, "jstest[0]")->stringValue() == "array");
-    REQUIRE(s.test(expression, "jstest[4]")->stringValue() == "bool");
+    REQUIRE(s.test(expression, "jstest[2]")->stringValue() == "bool2");
   }
 
 }

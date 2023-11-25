@@ -950,9 +950,19 @@ namespace p44 { namespace P44Script {
 
   // MARK: - Containers
 
-  class ArrayValue : public ScriptObj
+  class StructuredValue : public ScriptObj
   {
     typedef ScriptObj inherited;
+  
+  public:
+    virtual string stringValue() const P44_OVERRIDE;
+    virtual bool boolValue() const P44_OVERRIDE;
+  };
+
+
+  class ArrayValue : public StructuredValue
+  {
+    typedef StructuredValue inherited;
 
     typedef std::vector<ScriptObjPtr> ElementsVector;
     ElementsVector mElements;
@@ -980,9 +990,9 @@ namespace p44 { namespace P44Script {
   };
 
 
-  class ObjectValue : public ScriptObj
+  class ObjectValue : public StructuredValue
   {
-    typedef ScriptObj inherited;
+    typedef StructuredValue inherited;
     friend class ObjectValueIterator;
 
     typedef std::map<string, ScriptObjPtr, lessStrucmp> FieldsMap;
@@ -1049,9 +1059,9 @@ namespace p44 { namespace P44Script {
   // MARK: - Special Structured objects
 
   /// simple variable container
-  class SimpleVarContainer : public ObjectValue
+  class SimpleVarContainer : public StructuredValue
   {
-    typedef ObjectValue inherited;
+    typedef StructuredValue inherited;
 
     typedef std::map<string, ScriptObjPtr, lessStrucmp> NamedVarMap;
     NamedVarMap mNamedVars; ///< the named local variables/objects of this context
@@ -1080,9 +1090,9 @@ namespace p44 { namespace P44Script {
   class BuiltInMemberLookup;
 
   /// structured object with the ability to register member lookups
-  class StructuredLookupObject : public ObjectValue
+  class StructuredLookupObject : public StructuredValue
   {
-    typedef ObjectValue inherited;
+    typedef StructuredValue inherited;
     typedef std::list<MemberLookupPtr> LookupList;
     LookupList mLookups;
     MemberLookupPtr mSingleMembers;

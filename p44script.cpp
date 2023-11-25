@@ -820,7 +820,6 @@ ScriptObjPtr ScriptObj::valueFromJSON(JsonObjectPtr aJson)
   if (aJson) {
     switch(aJson->type()) {
       case json_type_null:
-        o = new AnnotatedNullValue("JSON null");
         break;
       case json_type_boolean:
         o = new BoolValue(aJson->boolValue());
@@ -841,6 +840,9 @@ ScriptObjPtr ScriptObj::valueFromJSON(JsonObjectPtr aJson)
         o = new ArrayValue(aJson);
         break;
     }
+  }
+  if (!o) {
+    o = new AnnotatedNullValue("JSON null");
   }
   return o;
 }
@@ -863,7 +865,7 @@ ObjectValue::ObjectValue(JsonObjectPtr aJsonObject)
   JsonObjectPtr f;
   string fn;
   while(aJsonObject->nextKeyValue(fn, f)) {
-    if (f) mFields[fn] = ScriptObj::valueFromJSON(f);
+    mFields[fn] = ScriptObj::valueFromJSON(f);
   }
 }
 
@@ -887,6 +889,19 @@ JsonObjectPtr StringValue::jsonValue(bool aDescribeNonJSON) const
   // we just return a json string now
   return JsonObject::newString(stringValue());
 }
+
+
+string StructuredValue::stringValue() const
+{
+  return jsonValue(true)->json_str(); // json representation with non-JSON objects described as strings
+}
+
+
+bool StructuredValue::boolValue() const
+{
+  return true; // bool value of arrays and objects, even empty ones, is always true
+}
+
 
 
 JsonObjectPtr ArrayValue::jsonValue(bool aDescribeNonJSON) const
