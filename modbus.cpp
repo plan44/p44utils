@@ -2429,13 +2429,13 @@ ModbusSlaveObj::~ModbusSlaveObj()
 
 ErrorPtr ModbusSlaveObj::gotAccessed(int aAddress, bool aBit, bool aInput, bool aWrite)
 {
-  JsonObjectPtr acc = JsonObject::newObj();
-  acc->add("reg", aBit ? JsonObject::newNull() : JsonObject::newInt32(aAddress));
-  acc->add("bit", aBit ? JsonObject::newInt32(aAddress) : JsonObject::newNull());
-  acc->add("addr", JsonObject::newInt32(aAddress));
-  acc->add("input", JsonObject::newBool(aInput));
-  acc->add("write", JsonObject::newBool(aWrite));
-  sendEvent(new JsonValue(acc));
+  ObjectValue* acc = new ObjectValue();
+  acc->setMemberByName("reg", aBit ? new ScriptObj() : new IntegerValue(aAddress));
+  acc->setMemberByName("bit", aBit ? new IntegerValue(aAddress) : new ScriptObj());
+  acc->setMemberByName("addr", new IntegerValue(aAddress));
+  acc->setMemberByName("input", new BoolValue(aInput));
+  acc->setMemberByName("write", new BoolValue(aWrite));
+  sendEvent(acc);
   return ErrorPtr();
 }
 
@@ -2558,11 +2558,11 @@ static void findslaves_func(BuiltinFunctionContextPtr f)
   assert(o);
   p44::ModbusMaster::SlaveAddrList slaves;
   ErrorPtr err = o->modbus()->findSlaves(slaves, f->arg(0)->stringValue(), f->arg(1)->intValue(), f->arg(2)->intValue());
-  JsonObjectPtr res = JsonObject::newArray();
+  ArrayValue* res = new ArrayValue();
   for(p44::ModbusMaster::SlaveAddrList::iterator pos = slaves.begin(); pos!=slaves.end(); ++pos) {
-    res->arrayAppend(JsonObject::newInt32(*pos));
+    res->appendMember(new IntegerValue(*pos));
   }
-  f->finish(new JsonValue(res));
+  f->finish(res);
 }
 
 

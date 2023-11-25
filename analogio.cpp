@@ -542,11 +542,11 @@ static void range_func(BuiltinFunctionContextPtr f)
   double max;
   double res;
   if (a->analogIo()->getRange(min, max, res)) {
-    JsonObjectPtr j = JsonObject::newObj();
-    j->add("min", JsonObject::newDouble(min));
-    j->add("max", JsonObject::newDouble(max));
-    j->add("resolution", JsonObject::newDouble(res));
-    f->finish(new JsonValue(j));
+    ObjectValue* o = new ObjectValue();
+    o->setMemberByName("min", new NumericValue(min));
+    o->setMemberByName("max", new NumericValue(max));
+    o->setMemberByName("resolution", new NumericValue(res));
+    f->finish(o);
   }
   else {
     f->finish(new AnnotatedNullValue("no range info available"));

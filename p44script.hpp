@@ -70,7 +70,6 @@ namespace p44 { namespace P44Script {
   typedef boost::intrusive_ptr<ErrorValue> ErrorValuePtr;
   class NumericValue;
   class StringValue;
-  class StructuredObject;
   class StructuredLookupObject;
 
   class ImplementationObj;
@@ -224,15 +223,15 @@ namespace p44 { namespace P44Script {
     error = 0x002, ///< Error
     numeric = 0x010, ///< numeric value
     text = 0x020, ///< text/string value
-    json = 0x040, ///< JSON value
+//    json = 0x040, ///< JSON value
     executable = 0x080, ///< executable code
     threadref = 0x100, ///< represents a running thread
     object = 0x400, ///< is a object with named members
     array = 0x800, ///< is an array with indexed elements
     // type classes
-    jsonagnosticMask = typeMask-json, ///< all types, but agnostic to json or not
+//    jsonagnosticMask = typeMask-json, ///< all types, but agnostic to json or not
     any = typeMask-null-error, ///< any type except null and error
-    scalar = numeric+text+json, ///< scalar types (json can also be structured)
+    scalar = numeric+text, // +json, ///< scalar types (json can also be structured)
     structured = object+array, ///< structured types
     value = scalar+structured, ///< all value types (excludes executables)
     // attributes
@@ -414,7 +413,8 @@ namespace p44 { namespace P44Script {
     static string typeDescription(TypeInfo aInfo);
 
     /// @return text description for the passed aObj, NULL allowed
-    static string describe(ScriptObjPtr aObj);
+    static string describe(const ScriptObj* aObj);
+    static string describe(ScriptObjPtr aObj) { return describe(aObj.get()); }
 
     /// get name
     virtual string getIdentifier() const { return ""; };
@@ -473,7 +473,7 @@ namespace p44 { namespace P44Script {
     /// @return a pointer to the object's actual value when it is available.
     /// Might be false when this object is an lvalue or another type of proxy
     /// @note call makeValid() to get a valid version from this object
-    virtual ScriptObjPtr actualValue() { return ScriptObjPtr(this); } // simple value objects including this base class have an immediate value
+    virtual ScriptObjPtr actualValue() const { return ScriptObjPtr(const_cast<ScriptObj*>(this)); } // simple value objects including this base class have an immediate value
 
     /// Get the actual value of an object (which might be a lvalue or other type of proxy)
     /// @param aEvaluationCB will be called with a valid version of the object.
@@ -493,10 +493,11 @@ namespace p44 { namespace P44Script {
     /// @{
 
     /// @return the value that should be used to assign to a variable.
-    ///   The purpose of this can be to detach the the assigned value from the original value (e.g. JSON which needs to copy
-    ///   subfields when assiging). Simple values are immutable and can be shared between variables,
+    ///   The purpose of this can be to detach the the assigned value from the original value (e.g. arrays
+    ///   and objects which needs to copy elements/subfields when assiging).
+    ///   Simple values are immutable and can be shared between variables,
     ///   so this base implementation returns itself.
-    virtual ScriptObjPtr assignmentValue() { return ScriptObjPtr(this); }
+    virtual ScriptObjPtr assignmentValue() const { return ScriptObjPtr(const_cast<ScriptObj*>(this)); }
 
     /// @return a value to be used in calculations. This should return a basic type whenever possible
     ///    This is relevant for values like JSON, where e.g. a string field is not of type "text", but "json" (with a suitable stringValue())
@@ -507,7 +508,8 @@ namespace p44 { namespace P44Script {
     virtual string stringValue() const { return getAnnotation(); }; ///< @return a conversion to string of the value
     virtual ErrorPtr errorValue() const { return Error::ok(); } ///< @return error value (always an object, OK if not in error)
     #if SCRIPTING_JSON_SUPPORT
-    virtual JsonObjectPtr jsonValue() const { return JsonObject::newNull(); } ///< @return a JSON value
+    virtual JsonObjectPtr jsonValue(bool aDescribeNonJSON = false) const; ///< @return a JSON value
+    static ScriptObjPtr valueFromJSON(JsonObjectPtr aJson); ///< @return ScriptObj representing the JSON passed
     #endif
     // generic converters
     int intValue() const { return (int)doubleValue(); } ///< @return numeric value as int
@@ -524,7 +526,7 @@ namespace p44 { namespace P44Script {
     ///   If lvalue is set and the member can be created and/or assigned to, an ScriptLvalue might be returned
     /// @return ScriptObj representing the member, or NULL if none
     /// @note only possibly returns something for container objects marked with "object" type
-    virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aMemberAccessFlags) { return ScriptObjPtr(); };
+    virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aMemberAccessFlags) const { return ScriptObjPtr(); };
 
     /// number of members accessible by index (e.g. positional parameters or array elements)
     /// @return number of members
@@ -537,7 +539,7 @@ namespace p44 { namespace P44Script {
     ///   If lvalue is set and the member can be created and/or assigned to, an ScriptLvalue might be returned
     /// @return ScriptObj representing the member with index
     /// @note only possibly returns something in objects with type attribute "array"
-    virtual const ScriptObjPtr memberAtIndex(size_t aIndex, TypeInfo aMemberAccessFlags) { return ScriptObjPtr(); };
+    virtual const ScriptObjPtr memberAtIndex(size_t aIndex, TypeInfo aMemberAccessFlags) const { return ScriptObjPtr(); };
 
     /// set new object for named member in this container (and nowhere else!)
     /// @param aName name of the member to assign
@@ -553,7 +555,6 @@ namespace p44 { namespace P44Script {
     /// @param aMember the member to assign
     /// @param aName optional name of the member (for containers where members have an index AND an name, such as function parameters)
     /// @return ok or Error describing reason for assignment failure
-    /// @note only possibly works on objects with type attribute "mutablemembers"
     virtual ErrorPtr setMemberAtIndex(size_t aIndex, const ScriptObjPtr aMember, const string aName = "");
 
     /// create and initialize a iterator for iterating over this objects members
@@ -656,7 +657,7 @@ namespace p44 { namespace P44Script {
 
     /// @return true when the object's value is available. Might be false when this object is an lvalue or another type of proxy
     /// @note call makeValid() to get a valid version from this object
-    virtual ScriptObjPtr actualValue() P44_OVERRIDE { return mCurrentValue; } // LValues are valid if they have a current value
+    virtual ScriptObjPtr actualValue() const P44_OVERRIDE { return mCurrentValue; } // LValues are valid if they have a current value
 
     /// Get the actual value of an object (which might be a lvalue or other type of proxy)
     /// @param aEvaluationCB will be called with a valid version of the object.
@@ -686,8 +687,10 @@ namespace p44 { namespace P44Script {
     /// @note this should be called by suitable container's memberByName() only
     /// @note subclasses might provide optimized/different mechanisms
     StandardLValue(ScriptObjPtr aContainer, const string aMemberName, ScriptObjPtr aCurrentValue);
+
     /// create a lvalue for a container which has setMemberAtIndex()
     StandardLValue(ScriptObjPtr aContainer, size_t aMemberIndex, ScriptObjPtr aCurrentValue);
+
     virtual ~StandardLValue() { deactivate(); } // even if deactivate() is usually called before dtor, make sure it happens even if not
 
     virtual void deactivate() P44_OVERRIDE { mContainer.reset(); inherited::deactivate(); }
@@ -712,7 +715,7 @@ namespace p44 { namespace P44Script {
     /// @note implementation might just flag internal state for resetting, actually doing it at obtainValue()/obtainKey()
     virtual void reset() = 0;
 
-    /// advance the iterator to the next
+    /// advance the iterator to the next item
     /// @note implementation might just flag internal state for incrementing, actually doing it at obtainValue()/obtainKey()
     virtual void next() = 0;
 
@@ -826,7 +829,7 @@ namespace p44 { namespace P44Script {
     virtual string stringValue() const P44_OVERRIDE { return Error::text(mErr); };
     virtual ErrorPtr errorValue() const P44_OVERRIDE { return mErr ? mErr : Error::ok(); };
     #if SCRIPTING_JSON_SUPPORT
-    virtual JsonObjectPtr jsonValue() const P44_OVERRIDE;
+    virtual JsonObjectPtr jsonValue(bool aDescribeNonJSON = false) const P44_OVERRIDE;
     #endif
     bool caught() { return mCaught; } ///< @return true if error was caught (must not be thrown any more)
     void setCaught(bool aCaught) { mCaught = aCaught; } ///< set "caught" state
@@ -876,7 +879,7 @@ namespace p44 { namespace P44Script {
     virtual double doubleValue() const P44_OVERRIDE { return mNum; }; // native
     virtual string stringValue() const P44_OVERRIDE { return string_format("%lg", doubleValue()); };
     #if SCRIPTING_JSON_SUPPORT
-    virtual JsonObjectPtr jsonValue() const P44_OVERRIDE { return JsonObject::newDouble(doubleValue()); };
+    virtual JsonObjectPtr jsonValue(bool aDescribeNonJSON = false) const P44_OVERRIDE { return JsonObject::newDouble(doubleValue()); };
     #endif
     // operators
     virtual bool operator<(const ScriptObj& aRightSide) const P44_OVERRIDE;
@@ -899,7 +902,7 @@ namespace p44 { namespace P44Script {
     virtual string getAnnotation() const P44_OVERRIDE { return "boolean"; };
     // value getters
     #if SCRIPTING_JSON_SUPPORT
-    virtual JsonObjectPtr jsonValue() const P44_OVERRIDE { return JsonObject::newBool(boolValue()); };
+    virtual JsonObjectPtr jsonValue(bool aDescribeNonJSON = false) const P44_OVERRIDE { return JsonObject::newBool(boolValue()); };
     #endif
   };
 
@@ -914,7 +917,7 @@ namespace p44 { namespace P44Script {
     virtual string getAnnotation() const P44_OVERRIDE { return "integer"; };
     // value getters
     #if SCRIPTING_JSON_SUPPORT
-    virtual JsonObjectPtr jsonValue() const P44_OVERRIDE { return JsonObject::newInt64(int64Value()); };
+    virtual JsonObjectPtr jsonValue(bool aDescribeNonJSON = false) const P44_OVERRIDE { return JsonObject::newInt64(int64Value()); };
     #endif
     // operators
     virtual ScriptObjPtr operator+(const ScriptObj& aRightSide) const P44_OVERRIDE;
@@ -936,7 +939,7 @@ namespace p44 { namespace P44Script {
     virtual double doubleValue() const P44_OVERRIDE;
     virtual bool boolValue() const P44_OVERRIDE;
     #if SCRIPTING_JSON_SUPPORT
-    virtual JsonObjectPtr jsonValue() const P44_OVERRIDE;
+    virtual JsonObjectPtr jsonValue(bool aDescribeNonJSON = false) const P44_OVERRIDE;
     #endif
     // operators
     virtual bool operator<(const ScriptObj& aRightSide) const P44_OVERRIDE;
@@ -945,99 +948,110 @@ namespace p44 { namespace P44Script {
   };
 
 
-  #if SCRIPTING_JSON_SUPPORT
-  class JsonRepresentedValue : public ScriptObj
+  // MARK: - Containers
+
+  class ArrayValue : public ScriptObj
   {
     typedef ScriptObj inherited;
+
+    typedef std::vector<ScriptObjPtr> ElementsVector;
+    ElementsVector mElements;
+
   public:
-    virtual ScriptObjPtr calculationValue() P44_OVERRIDE;
-    JsonRepresentedValue() {};
-    virtual string getAnnotation() const P44_OVERRIDE { return "jsonrepresented"; };
+    virtual ScriptObjPtr assignmentValue() const P44_OVERRIDE;
+    ArrayValue() {};
+    virtual string getAnnotation() const P44_OVERRIDE { return "array"; };
+    virtual TypeInfo getTypeInfo() const P44_OVERRIDE { return array; }
     // value getters
-    virtual JsonObjectPtr jsonValue() const P44_OVERRIDE = 0; // JsonRepresentedValue MUST have a json representation
-    virtual double doubleValue() const P44_OVERRIDE;
-    virtual string stringValue() const P44_OVERRIDE;
-    virtual bool boolValue() const P44_OVERRIDE;
+    #if SCRIPTING_JSON_SUPPORT
+    ArrayValue(JsonObjectPtr aJsonObject); ///< construct from JSON value
+    virtual JsonObjectPtr jsonValue(bool aDescribeNonJSON = false) const P44_OVERRIDE;
+    #endif
     // member access
-    virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aMemberAccessFlags = none) P44_OVERRIDE;
     virtual size_t numIndexedMembers() const P44_OVERRIDE;
-    virtual const ScriptObjPtr memberAtIndex(size_t aIndex, TypeInfo aMemberAccessFlags = none) P44_OVERRIDE;
+    virtual const ScriptObjPtr memberAtIndex(size_t aIndex, TypeInfo aMemberAccessFlags = none) const P44_OVERRIDE;
+    virtual ErrorPtr setMemberAtIndex(size_t aIndex, const ScriptObjPtr aMember, const string aName = "") P44_OVERRIDE;
+    virtual ValueIteratorPtr newIterator() P44_OVERRIDE;
+    void appendMember(const ScriptObjPtr aMember); ///< convenience helper
+    // operators
+    virtual bool operator<(const ScriptObj& aRightSide) const P44_OVERRIDE;
+    virtual bool operator==(const ScriptObj& aRightSide) const P44_OVERRIDE;
+    virtual ScriptObjPtr operator+(const ScriptObj& aRightSide) const P44_OVERRIDE;
+  };
+
+
+  class ObjectValue : public ScriptObj
+  {
+    typedef ScriptObj inherited;
+    friend class ObjectValueIterator;
+
+    typedef std::map<string, ScriptObjPtr, lessStrucmp> FieldsMap;
+    FieldsMap mFields;
+
+  public:
+    virtual ScriptObjPtr assignmentValue() const P44_OVERRIDE;
+    ObjectValue() {};
+    virtual string getAnnotation() const P44_OVERRIDE { return "object"; };
+    virtual TypeInfo getTypeInfo() const P44_OVERRIDE { return object; }
+    // value getters
+    #if SCRIPTING_JSON_SUPPORT
+    ObjectValue(JsonObjectPtr aJsonObject); ///< construct from JSON value
+    virtual JsonObjectPtr jsonValue(bool aDescribeNonJSON = false) const P44_OVERRIDE;
+    #endif
+    // member access
+    virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aMemberAccessFlags = none) const P44_OVERRIDE;
+    virtual ErrorPtr setMemberByName(const string aName, const ScriptObjPtr aMember) P44_OVERRIDE;
+    virtual const ScriptObjPtr memberAtIndex(size_t aIndex, TypeInfo aMemberAccessFlags = none) const P44_OVERRIDE;
+    virtual size_t numIndexedMembers() const P44_OVERRIDE;
     virtual ValueIteratorPtr newIterator() P44_OVERRIDE;
     // operators
     virtual bool operator<(const ScriptObj& aRightSide) const P44_OVERRIDE;
     virtual bool operator==(const ScriptObj& aRightSide) const P44_OVERRIDE;
     virtual ScriptObjPtr operator+(const ScriptObj& aRightSide) const P44_OVERRIDE;
-  };
 
-
-  class JsonValueIterator : public IndexedValueIterator
-  {
-    typedef IndexedValueIterator inherited;
-  public:
-    /// iterator over a json represented value which might have members with non-numeric keys
-    /// @param aObj the object that will be iterated over
-    JsonValueIterator(ScriptObjPtr aObj);
-
-    virtual void obtainKey(EvaluationCB aEvaluationCB, bool aNumericPreferred) P44_OVERRIDE;
-    virtual void obtainValue(EvaluationCB aEvaluationCB, TypeInfo aMemberAccessFlags) P44_OVERRIDE;
-  };
-
-
-
-
-
-  class JsonValue : public JsonRepresentedValue
-  {
-    typedef JsonRepresentedValue inherited;
   protected:
-    JsonObjectPtr mJsonval;
-  public:
-    virtual ScriptObjPtr assignmentValue() P44_OVERRIDE;
-    JsonValue(JsonObjectPtr aJson) : mJsonval(aJson) {};
-    virtual TypeInfo getTypeInfo() const P44_OVERRIDE;
-    virtual string getAnnotation() const P44_OVERRIDE { return "json"; };
-    // value getters
-    virtual JsonObjectPtr jsonValue() const P44_OVERRIDE { return mJsonval; } // native
-    // modifying
-    virtual ErrorPtr setMemberByName(const string aName, const ScriptObjPtr aMember) P44_OVERRIDE;
-    virtual ErrorPtr setMemberAtIndex(size_t aIndex, const ScriptObjPtr aMember, const string aName = "") P44_OVERRIDE;
+    // field list (for iterators etc.)
+    typedef std::list<string> FieldNameList;
+    void appendFieldNames(FieldNameList& aList) const;
   };
 
-  #endif // SCRIPTING_JSON_SUPPORT
 
-
-  // MARK: - Structured objects
-
-  /// structured object base class
-  class StructuredObject :
-    #if SCRIPTING_JSON_SUPPORT
-    public JsonRepresentedValue
-    #else
-    public ScriptObj
-    #endif
+  /// iterator for object fields
+  /// @note this is implemented in a safe but less performant way,
+  ///   by obtaining all field names at iterator creation, and then accessing them by name.
+  ///   This prevents problems when fields are added or removed while iterating:
+  ///   - obtainKey() will always return the field names at iterator creation
+  ///   - obtainValue() will return an annotated null for fields that were removed in the meantime
+  class ObjectValueIterator : public ValueIterator
   {
-    #if SCRIPTING_JSON_SUPPORT
-    typedef JsonRepresentedValue inherited;
-    #else
-    typedef ScriptObj inherited;
-    #endif
+    typedef ValueIterator inherited;
+    friend class ObjectValue;
+
+  protected:
+
+    ScriptObjPtr mIteratedObj;
+    ObjectValue::FieldNameList mNameList;
+    ObjectValue::FieldNameList::iterator mNameIterator;
+
+    /// iterator over object fields
+    /// @param aObj the object that will be iterated over
+    ObjectValueIterator(ObjectValue* aObj);
+
   public:
-    virtual string getAnnotation() const P44_OVERRIDE { return "object"; };
-    virtual TypeInfo getTypeInfo() const P44_OVERRIDE { return object; } // only object, although JSON representation exists
 
-    #if SCRIPTING_JSON_SUPPORT
-    /// FIXME: this is a simplistic partial solution to get at least some introspection for debugging purposes.
-    ///   Once we have P44Value hierarchy with iterators, this can be done properly
-    virtual JsonObjectPtr jsonValue() const P44_OVERRIDE = 0;
-    #endif
-
+    virtual void reset() P44_OVERRIDE;
+    virtual void next() P44_OVERRIDE;
+    virtual void obtainValue(EvaluationCB aEvaluationCB, TypeInfo aMemberAccessFlags) P44_OVERRIDE;
+    virtual void obtainKey(EvaluationCB aEvaluationCB, bool aNumericPreferred) P44_OVERRIDE;
   };
 
+
+  // MARK: - Special Structured objects
 
   /// simple variable container
-  class SimpleVarContainer : public StructuredObject
+  class SimpleVarContainer : public ObjectValue
   {
-    typedef StructuredObject inherited;
+    typedef ObjectValue inherited;
 
     typedef std::map<string, ScriptObjPtr, lessStrucmp> NamedVarMap;
     NamedVarMap mNamedVars; ///< the named local variables/objects of this context
@@ -1054,17 +1068,10 @@ namespace p44 { namespace P44Script {
     void releaseObjsFromSource(SourceContainerPtr aSource);
 
     /// access to local variables by name
-    virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aMemberAccessFlags) P44_OVERRIDE;
+    virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aMemberAccessFlags) const P44_OVERRIDE;
 
     // internal for StandardLValue
     virtual ErrorPtr setMemberByName(const string aName, const ScriptObjPtr aMember) P44_OVERRIDE;
-
-    #if SCRIPTING_JSON_SUPPORT
-    /// FIXME: this is a simplistic partial solution to get at least some introspection for debugging purposes.
-    ///   Once we have P44Value hierarchy with iterators, this can be done properly
-    virtual JsonObjectPtr jsonValue() const P44_OVERRIDE;
-    #endif
-
   };
 
 
@@ -1073,16 +1080,16 @@ namespace p44 { namespace P44Script {
   class BuiltInMemberLookup;
 
   /// structured object with the ability to register member lookups
-  class StructuredLookupObject : public StructuredObject
+  class StructuredLookupObject : public ObjectValue
   {
-    typedef StructuredObject inherited;
+    typedef ObjectValue inherited;
     typedef std::list<MemberLookupPtr> LookupList;
     LookupList mLookups;
     MemberLookupPtr mSingleMembers;
   public:
 
     // access to (sub)objects in the installed lookups
-    virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aTypeRequirements) P44_OVERRIDE;
+    virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aTypeRequirements) const P44_OVERRIDE;
     virtual ~StructuredLookupObject() { deactivate(); } // even if deactivate() is usually called before dtor, make sure it happens even if not
 
     virtual void deactivate() P44_OVERRIDE { mSingleMembers.reset(); mLookups.clear(); inherited::deactivate(); }
@@ -1102,14 +1109,8 @@ namespace p44 { namespace P44Script {
     /// @param aMemberDescriptors pointer to the builtin member description table to use for constructing the lookup if not yet existing
     void registerSharedLookup(BuiltInMemberLookup*& aSingletonLookupP, const struct BuiltinMemberDescriptor* aMemberDescriptors);
 
-    #if SCRIPTING_JSON_SUPPORT
-    /// FIXME: this is a simplistic partial solution to get at least some introspection for debugging purposes.
-    ///   Once we have P44Value hierarchy with iterators, this can be done properly
-    virtual JsonObjectPtr jsonValue() const P44_OVERRIDE;
-
     /// @return info about functions
-    JsonObjectPtr builtinsInfo();
-    #endif
+    ScriptObjPtr builtinsInfo();
 
   };
 
@@ -1137,11 +1138,8 @@ namespace p44 { namespace P44Script {
     /// @param aMember the object corresponding to aName
     virtual void registerMember(const string aName, ScriptObjPtr aMember) { /* NOP in base class */ }
 
-    #if SCRIPTING_JSON_SUPPORT
     /// FIXME: this is a simplistic partial solution to get at least some introspection for debugging purposes.
-    ///   Once we have P44Value hierarchy with iterators, this can be done properly
-    virtual void addJsonValues(JsonObjectPtr &aObj) const { /* NOP here: some objects cannot represent their members */ };
-    #endif
+    virtual void addMembers(ObjectValue& aObj) const { /* NOP here: some objects cannot represent their members */ };
 
   };
 
@@ -1157,11 +1155,8 @@ namespace p44 { namespace P44Script {
     virtual ScriptObjPtr memberByNameFrom(ScriptObjPtr aThisObj, const string aName, TypeInfo aTypeRequirements) const P44_OVERRIDE;
     virtual void registerMember(const string aName, ScriptObjPtr aMember) P44_OVERRIDE;
 
-    #if SCRIPTING_JSON_SUPPORT
     /// FIXME: this is a simplistic partial solution to get at least some introspection for debugging purposes.
-    ///   Once we have P44Value hierarchy with iterators, this can be done properly
-    virtual void addJsonValues(JsonObjectPtr &aObj) const P44_OVERRIDE;
-    #endif
+    virtual void addMembers(ObjectValue& aObj) const P44_OVERRIDE;
 
   };
 
@@ -1201,7 +1196,7 @@ namespace p44 { namespace P44Script {
 
     // access to function arguments (positional) by index plus optionally a name
     virtual size_t numIndexedMembers() const P44_OVERRIDE;
-    virtual const ScriptObjPtr memberAtIndex(size_t aIndex, TypeInfo aMemberAccessFlags = none) P44_OVERRIDE;
+    virtual const ScriptObjPtr memberAtIndex(size_t aIndex, TypeInfo aMemberAccessFlags = none) const P44_OVERRIDE;
     virtual ErrorPtr setMemberAtIndex(size_t aIndex, const ScriptObjPtr aMember, const string aName = "") P44_OVERRIDE;
 
     /// release all objects stored in this container and other known containers which were defined by aSource
@@ -1295,7 +1290,7 @@ namespace p44 { namespace P44Script {
     virtual void clearVars() P44_OVERRIDE;
 
     /// access to local variables by name
-    virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aMemberAccessFlags) P44_OVERRIDE;
+    virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aMemberAccessFlags) const P44_OVERRIDE;
 
     // internal for StandardLValue
     virtual ErrorPtr setMemberByName(const string aName, const ScriptObjPtr aMember) P44_OVERRIDE;
@@ -1332,13 +1327,6 @@ namespace p44 { namespace P44Script {
     /// @param aAbortResult value to pass to abort()
     /// @return true if any thread was aborted
     bool abortThreadsRunningSource(SourceContainerPtr aSource, ScriptObjPtr aAbortResult);
-
-
-    #if SCRIPTING_JSON_SUPPORT
-    /// FIXME: this is a simplistic partial solution to get at least some introspection for debugging purposes.
-    ///   Once we have P44Value hierarchy with iterators, this can be done properly
-    virtual JsonObjectPtr jsonValue() const P44_OVERRIDE;
-    #endif
 
     #if P44SCRIPT_DEBUGGING_SUPPORT
     /// @param aCodeObj the object to check for
@@ -1395,7 +1383,7 @@ namespace p44 { namespace P44Script {
     #if P44SCRIPT_FULL_SUPPORT
 
     /// @return info about handlers
-    JsonObjectPtr handlersInfo();
+    ScriptObjPtr handlersInfo();
 
     /// clear context-local variables and handlers (those that were created run-time, not declared)
     virtual void clearVars() P44_OVERRIDE;
@@ -1404,7 +1392,7 @@ namespace p44 { namespace P44Script {
 
     // access to objects in the context hierarchy of a local execution
     // (local objects, parent context objects, global objects)
-    virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aMemberAccessFlags) P44_OVERRIDE;
+    virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aMemberAccessFlags) const P44_OVERRIDE;
 
     // direct access to this and domain (not via mainContext, as we can't set maincontext w/o self-locking)
     virtual ScriptObjPtr instance() const P44_OVERRIDE { return mThisObj; }
@@ -3137,8 +3125,7 @@ namespace p44 { namespace P44Script {
 
     #if SCRIPTING_JSON_SUPPORT
     /// FIXME: this is a simplistic partial solution to get at least some introspection for debugging purposes.
-    ///   Once we have P44Value hierarchy with iterators, this can be done properly
-    virtual void addJsonValues(JsonObjectPtr &aObj) const P44_OVERRIDE;
+    virtual void addMembers(ObjectValue& aObj) const P44_OVERRIDE;
     #endif
 
   };

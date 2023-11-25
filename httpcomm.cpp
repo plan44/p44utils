@@ -480,7 +480,7 @@ static void httpFuncDone(BuiltinFunctionContextPtr f, HttpCommPtr aHttpAction, b
         }
         resp->add("headers", hdrs);
       }
-      f->finish(new JsonValue(resp));
+      f->finish(ScriptObj::valueFromJSON(resp));
       return;
     }
   }
@@ -537,7 +537,7 @@ static void httpFuncImpl(BuiltinFunctionContextPtr f, string aMethod)
     if (params->get("method", o)) aMethod = o->stringValue();
     // data can be in the request object or (to allow binary strings), as second parameter
     if (f->numArgs()>=2) {
-      if (f->arg(1)->hasType(json)) jdata = f->arg(1)->jsonValue();
+      if (f->arg(1)->hasType(structured)) jdata = f->arg(1)->jsonValue();
       else data = f->arg(1)->stringValue(); // could be a binary string
     }
     else if (params->get("data", o)) {
@@ -562,7 +562,7 @@ static void httpFuncImpl(BuiltinFunctionContextPtr f, string aMethod)
     }
     if (aMethod!="GET") {
       if (f->numArgs()>ai) {
-        if (f->arg(ai)->hasType(json)) {
+        if (f->arg(ai)->hasType(structured)) {
           jdata = f->arg(ai)->jsonValue();
         }
         else {

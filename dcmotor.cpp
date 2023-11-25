@@ -371,8 +371,6 @@ void DcMotorDriver::sequenceStepDone(SequenceStepList aSteps, DCMotorStatusCB aS
 
 
 
-
-
 // MARK: - script support
 
 #if ENABLE_DCMOTOR_SCRIPT_FUNCS  && ENABLE_P44SCRIPT
@@ -380,22 +378,20 @@ void DcMotorDriver::sequenceStepDone(SequenceStepList aSteps, DCMotorStatusCB aS
 using namespace P44Script;
 
 DcMotorStatusObj::DcMotorStatusObj(DcMotorDriverPtr aDcMotorDriver) :
-  inherited(JsonObjectPtr()),
   mDcMotorDriver(aDcMotorDriver)
 {
   // create snapshot of status right now
-  mJsonval = JsonObject::newObj();
-  mJsonval->add("power", JsonObject::newDouble(mDcMotorDriver->mCurrentPower));
-  mJsonval->add("direction", JsonObject::newInt32(mDcMotorDriver->mCurrentDirection));
+  setMemberByName("power", new NumericValue(mDcMotorDriver->mCurrentPower));
+  setMemberByName("direction", new IntegerValue(mDcMotorDriver->mCurrentDirection));
   if (mDcMotorDriver->mStopCause) {
     string cause;
     if (mDcMotorDriver->mStopCause->isError(DcMotorDriverError::domain(), DcMotorDriverError::overcurrentStop)) cause = "overcurrent";
     else if (mDcMotorDriver->mStopCause->isError(DcMotorDriverError::domain(), DcMotorDriverError::endswitchStop)) cause = "endswitch";
     else cause = mDcMotorDriver->mStopCause->text();
-    mJsonval->add("stoppedby", JsonObject::newString(cause));
+    setMemberByName("stoppedby", new StringValue(cause));
   }
   if (mDcMotorDriver->mCurrentSensor) {
-    mJsonval->add("current", JsonObject::newDouble(mDcMotorDriver->mCurrentSensor->lastValue()));
+    setMemberByName("current", new NumericValue(mDcMotorDriver->mCurrentSensor->lastValue()));
   }
 }
 

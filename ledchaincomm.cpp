@@ -1361,12 +1361,12 @@ static void ledchaincover_func(BuiltinFunctionContextPtr f)
 {
   LEDChainLookup* l = dynamic_cast<LEDChainLookup*>(f->funcObj()->getMemberLookup());
   PixelRect crect = l->ledChainArrangement().totalCover();
-  JsonObjectPtr cover = JsonObject::newObj();
-  cover->add("x", JsonObject::newInt32(crect.x));
-  cover->add("y", JsonObject::newInt32(crect.y));
-  cover->add("dx", JsonObject::newInt32(crect.dx));
-  cover->add("dy", JsonObject::newInt32(crect.dy));
-  f->finish(new JsonValue(cover));
+  ObjectValue* cover = new ObjectValue();
+  cover->setMemberByName("x", new IntegerValue(crect.x));
+  cover->setMemberByName("y", new IntegerValue(crect.y));
+  cover->setMemberByName("dx", new IntegerValue(crect.dx));
+  cover->setMemberByName("dy", new IntegerValue(crect.dy));
+  f->finish(cover);
 }
 
 

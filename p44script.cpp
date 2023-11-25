@@ -268,10 +268,11 @@ string ScriptObj::typeDescription(TypeInfo aInfo)
       if (!s.empty()) s += ", ";
       s += "string";
     }
-    if (aInfo & json) {
-      if (!s.empty()) s += ", ";
-      s += "json";
-    }
+// FIXME: remove
+//    if (aInfo & json) {
+//      if (!s.empty()) s += ", ";
+//      s += "json";
+//    }
     // alternatives
     if (aInfo & error) {
       if (!s.empty()) s += " or ";
@@ -290,7 +291,7 @@ string ScriptObj::typeDescription(TypeInfo aInfo)
 }
 
 
-string ScriptObj::describe(ScriptObjPtr aObj)
+string ScriptObj::describe(const ScriptObj* aObj)
 {
   if (!aObj) return "<none>";
   string n = aObj->getIdentifier();
@@ -798,12 +799,76 @@ bool StringValue::boolValue() const
 }
 
 
-
 #if SCRIPTING_JSON_SUPPORT
 
-// MARK: - JsonRepresentedValue + conversions
+// MARK: - Json conversions
 
-JsonObjectPtr ErrorValue::jsonValue() const
+// JSON from base object
+JsonObjectPtr ScriptObj::jsonValue(bool aDescribeNonJSON) const
+{
+  if (aDescribeNonJSON && getTypeInfo()!=null) {
+    return JsonObject::newString(describe(this)); 
+  }
+  return JsonObject::newNull();
+}
+
+
+// object factory from JSON
+ScriptObjPtr ScriptObj::valueFromJSON(JsonObjectPtr aJson)
+{
+  ScriptObjPtr o;
+  if (aJson) {
+    switch(aJson->type()) {
+      case json_type_null:
+        o = new AnnotatedNullValue("JSON null");
+        break;
+      case json_type_boolean:
+        o = new BoolValue(aJson->boolValue());
+        break;
+      case json_type_double:
+        o = new NumericValue(aJson->doubleValue());
+        break;
+      case json_type_int:
+        o = new IntegerValue(aJson->int64Value());
+        break;
+      case json_type_string:
+        o = new StringValue(aJson->stringValue());
+        break;
+      case json_type_object:
+        o = new ObjectValue(aJson);
+        break;
+      case json_type_array:
+        o = new ArrayValue(aJson);
+        break;
+    }
+  }
+  return o;
+}
+
+
+// array constructor from JSON
+ArrayValue::ArrayValue(JsonObjectPtr aJsonObject)
+{
+  for (int i=0; i<aJsonObject->arrayLength(); i++) {
+    ScriptObjPtr e = ScriptObj::valueFromJSON(aJsonObject->arrayGet(i));
+    if (e) mElements.push_back(e);
+  }
+}
+
+
+// object constructor from JSON
+ObjectValue::ObjectValue(JsonObjectPtr aJsonObject)
+{
+  aJsonObject->resetKeyIteration();
+  JsonObjectPtr f;
+  string fn;
+  while(aJsonObject->nextKeyValue(fn, f)) {
+    if (f) mFields[fn] = ScriptObj::valueFromJSON(f);
+  }
+}
+
+
+JsonObjectPtr ErrorValue::jsonValue(bool aDescribeNonJSON) const
 {
   JsonObjectPtr j;
   if (mErr) {
@@ -816,7 +881,7 @@ JsonObjectPtr ErrorValue::jsonValue() const
 }
 
 
-JsonObjectPtr StringValue::jsonValue() const
+JsonObjectPtr StringValue::jsonValue(bool aDescribeNonJSON) const
 {
   // old version did parse strings for json, but that's ambiguous, so
   // we just return a json string now
@@ -824,283 +889,350 @@ JsonObjectPtr StringValue::jsonValue() const
 }
 
 
-ScriptObjPtr JsonRepresentedValue::calculationValue()
+JsonObjectPtr ArrayValue::jsonValue(bool aDescribeNonJSON) const
 {
-  if (!jsonValue()) return new AnnotatedNullValue("json null");
-  if (jsonValue()->isType(json_type_boolean)) return new BoolValue(jsonValue()->boolValue());
-  if (jsonValue()->isType(json_type_int)) return new IntegerValue(jsonValue()->int64Value());
-  if (jsonValue()->isType(json_type_double)) return new NumericValue(jsonValue()->doubleValue());
-  if (jsonValue()->isType(json_type_string)) return new StringValue(jsonValue()->stringValue());
-  return inherited::calculationValue();
+  JsonObjectPtr arr = JsonObject::newArray();
+  for (ElementsVector::const_iterator pos = mElements.begin(); pos!=mElements.end(); ++pos) {
+    arr->arrayAppend((*pos)->jsonValue(aDescribeNonJSON));
+  }
+  return arr;
 }
 
 
-string JsonRepresentedValue::stringValue() const
+JsonObjectPtr ObjectValue::jsonValue(bool aDescribeNonJSON) const
 {
-  if (!jsonValue()) return ScriptObj::stringValue(); // undefined
-  if (jsonValue()->isType(json_type_string)) return jsonValue()->stringValue(); // string leaf fields as strings w/o quotes!
-  return jsonValue()->json_str(); // other types in their native json representation
+  JsonObjectPtr obj = JsonObject::newObj();
+  for (FieldsMap::const_iterator pos = mFields.begin(); pos!=mFields.end(); ++pos) {
+    obj->add(pos->first.c_str(), pos->second->jsonValue(aDescribeNonJSON));
+  }
+  return obj;
+}
+
+#endif // SCRIPTING_JSON_SUPPORT
+
+
+// MARK: - Container: Array
+
+size_t ArrayValue::numIndexedMembers() const
+{
+  return mElements.size();
 }
 
 
-double JsonRepresentedValue::doubleValue() const
+void ArrayValue::appendMember(const ScriptObjPtr aMember)
 {
-  if (!jsonValue()) return ScriptObj::doubleValue(); // undefined
-  return jsonValue()->doubleValue();
+  // convenience helper
+  mElements.push_back(aMember);
 }
 
 
-bool JsonRepresentedValue::boolValue() const
-{
-  if (!jsonValue()) return ScriptObj::boolValue(); // undefined
-  return jsonValue()->boolValue();
-}
 
-
-bool JsonRepresentedValue::operator==(const ScriptObj& aRightSide) const
+const ScriptObjPtr ArrayValue::memberAtIndex(size_t aIndex, TypeInfo aMemberAccessFlags) const
 {
-  if (inherited::operator==(aRightSide)) return true; // object identity
-  if (aRightSide.undefined()) return undefined(); // both undefined is equal
-  if (aRightSide.hasType(json)) {
-    // compare JSON with JSON
-    if (jsonValue().get()==aRightSide.jsonValue().get()) return true; // json object identity (or both NULL)
-    if (!jsonValue() || !aRightSide.jsonValue()) return false;
-    if (strcmp(jsonValue()->c_strValue(),aRightSide.jsonValue()->c_strValue())==0) return true; // same stringified value
+  ScriptObjPtr m;
+  if (aIndex<mElements.size()) {
+    // we have that element
+    m = mElements[aIndex];
+    if ((aMemberAccessFlags & lvalue) && (aMemberAccessFlags & onlycreate)==0) {
+      m = new StandardLValue(const_cast<ArrayValue*>(this), aIndex, m); // it is allowed to overwrite this value
+    }
   }
   else {
-    // compare JSON to non-JSON
-    return const_cast<JsonRepresentedValue *>(this)->calculationValue()->operator==(aRightSide);
-  }
-  return false; // everything else: not equal
-}
-
-
-bool JsonRepresentedValue::operator<(const ScriptObj& aRightSide) const
-{
-  if (!aRightSide.hasType(json)) {
-    // compare JSON to non-JSON
-    if (aRightSide.hasType(numeric)) return doubleValue()<aRightSide.doubleValue();
-    if (aRightSide.hasType(text)) return stringValue()<aRightSide.stringValue();
-  }
-  return false; // everything else: not orderable -> never less
-}
-
-
-ScriptObjPtr JsonRepresentedValue::operator+(const ScriptObj& aRightSide) const
-{
-  JsonObjectPtr r = aRightSide.jsonValue();
-  if (r && r->isType(json_type_array)) {
-    // if I am an array, too -> append elements
-    if (jsonValue() && jsonValue()->isType(json_type_array)) {
-      JsonObjectPtr j = const_cast<JsonRepresentedValue*>(this)->assignmentValue()->jsonValue();
-      for (int i = 0; i<r->arrayLength(); i++) {
-        j->arrayAppend(r->arrayGet(i));
-      }
-      return new JsonValue(j);
-    }
-  }
-  else if (r && r->isType(json_type_object)) {
-    // if I am an object, too -> merge fields
-    if (jsonValue() && jsonValue()->isType(json_type_object)) {
-      JsonObjectPtr j = const_cast<JsonRepresentedValue*>(this)->assignmentValue()->jsonValue();
-      r->resetKeyIteration();
-      string k;
-      JsonObjectPtr o;
-      while(r->nextKeyValue(k, o)) {
-        j->add(k.c_str(), o);
-      }
-      return new JsonValue(j);
-    }
-  }
-  return new AnnotatedNullValue("neither array or object 'addition' (merge)");
-}
-
-
-const ScriptObjPtr JsonRepresentedValue::memberByName(const string aName, TypeInfo aMemberAccessFlags)
-{
-  FOCUSLOGLOOKUP("JsonRepresentedValue");
-  ScriptObjPtr m;
-  if (jsonValue() && typeRequirementMet(json, aMemberAccessFlags, typeMask)) {
-    // we cannot meet any other type requirement but json
-    JsonObjectPtr j = jsonValue()->get(aName.c_str());
-    if (j) {
-      // we have that member
-      m = ScriptObjPtr(new JsonValue(j));
-      if ((aMemberAccessFlags & lvalue) && (aMemberAccessFlags & onlycreate)==0) {
-        m = new StandardLValue(this, aName, m); // it is allowed to overwrite this value
-      }
-    }
-    else {
-      // no such member yet
-      if ((aMemberAccessFlags & (lvalue|create))==(lvalue|create)) {
-        // return lvalue to create object
-        m = new StandardLValue(this, aName, ScriptObjPtr()); // it is allowed to create a new value
-      }
+    // we do not have that element
+    if (aMemberAccessFlags & lvalue) {
+      // creation allowed, return lvalue to create object
+      m = new StandardLValue(const_cast<ArrayValue*>(this), aIndex, ScriptObjPtr()); // it is allowed to create a new value
     }
   }
   return m;
 }
 
 
-size_t JsonRepresentedValue::numIndexedMembers() const
+ErrorPtr ArrayValue::setMemberAtIndex(size_t aIndex, const ScriptObjPtr aMember, const string aName)
 {
-  JsonObjectPtr j = jsonValue();
-  if (j) {
-    if (j->isType(json_type_object)) return j->numKeys(); // objects can be accessed as arrays to get the keys
-    return j->arrayLength();
+  FOCUSLOGSTORE("ArrayValue");
+  if (aIndex==mElements.size() && aMember) {
+    // specially optimized case: appending
+    mElements.push_back(aMember);
   }
-  return 0;
-}
-
-
-const ScriptObjPtr JsonRepresentedValue::memberAtIndex(size_t aIndex, TypeInfo aMemberAccessFlags)
-{
-  ScriptObjPtr m;
-  JsonObjectPtr j = jsonValue();
-  if (j && typeRequirementMet(json, aMemberAccessFlags, typeMask)) {
-    // we cannot meet any other type requirement but json
-    if (aIndex<numIndexedMembers()) {
-      // we have that member
-      if (j->isType(json_type_object)) {
-        // special case of accessing object's key as an array, read-only
-        string key;
-        if (j->keyValueByIndex((int)aIndex, key, NULL)) {
-          m = ScriptObjPtr(new StringValue(key));
-        }
-      }
-      else {
-        // must be array, elements can be written to
-        m = ScriptObjPtr(new JsonValue(j->arrayGet((int)aIndex)));
-        if ((aMemberAccessFlags & lvalue) && (aMemberAccessFlags & onlycreate)==0) {
-          m = new StandardLValue(this, aIndex, m); // it is allowed to overwrite this value
-        }
-      }
+  else if (aMember) {
+    // set array element
+    if (aIndex>=mElements.size()) {
+      // resize, will result in sparse array (containing NULL ScriptObjPtrs)
+      mElements.resize(aIndex+1);
     }
-    else {
-      // no such member yet
-      if (aMemberAccessFlags & lvalue) {
-        // creation allowed, return lvalue to create object
-        m = new StandardLValue(this, aIndex, ScriptObjPtr()); // it is allowed to create a new value
-      }
+    mElements[aIndex] = aMember;
+  }
+  else {
+    // delete array element (or silently NOP if array index is too high
+    if (aIndex<mElements.size()) {
+      mElements.erase(mElements.begin()+aIndex);
     }
   }
-  return m;
+  return ErrorPtr();
 }
 
 
-ValueIteratorPtr JsonRepresentedValue::newIterator()
+ScriptObjPtr ArrayValue::assignmentValue() const
 {
-  return new JsonValueIterator(this);
-}
-
-
-JsonValueIterator::JsonValueIterator(ScriptObjPtr aObj) :
-  inherited(aObj)
-{
-}
-
-
-void JsonValueIterator::obtainKey(EvaluationCB aEvaluationCB, bool aNumericPreferred)
-{
-  if (validIndex() && !aNumericPreferred) {
-    // obtain the field name of the currently indexed object field
-    JsonObjectPtr j = mIteratedObj->jsonValue();
-    if (j && j->isType(json_type_object)) {
-      string key;
-      if (j->keyValueByIndex((int)mCurrentIndex, key, NULL)) {
-        aEvaluationCB(new StringValue(key));
-        return;
-      }
-    }
-  }
-  inherited::obtainKey(aEvaluationCB, aNumericPreferred);
-}
-
-
-void JsonValueIterator::obtainValue(EvaluationCB aEvaluationCB, TypeInfo aMemberAccessFlags)
-{
-  if (validIndex()) {
-    // obtain the field contents of the currently indexed object field
-    JsonObjectPtr j = mIteratedObj->jsonValue();
-    if (j && j->isType(json_type_object)) {
-      JsonObjectPtr val;
-      string key;
-      if (j->keyValueByIndex((int)mCurrentIndex, key, &val)) {
-        aEvaluationCB(new JsonValue(val));
-        return;
-      }
-    }
-  }
-  inherited::obtainValue(aEvaluationCB, aMemberAccessFlags);
-}
-
-
-// MARK: - JsonValue
-
-
-TypeInfo JsonValue::getTypeInfo() const
-{
-  JsonObject* j = jsonValue().get();
-  if (!j || j->isType(json_type_null)) return null;
-  if (j->isType(json_type_object)) return json+object;
-  if (j->isType(json_type_array)) return json+array;
-  if (j->isType(json_type_string)) return json+text;
-  return json+numeric; // everything else is numeric
-}
-
-
-ScriptObjPtr JsonValue::assignmentValue()
-{
-  // break down to standard value or copied json, unless this is a derived object such as a JSON API request that indicates to be kept as-is
+  // make a copy, unless this is a derived object that indicates to be kept as-is
   if (!hasType(keeporiginal)) {
-    // avoid creating new json values for simple types
-    if (jsonValue() && (jsonValue()->isType(json_type_array) || jsonValue()->isType(json_type_object))) {
-      // must copy the contained json object
-      return new JsonValue(JsonObjectPtr(new JsonObject(*jsonValue())));
+    // recursively copy all contained elements
+    ArrayValue* arr = new ArrayValue();
+    for (size_t i=0; i<mElements.size(); i++) {
+      arr->setMemberAtIndex(i, mElements[i]->assignmentValue());
     }
-    return calculationValue();
+    return arr;
   }
   return inherited::assignmentValue();
 }
 
 
-ErrorPtr JsonValue::setMemberByName(const string aName, const ScriptObjPtr aMember)
+bool ArrayValue::operator==(const ScriptObj& aRightSide) const
 {
-  FOCUSLOGSTORE("JsonValue");
-  if (!mJsonval) {
-    mJsonval = JsonObject::newObj();
+  if (inherited::operator==(aRightSide)) return true; // object identity or both sides undefined
+  if (aRightSide.hasType(array)) {
+    // compare two arrays
+    // - equal if same number of elements with same contents
+    if (mElements.size()!=aRightSide.numIndexedMembers()) return false; // easy way out: not same number of fields
+    for (size_t i=0; i<mElements.size(); i++) {
+      ScriptObjPtr m = const_cast<ScriptObj&>(aRightSide).memberAtIndex(i, 0);
+      if (!m) return false; // we may have sparse arrays
+      if (!mElements[i]->operator==(*m.get())) return false; // different content
+    }
+    return true;
   }
-  else if (!mJsonval->isType(json_type_object)) {
-    return ScriptError::err(ScriptError::Invalid, "json is not an object, cannot assign field");
+  return false; // everything else: not equal
+}
+
+
+bool ArrayValue::operator<(const ScriptObj& aRightSide) const
+{
+  if (aRightSide.hasType(array)) {
+    // less elements -> consider the array "less" than one with more fields
+    return mElements.size()<aRightSide.numIndexedMembers();
   }
-  if (aMember) {
-    mJsonval->add(aName.c_str(), aMember->jsonValue());
+  return false; // everything else: not orderable -> never less
+}
+
+
+ScriptObjPtr ArrayValue::operator+(const ScriptObj& aRightSide) const
+{
+  if (aRightSide.hasType(array)) {
+    if (aRightSide.numIndexedMembers()>0) {
+      // rightside contains elements to add
+      ScriptObjPtr appended = assignmentValue();
+      size_t n = appended->numIndexedMembers();
+      for (size_t i = 0; i<aRightSide.numIndexedMembers(); i++) {
+        appended->setMemberAtIndex(n+i, aRightSide.memberAtIndex(i, 0));
+      }
+      return appended;
+    }
+    else {
+      // right object is empty, optimize by not copying anything
+      return const_cast<ArrayValue*>(this);
+    }
+  }
+  return new AnnotatedNullValue("can only 'add' (=append) arrays to arrays");
+}
+
+
+ValueIteratorPtr ArrayValue::newIterator()
+{
+  return new IndexedValueIterator(this);
+}
+
+
+// MARK: - Containers: Object
+
+const ScriptObjPtr ObjectValue::memberByName(const string aName, TypeInfo aMemberAccessFlags) const
+{
+  FOCUSLOGLOOKUP("ObjectValue");
+  ScriptObjPtr m;
+  FieldsMap::const_iterator pos = mFields.find(aName);
+  if (pos!=mFields.end()) {
+    // we have that member
+    m = pos->second;
+    if ((aMemberAccessFlags & lvalue) && (aMemberAccessFlags & onlycreate)==0) {
+      m = new StandardLValue(const_cast<ObjectValue*>(this), aName, m); // it is allowed to overwrite this value
+    }
   }
   else {
-    mJsonval->del(aName.c_str());
+    // no such member yet
+    if ((aMemberAccessFlags & (lvalue|create))==(lvalue|create)) {
+      // return lvalue to create object
+      m = new StandardLValue(const_cast<ObjectValue*>(this), aName, ScriptObjPtr()); // it is allowed to create a new value
+    }
+  }
+  return m;
+}
+
+
+ErrorPtr ObjectValue::setMemberByName(const string aName, const ScriptObjPtr aMember)
+{
+  FOCUSLOGSTORE("ObjectValue");
+  if (aMember) {
+    // add or replace member
+    mFields[aName] = aMember;
+  }
+  else {
+    // delete member
+    FieldsMap::iterator pos = mFields.find(aName);
+    if (pos!=mFields.end()) mFields.erase(pos);
   }
   return ErrorPtr();
 }
 
 
-ErrorPtr JsonValue::setMemberAtIndex(size_t aIndex, const ScriptObjPtr aMember, const string aName)
+size_t ObjectValue::numIndexedMembers() const
 {
-  if (!mJsonval) {
-    mJsonval = JsonObject::newArray();
-  }
-  else if (!mJsonval->isType(json_type_array)) {
-    return ScriptError::err(ScriptError::Invalid, "json is not an array, cannot set element");
-  }
-  if (aMember) {
-    mJsonval->arrayPut((int)aIndex, aMember->jsonValue());
-  }
-  else {
-    mJsonval->arrayDel((int)aIndex, 1);
-  }
-  return ErrorPtr();
+  // Special case: number of fields in this object
+  return mFields.size();
 }
 
-#endif // SCRIPTING_JSON_SUPPORT
+
+const ScriptObjPtr ObjectValue::memberAtIndex(size_t aIndex, TypeInfo aMemberAccessFlags) const
+{
+  // Special case: objects accessed by index will return field names
+  ScriptObjPtr m;
+  if (aIndex<mFields.size()) {
+    size_t i = 0;
+    for(FieldsMap::const_iterator pos = mFields.begin(); pos!=mFields.end(); ++pos, ++i) {
+      if (i==aIndex) {
+        m = ScriptObjPtr(new StringValue(pos->first));
+        break;
+      }
+    }
+  }
+  return m;
+}
+
+
+void ObjectValue::appendFieldNames(FieldNameList& aList) const
+{
+  for(FieldsMap::const_iterator pos = mFields.begin(); pos!=mFields.end(); ++pos) {
+    aList.push_back(pos->first);
+  }
+}
+
+
+ScriptObjPtr ObjectValue::assignmentValue() const
+{
+  // make a copy, unless this is a derived object that indicates to be kept as-is
+  if (!hasType(keeporiginal)) {
+    // recursively copy all contained fields
+    ObjectValue* obj = new ObjectValue();
+    for (FieldsMap::const_iterator pos = mFields.begin(); pos!=mFields.end(); ++pos) {
+      obj->setMemberByName(pos->first, pos->second->assignmentValue());
+    }
+    return obj;
+  }
+  return inherited::assignmentValue();
+}
+
+
+bool ObjectValue::operator==(const ScriptObj& aRightSide) const
+{
+  if (inherited::operator==(aRightSide)) return true; // object identity or both sides undefined
+  if (aRightSide.hasType(object)) {
+    // compare two objects
+    // - equal if same number and names of fields with same contents
+    if (mFields.size()!=aRightSide.numIndexedMembers()) return false; // easy way out: not same number of fields
+    for (FieldsMap::const_iterator pos = mFields.begin(); pos!=mFields.end(); ++pos) {
+      ScriptObjPtr m = aRightSide.memberByName(pos->first, none);
+      if (!m) return false; // field does not exist in right side
+      if (!pos->second->operator==(*m.get())) return false; // same field but different content
+    }
+    return true;
+  }
+  return false; // everything else: not equal
+}
+
+
+bool ObjectValue::operator<(const ScriptObj& aRightSide) const
+{
+  if (aRightSide.hasType(object)) {
+    // less fields -> consider the object "less" than one with more fields
+    return mFields.size()<aRightSide.numIndexedMembers();
+  }
+  return false; // everything else: not orderable -> never less
+}
+
+
+ScriptObjPtr ObjectValue::operator+(const ScriptObj& aRightSide) const
+{
+  const ObjectValue* right = dynamic_cast<const ObjectValue*>(&aRightSide);
+  if (right) {
+    if (right->numIndexedMembers()>0) {
+      // there is something to add
+      FieldNameList names;
+      right->appendFieldNames(names);
+      ScriptObjPtr merged = assignmentValue();
+      for (FieldNameList::const_iterator pos = names.begin(); pos!=names.end(); ++pos) {
+        merged->setMemberByName(*pos, right->memberByName(*pos, none));
+      }
+      return merged;
+    }
+    else {
+      // right object is empty, optimize by not copying anything
+      return const_cast<ObjectValue*>(this);
+    }
+  }
+  return new AnnotatedNullValue("can only 'add' objects to object (merge)");
+}
+
+
+ValueIteratorPtr ObjectValue::newIterator()
+{
+  return new ObjectValueIterator(this);
+}
+
+
+ObjectValueIterator::ObjectValueIterator(ObjectValue* aObj) :
+  mIteratedObj(aObj)
+{
+  // capture name list
+  aObj->appendFieldNames(mNameList);
+  reset();
+}
+
+
+void ObjectValueIterator::reset()
+{
+  mNameIterator = mNameList.begin();
+}
+
+
+void ObjectValueIterator::next()
+{
+  mNameIterator++;
+}
+
+
+void ObjectValueIterator::obtainKey(EvaluationCB aEvaluationCB, bool aNumericPreferred)
+{
+  ScriptObjPtr m;
+  // Note: we do not provide numeric indices, so aNumericPreferred is ignored
+  if (mNameIterator!=mNameList.end()) {
+    m = new StringValue(*mNameIterator);
+  }
+  aEvaluationCB(m);
+}
+
+
+void ObjectValueIterator::obtainValue(EvaluationCB aEvaluationCB, TypeInfo aMemberAccessFlags)
+{
+  ScriptObjPtr m;
+  if (mNameIterator!=mNameList.end()) {
+    m = mIteratedObj->memberByName(*mNameIterator, none);
+    if (!m) {
+      // getting no object here means that the field contents have been removed
+      // Do not abort the iteration, but provide an explicit null value instead
+      m = new AnnotatedNullValue("field deleted while iterating");
+    }
+  }
+  aEvaluationCB(m);
+}
 
 
 // MARK: - SimpleVarContainer
@@ -1155,8 +1287,7 @@ void SimpleVarContainer::clearFloating()
 }
 
 
-
-const ScriptObjPtr SimpleVarContainer::memberByName(const string aName, TypeInfo aMemberAccessFlags)
+const ScriptObjPtr SimpleVarContainer::memberByName(const string aName, TypeInfo aMemberAccessFlags) const
 {
   FOCUSLOGLOOKUP("SimpleVarContainer");
   ScriptObjPtr m;
@@ -1166,7 +1297,7 @@ const ScriptObjPtr SimpleVarContainer::memberByName(const string aName, TypeInfo
     m = pos->second;
     if (m->meetsRequirement(aMemberAccessFlags, typeMask)) {
       if ((aMemberAccessFlags & lvalue) && (aMemberAccessFlags & onlycreate)==0) {
-        return new StandardLValue(this, aName, m); // it is allowed to overwrite this value
+        return new StandardLValue(const_cast<SimpleVarContainer*>(this), aName, m); // it is allowed to overwrite this value
       }
       return m;
     }
@@ -1176,7 +1307,7 @@ const ScriptObjPtr SimpleVarContainer::memberByName(const string aName, TypeInfo
     // no such member yet
     if ((aMemberAccessFlags & lvalue) && (aMemberAccessFlags & create)) {
       // creation allowed, return lvalue to create object
-      return new StandardLValue(this, aName, ScriptObjPtr()); // it is allowed to create a new value
+      return new StandardLValue(const_cast<SimpleVarContainer*>(this), aName, ScriptObjPtr()); // it is allowed to create a new value
     }
   }
   // nothing found
@@ -1210,25 +1341,9 @@ ErrorPtr SimpleVarContainer::setMemberByName(const string aName, const ScriptObj
 }
 
 
-#if SCRIPTING_JSON_SUPPORT
-
-JsonObjectPtr SimpleVarContainer::jsonValue() const
-{
-  JsonObjectPtr obj = JsonObject::newObj();
-  for(NamedVarMap::const_iterator pos = mNamedVars.begin(); pos!=mNamedVars.end(); ++pos) {
-    obj->add(pos->first.c_str(), pos->second->jsonValue());
-  }
-  return obj;
-}
-
-#endif // SCRIPTING_JSON_SUPPORT
-
-
-
-
 // MARK: - StructuredLookupObject
 
-const ScriptObjPtr StructuredLookupObject::memberByName(const string aName, TypeInfo aMemberAccessFlags)
+const ScriptObjPtr StructuredLookupObject::memberByName(const string aName, TypeInfo aMemberAccessFlags) const
 {
   FOCUSLOGLOOKUP("StructuredLookupObject");
   ScriptObjPtr m;
@@ -1236,7 +1351,7 @@ const ScriptObjPtr StructuredLookupObject::memberByName(const string aName, Type
   while (pos!=mLookups.end()) {
     MemberLookupPtr lookup = *pos;
     if (typeRequirementMet(lookup->containsTypes(), aMemberAccessFlags, typeMask)) {
-      if ((m = lookup->memberByNameFrom(this, aName, aMemberAccessFlags))) return m;
+      if ((m = lookup->memberByNameFrom(const_cast<StructuredLookupObject*>(this), aName, aMemberAccessFlags))) return m;
     }
     ++pos;
   }
@@ -1276,33 +1391,15 @@ void StructuredLookupObject::registerMember(const string aName, ScriptObjPtr aMe
   mSingleMembers->registerMember(aName, aMember);
 }
 
-#if SCRIPTING_JSON_SUPPORT
-
-JsonObjectPtr StructuredLookupObject::jsonValue() const
+ScriptObjPtr StructuredLookupObject::builtinsInfo()
 {
-  JsonObjectPtr obj = JsonObject::newObj();
-  for(LookupList::const_iterator pos = mLookups.begin(); pos!=mLookups.end(); ++pos) {
-    (*pos)->addJsonValues(obj);
-  }
-  return obj;
-}
-
-
-JsonObjectPtr StructuredLookupObject::builtinsInfo()
-{
-  JsonObjectPtr hl = JsonObject::newObj();
-  ScriptObjPtr m;
+  ObjectValue* infos = new ObjectValue();
   for (LookupList::const_iterator pos = mLookups.begin(); pos!=mLookups.end(); pos++) {
     MemberLookupPtr lookup = *pos;
-    lookup->addJsonValues(hl);
+    lookup->addMembers(*infos);
   }
-  return hl;
+  return infos;
 }
-
-
-
-#endif // SCRIPTING_JSON_SUPPORT
-
 
 
 // MARK: - PredefinedMemberLookup
@@ -1321,18 +1418,12 @@ void PredefinedMemberLookup::registerMember(const string aName, ScriptObjPtr aMe
 }
 
 
-#if SCRIPTING_JSON_SUPPORT
-
-void PredefinedMemberLookup::addJsonValues(JsonObjectPtr &aObj) const
+void PredefinedMemberLookup::addMembers(ObjectValue& aObj) const
 {
   for(NamedVarMap::const_iterator pos = mMembers.begin(); pos!=mMembers.end(); ++pos) {
-    aObj->add(pos->first.c_str(), pos->second->jsonValue());
+    aObj.setMemberByName(pos->first.c_str(), pos->second);
   }
 }
-
-#endif // SCRIPTING_JSON_SUPPORT
-
-
 
 
 // MARK: - ExecutionContext
@@ -1383,7 +1474,8 @@ size_t ExecutionContext::numIndexedMembers() const
 }
 
 
-const ScriptObjPtr ExecutionContext::memberAtIndex(size_t aIndex, TypeInfo aMemberAccessFlags)
+// FIXME: probably duplicate with ArrayValue and/or ObjectValue
+const ScriptObjPtr ExecutionContext::memberAtIndex(size_t aIndex, TypeInfo aMemberAccessFlags) const
 {
   ScriptObjPtr m;
   if (aIndex<mIndexedVars.size()) {
@@ -1391,20 +1483,21 @@ const ScriptObjPtr ExecutionContext::memberAtIndex(size_t aIndex, TypeInfo aMemb
     m = mIndexedVars[aIndex];
     if (!m->meetsRequirement(aMemberAccessFlags, typeMask)) return ScriptObjPtr();
     if ((aMemberAccessFlags & lvalue) && (aMemberAccessFlags & onlycreate)==0) {
-      m = new StandardLValue(this, aIndex, m); // it is allowed to overwrite this value
+      m = new StandardLValue(const_cast<ExecutionContext*>(this), aIndex, m); // it is allowed to overwrite this value
     }
   }
   else {
     // no such member yet
     if ((aMemberAccessFlags & lvalue) && (aMemberAccessFlags & create)) {
       // creation allowed, return lvalue to create object
-      m = new StandardLValue(this, aIndex, ScriptObjPtr()); // it is allowed to create a new value
+      m = new StandardLValue(const_cast<ExecutionContext*>(this), aIndex, ScriptObjPtr()); // it is allowed to create a new value
     }
   }
   return m;
 }
 
 
+// FIXME: probably duplicate with ArrayValue and/or ObjectValue
 ErrorPtr ExecutionContext::setMemberAtIndex(size_t aIndex, const ScriptObjPtr aMember, const string aName)
 {
   if (aIndex==mIndexedVars.size() && aMember) {
@@ -1453,12 +1546,11 @@ ScriptObjPtr ExecutionContext::checkAndSetArgument(ScriptObjPtr aArgument, size_
     TypeInfo allowed = info.typeInfo;
     // now check argument we DO have
     TypeInfo argInfo = aArgument->getTypeInfo();
-    // check JSON-agnostic, because any type can have the additional json type, when it comes out of a json value
-    if ((argInfo & allowed & jsonagnosticMask) != (argInfo & jsonagnosticMask)) {
+    if ((argInfo & allowed & typeMask) != (argInfo & typeMask)) {
       // arg has type bits set that are not allowed
       if (
         (allowed & exacttype) || // exact checking required...
-        (argInfo & jsonagnosticMask &~scalar)!=(allowed & jsonagnosticMask &~scalar) // ...or non-scalar requirements not met
+        (argInfo & typeMask &~scalar)!=(allowed & typeMask &~scalar) // ...or non-scalar requirements not met
       ) {
         // argument type mismatch
         if (allowed & undefres) {
@@ -1566,7 +1658,7 @@ void ScriptCodeContext::clearVars()
 }
 
 
-const ScriptObjPtr ScriptCodeContext::memberByName(const string aName, TypeInfo aMemberAccessFlags)
+const ScriptObjPtr ScriptCodeContext::memberByName(const string aName, TypeInfo aMemberAccessFlags) const
 {
   FOCUSLOGLOOKUP(mMainContext ? "local" : (domain() ? "main" : "global"));
   ScriptObjPtr c;
@@ -1597,7 +1689,7 @@ const ScriptObjPtr ScriptCodeContext::memberByName(const string aName, TypeInfo 
     if (mMainContext && (m = mMainContext->memberByName(aName, aMemberAccessFlags))) return m;
   }
   // nothing found
-  // Note: do NOT call inherited, altough there is a overridden memberByName in StructuredObject, but this
+  // Note: do NOT call inherited, altough there is a overridden memberByName in ObjectValue, but this
   //   is NOT a default lookup for ScriptCodeContext (but explicitly used from ScriptMainContext)
   return m;
 }
@@ -1655,16 +1747,6 @@ bool ScriptCodeContext::abortThreadsRunningSource(SourceContainerPtr aSource, Sc
   }
   return anyAborted;
 }
-
-
-#if SCRIPTING_JSON_SUPPORT
-
-JsonObjectPtr ScriptCodeContext::jsonValue() const
-{
-  return mLocalVars.jsonValue();
-}
-
-#endif // SCRIPTING_JSON_SUPPORT
 
 
 #if P44SCRIPT_DEBUGGING_SUPPORT
@@ -1871,25 +1953,23 @@ ScriptObjPtr ScriptMainContext::registerHandler(ScriptObjPtr aHandler)
 }
 
 
-JsonObjectPtr ScriptMainContext::handlersInfo()
+ScriptObjPtr ScriptMainContext::handlersInfo()
 {
-  JsonObjectPtr hl = JsonObject::newArray();
+  ArrayValue* infos = new ArrayValue();
   for (HandlerList::iterator pos = mHandlers.begin(); pos!=mHandlers.end(); pos++) {
     CompiledHandlerPtr h = *pos;
-    JsonObjectPtr hi = JsonObject::newObj();
-    hi->add("name", JsonObject::newString(h->mName));
-    hi->add("origin", JsonObject::newString(h->mCursor.originLabel()));
+    ObjectValue* info = new ObjectValue();
+    info->setMemberByName("name", new StringValue(h->mName));
+    info->setMemberByName("origin", new StringValue(h->mCursor.originLabel()));
     P44LoggingObj *l = h->mCursor.mSourceContainer->loggingContext();
-    if (l) hi->add("logcontext", JsonObject::newString(l->logContextPrefix()));
-    hi->add("line", JsonObject::newInt64(h->mCursor.lineno()+1));
-    hi->add("char", JsonObject::newInt64(h->mCursor.charpos()+1));
-    hi->add("posid", JsonObject::newInt64((intptr_t)h->mCursor.mPos.posId()));
-    hl->arrayAppend(hi);
+    if (l) info->setMemberByName("logcontext", new StringValue(l->logContextPrefix()));
+    info->setMemberByName("line", new IntegerValue(h->mCursor.lineno()+1));
+    info->setMemberByName("char", new IntegerValue(h->mCursor.charpos()+1));
+    info->setMemberByName("posid", new IntegerValue((intptr_t)h->mCursor.mPos.posId()));
+    infos->setMemberAtIndex(infos->numIndexedMembers(), info);
   }
-  return hl;
+  return infos;
 }
-
-
 
 
 void ScriptMainContext::clearVars()
@@ -1927,7 +2007,7 @@ void ScriptMainContext::clearFloating()
 
 
 
-const ScriptObjPtr ScriptMainContext::memberByName(const string aName, TypeInfo aMemberAccessFlags)
+const ScriptObjPtr ScriptMainContext::memberByName(const string aName, TypeInfo aMemberAccessFlags) const
 {
   FOCUSLOGLOOKUP((domain() ? "main scope" : "global scope"));
   ScriptObjPtr g;
@@ -2031,7 +2111,7 @@ ScriptObjPtr BuiltInMemberLookup::memberByNameFrom(ScriptObjPtr aThisObj, const 
 
 #if SCRIPTING_JSON_SUPPORT
 
-void BuiltInMemberLookup::addJsonValues(JsonObjectPtr &aObj) const
+void BuiltInMemberLookup::addMembers(ObjectValue& aObj) const
 {
   for(MemberMap::const_iterator pos = mMembers.begin(); pos!=mMembers.end(); ++pos) {
     // FIXME: as long as we use JSON here, there's no way for now to add non-values like functions, so just return NULL
@@ -2039,11 +2119,11 @@ void BuiltInMemberLookup::addJsonValues(JsonObjectPtr &aObj) const
     const BuiltinMemberDescriptor* m = pos->second;
     if (m->returnTypeInfo & executable) {
       // function
-      aObj->add(pos->first.c_str(), JsonObject::newString(string_format("built-in function with %zu arguments", m->numArgs)));
+      aObj.setMemberByName(pos->first.c_str(), new StringValue(string_format("built-in function with %zu arguments", m->numArgs)));
     }
     else {
       // member
-      aObj->add(pos->first.c_str(), JsonObject::newString("built-in object field"));
+      aObj.setMemberByName(pos->first.c_str(), new StringValue("built-in object field"));
     }
   }
 }
@@ -3153,9 +3233,8 @@ void SourceProcessor::s_simpleTerm()
   }
   else if (mSrc.nextIf('{')) {
     // json or code block literal
-    #if SCRIPTING_JSON_SUPPORT
     // - JS type object construction
-    mResult = new JsonValue(JsonObject::newObj());
+    mResult = new ObjectValue();
     mSrc.skipNonCode();
     if (mSrc.nextIf('}')) {
       // empty object
@@ -3171,12 +3250,10 @@ void SourceProcessor::s_simpleTerm()
     popWithValidResult();
     return;
      */
-    #endif
   }
-  #if SCRIPTING_JSON_SUPPORT
   else if (mSrc.nextIf('[')) {
     // must be JSON literal array
-    mResult = new JsonValue(JsonObject::newArray());
+    mResult = new ArrayValue();
     mSrc.skipNonCode();
     if (mSrc.nextIf(']')) {
       // empty array
@@ -3187,7 +3264,6 @@ void SourceProcessor::s_simpleTerm()
     s_expression();
     return;
   }
-  #endif
   else {
     // identifier (variable, function) or numeric literal
     if (!mSrc.parseIdentifier(mIdentifier)) {
@@ -4907,7 +4983,12 @@ void CompiledTrigger::triggerEvaluation(EvaluationFlags aEvalMode)
 
 void CompiledTrigger::triggerDidEvaluate(EvaluationFlags aEvalMode, ScriptObjPtr aResult)
 {
-  OLOG(aEvalMode&initial ? LOG_INFO : LOG_DEBUG, "%s: evaluated: %s in evalmode=0x%x\n- with result: %s%s", getIdentifier().c_str(), mCursor.displaycode(90).c_str(), aEvalMode, mOneShotEval ? "(ONESHOT) " : "", ScriptObj::describe(aResult).c_str());
+  OLOG(
+    aEvalMode&initial ? LOG_INFO : LOG_DEBUG,
+    "%s: evaluated: %s in evalmode=0x%x\n- with result: %s%s",
+    getIdentifier().c_str(), mCursor.displaycode(90).c_str(),
+    aEvalMode, mOneShotEval ? "(ONESHOT) " : "", ScriptObj::describe(aResult).c_str()
+  );
   bool doTrigger = false;
   Tristate newBoolState = aResult->defined() ? (aResult->boolValue() ? p44::yes : p44::no) : p44::undefined;
   if (mTriggerMode==onEvaluation) {
@@ -7057,7 +7138,7 @@ static void boolean_func(BuiltinFunctionContextPtr f)
 
 #if SCRIPTING_JSON_SUPPORT
 
-// json(anything [, allowcomments])     parse json from string, or get json representation of other objects that support it (=native JSON and JsonRepresentedValue)
+// json(anything [, allowcomments])     parse json into p44script objects/arrays/values from string
 static const BuiltInArgDesc json_args[] = { { any }, { numeric|optionalarg } };
 static const size_t json_numargs = sizeof(json_args)/sizeof(BuiltInArgDesc);
 static void json_func(BuiltinFunctionContextPtr f)
@@ -7072,12 +7153,12 @@ static void json_func(BuiltinFunctionContextPtr f)
       f->finish(new ErrorValue(err));
       return;
     }
+    f->finish(ScriptObj::valueFromJSON(j));
   }
   else {
-    // just the JSON representation of the object
-    j = f->arg(0)->jsonValue();
+    // just the object (backwards compatibility for when we had JsonValue that could represent anything)
+    f->finish(f->arg(0));
   }
-  f->finish(new JsonValue(j));
 }
 
 
@@ -7113,7 +7194,7 @@ static void jsonresource_func(BuiltinFunctionContextPtr f)
   #endif
   JsonObjectPtr j = Application::jsonResource(fn, &err);
   if (Error::isOK(err))
-    f->finish(new JsonValue(j));
+    f->finish(ScriptObj::valueFromJSON(j));
   else
     f->finish(new ErrorValue(err));
 }
@@ -7819,7 +7900,7 @@ public:
     return inherited::getTypeInfo()|oneshot|keeporiginal;
   }
   virtual double doubleValue() const P44_OVERRIDE { return mLockCount; };
-  virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aMemberAccessFlags = none) P44_OVERRIDE;
+  virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aMemberAccessFlags = none) const P44_OVERRIDE;
 
   /// try to enter the lock
   /// @param aThread the thread that wants to enter
@@ -7963,13 +8044,13 @@ static const BuiltinMemberDescriptor enter_desc =
 static const BuiltinMemberDescriptor leave_desc =
   { "leave", executable|numeric, 0, NULL, &leave_func };
 
-const ScriptObjPtr LockObj::memberByName(const string aName, TypeInfo aMemberAccessFlags)
+const ScriptObjPtr LockObj::memberByName(const string aName, TypeInfo aMemberAccessFlags) const
 {
   if (uequals(aName, "enter")) {
-    return new BuiltinFunctionObj(&enter_desc, this, NULL);
+    return new BuiltinFunctionObj(&enter_desc, const_cast<LockObj*>(this), NULL);
   }
   else if (uequals(aName, "leave")) {
-    return new BuiltinFunctionObj(&leave_desc, this, NULL);
+    return new BuiltinFunctionObj(&leave_desc, const_cast<LockObj*>(this), NULL);
   }
   return inherited::memberByName(aName, aMemberAccessFlags);
 }
@@ -7995,7 +8076,7 @@ class SignalObj : public OneShotEventNullValue, public EventSource
 public:
   SignalObj() : inherited(static_cast<EventSource *>(this), "Signal") { }
   virtual string getAnnotation() const P44_OVERRIDE { return "Signal"; }
-  virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aMemberAccessFlags = none) P44_OVERRIDE;
+  virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aMemberAccessFlags = none) const P44_OVERRIDE;
 };
 
 // send([signaldata]) send the signal
@@ -8010,10 +8091,10 @@ static void send_func(BuiltinFunctionContextPtr f)
 static const BuiltinMemberDescriptor answer_desc =
   { "send", executable|any, signal_numargs, signal_args, &send_func };
 
-const ScriptObjPtr SignalObj::memberByName(const string aName, TypeInfo aMemberAccessFlags)
+const ScriptObjPtr SignalObj::memberByName(const string aName, TypeInfo aMemberAccessFlags) const
 {
   if (uequals(aName, "send")) {
-    return new BuiltinFunctionObj(&answer_desc, this, NULL);
+    return new BuiltinFunctionObj(&answer_desc, const_cast<SignalObj*>(this), NULL);
   }
   return inherited::memberByName(aName, aMemberAccessFlags);
 }
@@ -8742,26 +8823,26 @@ static void yearday_func(BuiltinFunctionContextPtr f)
 
 static void globalbuiltins_func(BuiltinFunctionContextPtr f)
 {
-  f->finish(new JsonValue(f->thread()->owner()->domain()->builtinsInfo()));
+  f->finish(f->thread()->owner()->domain()->builtinsInfo());
 }
 
 
 static void contextbuiltins_func(BuiltinFunctionContextPtr f)
 {
-  f->finish(new JsonValue(f->thread()->owner()->scriptmain()->builtinsInfo()));
+  f->finish(f->thread()->owner()->scriptmain()->builtinsInfo());
 }
 
 #if P44SCRIPT_FULL_SUPPORT
 
 static void globalhandlers_func(BuiltinFunctionContextPtr f)
 {
-  f->finish(new JsonValue(f->thread()->owner()->domain()->handlersInfo()));
+  f->finish(f->thread()->owner()->domain()->handlersInfo());
 }
 
 
 static void contexthandlers_func(BuiltinFunctionContextPtr f)
 {
-  f->finish(new JsonValue(f->thread()->owner()->scriptmain()->handlersInfo()));
+  f->finish(f->thread()->owner()->scriptmain()->handlersInfo());
 }
 
 #endif // P44SCRIPT_FULL_SUPPORT
@@ -8816,9 +8897,9 @@ static const BuiltinMemberDescriptor standardFunctions[] = {
   { "null", any, null_numargs, null_args, &null_func },
   { "lastarg", executable|any, lastarg_numargs, lastarg_args, &lastarg_func },
   #if SCRIPTING_JSON_SUPPORT
-  { "json", executable|json, json_numargs, json_args, &json_func },
+  { "json", executable|value, json_numargs, json_args, &json_func },
   #if ENABLE_JSON_APPLICATION
-  { "jsonresource", executable|json|error, jsonresource_numargs, jsonresource_args, &jsonresource_func },
+  { "jsonresource", executable|value|error, jsonresource_numargs, jsonresource_args, &jsonresource_func },
   #endif // ENABLE_JSON_APPLICATION
   #endif // SCRIPTING_JSON_SUPPORT
   #if P44SCRIPT_FULL_SUPPORT
