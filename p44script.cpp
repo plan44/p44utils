@@ -206,9 +206,9 @@ ErrorPtr ScriptObj::setMemberAtIndex(size_t aIndex, const ScriptObjPtr aMember, 
   return ScriptError::err(ScriptError::NotFound, "cannot assign at %zu", aIndex);
 }
 
-ValueIteratorPtr ScriptObj::newIterator()
+ValueIteratorPtr ScriptObj::newIterator(TypeInfo aInterestedInTypes) const
 {
-  // by default, iterate by index
+  // by default, iterate by index, types ignored
   return new IndexedValueIterator(this);
 }
 
@@ -243,12 +243,12 @@ string ScriptObj::typeDescription(TypeInfo aInfo)
   }
   else {
     // structure
-    if (aInfo & array) {
-      s = "array";
-    }
     if (aInfo & object) {
-      if (!s.empty()) s += ", ";
-      s += "object";
+      // identify structured values that are both object and array just as object
+      s = "object";
+    }
+    else if (aInfo & array) {
+      s = "array";
     }
     // special
     if (aInfo & threadref) {
@@ -268,11 +268,6 @@ string ScriptObj::typeDescription(TypeInfo aInfo)
       if (!s.empty()) s += ", ";
       s += "string";
     }
-// FIXME: remove
-//    if (aInfo & json) {
-//      if (!s.empty()) s += ", ";
-//      s += "json";
-//    }
     // alternatives
     if (aInfo & error) {
       if (!s.empty()) s += " or ";
@@ -510,8 +505,8 @@ ScriptObjPtr IntegerValue::operator*(const ScriptObj& aRightSide) const
 
 // MARK: - iterator
 
-IndexedValueIterator::IndexedValueIterator(ScriptObjPtr aObj) :
-  mIteratedObj(aObj),
+IndexedValueIterator::IndexedValueIterator(const ScriptObj* aObj) :
+  mIteratedObj(const_cast<ScriptObj*>(aObj)),
   mCurrentIndex(0)
 {
 }
@@ -532,25 +527,17 @@ bool IndexedValueIterator::validIndex()
 }
 
 
-void IndexedValueIterator::obtainKey(EvaluationCB aEvaluationCB, bool aNumericPreferred)
+ScriptObjPtr IndexedValueIterator::obtainKey(bool aNumericPreferred)
 {
-  if (!validIndex()) {
-    aEvaluationCB(nullptr);
-  }
-  else {
-    aEvaluationCB(new IntegerValue(mCurrentIndex));
-  }
+  if (!validIndex()) return nullptr;
+  return new IntegerValue(mCurrentIndex);
 }
 
 
-void IndexedValueIterator::obtainValue(EvaluationCB aEvaluationCB, TypeInfo aMemberAccessFlags)
+ScriptObjPtr IndexedValueIterator::obtainValue(TypeInfo aMemberAccessFlags)
 {
-  if (!validIndex()) {
-    aEvaluationCB(nullptr);
-  }
-  else {
-    aEvaluationCB(mIteratedObj->memberAtIndex(mCurrentIndex, aMemberAccessFlags));
-  }
+  if (!validIndex()) return nullptr;
+  return mIteratedObj->memberAtIndex(mCurrentIndex, aMemberAccessFlags);
 }
 
 
@@ -806,8 +793,14 @@ bool StringValue::boolValue() const
 // JSON from base object
 JsonObjectPtr ScriptObj::jsonValue(bool aDescribeNonJSON) const
 {
+  // we get here only when no subclass has a real implementation of jsonValue(), i.e. as fallback
   if (aDescribeNonJSON && getTypeInfo()!=null) {
-    return JsonObject::newString(describe(this)); 
+    // describe the object by returning the annotation as JSON string
+    return JsonObject::newString(getAnnotation());
+  }
+  if (getTypeInfo() & structured) {
+    // a structured value but none that can actually reveal it's structure as JSON -> show as empty obj
+    return JsonObject::newObj();
   }
   return JsonObject::newNull();
 }
@@ -893,7 +886,8 @@ JsonObjectPtr StringValue::jsonValue(bool aDescribeNonJSON) const
 
 string StructuredValue::stringValue() const
 {
-  return jsonValue(true)->json_str(); // json representation with non-JSON objects described as strings
+  // json representation with non-JSON objects described as strings
+  return jsonValue(true)->json_str();
 }
 
 
@@ -902,6 +896,25 @@ bool StructuredValue::boolValue() const
   return true; // bool value of arrays and objects, even empty ones, is always true
 }
 
+
+JsonObjectPtr StructuredValue::jsonValue(bool aDescribeNonJSON) const
+{
+  // this is the generic implementation for json construction. Some subclasses
+  // (e.g. ArrayValue, ObjecValue) have more efficient specialized versions
+  // Note: values that would need makeValid() to obtain the actual value asynchronously cannot be represented as json
+  JsonObjectPtr obj = JsonObject::newObj();
+  ValueIteratorPtr iter = newIterator(value);
+  ScriptObjPtr o;
+  while ((o = iter->obtainKey(false))) {
+    string key = o->stringValue();
+    o = iter->obtainValue(objscope);
+    if (o) {
+      obj->add(key.c_str(), o->jsonValue());
+    }
+    iter->next();
+  }
+  return obj;
+}
 
 
 JsonObjectPtr ArrayValue::jsonValue(bool aDescribeNonJSON) const
@@ -924,6 +937,63 @@ JsonObjectPtr ObjectValue::jsonValue(bool aDescribeNonJSON) const
 }
 
 #endif // SCRIPTING_JSON_SUPPORT
+
+
+// MARK: - Structured Values
+
+ValueIteratorPtr StructuredValue::newIterator(TypeInfo aInterestedInTypes) const
+{
+  return new ObjectFieldsIterator(this, aInterestedInTypes);
+}
+
+
+// MARK: - Iterator for Fields of structured Values
+
+ObjectFieldsIterator::ObjectFieldsIterator(const StructuredValue* aObj, TypeInfo aInterestedInTypes) :
+  mIteratedObj(const_cast<StructuredValue*>(aObj))
+{
+  // capture name list
+  aObj->appendFieldNames(mNameList, aInterestedInTypes);
+  reset();
+}
+
+
+void ObjectFieldsIterator::reset()
+{
+  mNameIterator = mNameList.begin();
+}
+
+
+void ObjectFieldsIterator::next()
+{
+  mNameIterator++;
+}
+
+
+ScriptObjPtr ObjectFieldsIterator::obtainKey(bool aNumericPreferred)
+{
+  ScriptObjPtr m;
+  // Note: we do not provide numeric indices, so aNumericPreferred is ignored
+  if (mNameIterator!=mNameList.end()) {
+    m = new StringValue(*mNameIterator);
+  }
+  return m;
+}
+
+
+ScriptObjPtr ObjectFieldsIterator::obtainValue(TypeInfo aMemberAccessFlags)
+{
+  ScriptObjPtr m;
+  if (mNameIterator!=mNameList.end()) {
+    m = mIteratedObj->memberByName(*mNameIterator, aMemberAccessFlags);
+    if (!m) {
+      // getting no object here means that the field contents have been removed
+      // Do not abort the iteration, but provide an explicit null value instead
+      m = new AnnotatedNullValue("field deleted while iterating");
+    }
+  }
+  return m;
+}
 
 
 // MARK: - Container: Array
@@ -1052,7 +1122,7 @@ ScriptObjPtr ArrayValue::operator+(const ScriptObj& aRightSide) const
 }
 
 
-ValueIteratorPtr ArrayValue::newIterator()
+ValueIteratorPtr ArrayValue::newIterator(TypeInfo aInterestedInTypes) const
 {
   return new IndexedValueIterator(this);
 }
@@ -1123,7 +1193,7 @@ const ScriptObjPtr ObjectValue::memberAtIndex(size_t aIndex, TypeInfo aMemberAcc
 }
 
 
-void ObjectValue::appendFieldNames(FieldNameList& aList) const
+void ObjectValue::appendFieldNames(FieldNameList& aList, TypeInfo aInterestedInTypes) const
 {
   for(FieldsMap::const_iterator pos = mFields.begin(); pos!=mFields.end(); ++pos) {
     aList.push_back(pos->first);
@@ -1181,7 +1251,7 @@ ScriptObjPtr ObjectValue::operator+(const ScriptObj& aRightSide) const
     if (right->numIndexedMembers()>0) {
       // there is something to add
       FieldNameList names;
-      right->appendFieldNames(names);
+      right->appendFieldNames(names, typeMask+attrMask); // we want everything
       ScriptObjPtr merged = assignmentValue();
       for (FieldNameList::const_iterator pos = names.begin(); pos!=names.end(); ++pos) {
         merged->setMemberByName(*pos, right->memberByName(*pos, none));
@@ -1194,59 +1264,6 @@ ScriptObjPtr ObjectValue::operator+(const ScriptObj& aRightSide) const
     }
   }
   return new AnnotatedNullValue("can only 'add' objects to object (merge)");
-}
-
-
-ValueIteratorPtr ObjectValue::newIterator()
-{
-  return new ObjectValueIterator(this);
-}
-
-
-ObjectValueIterator::ObjectValueIterator(ObjectValue* aObj) :
-  mIteratedObj(aObj)
-{
-  // capture name list
-  aObj->appendFieldNames(mNameList);
-  reset();
-}
-
-
-void ObjectValueIterator::reset()
-{
-  mNameIterator = mNameList.begin();
-}
-
-
-void ObjectValueIterator::next()
-{
-  mNameIterator++;
-}
-
-
-void ObjectValueIterator::obtainKey(EvaluationCB aEvaluationCB, bool aNumericPreferred)
-{
-  ScriptObjPtr m;
-  // Note: we do not provide numeric indices, so aNumericPreferred is ignored
-  if (mNameIterator!=mNameList.end()) {
-    m = new StringValue(*mNameIterator);
-  }
-  aEvaluationCB(m);
-}
-
-
-void ObjectValueIterator::obtainValue(EvaluationCB aEvaluationCB, TypeInfo aMemberAccessFlags)
-{
-  ScriptObjPtr m;
-  if (mNameIterator!=mNameList.end()) {
-    m = mIteratedObj->memberByName(*mNameIterator, none);
-    if (!m) {
-      // getting no object here means that the field contents have been removed
-      // Do not abort the iteration, but provide an explicit null value instead
-      m = new AnnotatedNullValue("field deleted while iterating");
-    }
-  }
-  aEvaluationCB(m);
 }
 
 
@@ -1298,6 +1315,14 @@ void SimpleVarContainer::clearFloating()
     else {
       ++pos;
     }
+  }
+}
+
+
+void SimpleVarContainer::appendFieldNames(FieldNameList& aList, TypeInfo aInterestedInTypes) const
+{
+  for(NamedVarMap::const_iterator pos = mNamedVars.begin(); pos!=mNamedVars.end(); ++pos) {
+    aList.push_back(pos->first);
   }
 }
 
@@ -1406,14 +1431,15 @@ void StructuredLookupObject::registerMember(const string aName, ScriptObjPtr aMe
   mSingleMembers->registerMember(aName, aMember);
 }
 
-ScriptObjPtr StructuredLookupObject::builtinsInfo()
+void StructuredLookupObject::appendFieldNames(FieldNameList& aList, TypeInfo aInterestedInTypes) const
 {
-  ObjectValue* infos = new ObjectValue();
-  for (LookupList::const_iterator pos = mLookups.begin(); pos!=mLookups.end(); pos++) {
+  for (LookupList::const_iterator pos = mLookups.begin(); pos!=mLookups.end(); ++pos) {
     MemberLookupPtr lookup = *pos;
-    lookup->addMembers(*infos);
+    if (lookup->containsTypes() & aInterestedInTypes) {
+      // lookup contains what we are interested in
+      lookup->appendMemberNames(aList, aInterestedInTypes);
+    }
   }
-  return infos;
 }
 
 
@@ -1433,10 +1459,10 @@ void PredefinedMemberLookup::registerMember(const string aName, ScriptObjPtr aMe
 }
 
 
-void PredefinedMemberLookup::addMembers(ObjectValue& aObj) const
+void PredefinedMemberLookup::appendMemberNames(FieldNameList& aList, TypeInfo aInterestedInTypes)
 {
   for(NamedVarMap::const_iterator pos = mMembers.begin(); pos!=mMembers.end(); ++pos) {
-    aObj.setMemberByName(pos->first.c_str(), pos->second);
+    aList.push_back(pos->first);
   }
 }
 
@@ -1670,6 +1696,15 @@ void ScriptCodeContext::clearVars()
   FOCUSLOGCLEAR(mMainContext ? "local" : (domain() ? "main" : "global"));
   mLocalVars.clearVars();
   inherited::clearVars();
+}
+
+
+void ScriptCodeContext::appendFieldNames(FieldNameList& aList, TypeInfo aInterestedInTypes) const
+{
+  // add local vars
+  mLocalVars.appendFieldNames(aList, aInterestedInTypes);
+  // inherited, too
+  inherited::appendFieldNames(aList, aInterestedInTypes);
 }
 
 
@@ -2124,27 +2159,15 @@ ScriptObjPtr BuiltInMemberLookup::memberByNameFrom(ScriptObjPtr aThisObj, const 
 }
 
 
-#if SCRIPTING_JSON_SUPPORT
-
-void BuiltInMemberLookup::addMembers(ObjectValue& aObj) const
+void BuiltInMemberLookup::appendMemberNames(FieldNameList& aList, TypeInfo aInterestedInTypes)
 {
   for(MemberMap::const_iterator pos = mMembers.begin(); pos!=mMembers.end(); ++pos) {
-    // FIXME: as long as we use JSON here, there's no way for now to add non-values like functions, so just return NULL
-    //   Only once we have P44Value hierarchy with iterators, we can do better
-    const BuiltinMemberDescriptor* m = pos->second;
-    if (m->returnTypeInfo & executable) {
-      // function
-      aObj.setMemberByName(pos->first.c_str(), new StringValue(string_format("built-in function with %zu arguments", m->numArgs)));
-    }
-    else {
-      // member
-      aObj.setMemberByName(pos->first.c_str(), new StringValue("built-in object field"));
+    if ((pos->second->returnTypeInfo & ~aInterestedInTypes)==0) {
+      // no type bits set in member which are not also in aInterestedInTypes
+      aList.push_back(pos->first);
     }
   }
 }
-
-#endif // SCRIPTING_JSON_SUPPORT
-
 
 
 ExecutionContextPtr BuiltinFunctionObj::contextForCallingFrom(ScriptMainContextPtr aMainContext, ScriptCodeThreadPtr aThread) const
@@ -4496,7 +4519,7 @@ void SourceProcessor::s_foreachTarget()
   setState(&SourceProcessor::s_foreachLoopVar1);
   if (!mSkipping) {
     mLoopController = new LoopController;
-    mLoopController->mIterator = mResult->newIterator();
+    mLoopController->mIterator = mResult->newIterator(any+null+attrMask); // all members
     mResult.reset(); // create error variable on scope level
     memberByIdentifier(lvalue+create);
     return;
@@ -4554,14 +4577,7 @@ void SourceProcessor::s_foreachLoopStart()
 void SourceProcessor::s_foreachLoopIteration()
 {
   FOCUSLOGSTATE
-  setState(&SourceProcessor::s_foreachValue);
-  mLoopController->mIterator->obtainValue(boost::bind(&SourceProcessor::resumeAllowingNull, this, _1), none);
-}
-
-
-void SourceProcessor::s_foreachValue()
-{
-  FOCUSLOGSTATE
+  mResult = mLoopController->mIterator->obtainValue(none);
   if (mResult) {
     // there is a value, loop continues
     setState(mLoopController->mLoopKey ?  &SourceProcessor::s_foreachKeyNeeded : &SourceProcessor::s_foreachBody);
@@ -4576,15 +4592,9 @@ void SourceProcessor::s_foreachValue()
 
 void SourceProcessor::s_foreachKeyNeeded()
 {
-  setState(&SourceProcessor::s_foreachKey);
-  mLoopController->mIterator->obtainKey(boost::bind(&SourceProcessor::resume, this, _1), false);
-}
-
-
-void SourceProcessor::s_foreachKey()
-{
+  ScriptObjPtr key = mLoopController->mIterator->obtainKey(false);
   setState(&SourceProcessor::s_foreachBody);
-  mLoopController->mLoopKey->assignLValue(boost::bind(&SourceProcessor::resume, this, _1), mResult);
+  mLoopController->mLoopKey->assignLValue(boost::bind(&SourceProcessor::resume, this, _1), key);
 }
 
 
@@ -6496,7 +6506,7 @@ void ScriptCodeThread::complete(ScriptObjPtr aFinalResult)
     bool fatal = err->isDomain(ScriptError::domain()) && err->getErrorCode()>=ScriptError::FatalErrors;
     POLOG(loggingContext(), LOG_ERR,
       "Aborting '%s' because of %s error: %s",
-      mCodeObj->getIdentifier().c_str(),
+      mCodeObj ? mCodeObj->getIdentifier().c_str() : "<codeless>",
       fatal ? "fatal" : "uncaught",
       aFinalResult->stringValue().c_str()
     );
@@ -6852,7 +6862,7 @@ bool ScriptCodeThread::pauseCheck(PausingMode aPausingOccasion)
   }
   if (mPauseReason==unpause) {
     // continuing after a pause, must overcome the current pausing reason
-    OLOG(LOG_NOTICE, "Thread continues in mode '%s' after pause", pausingName(mPausingMode));
+    OLOG(LOG_INFO, "Thread continues in mode '%s' after pause", pausingName(mPausingMode));
     mRunningSince = MainLoop::currentMainLoop().now(); // re-start run time restriction
     mPauseReason = nopause;
     return false;
@@ -6894,7 +6904,7 @@ bool ScriptCodeThread::pauseCheck(PausingMode aPausingOccasion)
   // - find next code, that's (visually) where we are pausing
   mSrc.skipNonCode();
   // - now pause
-  OLOG(LOG_NOTICE, "Thread paused with reason '%s' at %s", pausingName(mPauseReason), describePos(20).c_str());
+  OLOG(LOG_INFO, "Thread paused with reason '%s' at %s", pausingName(mPauseReason), describePos(20).c_str());
   mOwner->domain()->threadPaused(this);
   return true; // signal pausing
 }
@@ -8838,13 +8848,13 @@ static void yearday_func(BuiltinFunctionContextPtr f)
 
 static void globalbuiltins_func(BuiltinFunctionContextPtr f)
 {
-  f->finish(f->thread()->owner()->domain()->builtinsInfo());
+  f->finish(f->thread()->owner()->domain());
 }
 
 
 static void contextbuiltins_func(BuiltinFunctionContextPtr f)
 {
-  f->finish(f->thread()->owner()->scriptmain()->builtinsInfo());
+  f->finish(f->thread()->owner()->scriptmain());
 }
 
 #if P44SCRIPT_FULL_SUPPORT

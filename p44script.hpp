@@ -223,13 +223,11 @@ namespace p44 { namespace P44Script {
     error = 0x002, ///< Error
     numeric = 0x010, ///< numeric value
     text = 0x020, ///< text/string value
-//    json = 0x040, ///< JSON value
     executable = 0x080, ///< executable code
     threadref = 0x100, ///< represents a running thread
-    object = 0x400, ///< is a object with named members
-    array = 0x800, ///< is an array with indexed elements
+    object = 0x400, ///< is a object with named members (can still have indexed elements, too)
+    array = 0x800, ///< is an array with indexed elements (can still have named fields, too)
     // type classes
-//    jsonagnosticMask = typeMask-json, ///< all types, but agnostic to json or not
     any = typeMask-null-error, ///< any type except null and error
     scalar = numeric+text, // +json, ///< scalar types (json can also be structured)
     structured = object+array, ///< structured types
@@ -558,8 +556,12 @@ namespace p44 { namespace P44Script {
     virtual ErrorPtr setMemberAtIndex(size_t aIndex, const ScriptObjPtr aMember, const string aName = "");
 
     /// create and initialize a iterator for iterating over this objects members
+    /// @param aInterestedInTypes types+attributes we are interested in at all, i.e.
+    ///   iterator may only return elements which have no type and attribute bits set which are not
+    ///   also set in aInterestedInTypes.
+    ///   This filter might not be implemented in all iterators.
     /// @return iterator over members of this object
-    virtual ValueIteratorPtr newIterator();
+    virtual ValueIteratorPtr newIterator(TypeInfo aInterestedInTypes) const;
 
     /// @}
 
@@ -719,16 +721,17 @@ namespace p44 { namespace P44Script {
     /// @note implementation might just flag internal state for incrementing, actually doing it at obtainValue()/obtainKey()
     virtual void next() = 0;
 
-    /// Perform the calculations, possibly asynchronously, to get the current value
-    /// @param aEvaluationCB will be called with the current value, or NULL if iterator is exhausted
+    /// Get the current value
     /// @param aMemberAccessFlags what type and type attributes the returned member must have.
     ///   If lvalue is set and the current value can be assigned to, an ScriptLvalue might be returned
-    virtual void obtainValue(EvaluationCB aEvaluationCB, TypeInfo aMemberAccessFlags) = 0;
+    ///   The current value might be a placeholder value and might need makeValid() to ensure the actual value is retrieved
+    /// @return Value or null if the iterator is exhausted. Null elements must return an explicit null
+    virtual ScriptObjPtr obtainValue(TypeInfo aMemberAccessFlags) = 0;
 
-    /// Perform the calculations, possibly asynchronously, to get the current key
-    /// @param aEvaluationCB will be called with the current key, or NULL if iterator is exhausted
+    /// Get the current key
     /// @param aNumericPreferred if set, key is returned as number/index if possible for the container
-    virtual void obtainKey(EvaluationCB aEvaluationCB, bool aNumericPreferred) = 0;
+    /// @return key (string or integer) or null if the iterator is exhaused
+    virtual ScriptObjPtr obtainKey(bool aNumericPreferred) = 0;
   };
 
 
@@ -749,12 +752,12 @@ namespace p44 { namespace P44Script {
 
     /// iterator over a regular ScriptObj
     /// @param aObj the object that will be iterated over
-    IndexedValueIterator(ScriptObjPtr aObj);
+    IndexedValueIterator(const ScriptObj* aObj);
 
     virtual void reset() P44_OVERRIDE;
     virtual void next() P44_OVERRIDE;
-    virtual void obtainValue(EvaluationCB aEvaluationCB, TypeInfo aMemberAccessFlags) P44_OVERRIDE;
-    virtual void obtainKey(EvaluationCB aEvaluationCB, bool aNumericPreferred) P44_OVERRIDE;
+    virtual ScriptObjPtr obtainKey(bool aNumericPreferred) P44_OVERRIDE;
+    virtual ScriptObjPtr obtainValue(TypeInfo aMemberAccessFlags) P44_OVERRIDE;
   };
 
 
@@ -900,6 +903,7 @@ namespace p44 { namespace P44Script {
   public:
     BoolValue(bool aBool) : inherited(aBool) {};
     virtual string getAnnotation() const P44_OVERRIDE { return "boolean"; };
+    virtual string stringValue() const P44_OVERRIDE { return boolValue() ? "true" : "false"; };
     // value getters
     #if SCRIPTING_JSON_SUPPORT
     virtual JsonObjectPtr jsonValue(bool aDescribeNonJSON = false) const P44_OVERRIDE { return JsonObject::newBool(boolValue()); };
@@ -950,13 +954,54 @@ namespace p44 { namespace P44Script {
 
   // MARK: - Containers
 
+  // field list (for iterators etc.)
+  typedef std::list<string> FieldNameList;
+
   class StructuredValue : public ScriptObj
   {
     typedef ScriptObj inherited;
-  
+    friend class ObjectFieldsIterator;
+
   public:
     virtual string stringValue() const P44_OVERRIDE;
     virtual bool boolValue() const P44_OVERRIDE;
+    virtual TypeInfo getTypeInfo() const P44_OVERRIDE { return structured; } // subclasses might narrow down that to object / array only
+    virtual ValueIteratorPtr newIterator(TypeInfo aInterestedInTypes) const P44_OVERRIDE;
+    #if SCRIPTING_JSON_SUPPORT
+    virtual JsonObjectPtr jsonValue(bool aDescribeNonJSON = false) const P44_OVERRIDE;
+    #endif
+  protected:
+    virtual void appendFieldNames(FieldNameList& aList, TypeInfo aInterestedInTypes) const { /* NOP in base class */ }
+  };
+
+
+  /// iterator for structured object's fields
+  /// @note this is implemented in a safe but less performant way,
+  ///   by obtaining all field names at iterator creation, and then accessing them by name.
+  ///   This prevents problems when fields are added or removed while iterating:
+  ///   - obtainKey() will always return the field names at iterator creation
+  ///   - obtainValue() will return an annotated null for fields that were removed in the meantime
+  class ObjectFieldsIterator : public ValueIterator
+  {
+    typedef ValueIterator inherited;
+    friend class StructuredValue;
+
+  protected:
+
+    ScriptObjPtr mIteratedObj;
+    FieldNameList mNameList;
+    FieldNameList::iterator mNameIterator;
+
+    /// iterator over object fields
+    /// @param aObj the object that will be iterated over
+    ObjectFieldsIterator(const StructuredValue* aObj, TypeInfo aInterestedInTypes);
+
+  public:
+
+    virtual void reset() P44_OVERRIDE;
+    virtual void next() P44_OVERRIDE;
+    virtual ScriptObjPtr obtainKey(bool aNumericPreferred) P44_OVERRIDE;
+    virtual ScriptObjPtr obtainValue(TypeInfo aMemberAccessFlags) P44_OVERRIDE;
   };
 
 
@@ -981,7 +1026,7 @@ namespace p44 { namespace P44Script {
     virtual size_t numIndexedMembers() const P44_OVERRIDE;
     virtual const ScriptObjPtr memberAtIndex(size_t aIndex, TypeInfo aMemberAccessFlags = none) const P44_OVERRIDE;
     virtual ErrorPtr setMemberAtIndex(size_t aIndex, const ScriptObjPtr aMember, const string aName = "") P44_OVERRIDE;
-    virtual ValueIteratorPtr newIterator() P44_OVERRIDE;
+    virtual ValueIteratorPtr newIterator(TypeInfo aInterestedInTypes) const P44_OVERRIDE;
     void appendMember(const ScriptObjPtr aMember); ///< convenience helper
     // operators
     virtual bool operator<(const ScriptObj& aRightSide) const P44_OVERRIDE;
@@ -993,7 +1038,6 @@ namespace p44 { namespace P44Script {
   class ObjectValue : public StructuredValue
   {
     typedef StructuredValue inherited;
-    friend class ObjectValueIterator;
 
     typedef std::map<string, ScriptObjPtr, lessStrucmp> FieldsMap;
     FieldsMap mFields;
@@ -1013,46 +1057,12 @@ namespace p44 { namespace P44Script {
     virtual ErrorPtr setMemberByName(const string aName, const ScriptObjPtr aMember) P44_OVERRIDE;
     virtual const ScriptObjPtr memberAtIndex(size_t aIndex, TypeInfo aMemberAccessFlags = none) const P44_OVERRIDE;
     virtual size_t numIndexedMembers() const P44_OVERRIDE;
-    virtual ValueIteratorPtr newIterator() P44_OVERRIDE;
     // operators
     virtual bool operator<(const ScriptObj& aRightSide) const P44_OVERRIDE;
     virtual bool operator==(const ScriptObj& aRightSide) const P44_OVERRIDE;
     virtual ScriptObjPtr operator+(const ScriptObj& aRightSide) const P44_OVERRIDE;
-
   protected:
-    // field list (for iterators etc.)
-    typedef std::list<string> FieldNameList;
-    void appendFieldNames(FieldNameList& aList) const;
-  };
-
-
-  /// iterator for object fields
-  /// @note this is implemented in a safe but less performant way,
-  ///   by obtaining all field names at iterator creation, and then accessing them by name.
-  ///   This prevents problems when fields are added or removed while iterating:
-  ///   - obtainKey() will always return the field names at iterator creation
-  ///   - obtainValue() will return an annotated null for fields that were removed in the meantime
-  class ObjectValueIterator : public ValueIterator
-  {
-    typedef ValueIterator inherited;
-    friend class ObjectValue;
-
-  protected:
-
-    ScriptObjPtr mIteratedObj;
-    ObjectValue::FieldNameList mNameList;
-    ObjectValue::FieldNameList::iterator mNameIterator;
-
-    /// iterator over object fields
-    /// @param aObj the object that will be iterated over
-    ObjectValueIterator(ObjectValue* aObj);
-
-  public:
-
-    virtual void reset() P44_OVERRIDE;
-    virtual void next() P44_OVERRIDE;
-    virtual void obtainValue(EvaluationCB aEvaluationCB, TypeInfo aMemberAccessFlags) P44_OVERRIDE;
-    virtual void obtainKey(EvaluationCB aEvaluationCB, bool aNumericPreferred) P44_OVERRIDE;
+    virtual void appendFieldNames(FieldNameList& aList, TypeInfo aInterestedInTypes) const P44_OVERRIDE;
   };
 
 
@@ -1080,8 +1090,11 @@ namespace p44 { namespace P44Script {
     /// access to local variables by name
     virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aMemberAccessFlags) const P44_OVERRIDE;
 
-    // internal for StandardLValue
+    /// internal for StandardLValue
     virtual ErrorPtr setMemberByName(const string aName, const ScriptObjPtr aMember) P44_OVERRIDE;
+
+    /// internal for generic StructuredValue level iterator support
+    virtual void appendFieldNames(FieldNameList& aList, TypeInfo aInterestedInTypes) const P44_OVERRIDE;
   };
 
 
@@ -1119,8 +1132,9 @@ namespace p44 { namespace P44Script {
     /// @param aMemberDescriptors pointer to the builtin member description table to use for constructing the lookup if not yet existing
     void registerSharedLookup(BuiltInMemberLookup*& aSingletonLookupP, const struct BuiltinMemberDescriptor* aMemberDescriptors);
 
-    /// @return info about functions
-    ScriptObjPtr builtinsInfo();
+  protected:
+    /// internal for generic StructuredValue level iterator support
+    virtual void appendFieldNames(FieldNameList& aList, TypeInfo aInterestedInTypes) const P44_OVERRIDE;
 
   };
 
@@ -1148,8 +1162,10 @@ namespace p44 { namespace P44Script {
     /// @param aMember the object corresponding to aName
     virtual void registerMember(const string aName, ScriptObjPtr aMember) { /* NOP in base class */ }
 
-    /// FIXME: this is a simplistic partial solution to get at least some introspection for debugging purposes.
-    virtual void addMembers(ObjectValue& aObj) const { /* NOP here: some objects cannot represent their members */ };
+    /// add all member field names to aList
+    /// @param aList member names will be added to this list
+    /// @param aInterestedInTypes what types of fields we are interested in at all (not included ones MIGHT be omitted if callee supports filtering)
+    virtual void appendMemberNames(FieldNameList& aList, TypeInfo aInterestedInTypes) = 0;
 
   };
 
@@ -1165,9 +1181,7 @@ namespace p44 { namespace P44Script {
     virtual ScriptObjPtr memberByNameFrom(ScriptObjPtr aThisObj, const string aName, TypeInfo aTypeRequirements) const P44_OVERRIDE;
     virtual void registerMember(const string aName, ScriptObjPtr aMember) P44_OVERRIDE;
 
-    /// FIXME: this is a simplistic partial solution to get at least some introspection for debugging purposes.
-    virtual void addMembers(ObjectValue& aObj) const P44_OVERRIDE;
-
+    virtual void appendMemberNames(FieldNameList& aList, TypeInfo aInterestedInTypes) P44_OVERRIDE;
   };
 
 
@@ -1343,6 +1357,10 @@ namespace p44 { namespace P44Script {
     /// @return true if aCodeObj already has a paused thread in this context
     bool hasThreadPausedIn(CompiledCodePtr aCodeObj);
     #endif
+
+  protected:
+    /// internal for generic StructuredValue level iterator support
+    virtual void appendFieldNames(FieldNameList& aList, TypeInfo aInterestedInTypes) const P44_OVERRIDE;
 
   private:
 
@@ -2519,9 +2537,7 @@ namespace p44 { namespace P44Script {
     void s_foreachLoopVars(); ///< finding the final/second loop lvalue
     void s_foreachLoopStart(); ///< starting the loop
     void s_foreachLoopIteration(); ///< starting a new loop iteration
-    void s_foreachValue(); ///< obtained the forach loop value
     void s_foreachKeyNeeded(); ///< obtained the forach loop value
-    void s_foreachKey(); ///< obtained the foreach key
     void s_foreachBody(); ///< loop vars obtained
     void s_foreachStatement(); ///< executing the foreach statement
     // - while
@@ -3133,11 +3149,7 @@ namespace p44 { namespace P44Script {
     virtual TypeInfo containsTypes() const P44_OVERRIDE { return constant+allscopes+any; } // constant, from all scopes, any type
     virtual ScriptObjPtr memberByNameFrom(ScriptObjPtr aThisObj, const string aName, TypeInfo aMemberAccessFlags) const P44_OVERRIDE;
 
-    #if SCRIPTING_JSON_SUPPORT
-    /// FIXME: this is a simplistic partial solution to get at least some introspection for debugging purposes.
-    virtual void addMembers(ObjectValue& aObj) const P44_OVERRIDE;
-    #endif
-
+    virtual void appendMemberNames(FieldNameList& aList, TypeInfo aInterestedInTypes) P44_OVERRIDE;
   };
 
 
