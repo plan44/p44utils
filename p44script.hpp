@@ -231,6 +231,7 @@ namespace p44 { namespace P44Script {
     executable = 0x100, ///< executable code
     threadref = 0x200, ///< represents a running thread
     // - type classes
+    alltypes = typeMask, ///< all types
     anyvalid = typeMask-null-error, ///< any type except null and error
     scalar = numeric+text, // +json, ///< scalar types (json can also be structured)
     structured = object+array, ///< structured types
@@ -1039,6 +1040,7 @@ namespace p44 { namespace P44Script {
     virtual bool operator==(const ScriptObj& aRightSide) const P44_OVERRIDE;
     virtual ScriptObjPtr operator+(const ScriptObj& aRightSide) const P44_OVERRIDE;
   };
+  typedef boost::intrusive_ptr<ArrayValue> ArrayValuePtr;
 
 
   class ObjectValue : public StructuredValue
@@ -1154,7 +1156,7 @@ namespace p44 { namespace P44Script {
 
     /// return mask of all types that may be (but not necessarily are) in this lookup
     /// @note this is for optimizing lookups for certain types. Base class potentially has all kind of objects
-    virtual TypeInfo containsTypes() const { return anyvalid+null+constant+allscopes; }
+    virtual TypeInfo containsTypes() const { return alltypes+constant+allscopes; }
 
     /// get object subfield/member by name
     /// @param aThisObj the object _instance_ of which we want to access a member (can be NULL in case of singletons)
@@ -3093,7 +3095,7 @@ namespace p44 { namespace P44Script {
 
 
 
-  // MARK: - Built-in function support
+  // MARK: - Built-in function and member support
 
   class BuiltInMemberLookup;
   typedef boost::intrusive_ptr<BuiltInMemberLookup> BuiltInMemberLookupPtr;
@@ -3117,13 +3119,16 @@ namespace p44 { namespace P44Script {
   /// @param aParentObj the parent obj (if it's not a global member)
   /// @param aObjToWrite if not NULL, this is the value to write to the member
   /// @return if aObjToWrite==NULL, accessor must return the current value. Otherwise, the return value is ignored
-  typedef ScriptObjPtr (*BuiltinMemberAccessor)(BuiltInMemberLookup& aMemberLookup, ScriptObjPtr aParentObj, ScriptObjPtr aObjToWrite);
+  typedef ScriptObjPtr (*BuiltinMemberAccessor)(BuiltInMemberLookup& aMemberLookup, ScriptObjPtr aParentObj, ScriptObjPtr aObjToWrite, const struct BuiltinMemberDescriptor* aMemberDescriptor);
 
   typedef struct BuiltinMemberDescriptor {
     const char* name; ///< name of the function / member
     TypeInfo returnTypeInfo; ///< possible return types (for functions, this must have set "executable", but also contains the type(s) the functions might return. Members must have "lvalue" set to become assignable.
     size_t numArgs; ///< for functions: number of arguemnts, can be 0
-    const BuiltInArgDesc* arguments; ///< for functions: arguments, can be NULL
+    union {
+      const BuiltInArgDesc* arguments; ///< for functions: arguments, can be NULL
+      void* memberAccessInfo; ///< for members, extra info to access the member quickly in a custom way via a single common BuiltinMemberAccessor as proxy
+    };
     union {
       BuiltinFunctionImplementation implementation; ///< function pointer to implementation (as a plain function)
       BuiltinMemberAccessor accessor; ///< function pointer to accessor (as a plain function)
@@ -3155,7 +3160,7 @@ namespace p44 { namespace P44Script {
     /// @param aMemberDescriptors pointer to an array of member descriptors, terminated with an entry with .name==NULL
     BuiltInMemberLookup(const BuiltinMemberDescriptor* aMemberDescriptors);
 
-    virtual TypeInfo containsTypes() const P44_OVERRIDE { return constant+allscopes+anyvalid; } // constant, from all scopes, any type
+    virtual TypeInfo containsTypes() const P44_OVERRIDE { return constant+allscopes+alltypes; } // constant, from all scopes, any type
     virtual ScriptObjPtr memberByNameFrom(ScriptObjPtr aThisObj, const string aName, TypeInfo aMemberAccessFlags) const P44_OVERRIDE;
 
     virtual void appendMemberNames(FieldNameList& aList, TypeInfo aInterestedInTypes) P44_OVERRIDE;
@@ -3199,7 +3204,6 @@ namespace p44 { namespace P44Script {
 
 
   #define FLOG(f, lvl, ...) POLOG(f->thread()->chainOriginThread(), lvl, ##__VA_ARGS__);
-
 
   class BuiltinFunctionContext : public ExecutionContext
   {

@@ -1401,7 +1401,7 @@ const ScriptObjPtr StructuredLookupObject::memberByName(const string aName, Type
   LookupList::const_iterator pos = mLookups.begin();
   while (pos!=mLookups.end()) {
     MemberLookupPtr lookup = *pos;
-    if (typeRequirementMet(lookup->containsTypes(), aMemberAccessFlags, typeMask)) {
+    if (typeRequirementMet(lookup->containsTypes(), aMemberAccessFlags&~anyof, typeMask)) {
       if ((m = lookup->memberByNameFrom(const_cast<StructuredLookupObject*>(this), aName, aMemberAccessFlags))) return m;
     }
     ++pos;
@@ -2119,7 +2119,7 @@ void BuiltInLValue::assignLValue(EvaluationCB aEvaluationCB, ScriptObjPtr aNewVa
 {
   ScriptObjPtr m;
   if (aNewValue) {
-    m = mDescriptor->accessor(*const_cast<BuiltInMemberLookup *>(mLookup.get()), mThisObj, aNewValue); // write access
+    m = mDescriptor->accessor(*const_cast<BuiltInMemberLookup *>(mLookup.get()), mThisObj, aNewValue, mDescriptor); // write access
     if (!m) m = aNewValue;
   }
   else {
@@ -2154,7 +2154,7 @@ ScriptObjPtr BuiltInMemberLookup::memberByNameFrom(ScriptObjPtr aThisObj, const 
     TypeInfo ty = pos->second->returnTypeInfo;
     if (ty & builtinmember) {
       // is a built-in variable/object/property
-      m = pos->second->accessor(*const_cast<BuiltInMemberLookup *>(this), aThisObj, ScriptObjPtr()); // read access
+      m = pos->second->accessor(*const_cast<BuiltInMemberLookup *>(this), aThisObj, ScriptObjPtr(), pos->second); // read access
       if (ScriptObj::typeRequirementMet(ty, aMemberAccessFlags, typeMask)) {
         if ((ty & lvalue) && (aMemberAccessFlags & lvalue) && (aMemberAccessFlags & onlycreate)==0) {
           m = new BuiltInLValue(const_cast<BuiltInMemberLookup *>(this), pos->second, aThisObj, m); // it is allowed to overwrite this value
@@ -2173,7 +2173,7 @@ ScriptObjPtr BuiltInMemberLookup::memberByNameFrom(ScriptObjPtr aThisObj, const 
 void BuiltInMemberLookup::appendMemberNames(FieldNameList& aList, TypeInfo aInterestedInTypes)
 {
   for(MemberMap::const_iterator pos = mMembers.begin(); pos!=mMembers.end(); ++pos) {
-    if ((pos->second->returnTypeInfo & ~aInterestedInTypes)==0) {
+    if ((pos->second->returnTypeInfo & typeMask & ~aInterestedInTypes)==0) {
       // no type bits set in member which are not also in aInterestedInTypes
       aList.push_back(pos->first);
     }
@@ -8889,7 +8889,7 @@ static void globalvars_func(BuiltinFunctionContextPtr f)
   f->finish(f->thread()->owner()->domain()->contextLocals());
 }
 
-static ScriptObjPtr globals_accessor(BuiltInMemberLookup& aMemberLookup, ScriptObjPtr aParentObj, ScriptObjPtr aObjToWrite)
+static ScriptObjPtr globals_accessor(BuiltInMemberLookup& aMemberLookup, ScriptObjPtr aParentObj, ScriptObjPtr aObjToWrite, BuiltinMemberDescriptor*)
 {
   // the parent object of a global function is the scripting domain
   ScriptingDomain* domain = dynamic_cast<ScriptingDomain*>(aParentObj.get());

@@ -526,14 +526,14 @@ static void reset_func(BuiltinFunctionContextPtr f)
 
 
 
-static ScriptObjPtr current_accessor(BuiltInMemberLookup& aMemberLookup, ScriptObjPtr aParentObj, ScriptObjPtr aObjToWrite)
+static ScriptObjPtr current_accessor(BuiltInMemberLookup& aMemberLookup, ScriptObjPtr aParentObj, ScriptObjPtr aObjToWrite, BuiltinMemberDescriptor*)
 {
   ValueAnimatorObj* a = dynamic_cast<ValueAnimatorObj*>(aParentObj.get());
   return new NumericValue(a->animator()->current());
 }
 
 
-static ScriptObjPtr running_accessor(BuiltInMemberLookup& aMemberLookup, ScriptObjPtr aParentObj, ScriptObjPtr aObjToWrite)
+static ScriptObjPtr running_accessor(BuiltInMemberLookup& aMemberLookup, ScriptObjPtr aParentObj, ScriptObjPtr aObjToWrite, BuiltinMemberDescriptor*)
 {
   ValueAnimatorObj* a = dynamic_cast<ValueAnimatorObj*>(aParentObj.get());
   MLMicroSeconds st = a->animator()->startedAt();
