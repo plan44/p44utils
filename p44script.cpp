@@ -230,7 +230,7 @@ void ScriptObj::assignLValue(EvaluationCB aEvaluationCB, ScriptObjPtr aNewValue)
 string ScriptObj::typeDescription(TypeInfo aInfo)
 {
   string s;
-  if ((aInfo & any)==any) {
+  if ((aInfo & anyvalid)==anyvalid) {
     s = "any value";
     if ((aInfo & (null|error))!=(null|error)) {
       s += " but not";
@@ -3925,7 +3925,7 @@ void SourceProcessor::processFunction()
         if (mSrc.c()=='.' && mSrc.c(1)=='.' && mSrc.c(2)=='.') {
           // open argument list
           mSrc.advance(3);
-          function->pushArgumentDefinition(any|null|error|multiple, "arg");
+          function->pushArgumentDefinition(anyvalid|null|error|multiple, "arg");
           break;
         }
         string argName;
@@ -3933,7 +3933,7 @@ void SourceProcessor::processFunction()
           exitWithSyntaxError("function argument name expected");
           return;
         }
-        function->pushArgumentDefinition(any|null|error, argName);
+        function->pushArgumentDefinition(anyvalid|null|error, argName);
         mSrc.skipNonCode();
       } while(mSrc.nextIf(','));
       if (!mSrc.nextIf(')')) {
@@ -4519,7 +4519,7 @@ void SourceProcessor::s_foreachTarget()
   setState(&SourceProcessor::s_foreachLoopVar1);
   if (!mSkipping) {
     mLoopController = new LoopController;
-    mLoopController->mIterator = mResult->newIterator(any+null+attrMask); // all members
+    mLoopController->mIterator = mResult->newIterator(anyvalid+null+attrMask); // all members
     mResult.reset(); // create error variable on scope level
     memberByIdentifier(lvalue+create);
     return;
@@ -6953,7 +6953,7 @@ namespace BuiltinFunctions {
 
 
 // ifvalid(a, b)   if a is a valid value, return it, otherwise return the default as specified by b
-static const BuiltInArgDesc ifvalid_args[] = { { any|error|null }, { any|error|null } };
+static const BuiltInArgDesc ifvalid_args[] = { { anyvalid|error|null }, { anyvalid|error|null } };
 static const size_t ifvalid_numargs = sizeof(ifvalid_args)/sizeof(BuiltInArgDesc);
 static void ifvalid_func(BuiltinFunctionContextPtr f)
 {
@@ -6961,7 +6961,7 @@ static void ifvalid_func(BuiltinFunctionContextPtr f)
 }
 
 // isvalid(a)      if a is a valid value, return true, otherwise return false
-static const BuiltInArgDesc isvalid_args[] = { { any|error|null } };
+static const BuiltInArgDesc isvalid_args[] = { { anyvalid|error|null } };
 static const size_t isvalid_numargs = sizeof(isvalid_args)/sizeof(BuiltInArgDesc);
 static void isvalid_func(BuiltinFunctionContextPtr f)
 {
@@ -6970,7 +6970,7 @@ static void isvalid_func(BuiltinFunctionContextPtr f)
 
 
 // ifok(a, b)   if a can be accessed w/o error, return it, otherwise return the default as specified by b
-static const BuiltInArgDesc ifok_args[] = { { any|error|null }, { any|error|null } };
+static const BuiltInArgDesc ifok_args[] = { { anyvalid|error|null }, { anyvalid|error|null } };
 static const size_t ifok_numargs = sizeof(ifok_args)/sizeof(BuiltInArgDesc);
 static void ifok_func(BuiltinFunctionContextPtr f)
 {
@@ -6978,7 +6978,7 @@ static void ifok_func(BuiltinFunctionContextPtr f)
 }
 
 // isok(a)      if a does not produce an error
-static const BuiltInArgDesc isok_args[] = { { any|error|null } };
+static const BuiltInArgDesc isok_args[] = { { anyvalid|error|null } };
 static const size_t isok_numargs = sizeof(isok_args)/sizeof(BuiltInArgDesc);
 static void isok_func(BuiltinFunctionContextPtr f)
 {
@@ -6988,7 +6988,7 @@ static void isok_func(BuiltinFunctionContextPtr f)
 
 
 // if (c, a, b)    if c evaluates to true, return a, otherwise b
-static const BuiltInArgDesc if_args[] = { { value|null }, { any|error|null }, { any|error|null } };
+static const BuiltInArgDesc if_args[] = { { value|null }, { anyvalid|error|null }, { anyvalid|error|null } };
 static const size_t if_numargs = sizeof(if_args)/sizeof(BuiltInArgDesc);
 static void if_func(BuiltinFunctionContextPtr f)
 {
@@ -7103,7 +7103,7 @@ static void cyclic_func(BuiltinFunctionContextPtr f)
 
 
 // string(anything)
-static const BuiltInArgDesc string_args[] = { { any|error|null } };
+static const BuiltInArgDesc string_args[] = { { anyvalid|error|null } };
 static const size_t string_numargs = sizeof(string_args)/sizeof(BuiltInArgDesc);
 static void string_func(BuiltinFunctionContextPtr f)
 {
@@ -7114,7 +7114,7 @@ static void string_func(BuiltinFunctionContextPtr f)
 
 
 // describe(anything)
-static const BuiltInArgDesc describe_args[] = { { any|error|null } };
+static const BuiltInArgDesc describe_args[] = { { anyvalid|error|null } };
 static const size_t describe_numargs = sizeof(describe_args)/sizeof(BuiltInArgDesc);
 static void describe_func(BuiltinFunctionContextPtr f)
 {
@@ -7123,7 +7123,7 @@ static void describe_func(BuiltinFunctionContextPtr f)
 
 
 // annotation(anything)
-static const BuiltInArgDesc annotation_args[] = { { any|error|null } };
+static const BuiltInArgDesc annotation_args[] = { { anyvalid|error|null } };
 static const size_t annotation_numargs = sizeof(annotation_args)/sizeof(BuiltInArgDesc);
 static void annotation_func(BuiltinFunctionContextPtr f)
 {
@@ -7141,7 +7141,7 @@ static void null_func(BuiltinFunctionContextPtr f)
 
 
 // number(anything)
-static const BuiltInArgDesc number_args[] = { { any|error|null } };
+static const BuiltInArgDesc number_args[] = { { anyvalid|error|null } };
 static const size_t number_numargs = sizeof(number_args)/sizeof(BuiltInArgDesc);
 static void number_func(BuiltinFunctionContextPtr f)
 {
@@ -7151,7 +7151,7 @@ static void number_func(BuiltinFunctionContextPtr f)
 }
 
 // boolean(anything)
-static const BuiltInArgDesc boolean_args[] = { { any|error|null } };
+static const BuiltInArgDesc boolean_args[] = { { anyvalid|error|null } };
 static const size_t boolean_numargs = sizeof(boolean_args)/sizeof(BuiltInArgDesc);
 static void boolean_func(BuiltinFunctionContextPtr f)
 {
@@ -7164,7 +7164,7 @@ static void boolean_func(BuiltinFunctionContextPtr f)
 #if SCRIPTING_JSON_SUPPORT
 
 // json(anything [, allowcomments])     parse json into p44script objects/arrays/values from string
-static const BuiltInArgDesc json_args[] = { { any }, { numeric|optionalarg } };
+static const BuiltInArgDesc json_args[] = { { anyvalid }, { numeric|optionalarg } };
 static const size_t json_numargs = sizeof(json_args)/sizeof(BuiltInArgDesc);
 static void json_func(BuiltinFunctionContextPtr f)
 {
@@ -7188,7 +7188,7 @@ static void json_func(BuiltinFunctionContextPtr f)
 
 
 // elements(array)
-static const BuiltInArgDesc elements_args[] = { { any|undefres } };
+static const BuiltInArgDesc elements_args[] = { { anyvalid|undefres } };
 static const size_t elements_numargs = sizeof(elements_args)/sizeof(BuiltInArgDesc);
 static void elements_func(BuiltinFunctionContextPtr f)
 {
@@ -7228,7 +7228,7 @@ static void jsonresource_func(BuiltinFunctionContextPtr f)
 
 
 // lastarg(expr, expr, exprlast)
-static const BuiltInArgDesc lastarg_args[] = { { any|null|multiple, "side-effect" } };
+static const BuiltInArgDesc lastarg_args[] = { { anyvalid|null|multiple, "side-effect" } };
 static const size_t lastarg_numargs = sizeof(lastarg_args)/sizeof(BuiltInArgDesc);
 static void lastarg_func(BuiltinFunctionContextPtr f)
 {
@@ -7489,7 +7489,7 @@ static void lowercase_func(BuiltinFunctionContextPtr f)
 
 
 // shellquote(shellargument)
-static const BuiltInArgDesc shellquote_args[] = { { any } };
+static const BuiltInArgDesc shellquote_args[] = { { anyvalid } };
 static const size_t shellquote_numargs = sizeof(shellquote_args)/sizeof(BuiltInArgDesc);
 static void shellquote_func(BuiltinFunctionContextPtr f)
 {
@@ -7498,7 +7498,7 @@ static void shellquote_func(BuiltinFunctionContextPtr f)
 
 
 // cquote(string)
-static const BuiltInArgDesc cquote_args[] = { { any } };
+static const BuiltInArgDesc cquote_args[] = { { anyvalid } };
 static const size_t cquote_numargs = sizeof(cquote_args)/sizeof(BuiltInArgDesc);
 static void cquote_func(BuiltinFunctionContextPtr f)
 {
@@ -7562,7 +7562,7 @@ static ScriptObjPtr format_string(BuiltinFunctionContextPtr f, size_t aFmtArgIdx
 
 // format(formatstring, value [, value...])
 // only % + - 0..9 . d, x, and f supported
-static const BuiltInArgDesc format_args[] = { { text }, { any|null|error|multiple } };
+static const BuiltInArgDesc format_args[] = { { text }, { anyvalid|null|error|multiple } };
 static const size_t format_numargs = sizeof(format_args)/sizeof(BuiltInArgDesc);
 static void format_func(BuiltinFunctionContextPtr f)
 {
@@ -7597,7 +7597,7 @@ static void formattime_func(BuiltinFunctionContextPtr f)
 
 
 // throw(value)       - throw value as-is if it is an error value, otherwise a user error with value converted to string as errormessage
-static const BuiltInArgDesc throw_args[] = { { any|error } };
+static const BuiltInArgDesc throw_args[] = { { anyvalid|error } };
 static const size_t throw_numargs = sizeof(throw_args)/sizeof(BuiltInArgDesc);
 static void throw_func(BuiltinFunctionContextPtr f)
 {
@@ -7616,7 +7616,7 @@ static void throw_func(BuiltinFunctionContextPtr f)
 
 
 // error(value)       - create a user error value with the string value of value as errormessage, in all cases, even if value is already an error
-static const BuiltInArgDesc error_args[] = { { any|error|null } };
+static const BuiltInArgDesc error_args[] = { { anyvalid|error|null } };
 static const size_t error_numargs = sizeof(error_args)/sizeof(BuiltInArgDesc);
 static void error_func(BuiltinFunctionContextPtr f)
 {
@@ -7660,7 +7660,7 @@ static void errormessage_func(BuiltinFunctionContextPtr f)
 
 
 // eval(string, [args...])    have string executed as script code, with access to optional args as arg1, arg2, ... argN
-static const BuiltInArgDesc eval_args[] = { { text|executable }, { any|null|error|multiple } };
+static const BuiltInArgDesc eval_args[] = { { text|executable }, { anyvalid|null|error|multiple } };
 static const size_t eval_numargs = sizeof(eval_args)/sizeof(BuiltInArgDesc);
 static void eval_func(BuiltinFunctionContextPtr f)
 {
@@ -7809,7 +7809,7 @@ static void appversion_func(BuiltinFunctionContextPtr f)
 
 
 // writefile(filename, data [, append])
-static const BuiltInArgDesc writefile_args[] = { { text }, { any|null }, { numeric|optionalarg } };
+static const BuiltInArgDesc writefile_args[] = { { text }, { anyvalid|null }, { numeric|optionalarg } };
 static const size_t writefile_numargs = sizeof(writefile_args)/sizeof(BuiltInArgDesc);
 static void writefile_func(BuiltinFunctionContextPtr f)
 {
@@ -8105,7 +8105,7 @@ public:
 };
 
 // send([signaldata]) send the signal
-static const BuiltInArgDesc signal_args[] = { { any|optionalarg } };
+static const BuiltInArgDesc signal_args[] = { { anyvalid|optionalarg } };
 static const size_t signal_numargs = sizeof(signal_args)/sizeof(BuiltInArgDesc);
 static void send_func(BuiltinFunctionContextPtr f)
 {
@@ -8114,7 +8114,7 @@ static void send_func(BuiltinFunctionContextPtr f)
   f->finish();
 }
 static const BuiltinMemberDescriptor answer_desc =
-  { "send", executable|any, signal_numargs, signal_args, &send_func };
+  { "send", executable|anyvalid, signal_numargs, signal_args, &send_func };
 
 const ScriptObjPtr SignalObj::memberByName(const string aName, TypeInfo aMemberAccessFlags) const
 {
@@ -8162,7 +8162,7 @@ static void await_abort(AwaitEventSink* aAwaitEventSink)
   delete aAwaitEventSink;
 }
 
-static const BuiltInArgDesc await_args[] = { { any|null }, { any|null|optionalarg|multiple } };
+static const BuiltInArgDesc await_args[] = { { anyvalid|null }, { anyvalid|null|optionalarg|multiple } };
 static const size_t await_numargs = sizeof(await_args)/sizeof(BuiltInArgDesc);
 static void await_func(BuiltinFunctionContextPtr f)
 {
@@ -8204,7 +8204,7 @@ static void await_func(BuiltinFunctionContextPtr f)
 
 // abort(thread [,exitvalue [, ownchain])   abort specified thread
 // abort()                                  abort all subthreads
-static const BuiltInArgDesc abort_args[] = { { threadref|exacttype|optionalarg }, { any|optionalarg }, { numeric|optionalarg } };
+static const BuiltInArgDesc abort_args[] = { { threadref|exacttype|optionalarg }, { anyvalid|optionalarg }, { numeric|optionalarg } };
 static const size_t abort_numargs = sizeof(abort_args)/sizeof(BuiltInArgDesc);
 static void abort_func(BuiltinFunctionContextPtr f)
 {
@@ -8291,7 +8291,7 @@ static void undeclare_func(BuiltinFunctionContextPtr f)
 // log (logformat, ...)
 // log (loglevel, tobeloggedobj)
 // log (loglevel, logformat, ...)
-static const BuiltInArgDesc log_args[] = { { any|null|error|multiple } };
+static const BuiltInArgDesc log_args[] = { { anyvalid|null|error|multiple } };
 static const size_t log_numargs = sizeof(log_args)/sizeof(BuiltInArgDesc);
 static void log_func(BuiltinFunctionContextPtr f)
 {
@@ -8900,11 +8900,11 @@ static void localvars_func(BuiltinFunctionContextPtr f)
 
 // The standard function descriptor table
 static const BuiltinMemberDescriptor standardFunctions[] = {
-  { "ifok", executable|any, ifok_numargs, ifok_args, &ifok_func },
-  { "ifvalid", executable|any, ifvalid_numargs, ifvalid_args, &ifvalid_func },
+  { "ifok", executable|anyvalid, ifok_numargs, ifok_args, &ifok_func },
+  { "ifvalid", executable|anyvalid, ifvalid_numargs, ifvalid_args, &ifvalid_func },
   { "isok", executable|numeric, isok_numargs, isok_args, &isok_func },
   { "isvalid", executable|numeric, isvalid_numargs, isvalid_args, &isvalid_func },
-  { "if", executable|any, if_numargs, if_args, &if_func },
+  { "if", executable|anyvalid, if_numargs, if_args, &if_func },
   { "abs", executable|numeric|null, abs_numargs, abs_args, &abs_func },
   { "int", executable|numeric|null, int_numargs, int_args, &int_func },
   { "frac", executable|numeric|null, frac_numargs, frac_args, &frac_func },
@@ -8919,8 +8919,8 @@ static const BuiltinMemberDescriptor standardFunctions[] = {
   { "boolean", executable|numeric, boolean_numargs, boolean_args, &boolean_func },
   { "describe", executable|text, describe_numargs, describe_args, &describe_func },
   { "annotation", executable|text, annotation_numargs, annotation_args, &annotation_func },
-  { "null", any, null_numargs, null_args, &null_func },
-  { "lastarg", executable|any, lastarg_numargs, lastarg_args, &lastarg_func },
+  { "null", executable|null, null_numargs, null_args, &null_func },
+  { "lastarg", executable|anyvalid, lastarg_numargs, lastarg_args, &lastarg_func },
   #if SCRIPTING_JSON_SUPPORT
   { "json", executable|value, json_numargs, json_args, &json_func },
   #if ENABLE_JSON_APPLICATION
@@ -8948,7 +8948,7 @@ static const BuiltinMemberDescriptor standardFunctions[] = {
   { "cquote", executable|text, cquote_numargs, cquote_args, &cquote_func },
   { "format", executable|text, format_numargs, format_args, &format_func },
   { "formattime", executable|text, formattime_numargs, formattime_args, &formattime_func },
-  { "throw", executable|any, throw_numargs, throw_args, &throw_func },
+  { "throw", executable|anyvalid, throw_numargs, throw_args, &throw_func },
   { "error", executable|error, error_numargs, error_args, &error_func },
   { "errordomain", executable|text|null, errordomain_numargs, errordomain_args, &errordomain_func },
   { "errorcode", executable|numeric|null, errorcode_numargs, errorcode_args, &errorcode_func },
@@ -8959,7 +8959,7 @@ static const BuiltinMemberDescriptor standardFunctions[] = {
   { "loglevel", executable|numeric, loglevel_numargs, loglevel_args, &loglevel_func },
   { "logleveloffset", executable|numeric, logleveloffset_numargs, logleveloffset_args, &logleveloffset_func },
   #endif // P44SCRIPT_FULL_SUPPORT
-  { "is_weekday", executable|any, is_weekday_numargs, is_weekday_args, &is_weekday_func },
+  { "is_weekday", executable|anyvalid, is_weekday_numargs, is_weekday_args, &is_weekday_func },
   { "after_time", executable|numeric, after_time_numargs, after_time_args, &after_time_func },
   { "is_time", executable|numeric, is_time_numargs, is_time_args, &is_time_func },
   { "initial", executable|numeric, 0, NULL, &initial_func },
@@ -8970,8 +8970,8 @@ static const BuiltinMemberDescriptor standardFunctions[] = {
   { "dawn", executable|numeric|null, timegetter_numargs, timegetter_args, &dawn_func },
   { "sunset", executable|numeric|null, timegetter_numargs, timegetter_args, &sunset_func },
   { "dusk", executable|numeric|null, timegetter_numargs, timegetter_args, &dusk_func },
-  { "epochtime", executable|any, epochtime_numargs, epochtime_args, &epochtime_func },
-  { "epochdays", executable|any, 0, NULL, &epochdays_func },
+  { "epochtime", executable|anyvalid, epochtime_numargs, epochtime_args, &epochtime_func },
+  { "epochdays", executable|anyvalid, 0, NULL, &epochdays_func },
   { "timeofday", executable|numeric, timegetter_numargs, timegetter_args, &timeofday_func },
   { "hour", executable|numeric, timegetter_numargs, timegetter_args, &hour_func },
   { "minute", executable|numeric, timegetter_numargs, timegetter_args, &minute_func },
@@ -8995,16 +8995,16 @@ static const BuiltinMemberDescriptor standardFunctions[] = {
   { "contextbuiltins", executable|structured, 0, NULL, &contextbuiltins_func },
   #endif
   #if P44SCRIPT_FULL_SUPPORT
-  { "lock", executable|any, lock_numargs, lock_args, &lock_func },
-  { "signal", executable|any, 0, NULL, &signal_func },
+  { "lock", executable|anyvalid, lock_numargs, lock_args, &lock_func },
+  { "signal", executable|anyvalid, 0, NULL, &signal_func },
   // Async
-  { "await", executable|async|any, await_numargs, await_args, &await_func },
+  { "await", executable|async|anyvalid, await_numargs, await_args, &await_func },
   { "delay", executable|async|null, delayx_numargs, delayx_args, &delay_func },
   { "delayuntil", executable|async|null, delayx_numargs, delayx_args, &delayuntil_func },
-  { "eval", executable|async|any, eval_numargs, eval_args, &eval_func },
-  { "maxblocktime", executable|any, maxblocktime_numargs, maxblocktime_args, &maxblocktime_func },
-  { "maxruntime", executable|any, maxruntime_numargs, maxruntime_args, &maxruntime_func },
-  { "breakpoint", executable|any, 0, NULL, &breakpoint_func },
+  { "eval", executable|async|anyvalid, eval_numargs, eval_args, &eval_func },
+  { "maxblocktime", executable|anyvalid, maxblocktime_numargs, maxblocktime_args, &maxblocktime_func },
+  { "maxruntime", executable|anyvalid, maxruntime_numargs, maxruntime_args, &maxruntime_func },
+  { "breakpoint", executable|anyvalid, 0, NULL, &breakpoint_func },
   #if !ESP_PLATFORM
   { "system", executable|async|text, system_numargs, system_args, &system_func },
   // Other system/app stuff

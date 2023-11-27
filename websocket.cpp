@@ -252,7 +252,7 @@ static void close_func(BuiltinFunctionContextPtr f)
 
 
 // send(data [, opcode])
-static const BuiltInArgDesc send_args[] = { { any }, { numeric|optionalarg } };
+static const BuiltInArgDesc send_args[] = { { anyvalid }, { numeric|optionalarg } };
 static const size_t send_numargs = sizeof(send_args)/sizeof(BuiltInArgDesc);
 static void send_func(BuiltinFunctionContextPtr f)
 {

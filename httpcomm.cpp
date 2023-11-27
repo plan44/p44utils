@@ -661,7 +661,7 @@ static void geturl_func(BuiltinFunctionContextPtr f)
   httpFuncImpl(f, "GET");
 }
 
-static const BuiltInArgDesc postputurl_args[] = { { text } , { any|optionalarg }, { any|optionalarg } };
+static const BuiltInArgDesc postputurl_args[] = { { text } , { anyvalid|optionalarg }, { anyvalid|optionalarg } };
 static const size_t postputurl_numargs = sizeof(postputurl_args)/sizeof(BuiltInArgDesc);
 
 // posturl("<url>"[,timeout][,"<data>"])
@@ -678,7 +678,7 @@ static void puturl_func(BuiltinFunctionContextPtr f)
 
 
 // httprequest(requestparams [,"<data>"])
-static const BuiltInArgDesc httprequest_args[] = { { object }, { any|optionalarg} };
+static const BuiltInArgDesc httprequest_args[] = { { object }, { anyvalid|optionalarg} };
 static const size_t httprequest_numargs = sizeof(httprequest_args)/sizeof(BuiltInArgDesc);
 static void httprequest_func(BuiltinFunctionContextPtr f)
 {
@@ -687,7 +687,7 @@ static void httprequest_func(BuiltinFunctionContextPtr f)
 
 
 // urlencode(texttoencode [, x-www-form-urlencoded])
-static const BuiltInArgDesc urlencode_args[] = { { text } , { any|optionalarg }, { any|optionalarg } };
+static const BuiltInArgDesc urlencode_args[] = { { text } , { anyvalid|optionalarg }, { anyvalid|optionalarg } };
 static const size_t urlencode_numargs = sizeof(urlencode_args)/sizeof(BuiltInArgDesc);
 static void urlencode_func(BuiltinFunctionContextPtr f)
 {

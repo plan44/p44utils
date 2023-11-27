@@ -228,7 +228,7 @@ namespace p44 { namespace P44Script {
     object = 0x400, ///< is a object with named members (can still have indexed elements, too)
     array = 0x800, ///< is an array with indexed elements (can still have named fields, too)
     // type classes
-    any = typeMask-null-error, ///< any type except null and error
+    anyvalid = typeMask-null-error, ///< any type except null and error
     scalar = numeric+text, // +json, ///< scalar types (json can also be structured)
     structured = object+array, ///< structured types
     value = scalar+structured, ///< all value types (excludes executables)
@@ -1148,7 +1148,7 @@ namespace p44 { namespace P44Script {
 
     /// return mask of all types that may be (but not necessarily are) in this lookup
     /// @note this is for optimizing lookups for certain types. Base class potentially has all kind of objects
-    virtual TypeInfo containsTypes() const { return any+null+constant+allscopes; }
+    virtual TypeInfo containsTypes() const { return anyvalid+null+constant+allscopes; }
 
     /// get object subfield/member by name
     /// @param aThisObj the object _instance_ of which we want to access a member (can be NULL in case of singletons)
@@ -3146,7 +3146,7 @@ namespace p44 { namespace P44Script {
     /// @param aMemberDescriptors pointer to an array of member descriptors, terminated with an entry with .name==NULL
     BuiltInMemberLookup(const BuiltinMemberDescriptor* aMemberDescriptors);
 
-    virtual TypeInfo containsTypes() const P44_OVERRIDE { return constant+allscopes+any; } // constant, from all scopes, any type
+    virtual TypeInfo containsTypes() const P44_OVERRIDE { return constant+allscopes+anyvalid; } // constant, from all scopes, any type
     virtual ScriptObjPtr memberByNameFrom(ScriptObjPtr aThisObj, const string aName, TypeInfo aMemberAccessFlags) const P44_OVERRIDE;
 
     virtual void appendMemberNames(FieldNameList& aList, TypeInfo aInterestedInTypes) P44_OVERRIDE;
