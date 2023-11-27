@@ -219,19 +219,25 @@ namespace p44 { namespace P44Script {
     // content type flags, usually one per object, but object/array can be combined with regular type
     typeMask = 0x0FFF,
     none = 0x000, ///< no type specification
+    // - scalars
     null = 0x001, ///< NULL/undefined
     error = 0x002, ///< Error
-    numeric = 0x010, ///< numeric value
-    text = 0x020, ///< text/string value
-    executable = 0x080, ///< executable code
-    threadref = 0x100, ///< represents a running thread
-    object = 0x400, ///< is a object with named members (can still have indexed elements, too)
-    array = 0x800, ///< is an array with indexed elements (can still have named fields, too)
-    // type classes
+    numeric = 0x004, ///< numeric value
+    text = 0x008, ///< text/string value
+    // - structured
+    object = 0x010, ///< is a object with named members (can still have indexed elements, too)
+    array = 0x020, ///< is an array with indexed elements (can still have named fields, too)
+    // - special
+    executable = 0x100, ///< executable code
+    threadref = 0x200, ///< represents a running thread
+    // - type classes
     anyvalid = typeMask-null-error, ///< any type except null and error
     scalar = numeric+text, // +json, ///< scalar types (json can also be structured)
     structured = object+array, ///< structured types
     value = scalar+structured, ///< all value types (excludes executables)
+    jsonrepresentable = value+null, ///< all data including null (but not error) - this is what is directly representable by JSON
+    // - check flags
+    anyof = 0x800, ///< special flag for checking, means that checked type must only match one of the passed flags, not all
     // attributes
     attrMask = 0xFFFFF000,
     // - for argument checking
@@ -426,9 +432,10 @@ namespace p44 { namespace P44Script {
     bool hasType(TypeInfo aTypeInfo) const { return (getTypeInfo() & aTypeInfo)!=0; }
 
     /// check type compatibility
-    /// @param aRequirements what type flags MUST be set
+    /// @param aRequirements what type flags MUST be set (`anyof`=0) or MAY be set (`anyof`=1)
     /// @param aMask what type flags are checked (defaults to typeMask)
     /// @return true if this object has all of the type flags requested within the mask
+    ///   or, when `anyof` is set as well, the object does not have flags not in aRequirements
     bool meetsRequirement(TypeInfo aRequirements, TypeInfo aMask = typeMask) const
       { return typeRequirementMet(getTypeInfo(), aRequirements, aMask); }
 
@@ -437,9 +444,8 @@ namespace p44 { namespace P44Script {
     /// @param aRequirements what type flags MUST be set
     /// @param aMask what type flags are checked (defaults to typeMask)
     /// @return true if this object has all of the type flags requested within the mask
-    static bool typeRequirementMet(TypeInfo aInfo, TypeInfo aRequirements, TypeInfo aMask = typeMask)
-      { return (aInfo&aRequirements&aMask)==(aRequirements&aMask); }
-
+    ///   or, when `anyof` is set as well, the object does not have flags not in aRequirements
+    static bool typeRequirementMet(TypeInfo aInfo, TypeInfo aRequirements, TypeInfo aMask = typeMask);
 
     /// check for null/undefined
     bool undefined() const { return (getTypeInfo() & null)!=0; }
@@ -1312,6 +1318,9 @@ namespace p44 { namespace P44Script {
 
     /// clear local variables (named members)
     virtual void clearVars() P44_OVERRIDE;
+
+    /// get context local variables
+    ScriptObjPtr contextLocals() { return &mLocalVars; }
 
     /// access to local variables by name
     virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aMemberAccessFlags) const P44_OVERRIDE;

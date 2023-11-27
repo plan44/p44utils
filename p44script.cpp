@@ -315,6 +315,17 @@ string ScriptObj::describe(const ScriptObj* aObj)
 }
 
 
+bool ScriptObj::typeRequirementMet(TypeInfo aInfo, TypeInfo aRequirements, TypeInfo aMask)
+{
+  if (aRequirements & anyof) {
+    return (aInfo & aMask & ~((aRequirements&aMask)|anyof))==0;
+  }
+  else {
+    return (aInfo & aRequirements & aMask)==(aRequirements & aMask);
+  }
+}
+
+
 int ScriptObj::getLogLevelOffset()
 {
   if (logLevelOffset==0) {
@@ -907,7 +918,7 @@ JsonObjectPtr StructuredValue::jsonValue(bool aDescribeNonJSON) const
   ScriptObjPtr o;
   while ((o = iter->obtainKey(false))) {
     string key = o->stringValue();
-    o = iter->obtainValue(objscope);
+    o = iter->obtainValue(anyof|jsonrepresentable);
     if (o) {
       obj->add(key.c_str(), o->jsonValue());
     }
@@ -8875,24 +8886,30 @@ static void contexthandlers_func(BuiltinFunctionContextPtr f)
 
 static void globalvars_func(BuiltinFunctionContextPtr f)
 {
-  f->finish(f->thread()->owner()->domain());
+  f->finish(f->thread()->owner()->domain()->contextLocals());
 }
 
 static ScriptObjPtr globals_accessor(BuiltInMemberLookup& aMemberLookup, ScriptObjPtr aParentObj, ScriptObjPtr aObjToWrite)
 {
   // the parent object of a global function is the scripting domain
-  return aParentObj;
+  ScriptingDomain* domain = dynamic_cast<ScriptingDomain*>(aParentObj.get());
+  assert(domain);
+  return domain->contextLocals(); // domain context "locals" are the global vars
 }
-
 
 static void contextvars_func(BuiltinFunctionContextPtr f)
 {
-  f->finish(f->thread()->owner()->scriptmain());
+  f->finish(f->thread()->owner()->scriptmain()->contextLocals());
 }
 
 static void localvars_func(BuiltinFunctionContextPtr f)
 {
-  f->finish(f->thread()->owner());
+  f->finish(f->thread()->owner()->contextLocals());
+}
+
+static void threadvars_func(BuiltinFunctionContextPtr f)
+{
+  f->finish(f->thread()->threadLocals());
 }
 
 #endif // SCRIPTING_JSON_SUPPORT
@@ -8987,6 +9004,7 @@ static const BuiltinMemberDescriptor standardFunctions[] = {
   { "globals", builtinmember|structured, 0, NULL, (BuiltinFunctionImplementation)&globals_accessor }, // Note: correct '.accessor=&lrg_accessor' form does not work with OpenWrt g++, so need ugly cast here
   { "contextvars", executable|structured, 0, NULL, &contextvars_func },
   { "localvars", executable|structured, 0, NULL, &localvars_func },
+  { "threadvars", executable|structured, 0, NULL, &threadvars_func },
   #if P44SCRIPT_FULL_SUPPORT
   { "globalhandlers", executable|structured, 0, NULL, &globalhandlers_func },
   { "contexthandlers", executable|structured, 0, NULL, &contexthandlers_func },
