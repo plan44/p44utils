@@ -1005,7 +1005,7 @@ static void dnssdbrowse_func(BuiltinFunctionContextPtr f)
 
 
 static const BuiltinMemberDescriptor dnssdGlobals[] = {
-  { "dnssdbrowse", executable|async|array, dnssdbrowse_numargs, dnssdbrowse_args, &dnssdbrowse_func },
+  { "dnssdbrowse", executable|async|arrayvalue, dnssdbrowse_numargs, dnssdbrowse_args, &dnssdbrowse_func },
   { NULL } // terminator
 };
 

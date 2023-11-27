@@ -225,8 +225,8 @@ namespace p44 { namespace P44Script {
     numeric = 0x004, ///< numeric value
     text = 0x008, ///< text/string value
     // - structured
-    object = 0x010, ///< is a object with named members (can still have indexed elements, too)
-    array = 0x020, ///< is an array with indexed elements (can still have named fields, too)
+    objectvalue = 0x010, ///< is a object with named members (can still have indexed elements, too)
+    arrayvalue = 0x020, ///< is an array with indexed elements (can still have named fields, too)
     // - special
     executable = 0x100, ///< executable code
     threadref = 0x200, ///< represents a running thread
@@ -234,7 +234,7 @@ namespace p44 { namespace P44Script {
     alltypes = typeMask, ///< all types
     anyvalid = typeMask-null-error, ///< any type except null and error
     scalar = numeric+text, // +json, ///< scalar types (json can also be structured)
-    structured = object+array, ///< structured types
+    structured = objectvalue+arrayvalue, ///< structured types
     value = scalar+structured, ///< all value types (excludes executables)
     jsonrepresentable = value+null, ///< all data including null (but not error) - this is what is directly representable by JSON
     // - check flags
@@ -1023,7 +1023,7 @@ namespace p44 { namespace P44Script {
     virtual ScriptObjPtr assignmentValue() const P44_OVERRIDE;
     ArrayValue() {};
     virtual string getAnnotation() const P44_OVERRIDE { return "array"; };
-    virtual TypeInfo getTypeInfo() const P44_OVERRIDE { return array; }
+    virtual TypeInfo getTypeInfo() const P44_OVERRIDE { return arrayvalue; }
     // value getters
     #if SCRIPTING_JSON_SUPPORT
     ArrayValue(JsonObjectPtr aJsonObject); ///< construct from JSON value
@@ -1054,7 +1054,7 @@ namespace p44 { namespace P44Script {
     virtual ScriptObjPtr assignmentValue() const P44_OVERRIDE;
     ObjectValue() {};
     virtual string getAnnotation() const P44_OVERRIDE { return "object"; };
-    virtual TypeInfo getTypeInfo() const P44_OVERRIDE { return object; }
+    virtual TypeInfo getTypeInfo() const P44_OVERRIDE { return objectvalue; }
     // value getters
     #if SCRIPTING_JSON_SUPPORT
     ObjectValue(JsonObjectPtr aJsonObject); ///< construct from JSON value

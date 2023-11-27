@@ -678,7 +678,7 @@ static void puturl_func(BuiltinFunctionContextPtr f)
 
 
 // httprequest(requestparams [,"<data>"])
-static const BuiltInArgDesc httprequest_args[] = { { object }, { anyvalid|optionalarg} };
+static const BuiltInArgDesc httprequest_args[] = { { objectvalue }, { anyvalid|optionalarg} };
 static const size_t httprequest_numargs = sizeof(httprequest_args)/sizeof(BuiltInArgDesc);
 static void httprequest_func(BuiltinFunctionContextPtr f)
 {

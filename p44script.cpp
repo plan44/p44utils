@@ -243,11 +243,11 @@ string ScriptObj::typeDescription(TypeInfo aInfo)
   }
   else {
     // structure
-    if (aInfo & object) {
+    if (aInfo & objectvalue) {
       // identify structured values that are both object and array just as object
       s = "object";
     }
-    else if (aInfo & array) {
+    else if (aInfo & arrayvalue) {
       s = "array";
     }
     // special
@@ -1087,7 +1087,7 @@ ScriptObjPtr ArrayValue::assignmentValue() const
 bool ArrayValue::operator==(const ScriptObj& aRightSide) const
 {
   if (inherited::operator==(aRightSide)) return true; // object identity or both sides undefined
-  if (aRightSide.hasType(array)) {
+  if (aRightSide.hasType(arrayvalue)) {
     // compare two arrays
     // - equal if same number of elements with same contents
     if (mElements.size()!=aRightSide.numIndexedMembers()) return false; // easy way out: not same number of fields
@@ -1104,7 +1104,7 @@ bool ArrayValue::operator==(const ScriptObj& aRightSide) const
 
 bool ArrayValue::operator<(const ScriptObj& aRightSide) const
 {
-  if (aRightSide.hasType(array)) {
+  if (aRightSide.hasType(arrayvalue)) {
     // less elements -> consider the array "less" than one with more fields
     return mElements.size()<aRightSide.numIndexedMembers();
   }
@@ -1114,7 +1114,7 @@ bool ArrayValue::operator<(const ScriptObj& aRightSide) const
 
 ScriptObjPtr ArrayValue::operator+(const ScriptObj& aRightSide) const
 {
-  if (aRightSide.hasType(array)) {
+  if (aRightSide.hasType(arrayvalue)) {
     if (aRightSide.numIndexedMembers()>0) {
       // rightside contains elements to add
       ScriptObjPtr appended = assignmentValue();
@@ -1230,7 +1230,7 @@ ScriptObjPtr ObjectValue::assignmentValue() const
 bool ObjectValue::operator==(const ScriptObj& aRightSide) const
 {
   if (inherited::operator==(aRightSide)) return true; // object identity or both sides undefined
-  if (aRightSide.hasType(object)) {
+  if (aRightSide.hasType(objectvalue)) {
     // compare two objects
     // - equal if same number and names of fields with same contents
     if (mFields.size()!=aRightSide.numIndexedMembers()) return false; // easy way out: not same number of fields
@@ -1247,7 +1247,7 @@ bool ObjectValue::operator==(const ScriptObj& aRightSide) const
 
 bool ObjectValue::operator<(const ScriptObj& aRightSide) const
 {
-  if (aRightSide.hasType(object)) {
+  if (aRightSide.hasType(objectvalue)) {
     // less fields -> consider the object "less" than one with more fields
     return mFields.size()<aRightSide.numIndexedMembers();
   }

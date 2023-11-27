@@ -633,8 +633,8 @@ static void filter_func(BuiltinFunctionContextPtr f)
 
 static const BuiltinMemberDescriptor analogioFunctions[] = {
   { "value", executable|numeric, value_numargs, value_args, &value_func },
-  { "range", executable|object, 0, NULL, &range_func },
-  { "animator", executable|object, 0, NULL, &animator_func },
+  { "range", executable|objectvalue, 0, NULL, &range_func },
+  { "animator", executable|objectvalue, 0, NULL, &animator_func },
   { "poll", executable|null, poll_numargs, poll_args, &poll_func },
   { "filter", executable|null, filter_numargs, filter_args, &filter_func },
   { NULL } // terminator
@@ -812,7 +812,7 @@ static void setoutputchannelpower_func(BuiltinFunctionContextPtr f)
 
 
 static const BuiltinMemberDescriptor coloroutputFunctions[] = {
-  { "animator", executable|object, animatorfor_numargs, animatorfor_args, &animatorfor_func },
+  { "animator", executable|objectvalue, animatorfor_numargs, animatorfor_args, &animatorfor_func },
   { "setcolor", executable|null, setcolor_numargs, setcolor_args, &setcolor_func },
   { "setbrightness", executable|null, setbrightness_numargs, setbrightness_args, &setbrightness_func },
   { "powerlimit", executable|numeric|null, powerlimit_numargs, powerlimit_args, &powerlimit_func },
@@ -834,7 +834,7 @@ AnalogColorOutputObj::AnalogColorOutputObj(AnalogColorOutputPtr aColorOutput) :
 
 
 // analogcoloroutput(red, green, blue [[, white [, amber]) // AnalogIOObjs or pin specs
-static const BuiltInArgDesc coloroutput_args[] = { { text|object }, { text|object }, { text|object }, { text|optionalarg }, { text|optionalarg } };
+static const BuiltInArgDesc coloroutput_args[] = { { text|objectvalue }, { text|objectvalue }, { text|objectvalue }, { text|optionalarg }, { text|optionalarg } };
 static const size_t coloroutput_numargs = sizeof(coloroutput_args)/sizeof(BuiltInArgDesc);
 static void coloroutput_func(BuiltinFunctionContextPtr f)
 {
