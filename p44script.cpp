@@ -2504,7 +2504,7 @@ bool SourceCursor::checkForIdentifier(const char *aIdentifier)
   // is identifier
   o++;
   while (c(o) && (isalnum(c(o)) || c(o)=='_')) o++;
-  if (strucmp(mPos.mPtr, aIdentifier, o)!=0) return false; // no match
+  if (!uequals(mPos.mPtr, aIdentifier, o)) return false; // no match
   mPos.mPtr += o; // advance
   return true;
 }
@@ -2629,7 +2629,7 @@ ScriptObjPtr SourceCursor::parseNumericLiteral()
           // could be dd.monthname
           static const char * const monthNames[12] = { "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec" };
           for (m=0; m<12; m++) {
-            if (strucmp(mPos.mPtr+o, monthNames[m], 3)==0) {
+            if (uequals(mPos.mPtr+o, monthNames[m], 3)) {
               // valid monthname following number
               // v = day, m = month-1
               m += 1;

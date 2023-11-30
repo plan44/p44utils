@@ -65,7 +65,7 @@ string DnsSdServiceInfo::hostPart(bool aURLFormat)
   string h;
   if (ipv6) {
     h = string_format("[%s", hostaddress.c_str());
-    if (ifIndex!=AVAHI_IF_UNSPEC && strucmp(hostaddress.c_str(), "fe80:", 5)==0) {
+    if (ifIndex!=AVAHI_IF_UNSPEC && uequals(hostaddress.c_str(), "fe80:", 5)) {
       // link local, need interface index
       string_format_append(h, "%s%d", aURLFormat ? "%25" : "%", ifIndex);
     }

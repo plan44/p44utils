@@ -709,21 +709,21 @@ bool CmdLineApp::parseCommandLine(int aArgc, char** aArgv)
 bool CmdLineApp::processOption(const CmdLineOptionDescriptor &aOptionDescriptor, const char* aOptionValue)
 {
   // directly process "help" option (long name must be "help", short name can be anything but usually is 'h')
-  if (!aOptionDescriptor.withArgument && strucmp(aOptionDescriptor.longOptionName,"help")==0) {
+  if (!aOptionDescriptor.withArgument && uequals(aOptionDescriptor.longOptionName,"help")) {
     showUsage();
     terminateApp(EXIT_SUCCESS);
   }
-  else if (!aOptionDescriptor.withArgument && strucmp(aOptionDescriptor.longOptionName,"version")==0) {
+  else if (!aOptionDescriptor.withArgument && uequals(aOptionDescriptor.longOptionName,"version")) {
     fprintf(stdout, "%s\n", version().c_str());
     terminateApp(EXIT_SUCCESS);
   }
-  else if (aOptionDescriptor.withArgument && strucmp(aOptionDescriptor.longOptionName,"resourcepath")==0) {
+  else if (aOptionDescriptor.withArgument && uequals(aOptionDescriptor.longOptionName,"resourcepath")) {
     setResourcePath(aOptionValue);
   }
-  else if (aOptionDescriptor.withArgument && strucmp(aOptionDescriptor.longOptionName,"datapath")==0) {
+  else if (aOptionDescriptor.withArgument && uequals(aOptionDescriptor.longOptionName,"datapath")) {
     setDataPath(aOptionValue);
   }
-  else if (aOptionDescriptor.withArgument && strucmp(aOptionDescriptor.longOptionName,"userlevel")==0) {
+  else if (aOptionDescriptor.withArgument && uequals(aOptionDescriptor.longOptionName,"userlevel")) {
     mUserLevel = atoi(aOptionValue);
   }
   else {

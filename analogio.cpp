@@ -615,7 +615,7 @@ static void filter_func(BuiltinFunctionContextPtr f)
   assert(a);
   string ty = f->arg(0)->stringValue();
   WinEvalMode ety = eval_none;
-  if (strucmp(ty.c_str(), "abs-", 4)==0) {
+  if (uequals(ty.c_str(), "abs-", 4)) {
     ety |= eval_option_abs;
   }
   if (uequals(ty,"average")) ety |= eval_timeweighted_average;

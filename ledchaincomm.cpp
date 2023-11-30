@@ -138,11 +138,11 @@ LEDChainComm::LEDChainComm(
     string part;
     if (nextPart(cP, part, '.')) {
       // chip
-      for (int i=0; i<num_ledchips; i++) { if (strucmp(part.c_str(), ledChipDescriptors[i].name )==0) { mLedChip = (LedChip)i; break; } };
+      for (int i=0; i<num_ledchips; i++) { if (uequals(part, ledChipDescriptors[i].name)) { mLedChip = (LedChip)i; break; } };
     }
     if (nextPart(cP, part, '.')) {
       // layout
-      for (int i=0; i<num_ledlayouts; i++) { if (strucmp(part.c_str(), ledLayoutNames[i])==0) { mLedLayout = (LedLayout)i; break; } };
+      for (int i=0; i<num_ledlayouts; i++) { if (uequals(part, ledLayoutNames[i])) { mLedLayout = (LedLayout)i; break; } };
     }
     if (nextPart(cP, part, '.')) {
       // custom TPassive_max_nS

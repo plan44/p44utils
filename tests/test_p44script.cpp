@@ -25,6 +25,7 @@
 #include "p44script.hpp"
 #include <stdlib.h>
 
+#include "utils.hpp"
 #include "httpcomm.hpp"
 #include "socketcomm.hpp"
 
@@ -65,16 +66,29 @@ public:
   virtual ScriptObjPtr memberByNameFrom(ScriptObjPtr aThisObj, const string aName, TypeInfo aTypeRequirements) const P44_OVERRIDE
   {
     ScriptObjPtr result;
-    if (strucmp(aName.c_str(),"ua")==0) result = new NumericValue(42);
-    else if (strucmp(aName.c_str(),"almostua")==0) result = new NumericValue(42.7);
-    else if (strucmp(aName.c_str(),"uatext")==0) result = new StringValue("fortyTwo");
-    else if (strucmp(aName.c_str(),"nullnumeric")==0) result = new NullNumeric(0);
-    else if (strucmp(aName.c_str(),"nullstring")==0) result = new NullString("");
-    else if (strucmp(aName.c_str(),"nullnumeric42")==0) result = new NullNumeric(42);
-    else if (strucmp(aName.c_str(),"nullstringXYZ")==0) result = new NullString("XYZ");
-    else if (strucmp(aName.c_str(),"annotatednull")==0) result = new AnnotatedNullValue("annotatednull");
+    if (uequals(aName,"ua")) result = new NumericValue(42);
+    else if (uequals(aName,"almostua")) result = new NumericValue(42.7);
+    else if (uequals(aName,"uatext")) result = new StringValue("fortyTwo");
+    else if (uequals(aName,"nullnumeric")) result = new NullNumeric(0);
+    else if (uequals(aName,"nullstring")) result = new NullString("");
+    else if (uequals(aName,"nullnumeric42")) result = new NullNumeric(42);
+    else if (uequals(aName,"nullstringXYZ")) result = new NullString("XYZ");
+    else if (uequals(aName,"annotatednull")) result = new AnnotatedNullValue("annotatednull");
     return result;
   };
+
+  virtual void appendMemberNames(FieldNameList& aList, TypeInfo aInterestedInTypes) P44_OVERRIDE
+  {
+    aList.push_back("ua");
+    aList.push_back("almostua");
+    aList.push_back("uatext");
+    aList.push_back("nullnumeric");
+    aList.push_back("nullstring");
+    aList.push_back("nullnumeric42");
+    aList.push_back("nullstringXYZ");
+    aList.push_back("annotatednull");
+  }
+
 };
 
 

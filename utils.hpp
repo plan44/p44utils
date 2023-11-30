@@ -129,8 +129,13 @@ namespace p44 {
   };
 
   /// convenience for case insensitive equaltest
+  bool uequals(const char* aCString, const char *aCmp, size_t aLen1 = 0, size_t aLen2 = 0);
   bool uequals(const string& aString, const char *aCmp);
+  bool uequals(const string& aString, const char *aCmp, size_t aLen1, size_t aLen2 = 0);
   bool uequals(const string& aString, const string& aCmp);
+  bool uequals(const string& aString, const string& aCmp, size_t aLen1);
+  bool uequals(const string& aString, const string& aCmp, size_t aLen1, size_t aLen2);
+
 
   /// return simple (non locale aware) ASCII lowercase version of string
   /// @param aStringP a C string pinter

@@ -272,14 +272,34 @@ int p44::strucmp(const char *s1, const char *s2, size_t len1, size_t len2)
 } // strucmp
 
 
+bool p44::uequals(const char* aCString, const char *aCmp, size_t aLen1, size_t aLen2)
+{
+  return strucmp(aCString, aCmp, aLen1, aLen2)==0;
+}
+
 bool p44::uequals(const string& aString, const char *aCmp)
 {
   return strucmp(aString.c_str(), aCmp, aString.size())==0;
 }
 
+bool p44::uequals(const string& aString, const char *aCmp, size_t aLen1, size_t aLen2)
+{
+  return strucmp(aString.c_str(), aCmp, aLen1, aLen2)==0;
+}
+
 bool p44::uequals(const string& aString, const string& aCmp)
 {
   return strucmp(aString.c_str(), aCmp.c_str(), aString.size(), aCmp.size())==0;
+}
+
+bool p44::uequals(const string& aString, const string& aCmp, size_t aLen1)
+{
+  return strucmp(aString.c_str(), aCmp.c_str(), aLen1, aCmp.size())==0;
+}
+
+bool p44::uequals(const string& aString, const string& aCmp, size_t aLen1, size_t aLen2)
+{
+  return strucmp(aString.c_str(), aCmp.c_str(), aLen1, aLen2)==0;
 }
 
 
