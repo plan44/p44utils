@@ -84,6 +84,16 @@ void p44::increase(uint8_t &aByte, uint8_t aAmount, uint8_t aMax)
 }
 
 
+void assignPixelComponent(PixelColorComponent &aComponent, double aValue)
+{
+  if (aValue>255.5)
+    aComponent = 255;
+  else
+    aComponent = (uint8_t)(aValue+0.5);
+}
+
+
+
 void p44::overlayPixel(PixelColor &aPixel, PixelColor aOverlay)
 {
   if (aOverlay.a==255) {
@@ -102,6 +112,38 @@ void p44::overlayPixel(PixelColor &aPixel, PixelColor aOverlay)
 }
 
 
+void p44::averagePixelPower(double& aR, double& aG, double& aB, double& aA, double& aTotalWeight, const PixelColor& aInput, double aWeight)
+{
+  if (aWeight>0) {
+    PixelColorComponent powerA = brightnessToPwm(aInput.a);
+    aA += (double)powerA*aWeight;
+    aR += (double)powerA*brightnessToPwm(aInput.r)*aWeight;
+    aG += (double)powerA*brightnessToPwm(aInput.g)*aWeight;
+    aB += (double)powerA*brightnessToPwm(aInput.b)*aWeight;
+  }
+  aTotalWeight += aWeight;
+}
+
+
+PixelColor p44::averagedPixelResult(double& aR, double& aG, double& aB, double& aA, double aTotalWeight)
+{
+  if (aTotalWeight>0) {
+    PixelColor pc;
+    double a = aA/aTotalWeight; // 0..255 scale
+    if (a>0) {
+      double alphaboost = 1/a; // 0..1 scale - note a being in 0..255 scale (and not 0..1) compensates for multiplying powerA into pixels in averagePixelPower
+      assignPixelComponent(pc.a, pwmToBrightness(a));
+      assignPixelComponent(pc.r, pwmToBrightness(aR/aTotalWeight*alphaboost));
+      assignPixelComponent(pc.g, pwmToBrightness(aG/aTotalWeight*alphaboost));
+      assignPixelComponent(pc.b, pwmToBrightness(aB/aTotalWeight*alphaboost));
+      return pc;
+    }
+  }
+  // nothing
+  return transparent;
+}
+
+
 void p44::mixinPixel(PixelColor &aMainPixel, PixelColor aOutsidePixel, PixelColorComponent aAmountOutside)
 {
   if (aAmountOutside>0) {
@@ -109,7 +151,7 @@ void p44::mixinPixel(PixelColor &aMainPixel, PixelColor aOutsidePixel, PixelColo
       // mixed transparency
       PixelColorComponent alpha = dimVal(aMainPixel.a, pwmToBrightness(255-aAmountOutside)) + dimVal(aOutsidePixel.a, pwmToBrightness(aAmountOutside));
       if (alpha>0) {
-        // calculation only needed for non-transparent result
+        // calculation only needed for not totallay transparent result
         // - alpha boost compensates for energy
         uint16_t ab = 65025/alpha;
         // Note: aAmountOutside is on the energy scale, not brightness, so need to add in PWM scale!

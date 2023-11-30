@@ -96,6 +96,16 @@ namespace p44 {
   /// @param aOverlay the pixel to be laid on top
   void overlayPixel(PixelColor &aPixel, PixelColor aOverlay);
 
+  /// @name calculate pixel average in power domain
+  /// @{
+  /// init the averaging variables (convenience inline)
+  inline void prepareAverage(double& aR, double& aG, double& aB, double& aA, double& aTotalWeight) { aR=0; aG=0; aB=0; aA=0; aTotalWeight=0; };
+  /// add a pixel to the average with specified weight
+  void averagePixelPower(double& aR, double& aG, double& aB, double& aA, double& aTotalWeight, const PixelColor& aInput, double aWeight);
+  /// calculate resulting pixel from average
+  PixelColor averagedPixelResult(double& aR, double& aG, double& aB, double& aA, double aTotalWeight);
+  /// @}
+
   /// mix two pixels
   /// @param aMainPixel the original pixel which will be modified to contain the mix
   /// @param aOutsidePixel the pixel to mix in
