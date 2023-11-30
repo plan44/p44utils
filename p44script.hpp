@@ -1072,6 +1072,7 @@ namespace p44 { namespace P44Script {
   protected:
     virtual void appendFieldNames(FieldNameList& aList, TypeInfo aInterestedInTypes) const P44_OVERRIDE;
   };
+  typedef boost::intrusive_ptr<ObjectValue> ObjectValuePtr;
 
 
   // MARK: - Special Structured objects
