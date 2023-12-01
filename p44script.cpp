@@ -6635,13 +6635,21 @@ void ScriptCodeThread::memberByIdentifier(TypeInfo aMemberAccessFlags, bool aNoN
     }
     if (!mResult) {
       // on implicit context level, if nothing else was found, check overrideable convenience constants
-      static const char * const weekdayNames[7] = { "sun", "mon", "tue", "wed", "thu", "fri", "sat" };
-      if (mIdentifier.size()==3) {
-        // Optimisation, all weekdays have 3 chars
-        for (int w=0; w<7; w++) {
-          if (uequals(mIdentifier, weekdayNames[w])) {
-            mResult = new IntegerValue(w);
-            break;
+      if (uequals(mIdentifier, "pi")) {
+        mResult = new NumericValue(M_PI);
+      }
+      else if (mIdentifier=="UA") { // NOT case sensitive, because this is a joke
+        mResult = new IntegerValue(42);
+      }
+      else {
+        static const char * const weekdayNames[7] = { "sun", "mon", "tue", "wed", "thu", "fri", "sat" };
+        if (mIdentifier.size()==3) {
+          // Optimisation, all weekdays have 3 chars
+          for (int w=0; w<7; w++) {
+            if (uequals(mIdentifier, weekdayNames[w])) {
+              mResult = new IntegerValue(w);
+              break;
+            }
           }
         }
       }
@@ -6950,17 +6958,9 @@ void ScriptCodeThread::continueWithMode(PausingMode aNewPausingMode)
 
 namespace BuiltinFunctions {
 
-// TODO: change all function implementations in other files
-// Here's a BBEdit find & replace sequence to prepare:
-
-// ===== FIND:
-//  (else *)?if \(aFunc=="([^"]*)".*\n */?/? ?(.*)
-// ===== REPLACE:
-//  //#DESC  { "\2", any, \2_args, \&\2_func },
-//  // \3
-//  static const ArgumentDescriptor \2_args[] = { { any } };
-//  static void \2_func(BuiltinFunctionContextPtr f)
-//  {
+// for single argument math functions
+static const BuiltInArgDesc math1arg_args[] = { { scalar|undefres } };
+static const size_t math1arg_numargs = sizeof(math1arg_args)/sizeof(BuiltInArgDesc);
 
 
 // ifvalid(a, b)   if a is a valid value, return it, otherwise return the default as specified by b
@@ -7006,30 +7006,52 @@ static void if_func(BuiltinFunctionContextPtr f)
   f->finish(f->arg(0)->boolValue() ? f->arg(1) : f->arg(2));
 }
 
-// abs (a)         absolute value of a
-static const BuiltInArgDesc abs_args[] = { { scalar|undefres } };
-static const size_t abs_numargs = sizeof(abs_args)/sizeof(BuiltInArgDesc);
+// abs(a)         absolute value of a
 static void abs_func(BuiltinFunctionContextPtr f)
 {
   f->finish(new NumericValue(fabs(f->arg(0)->doubleValue())));
 }
 
 
-// int (a)         integer value of a
-static const BuiltInArgDesc int_args[] = { { scalar|undefres } };
-static const size_t int_numargs = sizeof(int_args)/sizeof(BuiltInArgDesc);
+// int(a)         integer value of a
 static void int_func(BuiltinFunctionContextPtr f)
 {
   f->finish(new IntegerValue(int(f->arg(0)->int64Value())));
 }
 
 
-// frac (a)         fractional value of a
-static const BuiltInArgDesc frac_args[] = { { scalar|undefres } };
-static const size_t frac_numargs = sizeof(frac_args)/sizeof(BuiltInArgDesc);
+// frac(a)         fractional value of a
 static void frac_func(BuiltinFunctionContextPtr f)
 {
   f->finish(new NumericValue(f->arg(0)->doubleValue()-f->arg(0)->int64Value())); // result retains sign
+}
+
+
+// sin(a)         sinus value of a
+static void sin_func(BuiltinFunctionContextPtr f)
+{
+  f->finish(new NumericValue(sin(f->arg(0)->doubleValue()*M_PI/180)));
+}
+
+
+// cos(a)         cos value of a
+static void cos_func(BuiltinFunctionContextPtr f)
+{
+  f->finish(new NumericValue(cos(f->arg(0)->doubleValue()*M_PI/180)));
+}
+
+
+// ln(a)         natural logarithm value of a
+static void ln_func(BuiltinFunctionContextPtr f)
+{
+  f->finish(new NumericValue(::log(f->arg(0)->doubleValue())));
+}
+
+
+// exp(a)         exponential value of a
+static void exp_func(BuiltinFunctionContextPtr f)
+{
+  f->finish(new NumericValue(::exp(f->arg(0)->doubleValue())));
 }
 
 
@@ -8922,9 +8944,13 @@ static const BuiltinMemberDescriptor standardFunctions[] = {
   { "isok", executable|numeric, isok_numargs, isok_args, &isok_func },
   { "isvalid", executable|numeric, isvalid_numargs, isvalid_args, &isvalid_func },
   { "if", executable|anyvalid, if_numargs, if_args, &if_func },
-  { "abs", executable|numeric|null, abs_numargs, abs_args, &abs_func },
-  { "int", executable|numeric|null, int_numargs, int_args, &int_func },
-  { "frac", executable|numeric|null, frac_numargs, frac_args, &frac_func },
+  { "abs", executable|numeric|null, math1arg_numargs, math1arg_args, &abs_func },
+  { "int", executable|numeric|null, math1arg_numargs, math1arg_args, &int_func },
+  { "frac", executable|numeric|null, math1arg_numargs, math1arg_args, &frac_func },
+  { "sin", executable|numeric, math1arg_numargs, math1arg_args, &sin_func },
+  { "cos", executable|numeric, math1arg_numargs, math1arg_args, &cos_func },
+  { "ln", executable|numeric, math1arg_numargs, math1arg_args, &ln_func },
+  { "exp", executable|numeric, math1arg_numargs, math1arg_args, &exp_func },
   { "round", executable|numeric|null, round_numargs, round_args, &round_func },
   { "random", executable|numeric, random_numargs, random_args, &random_func },
   { "min", executable|numeric|null, min_numargs, min_args, &min_func },
