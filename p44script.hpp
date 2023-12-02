@@ -505,7 +505,6 @@ namespace p44 { namespace P44Script {
     virtual ScriptObjPtr assignmentValue() const { return ScriptObjPtr(const_cast<ScriptObj*>(this)); }
 
     /// @return a value to be used in calculations. This should return a basic type whenever possible
-    ///    This is relevant for values like JSON, where e.g. a string field is not of type "text", but "json" (with a suitable stringValue())
     virtual ScriptObjPtr calculationValue() { return ScriptObjPtr(this); }
 
     virtual double doubleValue() const { return 0; }; ///< @return a conversion to numeric (using literal syntax), if value is string
@@ -667,6 +666,9 @@ namespace p44 { namespace P44Script {
     /// @return true when the object's value is available. Might be false when this object is an lvalue or another type of proxy
     /// @note call makeValid() to get a valid version from this object
     virtual ScriptObjPtr actualValue() const P44_OVERRIDE { return mCurrentValue; } // LValues are valid if they have a current value
+
+    /// @return a value to be used in calculations. This should return a basic type whenever possible
+    virtual ScriptObjPtr calculationValue() P44_OVERRIDE { return mCurrentValue; }
 
     /// Get the actual value of an object (which might be a lvalue or other type of proxy)
     /// @param aEvaluationCB will be called with a valid version of the object.
@@ -1503,6 +1505,9 @@ namespace p44 { namespace P44Script {
     // precedence 1 is reserved to mark non-assignable lvalue
     op_assign     = (16 << 3) + 0,
     op_delete     = (17 << 3) + 0, // "unset" prefix "operator"
+    // flags
+    op_incdec     = (1 << 8), // ++ and --
+    op_self       = (2 << 8), // +=, -=, *= etc.
     opmask_precedence = 0x07
   } ScriptOperator;
 
@@ -2527,6 +2532,7 @@ namespace p44 { namespace P44Script {
     void s_exprLeftSide(); ///< left side of an ongoing expression
     void s_exprRightSide(); ///< further terms of an expression
     void s_assignExpression(); ///< evaluate expression and assign to (lvalue) result
+    void s_compoundAssignment(); ///< evaluate rest of compound assignment, result is valid first part of the expression
     void s_assignOlder(); ///< assign older result to freshly obtained (lvalue) result, special language construct only!
     void s_checkAndAssignLvalue(); ///< check result for throwing error, then assign to lvalue
     void s_assignLvalue(); ///< assign to lvalue

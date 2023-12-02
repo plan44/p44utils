@@ -2534,13 +2534,27 @@ ScriptOperator SourceCursor::parseOperator()
       op = op_assignOrEq; break;
       #endif
     }
-    case '*': op = op_multiply; break;
-    case '/': op = op_divide; break;
-    case '%': op = op_modulo; break;
-    case '+': op = op_add; break;
-    case '-': op = op_subtract; break;
-    case '&': op = op_and; if (c(o)=='&') o++; break;
-    case '|': op = op_or; if (c(o)=='|') o++; break;
+    case '*': op = op_multiply; goto checkself;
+    case '/': op = op_divide; goto checkself;
+    case '%': op = op_modulo; goto checkself;
+    case '&': op = op_and; if (c(o)=='&') o++; goto checkself;
+    case '|': op = op_or; if (c(o)=='|') o++; goto checkself;
+    case '+':
+      op = op_add;
+      if (c(o)=='+') {
+        op = (ScriptOperator)(op|op_incdec);
+        o++;
+        break;
+      }
+      goto checkself;
+    case '-':
+      op = op_subtract;
+      if (c(o)=='-') {
+        op = (ScriptOperator)(op|op_incdec);
+        o++;
+        break;
+      }
+      goto checkself;
     case '<': {
       if (c(o)=='=') {
         o++; op = op_leq; break;
@@ -2563,6 +2577,11 @@ ScriptOperator SourceCursor::parseOperator()
       op = op_not; break;
       break;
     }
+    checkself:
+      if (c(o)=='=') {
+        o++; op = (ScriptOperator)(op|op_self); break;
+      }
+      break;
     default:
     no_op:
       return op_none;
@@ -3396,8 +3415,9 @@ void SourceProcessor::assignOrAccess(TypeInfo aAccessFlags)
       mSrc.skipNonCode();
       SourcePos opos = mSrc.mPos;
       ScriptOperator aop = mSrc.parseOperator();
-      if (aop==op_assign || aop==op_assignOrEq) {
+      if (aop==op_assign || aop==op_assignOrEq || (aop&(op_self|op_incdec))) {
         // this IS an assignment. We need to obtain an lvalue and the right hand expression to assign
+        mPendingOperation = aop; // remember for s_assignExpression to check when we have the lvalue
         push(&SourceProcessor::s_assignExpression);
         setState(&SourceProcessor::s_validResult);
         memberByIdentifier(aAccessFlags);
@@ -3522,8 +3542,9 @@ void SourceProcessor::process_subscript(TypeInfo aAccessFlags)
       // COULD be an assignment
       SourcePos opos = mSrc.mPos;
       ScriptOperator aop = mSrc.parseOperator();
-      if (aop==op_assign || aop==op_assignOrEq) {
+      if (aop==op_assign || aop==op_assignOrEq || (aop&op_incdec) || (aop&op_self)) {
         // this IS an assignment. We need to obtain an lvalue and the right hand expression to assign
+        mPendingOperation = aop; // remember for s_assignExpression to check when we have the lvalue
         push(&SourceProcessor::s_assignExpression);
         setState(&SourceProcessor::s_validResult);
         aAccessFlags |= lvalue; // we need an lvalue
@@ -3743,8 +3764,43 @@ void SourceProcessor::s_assignExpression()
   FOCUSLOGSTATE;
   // assign an expression to the current result
   push(&SourceProcessor::s_checkAndAssignLvalue);
+  // check compound assignment operators
+  if (mPendingOperation & (op_self|op_incdec)) {
+    // first term of a compound operation is the current result
+    // But as it was obtained as an lvalue, it might not have retrieved its current value
+    // - make it valid for use in a calculation
+    setState(&SourceProcessor::s_compoundAssignment);
+    mResult->makeValid(boost::bind(&SourceProcessor::resume, this, _1));
+    return;
+  }
+  // regular assignment
   resumeAt(&SourceProcessor::s_expression);
   return;
+}
+
+
+void SourceProcessor::s_compoundAssignment()
+{
+  if (mPendingOperation & op_self) {
+    // first term of a compound operation is the current result
+    // must parse right side of operator as subexpression
+    mPendingOperation = (ScriptOperator)(mPendingOperation & ~(op_self)); // convert to simple operation
+    push(&SourceProcessor::s_exprRightSide); // push the old precedence
+    mPrecedence = 0; // subexpression needs to exit when finding an operator weaker than this one
+    resumeAt(&SourceProcessor::s_subExpression);
+    return;
+  }
+  if (mPendingOperation & op_incdec) {
+    // first term of an increment/decrement is the current result
+    mPendingOperation = (ScriptOperator)(mPendingOperation & ~(op_incdec)); // convert to simple +/- operation
+    mPrecedence = 0; // the compond operator is weaker than any other, no matter what it actually is
+    // we can directly proceed at s_exprRightSide, we have the value and
+    mOlderResult = mResult; // leftside
+    mResult = new IntegerValue(1); // rightside
+    resumeAt(&SourceProcessor::s_exprRightSide);
+    return;
+  }
+  exitWithSyntaxError("Invalid compound assignment");
 }
 
 
@@ -4417,6 +4473,7 @@ void SourceProcessor::processVarDefs(TypeInfo aVarFlags, bool aAllowInitializer,
       return;
     }
     // initializing with a value
+    mPendingOperation = op; // remember for s_assignExpression to check when we have the lvalue
     setState(&SourceProcessor::s_assignExpression);
     memberByIdentifier(aVarFlags);
     return;
@@ -6567,12 +6624,15 @@ void ScriptCodeThread::stepLoop()
   do {
     MLMicroSeconds now = MainLoop::now();
     // Check maximum execution time
+    #if !DEBUG
     if (mMaxRunTime!=Infinite && now-mRunningSince>mMaxRunTime) {
       // Note: not calling abort as we are WITHIN the call chain
       complete(new ErrorPosValue(mSrc, ScriptError::Timeout, "Aborted because of overall execution time limit"));
       return;
     }
-    else if (mMaxBlockTime!=Infinite && now-loopingSince>mMaxBlockTime) {
+    else
+    #endif // !DEBUG
+    if (mMaxBlockTime!=Infinite && now-loopingSince>mMaxBlockTime) {
       // time expired
       if (mEvaluationFlags & synchronously) {
         // Note: not calling abort as we are WITHIN the call chain
