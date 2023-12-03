@@ -112,30 +112,40 @@ void p44::overlayPixel(PixelColor &aPixel, PixelColor aOverlay)
 }
 
 
-void p44::averagePixelPower(double& aR, double& aG, double& aB, double& aA, double& aTotalWeight, const PixelColor& aInput, double aWeight)
+void p44::averagePixelPower(FracValue& aR, FracValue& aG, FracValue& aB, FracValue& aA, FracValue& aTotalWeight, const PixelColor& aInput, FracValue aWeight)
 {
   if (aWeight>0) {
-    PixelColorComponent powerA = brightnessToPwm(aInput.a);
-    aA += (double)powerA*aWeight;
-    aR += (double)powerA*brightnessToPwm(aInput.r)*aWeight;
-    aG += (double)powerA*brightnessToPwm(aInput.g)*aWeight;
-    aB += (double)powerA*brightnessToPwm(aInput.b)*aWeight;
+    //FracValue powerA = FP_FROM_INT(brightnessToPwm(aInput.a));
+    //FracValue powerA = FP_FROM_INT(((int16_t)brightnessToPwm(aInput.a)*256+128)/255);
+    int powerA = brightnessToPwm(aInput.a); // 0..255
+    FracValue powerFact = FP_FROM_INT(powerA*FP_FRACFACT/255)/FP_FRACFACT;
+    aA += powerA*aWeight; // only one FracValue factor, no corr needed
+    aR += FP_MUL_CORR(powerFact*brightnessToPwm(aInput.r)*aWeight);
+    aG += FP_MUL_CORR(powerFact*brightnessToPwm(aInput.g)*aWeight);
+    aB += FP_MUL_CORR(powerFact*brightnessToPwm(aInput.b)*aWeight);
   }
   aTotalWeight += aWeight;
 }
 
 
-PixelColor p44::averagedPixelResult(double& aR, double& aG, double& aB, double& aA, double aTotalWeight)
+#ifdef FP_FRACVALUE
+  #define BOOST_SCALING 16 // to get higher accuray for alphaboost values near 1
+#else
+  #define BOOST_SCALING 1
+#endif
+
+PixelColor p44::averagedPixelResult(FracValue& aR, FracValue& aG, FracValue& aB, FracValue& aA, FracValue aTotalWeight)
 {
   if (aTotalWeight>0) {
     PixelColor pc;
-    double a = aA/aTotalWeight; // 0..255 scale
+    FracValue a = FP_DIV(aA,aTotalWeight); // in 0..255 scale
+    FracValue alphaboost = FP_DIV(aTotalWeight*BOOST_SCALING, aA); // in 1/256*BOOST_SCALING
     if (a>0) {
-      double alphaboost = 1/a; // 0..1 scale - note a being in 0..255 scale (and not 0..1) compensates for multiplying powerA into pixels in averagePixelPower
-      assignPixelComponent(pc.a, pwmToBrightness(a));
-      assignPixelComponent(pc.r, pwmToBrightness(aR/aTotalWeight*alphaboost));
-      assignPixelComponent(pc.g, pwmToBrightness(aG/aTotalWeight*alphaboost));
-      assignPixelComponent(pc.b, pwmToBrightness(aB/aTotalWeight*alphaboost));
+      assignPixelComponent(pc.a, pwmToBrightness(FP_INT_VAL(a)));
+      // no need for FP_ correction when we have a a multiplication followed by a division
+      assignPixelComponent(pc.r, pwmToBrightness(FP_TIMES_FRACFACT_INT_VAL(aR*alphaboost/aTotalWeight/BOOST_SCALING)));
+      assignPixelComponent(pc.g, pwmToBrightness(FP_TIMES_FRACFACT_INT_VAL(aG*alphaboost/aTotalWeight/BOOST_SCALING)));
+      assignPixelComponent(pc.b, pwmToBrightness(FP_TIMES_FRACFACT_INT_VAL(aB*alphaboost/aTotalWeight/BOOST_SCALING)));
       return pc;
     }
   }

@@ -21,11 +21,13 @@
 //
 
 #include "p44utils_minimal.hpp"
+#include "fixpoint_macros.h"
 
 #include <string>
 
 #ifndef __p44utils__colorutils__
 #define __p44utils__colorutils__
+
 
 using namespace std;
 
@@ -99,11 +101,11 @@ namespace p44 {
   /// @name calculate pixel average in power domain
   /// @{
   /// init the averaging variables (convenience inline)
-  inline void prepareAverage(double& aR, double& aG, double& aB, double& aA, double& aTotalWeight) { aR=0; aG=0; aB=0; aA=0; aTotalWeight=0; };
+  inline void prepareAverage(FracValue& aR, FracValue& aG, FracValue& aB, FracValue& aA, FracValue& aTotalWeight) { aR=0; aG=0; aB=0; aA=0; aTotalWeight=0; };
   /// add a pixel to the average with specified weight
-  void averagePixelPower(double& aR, double& aG, double& aB, double& aA, double& aTotalWeight, const PixelColor& aInput, double aWeight);
+  void averagePixelPower(FracValue& aR, FracValue& aG, FracValue& aB, FracValue& aA, FracValue& aTotalWeight, const PixelColor& aInput, FracValue aWeight);
   /// calculate resulting pixel from average
-  PixelColor averagedPixelResult(double& aR, double& aG, double& aB, double& aA, double aTotalWeight);
+  PixelColor averagedPixelResult(FracValue& aR, FracValue& aG, FracValue& aB, FracValue& aA, FracValue aTotalWeight);
   /// @}
 
   /// mix two pixels
