@@ -2374,8 +2374,10 @@ namespace p44 { namespace P44Script {
 
     #if P44SCRIPT_FULL_SUPPORT
 
-    /// @return true if compiling declaration
+    #if DECLARATION_SEPARATED
+    /// @return true if compiling declarations
     bool declaring() { return compiling() && (mEvaluationFlags&sourcecode)!=0; }
+    #endif
 
     /// indicates start of script body (at current src.pos)
     /// @note must cause calling resume()
@@ -2545,7 +2547,7 @@ namespace p44 { namespace P44Script {
     void s_oneStatement(); ///< a single statement, exits when ';' is encountered
     void s_body(); ///< at the body level of a function or script (end of expression ends body)
     void processStatement(); ///< common processing for statement states
-    void processVarDefs(TypeInfo aVarFlags, bool aAllowInitializer, bool aDeclaration = false); ///< common processing of variable declarations/assignments
+    void processVarDefs(TypeInfo aVarFlags, bool aAllowInitializer, bool aDeclaration); ///< common processing of variable declarations/assignments
     // - if/then/else
     void s_ifCondition(); ///< executing the condition of an if
     void s_ifTrueStatement(); ///< executing the if statement
@@ -2568,11 +2570,17 @@ namespace p44 { namespace P44Script {
 
     // Declarations
     void s_declarations(); ///< declarations (functions and handlers)
-    void processFunction(); ///< common processing for function definitions, which can be in declaration or code
-    void s_defineFunction(); ///< store the defined function
-    void processOnHandler(); ///< common processing for "on" handlers, which can be in declaration or code
-    void s_defineTrigger(); ///< store the trigger expression of a on(...) {...} statement
-    void s_defineHandler(); ///< store the handler script of a of a on(...) {...} statement
+    void processFunction(bool aGlobal); ///< common processing for function definitions, which can be local or global
+    void s_defineGlobalFunction(); ///< store the defined function as global function
+    void s_defineLocalFunction(); ///< store the defined function as local function
+    void defineFunction(bool aGlobal); ///< store the defined function as local function
+    void processOnHandler(bool aGlobal); ///< common processing for "on" handlers, which can be local or global
+    void s_defineGlobalTrigger(); ///< store the trigger expression of a on(...) {...} statement
+    void s_defineLocalTrigger(); ///< store the trigger expression of a global on(...) {...} statement
+    void defineTrigger(bool aGlobal); ///< store the trigger expression
+    void s_defineGlobalHandler(); ///< store the handler script of a of a global on(...) {...} statement
+    void s_defineLocalHandler(); ///< store the handler script of a of a on(...) {...} statement
+    void defineHandler(bool aGlobal); ///< store the handler script
     #endif // P44SCRIPT_FULL_SUPPORT
 
     // Generic
@@ -2846,7 +2854,9 @@ namespace p44 { namespace P44Script {
     typedef SourceProcessor inherited;
 
     ScriptingDomainPtr mDomain; ///< the domain to store compiled functions and handlers
+    #if DECLARATION_SEPARATED
     SourceCursor mBodyRef; ///< where the script body starts
+    #endif
     ScriptMainContextPtr mCompileForContext; ///< the main context this script is compiled for and should execute in later
 
   public:

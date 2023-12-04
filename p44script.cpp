@@ -3397,42 +3397,34 @@ void SourceProcessor::assignOrAccess(TypeInfo aAccessFlags)
   // - identifier represents the leaf member to access
   // - result represents the parent member or NULL if accessing context scope variables
   // - precedence==0 means that this could be an lvalue term
-  // Note: when skipping, we do NOT need to do complicated check for assignment.
-  //   Syntactically, an assignment looks the same as a regular expression
-  if (!mSkipping) {
-    if (mPendingOperation==op_delete) {
-      // COULD be deleting the member
-      mSrc.skipNonCode();
-      if (mSrc.c()!='.' && mSrc.c()!='[' && mSrc.c()!='(') {
-        // this is the leaf member to be deleted. We need to obtain an lvalue and unset it
-        setState(&SourceProcessor::s_unsetMember);
-        memberByIdentifier(lvalue);
-        return;
-      }
+  if (mPendingOperation==op_delete) {
+    // COULD be deleting the member
+    mSrc.skipNonCode();
+    if (mSrc.c()!='.' && mSrc.c()!='[' && mSrc.c()!='(') {
+      // this is the leaf member to be deleted. We need to obtain an lvalue and unset it
+      setState(&SourceProcessor::s_unsetMember);
+      memberByIdentifier(lvalue);
+      return;
     }
-    else if ((aAccessFlags & lvalue) && mPrecedence==0) {
-      // COULD be an assignment
-      mSrc.skipNonCode();
-      SourcePos opos = mSrc.mPos;
-      ScriptOperator aop = mSrc.parseOperator();
-      if (aop==op_assign || aop==op_assignOrEq || (aop&(op_self|op_incdec))) {
-        // this IS an assignment. We need to obtain an lvalue and the right hand expression to assign
-        mPendingOperation = aop; // remember for s_assignExpression to check when we have the lvalue
-        push(&SourceProcessor::s_assignExpression);
-        setState(&SourceProcessor::s_validResult);
-        memberByIdentifier(aAccessFlags);
-        return;
-      }
-      mSrc.mPos = opos; // back to before operator
-    }
-    // not an assignment, just request member value
-    setState(&SourceProcessor::s_member);
-    memberByIdentifier(mSrc.c()=='(' ? executable : none); // will lookup member of result, or global if result is NULL
-    return;
   }
-  // only skipping
+  else if ((aAccessFlags & lvalue) && mPrecedence==0) {
+    // COULD be an assignment
+    mSrc.skipNonCode();
+    SourcePos opos = mSrc.mPos;
+    ScriptOperator aop = mSrc.parseOperator();
+    if (aop==op_assign || aop==op_assignOrEq || (aop&(op_self|op_incdec))) {
+      // this IS an assignment. We need to obtain an lvalue and the right hand expression to assign
+      mPendingOperation = aop; // remember for s_assignExpression to check when we have the lvalue
+      push(&SourceProcessor::s_assignExpression);
+      setState(&SourceProcessor::s_validResult);
+      memberByIdentifier(aAccessFlags);
+      return;
+    }
+    mSrc.mPos = opos; // back to before operator
+  }
+  // not an assignment, just request member value
   setState(&SourceProcessor::s_member);
-  resume();
+  memberByIdentifier(mSrc.c()=='(' ? executable : none); // will lookup member of result, or global if result is NULL
 }
 
 
@@ -3927,6 +3919,10 @@ void SourceProcessor::s_exprRightSide()
 
 // MARK: Declarations
 
+// FIXME: once we are sure about !DECLARATION_SEPARATED, clean up everything related, e.g.
+// - s_declarations()
+// - scriptbody / sourcecode differentiation (keep it if we really want to *disallow* function definitions, but does that make any sense anymore?)
+
 void SourceProcessor::s_declarations()
 {
   FOCUSLOGSTATE
@@ -3934,7 +3930,9 @@ void SourceProcessor::s_declarations()
   do {
     mSrc.skipNonCode();
   } while (mSrc.nextIf(';'));
-  SourcePos declStart = mSrc.mPos;
+  #if DECLARATION_SEPARATED
+  // Declarations must be before first actual script statement (old way to handle it)
+  SourcePos codeStart = mSrc.mPos;
   if (mSrc.parseIdentifier(mIdentifier)) {
     // explicitly or implicitly global declarations
     bool globvardef = false;
@@ -3956,7 +3954,7 @@ void SourceProcessor::s_declarations()
     }
     if (globfuncdef || uequals(mIdentifier, "function")) {
       // Note: functions can be in declaration part (global) OR in running script code (if explicitly declared local)
-      processFunction();
+      processFunction(true); // global
       return;
     } // function
     if (uequals(mIdentifier, "on")) {
@@ -3965,14 +3963,23 @@ void SourceProcessor::s_declarations()
       return;
     } // handler
   } // identifier
-  // nothing recognizable as declaration
-  mSrc.mPos = declStart; // rewind to beginning of last statement
+  // nothing more recognizable as declaration
+  mSrc.mPos = codeStart; // rewind to beginning of actual code
+  // now run the code
   setState(&SourceProcessor::s_body);
   startOfBodyCode();
+  #else
+  // declarations and script statements can be mixed.
+  // - when compiling, we just capture the declaration and ignore everything else
+  // - when running, do the opposite: skip the (global) declarations and execute the rest
+  // Thus: body code starts right at the beginning (but we are skipping when this is a compiling run)
+  setState(&SourceProcessor::s_body);
+  startOfBodyCode();
+  #endif
 }
 
 
-void SourceProcessor::processFunction()
+void SourceProcessor::processFunction(bool aGlobal)
 {
   // function fname([param[,param...]]) { code }
   push(mCurrentState); // return to current state when function definition completes
@@ -4016,26 +4023,41 @@ void SourceProcessor::processFunction()
     exitWithSyntaxError("expected function body");
     return;
   }
-  push(&SourceProcessor::s_defineFunction); // with position on the opening '{' of the function body
+  push(aGlobal ? &SourceProcessor::s_defineGlobalFunction : &SourceProcessor::s_defineLocalFunction); // with position on the opening '{' of the function body
   mSkipping = true;
   mSrc.next(); // skip the '{'
   resumeAt(&SourceProcessor::s_block);
 }
 
 
-void SourceProcessor::s_defineFunction()
+void SourceProcessor::s_defineLocalFunction()
 {
   FOCUSLOGSTATE
+  defineFunction(false);
+}
+
+
+void SourceProcessor::s_defineGlobalFunction()
+{
+  FOCUSLOGSTATE
+  defineFunction(true);
+}
+
+
+void SourceProcessor::defineFunction(bool aGlobal)
+{
   // after scanning a block containing a function body
   // - mPoppedPos points to the opening '{' of the body
   // - src.pos is after the closing '}' of the body
   // - olderResult is the CompiledFunction
-  if (!compiling() || declaring()) {
+  if (aGlobal==compiling()) {
+    // local functions are stored only when not compiling, globals only when compiling
     setState(&SourceProcessor::s_declarations); // back to declarations
     mResult = captureCode(mOlderResult);
-    storeFunction();
+    storeFunction(); // compiler stores globally, thread stores locally
   }
   else {
+    // do not store here
     checkAndResume();
   }
   // back to where we were before
@@ -4043,7 +4065,7 @@ void SourceProcessor::s_defineFunction()
 }
 
 
-void SourceProcessor::processOnHandler()
+void SourceProcessor::processOnHandler(bool aGlobal)
 {
   // on (triggerexpression) [toggling|changing|evaluating] { code }
   push(mCurrentState); // return to current state when handler definition completes
@@ -4052,13 +4074,24 @@ void SourceProcessor::processOnHandler()
     exitWithSyntaxError("'(' expected");
     return;
   }
-  push(&SourceProcessor::s_defineTrigger);
+  push(aGlobal ? &SourceProcessor::s_defineGlobalTrigger : &SourceProcessor::s_defineLocalTrigger);
   mSkipping = true;
   resumeAt(&SourceProcessor::s_expression);
 }
 
 
-void SourceProcessor::s_defineTrigger()
+void SourceProcessor::s_defineGlobalTrigger()
+{
+  FOCUSLOGSTATE
+  defineTrigger(true);
+}
+void SourceProcessor::s_defineLocalTrigger()
+{
+  FOCUSLOGSTATE
+  defineTrigger(false);
+}
+
+void SourceProcessor::defineTrigger(bool aGlobal)
 {
   FOCUSLOGSTATE
   // on (triggerexpression) [changing|toggling|evaluating|gettingtrue] [ stable <stabilizing time numeric literal>] [ as triggerresult ] { handlercode }
@@ -4070,7 +4103,12 @@ void SourceProcessor::s_defineTrigger()
     return;
   }
   CompiledTriggerPtr trigger;
-  if (!compiling() || declaring()) {
+  #if DECLARATION_SEPARATED
+  if (!compiling() || declaring()) // globally declared triggers/handlers must be inititialized at compilation already
+  #else
+  if (!compiling()) // all handlers are context local and captured not before actually executed
+  #endif
+  {
     trigger = new CompiledTrigger("trigger", getTriggerAndHandlerMainContext());
     mResult = captureCode(trigger);
   }
@@ -4136,7 +4174,7 @@ void SourceProcessor::s_defineTrigger()
     exitWithSyntaxError("expected handler body");
     return;
   }
-  push(&SourceProcessor::s_defineHandler); // with position on the opening '{' of the handler body
+  push(aGlobal ? &SourceProcessor::s_defineGlobalHandler : &SourceProcessor::s_defineLocalHandler); // with position on the opening '{' of the handler body
   mSkipping = true;
   mSrc.next(); // skip the '{'
   resumeAt(&SourceProcessor::s_block);
@@ -4144,14 +4182,30 @@ void SourceProcessor::s_defineTrigger()
 }
 
 
-void SourceProcessor::s_defineHandler()
+void SourceProcessor::s_defineLocalHandler()
 {
   FOCUSLOGSTATE
+  defineHandler(false);
+}
+
+void SourceProcessor::s_defineGlobalHandler()
+{
+  FOCUSLOGSTATE
+  defineHandler(true);
+}
+
+void SourceProcessor::defineHandler(bool aGlobal)
+{
   // after scanning a block containing a handler body
   // - mPoppedPos points to the opening '{' of the body
   // - src.pos is after the closing '}' of the body
   // - olderResult is the trigger, mode already set
-  if (!compiling() || declaring()) {
+  #if DECLARATION_SEPARATED
+  if (!compiling() || declaring()) // globally declared handlers must be inititialized at compilation already
+  #else
+  if (compiling()==aGlobal) // global handlers are stored when compiling, all others when running
+  #endif
+  {
     CompiledHandlerPtr handler = new CompiledHandler("handler", getTriggerAndHandlerMainContext());
     mResult = captureCode(handler); // get the code first, so we can execute it in the trigger init
     handler->installAndInitializeTrigger(mOlderResult);
@@ -4378,39 +4432,62 @@ void SourceProcessor::processStatement()
     }
     // Check variable definition keywords
     if (uequals(mIdentifier, "var")) {
-      processVarDefs(lvalue+create, true);
+      processVarDefs(lvalue+create, true, false);
       return;
     }
     if (uequals(mIdentifier, "threadvar")) {
-      processVarDefs(lvalue+create+threadlocal, true);
+      processVarDefs(lvalue+create+threadlocal, true, false);
       return;
     }
     bool globvar = false;
     if (uequals(mIdentifier, "global")) {
       mSrc.skipNonCode();
       if (mSrc.checkForIdentifier("function")) {
+        #if !DECLARATION_SEPARATED
+        processFunction(true); // global function
+        return;
+        #else
         exitWithSyntaxError("global function declarations must be made before first script statement");
+        return;
+        #endif
+      }
+      if (mSrc.checkForIdentifier("on")) {
+        // explicitly global handler
+        processOnHandler(true);
         return;
       }
       globvar = true;
     }
     if (globvar || uequals(mIdentifier, "glob")) {
-      processVarDefs(lvalue+create+onlycreate+global, false);
+      #if !DECLARATION_SEPARATED
+      // global variable
+      // - during compilation run, (re-)initialisation is allowed
+      // - when running, encountering a glob only ensures the var exists, but does NOT assign it.
+      //   Note that this behaviour needs to stay for compatibility reasons, but is a bit difficult
+      //   to understand when reading the code
+      // TODO: maybe we should forbid assignments in glob vardefs in general?
+      //   But then, maybe not - having the chance to set glob values at compile time is useful, too.
+      processVarDefs(lvalue|create|global, true, compiling());
       return;
+      #else
+      // when running, encountering a glob only ensures the var exists, but does NOT assign it.
+      processVarDefs(lvalue|create|global, false, false);
+      return;
+      #endif
     }
     if (uequals(mIdentifier, "let")) {
-      processVarDefs(lvalue, true);
+      processVarDefs(lvalue, true, false);
       return;
     }
     if (uequals(mIdentifier, "unset")) {
-      processVarDefs(unset, false);
+      processVarDefs(unset, false, false);
       return;
     }
     // check local function definition
     if (uequals(mIdentifier, "local")) {
       mSrc.skipNonCode();
       if (mSrc.checkForIdentifier("function")) {
-        processFunction();
+        processFunction(false); // local function
         return;
       }
       exitWithSyntaxError("missing 'function' keyword");
@@ -4418,8 +4495,13 @@ void SourceProcessor::processStatement()
     }
     // check handler definition within script code (needed when trigger expression wants to refer to run-time created objects)
     if (uequals(mIdentifier, "on")) {
-      // Note: on handlers can be in declaration part OR in running script code
-      processOnHandler();
+      #if DECLARATION_SEPARATED
+      // Note: global on handlers are captured in s_declarations, so encountering one here must be a local one
+      processOnHandler(false);
+      #else
+      // all handlers not explicitly declared global are local/context based handlers now
+      processOnHandler(false);
+      #endif
       return;
     }
     // just check to give sensible error message
@@ -4428,8 +4510,13 @@ void SourceProcessor::processStatement()
       return;
     }
     if (uequals(mIdentifier, "function")) {
+      #if !DECLARATION_SEPARATED
+      processFunction(true); // global function
+      return;
+      #else
       exitWithSyntaxError("global function declarations must be made before first script statement");
       return;
+      #endif
     }
     // identifier we've parsed above is not a keyword, rewind cursor
     mSrc.mPos = memPos;
@@ -4445,12 +4532,13 @@ void SourceProcessor::processStatement()
 void SourceProcessor::processVarDefs(TypeInfo aVarFlags, bool aAllowInitializer, bool aDeclaration)
 {
   mSrc.skipNonCode();
+  if (!aDeclaration && (aVarFlags & global)) aVarFlags |= onlycreate; // global non-declarations (encountered while running the script) must only be created, never assigned
   // one of the variable definition keywords -> an identifier must follow
   if (!mSrc.parseIdentifier(mIdentifier)) {
     exitWithSyntaxError("missing variable name after '%s'", mIdentifier.c_str());
     return;
   }
-  push(mCurrentState); // return to current state when var definion / unset statement finishes
+  push(mCurrentState); // return to current state when var definition / unset statement finishes
   if (aVarFlags & unset) {
     // unset is special because it might address a subfield of a variable,
     // so it is modelled like a prefix operator
@@ -4459,7 +4547,7 @@ void SourceProcessor::processVarDefs(TypeInfo aVarFlags, bool aAllowInitializer,
     return;
   }
   else if ((aVarFlags & create)==0) {
-    // not really a vardef, but just a "let"
+    // not really a vardef, but just a "let" - var cannot be created, must already exists
     assignOrAccess(lvalue);
     return;
   }
@@ -4474,6 +4562,13 @@ void SourceProcessor::processVarDefs(TypeInfo aVarFlags, bool aAllowInitializer,
     }
     // initializing with a value
     mPendingOperation = op; // remember for s_assignExpression to check when we have the lvalue
+    #if !DECLARATION_SEPARATED
+    if ((aVarFlags & global) && !compiling()) {
+      // skip (initialisation) expression evaluation for global variables when running,
+      // these were already processed at compiling
+      mSkipping = true; // until pop at end of statement
+    }
+    #endif
     setState(&SourceProcessor::s_assignExpression);
     memberByIdentifier(aVarFlags);
     return;
@@ -5394,13 +5489,17 @@ ScriptObjPtr ScriptCompiler::compile(SourceContainerPtr aSource, CompiledCodePtr
   if (!aSource) return new ErrorValue(ScriptError::Internal, "No source code");
   // set up starting point
   #if P44SCRIPT_FULL_SUPPORT
+  SourceCursor codeStart = aSource->getCursor();
+  #if DECLARATION_SEPARATED
   if ((aParsingMode & (sourcecode|checking))==0) {
     // Shortcut for non-checked expression and scriptbody: no need to "compile"
-    mBodyRef = aSource->getCursor();
+    mBodyRef = codeStart;
   }
-  else {
+  else
+  #endif // DECLARATION_SEPARATED
+  {
     // could contain declarations, must scan these now
-    setCursor(aSource->getCursor());
+    setCursor(codeStart);
     aParsingMode = (aParsingMode & ~runModeMask) | scanning | (aParsingMode&checking); // compiling only, with optional checking
     initProcessing(aParsingMode);
     bool completed = false;
@@ -5416,12 +5515,9 @@ ScriptObjPtr ScriptCompiler::compile(SourceContainerPtr aSource, CompiledCodePtr
       return mResult;
     }
   }
-  #else
-  // we only know expressions, no declarations
-  bodyRef = aSource->getCursor();
-  #endif
+  #endif // P44SCRIPT_FULL_SUPPORT
   if (aIntoCodeObj) {
-    aIntoCodeObj->setCursor(mBodyRef);
+    aIntoCodeObj->setCursor(codeStart);
   }
   return aIntoCodeObj;
 }
@@ -5430,12 +5526,14 @@ ScriptObjPtr ScriptCompiler::compile(SourceContainerPtr aSource, CompiledCodePtr
 #if P44SCRIPT_FULL_SUPPORT
 void ScriptCompiler::startOfBodyCode()
 {
+  #if DECLARATION_SEPARATED
   mBodyRef = mSrc; // rest of source code is body
   if ((mEvaluationFlags&checking)==0) {
     complete(new AnnotatedNullValue("compiled"));
     return;
   }
   // we want a full syntax scan, continue skipping
+  #endif
   inherited::startOfBodyCode();
 }
 #endif
@@ -5447,6 +5545,7 @@ void ScriptCompiler::memberByIdentifier(TypeInfo aMemberAccessFlags, bool aNoNot
   if (mSkipping) {
     mResult.reset();
     resume();
+    return;
   }
   // non-skipping compilation means evaluating global var initialisation
   mResult = mDomain->memberByName(mIdentifier, aMemberAccessFlags);
@@ -6780,7 +6879,7 @@ void ScriptCodeThread::startBlockThreadAndStoreInIdentifier()
 void ScriptCodeThread::storeFunction()
 {
   if (!mResult->isErr()) {
-    // functions encountered duing execution (not in declaration part) are local to the context
+    // functions encountered during execution (not in declaration part) are local to the context
     ErrorPtr err = owner()->scriptmain()->setMemberByName(mResult->getIdentifier(), mResult);
     if (Error::notOK(err)) {
       mResult = new ErrorPosValue(mSrc, err);
