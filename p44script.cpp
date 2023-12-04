@@ -4406,28 +4406,23 @@ void SourceProcessor::processStatement()
     if (uequals(mIdentifier, "concurrent")) {
       // Syntax: concurrent as myThread {}
       //     or: concurrent {}
+      //     or: concurrent passing var1[ = expression] [, var2...] [as myThread] {}
       mSrc.skipNonCode();
-      mIdentifier.clear();
-      if (mSrc.checkForIdentifier("as")) {
+      // return to current state when statement finishes
+      push(mCurrentState);
+      // optional list of variables to pass into thread variables
+      mResult.reset();
+      if (mSrc.checkForIdentifier("passing")) {
+        // need to collect vars first
+        mResult = new SimpleVarContainer(); // list of thread vars to pass
         mSrc.skipNonCode();
-        if (mSrc.parseIdentifier(mIdentifier)) {
-          // we want the thread be a variable in order to wait for it and stop it
-          mSrc.skipNonCode();
-        }
-      }
-      if (!mSrc.nextIf('{')) {
-        exitWithSyntaxError("missing '{' to start concurrent block");
+        push(&SourceProcessor::s_concurrent);
+        setState(&SourceProcessor::s_concurrent_var);
+        resume();
         return;
       }
-      push(mCurrentState); // return to current state when statement finishes
-      setState(&SourceProcessor::s_block);
-      // "fork" the thread
-      if (!mSkipping) {
-        mSkipping = true; // for myself: just skip the next block
-        startBlockThreadAndStoreInIdentifier(); // includes resume()
-        return;
-      }
-      checkAndResume(); // skipping, no actual fork
+      setState(&SourceProcessor::s_concurrent);
+      resume();
       return;
     }
     // Check variable definition keywords
@@ -4865,6 +4860,94 @@ void SourceProcessor::s_tryStatement()
   }
 }
 
+
+void SourceProcessor::s_concurrent_var()
+{
+  FOCUSLOGSTATE
+  // mResult is the threadvars SimpleVarContainer
+  string passingVar;
+  if (!mSrc.parseIdentifier(passingVar)) {
+    exitWithSyntaxError("variable name expected");
+    return;
+  }
+  push(&SourceProcessor::s_concurrent_var_value); // again, including the member to add to
+  // make result the lvalue to assign to
+  mResult = new StandardLValue(mResult, passingVar, nullptr);
+  // determine value to assign
+  mSrc.skipNonCode();
+  SourcePos opos = mSrc.mPos;
+  ScriptOperator op = mSrc.parseOperator();
+  if (op==op_assign || op==op_assignOrEq) {
+    // we want to pass an expression, evaluate it
+    push(&SourceProcessor::s_concurrent_var_value); // again, including the member to add to
+    resumeAt(&SourceProcessor::s_expression);
+    return;
+  }
+  mSrc.mPos = opos; // back to before operator
+  // just pass the variable of this name
+  mIdentifier = passingVar;
+  setState(&SourceProcessor::s_concurrent_var_value);
+  mOlderResult = mResult; // the lvalue to assign
+  mResult.reset();
+  memberByIdentifier(none); // will lookup member of result, or global if result is NULL
+}
+
+
+void SourceProcessor::s_concurrent_var_value()
+{
+  FOCUSLOGSTATE
+  // mResult is the value the var should have
+  // mOlderResult is the lvalue to add it to
+  mOlderResult->assignLValue(boost::bind(&SourceProcessor::concurrent_var_assigned, this), mResult);
+}
+
+
+void SourceProcessor::concurrent_var_assigned()
+{
+  mSrc.skipNonCode();
+  pop();
+  mResult = mOlderResult; // list of threadvars
+  if (mSrc.nextIf(',')) {
+    // another var to pass
+    mSrc.skipNonCode();
+    resumeAt(&SourceProcessor::s_concurrent_var);
+    return;
+  }
+  // all variables collected, return to s_concurrent with list of threadvars
+  popWithValidResult();
+}
+
+
+void SourceProcessor::s_concurrent()
+{
+  FOCUSLOGSTATE
+  mIdentifier.clear();
+  if (mSrc.checkForIdentifier("as")) {
+    mSrc.skipNonCode();
+    if (mSrc.parseIdentifier(mIdentifier)) {
+      // we want the thread be a variable in order to wait for it and stop it
+      mSrc.skipNonCode();
+    }
+  }
+  // mResult is null or the threadvars SimpleVarContainer
+  if (!mSrc.nextIf('{')) {
+    exitWithSyntaxError("missing '{' to start concurrent block");
+    return;
+  }
+  ScriptObjPtr toBePassedVars = mResult;
+  mResult.reset(); // do not show the threadvars as result
+  setState(&SourceProcessor::s_block);
+  // "fork" the thread
+  if (!mSkipping) {
+    mSkipping = true; // for myself: just skip the next block
+    startBlockThreadAndStoreInIdentifier(toBePassedVars); // includes resume()
+    return;
+  }
+  checkAndResume(); // skipping, no actual fork
+  return;
+}
+
+
 #endif // P44SCRIPT_FULL_SUPPORT
 
 
@@ -4935,7 +5018,7 @@ void SourceProcessor::newFunctionCallContext()
 
 #if P44SCRIPT_FULL_SUPPORT
 
-void SourceProcessor::startBlockThreadAndStoreInIdentifier()
+void SourceProcessor::startBlockThreadAndStoreInIdentifier(ScriptObjPtr)
 {
   /* NOP */
   checkAndResume();
@@ -6852,9 +6935,9 @@ void ScriptCodeThread::newFunctionCallContext()
 
 #if P44SCRIPT_FULL_SUPPORT
 
-void ScriptCodeThread::startBlockThreadAndStoreInIdentifier()
+void ScriptCodeThread::startBlockThreadAndStoreInIdentifier(ScriptObjPtr aThreadVars)
 {
-  ScriptCodeThreadPtr thread = mOwner->newThreadFrom(mCodeObj, mSrc, concurrently|block, NoOP, NULL);
+  ScriptCodeThreadPtr thread = mOwner->newThreadFrom(mCodeObj, mSrc, concurrently|block, NoOP, NULL, aThreadVars);
   if (thread) {
     if (!mIdentifier.empty()) {
       push(mCurrentState); // skipping==true is pushed (as we're already skipping the concurrent block in the main thread)

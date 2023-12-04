@@ -2343,7 +2343,8 @@ namespace p44 { namespace P44Script {
 
     /// fork executing a block at the current position, if identifier is not empty, store a new ThreadValue.
     /// @note MUST NOT call resume() directly. This call will return when the new thread yields execution the first time.
-    virtual void startBlockThreadAndStoreInIdentifier();
+    /// @param aThreadVars thread variables to pass into the new thread
+    virtual void startBlockThreadAndStoreInIdentifier(ScriptObjPtr aThreadVars);
 
     /// must store result as a compiled function in the scripting domain
     /// @note must cause calling resume()
@@ -2565,8 +2566,12 @@ namespace p44 { namespace P44Script {
     void s_whileStatement(); ///< executing the while statement
     // - try/catch
     void s_tryStatement(); ///< executing the statement to try
+    // - concurrent
+    void s_concurrent_var(); ///< expecting a variable to pass as threadvar into a concurrent statement
+    void s_concurrent_var_value(); ///< result is the value for the threadvar to pass into concurrent statement
+    void concurrent_var_assigned();
+    void s_concurrent(); ///< start a concurrent thread
 
-    void extracted();
 
     // Declarations
     void s_declarations(); ///< declarations (functions and handlers)
@@ -3047,7 +3052,8 @@ namespace p44 { namespace P44Script {
 
     /// fork executing a block at the current position, if identifier is not empty, store a new ThreadValue.
     /// @note MUST NOT call resume() directly. This call will return when the new thread yields execution the first time.
-    virtual void startBlockThreadAndStoreInIdentifier() P44_OVERRIDE;
+    /// @param aThreadVars thread variables to pass into the new thread
+    virtual void startBlockThreadAndStoreInIdentifier(ScriptObjPtr aThreadVars) P44_OVERRIDE;
 
     /// must store result as a compiled (local) function in the current context
     /// @note must cause calling resume()
