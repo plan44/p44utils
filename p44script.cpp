@@ -4360,7 +4360,8 @@ void SourceProcessor::processStatement()
     }
     if (uequals(mIdentifier, "break")) {
       if (!mSkipping) {
-        if (!skipUntilReaching(&SourceProcessor::s_loopBodyDone)) {
+        bool foreach = dynamic_cast<ForEachController*>(mStatementHelper.get());
+        if (!skipUntilReaching(foreach ? &SourceProcessor::s_foreachStatement : &SourceProcessor::s_loopBodyDone)) {
           exitWithSyntaxError("'break' must be within 'while', 'for' or 'foreach' statement");
           return;
         }
@@ -4370,7 +4371,8 @@ void SourceProcessor::processStatement()
     }
     if (uequals(mIdentifier, "continue")) {
       if (!mSkipping) {
-        if (!unWindStackTo(&SourceProcessor::s_loopBodyDone)) {
+        bool foreach = dynamic_cast<ForEachController*>(mStatementHelper.get());
+        if (!unWindStackTo(foreach ? &SourceProcessor::s_foreachStatement : &SourceProcessor::s_loopBodyDone)) {
           exitWithSyntaxError("'continue' must be within 'while', 'for' or 'foreach' statement");
           return;
         }
