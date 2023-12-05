@@ -4488,8 +4488,10 @@ void SourceProcessor::processStatement()
       #endif
     }
     if (uequals(mIdentifier, "let")) {
-      processVarDefs(lvalue, true, false);
-      return;
+      // let is not a vardef (var needs to exist)
+      mSrc.skipNonCode();
+      goto expr; // handle like if did not exist (means if the expression following is not an assignment, there will be no error)
+      // TODO: maybe make sure the following expression IS an assigment, but that's too complicated for now
     }
     if (uequals(mIdentifier, "unset")) {
       processVarDefs(unset, false, false);
@@ -4533,6 +4535,7 @@ void SourceProcessor::processStatement()
     // identifier we've parsed above is not a keyword, rewind cursor
     mSrc.mPos = memPos;
   }
+expr:
   // is an expression or possibly an assignment, also handled in expression
   push(mCurrentState); // return to current state when expression evaluation and result checking completes
   push(&SourceProcessor::s_result); // but check result of statement level expressions first
@@ -4556,11 +4559,6 @@ void SourceProcessor::processVarDefs(TypeInfo aVarFlags, bool aAllowInitializer,
     // so it is modelled like a prefix operator
     mPendingOperation = op_delete;
     assignOrAccess(none);
-    return;
-  }
-  else if ((aVarFlags & create)==0) {
-    // not really a vardef, but just a "let" - var cannot be created, must already exists
-    assignOrAccess(lvalue);
     return;
   }
   if (aDeclaration) mSkipping = false; // must enable processing now for actually assigning globals.

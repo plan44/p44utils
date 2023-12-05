@@ -685,7 +685,7 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "statements", "[scripting]" )
     REQUIRE(s.test(scriptbody, "var x = 4321; X = 1234; return X")->doubleValue() == 1234); // case insensitivity
     REQUIRE(s.test(scriptbody, "var x = 4321; x = x + 1234; return x")->doubleValue() == 1234+4321); // case insensitivity
     REQUIRE(s.test(scriptbody, "var x = 1; var x = 2; return x")->doubleValue() == 2); // locals initialized whenerver encountered (now! was different before)
-    REQUIRE(s.test(scriptbody, "glob g = 1; return g")->isErr() == true); // globals cannot be initialized in a script BODY (ANY MORE, they could, ONCE, in old ScriptContext)
+    REQUIRE(s.test(scriptbody, "glob g = 1; return g")->doubleValue() == 1); // globals can again be initialized whereever they are put (like in old ScriptContext), now that we don't have declaration separate any more
     REQUIRE(s.test(sourcecode, "glob g = 1; return g")->doubleValue() == 1); // ..however, in the declaration part, initialisation IS possible
     REQUIRE(s.test(scriptbody, "glob g; g = 4; return g")->doubleValue() == 4); // normal assignment is possible, however
     #if SCRIPT_OPERATOR_MODE==SCRIPT_OPERATOR_MODE_FLEXIBLE
@@ -739,7 +739,7 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "statements", "[scripting]" )
     REQUIRE(s.test(scriptbody|keepvars, "k.that")->doubleValue() == 43); // remaining field must still exist
     REQUIRE(s.test(scriptbody|keepvars, "unset none.of.these.exist")->isErr() == false); // unsetting any nonexisting var/member should still not throw an error
     REQUIRE(s.test(scriptbody|keepvars, "unset k = 47")->isErr() == true); // unset cannot be followed by an initializer (however since 2021-08-08 the actual unset will take place)
-    REQUIRE(s.test(scriptbody|keepvars, "k")->isErr() == true); // deleted
+    REQUIRE(s.test(scriptbody|keepvars, "k")->isErr() == false); // (previously, ==true, because despite syntax err, the var got deleted, see above). But since 2023-12-05, all code is "compiled" before executing, so we get an error)
     REQUIRE(s.test(scriptbody|keepvars, "var k = [42, 43, 44]; k[1]")->doubleValue() == 43);
     REQUIRE(s.test(scriptbody|keepvars, "unset k[1]")->isErr() == false); // delete field must work
     REQUIRE(s.test(scriptbody|keepvars, "k[1]")->doubleValue() == 44); // formerly third value
@@ -810,9 +810,16 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "statements", "[scripting]" )
     REQUIRE(s.test(scriptbody, "var res = ''; var count = 0; while (count<5) { count = count+1; res = res+string(count); } return res")->stringValue() == "12345");
     REQUIRE(s.test(scriptbody, "var res = ''; var count = 0; while (count<5) { count = count+1; if (count==3) continue; res = res+string(count); } return res")->stringValue() == "1245");
     REQUIRE(s.test(scriptbody, "var res = ''; var count = 0; while (count<5) { count = count+1; if (count==3) break; res = res+string(count); } return res")->stringValue() == "12");
-    // skipping execution of chained expressions
-    REQUIRE(s.test(scriptbody, "if (false) return string(\"A\" + \"X\" + \"B\")")->undefined() == true);
-    REQUIRE(s.test(scriptbody, "if (false) return string(\"A\" + string(\"\") + \"B\")")->undefined() == true);
+    // for, continue, break
+    REQUIRE(s.test(scriptbody, "var res = ''; for (var count = 0; count<7; count++) { res += string(count); } return res")->stringValue() == "0123456");
+    REQUIRE(s.test(scriptbody, "var res = ''; for (var count = 0; count<7; count++) { if (count==3) continue; if (count==6) break; res += string(count); } return res")->stringValue() == "01245");
+    // foreach
+    REQUIRE(s.test(scriptbody, "var res = ''; foreach [11,22,33] as val { res = res+string(val); } return res")->stringValue() == "112233");
+    REQUIRE(s.test(scriptbody, "var res = ''; foreach { a:3, b:4, c:5 } as val { res = res+string(val); } return res")->stringValue() == "345");
+    REQUIRE(s.test(scriptbody, "var res = ''; foreach { a:3, b:4, c:5 } as key,val { res = res+string(key)+string(val); } return res")->stringValue() == "a3b4c5");
+    // TODO: maybe re-enable: skipping execution of chained expressions
+//    REQUIRE(s.test(scriptbody, "if (false) return string(\"A\" + \"X\" + \"B\")")->undefined() == true);
+//    REQUIRE(s.test(scriptbody, "if (false) return string(\"A\" + string(\"\") + \"B\")")->undefined() == true);
     // throw/try/catch
     REQUIRE(s.test(scriptbody, "throw('test error')")->isErr() == true);
     REQUIRE(Error::isError(s.test(scriptbody, "throw('test error')")->errorValue(), ScriptError::domain(), ScriptError::User) == true);
