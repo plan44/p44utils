@@ -4986,7 +4986,7 @@ void SourceProcessor::s_concurrent_var()
     exitWithSyntaxError("variable name expected");
     return;
   }
-  push(&SourceProcessor::s_concurrent_var_value); // again, including the member to add to
+  push(&SourceProcessor::s_concurrent_var_value);
   // make result the lvalue to assign to
   mResult = new StandardLValue(mResult, passingVar, nullptr);
   // determine value to assign

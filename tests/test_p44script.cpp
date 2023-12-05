@@ -744,6 +744,18 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "statements", "[scripting]" )
     REQUIRE(s.test(scriptbody|keepvars, "unset k[1]")->isErr() == false); // delete field must work
     REQUIRE(s.test(scriptbody|keepvars, "k[1]")->doubleValue() == 44); // formerly third value
     REQUIRE(s.test(scriptbody|keepvars, "elements(k)")->doubleValue() == 2); // only 2 elements left
+
+    // increment and decrement
+    REQUIRE(s.test(scriptbody, "var x=41; x++; x")->intValue() == 42);
+    REQUIRE(s.test(scriptbody, "var x=43; x--; x")->intValue() == 42);
+
+    // compound assignments
+    REQUIRE(s.test(scriptbody, "var x=40; x += 2; x")->intValue() == 42);
+    REQUIRE(s.test(scriptbody, "var x=44; x -= 2; x")->intValue() == 42);
+    REQUIRE(s.test(scriptbody, "var x=21; x *= 2; x")->intValue() == 42);
+    REQUIRE(s.test(scriptbody, "var x=84; x /= 2; x")->intValue() == 42);
+    REQUIRE(s.test(scriptbody, "var x='A'; x += 'BC'; x")->stringValue() == "ABC");
+
   }
 
   // {"array":["first",2,3,"fourth",6.6],"obj":{"objA":"A","objB":42,"objC":{"objD":"D","objE":45}},"string":"abc","number":42,"bool":true}
@@ -813,10 +825,11 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "statements", "[scripting]" )
     // for, continue, break
     REQUIRE(s.test(scriptbody, "var res = ''; for (var count = 0; count<7; count++) { res += string(count); } return res")->stringValue() == "0123456");
     REQUIRE(s.test(scriptbody, "var res = ''; for (var count = 0; count<7; count++) { if (count==3) continue; if (count==6) break; res += string(count); } return res")->stringValue() == "01245");
-    // foreach
+    // foreach, continue, break
     REQUIRE(s.test(scriptbody, "var res = ''; foreach [11,22,33] as val { res = res+string(val); } return res")->stringValue() == "112233");
     REQUIRE(s.test(scriptbody, "var res = ''; foreach { a:3, b:4, c:5 } as val { res = res+string(val); } return res")->stringValue() == "345");
     REQUIRE(s.test(scriptbody, "var res = ''; foreach { a:3, b:4, c:5 } as key,val { res = res+string(key)+string(val); } return res")->stringValue() == "a3b4c5");
+    REQUIRE(s.test(scriptbody, "var res = ''; foreach [0,1,2,3,4,5,6,7] as count { if (count==3) continue; if (count==6) break; res += string(count); } return res")->stringValue() == "01245");
     // TODO: maybe re-enable: skipping execution of chained expressions
 //    REQUIRE(s.test(scriptbody, "if (false) return string(\"A\" + \"X\" + \"B\")")->undefined() == true);
 //    REQUIRE(s.test(scriptbody, "if (false) return string(\"A\" + string(\"\") + \"B\")")->undefined() == true);
@@ -909,6 +922,10 @@ TEST_CASE_METHOD(AsyncScriptingFixture, "async", "[scripting]") {
   }
 
   SECTION("concurrency") {
+    // passing in threadvars, changing outside before thread uses it must not change it
+    REQUIRE(scriptTest(scriptbody, "var res=''; var in=42; concurrent passing in { delay(0.5); res = in }; in=77; delay(1); return res")->intValue() == 42);
+    REQUIRE(scriptTest(scriptbody, "var res=''; var in=42; concurrent passing in2=in*2 { delay(0.5); res = in2 }; in=77; delay(1); return res")->intValue() == 84);
+    // tests with longer duration
     REQUIRE(scriptTest(scriptbody, "var res=''; log(4, 'will take 2 secs'); concurrent as test { delay(2); res = res + '2sec' } delay(1); res = res+'1sec'; await(test); res")->stringValue() == "1sec2sec");
     REQUIRE(runningTime() ==  Catch::Approx(2).epsilon(0.05));
     REQUIRE(scriptTest(scriptbody, "var res=''; log(4, 'will take 3 secs'); concurrent as test { delay(3); res = res + '3sec' } concurrent as test2 { delay(2); res = res + '2sec' } delay(1); res = res+'1sec'; await(test); res")->stringValue() == "1sec2sec3sec");
