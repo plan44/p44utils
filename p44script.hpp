@@ -770,16 +770,6 @@ namespace p44 { namespace P44Script {
   };
 
 
-  class LoopController : public P44Obj
-  {
-  public:
-    ValueIteratorPtr mIterator;
-    ScriptLValuePtr mLoopValue;
-    ScriptLValuePtr mLoopKey;
-  };
-  typedef boost::intrusive_ptr<LoopController> LoopControllerPtr;
-
-
   // MARK: - Special NULL values
 
   /// an explicitly annotated null value (in contrast to ScriptObj base class which is a non-annotated null)
@@ -2219,6 +2209,28 @@ namespace p44 { namespace P44Script {
   };
 
 
+  // MARK: Statement helpers
+
+  class ForEachController : public P44Obj
+  {
+  public:
+    ValueIteratorPtr mIterator;
+    ScriptLValuePtr mLoopValue;
+    ScriptLValuePtr mLoopKey;
+  };
+
+
+  class ForWhileController : public P44Obj
+  {
+  public:
+    ForWhileController() : mIsFor(false) {};
+    SourcePos mLoopCondition;
+    SourcePos mLoopNext;
+    SourcePos mLoopBody;
+    bool mIsFor; // set when the loop is a for loop
+  };
+
+
   // MARK: generic source processor base class
 
   /// Base class for parsing or executing script code
@@ -2401,7 +2413,7 @@ namespace p44 { namespace P44Script {
     // state that can be pushed
     SourceCursor mSrc; ///< the scanning position within code
     SourcePos mPoppedPos; ///< the position popped from the stack (can be applied to jump back for loops)
-    LoopControllerPtr mLoopController; ///< the loop controller, if any
+    P44ObjPtr mStatementHelper; ///< a helper for a statement, for example a loop controller, if any is needed
     StateHandler mCurrentState; ///< next state to call
     ScriptObjPtr mResult; ///< the current result object
     ScriptObjPtr mOlderResult; ///< an older result, e.g. the result popped from stack, or previous lookup in nested member lookups
@@ -2422,7 +2434,7 @@ namespace p44 { namespace P44Script {
         StateHandler aReturnToState,
         ScriptObjPtr aResult,
         ExecutionContextPtr aFuncCallContext,
-        LoopControllerPtr aLoopController,
+        P44ObjPtr aStatementHelper,
         int aPrecedence,
         ScriptOperator aPendingOperation
       ) :
@@ -2431,7 +2443,7 @@ namespace p44 { namespace P44Script {
         mReturnToState(aReturnToState),
         mResult(aResult),
         mFuncCallContext(aFuncCallContext),
-        mLoopController(aLoopController),
+        mStatementHelper(aStatementHelper),
         mPrecedence(aPrecedence),
         mPendingOperation(aPendingOperation)
       {}
@@ -2440,7 +2452,7 @@ namespace p44 { namespace P44Script {
       StateHandler mReturnToState; ///< next state to run after pop
       ScriptObjPtr mResult; ///< the current result object
       ExecutionContextPtr mFuncCallContext; ///< the context of the currently preparing function call
-      LoopControllerPtr mLoopController; ///< the loop controller, if any
+      P44ObjPtr mStatementHelper; ///< the statement helper, if any
       int mPrecedence; ///< encountering a binary operator with smaller precedence will end the expression
       ScriptOperator mPendingOperation; ///< operator
     };
@@ -2561,9 +2573,14 @@ namespace p44 { namespace P44Script {
     void s_foreachKeyNeeded(); ///< obtained the forach loop value
     void s_foreachBody(); ///< loop vars obtained
     void s_foreachStatement(); ///< executing the foreach statement
-    // - while
-    void s_whileCondition(); ///< executing the condition of a while
-    void s_whileStatement(); ///< executing the while statement
+    // - while and for
+    void s_loopInit(); ///< for inititialisation statement executed
+    void s_loopCondition(); ///< loop condition captured
+    void s_loopNext(); ///< loop next statement captured
+    void s_loopBody(); ///< executing the loop body
+    void s_loopBodyDone(); ///< done executing the loop body
+    void s_loopRecheck(); ///< re-check the condition for next iteration
+    void s_loopEnd(); ///< re-check the condition for next iteration
     // - try/catch
     void s_tryStatement(); ///< executing the statement to try
     // - concurrent

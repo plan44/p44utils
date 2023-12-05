@@ -2991,7 +2991,7 @@ void SourceProcessor::checkAndResume()
 void SourceProcessor::push(StateHandler aReturnToState, bool aPushPoppedPos)
 {
   FOCUSLOG("                        push[%2lu] :                             result = %s", mStack.size()+1, ScriptObj::describe(mResult).c_str());
-  mStack.push_back(StackFrame(aPushPoppedPos ? mPoppedPos : mSrc.mPos, mSkipping, aReturnToState, mResult, mFuncCallContext, mLoopController, mPrecedence, mPendingOperation));
+  mStack.push_back(StackFrame(aPushPoppedPos ? mPoppedPos : mSrc.mPos, mSkipping, aReturnToState, mResult, mFuncCallContext, mStatementHelper, mPrecedence, mPendingOperation));
 }
 
 
@@ -3007,7 +3007,7 @@ void SourceProcessor::pop()
   mPrecedence = s.mPrecedence;
   mPendingOperation = s.mPendingOperation;
   mFuncCallContext = s.mFuncCallContext;
-  mLoopController = s.mLoopController;
+  mStatementHelper = s.mStatementHelper;
   // these are restored separately, returnToState must decide what to do
   mPoppedPos = s.mPos;
   mOlderResult = s.mResult;
@@ -3266,8 +3266,8 @@ void SourceProcessor::s_arrayelementdone()
   if (!mSkipping) {
     size_t nextIndex = mOlderResult->numIndexedMembers(); // index of next to-be-added array element
     mOlderResult->setMemberAtIndex(nextIndex, mResult);
-    mResult = mOlderResult;
   }
+  mResult = mOlderResult;
   mSrc.skipNonCode();
   if (mSrc.nextIf(',')) {
     // possibly, another element follows
@@ -3350,10 +3350,8 @@ void SourceProcessor::s_simpleTerm()
       mOlderResult.reset(); // represents the previous level in nested lookups
       mSrc.skipNonCode();
       if (mSkipping) {
-        // we must always assume structured values etc.
-        // Note: when skipping, we do NOT need to do complicated check for assignment.
-        //   Syntactically, an assignment looks the same as a regular expression
-        resumeAt(&SourceProcessor::s_member);
+        // we must always assume structured values and postfix ++/-- etc.
+        assignOrAccess(lvalue);
         return;
       }
       else {
@@ -3760,9 +3758,13 @@ void SourceProcessor::s_assignExpression()
   if (mPendingOperation & (op_self|op_incdec)) {
     // first term of a compound operation is the current result
     // But as it was obtained as an lvalue, it might not have retrieved its current value
-    // - make it valid for use in a calculation
-    setState(&SourceProcessor::s_compoundAssignment);
-    mResult->makeValid(boost::bind(&SourceProcessor::resume, this, _1));
+    if (!mSkipping) {
+      // - make it valid for use in a calculation
+      setState(&SourceProcessor::s_compoundAssignment);
+      mResult->makeValid(boost::bind(&SourceProcessor::resume, this, _1));
+      return;
+    }
+    s_compoundAssignment();
     return;
   }
   // regular assignment
@@ -4326,24 +4328,39 @@ void SourceProcessor::processStatement()
       return;
     }
     if (uequals(mIdentifier, "for")) {
-      // TODO: implement using a fully scripted iterator
-      exitWithSyntaxError("for not yet implemented");
+      // Syntax: for(init; condition; next)
+      if (!mSrc.nextIf('(')) {
+        exitWithSyntaxError("missing '(' after 'for'");
+        return;
+      }
+      push(mCurrentState); // return to current state when for finishes
+      // create loop controller
+      ForWhileController* forWhileControllerP = new ForWhileController;
+      mStatementHelper = forWhileControllerP;
+      forWhileControllerP->mIsFor = true;
+      push(&SourceProcessor::s_loopInit);
+      resumeAt(&SourceProcessor::s_oneStatement);
+      return;
     }
     if (uequals(mIdentifier, "while")) {
       // "while" statement
-      // TODO: refactor to use check-only scripted iterator
+      // is just a for with no init and no next
       if (!mSrc.nextIf('(')) {
         exitWithSyntaxError("missing '(' after 'while'");
         return;
       }
       push(mCurrentState); // return to current state when while finishes
-      push(&SourceProcessor::s_whileCondition);
+      // create loop controller
+      ForWhileController* forControllerP = new ForWhileController;
+      mStatementHelper = forControllerP;
+      forControllerP->mLoopCondition = mSrc.mPos; // point where condition is
+      push(&SourceProcessor::s_loopCondition);
       resumeAt(&SourceProcessor::s_expression);
       return;
     }
     if (uequals(mIdentifier, "break")) {
       if (!mSkipping) {
-        if (!skipUntilReaching(&SourceProcessor::s_whileStatement)) {
+        if (!skipUntilReaching(&SourceProcessor::s_loopBodyDone)) {
           exitWithSyntaxError("'break' must be within 'while', 'for' or 'foreach' statement");
           return;
         }
@@ -4353,7 +4370,7 @@ void SourceProcessor::processStatement()
     }
     if (uequals(mIdentifier, "continue")) {
       if (!mSkipping) {
-        if (!unWindStackTo(&SourceProcessor::s_whileStatement)) {
+        if (!unWindStackTo(&SourceProcessor::s_loopBodyDone)) {
           exitWithSyntaxError("'continue' must be within 'while', 'for' or 'foreach' statement");
           return;
         }
@@ -4657,13 +4674,12 @@ void SourceProcessor::s_ifTrueStatement()
 }
 
 
-
-
 void SourceProcessor::s_foreachTarget()
 {
   FOCUSLOGSTATE
   // foreach target expression is evaluated in result
   // - result contains target object to be iterated
+  mSrc.skipNonCode();
   if (!mSrc.checkForIdentifier("as")) {
     exitWithSyntaxError("missing 'as' in 'foreach'");
     return;
@@ -4676,8 +4692,9 @@ void SourceProcessor::s_foreachTarget()
   }
   setState(&SourceProcessor::s_foreachLoopVar1);
   if (!mSkipping) {
-    mLoopController = new LoopController;
-    mLoopController->mIterator = mResult->newIterator(anyvalid+null+attrMask); // all members
+    ForEachController* foreachControllerP = new ForEachController;
+    mStatementHelper = foreachControllerP;
+    foreachControllerP->mIterator = mResult->newIterator(anyvalid+null+attrMask); // all members
     mResult.reset(); // create error variable on scope level
     memberByIdentifier(lvalue+create);
     return;
@@ -4686,12 +4703,14 @@ void SourceProcessor::s_foreachTarget()
   return;
 }
 
+
 void SourceProcessor::s_foreachLoopVar1()
 {
   mSrc.skipNonCode();
+  ForEachController* foreachControllerP = static_cast<ForEachController*>(mStatementHelper.get());
   if (!mSrc.nextIf(',')) {
     // only value, we're done
-    if (!mSkipping) mLoopController->mLoopValue = boost::dynamic_pointer_cast<ScriptLValue>(mResult); // first lvalue will receive value
+    if (!mSkipping) foreachControllerP->mLoopValue = boost::dynamic_pointer_cast<ScriptLValue>(mResult); // first lvalue will receive value
     checkAndResumeAt(&SourceProcessor::s_foreachLoopStart);
     return;
   }
@@ -4703,7 +4722,7 @@ void SourceProcessor::s_foreachLoopVar1()
   }
   setState(&SourceProcessor::s_foreachLoopVars);
   if (!mSkipping) {
-    mLoopController->mLoopKey = boost::dynamic_pointer_cast<ScriptLValue>(mResult); // first lvalue will receive key
+    foreachControllerP->mLoopKey = boost::dynamic_pointer_cast<ScriptLValue>(mResult); // first lvalue will receive key
     mResult.reset(); // create key variable on scope level
     memberByIdentifier(lvalue+create);
     return;
@@ -4714,7 +4733,8 @@ void SourceProcessor::s_foreachLoopVar1()
 
 void SourceProcessor::s_foreachLoopVars()
 {
-  if (!mSkipping) mLoopController->mLoopValue = boost::dynamic_pointer_cast<ScriptLValue>(mResult); // this lvalue will receive value
+  ForEachController* foreachControllerP = static_cast<ForEachController*>(mStatementHelper.get());
+  if (!mSkipping) foreachControllerP->mLoopValue = boost::dynamic_pointer_cast<ScriptLValue>(mResult); // this lvalue will receive value
   checkAndResumeAt(&SourceProcessor::s_foreachLoopStart);
 }
 
@@ -4728,18 +4748,20 @@ void SourceProcessor::s_foreachLoopStart()
     return;
   }
   // reset iterator, obtain value
-  mLoopController->mIterator->reset();
+  ForEachController* foreachControllerP = static_cast<ForEachController*>(mStatementHelper.get());
+  foreachControllerP->mIterator->reset();
   resumeAt(&SourceProcessor::s_foreachLoopIteration);
 }
 
 void SourceProcessor::s_foreachLoopIteration()
 {
   FOCUSLOGSTATE
-  mResult = mLoopController->mIterator->obtainValue(none);
+  ForEachController* foreachControllerP = static_cast<ForEachController*>(mStatementHelper.get());
+  mResult = foreachControllerP->mIterator->obtainValue(none);
   if (mResult) {
     // there is a value, loop continues
-    setState(mLoopController->mLoopKey ?  &SourceProcessor::s_foreachKeyNeeded : &SourceProcessor::s_foreachBody);
-    mLoopController->mLoopValue->assignLValue(boost::bind(&SourceProcessor::resume, this, _1), mResult);
+    setState(foreachControllerP->mLoopKey ?  &SourceProcessor::s_foreachKeyNeeded : &SourceProcessor::s_foreachBody);
+    foreachControllerP->mLoopValue->assignLValue(boost::bind(&SourceProcessor::resume, this, _1), mResult);
     return;
   }
   // no loop value -> done with loop
@@ -4750,9 +4772,10 @@ void SourceProcessor::s_foreachLoopIteration()
 
 void SourceProcessor::s_foreachKeyNeeded()
 {
-  ScriptObjPtr key = mLoopController->mIterator->obtainKey(false);
+  ForEachController* foreachControllerP = static_cast<ForEachController*>(mStatementHelper.get());
+  ScriptObjPtr key = foreachControllerP->mIterator->obtainKey(false);
   setState(&SourceProcessor::s_foreachBody);
-  mLoopController->mLoopKey->assignLValue(boost::bind(&SourceProcessor::resume, this, _1), key);
+  foreachControllerP->mLoopKey->assignLValue(boost::bind(&SourceProcessor::resume, this, _1), key);
 }
 
 
@@ -4777,7 +4800,8 @@ void SourceProcessor::s_foreachStatement()
     return;
   }
   // not skipping, means we need to advance the iterator and possibly loop back
-  mLoopController->mIterator->next();
+  ForEachController* foreachControllerP = static_cast<ForEachController*>(mStatementHelper.get());
+  foreachControllerP->mIterator->next();
   // TODO: optimize to avoid skip run at the end
   // go back to loop beginning
   mSrc.mPos = mPoppedPos;
@@ -4785,36 +4809,128 @@ void SourceProcessor::s_foreachStatement()
 }
 
 
-void SourceProcessor::s_whileCondition()
+void SourceProcessor::s_loopInit()
 {
   FOCUSLOGSTATE
-  // while condition is evaluated
+  // for inititialisation statement executed
+  // Note: separating ; is already consumed
+  ForWhileController* forWhileControllerP = static_cast<ForWhileController*>(mStatementHelper.get());
+  forWhileControllerP->mLoopCondition = mSrc.mPos; // point where condition is
+  // evaluate condition (first time)
+  push(&SourceProcessor::s_loopCondition);
+  resumeAt(&SourceProcessor::s_expression);
+  return;
+}
+
+
+void SourceProcessor::s_loopCondition()
+{
+  FOCUSLOGSTATE
+  // while or for condition is evaluated
   // - result contains result of the evaluation
-  // - mPoppedPos points to beginning of while condition
+  // - ???mPoppedPos points to beginning of while condition
+  ForWhileController* forWhileControllerP = static_cast<ForWhileController*>(mStatementHelper.get());
+  if (forWhileControllerP->mIsFor) {
+    // capture the finalisation statement
+    if (!mSrc.nextIf(';')) {
+      exitWithSyntaxError("missing ';' after 'for' condition");
+      return;
+    }
+    mSrc.skipNonCode();
+    forWhileControllerP->mLoopNext = mSrc.mPos;
+    push(&SourceProcessor::s_loopNext);
+    mSkipping = true; // do not execute it now, we're just parsing over it
+    resumeAt(&SourceProcessor::s_oneStatement);
+    return;
+  }
   if (!mSrc.nextIf(')')) {
     exitWithSyntaxError("missing ')' after 'while' condition");
     return;
   }
-  if (!mSkipping) mSkipping = !mResult->boolValue(); // set now, because following push must include "skipping" according to the decision!
-  push(&SourceProcessor::s_whileStatement, true); // push poppedPos (again) = loopback position we'll need at s_whileStatement
+  mOlderResult = mResult;
+  s_loopBody();
+}
+
+
+void SourceProcessor::s_loopNext()
+{
+  FOCUSLOGSTATE
+  // older result is still the loop condition
+  if (!mSrc.nextIf(')')) {
+    exitWithSyntaxError("missing ')' after 'while' condition");
+    return;
+  }
+  s_loopBody();
+}
+
+
+void SourceProcessor::s_loopBody()
+{
+  FOCUSLOGSTATE
+  ForWhileController* forWhileControllerP = static_cast<ForWhileController*>(mStatementHelper.get());
+  // older result is boolean for executing the body
+  if (!mSkipping) mSkipping = !mOlderResult->boolValue(); // set now, because following push must include "skipping" according to the decision!
+  forWhileControllerP->mLoopBody = mSrc.mPos; // here begins the body
+  push(&SourceProcessor::s_loopBodyDone);
   checkAndResumeAt(&SourceProcessor::s_oneStatement);
 }
 
-void SourceProcessor::s_whileStatement()
+
+void SourceProcessor::s_loopBodyDone()
 {
   FOCUSLOGSTATE
-  // while statement (or block of statements) is executed
-  // - mPoppedPos points to beginning of while condition
-  if (mSkipping) {
-    // skipping because condition was false or "break" set skipping in the stack with skipUntilReaching()
-    pop(); // end while
-    checkAndResume();
+  ForWhileController* forWhileControllerP = static_cast<ForWhileController*>(mStatementHelper.get());
+  // older result is boolean for having executed the body (but mSkipping should do...)
+  if (!mSkipping && forWhileControllerP->mIsFor) {
+    // execute the "next" statement
+    push(&SourceProcessor::s_loopRecheck);
+    mSrc.mPos = forWhileControllerP->mLoopNext;
+    checkAndResumeAt(&SourceProcessor::s_oneStatement);
     return;
   }
-  // not skipping, means we need to loop back to the condition
-  mSrc.mPos = mPoppedPos;
-  push(&SourceProcessor::s_whileCondition);
-  resumeAt(&SourceProcessor::s_expression);
+  mPoppedPos = mSrc.mPos; // s_loopEnd expects to be normally called from pop
+  s_loopRecheck();
+}
+
+
+void SourceProcessor::s_loopRecheck()
+{
+  FOCUSLOGSTATE
+  ForWhileController* forWhileControllerP = static_cast<ForWhileController*>(mStatementHelper.get());
+  // we might be already skipping here, then there's no need to re-check
+  if (!mSkipping) {
+    // Re-Evaluate condition
+    push(&SourceProcessor::s_loopEnd, true);
+    mSrc.mPos = forWhileControllerP->mLoopCondition;
+    resumeAt(&SourceProcessor::s_expression);
+    return;
+  }
+  // no need to re-evaluate
+  mPoppedPos = mSrc.mPos; // s_loopEnd expects to be normally called from pop
+  s_loopEnd();
+}
+
+
+void SourceProcessor::s_loopEnd()
+{
+  FOCUSLOGSTATE
+  // result is re-evaluation of the condition
+  // mPoppedPos is at the end of the loop body
+  if (!mSkipping) {
+    ForWhileController* forWhileControllerP = static_cast<ForWhileController*>(mStatementHelper.get());
+    if (mResult->boolValue()) {
+      // repeat body
+      mSrc.mPos = forWhileControllerP->mLoopBody;
+      push(&SourceProcessor::s_loopBodyDone);
+      checkAndResumeAt(&SourceProcessor::s_oneStatement);
+      return;
+    }
+  }
+  // done or skipping because condition was false in the first place or "break" set skipping in the stack with skipUntilReaching()
+  mSrc.mPos = mPoppedPos; // end of loop body
+  pop(); // end while
+  checkAndResume();
+  return;
 }
 
 
