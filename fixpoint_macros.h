@@ -60,31 +60,31 @@
   #define FP_FRACFACT (1<<FP_FRACBITS)
   #define FP_ROUNDOFFS (1<<(FP_FRACBITS-1))
   #define FP_FRACMASK (FP_FRACFACT-1)
-  #define FP_MUL_CORR(f) ((f+FP_ROUNDOFFS)/FP_FRACFACT) // division to keep sign
-  #define FP_DIV(f1,f2) (((f1<<FP_FRACBITS)+(1<<(FP_FRACBITS-1)))/f2)
-  #define FP_DBL_VAL(f) ((double)f/FP_FRACFACT) // division to keep sign
-  #define FP_INT_VAL(f) (f/FP_FRACFACT) // division to keep sign
+  #define FP_MUL_CORR(f) (((f)+FP_ROUNDOFFS)/FP_FRACFACT) // division to keep sign
+  #define FP_DIV(f1,f2) (((f1)<<FP_FRACBITS)/(f2)) // must always return 0 when dividend is 0
+  #define FP_DBL_VAL(f) ((double)(f)/FP_FRACFACT) // division to keep sign
+  #define FP_INT_VAL(f) ((f)/FP_FRACFACT) // division to keep sign
   #define FP_TIMES_FRACFACT_INT_VAL(f) (f) // integer value of FracValue times FP_FRACFACT = value-as-is
-  #define FP_FROM_DBL(d) (d*(1<<FP_FRACBITS))
-  #define FP_FROM_INT(i) (((FracValue)i)<<FP_FRACBITS)
-  #define FP_FACTOR_FROM_INT(i) ((FracValue)i) // integer part without shifting, can be used as factor in multiplications, which then don't need FP_MUL_CORR
-  #define FP_INT_FLOOR(f) ((f & ~FP_FRACMASK)/FP_FRACFACT) // division to keep sign
-  #define FP_INT_CEIL(f) (((f+FP_FRACMASK) & ~FP_FRACMASK)/FP_FRACFACT) // division to keep sign
-  #define FP_HASFRAC(f) ((f&FP_FRACMASK)!=0)
+  #define FP_FROM_DBL(d) ((d)*(1<<FP_FRACBITS))
+  #define FP_FROM_INT(i) (((FracValue)(i))<<FP_FRACBITS)
+  #define FP_FACTOR_FROM_INT(i) ((FracValue)(i)) // integer part without shifting, can be used as factor in multiplications, which then don't need FP_MUL_CORR
+  #define FP_INT_FLOOR(f) (((f) & ~FP_FRACMASK)/FP_FRACFACT) // division to keep sign
+  #define FP_INT_CEIL(f) ((((f)+FP_FRACMASK) & ~FP_FRACMASK)/FP_FRACFACT) // division to keep sign
+  #define FP_HASFRAC(f) (((f)&FP_FRACMASK)!=0)
 #else // FP_FRACVALUE
   typedef double FracValue;
   #define FP_FRACFACT 1
   #define FP_MUL_CORR(f) (f)
-  #define FP_DIV(f1,f2) (f1/f2)
+  #define FP_DIV(f1,f2) ((f1)/(f2))
   #define FP_DBL_VAL(f) (f)
-  #define FP_INT_VAL(f) ((int)f)
-  #define FP_INT_256TH_VAL(f) (f*FP_FRACFACT)
+  #define FP_INT_VAL(f) ((int)(f))
+  #define FP_INT_256TH_VAL(f) ((f)*FP_FRACFACT)
   #define FP_FROM_DBL(d) (d)
-  #define FP_FROM_INT(i) ((double)i)
-  #define FP_FACTOR_FROM_INT(i) ((double)i)
+  #define FP_FROM_INT(i) ((double)(i))
+  #define FP_FACTOR_FROM_INT(i) ((double)(i))
   #define FP_INT_FLOOR(f) floor(f)
   #define FP_INT_CEIL(f) ceil(f)
-  #define FP_HASFRAC(f) (trunc(f)!=f)
+  #define FP_HASFRAC(f) (trunc(f)!=(f))
 #endif // !FP_FRACVALUE
 
 
