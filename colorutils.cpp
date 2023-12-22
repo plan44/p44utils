@@ -139,8 +139,8 @@ PixelColor p44::averagedPixelResult(FracValue& aR, FracValue& aG, FracValue& aB,
   if (aTotalWeight>0) {
     PixelColor pc;
     FracValue a = FP_DIV(aA,aTotalWeight); // in 0..255 scale
-    FracValue alphaboost = FP_DIV(aTotalWeight*BOOST_SCALING, aA); // in 1/256*BOOST_SCALING
     if (a>0) {
+      FracValue alphaboost = FP_DIV(aTotalWeight*BOOST_SCALING, aA); // in 1/256*BOOST_SCALING
       assignPixelComponent(pc.a, pwmToBrightness(FP_INT_VAL(a)));
       // no need for FP_ correction when we have a a multiplication followed by a division
       assignPixelComponent(pc.r, pwmToBrightness(FP_TIMES_FRACFACT_INT_VAL(aR*alphaboost/aTotalWeight/BOOST_SCALING)));
