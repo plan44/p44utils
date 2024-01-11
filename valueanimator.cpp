@@ -390,7 +390,7 @@ double ValueAnimator::easeIn(double aProgress, double aTuning)
 
 double ValueAnimator::easeOut(double aProgress, double aTuning)
 {
-  return 2*sigmoid(aProgress/2+0.5, aTuning); // second half 0.5..1
+  return 2*sigmoid(aProgress/2+0.5, aTuning)-1; // second half 0.5..1
 }
 
 
