@@ -129,8 +129,13 @@ namespace p44 {
   };
 
   /// convenience for case insensitive equaltest
+  bool uequals(const char* aCString, const char *aCmp, size_t aLen1 = 0, size_t aLen2 = 0);
   bool uequals(const string& aString, const char *aCmp);
+  bool uequals(const string& aString, const char *aCmp, size_t aLen1, size_t aLen2 = 0);
   bool uequals(const string& aString, const string& aCmp);
+  bool uequals(const string& aString, const string& aCmp, size_t aLen1);
+  bool uequals(const string& aString, const string& aCmp, size_t aLen1, size_t aLen2);
+
 
   /// return simple (non locale aware) ASCII lowercase version of string
   /// @param aStringP a C string pinter
@@ -206,7 +211,6 @@ namespace p44 {
   /// @param aContinueQuoted if set, aCursor must be within a quoted field, and aField will be added to to complete it
   /// @return true if a CSV field could be extracted, false if no more fields found
   bool nextCSVField(const char * &aCursor, string &aField, char aSeparator = 0, bool aContinueQuoted = false);
-
 
   /// return next part from a separated string
   /// @param aCursor at entry, must point to the beginning of a string

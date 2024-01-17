@@ -85,10 +85,10 @@ namespace p44 {
     virtual ~DigitalIo();
 
     /// get name
-    string getName();
+    string getName() const;
 
     /// check for output
-    bool isOutput() { return mOutput; };
+    bool isOutput() const { return mOutput; };
 
     /// get state of GPIO
     /// @return current state (from actual IO pin for inputs, from last set state for outputs)

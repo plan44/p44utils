@@ -299,8 +299,8 @@ namespace p44 {
 
     virtual ~DnsSdManager();
 
-    /// @return the prefix to be used for logging from this object
-    virtual string logContextPrefix() P44_OVERRIDE { return "dns-sd"; };
+    /// @return the object type (used for context descriptions such as logging context)
+    virtual string contextType() const P44_OVERRIDE { return "dns-sd"; };
 
     /// Initialize the DNS-SD manager
     /// @param aHostName the hostname. This is only relevant with USE_AVAHI_CORE. Otherwise, the hostname is determined by the avahi server deamon independently

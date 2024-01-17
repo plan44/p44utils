@@ -503,7 +503,7 @@ AnalogInputEventObj::AnalogInputEventObj(AnalogIoPtr aAnalogIo) :
   inherited(0)
 {
   // capture current value
-  if (mAnalogIo) num = mAnalogIo->processedValue();
+  if (mAnalogIo) mNum = mAnalogIo->processedValue();
 }
 
 
@@ -542,11 +542,11 @@ static void range_func(BuiltinFunctionContextPtr f)
   double max;
   double res;
   if (a->analogIo()->getRange(min, max, res)) {
-    JsonObjectPtr j = JsonObject::newObj();
-    j->add("min", JsonObject::newDouble(min));
-    j->add("max", JsonObject::newDouble(max));
-    j->add("resolution", JsonObject::newDouble(res));
-    f->finish(new JsonValue(j));
+    ObjectValue* o = new ObjectValue();
+    o->setMemberByName("min", new NumericValue(min));
+    o->setMemberByName("max", new NumericValue(max));
+    o->setMemberByName("resolution", new NumericValue(res));
+    f->finish(o);
   }
   else {
     f->finish(new AnnotatedNullValue("no range info available"));
@@ -615,7 +615,7 @@ static void filter_func(BuiltinFunctionContextPtr f)
   assert(a);
   string ty = f->arg(0)->stringValue();
   WinEvalMode ety = eval_none;
-  if (strucmp(ty.c_str(), "abs-", 4)==0) {
+  if (uequals(ty.c_str(), "abs-", 4)) {
     ety |= eval_option_abs;
   }
   if (uequals(ty,"average")) ety |= eval_timeweighted_average;
@@ -633,8 +633,8 @@ static void filter_func(BuiltinFunctionContextPtr f)
 
 static const BuiltinMemberDescriptor analogioFunctions[] = {
   { "value", executable|numeric, value_numargs, value_args, &value_func },
-  { "range", executable|object, 0, NULL, &range_func },
-  { "animator", executable|object, 0, NULL, &animator_func },
+  { "range", executable|objectvalue, 0, NULL, &range_func },
+  { "animator", executable|objectvalue, 0, NULL, &animator_func },
   { "poll", executable|null, poll_numargs, poll_args, &poll_func },
   { "filter", executable|null, filter_numargs, filter_args, &filter_func },
   { NULL } // terminator
@@ -742,7 +742,7 @@ static void powerlimit_func(BuiltinFunctionContextPtr f)
   AnalogColorOutputObj* c = dynamic_cast<AnalogColorOutputObj*>(f->thisObj().get());
   assert(c);
   if (f->numArgs()==0) {
-    f->finish(new NumericValue(c->colorOutput()->getPowerLimit()));
+    f->finish(new IntegerValue(c->colorOutput()->getPowerLimit()));
   }
   else {
     c->colorOutput()->setPowerLimit(f->arg(0)->intValue());
@@ -756,7 +756,7 @@ static void neededpower_func(BuiltinFunctionContextPtr f)
 {
   AnalogColorOutputObj* c = dynamic_cast<AnalogColorOutputObj*>(f->thisObj().get());
   assert(c);
-  f->finish(new NumericValue(c->colorOutput()->getNeededPower()));
+  f->finish(new IntegerValue(c->colorOutput()->getNeededPower()));
 }
 
 
@@ -765,7 +765,7 @@ static void currentpower_func(BuiltinFunctionContextPtr f)
 {
   AnalogColorOutputObj* c = dynamic_cast<AnalogColorOutputObj*>(f->thisObj().get());
   assert(c);
-  f->finish(new NumericValue(c->colorOutput()->getCurrentPower()));
+  f->finish(new IntegerValue(c->colorOutput()->getCurrentPower()));
 }
 
 
@@ -812,7 +812,7 @@ static void setoutputchannelpower_func(BuiltinFunctionContextPtr f)
 
 
 static const BuiltinMemberDescriptor coloroutputFunctions[] = {
-  { "animator", executable|object, animatorfor_numargs, animatorfor_args, &animatorfor_func },
+  { "animator", executable|objectvalue, animatorfor_numargs, animatorfor_args, &animatorfor_func },
   { "setcolor", executable|null, setcolor_numargs, setcolor_args, &setcolor_func },
   { "setbrightness", executable|null, setbrightness_numargs, setbrightness_args, &setbrightness_func },
   { "powerlimit", executable|numeric|null, powerlimit_numargs, powerlimit_args, &powerlimit_func },
@@ -834,7 +834,7 @@ AnalogColorOutputObj::AnalogColorOutputObj(AnalogColorOutputPtr aColorOutput) :
 
 
 // analogcoloroutput(red, green, blue [[, white [, amber]) // AnalogIOObjs or pin specs
-static const BuiltInArgDesc coloroutput_args[] = { { text|object }, { text|object }, { text|object }, { text|optionalarg }, { text|optionalarg } };
+static const BuiltInArgDesc coloroutput_args[] = { { text|objectvalue }, { text|objectvalue }, { text|objectvalue }, { text|optionalarg }, { text|optionalarg } };
 static const size_t coloroutput_numargs = sizeof(coloroutput_args)/sizeof(BuiltInArgDesc);
 static void coloroutput_func(BuiltinFunctionContextPtr f)
 {

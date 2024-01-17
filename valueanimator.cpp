@@ -390,7 +390,7 @@ double ValueAnimator::easeIn(double aProgress, double aTuning)
 
 double ValueAnimator::easeOut(double aProgress, double aTuning)
 {
-  return 2*sigmoid(aProgress/2+0.5, aTuning); // second half 0.5..1
+  return 2*sigmoid(aProgress/2+0.5, aTuning)-1; // second half 0.5..1
 }
 
 
@@ -417,7 +417,7 @@ static void delay_func(BuiltinFunctionContextPtr f)
 
 
 // .runafter(animator)
-static const BuiltInArgDesc runafter_args[] = { { any } };
+static const BuiltInArgDesc runafter_args[] = { { anyvalid } };
 static const size_t runafter_numargs = sizeof(runafter_args)/sizeof(BuiltInArgDesc);
 static void runafter_func(BuiltinFunctionContextPtr f)
 {
@@ -526,14 +526,14 @@ static void reset_func(BuiltinFunctionContextPtr f)
 
 
 
-static ScriptObjPtr current_accessor(BuiltInMemberLookup& aMemberLookup, ScriptObjPtr aParentObj, ScriptObjPtr aObjToWrite)
+static ScriptObjPtr current_accessor(BuiltInMemberLookup& aMemberLookup, ScriptObjPtr aParentObj, ScriptObjPtr aObjToWrite, BuiltinMemberDescriptor*)
 {
   ValueAnimatorObj* a = dynamic_cast<ValueAnimatorObj*>(aParentObj.get());
   return new NumericValue(a->animator()->current());
 }
 
 
-static ScriptObjPtr running_accessor(BuiltInMemberLookup& aMemberLookup, ScriptObjPtr aParentObj, ScriptObjPtr aObjToWrite)
+static ScriptObjPtr running_accessor(BuiltInMemberLookup& aMemberLookup, ScriptObjPtr aParentObj, ScriptObjPtr aObjToWrite, BuiltinMemberDescriptor*)
 {
   ValueAnimatorObj* a = dynamic_cast<ValueAnimatorObj*>(aParentObj.get());
   MLMicroSeconds st = a->animator()->startedAt();
@@ -543,15 +543,15 @@ static ScriptObjPtr running_accessor(BuiltInMemberLookup& aMemberLookup, ScriptO
 
 
 static const BuiltinMemberDescriptor animatorFunctions[] = {
-  { "delay", executable|any, delay_numargs, delay_args, &delay_func },
+  { "delay", executable|anyvalid, delay_numargs, delay_args, &delay_func },
   { "runafter", executable|null, runafter_numargs, runafter_args, &runafter_func },
-  { "repeat", executable|any, repeat_numargs, repeat_args, &repeat_func },
-  { "function", executable|any, function_numargs, function_args, &function_func },
-  { "from", executable|any, from_numargs, from_args, &from_func },
+  { "repeat", executable|anyvalid, repeat_numargs, repeat_args, &repeat_func },
+  { "function", executable|anyvalid, function_numargs, function_args, &function_func },
+  { "from", executable|anyvalid, from_numargs, from_args, &from_func },
   { "runto", executable|null, runto_numargs, runto_args, &runto_func },
   { "step", executable|null, step_numargs, step_args, &step_func },
-  { "stop", executable|any, 0, NULL, &stop_func },
-  { "reset", executable|any, 0, NULL, &reset_func },
+  { "stop", executable|anyvalid, 0, NULL, &stop_func },
+  { "reset", executable|anyvalid, 0, NULL, &reset_func },
   { "current", builtinmember|numeric, 0, NULL, (BuiltinFunctionImplementation)&current_accessor }, // Note: correct '.accessor=&lrg_accessor' form does not work with OpenWrt g++, so need ugly cast here
   { "running", builtinmember|numeric, 0, NULL, (BuiltinFunctionImplementation)&running_accessor }, // Note: correct '.accessor=&lrg_accessor' form does not work with OpenWrt g++, so need ugly cast here
   { NULL } // terminator

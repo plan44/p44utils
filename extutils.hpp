@@ -48,6 +48,12 @@ namespace p44 {
 
   #endif
 
+  /// make sure directory exists, otherwise make it (like mkdir -p)
+  /// @param aDirPath path for directory to create
+  /// @param aMaxDepth how many directories to create, max - negative means: as much as needed
+  /// @param aCreationMode the mode to use for creating dirs
+  ErrorPtr ensureDirExists(const string aDirPath, int aMaxDepth = -1, mode_t aCreationMode = S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
+
 
   enum {
     eval_none, ///< no evaluation, disabled

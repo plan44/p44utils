@@ -65,7 +65,7 @@ string DnsSdServiceInfo::hostPart(bool aURLFormat)
   string h;
   if (ipv6) {
     h = string_format("[%s", hostaddress.c_str());
-    if (ifIndex!=AVAHI_IF_UNSPEC && strucmp(hostaddress.c_str(), "fe80:", 5)==0) {
+    if (ifIndex!=AVAHI_IF_UNSPEC && uequals(hostaddress.c_str(), "fe80:", 5)) {
       // link local, need interface index
       string_format_append(h, "%s%d", aURLFormat ? "%25" : "%", ifIndex);
     }
@@ -941,12 +941,12 @@ using namespace P44Script;
 static const BuiltInArgDesc dnssdbrowse_args[] = { { text } , { text|optionalarg } };
 static const size_t dnssdbrowse_numargs = sizeof(dnssdbrowse_args)/sizeof(BuiltInArgDesc);
 // handler
-static bool dnssdbrowsehandler(BuiltinFunctionContextPtr f, JsonObjectPtr aBrowsingresults, ErrorPtr aError, DnsSdServiceInfoPtr aServiceInfo)
+static bool dnssdbrowsehandler(BuiltinFunctionContextPtr f, ArrayValuePtr aBrowsingresults, ErrorPtr aError, DnsSdServiceInfoPtr aServiceInfo)
 {
   if (Error::notOK(aError)) {
     if (aError->isError(DnsSdError::domain(), p44::DnsSdError::AllForNow)) {
       // allForNow: return the list we have collected so far
-      f->finish(new JsonValue(aBrowsingresults));
+      f->finish(aBrowsingresults);
     }
     else {
       f->finish(new ErrorValue(aError));
@@ -964,20 +964,20 @@ static bool dnssdbrowsehandler(BuiltinFunctionContextPtr f, JsonObjectPtr aBrows
     }
     if (!aServiceInfo->disappeared) {
       // actually existing service, add it to our results
-      JsonObjectPtr r = JsonObject::newObj();
-      r->add("name", JsonObject::newString(aServiceInfo->name));
-      r->add("hostname", JsonObject::newString(aServiceInfo->hostname));
-      r->add("hostaddress", JsonObject::newString(aServiceInfo->hostaddress));
-      r->add("ipv6", JsonObject::newBool(aServiceInfo->ipv6));
-      r->add("port", JsonObject::newInt32(aServiceInfo->port));
-      r->add("interface", JsonObject::newInt32(aServiceInfo->ifIndex));
-      r->add("url", JsonObject::newString(aServiceInfo->url()));
-      JsonObjectPtr txts = JsonObject::newObj();
+      ScriptObjPtr r = new ObjectValue();
+      r->setMemberByName("name", new StringValue(aServiceInfo->name));
+      r->setMemberByName("hostname", new StringValue(aServiceInfo->hostname));
+      r->setMemberByName("hostaddress", new StringValue(aServiceInfo->hostaddress));
+      r->setMemberByName("ipv6", new BoolValue(aServiceInfo->ipv6));
+      r->setMemberByName("port", new IntegerValue(aServiceInfo->port));
+      r->setMemberByName("interface", new IntegerValue(aServiceInfo->ifIndex));
+      r->setMemberByName("url", new StringValue(aServiceInfo->url()));
+      ScriptObjPtr txts = new ObjectValue();
       for (DnsSdServiceInfo::TxtRecordsMap::iterator pos = aServiceInfo->txtRecords.begin(); pos!=aServiceInfo->txtRecords.end(); ++pos) {
-        txts->add(pos->first.c_str(), JsonObject::newString(pos->second));
+        txts->setMemberByName(pos->first.c_str(), new StringValue(pos->second));
       }
-      r->add("txts", txts);
-      aBrowsingresults->arrayAppend(r);
+      r->setMemberByName("txts", txts);
+      aBrowsingresults->appendMember(txts);
     }
     return true; // continue collecting until AllForNow
   }
@@ -996,7 +996,7 @@ static void dnssdbrowse_func(BuiltinFunctionContextPtr f)
     return;
   }
   f->setAbortCallback(boost::bind(&dnssdbrowse_abort, dnssdbrowser));
-  JsonObjectPtr browsingresults = JsonObject::newArray();
+  ArrayValuePtr browsingresults = new ArrayValue();
   dnssdbrowser->browse(
     f->arg(0)->stringValue().c_str(), // type
     boost::bind(&dnssdbrowsehandler, f, browsingresults, _1, _2)
@@ -1005,7 +1005,7 @@ static void dnssdbrowse_func(BuiltinFunctionContextPtr f)
 
 
 static const BuiltinMemberDescriptor dnssdGlobals[] = {
-  { "dnssdbrowse", executable|async|json, dnssdbrowse_numargs, dnssdbrowse_args, &dnssdbrowse_func },
+  { "dnssdbrowse", executable|async|arrayvalue, dnssdbrowse_numargs, dnssdbrowse_args, &dnssdbrowse_func },
   { NULL } // terminator
 };
 

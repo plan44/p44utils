@@ -21,11 +21,13 @@
 //
 
 #include "p44utils_minimal.hpp"
+#include "fixpoint_macros.h"
 
 #include <string>
 
 #ifndef __p44utils__colorutils__
 #define __p44utils__colorutils__
+
 
 using namespace std;
 
@@ -96,6 +98,16 @@ namespace p44 {
   /// @param aOverlay the pixel to be laid on top
   void overlayPixel(PixelColor &aPixel, PixelColor aOverlay);
 
+  /// @name calculate pixel average in power domain
+  /// @{
+  /// init the averaging variables (convenience inline)
+  inline void prepareAverage(FracValue& aR, FracValue& aG, FracValue& aB, FracValue& aA, FracValue& aTotalWeight) { aR=0; aG=0; aB=0; aA=0; aTotalWeight=0; };
+  /// add a pixel to the average with specified weight
+  void averagePixelPower(FracValue& aR, FracValue& aG, FracValue& aB, FracValue& aA, FracValue& aTotalWeight, const PixelColor& aInput, FracValue aWeight);
+  /// calculate resulting pixel from average
+  PixelColor averagedPixelResult(FracValue& aR, FracValue& aG, FracValue& aB, FracValue& aA, FracValue aTotalWeight);
+  /// @}
+
   /// mix two pixels
   /// @param aMainPixel the original pixel which will be modified to contain the mix
   /// @param aOutsidePixel the pixel to mix in
@@ -124,8 +136,9 @@ namespace p44 {
 
   /// convert pixel color to web color
   /// @param aPixelColor pixel color
+  /// @param aWithHash if set, output is prefixed with hash, as in css: #RRGGBB or #AARRGGBB
   /// @return web color in RRGGBB style or AARRGGBB when alpha is not fully opaque (==255)
-  string pixelToWebColor(const PixelColor aPixelColor);
+  string pixelToWebColor(const PixelColor aPixelColor, bool aWithHash);
 
 
   /// convert pixel color to RGB color components in 0..1 double range

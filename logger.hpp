@@ -69,6 +69,7 @@
 
 
 #include "p44obj.hpp"
+#include <boost/function.hpp>
 
 // global object independent logging
 #define LOGENABLED(lvl) globalLogger.logEnabled(lvl)
@@ -77,7 +78,7 @@
 #define SETERRLEVEL(lvl, dup) globalLogger.setErrLevel(lvl, dup)
 #define SETDELTATIME(dt) globalLogger.setDeltaTime(dt)
 #define LOGLEVEL (globalLogger.getLogLevel())
-#define SETLOGHANDLER(lh,ctx) globalLogger.setLogHandler(lh,ctx)
+#define SETLOGHANDLER(lh,allowother) globalLogger.setLogHandler(lh,allowother)
 #define DAEMONMODE globalLogger.getDaemonMode()
 #define SETDAEMONMODE(d) globalLogger.setDaemonMode(d)
 #if ENABLE_LOG_COLORS
@@ -162,7 +163,7 @@ namespace p44 {
   /// @param aLevel the log level
   /// @param aLinePrefix the line prefix (date and loglevel in square brackets, or indent for multilines)
   /// @param aLogMessage the log message itself
-  typedef void (*LoggerCB)(void *aContextPtr, int aLevel, const char *aLinePrefix, const char *aLogMessage);
+  typedef boost::function<void (int aLevel, const char *aLinePrefix, const char *aLogMessage)> LoggerCB;
 
   class Logger : public P44Obj
   {
@@ -173,8 +174,8 @@ namespace p44 {
     bool mDeltaTime; ///< if set, log timestamps will show delta time relative to previous log line
     bool mErrToStdout; ///< if set, even log lines that go to stderr are still shown on stdout as well
     bool mDaemonMode; ///< if set, normal log goes to stdout and log<=mStderrLevel goes to stderr. If cleared, all log goes to stderr according to mLogLevel
-    LoggerCB mLoggerCB; ///< custom logger output function to use (instead of stderr/stdout)
-    void *mLoggerContextPtr; ///< custom logger output context
+    LoggerCB mLoggerCB; ///< custom logger output function to use (instead or in addition of stderr/stdout, see mLogCBOnly)
+    bool mAllowOther; ///< if set, setting CB or file will still allow other logging to happen in parallel
     FILE *mLogFILE; ///< file to log to (instead of stderr/stdout)
     #if ENABLE_LOG_COLORS
     bool mLogColors; ///< if set, logger uses ANSI colors to differentiate levels
@@ -232,7 +233,9 @@ namespace p44 {
 
     /// set log file
     /// @param aLogFilePath file to write log to instead of stdout
-    void setLogFile(const char *aLogFilePath);
+    /// @param aAllowOther if set,  stdout/stderr still happens
+    /// @note if a callback is set with setLogHandler, it overrides logging to a file if aAllowOther is not set
+    void setLogFile(const char *aLogFilePath, bool aAllowOther = false);
 
     /// set log level
     /// @param aLogLevel the new log level
@@ -254,7 +257,8 @@ namespace p44 {
 
     /// set handler for outputting log lines
     /// @param aLoggerCB callback to be called whenever
-    void setLogHandler(LoggerCB aLoggerCB, void *aContextPtr);
+    /// @param aAllowOther if set, other log methods (file and stdout/stderr still happen)
+    void setLogHandler(LoggerCB aLoggerCB, bool aAllowOther = false);
 
     /// set delta time display
     /// @param aDeltaTime if set, time passed since last log line will be displayed
@@ -293,6 +297,15 @@ namespace p44 {
 
     /// @return the prefix to be used for logging from this object
     virtual string logContextPrefix();
+
+    /// @return name (usually user-defined) of the context object
+    virtual string contextName() const;
+
+    /// @return type (such as: device, element, vdc, trigger) of the context object
+    virtual string contextType() const;
+
+    /// @return id identifying the context object
+    virtual string contextId() const;
 
     /// test if log is enabled from this object at a given level
     /// @param aLogLevel level to check

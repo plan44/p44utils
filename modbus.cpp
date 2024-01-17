@@ -2154,7 +2154,7 @@ static void s_debug_func(BuiltinFunctionContextPtr f)
 
 
 // connection(connectionspec [, txenablepin|RS232|RTS [, rxenablepin, [, txdisabledelay]])
-static const BuiltInArgDesc connection_args[] = { { text }, { text|object|optionalarg }, { text|object|optionalarg } };
+static const BuiltInArgDesc connection_args[] = { { text }, { text|objectvalue|optionalarg }, { text|objectvalue|optionalarg } };
 static const size_t connection_numargs = sizeof(connection_args)/sizeof(BuiltInArgDesc);
 static void connection_func(ModbusConnectionPtr aModbusConnection, BuiltinFunctionContextPtr f)
 {
@@ -2283,13 +2283,13 @@ static void getreg_func(BuiltinFunctionContextPtr f)
 {
   ModbusSlaveObj* o = dynamic_cast<ModbusSlaveObj*>(f->thisObj().get());
   assert(o);
-  f->finish(new NumericValue((uint16_t)(o->modbus()->getReg(f->arg(0)->intValue(), f->arg(1)->boolValue()))));
+  f->finish(new IntegerValue((uint16_t)(o->modbus()->getReg(f->arg(0)->intValue(), f->arg(1)->boolValue()))));
 }
 static void getsreg_func(BuiltinFunctionContextPtr f)
 {
   ModbusSlaveObj* o = dynamic_cast<ModbusSlaveObj*>(f->thisObj().get());
   assert(o);
-  f->finish(new NumericValue((int16_t)(o->modbus()->getReg(f->arg(0)->intValue(), f->arg(1)->boolValue()))));
+  f->finish(new IntegerValue((int16_t)(o->modbus()->getReg(f->arg(0)->intValue(), f->arg(1)->boolValue()))));
 }
 static void getbit_func(BuiltinFunctionContextPtr f)
 {
@@ -2319,7 +2319,7 @@ static void slaveaddress_func(BuiltinFunctionContextPtr f)
   if (f->arg(0)->defined()) {
     o->modbus()->setSlaveAddress(f->arg(0)->intValue());
   }
-  f->finish(new NumericValue(o->modbus()->getSlaveAddress()));
+  f->finish(new IntegerValue(o->modbus()->getSlaveAddress()));
 }
 
 
@@ -2337,7 +2337,7 @@ static void slaveid_func(BuiltinFunctionContextPtr f)
 
 // setmodel(registermodel_json)
 //   { "coils" : { "first":100, "num":10 }, "registers":{ "first":100, "num":20 } }
-static const BuiltInArgDesc setmodel_args[] = { { object } };
+static const BuiltInArgDesc setmodel_args[] = { { objectvalue } };
 static const size_t setmodel_numargs = sizeof(setmodel_args)/sizeof(BuiltInArgDesc);
 static void setmodel_func(BuiltinFunctionContextPtr f)
 {
@@ -2385,10 +2385,10 @@ static void s_ismaster_func(BuiltinFunctionContextPtr f)
 static const BuiltinMemberDescriptor modbusSlaveMembers[] = {
   { "master", executable|numeric, 0, NULL, &s_ismaster_func },  // for applevel predefined master or slave mode, this is to check which type we have
   // common
-  { "connection", executable|object, connection_numargs, connection_args, &s_connection_func },
-  { "bytetime", executable|object, bytetime_numargs, bytetime_args, &s_bytetime_func },
-  { "recoverymode", executable|object, recoverymode_numargs, recoverymode_args, &s_recoverymode_func },
-  { "debug", executable|object, debug_numargs, debug_args, &s_debug_func },
+  { "connection", executable|objectvalue, connection_numargs, connection_args, &s_connection_func },
+  { "bytetime", executable|objectvalue, bytetime_numargs, bytetime_args, &s_bytetime_func },
+  { "recoverymode", executable|objectvalue, recoverymode_numargs, recoverymode_args, &s_recoverymode_func },
+  { "debug", executable|objectvalue, debug_numargs, debug_args, &s_debug_func },
   { "connect", executable|null, connect_numargs, connect_args, &s_connect_func },
   { "close", executable|null, 0, NULL, &s_close_func },
   // slave only
@@ -2429,13 +2429,13 @@ ModbusSlaveObj::~ModbusSlaveObj()
 
 ErrorPtr ModbusSlaveObj::gotAccessed(int aAddress, bool aBit, bool aInput, bool aWrite)
 {
-  JsonObjectPtr acc = JsonObject::newObj();
-  acc->add("reg", aBit ? JsonObject::newNull() : JsonObject::newInt32(aAddress));
-  acc->add("bit", aBit ? JsonObject::newInt32(aAddress) : JsonObject::newNull());
-  acc->add("addr", JsonObject::newInt32(aAddress));
-  acc->add("input", JsonObject::newBool(aInput));
-  acc->add("write", JsonObject::newBool(aWrite));
-  sendEvent(new JsonValue(acc));
+  ObjectValue* acc = new ObjectValue();
+  acc->setMemberByName("reg", aBit ? new ScriptObj() : new IntegerValue(aAddress));
+  acc->setMemberByName("bit", aBit ? new IntegerValue(aAddress) : new ScriptObj());
+  acc->setMemberByName("addr", new IntegerValue(aAddress));
+  acc->setMemberByName("input", new BoolValue(aInput));
+  acc->setMemberByName("write", new BoolValue(aWrite));
+  sendEvent(acc);
   return ErrorPtr();
 }
 
@@ -2506,7 +2506,7 @@ static void readreg_func(BuiltinFunctionContextPtr f)
     f->finish(new ErrorValue(err->withPrefix("reading register: ")));
     return;
   }
-  f->finish(new NumericValue(v));
+  f->finish(new IntegerValue(v));
 }
 static void readsreg_func(BuiltinFunctionContextPtr f)
 {
@@ -2518,7 +2518,7 @@ static void readsreg_func(BuiltinFunctionContextPtr f)
     f->finish(new ErrorValue(err->withPrefix("reading register: ")));
     return;
   }
-  f->finish(new NumericValue((int16_t)v));
+  f->finish(new IntegerValue((int16_t)v));
 }
 static void readbit_func(BuiltinFunctionContextPtr f)
 {
@@ -2558,11 +2558,11 @@ static void findslaves_func(BuiltinFunctionContextPtr f)
   assert(o);
   p44::ModbusMaster::SlaveAddrList slaves;
   ErrorPtr err = o->modbus()->findSlaves(slaves, f->arg(0)->stringValue(), f->arg(1)->intValue(), f->arg(2)->intValue());
-  JsonObjectPtr res = JsonObject::newArray();
+  ArrayValue* res = new ArrayValue();
   for(p44::ModbusMaster::SlaveAddrList::iterator pos = slaves.begin(); pos!=slaves.end(); ++pos) {
-    res->arrayAppend(JsonObject::newInt32(*pos));
+    res->appendMember(new IntegerValue(*pos));
   }
-  f->finish(new JsonValue(res));
+  f->finish(res);
 }
 
 
@@ -2576,15 +2576,15 @@ static void m_ismaster_func(BuiltinFunctionContextPtr f)
 static const BuiltinMemberDescriptor modbusMasterMembers[] = {
   { "master", executable|numeric, 0, NULL, &m_ismaster_func }, // for applevel predefined master or slave mode, this is to check which type we have
   // common
-  { "connection", executable|object, connection_numargs, connection_args, &m_connection_func },
-  { "bytetime", executable|object, bytetime_numargs, bytetime_args, &m_bytetime_func },
-  { "recoverymode", executable|object, recoverymode_numargs, recoverymode_args, &m_recoverymode_func },
-  { "debug", executable|object, debug_numargs, debug_args, &m_debug_func },
+  { "connection", executable|objectvalue, connection_numargs, connection_args, &m_connection_func },
+  { "bytetime", executable|objectvalue, bytetime_numargs, bytetime_args, &m_bytetime_func },
+  { "recoverymode", executable|objectvalue, recoverymode_numargs, recoverymode_args, &m_recoverymode_func },
+  { "debug", executable|objectvalue, debug_numargs, debug_args, &m_debug_func },
   { "connect", executable|null, connect_numargs, connect_args, &m_connect_func },
   { "close", executable|null, 0, NULL, &m_close_func },
   // master only
-  { "slave", executable|object, slave_numargs, slave_args, &slave_func },
-  { "findslaves", executable|object, findslaves_numargs, findslaves_args, &findslaves_func },
+  { "slave", executable|objectvalue, slave_numargs, slave_args, &slave_func },
+  { "findslaves", executable|objectvalue, findslaves_numargs, findslaves_args, &findslaves_func },
   { "writereg", executable|error|null, write_numargs, write_args, &writereg_func },
   { "writebit", executable|error|null, write_numargs, write_args, &writebit_func },
   { "readreg", executable|error|numeric, read_numargs, read_args, &readreg_func },

@@ -222,9 +222,9 @@ namespace p44 {
     class DcMotorObj;
 
     /// represents a DC motor state
-    class DcMotorStatusObj : public JsonValue
+    class DcMotorStatusObj : public ObjectValue
     {
-      typedef JsonValue inherited;
+      typedef ObjectValue inherited;
       DcMotorDriverPtr mDcMotorDriver;
     public:
       DcMotorStatusObj(DcMotorDriverPtr aDcMotorDriver);

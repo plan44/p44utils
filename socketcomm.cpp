@@ -928,7 +928,7 @@ using namespace P44Script;
 
 
 // send(data)
-static const BuiltInArgDesc send_args[] = { { any } };
+static const BuiltInArgDesc send_args[] = { { anyvalid } };
 static const size_t send_numargs = sizeof(send_args)/sizeof(BuiltInArgDesc);
 static void send_func(BuiltinFunctionContextPtr f)
 {

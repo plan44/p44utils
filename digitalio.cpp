@@ -172,7 +172,7 @@ DigitalIo::~DigitalIo()
 }
 
 
-string DigitalIo::getName()
+string DigitalIo::getName() const
 {
   return string_format("%s%s%s", mPull==yes ? "+" : (mPull==no ? "-" : ""), mInverted ? "/" : "", mPinSpec.c_str());
 }
@@ -505,7 +505,7 @@ DigitalInputEventObj::DigitalInputEventObj(DigitalIoPtr aDigitalIo) :
   inherited(false),
   mDigitalIo(aDigitalIo)
 {
-  if (mDigitalIo) num = mDigitalIo->isSet() ? 1 : 0;
+  if (mDigitalIo) mNum = mDigitalIo->isSet() ? 1 : 0;
 }
 
 
@@ -639,7 +639,7 @@ static void value_func(BuiltinFunctionContextPtr f)
   }
   else {
     // return current value
-    f->finish(new NumericValue((int64_t)b->digitalIoBus()->getBusValue()));
+    f->finish(new IntegerValue((int64_t)b->digitalIoBus()->getBusValue()));
   }
 }
 
@@ -649,7 +649,7 @@ static void maxvalue_func(BuiltinFunctionContextPtr f)
 {
   DigitalIoBusObj* b = dynamic_cast<DigitalIoBusObj *>(f->thisObj().get());
   assert(b);
-  f->finish(new NumericValue((int64_t)b->digitalIoBus()->getMaxBusValue()));
+  f->finish(new IntegerValue((int64_t)b->digitalIoBus()->getMaxBusValue()));
 }
 
 
@@ -658,7 +658,7 @@ static void buswidth_func(BuiltinFunctionContextPtr f)
 {
   DigitalIoBusObj* b = dynamic_cast<DigitalIoBusObj *>(f->thisObj().get());
   assert(b);
-  f->finish(new NumericValue(b->digitalIoBus()->getBusWidth()));
+  f->finish(new IntegerValue(b->digitalIoBus()->getBusWidth()));
 }
 
 

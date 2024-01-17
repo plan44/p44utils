@@ -25,6 +25,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <sys/types.h> // for ssize_t, size_t etc.
+#include <sys/stat.h> // for mkdir
 #include <math.h> // for fabs
 
 using namespace p44;
@@ -65,6 +66,31 @@ ErrorPtr p44::string_tofile(const string aFilePath, const string &aData)
 }
 
 #endif // !ESP_PLATFORM
+
+
+/// make sure directory exists, otherwise make it (like mkdir -p)
+/// @param aDirPath path for directory to create
+ErrorPtr p44::ensureDirExists(const string aDirPath, int aMaxDepth, mode_t aCreationMode)
+{
+  int ret = access(aDirPath.c_str(), F_OK);
+  if (ret==0) return ErrorPtr(); // exists -> fine
+  if (aMaxDepth==0) {
+    // cannot create more directories -> not found
+    return SysError::err(ENOENT);
+  }
+  // does not exist
+  size_t n = aDirPath.find_last_of('/');
+  if (n!=string::npos && n!=0) { // slash at beginning does not count as dir
+    // - there is a parent
+    string parent = aDirPath.substr(0,n);
+    if (aDirPath.substr(n)=="." || aDirPath.substr(n)=="..") return SysError::err(ENOENT); // do not mess with "." and ".."!
+    ErrorPtr err = ensureDirExists(parent, aMaxDepth<0 ? aMaxDepth : aMaxDepth-1);
+    if (Error::notOK(err)) return err; // abort
+  }
+  // does not yet exist, create now
+  return SysError::err(mkdir(aDirPath.c_str(), aCreationMode));
+}
+
 
 
 // MARK: - WindowEvaluator

@@ -37,6 +37,15 @@
 #ifndef SCRIPTING_JSON_SUPPORT
   #define SCRIPTING_JSON_SUPPORT 1 // on by default
 #endif
+#ifndef P44SCRIPT_REGISTERED_SOURCE
+  #define P44SCRIPT_REGISTERED_SOURCE P44SCRIPT_FULL_SUPPORT // on for full script support
+#endif
+#ifndef P44SCRIPT_MIGRATE_TO_DOMAIN_SOURCE
+  #define P44SCRIPT_MIGRATE_TO_DOMAIN_SOURCE P44SCRIPT_REGISTERED_SOURCE // include migration when we have registered sources
+#endif
+#ifndef P44SCRIPT_DEBUGGING_SUPPORT
+  #define P44SCRIPT_DEBUGGING_SUPPORT P44SCRIPT_FULL_SUPPORT // on for full script support
+#endif
 
 #if SCRIPTING_JSON_SUPPORT
   #include "jsonobject.hpp"
@@ -61,7 +70,6 @@ namespace p44 { namespace P44Script {
   typedef boost::intrusive_ptr<ErrorValue> ErrorValuePtr;
   class NumericValue;
   class StringValue;
-  class StructuredObject;
   class StructuredLookupObject;
 
   class ImplementationObj;
@@ -90,7 +98,8 @@ namespace p44 { namespace P44Script {
   class SourceCursor;
   class SourceContainer;
   typedef boost::intrusive_ptr<SourceContainer> SourceContainerPtr;
-  class ScriptSource;
+  class ScriptHost;
+  typedef boost::intrusive_ptr<ScriptHost> ScriptHostPtr;
 
   class SourceProcessor;
   typedef boost::intrusive_ptr<SourceProcessor> SourceProcessorPtr;
@@ -171,7 +180,7 @@ namespace p44 { namespace P44Script {
 
   /// Evaluation flags
   enum {
-    inherit = 0, ///< for ScriptSource::run() only: no flags, inherit from compile flags
+    inherit = 0, ///< for ScriptHost::run() only: no flags, inherit from compile flags
     // run mode
     runModeMask = 0x00FF,
     regular = 0x01, ///< regular script or expression code
@@ -197,9 +206,11 @@ namespace p44 { namespace P44Script {
     concurrently = 0x10000, ///< run concurrently with already executing code (when whith queued, thread is started when all previously queued threads are done)
     keepvars = 0x20000, ///< keep the local variables already set in the context
     mainthread = 0x40000, ///< if a thread with this flag set terminates, it also terminates all of its siblings
+    singlestep = 0x80000, ///< thread must start with pausing mode = singlestep (means: stopping at first statement of a function body, handler or script)
+    neverpause = 0x100000, ///< thread must never pause, i.e. not inhert domain's defaultpausingmode
     // compilation modifiers
-    ephemeralSource = 0x100000, ///< threads are kept running and global function+handler definitions are not deleted when originating source code is changed/deleted
-    anonymousfunction = 0x200000, ///< compile and run as anonymous function body
+    ephemeralSource = 0x200000, ///< threads are kept running and global function+handler definitions are not deleted when originating source code is changed/deleted
+    anonymousfunction = 0x400000, ///< compile and run as anonymous function body
   };
   typedef uint32_t EvaluationFlags;
 
@@ -208,21 +219,26 @@ namespace p44 { namespace P44Script {
     // content type flags, usually one per object, but object/array can be combined with regular type
     typeMask = 0x0FFF,
     none = 0x000, ///< no type specification
+    // - scalars
     null = 0x001, ///< NULL/undefined
     error = 0x002, ///< Error
-    numeric = 0x010, ///< numeric value
-    text = 0x020, ///< text/string value
-    json = 0x040, ///< JSON value
-    executable = 0x080, ///< executable code
-    threadref = 0x100, ///< represents a running thread
-    object = 0x400, ///< is a object with named members
-    array = 0x800, ///< is an array with indexed elements
-    // type classes
-    jsonagnosticMask = typeMask-json, ///< all types, but agnostic to json or not
-    any = typeMask-null-error, ///< any type except null and error
-    scalar = numeric+text+json, ///< scalar types (json can also be structured)
-    structured = object+array, ///< structured types
+    numeric = 0x004, ///< numeric value
+    text = 0x008, ///< text/string value
+    // - structured
+    objectvalue = 0x010, ///< is a object with named members (can still have indexed elements, too)
+    arrayvalue = 0x020, ///< is an array with indexed elements (can still have named fields, too)
+    // - special
+    executable = 0x100, ///< executable code
+    threadref = 0x200, ///< represents a running thread
+    // - type classes
+    alltypes = typeMask, ///< all types
+    anyvalid = typeMask-null-error, ///< any type except null and error
+    scalar = numeric+text, // +json, ///< scalar types (json can also be structured)
+    structured = objectvalue+arrayvalue, ///< structured types
     value = scalar+structured, ///< all value types (excludes executables)
+    jsonrepresentable = value+null, ///< all data including null (but not error) - this is what is directly representable by JSON
+    // - check flags
+    anyof = 0x800, ///< special flag for checking, means that checked type must only match one of the passed flags, not all
     // attributes
     attrMask = 0xFFFFF000,
     // - for argument checking
@@ -250,6 +266,21 @@ namespace p44 { namespace P44Script {
     nowait = 0x40000000, ///< special flags for event sources, indicating that await() should not wait for an event to occur
   };
   typedef uint32_t TypeInfo;
+
+
+  /// script thread run/debug mode or pause reason
+  /// @note higher pausing mode include all of the lower ones
+  typedef enum {
+    nopause, ///< run normally, never pause
+    unpause, ///< unpause, will prevent re-pausing because location is the same etc.
+    breakpoint, ///< run normally, but pause at breakpoints (breakpoint() in code or by cursor position)
+    step_out, /// pause at end of user defined functions (aka step out)
+    step_over, ///< pause at beginning of a statement (aka step over)
+    step_into, ///< when entering a function, pass "statements" runmode into function's "child thread" (aka step into)
+    interrupt, ///< externally set interrupt
+    terminate, ///< as occasion: thread has terminated. As continuing mode -> abort now
+    numPausingModes
+  } PausingMode;
 
 
   /// trigger modes (note: enum values exposed in some API properties, do not change!)
@@ -280,7 +311,7 @@ namespace p44 { namespace P44Script {
   {
     friend class EventSource;
     typedef std::set<EventSource *> EventSourceSet;
-    EventSourceSet eventSources;
+    EventSourceSet mEventSources;
   public:
     virtual ~EventSink();
 
@@ -294,10 +325,10 @@ namespace p44 { namespace P44Script {
     void clearSources();
 
     /// @return number of event sources (senders) this sink currently has
-    size_t numSources() { return eventSources.size(); }
+    size_t numSources() { return mEventSources.size(); }
 
     /// @return true if sink has any sources
-    bool hasSources() { return !eventSources.empty(); }
+    bool hasSources() { return !mEventSources.empty(); }
 
   };
 
@@ -331,8 +362,8 @@ namespace p44 { namespace P44Script {
   {
     friend class EventSink;
     typedef std::map<EventSink *, intptr_t> EventSinkMap;
-    EventSinkMap eventSinks;
-    bool sinksModified;
+    EventSinkMap mEventSinks;
+    bool mSinksModified;
   public:
     virtual ~EventSource();
 
@@ -356,10 +387,10 @@ namespace p44 { namespace P44Script {
     void unregisterFromEvents(EventSink& aEventSink);
 
     /// @return number of event sinks (reveivers) this source currently has
-    size_t numSinks() { return eventSinks.size(); }
+    size_t numSinks() { return mEventSinks.size(); }
 
     /// @return true if source has any sinks
-    bool hasSinks() { return !eventSinks.empty(); }
+    bool hasSinks() { return !mEventSinks.empty(); }
 
     /// copy all sinks from another source
     /// @param aOtherSource the source to copy sinks from (can be NULL -> NOP)
@@ -387,7 +418,8 @@ namespace p44 { namespace P44Script {
     static string typeDescription(TypeInfo aInfo);
 
     /// @return text description for the passed aObj, NULL allowed
-    static string describe(ScriptObjPtr aObj);
+    static string describe(const ScriptObj* aObj);
+    static string describe(ScriptObjPtr aObj) { return describe(aObj.get()); }
 
     /// get name
     virtual string getIdentifier() const { return ""; };
@@ -401,9 +433,10 @@ namespace p44 { namespace P44Script {
     bool hasType(TypeInfo aTypeInfo) const { return (getTypeInfo() & aTypeInfo)!=0; }
 
     /// check type compatibility
-    /// @param aRequirements what type flags MUST be set
+    /// @param aRequirements what type flags MUST be set (`anyof`=0) or MAY be set (`anyof`=1)
     /// @param aMask what type flags are checked (defaults to typeMask)
     /// @return true if this object has all of the type flags requested within the mask
+    ///   or, when `anyof` is set as well, the object does not have flags not in aRequirements
     bool meetsRequirement(TypeInfo aRequirements, TypeInfo aMask = typeMask) const
       { return typeRequirementMet(getTypeInfo(), aRequirements, aMask); }
 
@@ -412,9 +445,8 @@ namespace p44 { namespace P44Script {
     /// @param aRequirements what type flags MUST be set
     /// @param aMask what type flags are checked (defaults to typeMask)
     /// @return true if this object has all of the type flags requested within the mask
-    static bool typeRequirementMet(TypeInfo aInfo, TypeInfo aRequirements, TypeInfo aMask = typeMask)
-      { return (aInfo&aRequirements&aMask)==(aRequirements&aMask); }
-
+    ///   or, when `anyof` is set as well, the object does not have flags not in aRequirements
+    static bool typeRequirementMet(TypeInfo aInfo, TypeInfo aRequirements, TypeInfo aMask = typeMask);
 
     /// check for null/undefined
     bool undefined() const { return (getTypeInfo() & null)!=0; }
@@ -446,7 +478,7 @@ namespace p44 { namespace P44Script {
     /// @return a pointer to the object's actual value when it is available.
     /// Might be false when this object is an lvalue or another type of proxy
     /// @note call makeValid() to get a valid version from this object
-    virtual ScriptObjPtr actualValue() { return ScriptObjPtr(this); } // simple value objects including this base class have an immediate value
+    virtual ScriptObjPtr actualValue() const { return ScriptObjPtr(const_cast<ScriptObj*>(this)); } // simple value objects including this base class have an immediate value
 
     /// Get the actual value of an object (which might be a lvalue or other type of proxy)
     /// @param aEvaluationCB will be called with a valid version of the object.
@@ -466,13 +498,13 @@ namespace p44 { namespace P44Script {
     /// @{
 
     /// @return the value that should be used to assign to a variable.
-    ///   The purpose of this can be to detach the the assigned value from the original value (e.g. JSON which needs to copy
-    ///   subfields when assiging). Simple values are immutable and can be shared between variables,
+    ///   The purpose of this can be to detach the the assigned value from the original value (e.g. arrays
+    ///   and objects which needs to copy elements/subfields when assiging).
+    ///   Simple values are immutable and can be shared between variables,
     ///   so this base implementation returns itself.
-    virtual ScriptObjPtr assignmentValue() { return ScriptObjPtr(this); }
+    virtual ScriptObjPtr assignmentValue() const { return ScriptObjPtr(const_cast<ScriptObj*>(this)); }
 
     /// @return a value to be used in calculations. This should return a basic type whenever possible
-    ///    This is relevant for values like JSON, where e.g. a string field is not of type "text", but "json" (with a suitable stringValue())
     virtual ScriptObjPtr calculationValue() { return ScriptObjPtr(this); }
 
     virtual double doubleValue() const { return 0; }; ///< @return a conversion to numeric (using literal syntax), if value is string
@@ -480,7 +512,8 @@ namespace p44 { namespace P44Script {
     virtual string stringValue() const { return getAnnotation(); }; ///< @return a conversion to string of the value
     virtual ErrorPtr errorValue() const { return Error::ok(); } ///< @return error value (always an object, OK if not in error)
     #if SCRIPTING_JSON_SUPPORT
-    virtual JsonObjectPtr jsonValue() const { return JsonObject::newNull(); } ///< @return a JSON value
+    virtual JsonObjectPtr jsonValue(bool aDescribeNonJSON = false) const; ///< @return a JSON value
+    static ScriptObjPtr valueFromJSON(JsonObjectPtr aJson); ///< @return ScriptObj representing the JSON passed
     #endif
     // generic converters
     int intValue() const { return (int)doubleValue(); } ///< @return numeric value as int
@@ -497,7 +530,7 @@ namespace p44 { namespace P44Script {
     ///   If lvalue is set and the member can be created and/or assigned to, an ScriptLvalue might be returned
     /// @return ScriptObj representing the member, or NULL if none
     /// @note only possibly returns something for container objects marked with "object" type
-    virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aMemberAccessFlags) { return ScriptObjPtr(); };
+    virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aMemberAccessFlags) const { return ScriptObjPtr(); };
 
     /// number of members accessible by index (e.g. positional parameters or array elements)
     /// @return number of members
@@ -510,7 +543,7 @@ namespace p44 { namespace P44Script {
     ///   If lvalue is set and the member can be created and/or assigned to, an ScriptLvalue might be returned
     /// @return ScriptObj representing the member with index
     /// @note only possibly returns something in objects with type attribute "array"
-    virtual const ScriptObjPtr memberAtIndex(size_t aIndex, TypeInfo aMemberAccessFlags) { return ScriptObjPtr(); };
+    virtual const ScriptObjPtr memberAtIndex(size_t aIndex, TypeInfo aMemberAccessFlags) const { return ScriptObjPtr(); };
 
     /// set new object for named member in this container (and nowhere else!)
     /// @param aName name of the member to assign
@@ -526,12 +559,15 @@ namespace p44 { namespace P44Script {
     /// @param aMember the member to assign
     /// @param aName optional name of the member (for containers where members have an index AND an name, such as function parameters)
     /// @return ok or Error describing reason for assignment failure
-    /// @note only possibly works on objects with type attribute "mutablemembers"
     virtual ErrorPtr setMemberAtIndex(size_t aIndex, const ScriptObjPtr aMember, const string aName = "");
 
     /// create and initialize a iterator for iterating over this objects members
+    /// @param aInterestedInTypes types+attributes we are interested in at all, i.e.
+    ///   iterator may only return elements which have no type and attribute bits set which are not
+    ///   also set in aInterestedInTypes.
+    ///   This filter might not be implemented in all iterators.
     /// @return iterator over members of this object
-    virtual ValueIteratorPtr newIterator();
+    virtual ValueIteratorPtr newIterator(TypeInfo aInterestedInTypes) const;
 
     /// @}
 
@@ -629,7 +665,10 @@ namespace p44 { namespace P44Script {
 
     /// @return true when the object's value is available. Might be false when this object is an lvalue or another type of proxy
     /// @note call makeValid() to get a valid version from this object
-    virtual ScriptObjPtr actualValue() P44_OVERRIDE { return mCurrentValue; } // LValues are valid if they have a current value
+    virtual ScriptObjPtr actualValue() const P44_OVERRIDE { return mCurrentValue; } // LValues are valid if they have a current value
+
+    /// @return a value to be used in calculations. This should return a basic type whenever possible
+    virtual ScriptObjPtr calculationValue() P44_OVERRIDE { return mCurrentValue; }
 
     /// Get the actual value of an object (which might be a lvalue or other type of proxy)
     /// @param aEvaluationCB will be called with a valid version of the object.
@@ -659,8 +698,10 @@ namespace p44 { namespace P44Script {
     /// @note this should be called by suitable container's memberByName() only
     /// @note subclasses might provide optimized/different mechanisms
     StandardLValue(ScriptObjPtr aContainer, const string aMemberName, ScriptObjPtr aCurrentValue);
+
     /// create a lvalue for a container which has setMemberAtIndex()
     StandardLValue(ScriptObjPtr aContainer, size_t aMemberIndex, ScriptObjPtr aCurrentValue);
+
     virtual ~StandardLValue() { deactivate(); } // even if deactivate() is usually called before dtor, make sure it happens even if not
 
     virtual void deactivate() P44_OVERRIDE { mContainer.reset(); inherited::deactivate(); }
@@ -685,20 +726,21 @@ namespace p44 { namespace P44Script {
     /// @note implementation might just flag internal state for resetting, actually doing it at obtainValue()/obtainKey()
     virtual void reset() = 0;
 
-    /// advance the iterator to the next
+    /// advance the iterator to the next item
     /// @note implementation might just flag internal state for incrementing, actually doing it at obtainValue()/obtainKey()
     virtual void next() = 0;
 
-    /// Perform the calculations, possibly asynchronously, to get the current value
-    /// @param aEvaluationCB will be called with the current value, or NULL if iterator is exhausted
+    /// Get the current value
     /// @param aMemberAccessFlags what type and type attributes the returned member must have.
     ///   If lvalue is set and the current value can be assigned to, an ScriptLvalue might be returned
-    virtual void obtainValue(EvaluationCB aEvaluationCB, TypeInfo aMemberAccessFlags) = 0;
+    ///   The current value might be a placeholder value and might need makeValid() to ensure the actual value is retrieved
+    /// @return Value or null if the iterator is exhausted. Null elements must return an explicit null
+    virtual ScriptObjPtr obtainValue(TypeInfo aMemberAccessFlags) = 0;
 
-    /// Perform the calculations, possibly asynchronously, to get the current key
-    /// @param aEvaluationCB will be called with the current key, or NULL if iterator is exhausted
+    /// Get the current key
     /// @param aNumericPreferred if set, key is returned as number/index if possible for the container
-    virtual void obtainKey(EvaluationCB aEvaluationCB, bool aNumericPreferred) = 0;
+    /// @return key (string or integer) or null if the iterator is exhaused
+    virtual ScriptObjPtr obtainKey(bool aNumericPreferred) = 0;
   };
 
 
@@ -719,23 +761,13 @@ namespace p44 { namespace P44Script {
 
     /// iterator over a regular ScriptObj
     /// @param aObj the object that will be iterated over
-    IndexedValueIterator(ScriptObjPtr aObj);
+    IndexedValueIterator(const ScriptObj* aObj);
 
     virtual void reset() P44_OVERRIDE;
     virtual void next() P44_OVERRIDE;
-    virtual void obtainValue(EvaluationCB aEvaluationCB, TypeInfo aMemberAccessFlags) P44_OVERRIDE;
-    virtual void obtainKey(EvaluationCB aEvaluationCB, bool aNumericPreferred) P44_OVERRIDE;
+    virtual ScriptObjPtr obtainKey(bool aNumericPreferred) P44_OVERRIDE;
+    virtual ScriptObjPtr obtainValue(TypeInfo aMemberAccessFlags) P44_OVERRIDE;
   };
-
-
-  class LoopController : public P44Obj
-  {
-  public:
-    ValueIteratorPtr mIterator;
-    ScriptLValuePtr mLoopValue;
-    ScriptLValuePtr mLoopKey;
-  };
-  typedef boost::intrusive_ptr<LoopController> LoopControllerPtr;
 
 
   // MARK: - Special NULL values
@@ -744,10 +776,10 @@ namespace p44 { namespace P44Script {
   class AnnotatedNullValue : public ScriptObj
   {
     typedef ScriptObj inherited;
-    string annotation;
+    string mAnnotation;
   public:
-    AnnotatedNullValue(string aAnnotation) : annotation(aAnnotation) {};
-    virtual string getAnnotation() const P44_OVERRIDE { return annotation; }; // specific annotation...
+    AnnotatedNullValue(string aAnnotation) : mAnnotation(aAnnotation) {};
+    virtual string getAnnotation() const P44_OVERRIDE { return mAnnotation; }; // specific annotation...
     virtual string stringValue() const P44_OVERRIDE { return inherited::getAnnotation(); }; // ...but stringValue must return the default annotation!
   };
 
@@ -799,7 +831,7 @@ namespace p44 { namespace P44Script {
     virtual string stringValue() const P44_OVERRIDE { return Error::text(mErr); };
     virtual ErrorPtr errorValue() const P44_OVERRIDE { return mErr ? mErr : Error::ok(); };
     #if SCRIPTING_JSON_SUPPORT
-    virtual JsonObjectPtr jsonValue() const P44_OVERRIDE;
+    virtual JsonObjectPtr jsonValue(bool aDescribeNonJSON = false) const P44_OVERRIDE;
     #endif
     bool caught() { return mCaught; } ///< @return true if error was caught (must not be thrown any more)
     void setCaught(bool aCaught) { mCaught = aCaught; } ///< set "caught" state
@@ -814,13 +846,13 @@ namespace p44 { namespace P44Script {
   {
     typedef ScriptObj inherited;
     ScriptCodeThreadPtr mThread;
-    ScriptObjPtr threadExitValue;
+    ScriptObjPtr mThreadExitValue;
   public:
     ThreadValue(ScriptCodeThreadPtr aThread);
     virtual ~ThreadValue() { deactivate(); } // even if deactivate() is usually called before dtor, make sure it happens even if not
     virtual string getAnnotation() const P44_OVERRIDE { return "thread"; };
     virtual TypeInfo getTypeInfo() const P44_OVERRIDE;
-    virtual void deactivate() P44_OVERRIDE { threadExitValue.reset(); mThread.reset(); inherited::deactivate(); }
+    virtual void deactivate() P44_OVERRIDE { mThreadExitValue.reset(); mThread.reset(); inherited::deactivate(); }
     virtual ScriptObjPtr calculationValue() P44_OVERRIDE; /// < ThreadValue calculates to NULL as long as running or to the thread's exit value
     virtual EventSource *eventSource() const P44_OVERRIDE; ///< ThreadValue is an event source, event is the exit value of a thread terminating
     ScriptCodeThreadPtr thread() { return mThread; }; ///< @return the thread
@@ -836,20 +868,20 @@ namespace p44 { namespace P44Script {
   {
     typedef ScriptObj inherited;
   protected:
-    double num;
+    double mNum;
   public:
-    NumericValue(double aNumber) : num(aNumber) {};
-    NumericValue(bool aBool) : num(aBool ? 1 : 0) {};
-    NumericValue(int aInt) : num(aInt) {};
-    NumericValue(int64_t aInt) : num(aInt) {};
-    NumericValue(size_t aInt) : num(aInt) {};
+    NumericValue(double aNumber) : mNum(aNumber) {};
+    NumericValue(bool aBool) : mNum(aBool ? 1 : 0) {};
+    NumericValue(int aInt) : mNum(aInt) {};
+    NumericValue(int64_t aInt) : mNum(aInt) {};
+    NumericValue(size_t aInt) : mNum(aInt) {};
     virtual string getAnnotation() const P44_OVERRIDE { return "numeric"; };
     virtual TypeInfo getTypeInfo() const P44_OVERRIDE { return numeric; };
     // value getters
-    virtual double doubleValue() const P44_OVERRIDE { return num; }; // native
+    virtual double doubleValue() const P44_OVERRIDE { return mNum; }; // native
     virtual string stringValue() const P44_OVERRIDE { return string_format("%lg", doubleValue()); };
     #if SCRIPTING_JSON_SUPPORT
-    virtual JsonObjectPtr jsonValue() const P44_OVERRIDE { return JsonObject::newDouble(doubleValue()); };
+    virtual JsonObjectPtr jsonValue(bool aDescribeNonJSON = false) const P44_OVERRIDE { return JsonObject::newDouble(doubleValue()); };
     #endif
     // operators
     virtual bool operator<(const ScriptObj& aRightSide) const P44_OVERRIDE;
@@ -870,27 +902,47 @@ namespace p44 { namespace P44Script {
   public:
     BoolValue(bool aBool) : inherited(aBool) {};
     virtual string getAnnotation() const P44_OVERRIDE { return "boolean"; };
+    virtual string stringValue() const P44_OVERRIDE { return boolValue() ? "true" : "false"; };
     // value getters
     #if SCRIPTING_JSON_SUPPORT
-    virtual JsonObjectPtr jsonValue() const P44_OVERRIDE { return JsonObject::newBool(boolValue()); };
+    virtual JsonObjectPtr jsonValue(bool aDescribeNonJSON = false) const P44_OVERRIDE { return JsonObject::newBool(boolValue()); };
     #endif
+  };
+
+
+  /// IntegerValue is a NumericValue that returns a JSON integer value
+  ///   when asked about its jsonValue()
+  class IntegerValue : public NumericValue
+  {
+    typedef NumericValue inherited;
+  public:
+    IntegerValue(int64_t aInt) : inherited(aInt) {};
+    virtual string getAnnotation() const P44_OVERRIDE { return "integer"; };
+    // value getters
+    #if SCRIPTING_JSON_SUPPORT
+    virtual JsonObjectPtr jsonValue(bool aDescribeNonJSON = false) const P44_OVERRIDE { return JsonObject::newInt64(int64Value()); };
+    #endif
+    // operators
+    virtual ScriptObjPtr operator+(const ScriptObj& aRightSide) const P44_OVERRIDE;
+    virtual ScriptObjPtr operator-(const ScriptObj& aRightSide) const P44_OVERRIDE;
+    virtual ScriptObjPtr operator*(const ScriptObj& aRightSide) const P44_OVERRIDE;
   };
 
 
   class StringValue : public ScriptObj
   {
     typedef ScriptObj inherited;
-    string str;
+    string mStr;
   public:
-    StringValue(string aString) : str(aString) {};
+    StringValue(string aString) : mStr(aString) {};
     virtual string getAnnotation() const P44_OVERRIDE { return "string"; };
     virtual TypeInfo getTypeInfo() const P44_OVERRIDE { return text; };
     // value getters
-    virtual string stringValue() const P44_OVERRIDE { return str; }; // native
+    virtual string stringValue() const P44_OVERRIDE { return mStr; }; // native
     virtual double doubleValue() const P44_OVERRIDE;
     virtual bool boolValue() const P44_OVERRIDE;
     #if SCRIPTING_JSON_SUPPORT
-    virtual JsonObjectPtr jsonValue() const P44_OVERRIDE;
+    virtual JsonObjectPtr jsonValue(bool aDescribeNonJSON = false) const P44_OVERRIDE;
     #endif
     // operators
     virtual bool operator<(const ScriptObj& aRightSide) const P44_OVERRIDE;
@@ -899,102 +951,131 @@ namespace p44 { namespace P44Script {
   };
 
 
-  #if SCRIPTING_JSON_SUPPORT
-  class JsonRepresentedValue : public ScriptObj
+  // MARK: - Containers
+
+  // field list (for iterators etc.)
+  typedef std::list<string> FieldNameList;
+
+  class StructuredValue : public ScriptObj
   {
     typedef ScriptObj inherited;
+    friend class ObjectFieldsIterator;
+
   public:
-    virtual ScriptObjPtr calculationValue() P44_OVERRIDE;
-    JsonRepresentedValue() {};
-    virtual string getAnnotation() const P44_OVERRIDE { return "jsonrepresented"; };
-    // value getters
-    virtual JsonObjectPtr jsonValue() const P44_OVERRIDE = 0; // JsonRepresentedValue MUST have a json representation
-    virtual double doubleValue() const P44_OVERRIDE;
     virtual string stringValue() const P44_OVERRIDE;
     virtual bool boolValue() const P44_OVERRIDE;
+    virtual TypeInfo getTypeInfo() const P44_OVERRIDE { return structured; } // subclasses might narrow down that to object / array only
+    virtual ValueIteratorPtr newIterator(TypeInfo aInterestedInTypes) const P44_OVERRIDE;
+    #if SCRIPTING_JSON_SUPPORT
+    virtual JsonObjectPtr jsonValue(bool aDescribeNonJSON = false) const P44_OVERRIDE;
+    #endif
+  protected:
+    virtual void appendFieldNames(FieldNameList& aList, TypeInfo aInterestedInTypes) const { /* NOP in base class */ }
+  };
+
+
+  /// iterator for structured object's fields
+  /// @note this is implemented in a safe but less performant way,
+  ///   by obtaining all field names at iterator creation, and then accessing them by name.
+  ///   This prevents problems when fields are added or removed while iterating:
+  ///   - obtainKey() will always return the field names at iterator creation
+  ///   - obtainValue() will return an annotated null for fields that were removed in the meantime
+  class ObjectFieldsIterator : public ValueIterator
+  {
+    typedef ValueIterator inherited;
+    friend class StructuredValue;
+
+  protected:
+
+    ScriptObjPtr mIteratedObj;
+    FieldNameList mNameList;
+    FieldNameList::iterator mNameIterator;
+
+    /// iterator over object fields
+    /// @param aObj the object that will be iterated over
+    ObjectFieldsIterator(const StructuredValue* aObj, TypeInfo aInterestedInTypes);
+
+  public:
+
+    virtual void reset() P44_OVERRIDE;
+    virtual void next() P44_OVERRIDE;
+    virtual ScriptObjPtr obtainKey(bool aNumericPreferred) P44_OVERRIDE;
+    virtual ScriptObjPtr obtainValue(TypeInfo aMemberAccessFlags) P44_OVERRIDE;
+  };
+
+
+  class ArrayValue : public StructuredValue
+  {
+    typedef StructuredValue inherited;
+
+    typedef std::vector<ScriptObjPtr> ElementsVector;
+    ElementsVector mElements;
+
+  public:
+    virtual ScriptObjPtr assignmentValue() const P44_OVERRIDE;
+    ArrayValue() {};
+    virtual string getAnnotation() const P44_OVERRIDE { return "array"; };
+    virtual TypeInfo getTypeInfo() const P44_OVERRIDE { return arrayvalue; }
+    // value getters
+    #if SCRIPTING_JSON_SUPPORT
+    ArrayValue(JsonObjectPtr aJsonObject); ///< construct from JSON value
+    virtual JsonObjectPtr jsonValue(bool aDescribeNonJSON = false) const P44_OVERRIDE;
+    #endif
     // member access
-    virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aMemberAccessFlags = none) P44_OVERRIDE;
     virtual size_t numIndexedMembers() const P44_OVERRIDE;
-    virtual const ScriptObjPtr memberAtIndex(size_t aIndex, TypeInfo aMemberAccessFlags = none) P44_OVERRIDE;
-    virtual ValueIteratorPtr newIterator() P44_OVERRIDE;
+    virtual const ScriptObjPtr memberAtIndex(size_t aIndex, TypeInfo aMemberAccessFlags = none) const P44_OVERRIDE;
+    virtual ErrorPtr setMemberAtIndex(size_t aIndex, const ScriptObjPtr aMember, const string aName = "") P44_OVERRIDE;
+    virtual ValueIteratorPtr newIterator(TypeInfo aInterestedInTypes) const P44_OVERRIDE;
+    void appendMember(const ScriptObjPtr aMember); ///< convenience helper
     // operators
     virtual bool operator<(const ScriptObj& aRightSide) const P44_OVERRIDE;
     virtual bool operator==(const ScriptObj& aRightSide) const P44_OVERRIDE;
     virtual ScriptObjPtr operator+(const ScriptObj& aRightSide) const P44_OVERRIDE;
   };
+  typedef boost::intrusive_ptr<ArrayValue> ArrayValuePtr;
 
 
-  class JsonValueIterator : public IndexedValueIterator
+  class ObjectValue : public StructuredValue
   {
-    typedef IndexedValueIterator inherited;
+    typedef StructuredValue inherited;
+
+    typedef std::map<string, ScriptObjPtr, lessStrucmp> FieldsMap;
+    FieldsMap mFields;
+
   public:
-    /// iterator over a json represented value which might have members with non-numeric keys
-    /// @param aObj the object that will be iterated over
-    JsonValueIterator(ScriptObjPtr aObj);
-
-    virtual void obtainKey(EvaluationCB aEvaluationCB, bool aNumericPreferred) P44_OVERRIDE;
-    virtual void obtainValue(EvaluationCB aEvaluationCB, TypeInfo aMemberAccessFlags) P44_OVERRIDE;
-  };
-
-
-
-
-
-  class JsonValue : public JsonRepresentedValue
-  {
-    typedef JsonRepresentedValue inherited;
-  protected:
-    JsonObjectPtr jsonval;
-  public:
-    virtual ScriptObjPtr assignmentValue() P44_OVERRIDE;
-    JsonValue(JsonObjectPtr aJson) : jsonval(aJson) {};
-    virtual TypeInfo getTypeInfo() const P44_OVERRIDE;
-    virtual string getAnnotation() const P44_OVERRIDE { return "json"; };
-    // value getters
-    virtual JsonObjectPtr jsonValue() const P44_OVERRIDE { return jsonval; } // native
-    // modifying
-    virtual ErrorPtr setMemberByName(const string aName, const ScriptObjPtr aMember) P44_OVERRIDE;
-    virtual ErrorPtr setMemberAtIndex(size_t aIndex, const ScriptObjPtr aMember, const string aName = "") P44_OVERRIDE;
-  };
-
-  #endif // SCRIPTING_JSON_SUPPORT
-
-
-  // MARK: - Structured objects
-
-  /// structured object base class
-  class StructuredObject :
-    #if SCRIPTING_JSON_SUPPORT
-    public JsonRepresentedValue
-    #else
-    public ScriptObj
-    #endif
-  {
-    #if SCRIPTING_JSON_SUPPORT
-    typedef JsonRepresentedValue inherited;
-    #else
-    typedef ScriptObj inherited;
-    #endif
-  public:
+    virtual ScriptObjPtr assignmentValue() const P44_OVERRIDE;
+    ObjectValue() {};
     virtual string getAnnotation() const P44_OVERRIDE { return "object"; };
-    virtual TypeInfo getTypeInfo() const P44_OVERRIDE { return object; } // only object, although JSON representation exists
-
+    virtual TypeInfo getTypeInfo() const P44_OVERRIDE { return objectvalue; }
+    // value getters
     #if SCRIPTING_JSON_SUPPORT
-    /// FIXME: this is a simplistic partial solution to get at least some introspection for debugging purposes.
-    ///   Once we have P44Value hierarchy with iterators, this can be done properly
-    virtual JsonObjectPtr jsonValue() const P44_OVERRIDE = 0;
+    ObjectValue(JsonObjectPtr aJsonObject); ///< construct from JSON value
+    virtual JsonObjectPtr jsonValue(bool aDescribeNonJSON = false) const P44_OVERRIDE;
     #endif
-
+    // member access
+    virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aMemberAccessFlags = none) const P44_OVERRIDE;
+    virtual ErrorPtr setMemberByName(const string aName, const ScriptObjPtr aMember) P44_OVERRIDE;
+    virtual const ScriptObjPtr memberAtIndex(size_t aIndex, TypeInfo aMemberAccessFlags = none) const P44_OVERRIDE;
+    virtual size_t numIndexedMembers() const P44_OVERRIDE;
+    // operators
+    virtual bool operator<(const ScriptObj& aRightSide) const P44_OVERRIDE;
+    virtual bool operator==(const ScriptObj& aRightSide) const P44_OVERRIDE;
+    virtual ScriptObjPtr operator+(const ScriptObj& aRightSide) const P44_OVERRIDE;
+  protected:
+    virtual void appendFieldNames(FieldNameList& aList, TypeInfo aInterestedInTypes) const P44_OVERRIDE;
   };
+  typedef boost::intrusive_ptr<ObjectValue> ObjectValuePtr;
 
+
+  // MARK: - Special Structured objects
 
   /// simple variable container
-  class SimpleVarContainer : public StructuredObject
+  class SimpleVarContainer : public StructuredValue
   {
-    typedef StructuredObject inherited;
+    typedef StructuredValue inherited;
 
     typedef std::map<string, ScriptObjPtr, lessStrucmp> NamedVarMap;
-    NamedVarMap namedVars; ///< the named local variables/objects of this context
+    NamedVarMap mNamedVars; ///< the named local variables/objects of this context
 
   public:
 
@@ -1008,17 +1089,13 @@ namespace p44 { namespace P44Script {
     void releaseObjsFromSource(SourceContainerPtr aSource);
 
     /// access to local variables by name
-    virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aMemberAccessFlags) P44_OVERRIDE;
+    virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aMemberAccessFlags) const P44_OVERRIDE;
 
-    // internal for StandardLValue
+    /// internal for StandardLValue
     virtual ErrorPtr setMemberByName(const string aName, const ScriptObjPtr aMember) P44_OVERRIDE;
 
-    #if SCRIPTING_JSON_SUPPORT
-    /// FIXME: this is a simplistic partial solution to get at least some introspection for debugging purposes.
-    ///   Once we have P44Value hierarchy with iterators, this can be done properly
-    virtual JsonObjectPtr jsonValue() const P44_OVERRIDE;
-    #endif
-
+    /// internal for generic StructuredValue level iterator support
+    virtual void appendFieldNames(FieldNameList& aList, TypeInfo aInterestedInTypes) const P44_OVERRIDE;
   };
 
 
@@ -1027,19 +1104,19 @@ namespace p44 { namespace P44Script {
   class BuiltInMemberLookup;
 
   /// structured object with the ability to register member lookups
-  class StructuredLookupObject : public StructuredObject
+  class StructuredLookupObject : public StructuredValue
   {
-    typedef StructuredObject inherited;
+    typedef StructuredValue inherited;
     typedef std::list<MemberLookupPtr> LookupList;
-    LookupList lookups;
+    LookupList mLookups;
     MemberLookupPtr mSingleMembers;
   public:
 
     // access to (sub)objects in the installed lookups
-    virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aTypeRequirements) P44_OVERRIDE;
+    virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aTypeRequirements) const P44_OVERRIDE;
     virtual ~StructuredLookupObject() { deactivate(); } // even if deactivate() is usually called before dtor, make sure it happens even if not
 
-    virtual void deactivate() P44_OVERRIDE { mSingleMembers.reset(); lookups.clear(); inherited::deactivate(); }
+    virtual void deactivate() P44_OVERRIDE { mSingleMembers.reset(); mLookups.clear(); inherited::deactivate(); }
 
     /// register an additional lookup
     /// @param aMemberLookup a lookup object.
@@ -1056,14 +1133,9 @@ namespace p44 { namespace P44Script {
     /// @param aMemberDescriptors pointer to the builtin member description table to use for constructing the lookup if not yet existing
     void registerSharedLookup(BuiltInMemberLookup*& aSingletonLookupP, const struct BuiltinMemberDescriptor* aMemberDescriptors);
 
-    #if SCRIPTING_JSON_SUPPORT
-    /// FIXME: this is a simplistic partial solution to get at least some introspection for debugging purposes.
-    ///   Once we have P44Value hierarchy with iterators, this can be done properly
-    virtual JsonObjectPtr jsonValue() const P44_OVERRIDE;
-
-    /// @return info about functions
-    JsonObjectPtr builtinsInfo();
-    #endif
+  protected:
+    /// internal for generic StructuredValue level iterator support
+    virtual void appendFieldNames(FieldNameList& aList, TypeInfo aInterestedInTypes) const P44_OVERRIDE;
 
   };
 
@@ -1077,7 +1149,7 @@ namespace p44 { namespace P44Script {
 
     /// return mask of all types that may be (but not necessarily are) in this lookup
     /// @note this is for optimizing lookups for certain types. Base class potentially has all kind of objects
-    virtual TypeInfo containsTypes() const { return any+null+constant+allscopes; }
+    virtual TypeInfo containsTypes() const { return alltypes+constant+allscopes; }
 
     /// get object subfield/member by name
     /// @param aThisObj the object _instance_ of which we want to access a member (can be NULL in case of singletons)
@@ -1091,11 +1163,10 @@ namespace p44 { namespace P44Script {
     /// @param aMember the object corresponding to aName
     virtual void registerMember(const string aName, ScriptObjPtr aMember) { /* NOP in base class */ }
 
-    #if SCRIPTING_JSON_SUPPORT
-    /// FIXME: this is a simplistic partial solution to get at least some introspection for debugging purposes.
-    ///   Once we have P44Value hierarchy with iterators, this can be done properly
-    virtual void addJsonValues(JsonObjectPtr &aObj) const { /* NOP here: some objects cannot represent their members */ };
-    #endif
+    /// add all member field names to aList
+    /// @param aList member names will be added to this list
+    /// @param aInterestedInTypes what types of fields we are interested in at all (not included ones MIGHT be omitted if callee supports filtering)
+    virtual void appendMemberNames(FieldNameList& aList, TypeInfo aInterestedInTypes) = 0;
 
   };
 
@@ -1106,17 +1177,12 @@ namespace p44 { namespace P44Script {
     typedef MemberLookup inherited;
 
     typedef std::map<string, ScriptObjPtr, lessStrucmp> NamedVarMap;
-    NamedVarMap members; ///< predefined scriptobjs (immutable)
+    NamedVarMap mMembers; ///< predefined scriptobjs (immutable)
 
     virtual ScriptObjPtr memberByNameFrom(ScriptObjPtr aThisObj, const string aName, TypeInfo aTypeRequirements) const P44_OVERRIDE;
     virtual void registerMember(const string aName, ScriptObjPtr aMember) P44_OVERRIDE;
 
-    #if SCRIPTING_JSON_SUPPORT
-    /// FIXME: this is a simplistic partial solution to get at least some introspection for debugging purposes.
-    ///   Once we have P44Value hierarchy with iterators, this can be done properly
-    virtual void addJsonValues(JsonObjectPtr &aObj) const P44_OVERRIDE;
-    #endif
-
+    virtual void appendMemberNames(FieldNameList& aList, TypeInfo aInterestedInTypes) P44_OVERRIDE;
   };
 
 
@@ -1136,26 +1202,26 @@ namespace p44 { namespace P44Script {
     friend class BuiltinFunctionContext;
 
     typedef std::vector<ScriptObjPtr> IndexedVarVector;
-    IndexedVarVector indexedVars;
-    ScriptMainContextPtr mainContext; ///< the main context
+    IndexedVarVector mIndexedVars;
+    ScriptMainContextPtr mMainContext; ///< the main context
 
     ExecutionContext(ScriptMainContextPtr aMainContext);
 
   protected:
 
-    bool undefinedResult; ///< special shortcut to make a execution return a "undefined" result w/o actually executing
+    bool mUndefinedResult; ///< special shortcut to make a execution return a "undefined" result w/o actually executing
 
   public:
 
     virtual ~ExecutionContext() { deactivate(); } // even if deactivate() is usually called before dtor, make sure it happens even if not
-    virtual void deactivate() P44_OVERRIDE { clearVars(); mainContext.reset(); inherited::deactivate(); }
+    virtual void deactivate() P44_OVERRIDE { clearVars(); mMainContext.reset(); inherited::deactivate(); }
 
     /// clear local variables (indexed arguments)
     virtual void clearVars();
 
     // access to function arguments (positional) by index plus optionally a name
     virtual size_t numIndexedMembers() const P44_OVERRIDE;
-    virtual const ScriptObjPtr memberAtIndex(size_t aIndex, TypeInfo aMemberAccessFlags = none) P44_OVERRIDE;
+    virtual const ScriptObjPtr memberAtIndex(size_t aIndex, TypeInfo aMemberAccessFlags = none) const P44_OVERRIDE;
     virtual ErrorPtr setMemberAtIndex(size_t aIndex, const ScriptObjPtr aMember, const string aName = "") P44_OVERRIDE;
 
     /// release all objects stored in this container and other known containers which were defined by aSource
@@ -1170,10 +1236,10 @@ namespace p44 { namespace P44Script {
     /// @param aToExecute the object to be executed in this context
     /// @param aEvalFlags evaluation control flags
     /// @param aEvaluationCB will be called to deliver the result of the execution
-    /// @param aChainOriginThread the origin of the sequential "thread" chain (as user defined functions always start a "thread")
+    /// @param aChainedFromThread the thread which chains to this thread (e.g. to execute a function), waiting for completion
     /// @param aThreadLocals optionally, the (structured) object that provides thread local members
     /// @param aMaxRunTime optionally, maximum time the thread may run before it is aborted by timeout
-    virtual void execute(ScriptObjPtr aToExecute, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB, ScriptCodeThreadPtr aChainOriginThread, ScriptObjPtr aThreadLocals = ScriptObjPtr(), MLMicroSeconds aMaxRunTime = Infinite) = 0;
+    virtual void execute(ScriptObjPtr aToExecute, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB, ScriptCodeThreadPtr aChainedFromThread, ScriptObjPtr aThreadLocals = ScriptObjPtr(), MLMicroSeconds aMaxRunTime = Infinite) = 0;
 
     /// abort evaluation (of all threads if context has more than one)
     /// @param aAbortFlags set stoprunning to abort currently running threads, queue to empty the queued threads
@@ -1195,7 +1261,7 @@ namespace p44 { namespace P44Script {
     /// @{
 
     /// @return the main context from which this context was called (as a subroutine)
-    virtual ScriptMainContextPtr scriptmain() const { return mainContext; }
+    virtual ScriptMainContextPtr scriptmain() const { return mMainContext; }
 
     /// @return the object _instance_ that is the implicit "this" for the context
     /// @note plain execution contexts do not have a thisObj() of their own, but use the linked mainContext's
@@ -1223,11 +1289,11 @@ namespace p44 { namespace P44Script {
     friend class CompiledCode;
     friend class CompiledScript;
 
-    SimpleVarContainer localVars;
+    SimpleVarContainer mLocalVars;
 
     typedef std::list<ScriptCodeThreadPtr> ThreadList;
-    ThreadList threads; ///< the running "threads" in this context. First is the main thread of the evaluation.
-    ThreadList queuedThreads; ///< the queued threads in this context
+    ThreadList mThreads; ///< the running "threads" in this context. First is the main thread of the evaluation.
+    ThreadList mQueuedThreads; ///< the queued threads in this context
 
     ScriptCodeContext(ScriptMainContextPtr aMainContext);
 
@@ -1248,8 +1314,11 @@ namespace p44 { namespace P44Script {
     /// clear local variables (named members)
     virtual void clearVars() P44_OVERRIDE;
 
+    /// get context local variables
+    ScriptObjPtr contextLocals() { return &mLocalVars; }
+
     /// access to local variables by name
-    virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aMemberAccessFlags) P44_OVERRIDE;
+    virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aMemberAccessFlags) const P44_OVERRIDE;
 
     // internal for StandardLValue
     virtual ErrorPtr setMemberByName(const string aName, const ScriptObjPtr aMember) P44_OVERRIDE;
@@ -1259,20 +1328,20 @@ namespace p44 { namespace P44Script {
     /// @param aToExecute the object to be evaluated
     /// @param aEvalFlags evaluation mode/flags. Script thread can evaluate...
     /// @param aEvaluationCB will be called to deliver the result of the evaluation
-    /// @param aChainOriginThread the origin of the sequential "thread" chain (as user defined functions always start a "thread")
+    /// @param aChainedFromThread the thread which chains to this thread (e.g. to execute a function), waiting for completion
     /// @param aThreadLocals optionally, the (structured) object that provides thread local members
     /// @param aMaxRunTime optionally, maximum time the thread may run before it is aborted by timeout
-    virtual void execute(ScriptObjPtr aToExecute, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB, ScriptCodeThreadPtr aChainOriginThread, ScriptObjPtr aThreadLocals = ScriptObjPtr(), MLMicroSeconds aMaxRunTime = Infinite) P44_OVERRIDE;
+    virtual void execute(ScriptObjPtr aToExecute, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB, ScriptCodeThreadPtr aChainedFromThread, ScriptObjPtr aThreadLocals = ScriptObjPtr(), MLMicroSeconds aMaxRunTime = Infinite) P44_OVERRIDE;
 
     /// Start a new thread (usually, a block, concurrently) from a given cursor
     /// @param aCodeObj the code object this thread runs (maybe only a part of)
     /// @param aFromCursor where to start executing
     /// @param aEvalFlags how to initiate the thread and what syntax level to evaluate
     /// @param aEvaluationCB callback when thread has evaluated (ends)
-    /// @param aChainOriginThread the origin of the sequential "thread" chain (as user defined functions always start a "thread")
+    /// @param aChainedFromThread the thread which chains to this thread (e.g. to execute a function), waiting for completion
     /// @param aThreadLocals optionally, the (structured) object that provides thread local members
     /// @param aMaxRunTime optionally, maximum time the thread may run before it is aborted by timeout
-    ScriptCodeThreadPtr newThreadFrom(CompiledCodePtr aCodeObj, SourceCursor &aFromCursor, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB, ScriptCodeThreadPtr aChainOriginThread, ScriptObjPtr aThreadLocals = ScriptObjPtr(), MLMicroSeconds aMaxRunTime = Infinite);
+    ScriptCodeThreadPtr newThreadFrom(CompiledCodePtr aCodeObj, SourceCursor &aFromCursor, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB, ScriptCodeThreadPtr aChainedFromThread, ScriptObjPtr aThreadLocals = ScriptObjPtr(), MLMicroSeconds aMaxRunTime = Infinite);
 
     /// abort evaluation of all threads
     /// @param aAbortFlags set stoprunning to abort currently running threads, queue to empty the queued threads
@@ -1283,15 +1352,19 @@ namespace p44 { namespace P44Script {
 
     /// abort evaluation of threads originating from aSource
     /// @param aSource source to check
+    /// @param aAbortResult value to pass to abort()
     /// @return true if any thread was aborted
-    bool abortThreadsRunningSource(SourceContainerPtr aSource);
+    bool abortThreadsRunningSource(SourceContainerPtr aSource, ScriptObjPtr aAbortResult);
 
-
-    #if SCRIPTING_JSON_SUPPORT
-    /// FIXME: this is a simplistic partial solution to get at least some introspection for debugging purposes.
-    ///   Once we have P44Value hierarchy with iterators, this can be done properly
-    virtual JsonObjectPtr jsonValue() const P44_OVERRIDE;
+    #if P44SCRIPT_DEBUGGING_SUPPORT
+    /// @param aCodeObj the object to check for
+    /// @return true if aCodeObj already has a paused thread in this context
+    bool hasThreadPausedIn(CompiledCodePtr aCodeObj);
     #endif
+
+  protected:
+    /// internal for generic StructuredValue level iterator support
+    virtual void appendFieldNames(FieldNameList& aList, TypeInfo aInterestedInTypes) const P44_OVERRIDE;
 
   private:
 
@@ -1308,12 +1381,12 @@ namespace p44 { namespace P44Script {
     typedef ScriptCodeContext inherited;
     friend class ScriptingDomain;
 
-    ScriptingDomainPtr domainObj; ///< the scripting domain (unless it's myself to avoid locking)
-    ScriptObjPtr thisObj; ///< the object _instance_ scope of this execution context (if any)
+    ScriptingDomainPtr mDomainObj; ///< the scripting domain (unless it's myself to avoid locking)
+    ScriptObjPtr mThisObj; ///< the object _instance_ scope of this execution context (if any)
 
     #if P44SCRIPT_FULL_SUPPORT
     typedef std::list<CompiledHandlerPtr> HandlerList;
-    HandlerList handlers;
+    HandlerList mHandlers;
     #endif // P44SCRIPT_FULL_SUPPORT
 
     /// private constructor, only ScriptingDomain should use it
@@ -1332,17 +1405,17 @@ namespace p44 { namespace P44Script {
     virtual void deactivate() P44_OVERRIDE
     {
       #if P44SCRIPT_FULL_SUPPORT
-      handlers.clear();
+      mHandlers.clear();
       #endif
-      domainObj.reset();
-      thisObj.reset();
+      mDomainObj.reset();
+      mThisObj.reset();
       inherited::deactivate();
     }
 
     #if P44SCRIPT_FULL_SUPPORT
 
     /// @return info about handlers
-    JsonObjectPtr handlersInfo();
+    ScriptObjPtr handlersInfo();
 
     /// clear context-local variables and handlers (those that were created run-time, not declared)
     virtual void clearVars() P44_OVERRIDE;
@@ -1351,11 +1424,11 @@ namespace p44 { namespace P44Script {
 
     // access to objects in the context hierarchy of a local execution
     // (local objects, parent context objects, global objects)
-    virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aMemberAccessFlags) P44_OVERRIDE;
+    virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aMemberAccessFlags) const P44_OVERRIDE;
 
     // direct access to this and domain (not via mainContext, as we can't set maincontext w/o self-locking)
-    virtual ScriptObjPtr instance() const P44_OVERRIDE { return thisObj; }
-    virtual ScriptingDomainPtr domain() const P44_OVERRIDE { return domainObj; }
+    virtual ScriptObjPtr instance() const P44_OVERRIDE { return mThisObj; }
+    virtual ScriptingDomainPtr domain() const P44_OVERRIDE { return mDomainObj; }
     virtual ScriptMainContextPtr scriptmain() const P44_OVERRIDE { return ScriptMainContextPtr(const_cast<ScriptMainContext*>(this)); }
 
     #if P44SCRIPT_FULL_SUPPORT
@@ -1422,6 +1495,9 @@ namespace p44 { namespace P44Script {
     // precedence 1 is reserved to mark non-assignable lvalue
     op_assign     = (16 << 3) + 0,
     op_delete     = (17 << 3) + 0, // "unset" prefix "operator"
+    // flags
+    op_incdec     = (1 << 8), // ++ and --
+    op_self       = (2 << 8), // +=, -=, *= etc.
     opmask_precedence = 0x07
   } ScriptOperator;
 
@@ -1433,15 +1509,19 @@ namespace p44 { namespace P44Script {
     friend class SourceCursor;
     friend class SourceContainer;
 
-    const char* bot; ///< beginning of text (beginning of first line)
-    const char* ptr; ///< pointer to current position in the source text
-    const char* bol; ///< pointer to beginning of current line
-    const char* eot; ///< pointer to where the text ends (0 char or not)
-    size_t line; ///< line number
+    const char* mBot; ///< beginning of text (beginning of first line)
+    const char* mPtr; ///< pointer to current position in the source text
+    const char* mBol; ///< pointer to beginning of current line
+    const char* mEot; ///< pointer to where the text ends (0 char or not)
+    size_t mLine; ///< line number
   public:
+    typedef const char* UniquePos;
+
     SourcePos(const string &aText);
     SourcePos(const SourcePos &aCursor);
     SourcePos();
+    UniquePos posId() const { return mPtr; } ///< unique position within a source, only for comparison (call site for frozen arguments, breakpoints...)
+    size_t lineno() const { return mLine; }; ///< 0-based line counter
   };
 
 
@@ -1451,22 +1531,23 @@ namespace p44 { namespace P44Script {
   class SourceCursor
   {
   public:
-    typedef const char* UniquePos;
     SourceCursor() {};
     SourceCursor(SourceContainerPtr aContainer);
     SourceCursor(SourceContainerPtr aContainer, SourcePos aStart, SourcePos aEnd);
     SourceCursor(string aString, const char *aLabel = NULL); ///< create cursor on the passed string
 
-    SourceContainerPtr source; ///< the source containing the string we're pointing to
-    SourcePos pos; ///< the position within the source
+    SourceContainerPtr mSourceContainer; ///< the source containing the string we're pointing to
+    SourcePos mPos; ///< the position within the source
 
-    bool refersTo(SourceContainerPtr aSource) const { return source==aSource; } ///< check if this sourceref refers to a particular source
+    bool refersTo(SourceContainerPtr aSource) const { return mSourceContainer==aSource; } ///< check if this sourceref refers to a particular source
 
     // info
     size_t lineno() const; ///< 0-based line counter
     size_t charpos() const; ///< 0-based character offset
     size_t textpos() const; ///< offset of current text from beginning of text
-    UniquePos posId() const { return pos.ptr; } ///< unique position within a source, only for comparison (call site for frozen arguments...)
+
+    /// @return true if source cursor is on breakpoint
+    bool onBreakPoint();
 
     /// @name source text access and parsing utilities
     /// @{
@@ -1475,16 +1556,16 @@ namespace p44 { namespace P44Script {
     bool valid() const; ///< @return true when the cursor points to something
     char c(size_t aOffset=0) const; ///< @return character at offset from current position, 0 if none
     size_t charsleft() const; ///< @return number of chars to end of code
-    const char* text() const { return nonNullCStr(pos.bot); } ///< @return c string starting at current pos
-    const char* linetext() const { return nonNullCStr(pos.bol); } ///< @return c string starting at beginning of current line
-    const char *postext() const { return nonNullCStr(pos.ptr); } ///< @return c string starting at current pos
+    const char* text() const { return nonNullCStr(mPos.mBot); } ///< @return c string starting at current pos
+    const char* linetext() const { return nonNullCStr(mPos.mBol); } ///< @return c string starting at beginning of current line
+    const char *postext() const { return nonNullCStr(mPos.mPtr); } ///< @return c string starting at current pos
     bool EOT() const; ///< true if we are at end of text
     bool next(); ///< advance to next char, @return false if not possible to advance
     bool advance(size_t aNumChars); ///< advance by specified number of chars, includes counting lines
     bool nextIf(char aChar); ///< @return true and advance cursor if @param aChar matches current char, false otherwise
     void skipWhiteSpace(); ///< skip whitespace (but NOT comments)
     void skipNonCode(); ///< skip non-code, i.e. whitespace and comments
-    string displaycode(size_t aMaxLen); ///< @return code on single line for displaying from current position, @param aMaxLen how much to show max before abbreviating with "..."
+    string displaycode(size_t aMaxLen) const; ///< @return code on single line for displaying from current position, @param aMaxLen how much to show max before abbreviating with "..."
     const char *originLabel() const; ///< @return the origin label of the source container
 
     // parsing utilities
@@ -1495,9 +1576,6 @@ namespace p44 { namespace P44Script {
     ScriptObjPtr parseNumericLiteral(); ///< @return numeric or error, advances cursor on success
     ScriptObjPtr parseStringLiteral(); ///< @return string or error, advances cursor on success
     ScriptObjPtr parseCodeLiteral(); ///< @return executable or error, advances cursor on success
-    #if SCRIPTING_JSON_SUPPORT
-    ScriptObjPtr parseJSONLiteral(); ///< @return string or error, advances cursor on success
-    #endif
 
     /// @}
   };
@@ -1506,7 +1584,7 @@ namespace p44 { namespace P44Script {
   class ErrorPosValue : public ErrorValue
   {
     typedef ErrorValue inherited;
-    SourceCursor sourceCursor;
+    SourceCursor mSourceCursor;
   public:
     /// Create new positional error with formatted text
     /// @param aCursor source position that should be the error's position
@@ -1521,17 +1599,17 @@ namespace p44 { namespace P44Script {
     /// @note created ErrorPosValue also inherits aErrValue's thrown status flag
     ErrorPosValue(const SourceCursor &aCursor, ScriptObjPtr aErrValue);
 
-    void setErrorCursor(const SourceCursor &aCursor) { sourceCursor = aCursor; };
-    virtual SourceCursor* cursor() P44_OVERRIDE { return &sourceCursor; } // has a position
+    void setErrorCursor(const SourceCursor &aCursor) { mSourceCursor = aCursor; };
+    virtual SourceCursor* cursor() P44_OVERRIDE { return &mSourceCursor; } // has a position
     virtual string stringValue() const P44_OVERRIDE;
   };
 
 
-  /// the actual script source text, shared among ScriptSource and possibly multiple SourceRefs
+  /// the actual script source text, shared among ScriptHost and possibly multiple SourceRefs
   class SourceContainer : public P44Obj
   {
     friend class SourceCursor;
-    friend class ScriptSource;
+    friend class ScriptHost;
     friend class CompiledScript;
     friend class CompiledCode;
     friend class ExecutionContext;
@@ -1540,9 +1618,16 @@ namespace p44 { namespace P44Script {
     P44LoggingObj* mLoggingContextP; ///< the logging context
     string mSource; ///< the source code as written by the script author
     bool mFloating; ///< if set, the source is not linked but is a private copy
+    ScriptHost* mScriptHostP; ///< the script host
+
   public:
-    /// create source container
+    /// create source container not attached to a script source
+    /// @note this kind of container cannot be used for debugging as there is no way for the debugger to find the source
     SourceContainer(const char *aOriginLabel, P44LoggingObj* aLoggingContextP, const string aSource);
+
+    /// create source container linked to script source
+    /// @note origin label, logging context, source will be taken from script source
+    SourceContainer(ScriptHost* aHostSourceP, const string aSource);
 
     /// create source container copying a source part from another container
     SourceContainer(const SourceCursor &aCodeFrom, const SourcePos &aStartPos, const SourcePos &aEndPos);
@@ -1550,32 +1635,250 @@ namespace p44 { namespace P44Script {
     /// @return a cursor for this source code, starting at the beginning
     SourceCursor getCursor();
 
+    /// @return script source host of this container, or nullptr when the container is not hosted by a ScriptHost
+    /// @note this is a non-retaining backreference
+    ScriptHost* scriptHost() { return mScriptHostP; }
+
     /// @return true if this source is floating, i.e. not part of a still existing script
     bool floating() { return mFloating; }
 
     /// return a logging context
     P44LoggingObj *loggingContext() { return mLoggingContextP; };
 
+    #if P44SCRIPT_DEBUGGING_SUPPORT
+    /// @name debugging
+    /// @{
+
+    /// @return true if there is a breakpoint on this line
+    bool breakPointAtLine(size_t aLine) const;
+
+    typedef std::set<size_t> BreakpointLineSet;
+
+    /// @return the std::set of lines with breakpoints
+    BreakpointLineSet& breakpoints() { return mBreakpointLines; }
+
+    /// @param aBreakpoins set the breakpoints
+    void setBreakpoints(const BreakpointLineSet& aBreakpoints) { mBreakpointLines = aBreakpoints; }
+
+  private:
+
+    BreakpointLineSet mBreakpointLines;
+
+    /// @}
+    #endif
+
   };
 
 
-  /// class representing a script source in its entiety including all context needed to run it
-  class ScriptSource
+  typedef enum {
+    check,
+    start,
+    debug,
+    restart,
+    stop
+  } ScriptCommand;
+
+  typedef boost::function<ScriptObjPtr (ScriptCommand aScriptCommand, EvaluationCB aScriptResultCB, ScriptObjPtr aThreadLocals, ScriptHost& aScriptHost)> ScriptCommandCB;
+
+  /// class representing a script source in its entiety including all context needed to run it,
+  /// ie. is the object that "hosts" the script
+  class ScriptHost : public P44Obj
   {
   protected:
-    ScriptingDomainPtr mScriptingDomain; ///< the scripting domain
-    ScriptMainContextPtr mSharedMainContext; ///< a shared context to always run this source in. If not set, each script gets a new main context
-    ScriptObjPtr mCachedExecutable; ///< the compiled executable for the script's body.
-    EvaluationFlags mDefaultFlags; ///< default flags for how to compile (as expression, scriptbody, source), also used as default run flags
-    const char *mOriginLabel; ///< a label used for logging and error reporting
-    P44LoggingObj* mLoggingContextP; ///< the logging context
-    SourceContainerPtr mSourceContainer; ///< the container of the source
+
+    typedef struct {
+      ScriptingDomainPtr mScriptingDomain; ///< the scripting domain
+      ScriptMainContextPtr mSharedMainContext; ///< a shared context to always run this source in. If not set, each script gets a new main context
+      ScriptObjPtr mCachedExecutable; ///< the compiled executable for the script's body.
+      EvaluationFlags mDefaultFlags; ///< default flags for how to compile (as expression, scriptbody, source), also used as default run flags
+      string mOriginLabel; ///< a label used for logging and error reporting
+      P44LoggingObj* mLoggingContextP; ///< the logging context
+      SourceContainerPtr mSourceContainer; ///< the container of the source
+      #if P44SCRIPT_REGISTERED_SOURCE
+      string mScriptHostUid; ///< domain-unique, persistent ID for this source
+      string mTitleTemplate; ///< user facing template for title
+      bool mSourceDirty; ///< set when source gets modified via setSource(), cleared by storeSource()
+      bool mUnstored; ///< set when source is not stored anywhere persistently (ephemeral sources like eval() or REPL)
+      #if P44SCRIPT_MIGRATE_TO_DOMAIN_SOURCE
+      bool mDomainSource; ///< source is stored in domain, locally stored data can be deleted
+      bool mLocalDataReportedRemoved; ///< locally stored data at least once reported as removed
+      #endif
+      ScriptCommandCB mScriptCommandCB; ///< will be called via scriptCommand
+      EvaluationCB mScriptResultCB; ///< will be called to deliver script results or errors
+      #endif
+    } ActiveParams;
+
+    ActiveParams* mActiveParams; ///< parameters allocated and created at activation only
 
   public:
-    /// create empty script source
-    ScriptSource(EvaluationFlags aDefaultFlags, const char* aOriginLabel = NULL, P44LoggingObj* aLoggingContextP = NULL);
 
-    ~ScriptSource();
+    /// create non-activated script host
+    /// @note this constructor is for member variables only (disables refcounting)
+    /// @note this is suitable for scripts with potentially large number of different instances
+    ///   (such as vdcd scene scripts), which should not consume memory before they are actually in use
+    ///   Those need to be activated at load or set (using loadAndActivate() or setSourceAndActivate().
+    ScriptHost();
+
+    /// create empty script host, activate it
+    /// @param aDefaultFlags default execution flags
+    /// @param aOriginLabel origin label to specify script's origin or nullptr if none (will fall back to default labels)
+    /// @param aTitleTemplate specific user-facing title template for this script (e.g. for p44script IDE),
+    ///   can contain %x placeholders for inserting context and other info. Should uniquely identify script when expanded.
+    ///   (will use a standard template when not specified).
+    /// @param aLoggingContextP the logging object to log script related info or nullptr if none
+    /// @note this constructor is for member variables only (disables refcounting)
+    /// @note this is suitable for likely-used scripts which can be active before any source is loaded as it does
+    ///   not really matter if they stay allocated empty.
+    ScriptHost(
+      EvaluationFlags aDefaultFlags,
+      const char* aOriginLabel = nullptr,
+      const char* aTitleTemplate = nullptr,
+      P44LoggingObj* aLoggingContextP = nullptr
+    );
+
+    /// Destructor
+    ~ScriptHost();
+
+    /// @return true if active (i.e. activated sometime before
+    bool active() const;
+
+    /// @return true if active and not unstored
+    bool storable() const;
+
+    /// activate the script for actually being used
+    /// @note once activated, the function can be called again but is NOP and ignores activation params
+    /// @param aDefaultFlags default execution flags
+    /// @param aOriginLabel origin label to specify script's origin or nullptr if none (will fall back to default labels)
+    /// @param aTitleTemplate specific user-facing title template for this script
+    /// @param aLoggingContextP the logging object to log script related info or nullptr if none
+    void activate(EvaluationFlags aDefaultFlags, const char* aOriginLabel = nullptr, const char* aTitleTemplate = nullptr, P44LoggingObj* aLoggingContextP = nullptr);
+
+    #if P44SCRIPT_REGISTERED_SOURCE
+
+    /// create a script source from a source container
+    /// @param aSourceContainer the source container to host
+    /// @note this is usually to make unhosted script text temporarily hosted e.g. for debugging
+    /// @note this constructor is for ephemeral source hosts which are NOT member variables, but intrusive smart pointers
+    ScriptHost(SourceContainerPtr aSourceContainer);
+
+    /// checks and loads source by aScriptHostId from scripting domain if available
+    /// or, if not known in domain, uses contents of aDBStoreSource
+    /// to activate the source, if the resulting source text is not empty
+    /// @param aScriptHostUid the sourceUid - if non-empty, the script will be attempted to load from the domain via the ID
+    ///   and will become registered under this id as a activated script if non-empty source code could be loaded.
+    /// @param aDefaultFlags default execution flags
+    /// @param aOriginLabel origin label to specify script's origin or nullptr if none (will fall back to default labels)
+    /// @param aTitleTemplate specific user-facing title template for this script (e.g. for p44script IDE),
+    ///   can contain %x placeholders for inserting context and other info. Should uniquely identify script when expanded.
+    ///   (will use a standard template when not specified).
+    /// @param aLoggingContextP the logging object to log script related info or nullptr if none
+    /// @param aInDomain the scripting domain, if not specified, the standard scripting domain will be used
+    /// @param aLocallyStoredSource if not nullptr, this is source code as locally stored (eg. in DB). This might get migrated to
+    ///   scripting domain managed store.
+    /// @return true if a non-empty source was activated
+    /// @note once activated, the function can be called again to re-load changed sources, but will not change
+    ///   activation params (flags, label, loggingcontext) and will also ignore a new a changed aScriptHostUid.
+    /// @note will possibly migrate locally stored script sources to domain managed store (if the latter is available).
+    bool loadAndActivate(
+      const string& aScriptHostUid,
+      EvaluationFlags aDefaultFlags,
+      const char* aOriginLabel = nullptr,
+      const char* aTitleTemplate = nullptr,
+      P44LoggingObj* aLoggingContextP = nullptr,
+      ScriptingDomainPtr aInDomain = ScriptingDomainPtr(),
+      const char* aLocallyStoredSource = nullptr
+    );
+
+    /// Set new script source and activate script if it is not yet activated and aSource is not empty.
+    /// Also store the source text if it has changed
+    /// @param aSource the source text to set. Can be STX (0x02) to force registering an empty script
+    ///   (so it gets available with ID from StandardScriptingHost)
+    /// @param aScriptHostUid the sourceUid - if non-empty, the script will be saved in the domain level
+    ///   storage under this id (if the text has changed from already stored version)
+    /// @param aDefaultFlags default execution flags
+    /// @param aOriginLabel origin label to specify script's origin or nullptr if none (will fall back to default labels)
+    /// @param aTitleTemplate specific user-facing title template for this script (e.g. for p44script IDE),
+    ///   can contain %x placeholders for inserting context and other info. Should uniquely identify script when expanded.
+    ///   (will use a standard template when not specified).
+    /// @param aLoggingContextP the logging object to log script related info or nullptr if none
+    /// @param aInDomain the scripting domain, if not specified, the standard scripting domain will be used
+    /// @return true if aSource was different from previously stored (or empty) source
+    /// @note This is for lazily activated scripts (those with potentially many instances, but only few actually used
+    ///   ones, such as vdcd scene scripts). Use pre-activated scripts / setAndStore() for scripts that very likely
+    ///   in use, or can exist in few instances only.
+    /// @note once activated, the function can be called again to change and store sources, but it will not change
+    ///   activation params (flags, label, loggingcontext) and will also ignore a new a changed aScriptHostUid.
+    bool setSourceAndActivate(
+      const string& aSource,
+      const string& aScriptHostUid,
+      EvaluationFlags aDefaultFlags,
+      const char* aOriginLabel = nullptr,
+      const char* aTitleTemplate = nullptr,
+      P44LoggingObj* aLoggingContextP = nullptr,
+      ScriptingDomainPtr aInDomain = ScriptingDomainPtr()
+    );
+
+    /// load source by scriptSourceUid from domain level store
+    /// @note must be activated before calling
+    /// @param aLocallyStoredSource if not nullptr, this is source code as locally stored (eg. in DB). This might get migrated to
+    ///   scripting domain managed store.
+    /// @return true if source text has changed due to (re)loading
+    bool loadSource(const char* aLocallyStoredSource = nullptr);
+
+    /// sets source text and stores source by scriptSourceUid to domain level if different from previous version
+    /// @param aSource the source text to set
+    /// @return true if aSource was different from the previous source AND is not stored in domain-level store.
+    ///   This return value is indended for the caller to to mark a locally persisted object dirty if the changed
+    ///   source must be stored locally.
+    bool setAndStoreSource(const string& aSource);
+
+    /// stores source by scriptSourceUid to domain level store if it was changed by setSource since last load or store
+    /// @note if called when inactive, it is just NOP (no script -> nothing to store)
+    /// @return true if actually anything was saved (because previous version was different)
+    bool storeSource();
+
+    /// delete script source from persistent storage
+    /// @note if called when inactive, it is just NOP (no script -> nothing to delete)
+    void deleteSource();
+
+    /// register the script if it is active and has a non-empty sourceUID. Otherwise: NOP
+    void registerScript();
+
+    /// set the scriptSourceUid
+    /// @note must be activated before calling
+    /// @param aScriptHostUid the sourceUid - if non-empty, this is used to load and store the script
+    ///   at scripting domain level and register non-empty sources there for debugging and inspection.
+    /// @param aUnstored if set, this source is not (to be) stored anywhere, only ephemerally present
+    void setScriptHostUid(const string aScriptHostUid, bool aUnstored = false);
+
+    /// @return the script source UID or a dummy placeholder in case it is not set
+    string scriptSourceUid();
+
+    /// @return true if script is unstored/unstorable (or not active)
+    bool isUnstored() { return active() ? mActiveParams->mUnstored : true; }
+
+    /// register the script under a UID, but do not store it
+    /// @param the sourceUid to register the script with, but prevent storing the source
+    /// @note this is for ephemeral scripts that should be registered while running for possible debugging
+    void registerUnstoredScript(const string aScriptHostUid);
+
+    #if P44SCRIPT_MIGRATE_TO_DOMAIN_SOURCE
+    /// get the source code to be stored in callers local store (e.g. DB field)
+    /// @return the source code as set by setSource() or empty string when script source is already migrated to domain level store
+    string getSourceToStoreLocally() const;
+    #endif // P44SCRIPT_MIGRATE_TO_DOMAIN_SOURCE
+
+    #if P44SCRIPT_DEBUGGING_SUPPORT
+    /// @return breakpoint line numbers as std::set or null if none exist
+    SourceContainer::BreakpointLineSet* breakpoints();
+
+    /// @return number of breakpoints
+    size_t numBreakPoints();
+    #endif
+
+
+
+    #endif // P44SCRIPT_REGISTERED_SOURCE
 
     /// set domain (where global objects from compilation will be stored)
     /// @param aDomain the domain. Defaults to StandardScriptingDomain::sharedDomain() if not explicitly set
@@ -1590,6 +1893,11 @@ namespace p44 { namespace P44Script {
     /// @param aSharedMainContext a context previously obtained from the domain with newContext()
     void setSharedMainContext(ScriptMainContextPtr aSharedMainContext);
 
+    /// get the shared main context, which is the context this script will get executed in or
+    /// is already executing.
+    /// @return main context or nullptr when no maincontext is known (none set or not active)
+    ScriptMainContextPtr sharedMainContext() const;
+
     /// set source code and compile mode
     /// @param aSource the source code
     /// @param aEvaluationFlags if set (not ==0==inherit), these flags control compilation and are default
@@ -1601,13 +1909,33 @@ namespace p44 { namespace P44Script {
     /// @return the source code as set by setSource()
     string getSource() const;
 
+    /// @return the context object that uses this script source
+    P44LoggingObj* getLoggingContext();
+
     /// @return the origin label string
-    const char *getOriginLabel() { return nonNullCStr(mOriginLabel); }
+    /// @note can be inserted into script title template using %O
+    const char* getOriginLabel();
+
+    /// @return title of script context (such as: device name or UID when unnamed, etc.) for the script
+    /// @note can be inserted into script title using %C
+    string getContextTitle();
+
+    /// @return title for this script, created from script title template when available, with
+    ///    inserts from context etc. From template:
+    ///    - %C will be replaced by getContextTitle()
+    ///    - %N will be replaced by context name (which might be empty)
+    ///    - %T will be replaced by context type
+    ///    - %I will be replaced by technical context ID
+    ///    - %O will be replaced by origin label
+    string getScriptTitle();
 
     /// check if a cursor refers to this source
     /// @param aCursor the cursor to check
     /// @return true if the cursor is in this source
     bool refersTo(const SourceCursor& aCursor);
+
+    /// @return true if empty
+    bool empty() const;
 
     /// get executable ((re-)compile if needed)
     /// @return executable from this source
@@ -1624,8 +1952,24 @@ namespace p44 { namespace P44Script {
     /// @note running will re-compile and re-declare all handlers
     void uncompile(bool aNoAbort = false);
 
-    /// @return true if empty
-    bool empty() const;
+    /// @param aScriptCommandCB set the handler to implement script commands in a context specific way
+    void setScriptCommandHandler(ScriptCommandCB aScriptCommandCB);
+
+    /// @param aScriptResultCB set the handler to receive script evaluation results and errors
+    void setScriptResultHandler(EvaluationCB aScriptResultCB);
+
+    /// Run one of the generic script commands (e.g. for IDE)
+    /// @note actual command execution can be customized via setScriptCommandHandler()
+    /// @param aCommand the command to run
+    /// @param aScriptResultCB call this callback to deliver script termination value. If set,
+    ///   this overrides handler set by setScriptResultHandler().
+    /// @param aThreadLocals optionally, the (structured) object that provides thread local members
+    /// @return the result of the command or null
+    ScriptObjPtr runCommand(ScriptCommand aCommand, EvaluationCB aScriptResultCB = NoOP, ScriptObjPtr aThreadLocals = ScriptObjPtr());
+
+    /// This is the default command implementation, which is used when no callback is set,
+    /// and can be re-used by the callback for the cases that need no customisation
+    ScriptObjPtr defaultCommandImplementation(ScriptCommand aCommand, EvaluationCB aScriptResultCB, ScriptObjPtr aThreadLocals);
 
     /// convenience quick runner
     /// @param aRunFlags additional run flags.
@@ -1634,7 +1978,8 @@ namespace p44 { namespace P44Script {
     ///          - if a scope flag is set, all scope flags are used from aRunFlags
     ///          - if a run mode flag is set, all run mode flags are used from aRunFlags
     ///          - execution modfier flags from aRunFlags are ADDED to those already set with setSource()
-    /// @param aEvaluationCB will be called with the result
+    /// @param aEvaluationCB will be called with the result. If not set, handler set with setScriptResultHandler()
+    ///   will be used, if any.
     /// @param aThreadLocals optionally, the (structured) object that provides thread local members
     /// @param aMaxRunTime optionally, maximum time the thread may run before it is aborted by timeout
     ScriptObjPtr run(EvaluationFlags aRunFlags, EvaluationCB aEvaluationCB = NoOP, ScriptObjPtr aThreadLocals = ScriptObjPtr(), MLMicroSeconds aMaxRunTime = Infinite);
@@ -1647,21 +1992,38 @@ namespace p44 { namespace P44Script {
 
 
   /// convenience class for standalone triggers
-  class TriggerSource : public ScriptSource
+  class TriggerSource : public ScriptHost
   {
-    typedef ScriptSource inherited;
+    typedef ScriptHost inherited;
 
     EvaluationCB mTriggerCB;
     TriggerMode mTriggerMode;
     MLMicroSeconds mHoldOffTime;
+
   public:
-    TriggerSource(const char* aOriginLabel, P44LoggingObj* aLoggingContextP, EvaluationCB aTriggerCB, TriggerMode aTriggerMode, MLMicroSeconds aHoldOffTime, EvaluationFlags aEvalFlags) :
-      inherited(aEvalFlags|triggered, aOriginLabel, aLoggingContextP), // make sure one of the trigger flags is set for the compile to produce a CompiledTrigger
+    TriggerSource(const char* aOriginLabel, const char* aTitleTemplate, P44LoggingObj* aLoggingContextP, EvaluationCB aTriggerCB, TriggerMode aTriggerMode, MLMicroSeconds aHoldOffTime, EvaluationFlags aEvalFlags) :
+      inherited(aEvalFlags|triggered, aOriginLabel, aTitleTemplate, aLoggingContextP), // make sure one of the trigger flags is set for the compile to produce a CompiledTrigger
       mTriggerCB(aTriggerCB),
       mTriggerMode(aTriggerMode),
       mHoldOffTime(aHoldOffTime)
     {
     }
+
+    /// load trigger source by scriptSourceUid from domain level store
+    /// @note must be activated before calling
+    /// @param aLocallyStoredSource if not nullptr, this is source code as locally stored (eg. in DB). This might get migrated to
+    ///   scripting domain managed store.
+    /// @param aAutoInit if set, and source code has actually changed, compileAndInit() will be called
+    /// @return true if source text has changed due to (re)loading
+    bool loadTriggerSource(const char* aLocallyStoredSource = nullptr, bool aAutoInit = false);
+
+    /// sets source text and stores source by scriptSourceUid to domain level if different from previous version
+    /// @param aSource the source text to set
+    /// @param aAutoInit if set, and source code has actually changed, compileAndInit() will be called
+    /// @return true if aSource was different from the previous source AND is not stored in domain-level store.
+    ///   This return value is indended for the caller to to mark a locally persisted object dirty if the changed
+    ///   source must be stored locally.
+    bool setAndStoreTriggerSource(const string& aSource, bool aAutoInit);
 
     /// set new trigger source with the callback/mode/evalFlags as set with the constructor
     /// @param aSource the trigger source code to set
@@ -1723,6 +2085,12 @@ namespace p44 { namespace P44Script {
 
 
 
+  #if P44SCRIPT_DEBUGGING_SUPPORT
+  /// called when a thread is paused
+  /// @param aPausedThread the thread that got paused
+  /// @param aPausingReason the reason for the pause
+  typedef boost::function<void (ScriptCodeThreadPtr aPausedThread)> PauseHandlerCB;
+  #endif
 
   /// Scripting domain, usually singleton, containing global variables and event handlers
   /// No code runs directly in this context
@@ -1730,25 +2098,47 @@ namespace p44 { namespace P44Script {
   {
     typedef ScriptMainContext inherited;
 
-    GeoLocation *geoLocationP;
-    MLMicroSeconds maxBlockTime;
+    GeoLocation *mGeoLocationP;
+    MLMicroSeconds mMaxBlockTime;
+
+    #if P44SCRIPT_REGISTERED_SOURCE
+    typedef std::vector<ScriptHost*> ScriptHostsVector;
+    ScriptHostsVector mScriptHosts;
+    #endif
+
+    #if P44SCRIPT_DEBUGGING_SUPPORT
+    PausingMode mDefaultPausingMode; ///< default mode to start scripts in this domain (usually: nodebug or breakpoint)
+    PauseHandlerCB mPauseHandlerCB; ///< will be called when a thread is reported paused
+    #endif
 
   public:
 
-    ScriptingDomain() : inherited(ScriptingDomainPtr(), ScriptObjPtr()), geoLocationP(NULL), maxBlockTime(DEFAULT_MAX_BLOCK_TIME) {};
+    ScriptingDomain() :
+      inherited(ScriptingDomainPtr(), ScriptObjPtr()), mGeoLocationP(NULL),
+      mMaxBlockTime(DEFAULT_MAX_BLOCK_TIME)
+      #if P44SCRIPT_DEBUGGING_SUPPORT
+      , mDefaultPausingMode(nopause)
+      #endif
+    {};
+
+    /// @name environment
+    /// @{
 
     /// set geolocation to use for functions that refer to location
-    void setGeoLocation(GeoLocation* aGeoLocationP) { geoLocationP = aGeoLocationP; };
+    void setGeoLocation(GeoLocation* aGeoLocationP) { mGeoLocationP = aGeoLocationP; };
 
     /// set max block time (how long async scripts run in sync mode maximally until
     /// releasing execution and schedule continuation later)
     /// @param aMaxBlockTime max block time - if reached, execution will pause for 2 * aMaxBlockTime
-    void setMaxBlockTime(MLMicroSeconds aMaxBlockTime) { maxBlockTime = aMaxBlockTime; };
+    void setMaxBlockTime(MLMicroSeconds aMaxBlockTime) { mMaxBlockTime = aMaxBlockTime; };
 
+    /// @return domain's geolocation
+    virtual GeoLocation* geoLocation() P44_OVERRIDE { return mGeoLocationP; };
 
-    // environment
-    virtual GeoLocation* geoLocation() P44_OVERRIDE { return geoLocationP; };
-    MLMicroSeconds getMaxBlockTime() { return maxBlockTime; };
+    /// @return domain's maxblocktime
+    MLMicroSeconds getMaxBlockTime() { return mMaxBlockTime; };
+
+    /// @}
 
     /// get new execution context
     /// @param aInstanceObj the object _instance_ scope for scripts running in this context.
@@ -1759,6 +2149,85 @@ namespace p44 { namespace P44Script {
     ///   plain functions (static methods) and other members.
     ScriptMainContextPtr newContext(ScriptObjPtr aInstanceObj = ScriptObjPtr());
 
+    #if P44SCRIPT_DEBUGGING_SUPPORT
+    /// @name debugging
+    /// @{
+
+    /// @return the default pausing mode to start new scripts with
+    PausingMode defaultPausingMode() const { return mDefaultPausingMode; }
+
+    /// @param aDefaultPausingMode default pausing mode for new scripts
+    void setDefaultPausingMode(PausingMode aDefaultPausingMode) { mDefaultPausingMode = aDefaultPausingMode; };
+
+    /// called by threads when they get paused
+    /// @param aThread the thread that got paused
+    void threadPaused(ScriptCodeThreadPtr aThread);
+
+    /// @param aPauseHandlerCB the pause handler to install (or null when no debugger is active that could continue)
+    void setPauseHandler(PauseHandlerCB aPauseHandlerCB) { mPauseHandlerCB = aPauseHandlerCB; }
+
+    /// @}
+    #endif
+
+    #if P44SCRIPT_REGISTERED_SOURCE
+    /// @name domain level source registry
+    /// @{
+
+    /// @param aScriptHost register this source under its ScriptHostUid.
+    /// @return true if registered anew, false if source was registered already
+    bool registerScriptHost(ScriptHost &aScriptHost);
+
+    /// @param aScriptHost the scriptsource to unregister. Nothing will happen if this source is not registered.
+    /// @return true if unregistered now, false if source was not registered
+    bool unregisterScriptHost(ScriptHost &aScriptHost);
+
+    /// @return number of registered source hosts
+    size_t numRegisteredHosts() const { return mScriptHosts.size(); }
+
+    /// @return script source specified by index or NULL if it does not exist
+    ScriptHostPtr getHostByIndex(size_t aSourceIndex) const;
+
+    /// @return script source specified by index or NULL if it does not exist
+    ScriptHostPtr getHostByUid(const string aSourceUid) const;
+
+    /// @return script source host for given thread - auto-create/register one if thread does not originate from an already registered host
+    ScriptHostPtr getHostForThread(const ScriptCodeThreadPtr aScriptCodeThread);
+
+    /// try to load source text from domain level script storage
+    /// @param aSource will be set to the source code loaded
+    /// @return true if source code (even empty) was found in the domain level store
+    virtual bool loadSource(const string &aScriptHostUid, string &aSource) { return false; /* no actual storage in base class */ }
+
+    /// try to store source text to domain level script storage
+    /// @param aSource source text to be stored
+    /// @return true if aSource (even empty) could be persisted in the domain level storage
+    virtual bool storeSource(const string &aScriptHostUid, const string &aSource) { return false; /* no actual storage in base class */ }
+
+    /// @}
+    #endif
+
+  };
+
+
+  // MARK: Statement helpers
+
+  class ForEachController : public P44Obj
+  {
+  public:
+    ValueIteratorPtr mIterator;
+    ScriptLValuePtr mLoopValue;
+    ScriptLValuePtr mLoopKey;
+  };
+
+
+  class ForWhileController : public P44Obj
+  {
+  public:
+    ForWhileController() : mIsFor(false) {};
+    SourcePos mLoopCondition;
+    SourcePos mLoopNext;
+    SourcePos mLoopBody;
+    bool mIsFor; // set when the loop is a for loop
   };
 
 
@@ -1784,6 +2253,9 @@ namespace p44 { namespace P44Script {
     /// set the source to process
     /// @param aCursor the source (part) to process
     void setCursor(const SourceCursor& aCursor);
+
+    /// get the current execution cursor
+    const SourceCursor& cursor() const;
 
     /// set the source to process
     /// @param aCompletedCB will be called when process synchronously or asynchronously ends
@@ -1824,7 +2296,10 @@ namespace p44 { namespace P44Script {
     static void selfKeepingResume(ScriptCodeThreadPtr aContext, ScriptObjPtr aAbortResult);
 
     /// @return a unique ID for this source processor (which is the basis of any thread)
-    int threadId() { return mThreadId; }
+    int threadId() const { return mThreadId; }
+
+    /// @return the current result
+    const ScriptObjPtr currentResult() const;
 
   protected:
 
@@ -1868,11 +2343,20 @@ namespace p44 { namespace P44Script {
     /// check if member can issue event that should be connected to trigger
     virtual void memberEventCheck();
 
+    #if P44SCRIPT_DEBUGGING_SUPPORT
+
+    /// @param aPausingReason the occasion for checking for a pause now
+    /// @return true if execution has paused here and must not call resume() directly or indirectly
+    virtual bool pauseCheck(PausingMode aPausingOccasion) { return false; /* never pause in base class */ }
+
+    #endif // P44SCRIPT_DEBUGGING_SUPPORT
+
     #if P44SCRIPT_FULL_SUPPORT
 
     /// fork executing a block at the current position, if identifier is not empty, store a new ThreadValue.
     /// @note MUST NOT call resume() directly. This call will return when the new thread yields execution the first time.
-    virtual void startBlockThreadAndStoreInIdentifier();
+    /// @param aThreadVars thread variables to pass into the new thread
+    virtual void startBlockThreadAndStoreInIdentifier(ScriptObjPtr aThreadVars);
 
     /// must store result as a compiled function in the scripting domain
     /// @note must cause calling resume()
@@ -1903,8 +2387,10 @@ namespace p44 { namespace P44Script {
 
     #if P44SCRIPT_FULL_SUPPORT
 
-    /// @return true if compiling declaration
+    #if DECLARATION_SEPARATED
+    /// @return true if compiling declarations
     bool declaring() { return compiling() && (mEvaluationFlags&sourcecode)!=0; }
+    #endif
 
     /// indicates start of script body (at current src.pos)
     /// @note must cause calling resume()
@@ -1927,7 +2413,7 @@ namespace p44 { namespace P44Script {
     // state that can be pushed
     SourceCursor mSrc; ///< the scanning position within code
     SourcePos mPoppedPos; ///< the position popped from the stack (can be applied to jump back for loops)
-    LoopControllerPtr mLoopController; ///< the loop controller, if any
+    P44ObjPtr mStatementHelper; ///< a helper for a statement, for example a loop controller, if any is needed
     StateHandler mCurrentState; ///< next state to call
     ScriptObjPtr mResult; ///< the current result object
     ScriptObjPtr mOlderResult; ///< an older result, e.g. the result popped from stack, or previous lookup in nested member lookups
@@ -1948,27 +2434,27 @@ namespace p44 { namespace P44Script {
         StateHandler aReturnToState,
         ScriptObjPtr aResult,
         ExecutionContextPtr aFuncCallContext,
-        LoopControllerPtr aLoopController,
+        P44ObjPtr aStatementHelper,
         int aPrecedence,
         ScriptOperator aPendingOperation
       ) :
-        pos(aPos),
-        skipping(aSkipping),
-        returnToState(aReturnToState),
-        result(aResult),
-        funcCallContext(aFuncCallContext),
-        loopController(aLoopController),
-        precedence(aPrecedence),
-        pendingOperation(aPendingOperation)
+        mPos(aPos),
+        mSkipping(aSkipping),
+        mReturnToState(aReturnToState),
+        mResult(aResult),
+        mFuncCallContext(aFuncCallContext),
+        mStatementHelper(aStatementHelper),
+        mPrecedence(aPrecedence),
+        mPendingOperation(aPendingOperation)
       {}
-      SourcePos pos; ///< scanning position
-      bool skipping; ///< set if only skipping code, not evaluating
-      StateHandler returnToState; ///< next state to run after pop
-      ScriptObjPtr result; ///< the current result object
-      ExecutionContextPtr funcCallContext; ///< the context of the currently preparing function call
-      LoopControllerPtr loopController; ///< the loop controller, if any
-      int precedence; ///< encountering a binary operator with smaller precedence will end the expression
-      ScriptOperator pendingOperation; ///< operator
+      SourcePos mPos; ///< scanning position
+      bool mSkipping; ///< set if only skipping code, not evaluating
+      StateHandler mReturnToState; ///< next state to run after pop
+      ScriptObjPtr mResult; ///< the current result object
+      ExecutionContextPtr mFuncCallContext; ///< the context of the currently preparing function call
+      P44ObjPtr mStatementHelper; ///< the statement helper, if any
+      int mPrecedence; ///< encountering a binary operator with smaller precedence will end the expression
+      ScriptOperator mPendingOperation; ///< operator
     };
 
     typedef std::list<StackFrame> StackList;
@@ -2032,6 +2518,14 @@ namespace p44 { namespace P44Script {
     ///   the implementation via checkAndResume(), doneAndGoto() or complete()
     ///   or via a callback which eventually calls resume().
 
+    // Object construction
+    void s_objectfield(); ///< object field name should follow
+    void s_varobjectfield(); ///< before closing ']', calculated object name now in result
+    void fieldnamedefined();
+    void s_objectvalue(); ///< object value in result
+    void s_objectfielddone(); ///< object value in result
+    void s_arrayelementdone(); ///< array element value in result
+
     // Simple Term
     void s_simpleTerm(); ///< at the beginning of a term
     void s_member(); ///< immediately after accessing a member for reading
@@ -2053,6 +2547,7 @@ namespace p44 { namespace P44Script {
     void s_exprLeftSide(); ///< left side of an ongoing expression
     void s_exprRightSide(); ///< further terms of an expression
     void s_assignExpression(); ///< evaluate expression and assign to (lvalue) result
+    void s_compoundAssignment(); ///< evaluate rest of compound assignment, result is valid first part of the expression
     void s_assignOlder(); ///< assign older result to freshly obtained (lvalue) result, special language construct only!
     void s_checkAndAssignLvalue(); ///< check result for throwing error, then assign to lvalue
     void s_assignLvalue(); ///< assign to lvalue
@@ -2065,7 +2560,7 @@ namespace p44 { namespace P44Script {
     void s_oneStatement(); ///< a single statement, exits when ';' is encountered
     void s_body(); ///< at the body level of a function or script (end of expression ends body)
     void processStatement(); ///< common processing for statement states
-    void processVarDefs(TypeInfo aVarFlags, bool aAllowInitializer, bool aDeclaration = false); ///< common processing of variable declarations/assignments
+    void processVarDefs(TypeInfo aVarFlags, bool aAllowInitializer, bool aDeclaration); ///< common processing of variable declarations/assignments
     // - if/then/else
     void s_ifCondition(); ///< executing the condition of an if
     void s_ifTrueStatement(); ///< executing the if statement
@@ -2075,26 +2570,39 @@ namespace p44 { namespace P44Script {
     void s_foreachLoopVars(); ///< finding the final/second loop lvalue
     void s_foreachLoopStart(); ///< starting the loop
     void s_foreachLoopIteration(); ///< starting a new loop iteration
-    void s_foreachValue(); ///< obtained the forach loop value
     void s_foreachKeyNeeded(); ///< obtained the forach loop value
-    void s_foreachKey(); ///< obtained the foreach key
     void s_foreachBody(); ///< loop vars obtained
     void s_foreachStatement(); ///< executing the foreach statement
-    // - while
-    void s_whileCondition(); ///< executing the condition of a while
-    void s_whileStatement(); ///< executing the while statement
+    // - while and for
+    void s_loopInit(); ///< for inititialisation statement executed
+    void s_loopCondition(); ///< loop condition captured
+    void s_loopNext(); ///< loop next statement captured
+    void s_loopBody(); ///< executing the loop body
+    void s_loopBodyDone(); ///< done executing the loop body
+    void s_loopRecheck(); ///< re-check the condition for next iteration
+    void s_loopEnd(); ///< re-check the condition for next iteration
     // - try/catch
     void s_tryStatement(); ///< executing the statement to try
+    // - concurrent
+    void s_concurrent_var(); ///< expecting a variable to pass as threadvar into a concurrent statement
+    void s_concurrent_var_value(); ///< result is the value for the threadvar to pass into concurrent statement
+    void concurrent_var_assigned();
+    void s_concurrent(); ///< start a concurrent thread
 
-    void extracted();
 
     // Declarations
     void s_declarations(); ///< declarations (functions and handlers)
-    void processFunction(); ///< common processing for function definitions, which can be in declaration or code
-    void s_defineFunction(); ///< store the defined function
-    void processOnHandler(); ///< common processing for "on" handlers, which can be in declaration or code
-    void s_defineTrigger(); ///< store the trigger expression of a on(...) {...} statement
-    void s_defineHandler(); ///< store the handler script of a of a on(...) {...} statement
+    void processFunction(bool aGlobal); ///< common processing for function definitions, which can be local or global
+    void s_defineGlobalFunction(); ///< store the defined function as global function
+    void s_defineLocalFunction(); ///< store the defined function as local function
+    void defineFunction(bool aGlobal); ///< store the defined function as local function
+    void processOnHandler(bool aGlobal); ///< common processing for "on" handlers, which can be local or global
+    void s_defineGlobalTrigger(); ///< store the trigger expression of a on(...) {...} statement
+    void s_defineLocalTrigger(); ///< store the trigger expression of a global on(...) {...} statement
+    void defineTrigger(bool aGlobal); ///< store the trigger expression
+    void s_defineGlobalHandler(); ///< store the handler script of a of a global on(...) {...} statement
+    void s_defineLocalHandler(); ///< store the handler script of a of a on(...) {...} statement
+    void defineHandler(bool aGlobal); ///< store the handler script
     #endif // P44SCRIPT_FULL_SUPPORT
 
     // Generic
@@ -2138,8 +2646,8 @@ namespace p44 { namespace P44Script {
     void setCursor(const SourceCursor& aCursor);
     bool codeFromSameSourceAs(const CompiledCode &aCode) const; ///< return true if both compiled codes are from the same source position
     virtual bool originatesFrom(SourceContainerPtr aSource) const P44_OVERRIDE { return mCursor.refersTo(aSource); };
-    virtual bool floating() const P44_OVERRIDE { return mCursor.source->floating(); }
-    virtual P44LoggingObj* loggingContext() const P44_OVERRIDE { return mCursor.source ? mCursor.source->mLoggingContextP : NULL; };
+    virtual bool floating() const P44_OVERRIDE { return mCursor.mSourceContainer->floating(); }
+    virtual P44LoggingObj* loggingContext() const P44_OVERRIDE { return mCursor.mSourceContainer ? mCursor.mSourceContainer->mLoggingContextP : NULL; };
 
     /// get subroutine context to call this object as a subroutine/function call from a given context
     /// @param aMainContext the context from where this function is now called (the same function can be called
@@ -2198,8 +2706,8 @@ namespace p44 { namespace P44Script {
     class FrozenResult
     {
     public:
-      ScriptObjPtr frozenResult; ///< the frozen result
-      MLMicroSeconds frozenUntil; ///< until when the value remains frozen, Infinite if forever (until explicitly unfrozen)
+      ScriptObjPtr mFrozenResult; ///< the frozen result
+      MLMicroSeconds mFrozenUntil; ///< until when the value remains frozen, Infinite if forever (until explicitly unfrozen)
       /// @return true if still frozen (not expired yet)
       bool frozen();
     };
@@ -2217,9 +2725,9 @@ namespace p44 { namespace P44Script {
 
     bool mOneShotEval; ///< the current evaluation runs in one-shot mode (means: the trigger can only fire, but must not change state)
     ScriptObjPtr mFrozenEventValue; ///< the value of the event that triggered current evaluation
-    SourceCursor::UniquePos mFrozenEventPos; ///< the source position of the member value that represents the frozen result
+    SourcePos::UniquePos mFrozenEventPos; ///< the source position of the member value that represents the frozen result
 
-    typedef std::map<SourceCursor::UniquePos, FrozenResult> FrozenResultsMap;
+    typedef std::map<SourcePos::UniquePos, FrozenResult> FrozenResultsMap;
     FrozenResultsMap mFrozenResults; ///< map of expression starting indices and associated frozen results
     MLTicket mReEvaluationTicket; ///< ticket for re-evaluation timer
 
@@ -2287,7 +2795,7 @@ namespace p44 { namespace P44Script {
     ///   On return: replaced by a frozen event result, if one exists
     /// @param aFreezeId the reference position that identifies the frozen result
     /// @return the frozen event value if one exists, null otherwise
-    void checkFrozenEventValue(ScriptObjPtr &aResult, SourceCursor::UniquePos aFreezeId);
+    void checkFrozenEventValue(ScriptObjPtr &aResult, SourcePos::UniquePos aFreezeId);
 
     /// @name API for timed evaluation and freezing values in functions that can be used in timed evaluations
     /// @{
@@ -2296,7 +2804,7 @@ namespace p44 { namespace P44Script {
     /// @param aResult On call: the current result of a (sub)expression
     ///   On return: replaced by a frozen result, if one exists
     /// @param aFreezeId the reference position that identifies the frozen result
-    FrozenResult* getTimeFrozenValue(ScriptObjPtr &aResult, SourceCursor::UniquePos aFreezeId);
+    FrozenResult* getTimeFrozenValue(ScriptObjPtr &aResult, SourcePos::UniquePos aFreezeId);
 
     /// update existing or create new frozen result
     /// @param aExistingFreeze the pointer obtained from getFrozen(), can be NULL
@@ -2304,12 +2812,12 @@ namespace p44 { namespace P44Script {
     /// @param aFreezeId te reference position that identifies the frozen result
     /// @param aFreezeUntil The new freeze date. Specify Infinite to freeze indefinitely, Never to release any previous freeze.
     /// @param aUpdate if set, freeze will be updated/extended unconditionally, even when previous freeze is still running
-    FrozenResult* newTimedFreeze(FrozenResult* aExistingFreeze, ScriptObjPtr aNewResult, SourceCursor::UniquePos aFreezeId, MLMicroSeconds aFreezeUntil, bool aUpdate = false);
+    FrozenResult* newTimedFreeze(FrozenResult* aExistingFreeze, ScriptObjPtr aNewResult, SourcePos::UniquePos aFreezeId, MLMicroSeconds aFreezeUntil, bool aUpdate = false);
 
     /// unfreeze time-frozen value at aAtPos
     /// @param aFreezeId the starting character index of the subexpression to unfreeze
     /// @return true if there was a frozen result at aAtPos
-    bool unfreezeTimed(SourceCursor::UniquePos aFreezeId);
+    bool unfreezeTimed(SourcePos::UniquePos aFreezeId);
 
     /// Set time when next evaluation must happen, latest
     /// @param aLatestEval new time when evaluation must happen latest, Never if no next evaluation is needed
@@ -2367,20 +2875,22 @@ namespace p44 { namespace P44Script {
   {
     typedef SourceProcessor inherited;
 
-    ScriptingDomainPtr domain; ///< the domain to store compiled functions and handlers
-    SourceCursor bodyRef; ///< where the script body starts
-    ScriptMainContextPtr compileForContext; ///< the main context this script is compiled for and should execute in later
+    ScriptingDomainPtr mDomain; ///< the domain to store compiled functions and handlers
+    #if DECLARATION_SEPARATED
+    SourceCursor mBodyRef; ///< where the script body starts
+    #endif
+    ScriptMainContextPtr mCompileForContext; ///< the main context this script is compiled for and should execute in later
 
   public:
 
-    ScriptCompiler(ScriptingDomainPtr aDomain) : domain(aDomain) {}
+    ScriptCompiler(ScriptingDomainPtr aDomain) : mDomain(aDomain) {}
 
     /// Scan code, extract function definitions, global vars, event handlers into scripting domain, return actual code
     /// @param aSource the source code
     /// @param aIntoCodeObj the CompiledCode object where to store the main code of the script compiled
     /// @param aParsingMode how to parse (as expression, scriptbody or full script with function+handler definitions)
     /// @param aMainContext the context in which this script should execute in. It is stored with the
-    /// @return an executable object or error (syntax, other fatal problems)
+    /// @return aIntoCodeObj on success or error on failure (syntax, other fatal problems)
     ScriptObjPtr compile(SourceContainerPtr aSource, CompiledCodePtr aIntoCodeObj, EvaluationFlags aParsingMode, ScriptMainContextPtr aMainContext);
 
     #if P44SCRIPT_FULL_SUPPORT
@@ -2414,7 +2924,7 @@ namespace p44 { namespace P44Script {
     /// source (e.g. "on"-handlers) with a execution context to call them later
     /// Note: For triggers/handlers created in the declaration part of a script, this is the compiler's context
     ///   (no script running yet), and thus usually the ScriptingDomain
-    virtual ScriptMainContextPtr getTriggerAndHandlerMainContext() P44_OVERRIDE { return compileForContext; }
+    virtual ScriptMainContextPtr getTriggerAndHandlerMainContext() P44_OVERRIDE { return mCompileForContext; }
 
   };
 
@@ -2440,8 +2950,15 @@ namespace p44 { namespace P44Script {
 
     MLMicroSeconds mRunningSince; ///< time the thread was started. Also acts as flag, if Never this means the thread is not yet started or already complete
     ExecutionContextPtr mChainedExecutionContext; ///< set during calls to other contexts, e.g. to propagate abort()
-    ScriptCodeThreadPtr mChainOriginThread; ///< the origin of this sequentially chained thread, if any
+    ScriptCodeThreadPtr mChainedFromThread; ///< the thread from which this thread is a chained execution, if any
     MLTicket mAutoResumeTicket; ///< auto-resume ticket
+
+    #if P44SCRIPT_DEBUGGING_SUPPORT
+
+    PausingMode mPausingMode; ///< current pausing mode of this thread
+    PausingMode mPauseReason; ///< if paused, this is the reason - nodebug if not paused
+
+    #endif // P44SCRIPT_DEBUGGING_SUPPORT
 
   public:
 
@@ -2450,7 +2967,7 @@ namespace p44 { namespace P44Script {
     /// @param aStartCursor the start point for the script
     /// @param aThreadLocals the (structured) object that provides thread local members (can be NULL)
     /// @param aChainOriginThread the origin of the sequential "thread" chain (as user defined functions always start a "thread")
-    ScriptCodeThread(ScriptCodeContextPtr aOwner, CompiledCodePtr aCode, const SourceCursor& aStartCursor, ScriptObjPtr aThreadLocals, ScriptCodeThreadPtr aChainOriginThread);
+    ScriptCodeThread(ScriptCodeContextPtr aOwner, CompiledCodePtr aCode, const SourceCursor& aStartCursor, ScriptObjPtr aThreadLocals, ScriptCodeThreadPtr aChainedFromThread);
 
     virtual ~ScriptCodeThread();
 
@@ -2470,9 +2987,9 @@ namespace p44 { namespace P44Script {
     /// prepare for running
     /// @param aTerminationCB will be called to deliver when the thread ends
     /// @param aEvalFlags evaluation control flags
-    ///   (not how long it takes until aEvaluationCB is called, which can be much later for async execution)
     /// @param aMaxBlockTime max time this call may continue evaluating before returning
     /// @param aMaxRunTime max time this evaluation might take, even when call does not block
+    ///   (not how long it takes until aEvaluationCB is called, which can be much later for async execution)
     void prepareRun(
       EvaluationCB aTerminationCB,
       EvaluationFlags aEvalFlags,
@@ -2483,20 +3000,26 @@ namespace p44 { namespace P44Script {
     /// run the thread
     virtual void run();
 
+    /// @return describe the execution position
+    string describePos(size_t aCodeMaxLen = 30) const;
+
     /// get the maximum blocking time for script execution
-    MLMicroSeconds getMaxBlockTime() { return mMaxBlockTime; };
+    MLMicroSeconds getMaxBlockTime() const { return mMaxBlockTime; };
 
     /// get the maximum blocking time for script execution
     void setMaxBlockTime(MLMicroSeconds aMaxBlockTime) { mMaxBlockTime = aMaxBlockTime; };
 
     /// get the maximum running time for this thread
-    MLMicroSeconds getMaxRunTime() { return mMaxRunTime; };
+    MLMicroSeconds getMaxRunTime() const { return mMaxRunTime; };
 
     /// get the maximum running time for this thread
     void setMaxRunTime(MLMicroSeconds aMaxRunTime) { mMaxRunTime = aMaxRunTime; };
 
     /// the original thread this chain of threads started from (can be this)
-    ScriptCodeThreadPtr chainOriginThread() { if (mChainOriginThread) return mChainOriginThread; else return this; }
+    ScriptCodeThreadPtr chainOriginThread();
+
+    /// @return the thread local vars of this thread, or nullptr if there are none
+    ScriptObjPtr threadLocals() const { return mThreadLocals; }
 
     /// request aborting the current thread, including child context
     /// @param aAbortResult if set, this is what abort will report back
@@ -2517,7 +3040,7 @@ namespace p44 { namespace P44Script {
     virtual void complete(ScriptObjPtr aFinalResult) P44_OVERRIDE;
 
     /// @return the owner (the execution context that has started this thread)
-    ScriptCodeContextPtr owner() { return mOwner; }
+    ScriptCodeContextPtr owner() const { return mOwner; }
 
     /// convenience end of step using current result and checking for errors
     virtual void checkAndResume() P44_OVERRIDE;
@@ -2546,7 +3069,8 @@ namespace p44 { namespace P44Script {
 
     /// fork executing a block at the current position, if identifier is not empty, store a new ThreadValue.
     /// @note MUST NOT call resume() directly. This call will return when the new thread yields execution the first time.
-    virtual void startBlockThreadAndStoreInIdentifier() P44_OVERRIDE;
+    /// @param aThreadVars thread variables to pass into the new thread
+    virtual void startBlockThreadAndStoreInIdentifier(ScriptObjPtr aThreadVars) P44_OVERRIDE;
 
     /// must store result as a compiled (local) function in the current context
     /// @note must cause calling resume()
@@ -2574,6 +3098,27 @@ namespace p44 { namespace P44Script {
     /// evaluation, or if member is a one-shot result that must return a previously frozen value
     virtual void memberEventCheck() P44_OVERRIDE;
 
+    #if P44SCRIPT_DEBUGGING_SUPPORT
+
+    /// @param aPausingReason the reason for checking for a pause now
+    /// @return true if execution should pause here
+    virtual bool pauseCheck(PausingMode aPausingReason) P44_OVERRIDE;
+
+    /// @return the reason for being paused, or nopause when not paused
+    PausingMode pauseReason() { return mPauseReason; }
+
+    /// continue the thread after a pause with new pausing mode
+    /// @param aNewPausingMode the new pausing mode to continue execution with
+    void continueWithMode(PausingMode aNewPausingMode);
+
+    /// get name for pause mode / reason
+    static const char* pausingName(PausingMode aPausingMode);
+
+    /// get pause mode/reason from name
+    static PausingMode pausingModeNamed(const string aPauseName);
+
+    #endif // P44SCRIPT_DEBUGGING_SUPPORT
+
     /// @}
 
   protected:
@@ -2590,7 +3135,7 @@ namespace p44 { namespace P44Script {
 
 
 
-  // MARK: - Built-in function support
+  // MARK: - Built-in function and member support
 
   class BuiltInMemberLookup;
   typedef boost::intrusive_ptr<BuiltInMemberLookup> BuiltInMemberLookupPtr;
@@ -2614,13 +3159,16 @@ namespace p44 { namespace P44Script {
   /// @param aParentObj the parent obj (if it's not a global member)
   /// @param aObjToWrite if not NULL, this is the value to write to the member
   /// @return if aObjToWrite==NULL, accessor must return the current value. Otherwise, the return value is ignored
-  typedef ScriptObjPtr (*BuiltinMemberAccessor)(BuiltInMemberLookup& aMemberLookup, ScriptObjPtr aParentObj, ScriptObjPtr aObjToWrite);
+  typedef ScriptObjPtr (*BuiltinMemberAccessor)(BuiltInMemberLookup& aMemberLookup, ScriptObjPtr aParentObj, ScriptObjPtr aObjToWrite, const struct BuiltinMemberDescriptor* aMemberDescriptor);
 
   typedef struct BuiltinMemberDescriptor {
     const char* name; ///< name of the function / member
     TypeInfo returnTypeInfo; ///< possible return types (for functions, this must have set "executable", but also contains the type(s) the functions might return. Members must have "lvalue" set to become assignable.
     size_t numArgs; ///< for functions: number of arguemnts, can be 0
-    const BuiltInArgDesc* arguments; ///< for functions: arguments, can be NULL
+    union {
+      const BuiltInArgDesc* arguments; ///< for functions: arguments, can be NULL
+      void* memberAccessInfo; ///< for members, extra info to access the member quickly in a custom way via a single common BuiltinMemberAccessor as proxy
+    };
     union {
       BuiltinFunctionImplementation implementation; ///< function pointer to implementation (as a plain function)
       BuiltinMemberAccessor accessor; ///< function pointer to accessor (as a plain function)
@@ -2633,11 +3181,11 @@ namespace p44 { namespace P44Script {
     typedef ScriptLValue inherited;
     BuiltInMemberLookupPtr mLookup;
     ScriptObjPtr mThisObj;
-    const BuiltinMemberDescriptor *descriptor; ///< function signature, name and pointer to actual implementation function
+    const BuiltinMemberDescriptor *mDescriptor; ///< function signature, name and pointer to actual implementation function
   public:
     BuiltInLValue(const BuiltInMemberLookupPtr aLookup, const BuiltinMemberDescriptor *aMemberDescriptor, ScriptObjPtr aThisObj, ScriptObjPtr aCurrentValue);
     virtual void assignLValue(EvaluationCB aEvaluationCB, ScriptObjPtr aNewValue) P44_OVERRIDE;
-    virtual string getIdentifier() const P44_OVERRIDE { return descriptor ? descriptor->name : ""; };
+    virtual string getIdentifier() const P44_OVERRIDE { return mDescriptor ? mDescriptor->name : ""; };
   };
 
   /// member lookup for built-in functions, driven by static const struct table to describe functions and link implementations
@@ -2652,15 +3200,10 @@ namespace p44 { namespace P44Script {
     /// @param aMemberDescriptors pointer to an array of member descriptors, terminated with an entry with .name==NULL
     BuiltInMemberLookup(const BuiltinMemberDescriptor* aMemberDescriptors);
 
-    virtual TypeInfo containsTypes() const P44_OVERRIDE { return constant+allscopes+any; } // constant, from all scopes, any type
+    virtual TypeInfo containsTypes() const P44_OVERRIDE { return constant+allscopes+alltypes; } // constant, from all scopes, any type
     virtual ScriptObjPtr memberByNameFrom(ScriptObjPtr aThisObj, const string aName, TypeInfo aMemberAccessFlags) const P44_OVERRIDE;
 
-    #if SCRIPTING_JSON_SUPPORT
-    /// FIXME: this is a simplistic partial solution to get at least some introspection for debugging purposes.
-    ///   Once we have P44Value hierarchy with iterators, this can be done properly
-    virtual void addJsonValues(JsonObjectPtr &aObj) const P44_OVERRIDE;
-    #endif
-
+    virtual void appendMemberNames(FieldNameList& aList, TypeInfo aInterestedInTypes) P44_OVERRIDE;
   };
 
 
@@ -2670,8 +3213,8 @@ namespace p44 { namespace P44Script {
     typedef ImplementationObj inherited;
     friend class BuiltinFunctionContext;
 
-    const BuiltinMemberDescriptor *descriptor; ///< function signature, name and pointer to actual implementation function
-    ScriptObjPtr thisObj; ///< the object this function is a method of (if it's not a plain function)
+    const BuiltinMemberDescriptor *mDescriptor; ///< function signature, name and pointer to actual implementation function
+    ScriptObjPtr mThisObj; ///< the object this function is a method of (if it's not a plain function)
     const BuiltInMemberLookup* mMemberLookupP; ///< where the function was found (might be needed as context for executing it later)
 
   public:
@@ -2679,7 +3222,7 @@ namespace p44 { namespace P44Script {
     virtual string getAnnotation() const P44_OVERRIDE { return "built-in function"; };
 
     BuiltinFunctionObj(const BuiltinMemberDescriptor *aDescriptor, ScriptObjPtr aThisObj, const BuiltInMemberLookup* aMemberLookupP) :
-      descriptor(aDescriptor), thisObj(aThisObj), mMemberLookupP(aMemberLookupP) {};
+      mDescriptor(aDescriptor), mThisObj(aThisObj), mMemberLookupP(aMemberLookupP) {};
 
     /// get the lookup object
     BuiltInMemberLookup* getMemberLookup() { return const_cast<BuiltInMemberLookup*>(mMemberLookupP); }
@@ -2688,7 +3231,7 @@ namespace p44 { namespace P44Script {
     virtual bool argumentInfo(size_t aIndex, ArgumentDescriptor& aArgDesc) const P44_OVERRIDE;
 
     /// get identifier (name) of this function object
-    virtual string getIdentifier() const P44_OVERRIDE { return descriptor->name; };
+    virtual string getIdentifier() const P44_OVERRIDE { return mDescriptor->name; };
 
     /// get context to call this object as a (sub)routine of a given context
     /// @param aMainContext the main context from where this function is called.
@@ -2702,7 +3245,6 @@ namespace p44 { namespace P44Script {
 
   #define FLOG(f, lvl, ...) POLOG(f->thread()->chainOriginThread(), lvl, ##__VA_ARGS__);
 
-
   class BuiltinFunctionContext : public ExecutionContext
   {
     typedef ExecutionContext inherited;
@@ -2713,14 +3255,14 @@ namespace p44 { namespace P44Script {
     SimpleCB mAbortCB; ///< called when aborting. async built-in might set this to cause external operations to stop at abort
     CompiledTrigger* mTrigger; ///< set when the function executes as part of a trigger expression
     ScriptCodeThreadPtr mThread; ///< thread this call originates from
-    SourceCursor::UniquePos mCallSite; ///< from where in the source code the function was called
+    SourcePos::UniquePos mCallSite; ///< from where in the source code the function was called
 
   public:
 
     BuiltinFunctionContext(ScriptMainContextPtr aMainContext, ScriptCodeThreadPtr aThread);
 
     /// evaluate built-in function
-    virtual void execute(ScriptObjPtr aToExecute, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB, ScriptCodeThreadPtr aChainOriginThread, ScriptObjPtr aThreadLocals = ScriptObjPtr(), MLMicroSeconds aMaxRunTime = Infinite) P44_OVERRIDE;
+    virtual void execute(ScriptObjPtr aToExecute, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB, ScriptCodeThreadPtr aChainedFromThread, ScriptObjPtr aThreadLocals = ScriptObjPtr(), MLMicroSeconds aMaxRunTime = Infinite) P44_OVERRIDE;
 
     /// abort (async) built-in function
     /// @param aAbortFlags set stoprunning to abort currently running threads, queue to empty the queued threads
@@ -2744,7 +3286,7 @@ namespace p44 { namespace P44Script {
     ScriptObjPtr arg(size_t aArgIndex);
 
     /// @return unique (opaque) id for re-identifying this argument's definition for this call in the source code
-    SourceCursor::UniquePos argId(size_t aArgIndex) const;
+    SourcePos::UniquePos argId(size_t aArgIndex) const;
 
     /// @return argument as reference for applying C++ operators to them (and not to the smart pointers)
     inline ScriptObj& argval(size_t aArgIndex) { return *(arg(aArgIndex)); }
@@ -2760,7 +3302,7 @@ namespace p44 { namespace P44Script {
     void finish(const ScriptObjPtr aResult = ScriptObjPtr());
 
     /// @return the object this function was called on as a method, NULL for plain functions
-    ScriptObjPtr thisObj() { return mFunc->thisObj; }
+    ScriptObjPtr thisObj() { return mFunc->mThisObj; }
 
     /// @return the function object
     BuiltinFunctionObjPtr funcObj() { return mFunc; }
@@ -2785,13 +3327,60 @@ namespace p44 { namespace P44Script {
   {
     typedef ScriptingDomain inherited;
 
+  protected:
+
+    /// @note this is for derived, specialized classes only which can be set as
+    ///   standard scripting domain via setStandardScriptingDomain() before
+    ///   sharedDomain() is used the first time.
+    StandardScriptingDomain();
+
   public:
 
     /// get shared global scripting domain with standard functions
+    /// @note if no standard scripting domain exists (neither sharedDomain() nor
+    ///    setStandardScriptingDomain() called yet, a instance of this class will
+    ///    be created.
     static ScriptingDomain& sharedDomain();
+
+    /// set standard scripting domain (e.g. when app wants a derived class for it)
+    /// @param aStandardScriptingDomain set standard scripting domain or nullptr to remove it
+    static void setStandardScriptingDomain(ScriptingDomainPtr aStandardScriptingDomain);
 
   };
 
+
+  #if P44SCRIPT_REGISTERED_SOURCE
+
+  // MARK: - File storage based standard scripting domain
+
+  // Standard scripting domain with script storage to files
+  class FileStorageStandardScriptingDomain : public StandardScriptingDomain
+  {
+    typedef StandardScriptingDomain inherited;
+
+    string mScriptDir;
+
+  public:
+
+    FileStorageStandardScriptingDomain() {};
+
+    /// set the file storage path
+    /// @aScriptDir
+    void setFileStoragePath(const string aScriptDir) { mScriptDir = aScriptDir; }
+
+    /// try to load source text from domain level script storage
+    /// @param aSource will be set to the source code loaded
+    /// @return true if source code (even empty) was found in the domain level store
+    virtual bool loadSource(const string &aScriptHostUid, string &aSource) P44_OVERRIDE;
+
+    /// try to store source text to domain level script storage
+    /// @param aSource source text to be stored
+    /// @return true if aSource (even empty) could be persisted in the domain level storage
+    virtual bool storeSource(const string &aScriptHostUid, const string &aSource) P44_OVERRIDE;
+
+  };
+
+  #endif // P44SCRIPT_REGISTERED_SOURCE
 
 }} // namespace p44::Script
 

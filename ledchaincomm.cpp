@@ -138,11 +138,11 @@ LEDChainComm::LEDChainComm(
     string part;
     if (nextPart(cP, part, '.')) {
       // chip
-      for (int i=0; i<num_ledchips; i++) { if (strucmp(part.c_str(), ledChipDescriptors[i].name )==0) { mLedChip = (LedChip)i; break; } };
+      for (int i=0; i<num_ledchips; i++) { if (uequals(part, ledChipDescriptors[i].name)) { mLedChip = (LedChip)i; break; } };
     }
     if (nextPart(cP, part, '.')) {
       // layout
-      for (int i=0; i<num_ledlayouts; i++) { if (strucmp(part.c_str(), ledLayoutNames[i])==0) { mLedLayout = (LedLayout)i; break; } };
+      for (int i=0; i<num_ledlayouts; i++) { if (uequals(part, ledLayoutNames[i])) { mLedLayout = (LedLayout)i; break; } };
     }
     if (nextPart(cP, part, '.')) {
       // custom TPassive_max_nS
@@ -713,12 +713,6 @@ LEDChainArrangement::LEDChainArrangement() :
 LEDChainArrangement::~LEDChainArrangement()
 {
   end();
-}
-
-
-string LEDChainArrangement::logContextPrefix()
-{
-  return "LEDchains";
 }
 
 
@@ -1311,7 +1305,7 @@ static void removeledchains_func(BuiltinFunctionContextPtr f)
 static void neededledpower_func(BuiltinFunctionContextPtr f)
 {
   LEDChainLookup* l = dynamic_cast<LEDChainLookup*>(f->funcObj()->getMemberLookup());
-  f->finish(new NumericValue(l->ledChainArrangement().getNeededPower()));
+  f->finish(new IntegerValue(l->ledChainArrangement().getNeededPower()));
 }
 
 
@@ -1319,7 +1313,7 @@ static void neededledpower_func(BuiltinFunctionContextPtr f)
 static void currentledpower_func(BuiltinFunctionContextPtr f)
 {
   LEDChainLookup* l = dynamic_cast<LEDChainLookup*>(f->funcObj()->getMemberLookup());
-  f->finish(new NumericValue(l->ledChainArrangement().getCurrentPower()));
+  f->finish(new IntegerValue(l->ledChainArrangement().getCurrentPower()));
 }
 
 
@@ -1347,7 +1341,7 @@ static void setledrefresh_func(BuiltinFunctionContextPtr f)
 
 
 // setrootview(view)
-static const BuiltInArgDesc setrootview_args[] = { { object } };
+static const BuiltInArgDesc setrootview_args[] = { { objectvalue } };
 static const size_t setrootview_numargs = sizeof(setrootview_args)/sizeof(BuiltInArgDesc);
 static void setrootview_func(BuiltinFunctionContextPtr f)
 {
@@ -1367,12 +1361,12 @@ static void ledchaincover_func(BuiltinFunctionContextPtr f)
 {
   LEDChainLookup* l = dynamic_cast<LEDChainLookup*>(f->funcObj()->getMemberLookup());
   PixelRect crect = l->ledChainArrangement().totalCover();
-  JsonObjectPtr cover = JsonObject::newObj();
-  cover->add("x", JsonObject::newInt32(crect.x));
-  cover->add("y", JsonObject::newInt32(crect.y));
-  cover->add("dx", JsonObject::newInt32(crect.dx));
-  cover->add("dy", JsonObject::newInt32(crect.dy));
-  f->finish(new JsonValue(cover));
+  ObjectValue* cover = new ObjectValue();
+  cover->setMemberByName("x", new IntegerValue(crect.x));
+  cover->setMemberByName("y", new IntegerValue(crect.y));
+  cover->setMemberByName("dx", new IntegerValue(crect.dx));
+  cover->setMemberByName("dy", new IntegerValue(crect.dy));
+  f->finish(cover);
 }
 
 
@@ -1382,7 +1376,7 @@ static const size_t setmaxledpower_numargs = sizeof(setmaxledpower_args)/sizeof(
 static const BuiltinMemberDescriptor ledChainArrangementGlobals[] = {
   { "addledchain", executable, addledchain_numargs, addledchain_args, &addledchain_func },
   { "removeledchains", executable, 0, NULL, &removeledchains_func },
-  { "ledchaincover", executable|object, 0, NULL, &ledchaincover_func },
+  { "ledchaincover", executable|objectvalue, 0, NULL, &ledchaincover_func },
   { "neededledpower", executable|numeric, 0, NULL, &neededledpower_func },
   { "currentledpower", executable|numeric, 0, NULL, &currentledpower_func },
   { "setmaxledpower", executable, setmaxledpower_numargs, setmaxledpower_args, &setmaxledpower_func },

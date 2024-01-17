@@ -84,6 +84,16 @@ void p44::increase(uint8_t &aByte, uint8_t aAmount, uint8_t aMax)
 }
 
 
+void assignPixelComponent(PixelColorComponent &aComponent, double aValue)
+{
+  if (aValue>255.5)
+    aComponent = 255;
+  else
+    aComponent = (uint8_t)(aValue+0.5);
+}
+
+
+
 void p44::overlayPixel(PixelColor &aPixel, PixelColor aOverlay)
 {
   if (aOverlay.a==255) {
@@ -102,6 +112,48 @@ void p44::overlayPixel(PixelColor &aPixel, PixelColor aOverlay)
 }
 
 
+void p44::averagePixelPower(FracValue& aR, FracValue& aG, FracValue& aB, FracValue& aA, FracValue& aTotalWeight, const PixelColor& aInput, FracValue aWeight)
+{
+  if (aWeight>0) {
+    //FracValue powerA = FP_FROM_INT(brightnessToPwm(aInput.a));
+    //FracValue powerA = FP_FROM_INT(((int16_t)brightnessToPwm(aInput.a)*256+128)/255);
+    int powerA = brightnessToPwm(aInput.a); // 0..255
+    FracValue powerFact = FP_FROM_INT(powerA*FP_FRACFACT/255)/FP_FRACFACT;
+    aA += powerA*aWeight; // only one FracValue factor, no corr needed
+    aR += FP_MUL_CORR(powerFact*brightnessToPwm(aInput.r)*aWeight);
+    aG += FP_MUL_CORR(powerFact*brightnessToPwm(aInput.g)*aWeight);
+    aB += FP_MUL_CORR(powerFact*brightnessToPwm(aInput.b)*aWeight);
+  }
+  aTotalWeight += aWeight;
+}
+
+
+#ifdef FP_FRACVALUE
+  #define BOOST_SCALING 16 // to get higher accuray for alphaboost values near 1
+#else
+  #define BOOST_SCALING 1
+#endif
+
+PixelColor p44::averagedPixelResult(FracValue& aR, FracValue& aG, FracValue& aB, FracValue& aA, FracValue aTotalWeight)
+{
+  if (aTotalWeight>0) {
+    PixelColor pc;
+    FracValue a = FP_DIV(aA,aTotalWeight); // in 0..255 scale
+    if (a>0) {
+      FracValue alphaboost = FP_DIV(aTotalWeight*BOOST_SCALING, aA); // in 1/256*BOOST_SCALING
+      assignPixelComponent(pc.a, pwmToBrightness(FP_INT_VAL(a)));
+      // no need for FP_ correction when we have a a multiplication followed by a division
+      assignPixelComponent(pc.r, pwmToBrightness(FP_TIMES_FRACFACT_INT_VAL(aR*alphaboost/aTotalWeight/BOOST_SCALING)));
+      assignPixelComponent(pc.g, pwmToBrightness(FP_TIMES_FRACFACT_INT_VAL(aG*alphaboost/aTotalWeight/BOOST_SCALING)));
+      assignPixelComponent(pc.b, pwmToBrightness(FP_TIMES_FRACFACT_INT_VAL(aB*alphaboost/aTotalWeight/BOOST_SCALING)));
+      return pc;
+    }
+  }
+  // nothing
+  return transparent;
+}
+
+
 void p44::mixinPixel(PixelColor &aMainPixel, PixelColor aOutsidePixel, PixelColorComponent aAmountOutside)
 {
   if (aAmountOutside>0) {
@@ -109,7 +161,7 @@ void p44::mixinPixel(PixelColor &aMainPixel, PixelColor aOutsidePixel, PixelColo
       // mixed transparency
       PixelColorComponent alpha = dimVal(aMainPixel.a, pwmToBrightness(255-aAmountOutside)) + dimVal(aOutsidePixel.a, pwmToBrightness(aAmountOutside));
       if (alpha>0) {
-        // calculation only needed for non-transparent result
+        // calculation only needed for not totallay transparent result
         // - alpha boost compensates for energy
         uint16_t ab = 65025/alpha;
         // Note: aAmountOutside is on the energy scale, not brightness, so need to add in PWM scale!
@@ -226,9 +278,10 @@ PixelColor p44::webColorToPixel(const string aWebColor)
 }
 
 
-string p44::pixelToWebColor(const PixelColor aPixelColor)
+string p44::pixelToWebColor(const PixelColor aPixelColor, bool aWithHash)
 {
   string w;
+  if (aWithHash) w = "#";
   if (aPixelColor.a!=255) string_format_append(w, "%02X", aPixelColor.a);
   string_format_append(w, "%02X%02X%02X", aPixelColor.r, aPixelColor.g, aPixelColor.b);
   return w;

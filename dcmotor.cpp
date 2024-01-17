@@ -371,8 +371,6 @@ void DcMotorDriver::sequenceStepDone(SequenceStepList aSteps, DCMotorStatusCB aS
 
 
 
-
-
 // MARK: - script support
 
 #if ENABLE_DCMOTOR_SCRIPT_FUNCS  && ENABLE_P44SCRIPT
@@ -380,22 +378,20 @@ void DcMotorDriver::sequenceStepDone(SequenceStepList aSteps, DCMotorStatusCB aS
 using namespace P44Script;
 
 DcMotorStatusObj::DcMotorStatusObj(DcMotorDriverPtr aDcMotorDriver) :
-  inherited(JsonObjectPtr()),
   mDcMotorDriver(aDcMotorDriver)
 {
   // create snapshot of status right now
-  jsonval = JsonObject::newObj();
-  jsonval->add("power", JsonObject::newDouble(mDcMotorDriver->mCurrentPower));
-  jsonval->add("direction", JsonObject::newInt32(mDcMotorDriver->mCurrentDirection));
+  setMemberByName("power", new NumericValue(mDcMotorDriver->mCurrentPower));
+  setMemberByName("direction", new IntegerValue(mDcMotorDriver->mCurrentDirection));
   if (mDcMotorDriver->mStopCause) {
     string cause;
     if (mDcMotorDriver->mStopCause->isError(DcMotorDriverError::domain(), DcMotorDriverError::overcurrentStop)) cause = "overcurrent";
     else if (mDcMotorDriver->mStopCause->isError(DcMotorDriverError::domain(), DcMotorDriverError::endswitchStop)) cause = "endswitch";
     else cause = mDcMotorDriver->mStopCause->text();
-    jsonval->add("stoppedby", JsonObject::newString(cause));
+    setMemberByName("stoppedby", new StringValue(cause));
   }
   if (mDcMotorDriver->mCurrentSensor) {
-    jsonval->add("current", JsonObject::newDouble(mDcMotorDriver->mCurrentSensor->lastValue()));
+    setMemberByName("current", new NumericValue(mDcMotorDriver->mCurrentSensor->lastValue()));
   }
 }
 
@@ -447,7 +443,7 @@ static void stop_func(BuiltinFunctionContextPtr f)
 #define DEFAULT_CURRENT_POLL_INTERVAL (333*MilliSecond)
 
 // currentsensor(sensor [, sampleinterval])
-static const BuiltInArgDesc currentsensor_args[] = { { text|object }, { numeric|optionalarg } };
+static const BuiltInArgDesc currentsensor_args[] = { { text|objectvalue }, { numeric|optionalarg } };
 static const size_t currentsensor_numargs = sizeof(currentsensor_args)/sizeof(BuiltInArgDesc);
 static void currentsensor_func(BuiltinFunctionContextPtr f)
 {
@@ -482,7 +478,7 @@ static void currentlimit_func(BuiltinFunctionContextPtr f)
 #define DEFAULT_ENDSWITCH_DEBOUNCE_TIME (80*MilliSecond)
 
 // endswitches(positiveend, negativeend [, debouncetime [, pollinterval]])
-static const BuiltInArgDesc endswitches_args[] = { { text|object|null }, { text|object|optionalarg }, { numeric|optionalarg }, { numeric|optionalarg } };
+static const BuiltInArgDesc endswitches_args[] = { { text|objectvalue|null }, { text|objectvalue|optionalarg }, { numeric|optionalarg }, { numeric|optionalarg } };
 static const size_t endswitches_numargs = sizeof(endswitches_args)/sizeof(BuiltInArgDesc);
 static void endswitches_func(BuiltinFunctionContextPtr f)
 {
@@ -536,7 +532,7 @@ static const BuiltinMemberDescriptor dcmotorFunctions[] = {
   { "currentsensor", executable|null, currentsensor_numargs, currentsensor_args, &currentsensor_func },
   { "currentlimit", executable|null, currentlimit_numargs, currentlimit_args, &currentlimit_func },
   { "power", executable|null, power_numargs, power_args, &power_func },
-  { "status", executable|object, 0, NULL, &status_func },
+  { "status", executable|objectvalue, 0, NULL, &status_func },
   { "stop", executable|null, 0, NULL, &stop_func },
   { NULL } // terminator
 };
@@ -553,7 +549,7 @@ DcMotorObj::DcMotorObj(DcMotorDriverPtr aDCMotor) :
 
 
 // dcmotor(output [, CWdirection [, CCWdirection]])
-static const BuiltInArgDesc dcmotor_args[] = { { text|object }, { text|object|optionalarg }, { text|object|optionalarg } };
+static const BuiltInArgDesc dcmotor_args[] = { { text|objectvalue }, { text|objectvalue|optionalarg }, { text|objectvalue|optionalarg } };
 static const size_t dcmotor_numargs = sizeof(dcmotor_args)/sizeof(BuiltInArgDesc);
 static void dcmotor_func(BuiltinFunctionContextPtr f)
 {

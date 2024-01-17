@@ -265,13 +265,8 @@ string Application::dataPath(const string aDataFile, const string aPrefix, bool 
   else {
     p += "/" + aPrefix; // separator and prefix
     if (aCreatePrefix && p[p.size()-1]=='/') {
-      // prefix denotes a subdirectory and should be created
-      p.erase(p.size()-1); // remove trailing slash for check&creation of dir
-      if (access(p.c_str(), F_OK)<0) {
-        // does not yet exist, create now
-        mkdir(p.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
-      }
-      p += '/'; // re-add the separator the prefix had
+      // prefix denotes a subdirectory and should be created - limit to max 3 levels!
+      ensureDirExists(p.substr(0,p.size()-1), 3, S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
     }
   }
   return p + f;
@@ -714,21 +709,21 @@ bool CmdLineApp::parseCommandLine(int aArgc, char** aArgv)
 bool CmdLineApp::processOption(const CmdLineOptionDescriptor &aOptionDescriptor, const char* aOptionValue)
 {
   // directly process "help" option (long name must be "help", short name can be anything but usually is 'h')
-  if (!aOptionDescriptor.withArgument && strucmp(aOptionDescriptor.longOptionName,"help")==0) {
+  if (!aOptionDescriptor.withArgument && uequals(aOptionDescriptor.longOptionName,"help")) {
     showUsage();
     terminateApp(EXIT_SUCCESS);
   }
-  else if (!aOptionDescriptor.withArgument && strucmp(aOptionDescriptor.longOptionName,"version")==0) {
+  else if (!aOptionDescriptor.withArgument && uequals(aOptionDescriptor.longOptionName,"version")) {
     fprintf(stdout, "%s\n", version().c_str());
     terminateApp(EXIT_SUCCESS);
   }
-  else if (aOptionDescriptor.withArgument && strucmp(aOptionDescriptor.longOptionName,"resourcepath")==0) {
+  else if (aOptionDescriptor.withArgument && uequals(aOptionDescriptor.longOptionName,"resourcepath")) {
     setResourcePath(aOptionValue);
   }
-  else if (aOptionDescriptor.withArgument && strucmp(aOptionDescriptor.longOptionName,"datapath")==0) {
+  else if (aOptionDescriptor.withArgument && uequals(aOptionDescriptor.longOptionName,"datapath")) {
     setDataPath(aOptionValue);
   }
-  else if (aOptionDescriptor.withArgument && strucmp(aOptionDescriptor.longOptionName,"userlevel")==0) {
+  else if (aOptionDescriptor.withArgument && uequals(aOptionDescriptor.longOptionName,"userlevel")) {
     mUserLevel = atoi(aOptionValue);
   }
   else {

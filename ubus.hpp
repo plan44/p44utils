@@ -175,7 +175,8 @@ namespace p44 {
     UbusServer();
     virtual ~UbusServer();
 
-    virtual string logContextPrefix() P44_OVERRIDE { return "ubus server"; };
+    /// @return the object type (used for context descriptions such as logging context)
+    virtual string contextType() const P44_OVERRIDE { return "ubus server"; };
 
     /// start the server
     ErrorPtr startServer();

@@ -218,15 +218,30 @@ namespace p44 {
 
     /// create system error from passed errno and set message to strerror() text
     /// @param aErrNo a errno error number
+    /// @param aContextMessage optional context message
     SysError(int aErrNo, const char *aContextMessage = NULL);
 
     /// factory function to create a ErrorPtr either containing NULL (if errno indicates OK)
     /// or a SysError (if errno indicates error)
+    /// @param aContextMessage optional context message
+    /// @return null if ok or SysError from errNo
     static ErrorPtr errNo(const char *aContextMessage = NULL);
 
     /// factory function to create a ErrorPtr either containing NULL (if aErrNo indicates OK)
     /// or a SysError (if aErrNo indicates error)
+    /// @param aErrNo errno value
+    /// @param aContextMessage optional context message
+    /// @return null if ok or SysError from errNo
     static ErrorPtr err(int aErrNo, const char *aContextMessage = NULL);
+
+    /// factory function to create a ErrorPtr either containing NULL (if aRet is>=0)
+    /// or consult errno to get the error reason when aRet is <0
+    /// @param aRet return value indictaing error when <0 (many libc APIs)
+    /// @param aContextMessage optional context message
+    /// @return null if ok or SysError from errNo
+    static ErrorPtr retErr(int aRet, const char *aContextMessage = NULL);
+
+
   };
 
 

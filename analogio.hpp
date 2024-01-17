@@ -105,10 +105,10 @@ namespace p44 {
     virtual ~AnalogIo();
 
     /// get name
-    string getName() { return mPinSpec.c_str(); };
+    string getName() const { return mPinSpec.c_str(); };
 
     /// check for output
-    bool isOutput() { return mOutput; };
+    bool isOutput() const { return mOutput; };
 
     /// get state of analog input
     /// @return current raw value (from actual pin for inputs, from last set value for outputs)

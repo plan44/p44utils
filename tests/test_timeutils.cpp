@@ -20,7 +20,7 @@
 //  along with p44utils. If not, see <http://www.gnu.org/licenses/>.
 //
 
-#include "catch.hpp"
+#include "catch_amalgamated.hpp"
 
 #include "timeutils.hpp"
 #include <stdlib.h>
@@ -52,10 +52,10 @@ TEST_CASE( "sun rise and set", "[timeutils]" ) {
     localtime_r(&t, &tim); // convert back to get tz offset
     REQUIRE( tim.tm_gmtoff==WINTEROFFS*3600 );
     p44::getSunParams(t, p44::GeoLocation(LAT, LONG), p);
-    REQUIRE( p.sunrise == Approx(6+27.0/60).margin(PRECISION) );
-    REQUIRE( p.sunset == Approx(18+39.0/60).margin(PRECISION) );
-    REQUIRE( p.noon == Approx(12+33.0/60).margin(PRECISION) );
-    REQUIRE( p.twilight/TWILIGHTFACTOR == Approx(0+30.0/60).margin(0.2) ); // not very precise, 12min
+    REQUIRE( p.sunrise == Catch::Approx(6+27.0/60).margin(PRECISION) );
+    REQUIRE( p.sunset == Catch::Approx(18+39.0/60).margin(PRECISION) );
+    REQUIRE( p.noon == Catch::Approx(12+33.0/60).margin(PRECISION) );
+    REQUIRE( p.twilight/TWILIGHTFACTOR == Catch::Approx(0+30.0/60).margin(0.2) ); // not very precise, 12min
   }
 
   SECTION("summer in zürich") {
@@ -69,10 +69,10 @@ TEST_CASE( "sun rise and set", "[timeutils]" ) {
     localtime_r(&t, &tim); // convert back to get tz offset
     REQUIRE( tim.tm_gmtoff==SUMMEROFFS*3600 );
     p44::getSunParams(t, p44::GeoLocation(LAT, LONG), p);
-    REQUIRE( p.sunrise == Approx(5+29.0/60).margin(PRECISION) );
-    REQUIRE( p.sunset == Approx(21+21.0/60).margin(PRECISION) );
-    REQUIRE( p.noon == Approx(13+25.0/60).margin(PRECISION) );
-    REQUIRE( p.twilight/TWILIGHTFACTOR == Approx(0+40.0/60).margin(0.2) ); // not very precise, 12min
+    REQUIRE( p.sunrise == Catch::Approx(5+29.0/60).margin(PRECISION) );
+    REQUIRE( p.sunset == Catch::Approx(21+21.0/60).margin(PRECISION) );
+    REQUIRE( p.noon == Catch::Approx(13+25.0/60).margin(PRECISION) );
+    REQUIRE( p.twilight/TWILIGHTFACTOR == Catch::Approx(0+40.0/60).margin(0.2) ); // not very precise, 12min
   }
 
 
@@ -87,10 +87,10 @@ TEST_CASE( "sun rise and set", "[timeutils]" ) {
     localtime_r(&t, &tim); // convert back to get tz offset
     REQUIRE( tim.tm_gmtoff==WINTEROFFS*3600 );
     p44::getSunParams(t, p44::GeoLocation(LAT, LONG), p);
-    REQUIRE( p.sunrise == Approx(7+57.0/60).margin(PRECISION) );
-    REQUIRE( p.sunset == Approx(16+35.0/60).margin(PRECISION) );
-    REQUIRE( p.noon == Approx(12+16.0/60).margin(PRECISION) );
-    REQUIRE( p.twilight/TWILIGHTFACTOR == Approx(0+36.0/60).margin(0.2) ); // not very precise, 12min
+    REQUIRE( p.sunrise == Catch::Approx(7+57.0/60).margin(PRECISION) );
+    REQUIRE( p.sunset == Catch::Approx(16+35.0/60).margin(PRECISION) );
+    REQUIRE( p.noon == Catch::Approx(12+16.0/60).margin(PRECISION) );
+    REQUIRE( p.twilight/TWILIGHTFACTOR == Catch::Approx(0+36.0/60).margin(0.2) ); // not very precise, 12min
   }
 
 

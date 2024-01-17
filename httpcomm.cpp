@@ -480,7 +480,7 @@ static void httpFuncDone(BuiltinFunctionContextPtr f, HttpCommPtr aHttpAction, b
         }
         resp->add("headers", hdrs);
       }
-      f->finish(new JsonValue(resp));
+      f->finish(ScriptObj::valueFromJSON(resp));
       return;
     }
   }
@@ -537,7 +537,7 @@ static void httpFuncImpl(BuiltinFunctionContextPtr f, string aMethod)
     if (params->get("method", o)) aMethod = o->stringValue();
     // data can be in the request object or (to allow binary strings), as second parameter
     if (f->numArgs()>=2) {
-      if (f->arg(1)->hasType(json)) jdata = f->arg(1)->jsonValue();
+      if (f->arg(1)->hasType(structured)) jdata = f->arg(1)->jsonValue();
       else data = f->arg(1)->stringValue(); // could be a binary string
     }
     else if (params->get("data", o)) {
@@ -562,7 +562,7 @@ static void httpFuncImpl(BuiltinFunctionContextPtr f, string aMethod)
     }
     if (aMethod!="GET") {
       if (f->numArgs()>ai) {
-        if (f->arg(ai)->hasType(json)) {
+        if (f->arg(ai)->hasType(structured)) {
           jdata = f->arg(ai)->jsonValue();
         }
         else {
@@ -661,7 +661,7 @@ static void geturl_func(BuiltinFunctionContextPtr f)
   httpFuncImpl(f, "GET");
 }
 
-static const BuiltInArgDesc postputurl_args[] = { { text } , { any|optionalarg }, { any|optionalarg } };
+static const BuiltInArgDesc postputurl_args[] = { { text } , { anyvalid|optionalarg }, { anyvalid|optionalarg } };
 static const size_t postputurl_numargs = sizeof(postputurl_args)/sizeof(BuiltInArgDesc);
 
 // posturl("<url>"[,timeout][,"<data>"])
@@ -678,7 +678,7 @@ static void puturl_func(BuiltinFunctionContextPtr f)
 
 
 // httprequest(requestparams [,"<data>"])
-static const BuiltInArgDesc httprequest_args[] = { { object }, { text|optionalarg} };
+static const BuiltInArgDesc httprequest_args[] = { { objectvalue }, { anyvalid|optionalarg} };
 static const size_t httprequest_numargs = sizeof(httprequest_args)/sizeof(BuiltInArgDesc);
 static void httprequest_func(BuiltinFunctionContextPtr f)
 {
@@ -687,7 +687,7 @@ static void httprequest_func(BuiltinFunctionContextPtr f)
 
 
 // urlencode(texttoencode [, x-www-form-urlencoded])
-static const BuiltInArgDesc urlencode_args[] = { { text } , { any|optionalarg }, { any|optionalarg } };
+static const BuiltInArgDesc urlencode_args[] = { { text } , { anyvalid|optionalarg }, { anyvalid|optionalarg } };
 static const size_t urlencode_numargs = sizeof(urlencode_args)/sizeof(BuiltInArgDesc);
 static void urlencode_func(BuiltinFunctionContextPtr f)
 {

@@ -20,7 +20,7 @@
 //  along with p44utils. If not, see <http://www.gnu.org/licenses/>.
 //
 
-#include "catch.hpp"
+#include "catch_amalgamated.hpp"
 
 #include "p44utils_common.hpp"
 #include "mainloop.hpp"
@@ -45,14 +45,14 @@ TEST_CASE_METHOD(MainloopFixture, "test now() is actually running", "[mainloop],
   MLMicroSeconds mainlooptime = mainloop.now();
   CAPTURE(mainlooptime);
   sleep(1);
-  REQUIRE(mainloop.now()-mainlooptime == Approx(1*Second).epsilon(0.1));
+  REQUIRE(mainloop.now()-mainlooptime == Catch::Approx(1*Second).epsilon(0.1));
 }
 
 TEST_CASE_METHOD(MainloopFixture, "test unixtime() is actually running", "[mainloop],[time]") {
   MLMicroSeconds unixtime = mainloop.unixtime();
   CAPTURE(unixtime);
   sleep(1);
-  REQUIRE(mainloop.unixtime()-unixtime == Approx(1*Second).epsilon(0.1));
+  REQUIRE(mainloop.unixtime()-unixtime == Catch::Approx(1*Second).epsilon(0.1));
 }
 
 
