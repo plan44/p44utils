@@ -70,6 +70,7 @@
   #define FP_FACTOR_FROM_INT(i) ((FracValue)(i)) // integer part without shifting, can be used as factor in multiplications, which then don't need FP_MUL_CORR
   #define FP_INT_FLOOR(f) (((f) & ~FP_FRACMASK)/FP_FRACFACT) // division to keep sign
   #define FP_INT_CEIL(f) ((((f)+FP_FRACMASK) & ~FP_FRACMASK)/FP_FRACFACT) // division to keep sign
+  #define FP_INT_ROUND(f) (((f)+FP_ROUNDOFFS)/FP_FRACFACT) // division to keep sign
   #define FP_HASFRAC(f) (((f)&FP_FRACMASK)!=0)
 #else // FP_FRACVALUE
   typedef double FracValue;
