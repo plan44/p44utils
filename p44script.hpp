@@ -357,11 +357,28 @@ namespace p44 { namespace P44Script {
   };
 
 
+  class EventFilter : public P44Obj
+  {
+  public:
+    /// check passed aEventObj against this filter, and possibly replace it by a modified/filtered version
+    /// @param aEventObj reference containing event object, may be replaced by filtered version
+    /// @return true if object passes filter and must be delivered
+    virtual bool filteredEventObj(ScriptObjPtr &aEventObj) { return true; } // base class does not actually filter
+  };
+  typedef boost::intrusive_ptr<EventFilter> EventFilterPtr;
+
+
   /// Event Source
   class EventSource
   {
     friend class EventSink;
-    typedef std::map<EventSink *, intptr_t> EventSinkMap;
+
+    typedef struct {
+      intptr_t regId;
+      EventFilterPtr eventFilter;
+    } SinkRegistration;
+
+    typedef std::map<EventSink *, SinkRegistration> EventSinkMap;
     EventSinkMap mEventSinks;
     bool mSinksModified;
   public:
@@ -369,16 +386,20 @@ namespace p44 { namespace P44Script {
 
     /// send event to all registered event sinks
     /// @param aEvent event object, can also be NULL pointer
-    void sendEvent(ScriptObjPtr aEvent);
+    /// @note the event might get filtered and the event object modified according to filters
+    ///    provided by even sinks when registering
+    /// @return true if aEvent was delivered (not filtered out) to at least one EvenSink
+    bool sendEvent(ScriptObjPtr aEvent);
 
     /// register an event sink to get events from this source
     /// @param aEventSink the event sink (receiver) to register for events (NULL allowed -> NOP)
     /// @param aRegId a registration id private to aEventSink's registration for this event source. This
     ///   id will be returned with with events via processEvent().
+    /// @param aFilter an optional EventFilter object that filters events to this registering sink
     /// @note registering the same event sink multiple times is allowed, but will not duplicate events sent.
     ///   Also, the aRegId delivered to a sink will be that specificied in the most recent call to registerForEvents().
-    void registerForEvents(EventSink* aEventSink, intptr_t aRegId = 0);
-    void registerForEvents(EventSink& aEventSink, intptr_t aRegId = 0);
+    void registerForEvents(EventSink* aEventSink, intptr_t aRegId = 0, EventFilterPtr aFilter = nullptr);
+    void registerForEvents(EventSink& aEventSink, intptr_t aRegId = 0, EventFilterPtr aFilter = nullptr);
 
     /// release an event sink from getting events from this source
     /// @param aEventSink the event sink (receiver) to unregister from receiving events (NULL allowed -> NOP)
@@ -530,7 +551,7 @@ namespace p44 { namespace P44Script {
     ///   If lvalue is set and the member can be created and/or assigned to, an ScriptLvalue might be returned
     /// @return ScriptObj representing the member, or NULL if none
     /// @note only possibly returns something for container objects marked with "object" type
-    virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aMemberAccessFlags) const { return ScriptObjPtr(); };
+    virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aMemberAccessFlags = none) const { return ScriptObjPtr(); };
 
     /// number of members accessible by index (e.g. positional parameters or array elements)
     /// @return number of members
@@ -634,13 +655,21 @@ namespace p44 { namespace P44Script {
     /// @}
 
 
-    /// @name triggering support
+    /// @name event handling / triggering support
     /// @{
 
-    /// @return a souce of events for this object, or NULL if none
-    /// @note objects that represent a one-time event (such as a thread ending) must not return an
-    ///    event source (that will never emit an event) after the singular event has already happened!
-    virtual EventSource *eventSource() const { return NULL; /* none in base class */ }
+    /// @return true if this object represents (or is itself) an event source
+    virtual bool isEventSource() const { return false; }; // base object does not represent a event source
+
+    /// register an event sink with the event source linked to, and possibly to be filtered by, this ScriptObj
+    /// @param aEventSink the event sink that wants to receive the (possibly filtered) events
+    /// @note this wrapper allows subclasses link and filter to the source in a way specified by additional
+    ///    data carried in the (specialized event source placeholder) object.
+    virtual void registerForFilteredEvents(EventSink* aEventSink, intptr_t aRegId = 0) { }; // NOP in base class, does not link to an event source
+
+    /// pass my sinks to a replacement source
+    /// @note this is NOP unless this object is a event source placeholder (uninitialized global variable)
+    virtual void passSinksToReplacementSource(ScriptObjPtr aReplacementSource) { }; // NOP everywhere except for event placeholders
 
     /// @}
 
@@ -791,7 +820,9 @@ namespace p44 { namespace P44Script {
     typedef AnnotatedNullValue inherited;
   public:
     EventPlaceholderNullValue(string aAnnotation);
-    virtual EventSource *eventSource() const P44_OVERRIDE;
+    virtual bool isEventSource() const P44_OVERRIDE { return true; } // is an event source
+    virtual void registerForFilteredEvents(EventSink* aEventSink, intptr_t aRegId = 0) P44_OVERRIDE;
+    virtual void passSinksToReplacementSource(ScriptObjPtr aReplacementSource) P44_OVERRIDE;
   };
 
 
@@ -802,10 +833,13 @@ namespace p44 { namespace P44Script {
   {
     typedef AnnotatedNullValue inherited;
     EventSource *mEventSource;
+  protected:
+    virtual EventFilterPtr eventFilter() { return EventFilterPtr(); }
   public:
     OneShotEventNullValue(EventSource *aEventSource, string aAnnotation = "no event now");
     virtual TypeInfo getTypeInfo() const P44_OVERRIDE { return null|oneshot|freezable|keeporiginal; }; ///< when not delivered as event, the value is always NULL. When delivered as event, it is to be kept as-is!
-    virtual EventSource *eventSource() const P44_OVERRIDE;
+    virtual bool isEventSource() const P44_OVERRIDE;
+    virtual void registerForFilteredEvents(EventSink* aEventSink, intptr_t aRegId = 0) P44_OVERRIDE;
   };
 
 
@@ -854,7 +888,8 @@ namespace p44 { namespace P44Script {
     virtual TypeInfo getTypeInfo() const P44_OVERRIDE;
     virtual void deactivate() P44_OVERRIDE { mThreadExitValue.reset(); mThread.reset(); inherited::deactivate(); }
     virtual ScriptObjPtr calculationValue() P44_OVERRIDE; /// < ThreadValue calculates to NULL as long as running or to the thread's exit value
-    virtual EventSource *eventSource() const P44_OVERRIDE; ///< ThreadValue is an event source, event is the exit value of a thread terminating
+    virtual bool isEventSource() const P44_OVERRIDE;
+    virtual void registerForFilteredEvents(EventSink* aEventSink, intptr_t aRegId = 0) P44_OVERRIDE;
     ScriptCodeThreadPtr thread() { return mThread; }; ///< @return the thread
     bool running(); ///< @return true if still running
     void abort(ScriptObjPtr aAbortResult = ScriptObjPtr()); ///< abort the thread
@@ -1089,7 +1124,7 @@ namespace p44 { namespace P44Script {
     void releaseObjsFromSource(SourceContainerPtr aSource);
 
     /// access to local variables by name
-    virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aMemberAccessFlags) const P44_OVERRIDE;
+    virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aMemberAccessFlags = none) const P44_OVERRIDE;
 
     /// internal for StandardLValue
     virtual ErrorPtr setMemberByName(const string aName, const ScriptObjPtr aMember) P44_OVERRIDE;
@@ -1113,7 +1148,7 @@ namespace p44 { namespace P44Script {
   public:
 
     // access to (sub)objects in the installed lookups
-    virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aTypeRequirements) const P44_OVERRIDE;
+    virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aTypeRequirements = none) const P44_OVERRIDE;
     virtual ~StructuredLookupObject() { deactivate(); } // even if deactivate() is usually called before dtor, make sure it happens even if not
 
     virtual void deactivate() P44_OVERRIDE { mSingleMembers.reset(); mLookups.clear(); inherited::deactivate(); }
@@ -1318,7 +1353,7 @@ namespace p44 { namespace P44Script {
     ScriptObjPtr contextLocals() { return &mLocalVars; }
 
     /// access to local variables by name
-    virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aMemberAccessFlags) const P44_OVERRIDE;
+    virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aMemberAccessFlags = none) const P44_OVERRIDE;
 
     // internal for StandardLValue
     virtual ErrorPtr setMemberByName(const string aName, const ScriptObjPtr aMember) P44_OVERRIDE;
