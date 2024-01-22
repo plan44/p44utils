@@ -578,9 +578,16 @@ TypeInfo ValueAnimatorObj::getTypeInfo() const
 }
 
 
-EventSource* ValueAnimatorObj::eventSource() const
+bool ValueAnimatorObj::isEventSource() const
 {
-  return static_cast<EventSource*>(const_cast<ValueAnimatorObj*>(this));
+  return true; // is always an event source
 }
+
+void ValueAnimatorObj::registerForFilteredEvents(EventSink* aEventSink, intptr_t aRegId)
+{
+  registerForEvents(aEventSink, aRegId); // no filtering
+}
+
+
 
 #endif // ENABLE_ANIMATOR_SCRIPT_FUNCS

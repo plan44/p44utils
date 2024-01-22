@@ -526,10 +526,17 @@ TypeInfo AnalogInputEventObj::getTypeInfo() const
 }
 
 
-EventSource* AnalogInputEventObj::eventSource() const
+bool AnalogInputEventObj::isEventSource() const
 {
-  return static_cast<EventSource*>(mAnalogIo.get());
+  return mAnalogIo.get(); // yes if it exists
 }
+
+
+void AnalogInputEventObj::registerForFilteredEvents(EventSink* aEventSink, intptr_t aRegId)
+{
+  if (mAnalogIo) mAnalogIo->registerForEvents(aEventSink, aRegId); // no filtering
+}
+
 
 
 // range()

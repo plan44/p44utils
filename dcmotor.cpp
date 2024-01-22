@@ -415,9 +415,15 @@ TypeInfo DcMotorStatusObj::getTypeInfo() const
 }
 
 
-EventSource* DcMotorStatusObj::eventSource() const
+bool DcMotorStatusObj::isEventSource() const
 {
-  return static_cast<EventSource*>(mDcMotorDriver.get());
+  return mDcMotorDriver.get(); // yes if it exists
+}
+
+
+void DcMotorStatusObj::registerForFilteredEvents(EventSink* aEventSink, intptr_t aRegId)
+{
+  if (mDcMotorDriver) mDcMotorDriver->registerForEvents(aEventSink, aRegId); // no filtering
 }
 
 

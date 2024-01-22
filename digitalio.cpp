@@ -528,9 +528,15 @@ string DigitalInputEventObj::getAnnotation() const
 }
 
 
-EventSource* DigitalInputEventObj::eventSource() const
+bool DigitalInputEventObj::isEventSource() const
 {
-  return static_cast<EventSource*>(mDigitalIo.get());
+  return mDigitalIo.get(); // yes if it exists
+}
+
+
+void DigitalInputEventObj::registerForFilteredEvents(EventSink* aEventSink, intptr_t aRegId)
+{
+  if (mDigitalIo) mDigitalIo->registerForEvents(aEventSink, aRegId); // no filtering
 }
 
 

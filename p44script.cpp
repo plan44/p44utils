@@ -118,18 +118,18 @@ EventSource::~EventSource()
 }
 
 
-void EventSource::registerForEvents(EventSink* aEventSink, intptr_t aRegId)
+void EventSource::registerForEvents(EventSink* aEventSink, intptr_t aRegId, EventFilterPtr aFilter)
 {
   if (aEventSink) {
-    registerForEvents(*aEventSink, aRegId);
+    registerForEvents(*aEventSink, aRegId, aFilter);
   }
 }
 
 
-void EventSource::registerForEvents(EventSink& aEventSink, intptr_t aRegId)
+void EventSource::registerForEvents(EventSink& aEventSink, intptr_t aRegId, EventFilterPtr aFilter)
 {
   mSinksModified = true;
-  mEventSinks[&aEventSink] = aRegId; // multiple registrations are possible, counted only once, only last aRegId stored
+  mEventSinks[&aEventSink] = { aRegId, aFilter }; // multiple registrations are possible, counted only once, only last aRegId/aFilter stored
   aEventSink.mEventSources.insert(this);
 }
 
@@ -151,19 +151,26 @@ void EventSource::unregisterFromEvents(EventSink& aEventSink)
 
 
 
-void EventSource::sendEvent(ScriptObjPtr aEvent)
+bool EventSource::sendEvent(ScriptObjPtr aEvent)
 {
-  if (mEventSinks.empty()) return; // optimisation
+  if (mEventSinks.empty()) return false; // optimisation
   // note: duplicate notification is possible when sending event causes event sink changes and restarts
   // TODO: maybe fix this if it turns out to be a problem
   //       (should not, because entire triggering is designed to re-evaluate events after triggering)
+  bool sentAtLeastOne = false;
   do {
     mSinksModified = false;
     for (EventSinkMap::iterator pos=mEventSinks.begin(); pos!=mEventSinks.end(); ++pos) {
-      pos->first->processEvent(aEvent, *this, pos->second);
-      if (mSinksModified) break;
+      ScriptObjPtr tbSent = aEvent;
+      if (!pos->second.eventFilter || pos->second.eventFilter->filteredEventObj(tbSent)) {
+        // no filter or event object passes filter
+        pos->first->processEvent(tbSent, *this, pos->second.regId);
+        sentAtLeastOne = true;
+        if (mSinksModified) break;
+      }
     }
   } while(mSinksModified);
+  return sentAtLeastOne;
 }
 
 
@@ -172,7 +179,7 @@ void EventSource::copySinksFrom(EventSource* aOtherSource)
   if (!aOtherSource) return;
   for (EventSinkMap::iterator pos=aOtherSource->mEventSinks.begin(); pos!=aOtherSource->mEventSinks.end(); ++pos) {
     mSinksModified = true;
-    registerForEvents(pos->first, pos->second);
+    registerForEvents(pos->first, pos->second.regId, pos->second.eventFilter);
   }
 }
 
@@ -600,22 +607,8 @@ void StandardLValue::assignLValue(EvaluationCB aEvaluationCB, ScriptObjPtr aNewV
       aNewValue = new ErrorValue(err);
     }
     else {
-      // If current value is a placeholder with event sinks, and new value is a event source, too
-      // the new value must inherit those sinks. The ONLY application is that a global on() handlers might
-      // get declared (at compile time) watching a declared global (which is created as EventPlaceholderNullValue)
-      // but will only at script run time get the actual value to watch, e.g. a socket or similar.
-      // This is a use case of early p44script days, when non-global, run-time-defined handlers did not yet
-      // exist - so declaring a global and then a handler on it and THEN then running code that assigns a socket
-      // to that global was the ONLY way.
-      // Before 2022-10-16 this was not limited to EventPlaceholderNullValue, which caused unwanted
-      // accumulation of event sinks and really hard-to-explain outcomes.
-      if (dynamic_cast<EventPlaceholderNullValue*>(mCurrentValue.get())) {
-        EventSource* oldSource = mCurrentValue->eventSource();
-        EventSource* newSource = aNewValue ? aNewValue->eventSource() : NULL;
-        if (newSource) {
-          newSource->copySinksFrom(oldSource);
-        }
-      }
+      // if the current value is a placeholder, pass its sinks to the new value before replacing the old value
+      if (mCurrentValue) mCurrentValue->passSinksToReplacementSource(aNewValue);
       // previous value can now be overwritten
       mCurrentValue = aNewValue;
     }
@@ -633,9 +626,32 @@ EventPlaceholderNullValue::EventPlaceholderNullValue(string aAnnotation) :
 {
 }
 
-EventSource* EventPlaceholderNullValue::eventSource() const
+
+void EventPlaceholderNullValue::registerForFilteredEvents(EventSink* aEventSink, intptr_t aRegId)
 {
-  return static_cast<EventSource*>(const_cast<EventPlaceholderNullValue*>(this));
+  // register with my built-in event source
+  registerForEvents(aEventSink, aRegId);
+}
+
+
+void EventPlaceholderNullValue::passSinksToReplacementSource(ScriptObjPtr aReplacementSource)
+{
+  // This object is a placeholder possibly already having event sink registrations.
+  // If the new value is a event source, too the new value must inherit those sinks.
+  // The ONLY application is that a global on() handlers might
+  // get declared (at compile time) watching a declared global (which is created as EventPlaceholderNullValue)
+  // but will only at script run time get the actual value to watch, e.g. a socket or similar.
+  // This is a use case of early p44script days, when non-global, run-time-defined handlers did not yet
+  // exist - so declaring a global and then a handler on it and THEN then running code that assigns a socket
+  // to that global was the ONLY way.
+  // Before 2022-10-16 this was not limited to EventPlaceholderNullValue, which caused unwanted
+  // accumulation of event sinks and really hard-to-explain outcomes.
+  if (!aReplacementSource) return; // nothing to pass to
+  EventSource* replacementSource = dynamic_cast<EventSource*>(aReplacementSource.get());
+  if (replacementSource) {
+    // copy my sinks
+    replacementSource->copySinksFrom(this);
+  }
 }
 
 
@@ -646,9 +662,16 @@ OneShotEventNullValue::OneShotEventNullValue(EventSource *aEventSource, string a
 }
 
 
-EventSource* OneShotEventNullValue::eventSource() const
+bool OneShotEventNullValue::isEventSource() const
 {
-  return mEventSource;
+  return mEventSource; // yes, if it is set
+}
+
+
+void OneShotEventNullValue::registerForFilteredEvents(EventSink* aEventSink, intptr_t aRegId)
+{
+  // register with my built-in event source and possibly filters created by a subclass of mine
+  if (mEventSource) mEventSource->registerForEvents(aEventSink, aRegId, eventFilter());
 }
 
 
@@ -772,9 +795,15 @@ TypeInfo ThreadValue::getTypeInfo() const
 }
 
 
-EventSource* ThreadValue::eventSource() const
+bool ThreadValue::isEventSource() const
 {
-  return static_cast<EventSource*>(mThread.get());
+  return mThread ? true : false; // yes if there is a thread
+}
+
+
+void ThreadValue::registerForFilteredEvents(EventSink* aEventSink, intptr_t aRegId)
+{
+  if (mThread) mThread->registerForEvents(aEventSink, aRegId); // no filters
 }
 
 #endif // P44SCRIPT_FULL_SUPPORT
@@ -7181,15 +7210,14 @@ void ScriptCodeThread::memberEventCheck()
   if (!mSkipping) {
     if (mEvaluationFlags&initial) {
       // initial run of trigger -> register event sourcing members to trigger event sink
-      EventSource* eventSource = mResult->eventSource();
-      if (eventSource) {
+      if (mResult->isEventSource()) {
         // register the code object (the trigger) as event sink with the source
         EventSink* triggerEventSink = dynamic_cast<EventSink*>(mCodeObj.get());
         if (triggerEventSink) {
           // register the result as event source, along with the source position (for later freezing in trigger evaluation)
           // Note: only if this event source has type freezable, the source position is recorded for identifying frozen event values later
           FOCUSLOG("  leaf member is event source in trigger initialisation : register%s", mResult->hasType(freezable) ? " and record for freezing" : "");
-          eventSource->registerForEvents(triggerEventSink, mResult->hasType(freezable) ? (intptr_t)mSrc.mPos.posId() : 0);
+          mResult->registerForFilteredEvents(triggerEventSink, mResult->hasType(freezable) ? (intptr_t)mSrc.mPos.posId() : 0);
         }
       }
     }
@@ -8567,8 +8595,7 @@ static void await_func(BuiltinFunctionContextPtr f)
   do {
     ScriptObjPtr v = f->arg(ai);
     ScriptObjPtr cv = v->calculationValue(); // e.g. threadVars detect stopped thread only when being asked for calculation value first
-    EventSource* ev = v->eventSource(); // ...but ask original value for event source (calculation value is not an event itself)
-    if (!ev) {
+    if (v->isEventSource()) {
       // must be last arg, and not first arg, and numeric to be timeout, otherwise just return it
       if (ai>0 && ai==f->numArgs()-1 && f->arg(ai)->hasType(numeric)) {
         to = f->arg(ai)->doubleValue()*Second;
@@ -8586,7 +8613,7 @@ static void await_func(BuiltinFunctionContextPtr f)
       f->finish(v);
       return;
     }
-    ev->registerForEvents(awaitEventSink); // register each of the event sources for getting events
+    v->registerForFilteredEvents(awaitEventSink); // register to receive events (possibly filtered)
     ai++;
   } while(ai<f->numArgs());
   if (to!=Infinite) {
