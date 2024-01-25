@@ -2422,11 +2422,6 @@ namespace p44 { namespace P44Script {
 
     #if P44SCRIPT_FULL_SUPPORT
 
-    #if DECLARATION_SEPARATED
-    /// @return true if compiling declarations
-    bool declaring() { return compiling() && (mEvaluationFlags&sourcecode)!=0; }
-    #endif
-
     /// indicates start of script body (at current src.pos)
     /// @note must cause calling resume()
     virtual void startOfBodyCode();
@@ -2912,9 +2907,6 @@ namespace p44 { namespace P44Script {
     typedef SourceProcessor inherited;
 
     ScriptingDomainPtr mDomain; ///< the domain to store compiled functions and handlers
-    #if DECLARATION_SEPARATED
-    SourceCursor mBodyRef; ///< where the script body starts
-    #endif
     ScriptMainContextPtr mCompileForContext; ///< the main context this script is compiled for and should execute in later
 
   public:

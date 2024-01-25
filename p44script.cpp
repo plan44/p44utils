@@ -3970,9 +3970,6 @@ void SourceProcessor::s_exprRightSide()
 
 // MARK: Declarations
 
-// FIXME: once we are sure about !DECLARATION_SEPARATED, clean up everything related, e.g.
-// - s_declarations()
-// - scriptbody / sourcecode differentiation (keep it if we really want to *disallow* function definitions, but does that make any sense anymore?)
 
 void SourceProcessor::s_declarations()
 {
@@ -3981,52 +3978,12 @@ void SourceProcessor::s_declarations()
   do {
     mSrc.skipNonCode();
   } while (mSrc.nextIf(';'));
-  #if DECLARATION_SEPARATED
-  // Declarations must be before first actual script statement (old way to handle it)
-  SourcePos codeStart = mSrc.mPos;
-  if (mSrc.parseIdentifier(mIdentifier)) {
-    // explicitly or implicitly global declarations
-    bool globvardef = false;
-    bool globfuncdef = false;
-    if (uequals(mIdentifier, "global")) {
-      mSrc.skipNonCode();
-      if (mSrc.checkForIdentifier("function")) {
-        globfuncdef = true;
-      }
-      else {
-        // must be variable declaration
-        globvardef = true;
-      }
-    }
-    if (globvardef || uequals(mIdentifier, "glob")) {
-      // allow initialisation, even re-initialisation of global vars here!
-      processVarDefs(lvalue|create|global, true, true);
-      return;
-    }
-    if (globfuncdef || uequals(mIdentifier, "function")) {
-      // Note: functions can be in declaration part (global) OR in running script code (if explicitly declared local)
-      processFunction(true); // global
-      return;
-    } // function
-    if (uequals(mIdentifier, "on")) {
-      // Note: on handlers can be in declaration part OR in running script code
-      processOnHandler();
-      return;
-    } // handler
-  } // identifier
-  // nothing more recognizable as declaration
-  mSrc.mPos = codeStart; // rewind to beginning of actual code
-  // now run the code
-  setState(&SourceProcessor::s_body);
-  startOfBodyCode();
-  #else
   // declarations and script statements can be mixed.
   // - when compiling, we just capture the declaration and ignore everything else
   // - when running, do the opposite: skip the (global) declarations and execute the rest
   // Thus: body code starts right at the beginning (but we are skipping when this is a compiling run)
   setState(&SourceProcessor::s_body);
   startOfBodyCode();
-  #endif
 }
 
 
@@ -4154,11 +4111,7 @@ void SourceProcessor::defineTrigger(bool aGlobal)
     return;
   }
   CompiledTriggerPtr trigger;
-  #if DECLARATION_SEPARATED
-  if (!compiling() || declaring()) // globally declared triggers/handlers must be inititialized at compilation already
-  #else
   if (!compiling()) // all handlers are context local and captured not before actually executed
-  #endif
   {
     trigger = new CompiledTrigger("trigger", getTriggerAndHandlerMainContext());
     mResult = captureCode(trigger);
@@ -4251,12 +4204,8 @@ void SourceProcessor::defineHandler(bool aGlobal)
   // - mPoppedPos points to the opening '{' of the body
   // - src.pos is after the closing '}' of the body
   // - olderResult is the trigger, mode already set
-  #if DECLARATION_SEPARATED
-  if (!compiling() || declaring()) // globally declared handlers must be inititialized at compilation already
-  #else
-  if (compiling()==aGlobal) // global handlers are stored when compiling, all others when running
-  #endif
-  {
+  if (compiling()==aGlobal) {
+    // global handlers are stored when compiling, all others when running
     CompiledHandlerPtr handler = new CompiledHandler("handler", getTriggerAndHandlerMainContext());
     mResult = captureCode(handler); // get the code first, so we can execute it in the trigger init
     handler->installAndInitializeTrigger(mOlderResult);
@@ -4506,13 +4455,8 @@ void SourceProcessor::processStatement()
     if (uequals(mIdentifier, "global")) {
       mSrc.skipNonCode();
       if (mSrc.checkForIdentifier("function")) {
-        #if !DECLARATION_SEPARATED
         processFunction(true); // global function
         return;
-        #else
-        exitWithSyntaxError("global function declarations must be made before first script statement");
-        return;
-        #endif
       }
       if (mSrc.checkForIdentifier("on")) {
         // explicitly global handler
@@ -4522,7 +4466,6 @@ void SourceProcessor::processStatement()
       globvar = true;
     }
     if (globvar || uequals(mIdentifier, "glob")) {
-      #if !DECLARATION_SEPARATED
       // global variable
       // - during compilation run, initialisation makes sense
       // - when running, encountering a glob only ensures the var exists, but does NOT assign it.
@@ -4537,11 +4480,6 @@ void SourceProcessor::processStatement()
       // - To meet both goals, the new keyword "default" now can initialize variables at "compile" time
       processVarDefs(lvalue|create|global, false);
       return;
-      #else
-      // when running, encountering a glob only ensures the var exists, but does NOT assign it.
-      processVarDefs(lvalue|create|global, false, false);
-      return;
-      #endif
     }
     if (uequals(mIdentifier, "let")) {
       // let is not a vardef (var needs to exist)
@@ -4565,13 +4503,8 @@ void SourceProcessor::processStatement()
     }
     // check handler definition within script code (needed when trigger expression wants to refer to run-time created objects)
     if (uequals(mIdentifier, "on")) {
-      #if DECLARATION_SEPARATED
-      // Note: global on handlers are captured in s_declarations, so encountering one here must be a local one
-      processOnHandler(false);
-      #else
       // all handlers not explicitly declared global are local/context based handlers now
       processOnHandler(false);
-      #endif
       return;
     }
     // just check to give sensible error message
@@ -4580,13 +4513,8 @@ void SourceProcessor::processStatement()
       return;
     }
     if (uequals(mIdentifier, "function")) {
-      #if !DECLARATION_SEPARATED
       processFunction(true); // global function
       return;
-      #else
-      exitWithSyntaxError("global function declarations must be made before first script statement");
-      return;
-      #endif
     }
     // identifier we've parsed above is not a keyword, rewind cursor
     mSrc.mPos = memPos;
@@ -4626,13 +4554,6 @@ void SourceProcessor::processVarDefs(TypeInfo aVarFlags, bool aAllowAssignment)
     }
     // initialize with a value (when executing, not at compiling, so leave mSkipping untouched)
     mPendingOperation = op; // remember for s_assignExpression to check when we have the lvalue
-    #if !DECLARATION_SEPARATED
-    if ((aVarFlags & global) && !compiling()) {
-      // skip (initialisation) expression evaluation for global variables when running,
-      // these were already processed at compiling
-      mSkipping = true; // until pop at end of statement
-    }
-    #endif
     setState(&SourceProcessor::s_assignExpression);
     memberByIdentifier(aVarFlags);
     return;
@@ -5752,30 +5673,21 @@ ScriptObjPtr ScriptCompiler::compile(SourceContainerPtr aSource, CompiledCodePtr
   // set up starting point
   #if P44SCRIPT_FULL_SUPPORT
   SourceCursor codeStart = aSource->getCursor();
-  #if DECLARATION_SEPARATED
-  if ((aParsingMode & (sourcecode|checking))==0) {
-    // Shortcut for non-checked expression and scriptbody: no need to "compile"
-    mBodyRef = codeStart;
+  // could contain declarations, must scan these now
+  setCursor(codeStart);
+  aParsingMode = (aParsingMode & ~runModeMask) | scanning | (aParsingMode&checking); // compiling only, with optional checking
+  initProcessing(aParsingMode);
+  bool completed = false;
+  setCompletedCB(boost::bind(&flagSetter,&completed));
+  mCompileForContext = aMainContext; // set for compiling other scriptlets (triggers, handlers) into the same context
+  start();
+  mCompileForContext.reset(); // release
+  if (!completed) {
+    // the compiler must complete synchronously!
+    return new ErrorValue(ScriptError::Internal, "Fatal: compiler execution not synchronous!");
   }
-  else
-  #endif // DECLARATION_SEPARATED
-  {
-    // could contain declarations, must scan these now
-    setCursor(codeStart);
-    aParsingMode = (aParsingMode & ~runModeMask) | scanning | (aParsingMode&checking); // compiling only, with optional checking
-    initProcessing(aParsingMode);
-    bool completed = false;
-    setCompletedCB(boost::bind(&flagSetter,&completed));
-    mCompileForContext = aMainContext; // set for compiling other scriptlets (triggers, handlers) into the same context
-    start();
-    mCompileForContext.reset(); // release
-    if (!completed) {
-      // the compiler must complete synchronously!
-      return new ErrorValue(ScriptError::Internal, "Fatal: compiler execution not synchronous!");
-    }
-    if (mResult && mResult->isErr()) {
-      return mResult;
-    }
+  if (mResult && mResult->isErr()) {
+    return mResult;
   }
   #endif // P44SCRIPT_FULL_SUPPORT
   if (aIntoCodeObj) {
@@ -5788,14 +5700,6 @@ ScriptObjPtr ScriptCompiler::compile(SourceContainerPtr aSource, CompiledCodePtr
 #if P44SCRIPT_FULL_SUPPORT
 void ScriptCompiler::startOfBodyCode()
 {
-  #if DECLARATION_SEPARATED
-  mBodyRef = mSrc; // rest of source code is body
-  if ((mEvaluationFlags&checking)==0) {
-    complete(new AnnotatedNullValue("compiled"));
-    return;
-  }
-  // we want a full syntax scan, continue skipping
-  #endif
   inherited::startOfBodyCode();
 }
 #endif
