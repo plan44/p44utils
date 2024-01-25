@@ -3782,6 +3782,22 @@ void SourceProcessor::s_exprLeftSide()
 }
 
 
+void SourceProcessor::s_assignDefault()
+{
+  // when accessed with onlycreate (default value), we do not get a result if the var already existed
+  if (mResult && mResult->hasType(lvalue)) {
+    // we have a lvalue result, which means the var was created right now (as we had createonly flag set)
+    // -> proceed with assignment
+    s_assignExpression();
+    return;
+  }
+  // we will not need to assign anything, silently skip the expression
+  mSkipping = true; // until end of statement
+  resumeAt(&SourceProcessor::s_expression);
+}
+
+
+
 void SourceProcessor::s_assignExpression()
 {
   FOCUSLOGSTATE;
@@ -4479,11 +4495,11 @@ void SourceProcessor::processStatement()
     }
     // Check variable definition keywords
     if (uequals(mIdentifier, "var")) {
-      processVarDefs(lvalue+create, true, false);
+      processVarDefs(lvalue+create, true);
       return;
     }
     if (uequals(mIdentifier, "threadvar")) {
-      processVarDefs(lvalue+create+threadlocal, true, false);
+      processVarDefs(lvalue+create+threadlocal, true);
       return;
     }
     bool globvar = false;
@@ -4508,13 +4524,18 @@ void SourceProcessor::processStatement()
     if (globvar || uequals(mIdentifier, "glob")) {
       #if !DECLARATION_SEPARATED
       // global variable
-      // - during compilation run, (re-)initialisation is allowed
+      // - during compilation run, initialisation makes sense
       // - when running, encountering a glob only ensures the var exists, but does NOT assign it.
-      //   Note that this behaviour needs to stay for compatibility reasons, but is a bit difficult
-      //   to understand when reading the code
-      // TODO: maybe we should forbid assignments in glob vardefs in general?
-      //   But then, maybe not - having the chance to set glob values at compile time is useful, too.
-      processVarDefs(lvalue|create|global, true, compiling());
+      //   Note that this behaviour (not assigning again) is vital for globals which might serve
+      //   as interface between scripts which cannot know if their counterparts has run or not (yet),
+      //   so may want to make sure the global is created with a default value, but not overwrite it
+      //   if already existing.
+      // - After some back and forth at this place (see git history) the conclusion is
+      //   a) initializing globals at compile time is useful
+      //   b) doing so with the same syntax as assiging `glob x = xyz` is HIGHLY misleading
+      //      so we do NOT want to support that.
+      // - To meet both goals, the new keyword "default" now can initialize variables at "compile" time
+      processVarDefs(lvalue|create|global, false);
       return;
       #else
       // when running, encountering a glob only ensures the var exists, but does NOT assign it.
@@ -4529,7 +4550,7 @@ void SourceProcessor::processStatement()
       // TODO: maybe make sure the following expression IS an assigment, but that's too complicated for now
     }
     if (uequals(mIdentifier, "unset")) {
-      processVarDefs(unset, false, false);
+      processVarDefs(unset, false);
       return;
     }
     // check local function definition
@@ -4579,10 +4600,9 @@ expr:
 }
 
 
-void SourceProcessor::processVarDefs(TypeInfo aVarFlags, bool aAllowInitializer, bool aDeclaration)
+void SourceProcessor::processVarDefs(TypeInfo aVarFlags, bool aAllowAssignment)
 {
   mSrc.skipNonCode();
-  if (!aDeclaration && (aVarFlags & global)) aVarFlags |= onlycreate; // global non-declarations (encountered while running the script) must only be created, never assigned
   // one of the variable definition keywords -> an identifier must follow
   if (!mSrc.parseIdentifier(mIdentifier)) {
     exitWithSyntaxError("missing variable name after '%s'", mIdentifier.c_str());
@@ -4596,16 +4616,15 @@ void SourceProcessor::processVarDefs(TypeInfo aVarFlags, bool aAllowInitializer,
     assignOrAccess(none);
     return;
   }
-  if (aDeclaration) mSkipping = false; // must enable processing now for actually assigning globals.
   mSrc.skipNonCode();
   ScriptOperator op = mSrc.parseOperator();
   // with initializer ?
   if (op==op_assign || op==op_assignOrEq) {
-    if (!aAllowInitializer) {
-      exitWithSyntaxError("no initializer allowed");
+    if (!aAllowAssignment) {
+      exitWithSyntaxError("no assigmnent allowed, use 'default' for initializing globals");
       return;
     }
-    // initializing with a value
+    // initialize with a value (when executing, not at compiling, so leave mSkipping untouched)
     mPendingOperation = op; // remember for s_assignExpression to check when we have the lvalue
     #if !DECLARATION_SEPARATED
     if ((aVarFlags & global) && !compiling()) {
@@ -4619,6 +4638,17 @@ void SourceProcessor::processVarDefs(TypeInfo aVarFlags, bool aAllowInitializer,
     return;
   }
   else if (op==op_none) {
+    // check for "default" keyword
+    if (mSrc.checkForIdentifier("default")) {
+      // default means assigning when not existing before
+      // - default values are processed only at compile time.
+      mSkipping = !compiling();
+      mPendingOperation = op_assign; // needed for s_assignExpression to check when we have the lvalue
+      setState(&SourceProcessor::s_assignDefault);
+      // only create, do not use existing value
+      memberByIdentifier(aVarFlags|onlycreate);
+      return;
+    }
     // just create and initialize with null (if not already existing)
     if (aVarFlags & global) {
       mResult = new EventPlaceholderNullValue("uninitialized global");

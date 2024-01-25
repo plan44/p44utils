@@ -2581,6 +2581,7 @@ namespace p44 { namespace P44Script {
     void s_exprFirstTerm(); ///< first term of an expression
     void s_exprLeftSide(); ///< left side of an ongoing expression
     void s_exprRightSide(); ///< further terms of an expression
+    void s_assignDefault(); ///< assign a default expression when result is an lvalue, otherwise ignore expression
     void s_assignExpression(); ///< evaluate expression and assign to (lvalue) result
     void s_compoundAssignment(); ///< evaluate rest of compound assignment, result is valid first part of the expression
     void s_assignOlder(); ///< assign older result to freshly obtained (lvalue) result, special language construct only!
@@ -2595,7 +2596,7 @@ namespace p44 { namespace P44Script {
     void s_oneStatement(); ///< a single statement, exits when ';' is encountered
     void s_body(); ///< at the body level of a function or script (end of expression ends body)
     void processStatement(); ///< common processing for statement states
-    void processVarDefs(TypeInfo aVarFlags, bool aAllowInitializer, bool aDeclaration); ///< common processing of variable declarations/assignments
+    void processVarDefs(TypeInfo aVarFlags, bool aAllowAssignment); ///< common processing of variable declarations/assignments
     // - if/then/else
     void s_ifCondition(); ///< executing the condition of an if
     void s_ifTrueStatement(); ///< executing the if statement
