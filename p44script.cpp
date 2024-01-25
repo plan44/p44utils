@@ -3909,6 +3909,8 @@ void SourceProcessor::s_assignLvalue()
     mOlderResult->assignLValue(boost::bind(&SourceProcessor::resume, this, _1), mResult);
     return;
   }
+  // skipping: forget result
+  mResult.reset();
   resume();
 }
 
