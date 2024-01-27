@@ -8531,7 +8531,7 @@ static void await_func(BuiltinFunctionContextPtr f)
   do {
     ScriptObjPtr v = f->arg(ai);
     ScriptObjPtr cv = v->calculationValue(); // e.g. threadVars detect stopped thread only when being asked for calculation value first
-    if (v->isEventSource()) {
+    if (!(v->isEventSource())) {
       // must be last arg, and not first arg, and numeric to be timeout, otherwise just return it
       if (ai>0 && ai==f->numArgs()-1 && f->arg(ai)->hasType(numeric)) {
         to = f->arg(ai)->doubleValue()*Second;
