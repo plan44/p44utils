@@ -112,7 +112,7 @@ namespace p44 {
     /// @param aNumBytes max number of bytes to receive
     /// @param aBytes pointer to buffer to store received bytes
     /// @param aError reference to ErrorPtr. Will be left untouched if no error occurs
-    /// @return number ob bytes actually read
+    /// @return number of bytes actually read
     virtual size_t receiveBytes(size_t aNumBytes, uint8_t *aBytes, ErrorPtr &aError);
 
     /// Can be called from receive handler when setReceiveHandler() was set up with a delimiter

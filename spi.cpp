@@ -1087,7 +1087,7 @@ static const size_t spidevice_numargs = sizeof(spidevice_args)/sizeof(BuiltInArg
 static void spidevice_func(BuiltinFunctionContextPtr f)
 {
   #if ENABLE_APPLICATION_SUPPORT
-  if (Application::sharedApplication()->userLevel()<2) { // user level >=1 is needed for IO access
+  if (Application::sharedApplication()->userLevel()<2) { // user level >=2 is needed for IO access
     f->finish(new ErrorValue(ScriptError::NoPrivilege, "no IO privileges"));
   }
   #endif
