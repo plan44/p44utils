@@ -655,9 +655,10 @@ void EventPlaceholderNullValue::passSinksToReplacementSource(ScriptObjPtr aRepla
 }
 
 
-OneShotEventNullValue::OneShotEventNullValue(EventSource *aEventSource, string aAnnotation) :
+OneShotEventNullValue::OneShotEventNullValue(EventSource *aEventSource, string aAnnotation, EventFilterPtr aFilter) :
   inherited(aAnnotation),
-  mEventSource(aEventSource)
+  mEventSource(aEventSource),
+  mFilter(aFilter)
 {
 }
 

@@ -619,6 +619,7 @@ namespace p44 { namespace P44Script {
 
     /// make ready for deletion, break links that might be parts of retain loops
     /// @note this is used before freeing a object which originatesFrom() a given source and generally
+    ///   before trying to delete objects.
     virtual void deactivate() {};
 
     /// @return true if this object's definition/declaration is floating, i.e. when it carries its own source code
@@ -829,14 +830,17 @@ namespace p44 { namespace P44Script {
   /// a NULL value which represents a one-shot event source. The actual value only exists
   /// when an event occurs, and is delivered to the event sink, which then freezes it
   /// for trigger expression evaluation.
+  /// Optionally, the placeholder can also hold a filter
   class OneShotEventNullValue : public AnnotatedNullValue
   {
     typedef AnnotatedNullValue inherited;
     EventSource *mEventSource;
+    EventFilterPtr mFilter;
   protected:
-    virtual EventFilterPtr eventFilter() { return EventFilterPtr(); }
+    virtual EventFilterPtr eventFilter() { return mFilter; }
   public:
-    OneShotEventNullValue(EventSource *aEventSource, string aAnnotation = "no event now");
+    OneShotEventNullValue(EventSource *aEventSource, string aAnnotation = "no event now", EventFilterPtr aFilter = nullptr);
+    virtual void deactivate() P44_OVERRIDE { mFilter.reset(); }
     virtual TypeInfo getTypeInfo() const P44_OVERRIDE { return null|oneshot|freezable|keeporiginal; }; ///< when not delivered as event, the value is always NULL. When delivered as event, it is to be kept as-is!
     virtual bool isEventSource() const P44_OVERRIDE;
     virtual void registerForFilteredEvents(EventSink* aEventSink, intptr_t aRegId = 0) P44_OVERRIDE;
