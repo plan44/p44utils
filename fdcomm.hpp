@@ -65,6 +65,7 @@ namespace p44 {
     string mReceiveBuffer;
     string mTransmitBuffer;
     size_t mDelimiterPos;
+    bool mUnknownReadyBytes;
 
   public:
 
@@ -76,7 +77,12 @@ namespace p44 {
 
     /// Set file descriptor
     /// @param aFd the file descriptor to monitor, -1 to cancel monitoring
-    void setFd(int aFd);
+    /// @param aUnknownReadyBytes if set, this indicates the FD might not be able to correctly
+    ///   report the number of bytes, and the receive handler should be called even if
+    ///   the number of bytes reported by FIONREAD at POLLIN is zero. The handler must NOT
+    ///   rely on numBytesReady() and just read what's available.
+    /// @note aFd should be non-blocking when aUnknownReadyBytes is set
+    void setFd(int aFd, bool aUnknownReadyBytes = false);
 
     /// Stop monitoring (unregister MainLoop callbacks) and close the file descriptor
     void stopMonitoringAndClose();

@@ -41,7 +41,8 @@ FdComm::FdComm(MainLoop &aMainLoop) :
   mDataFd(-1),
   mMainLoop(aMainLoop),
   mDelimiter(0),
-  mDelimiterPos(string::npos)
+  mDelimiterPos(string::npos),
+  mUnknownReadyBytes(false)
 {
 }
 
@@ -53,8 +54,9 @@ FdComm::~FdComm()
 }
 
 
-void FdComm::setFd(int aFd)
+void FdComm::setFd(int aFd, bool aUnknownReadyBytes)
 {
+  mUnknownReadyBytes = aUnknownReadyBytes;
   if (mDataFd!=aFd) {
     if (mDataFd>=0) {
       // unregister previous fd
@@ -99,10 +101,16 @@ bool FdComm::dataMonitorHandler(int aFd, int aPollFlags)
   FOCUSLOG("FdComm::dataMonitorHandler(time==%lld, fd==%d, pollflags==0x%X)", MainLoop::now(), aFd, aPollFlags);
   // Note: test POLLIN first, because we might get a POLLHUP in parallel - so make sure we process data before hanging up
   if ((aPollFlags & POLLIN) && mReceiveHandler) {
+    size_t bytes = 0;
+    if (!mUnknownReadyBytes) {
+      bytes = numBytesReady();
+      FOCUSLOG("- POLLIN with %zd bytes ready", bytes);
+    }
+    else {
+      FOCUSLOG("- POLLIN with UNKNOWN amount of data ready");
+    }
     // Note: on linux a socket closed server side does not return POLLHUP, but POLLIN with no data
-    size_t bytes = numBytesReady();
-    FOCUSLOG("- POLLIN with %zd bytes ready", bytes);
-    if (bytes>0) {
+    if (bytes>0 || mUnknownReadyBytes) {
       // check if in delimited mode (e.g. line by line)
       if (mDelimiter) {
         // receive into buffer
@@ -297,8 +305,14 @@ size_t FdComm::receiveBytes(size_t aNumBytes, uint8_t *aBytes, ErrorPtr &aError)
 ErrorPtr FdComm::receiveAndAppendToString(string &aString, ssize_t aMaxBytes)
 {
   ErrorPtr err;
-  size_t max = numBytesReady();
-  if (aMaxBytes>0 && max>(size_t)aMaxBytes) max = (size_t)aMaxBytes;
+  size_t max;
+  if (mUnknownReadyBytes) {
+    max = aMaxBytes;
+  }
+  else {
+    max = numBytesReady();
+    if (aMaxBytes>0 && max>(size_t)aMaxBytes) max = (size_t)aMaxBytes;
+  }
   uint8_t *buf = new uint8_t[max];
   size_t b = receiveBytes(max, buf, err);
   if (Error::isOK(err)) {
@@ -370,7 +384,7 @@ void FdStringCollector::dataExceptionHandler(int aFd, int aPollFlags)
   FOCUSLOG("FdStringCollector::dataExceptionHandler(fd==%d, pollflags==0x%X), numBytesReady()=%d", aFd, aPollFlags, numBytesReady());
   if ((aPollFlags & (POLLHUP|POLLIN|POLLERR)) != 0) {
     // - other end has closed connection (POLLHUP)
-    // - linux socket was closed server side and does not return POLLHUP, but POLLIN with no data
+    // - linux socket was closed server side and does not return POLLHUP, but POLLIN with no data (and mUnknownReceivedBytes is not set)
     // - error (POLLERR)
     // end polling for data
     setReceiveHandler(NoOP);
