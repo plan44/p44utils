@@ -2871,7 +2871,8 @@ namespace p44 { namespace P44Script {
     void triggerDidEvaluate(EvaluationFlags aEvalMode, ScriptObjPtr aResult);
 
     /// schedule the next evaluation according to consolidated result of all updateNextEval() calls
-    void scheduleNextEval();
+    /// @param aEvaluationFlags the evaluation flags to use for the evaluation
+    void scheduleNextEval(EvaluationFlags aEvaluationFlags);
 
   };
 

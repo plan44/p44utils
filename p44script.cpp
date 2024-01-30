@@ -5341,6 +5341,22 @@ void CompiledTrigger::processEvent(ScriptObjPtr aEvent, EventSource &aSource, in
     mFrozenEventPos = (SourcePos::UniquePos)aRegId;
     mFrozenEventValue = aEvent;
   }
+  // for event triggering, mHoldoff limits event rate and postpones this event's evaluation to later
+  // if the previous evaluation is not yet mHoldOff since.
+  // Note: if the event source fires again within the holdoff period, it will supersede the currently
+  //   frozen value. If the source does not fire again, the most recent frozen value will get delivered
+  //   after the holdoff period
+  if (mHoldOff>0) {
+    MLMicroSeconds now = MainLoop::now();
+    MLMicroSeconds earliest = mMostRecentEvaluation+mHoldOff;
+    if (mMostRecentEvaluation!=Never && now<earliest) {
+      // do not evaluate right now, but postpone
+      OLOG(LOG_INFO, "%s: got next event before holdoff passed -> postpone delivery by %lld mS", getIdentifier().c_str(), (earliest-now)/MilliSecond);
+      updateNextEval(earliest);
+      scheduleNextEval(triggered|timed);
+      return;
+    }
+  }
   triggerEvaluation(triggered);
 }
 
@@ -5470,7 +5486,7 @@ void CompiledTrigger::triggerDidEvaluate(EvaluationFlags aEvalMode, ScriptObjPtr
   mFrozenEventPos = 0;
   mOneShotEval = false;
   // schedule next timed evaluation if one is needed
-  scheduleNextEval();
+  scheduleNextEval(timed);
   // callback (always, even when initializing)
   if (doTrigger && mTriggerCB) {
     FOCUSLOG("\n---------- FIRING Trigger        : result = %s", ScriptObj::describe(aResult).c_str());
@@ -5480,12 +5496,12 @@ void CompiledTrigger::triggerDidEvaluate(EvaluationFlags aEvalMode, ScriptObjPtr
 }
 
 
-void CompiledTrigger::scheduleNextEval()
+void CompiledTrigger::scheduleNextEval(EvaluationFlags aEvaluationFlags)
 {
   if (mNextEvaluation!=Never) {
     OLOG(LOG_DEBUG, "%s: re-evaluation scheduled for %s: '%s'", getIdentifier().c_str(), MainLoop::string_mltime(mNextEvaluation, 3).c_str(), mCursor.displaycode(70).c_str());
     mReEvaluationTicket.executeOnceAt(
-      boost::bind(&CompiledTrigger::triggerEvaluation, this, (EvaluationFlags)timed),
+      boost::bind(&CompiledTrigger::triggerEvaluation, this, aEvaluationFlags),
       mNextEvaluation
     );
     mNextEvaluation = Never; // prevent re-triggering without calling updateNextEval()
@@ -5496,7 +5512,7 @@ void CompiledTrigger::scheduleNextEval()
 void CompiledTrigger::scheduleEvalNotLaterThan(const MLMicroSeconds aLatestEval)
 {
   if (updateNextEval(aLatestEval)) {
-    scheduleNextEval();
+    scheduleNextEval(timed);
   }
 }
 
