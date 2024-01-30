@@ -542,8 +542,7 @@ void DigitalInputEventObj::registerForFilteredEvents(EventSink* aEventSink, intp
 
 // detectchanges([debouncetime [, pollinterval]])
 // detectchanges(null)
-static const BuiltInArgDesc detectchanges_args[] = { { numeric|optionalarg }, { numeric|optionalarg } };
-static const size_t detectchanges_numargs = sizeof(detectchanges_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(detectchanges, { numeric|optionalarg }, { numeric|optionalarg } );
 static void detectchanges_func(BuiltinFunctionContextPtr f)
 {
   DigitalIoObj* d = dynamic_cast<DigitalIoObj*>(f->thisObj().get());
@@ -577,8 +576,7 @@ static void toggle_func(BuiltinFunctionContextPtr f)
 
 // state() // get state (has event source)
 // state(newstate) // set state
-static const BuiltInArgDesc state_args[] = { { numeric|optionalarg } };
-static const size_t state_numargs = sizeof(state_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(state, { numeric|optionalarg } );
 static void state_func(BuiltinFunctionContextPtr f)
 {
   DigitalIoObj* d = dynamic_cast<DigitalIoObj*>(f->thisObj().get());
@@ -596,9 +594,9 @@ static void state_func(BuiltinFunctionContextPtr f)
 
 
 static const BuiltinMemberDescriptor digitalioFunctions[] = {
-  { "state", executable|numeric, state_numargs, state_args, &state_func },
-  { "toggle", executable|numeric, 0, NULL, &toggle_func },
-  { "detectchanges", executable|numeric, detectchanges_numargs, detectchanges_args, &detectchanges_func },
+  FUNC_DEF_W_ARG(state, executable|numeric),
+  FUNC_DEF_NOARG(toggle, executable|numeric),
+  FUNC_DEF_W_ARG(detectchanges, executable|numeric),
   { NULL } // terminator
 };
 
@@ -632,8 +630,7 @@ DigitalIoPtr DigitalIoObj::digitalIoFromArg(ScriptObjPtr aArg, bool aOutput, boo
 
 // value() // get value
 // value(val) // set value
-static const BuiltInArgDesc value_args[] = { { numeric|optionalarg } };
-static const size_t value_numargs = sizeof(value_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(value, { numeric|optionalarg } );
 static void value_func(BuiltinFunctionContextPtr f)
 {
   DigitalIoBusObj* b = dynamic_cast<DigitalIoBusObj *>(f->thisObj().get());
@@ -669,9 +666,9 @@ static void buswidth_func(BuiltinFunctionContextPtr f)
 
 
 static const BuiltinMemberDescriptor digitalIoBusFunctions[] = {
-  { "value", executable|numeric, value_numargs, value_args, &value_func },
-  { "buswidth", executable|numeric, 0, NULL, &buswidth_func },
-  { "maxvalue", executable|numeric, 0, NULL, &maxvalue_func },
+  FUNC_DEF_W_ARG(value, executable|numeric),
+  FUNC_DEF_NOARG(buswidth, executable|numeric),
+  FUNC_DEF_NOARG(maxvalue, executable|numeric),
   { NULL } // terminator
 };
 
@@ -687,8 +684,7 @@ DigitalIoBusObj::DigitalIoBusObj(DigitalIoBusPtr aDigitalIoBus) :
 
 
 // blink([period [, onpercent [, timeout]]])
-static const BuiltInArgDesc blink_args[] = { { numeric|optionalarg }, { numeric|optionalarg }, { numeric|optionalarg } };
-static const size_t blink_numargs = sizeof(blink_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(blink, { numeric|optionalarg }, { numeric|optionalarg }, { numeric|optionalarg } );
 static void blink_func(BuiltinFunctionContextPtr f)
 {
   IndicatorObj* i = dynamic_cast<IndicatorObj*>(f->thisObj().get());
@@ -706,8 +702,7 @@ static void blink_func(BuiltinFunctionContextPtr f)
 
 // on() // just turn on
 // on(timeout) // on for a certain time
-static const BuiltInArgDesc on_args[] = { { numeric|optionalarg } };
-static const size_t on_numargs = sizeof(on_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(on, { numeric|optionalarg } );
 static void on_func(BuiltinFunctionContextPtr f)
 {
   IndicatorObj* i = dynamic_cast<IndicatorObj*>(f->thisObj().get());
@@ -744,10 +739,10 @@ static void stop_func(BuiltinFunctionContextPtr f)
 
 
 static const BuiltinMemberDescriptor indicatorFunctions[] = {
-  { "blink", executable|numeric, blink_numargs, blink_args, &blink_func },
-  { "on", executable|numeric, on_numargs, on_args, &on_func },
-  { "off", executable|numeric, 0, NULL, &off_func },
-  { "stop", executable|numeric, 0, NULL, &stop_func },
+  FUNC_DEF_W_ARG(blink, executable|numeric),
+  FUNC_DEF_W_ARG(on, executable|numeric),
+  FUNC_DEF_NOARG(off, executable|numeric),
+  FUNC_DEF_NOARG(stop, executable|numeric),
   { NULL } // terminator
 };
 
@@ -761,8 +756,7 @@ IndicatorObj::IndicatorObj(IndicatorOutputPtr aIndicator) :
 
 
 // digitalio(pinspec, isOutput [, initialValue])
-static const BuiltInArgDesc digitalio_args[] = { { text }, { numeric }, { numeric|optionalarg } };
-static const size_t digitalio_numargs = sizeof(digitalio_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(digitalio, { text }, { numeric }, { numeric|optionalarg } );
 static void digitalio_func(BuiltinFunctionContextPtr f)
 {
   #if ENABLE_APPLICATION_SUPPORT
@@ -779,8 +773,7 @@ static void digitalio_func(BuiltinFunctionContextPtr f)
 
 
 // digitalbus(pinspecs, areOutputs [, initialPinValues])
-static const BuiltInArgDesc digitalbus_args[] = { { text }, { numeric }, { numeric|optionalarg } };
-static const size_t digitalbus_numargs = sizeof(digitalbus_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(digitalbus, { text }, { numeric }, { numeric|optionalarg } );
 static void digitalbus_func(BuiltinFunctionContextPtr f)
 {
   #if ENABLE_APPLICATION_SUPPORT
@@ -798,8 +791,7 @@ static void digitalbus_func(BuiltinFunctionContextPtr f)
 
 
 // indicator(pinspec [, initialValue])
-static const BuiltInArgDesc indicator_args[] = { { text }, { numeric|optionalarg } };
-static const size_t indicator_numargs = sizeof(indicator_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(indicator, { text }, { numeric|optionalarg } );
 static void indicator_func(BuiltinFunctionContextPtr f)
 {
   #if ENABLE_APPLICATION_SUPPORT
@@ -815,9 +807,9 @@ static void indicator_func(BuiltinFunctionContextPtr f)
 
 
 static const BuiltinMemberDescriptor digitalioGlobals[] = {
-  { "digitalio", executable|null, digitalio_numargs, digitalio_args, &digitalio_func },
-  { "digitalbus", executable|null, digitalbus_numargs, digitalbus_args, &digitalbus_func },
-  { "indicator", executable|null, indicator_numargs, indicator_args, &indicator_func },
+  FUNC_DEF_W_ARG(digitalio, executable|null),
+  FUNC_DEF_W_ARG(digitalbus, executable|null),
+  FUNC_DEF_W_ARG(indicator, executable|null),
   { NULL } // terminator
 };
 

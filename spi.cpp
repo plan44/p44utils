@@ -946,8 +946,7 @@ SPIDeviceObjPtr SPIDevice::representingScriptObj()
 
 
 // regread(reg [,type, [, count])
-static const BuiltInArgDesc regread_args[] = { { numeric }, { text|optionalarg } };
-static const size_t regread_numargs = sizeof(regread_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(regread, { numeric }, { text|optionalarg } );
 static void regread_func(BuiltinFunctionContextPtr f)
 {
   SPIDeviceObj* o = dynamic_cast<SPIDeviceObj*>(f->thisObj().get());
@@ -990,8 +989,7 @@ static void regread_func(BuiltinFunctionContextPtr f)
 
 
 // regwrite(reg, value [,type])
-static const BuiltInArgDesc regwrite_args[] = { { numeric }, { text|numeric }, { text|optionalarg } };
-static const size_t regwrite_numargs = sizeof(regwrite_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(regwrite, { numeric }, { text|numeric }, { text|optionalarg } );
 static void regwrite_func(BuiltinFunctionContextPtr f)
 {
   SPIDeviceObj* o = dynamic_cast<SPIDeviceObj*>(f->thisObj().get());
@@ -1033,8 +1031,7 @@ static void regwrite_func(BuiltinFunctionContextPtr f)
 
 
 // writeread(bytes_to_write [, num_bytes_to_read [, fullduplex]])
-static const BuiltInArgDesc writeread_args[] = { { text }, { numeric }, { numeric|optionalarg } };
-static const size_t writeread_numargs = sizeof(writeread_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(writeread, { text }, { numeric }, { numeric|optionalarg } );
 static void writeread_func(BuiltinFunctionContextPtr f)
 {
   SPIDeviceObj* o = dynamic_cast<SPIDeviceObj*>(f->thisObj().get());
@@ -1066,9 +1063,9 @@ static void writeread_func(BuiltinFunctionContextPtr f)
 
 
 static const BuiltinMemberDescriptor spiDeviceMembers[] = {
-  { "regread", executable|error|text|numeric, regread_numargs, regread_args, &regread_func },
-  { "regwrite", executable|error|text|numeric, regwrite_numargs, regwrite_args, &regwrite_func },
-  { "writeread", executable|error|text, writeread_numargs, writeread_args, &writeread_func },
+  FUNC_DEF_W_ARG(regread, executable|error|text|numeric),
+  FUNC_DEF_W_ARG(regwrite, executable|error|text|numeric),
+  FUNC_DEF_W_ARG(writeread, executable|error|text),
   { NULL } // terminator
 };
 
@@ -1082,8 +1079,7 @@ SPIDeviceObj::SPIDeviceObj(SPIDevicePtr aSPIDevice) :
 
 
 // spidevice(busnumber, devicespec)
-static const BuiltInArgDesc spidevice_args[] = { { numeric }, { text } };
-static const size_t spidevice_numargs = sizeof(spidevice_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(spidevice, { numeric }, { text } );
 static void spidevice_func(BuiltinFunctionContextPtr f)
 {
   #if ENABLE_APPLICATION_SUPPORT
@@ -1102,7 +1098,7 @@ static void spidevice_func(BuiltinFunctionContextPtr f)
 
 
 static const BuiltinMemberDescriptor spiGlobals[] = {
-  { "spidevice", executable|null, spidevice_numargs, spidevice_args, &spidevice_func },
+  FUNC_DEF_W_ARG(spidevice, executable|null),
   { NULL } // terminator
 };
 

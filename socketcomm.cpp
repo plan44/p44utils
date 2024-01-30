@@ -928,8 +928,7 @@ using namespace P44Script;
 
 
 // send(data)
-static const BuiltInArgDesc send_args[] = { { anyvalid } };
-static const size_t send_numargs = sizeof(send_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(send, { anyvalid } );
 static void send_func(BuiltinFunctionContextPtr f)
 {
   SocketObj* s = dynamic_cast<SocketObj*>(f->thisObj().get());
@@ -957,8 +956,8 @@ static void message_func(BuiltinFunctionContextPtr f)
 
 
 static const BuiltinMemberDescriptor socketFunctions[] = {
-  { "send", executable|error, send_numargs, send_args, &send_func },
-  { "message", executable|text|null, 0, NULL, &message_func },
+  FUNC_DEF_W_ARG(send, executable|error),
+  FUNC_DEF_NOARG(message, executable|text|null),
   { NULL } // terminator
 };
 
@@ -992,8 +991,7 @@ void SocketObj::gotData(ErrorPtr aError)
 
 
 // udpsocket(host, port, receive, nonlocal, broadcast)
-static const BuiltInArgDesc udpsocket_args[] = { { text }, { text|numeric }, { numeric|optionalarg }, { numeric|optionalarg }, { numeric|optionalarg } };
-static const size_t udpsocket_numargs = sizeof(udpsocket_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(udpsocket, { text }, { text|numeric }, { numeric|optionalarg }, { numeric|optionalarg }, { numeric|optionalarg } );
 static void udpsocket_func(BuiltinFunctionContextPtr f)
 {
   SocketCommPtr socket = new SocketComm();
@@ -1018,7 +1016,7 @@ static void udpsocket_func(BuiltinFunctionContextPtr f)
 }
 
 static const BuiltinMemberDescriptor socketGlobals[] = {
-  { "udpsocket", executable|null, udpsocket_numargs, udpsocket_args, &udpsocket_func },
+  FUNC_DEF_W_ARG(udpsocket, executable|null),
   { NULL } // terminator
 };
 

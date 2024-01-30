@@ -449,8 +449,7 @@ static void stop_func(BuiltinFunctionContextPtr f)
 #define DEFAULT_CURRENT_POLL_INTERVAL (333*MilliSecond)
 
 // currentsensor(sensor [, sampleinterval])
-static const BuiltInArgDesc currentsensor_args[] = { { text|objectvalue }, { numeric|optionalarg } };
-static const size_t currentsensor_numargs = sizeof(currentsensor_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(currentsensor, { text|objectvalue }, { numeric|optionalarg } );
 static void currentsensor_func(BuiltinFunctionContextPtr f)
 {
   DcMotorObj* dc = dynamic_cast<DcMotorObj*>(f->thisObj().get());
@@ -466,8 +465,7 @@ static void currentsensor_func(BuiltinFunctionContextPtr f)
 }
 
 // currentlimit(limit [, startuptime [, maxstartcurrent]])
-static const BuiltInArgDesc currentlimit_args[] = { { numeric }, { numeric|optionalarg }, { numeric|optionalarg } };
-static const size_t currentlimit_numargs = sizeof(currentlimit_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(currentlimit, { numeric }, { numeric|optionalarg }, { numeric|optionalarg } );
 static void currentlimit_func(BuiltinFunctionContextPtr f)
 {
   DcMotorObj* dc = dynamic_cast<DcMotorObj*>(f->thisObj().get());
@@ -484,8 +482,7 @@ static void currentlimit_func(BuiltinFunctionContextPtr f)
 #define DEFAULT_ENDSWITCH_DEBOUNCE_TIME (80*MilliSecond)
 
 // endswitches(positiveend, negativeend [, debouncetime [, pollinterval]])
-static const BuiltInArgDesc endswitches_args[] = { { text|objectvalue|null }, { text|objectvalue|optionalarg }, { numeric|optionalarg }, { numeric|optionalarg } };
-static const size_t endswitches_numargs = sizeof(endswitches_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(endswitches, { text|objectvalue|null }, { text|objectvalue|optionalarg }, { numeric|optionalarg }, { numeric|optionalarg } );
 static void endswitches_func(BuiltinFunctionContextPtr f)
 {
   DcMotorObj* dc = dynamic_cast<DcMotorObj*>(f->thisObj().get());
@@ -502,8 +499,7 @@ static void endswitches_func(BuiltinFunctionContextPtr f)
 
 
 // outputparams(scaling [, offset])
-static const BuiltInArgDesc outputparams_args[] = { { numeric }, { numeric|optionalarg } };
-static const size_t outputparams_numargs = sizeof(outputparams_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(outputparams, { numeric }, { numeric|optionalarg } );
 static void outputparams_func(BuiltinFunctionContextPtr f)
 {
   DcMotorObj* dc = dynamic_cast<DcMotorObj*>(f->thisObj().get());
@@ -514,8 +510,7 @@ static void outputparams_func(BuiltinFunctionContextPtr f)
 
 
 // power(power [, direction [, ramptime [, rampexponent]]])
-static const BuiltInArgDesc power_args[] = { { numeric }, { numeric|optionalarg }, { numeric|optionalarg }, { numeric|optionalarg } };
-static const size_t power_numargs = sizeof(power_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(power, { numeric }, { numeric|optionalarg }, { numeric|optionalarg }, { numeric|optionalarg } );
 static void power_func(BuiltinFunctionContextPtr f)
 {
   DcMotorObj* dc = dynamic_cast<DcMotorObj*>(f->thisObj().get());
@@ -533,13 +528,13 @@ static void power_func(BuiltinFunctionContextPtr f)
 
 
 static const BuiltinMemberDescriptor dcmotorFunctions[] = {
-  { "outputparams", executable|null, outputparams_numargs, outputparams_args, &outputparams_func },
-  { "endswitches", executable|null, endswitches_numargs, endswitches_args, &endswitches_func },
-  { "currentsensor", executable|null, currentsensor_numargs, currentsensor_args, &currentsensor_func },
-  { "currentlimit", executable|null, currentlimit_numargs, currentlimit_args, &currentlimit_func },
-  { "power", executable|null, power_numargs, power_args, &power_func },
-  { "status", executable|objectvalue, 0, NULL, &status_func },
-  { "stop", executable|null, 0, NULL, &stop_func },
+  FUNC_DEF_W_ARG(outputparams, executable|null),
+  FUNC_DEF_W_ARG(endswitches, executable|null),
+  FUNC_DEF_W_ARG(currentsensor, executable|null),
+  FUNC_DEF_W_ARG(currentlimit, executable|null),
+  FUNC_DEF_W_ARG(power, executable|null),
+  FUNC_DEF_NOARG(status, executable|objectvalue),
+  FUNC_DEF_NOARG(stop, executable|null),
   { NULL } // terminator
 };
 
@@ -555,8 +550,7 @@ DcMotorObj::DcMotorObj(DcMotorDriverPtr aDCMotor) :
 
 
 // dcmotor(output [, CWdirection [, CCWdirection]])
-static const BuiltInArgDesc dcmotor_args[] = { { text|objectvalue }, { text|objectvalue|optionalarg }, { text|objectvalue|optionalarg } };
-static const size_t dcmotor_numargs = sizeof(dcmotor_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(dcmotor, { text|objectvalue }, { text|objectvalue|optionalarg }, { text|objectvalue|optionalarg } );
 static void dcmotor_func(BuiltinFunctionContextPtr f)
 {
   AnalogIoPtr power = AnalogIoObj::analogIoFromArg(f->arg(0), true, 0);
@@ -572,7 +566,7 @@ static void dcmotor_func(BuiltinFunctionContextPtr f)
 
 
 static const BuiltinMemberDescriptor dcmotorGlobals[] = {
-  { "dcmotor", executable|null, dcmotor_numargs, dcmotor_args, &dcmotor_func },
+  FUNC_DEF_W_ARG(dcmotor, executable|null),
   { NULL } // terminator
 };
 

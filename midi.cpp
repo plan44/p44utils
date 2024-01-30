@@ -572,7 +572,7 @@ static void midibus_func(BuiltinFunctionContextPtr f)
 
 
 static const BuiltinMemberDescriptor midiGlobals[] = {
-  { "midibus", executable|null, midibus_numargs, midibus_args, &midibus_func },
+  FUNC_DEF_W_ARG(midibus, executable|null),
   { NULL } // terminator
 };
 

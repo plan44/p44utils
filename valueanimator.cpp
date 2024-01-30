@@ -405,8 +405,7 @@ double ValueAnimator::easeInOut(double aProgress, double aTuning)
 using namespace P44Script;
 
 // .delay(startdelay)
-static const BuiltInArgDesc delay_args[] = { { numeric } };
-static const size_t delay_numargs = sizeof(delay_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(delay, { numeric } );
 static void delay_func(BuiltinFunctionContextPtr f)
 {
   ValueAnimatorObj* a = dynamic_cast<ValueAnimatorObj*>(f->thisObj().get());
@@ -417,8 +416,7 @@ static void delay_func(BuiltinFunctionContextPtr f)
 
 
 // .runafter(animator)
-static const BuiltInArgDesc runafter_args[] = { { anyvalid } };
-static const size_t runafter_numargs = sizeof(runafter_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(runafter, { anyvalid } );
 static void runafter_func(BuiltinFunctionContextPtr f)
 {
   ValueAnimatorObjPtr a = boost::dynamic_pointer_cast<ValueAnimatorObj>(f->thisObj());
@@ -434,8 +432,7 @@ static void runafter_func(BuiltinFunctionContextPtr f)
 
 
 // .repeat(repetitions [,autoreverse])
-static const BuiltInArgDesc repeat_args[] = { { numeric }, { numeric|optionalarg } };
-static const size_t repeat_numargs = sizeof(repeat_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(repeat, { numeric }, { numeric|optionalarg } );
 static void repeat_func(BuiltinFunctionContextPtr f)
 {
   ValueAnimatorObj* a = dynamic_cast<ValueAnimatorObj*>(f->thisObj().get());
@@ -446,8 +443,7 @@ static void repeat_func(BuiltinFunctionContextPtr f)
 
 
 // .function(animationfunctionname [, animationfunctionparam])
-static const BuiltInArgDesc function_args[] = { { text }, { numeric|optionalarg } };
-static const size_t function_numargs = sizeof(function_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(function, { text }, { numeric|optionalarg } );
 static void function_func(BuiltinFunctionContextPtr f)
 {
   ValueAnimatorObj* a = dynamic_cast<ValueAnimatorObj*>(f->thisObj().get());
@@ -461,8 +457,7 @@ static void function_func(BuiltinFunctionContextPtr f)
 
 
 // .from(initialvalue)
-static const BuiltInArgDesc from_args[] = { { numeric } };
-static const size_t from_numargs = sizeof(from_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(from, { numeric } );
 static void from_func(BuiltinFunctionContextPtr f)
 {
   ValueAnimatorObj* a = dynamic_cast<ValueAnimatorObj*>(f->thisObj().get());
@@ -473,8 +468,7 @@ static void from_func(BuiltinFunctionContextPtr f)
 
 
 // .step(minsteptime [, stepsize])
-static const BuiltInArgDesc step_args[] = { { numeric }, { numeric|optionalarg }  };
-static const size_t step_numargs = sizeof(step_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(step, { numeric }, { numeric|optionalarg }  );
 static void step_func(BuiltinFunctionContextPtr f)
 {
   ValueAnimatorObj* a = dynamic_cast<ValueAnimatorObj*>(f->thisObj().get());
@@ -490,8 +484,7 @@ static void animation_complete(ValueAnimatorObjPtr aAnimationObj, double aReache
 {
   aAnimationObj->sendEvent(aAnimationObj);
 }
-static const BuiltInArgDesc runto_args[] = { { numeric }, { numeric }, { numeric|optionalarg } };
-static const size_t runto_numargs = sizeof(runto_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(runto, { numeric }, { numeric }, { numeric|optionalarg } );
 static void runto_func(BuiltinFunctionContextPtr f)
 {
   ValueAnimatorObjPtr a = boost::dynamic_pointer_cast<ValueAnimatorObj>(f->thisObj());
@@ -543,17 +536,17 @@ static ScriptObjPtr running_accessor(BuiltInMemberLookup& aMemberLookup, ScriptO
 
 
 static const BuiltinMemberDescriptor animatorFunctions[] = {
-  { "delay", executable|anyvalid, delay_numargs, delay_args, &delay_func },
-  { "runafter", executable|null, runafter_numargs, runafter_args, &runafter_func },
-  { "repeat", executable|anyvalid, repeat_numargs, repeat_args, &repeat_func },
-  { "function", executable|anyvalid, function_numargs, function_args, &function_func },
-  { "from", executable|anyvalid, from_numargs, from_args, &from_func },
-  { "runto", executable|null, runto_numargs, runto_args, &runto_func },
-  { "step", executable|null, step_numargs, step_args, &step_func },
-  { "stop", executable|anyvalid, 0, NULL, &stop_func },
-  { "reset", executable|anyvalid, 0, NULL, &reset_func },
-  { "current", builtinmember|numeric, 0, NULL, (BuiltinFunctionImplementation)&current_accessor }, // Note: correct '.accessor=&lrg_accessor' form does not work with OpenWrt g++, so need ugly cast here
-  { "running", builtinmember|numeric, 0, NULL, (BuiltinFunctionImplementation)&running_accessor }, // Note: correct '.accessor=&lrg_accessor' form does not work with OpenWrt g++, so need ugly cast here
+  FUNC_DEF_W_ARG(delay, executable|anyvalid),
+  FUNC_DEF_W_ARG(runafter, executable|null),
+  FUNC_DEF_W_ARG(repeat, executable|anyvalid),
+  FUNC_DEF_W_ARG(function, executable|anyvalid),
+  FUNC_DEF_W_ARG(from, executable|anyvalid),
+  FUNC_DEF_W_ARG(runto, executable|null),
+  FUNC_DEF_W_ARG(step, executable|null),
+  FUNC_DEF_NOARG(stop, executable|anyvalid),
+  FUNC_DEF_NOARG(reset, executable|anyvalid),
+  MEMBER_DEF(current, builtinmember|numeric),
+  MEMBER_DEF(running, builtinmember|numeric),
   { NULL } // terminator
 };
 

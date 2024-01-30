@@ -573,8 +573,7 @@ static void animator_func(BuiltinFunctionContextPtr f)
 
 // value() // get value
 // value(val) // set value
-static const BuiltInArgDesc value_args[] = { { numeric|optionalarg } };
-static const size_t value_numargs = sizeof(value_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(value, { numeric|optionalarg } );
 static void value_func(BuiltinFunctionContextPtr f)
 {
   AnalogIoObj* a = dynamic_cast<AnalogIoObj*>(f->thisObj().get());
@@ -593,8 +592,7 @@ static void value_func(BuiltinFunctionContextPtr f)
 
 // poll(interval [, tolerance])
 // poll()
-static const BuiltInArgDesc poll_args[] = { { numeric|optionalarg }, { numeric|optionalarg } };
-static const size_t poll_numargs = sizeof(poll_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(poll, { numeric|optionalarg }, { numeric|optionalarg } );
 static void poll_func(BuiltinFunctionContextPtr f)
 {
   AnalogIoObj* a = dynamic_cast<AnalogIoObj*>(f->thisObj().get());
@@ -614,8 +612,7 @@ static void poll_func(BuiltinFunctionContextPtr f)
 
 
 // filter(type, [interval [, colltime]])
-static const BuiltInArgDesc filter_args[] = { { text }, { numeric|optionalarg }, { numeric|optionalarg } };
-static const size_t filter_numargs = sizeof(filter_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(filter, { text }, { numeric|optionalarg }, { numeric|optionalarg } );
 static void filter_func(BuiltinFunctionContextPtr f)
 {
   AnalogIoObj* a = dynamic_cast<AnalogIoObj*>(f->thisObj().get());
@@ -639,11 +636,11 @@ static void filter_func(BuiltinFunctionContextPtr f)
 
 
 static const BuiltinMemberDescriptor analogioFunctions[] = {
-  { "value", executable|numeric, value_numargs, value_args, &value_func },
-  { "range", executable|objectvalue, 0, NULL, &range_func },
-  { "animator", executable|objectvalue, 0, NULL, &animator_func },
-  { "poll", executable|null, poll_numargs, poll_args, &poll_func },
-  { "filter", executable|null, filter_numargs, filter_args, &filter_func },
+  FUNC_DEF_W_ARG(value, executable|numeric),
+  FUNC_DEF_NOARG(range, executable|objectvalue),
+  FUNC_DEF_NOARG(animator, executable|objectvalue),
+  FUNC_DEF_W_ARG(poll, executable|null),
+  FUNC_DEF_W_ARG(filter, executable|null),
   { NULL } // terminator
 };
 
@@ -677,8 +674,7 @@ AnalogIoPtr AnalogIoObj::analogIoFromArg(ScriptObjPtr aArg, bool aOutput, double
 
 
 // analogio(pinspec, isOutput [, initialValue])
-static const BuiltInArgDesc analogio_args[] = { { text }, { numeric }, { numeric|optionalarg } };
-static const size_t analogio_numargs = sizeof(analogio_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(analogio, { text }, { numeric }, { numeric|optionalarg } );
 static void analogio_func(BuiltinFunctionContextPtr f)
 {
   #if ENABLE_APPLICATION_SUPPORT
@@ -697,8 +693,7 @@ static void analogio_func(BuiltinFunctionContextPtr f)
 #if ENABLE_ANALOGIO_COLOR_SUPPORT
 
 // animator(property)
-static const BuiltInArgDesc animatorfor_args[] = { { text } };
-static const size_t animatorfor_numargs = sizeof(animatorfor_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(animatorfor, { text } );
 static void animatorfor_func(BuiltinFunctionContextPtr f)
 {
   AnalogColorOutputObj* c = dynamic_cast<AnalogColorOutputObj*>(f->thisObj().get());
@@ -709,8 +704,7 @@ static void animatorfor_func(BuiltinFunctionContextPtr f)
 
 // setcolor(hue, saturation)
 // setcolor(webcolor)
-static const BuiltInArgDesc setcolor_args[] = { { text|numeric }, { numeric|optionalarg } };
-static const size_t setcolor_numargs = sizeof(setcolor_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(setcolor, { text|numeric }, { numeric|optionalarg } );
 static void setcolor_func(BuiltinFunctionContextPtr f)
 {
   AnalogColorOutputObj* c = dynamic_cast<AnalogColorOutputObj*>(f->thisObj().get());
@@ -730,8 +724,7 @@ static void setcolor_func(BuiltinFunctionContextPtr f)
 
 
 // setbrightness(brightness)
-static const BuiltInArgDesc setbrightness_args[] = { { numeric } };
-static const size_t setbrightness_numargs = sizeof(setbrightness_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(setbrightness, { numeric } );
 static void setbrightness_func(BuiltinFunctionContextPtr f)
 {
   AnalogColorOutputObj* c = dynamic_cast<AnalogColorOutputObj*>(f->thisObj().get());
@@ -742,8 +735,7 @@ static void setbrightness_func(BuiltinFunctionContextPtr f)
 
 
 // powerlimit(brightness)
-static const BuiltInArgDesc powerlimit_args[] = { { numeric|optionalarg } };
-static const size_t powerlimit_numargs = sizeof(powerlimit_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(powerlimit, { numeric|optionalarg } );
 static void powerlimit_func(BuiltinFunctionContextPtr f)
 {
   AnalogColorOutputObj* c = dynamic_cast<AnalogColorOutputObj*>(f->thisObj().get());
@@ -778,8 +770,7 @@ static void currentpower_func(BuiltinFunctionContextPtr f)
 
 // whitecolor(pixelcolor)
 // ambercolor(pixelcolor)
-static const BuiltInArgDesc chcolor_args[] = { { text } };
-static const size_t chcolor_numargs = sizeof(chcolor_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(chcolor, { text } );
 static void whitecolor_func(BuiltinFunctionContextPtr f)
 {
   AnalogColorOutputObj* c = dynamic_cast<AnalogColorOutputObj*>(f->thisObj().get());
@@ -800,8 +791,7 @@ static void ambercolor_func(BuiltinFunctionContextPtr f)
 
 // setoutputchannelpower(milliwatt) // for all channels
 // setoutputchannelpower(r,g,b [,w [,a]]) // separately
-static const BuiltInArgDesc setoutputchannelpower_args[] = { { numeric }, { numeric|optionalarg }, { numeric|optionalarg }, { numeric|optionalarg }, { numeric|optionalarg }};
-static const size_t setoutputchannelpower_numargs = sizeof(setoutputchannelpower_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(setoutputchannelpower, { numeric }, { numeric|optionalarg }, { numeric|optionalarg }, { numeric|optionalarg }, { numeric|optionalarg });
 static void setoutputchannelpower_func(BuiltinFunctionContextPtr f)
 {
   AnalogColorOutputObj* c = dynamic_cast<AnalogColorOutputObj*>(f->thisObj().get());
@@ -820,14 +810,14 @@ static void setoutputchannelpower_func(BuiltinFunctionContextPtr f)
 
 static const BuiltinMemberDescriptor coloroutputFunctions[] = {
   { "animator", executable|objectvalue, animatorfor_numargs, animatorfor_args, &animatorfor_func },
-  { "setcolor", executable|null, setcolor_numargs, setcolor_args, &setcolor_func },
-  { "setbrightness", executable|null, setbrightness_numargs, setbrightness_args, &setbrightness_func },
-  { "powerlimit", executable|numeric|null, powerlimit_numargs, powerlimit_args, &powerlimit_func },
-  { "neededpower", executable|numeric, 0, NULL, &neededpower_func },
-  { "currentpower", executable|numeric, 0, NULL, &currentpower_func },
-  { "whitecolor", executable|null, chcolor_numargs, chcolor_args, &whitecolor_func },
-  { "ambercolor", executable|null, chcolor_numargs, chcolor_args, &ambercolor_func },
-  { "setoutputchannelpower", executable|null, setoutputchannelpower_numargs, setoutputchannelpower_args, &setoutputchannelpower_func },
+  FUNC_DEF_W_ARG(setcolor, executable|null),
+  FUNC_DEF_W_ARG(setbrightness, executable|null),
+  FUNC_DEF_W_ARG(powerlimit, executable|numeric|null),
+  FUNC_DEF_NOARG(neededpower, executable|numeric),
+  FUNC_DEF_NOARG(currentpower, executable|numeric),
+  FUNC_DEF_C_ARG(whitecolor, executable|null, chcolor),
+  FUNC_DEF_C_ARG(ambercolor, executable|null, chcolor),
+  FUNC_DEF_W_ARG(setoutputchannelpower, executable|null),
   { NULL } // terminator
 };
 
@@ -841,8 +831,7 @@ AnalogColorOutputObj::AnalogColorOutputObj(AnalogColorOutputPtr aColorOutput) :
 
 
 // analogcoloroutput(red, green, blue [[, white [, amber]) // AnalogIOObjs or pin specs
-static const BuiltInArgDesc coloroutput_args[] = { { text|objectvalue }, { text|objectvalue }, { text|objectvalue }, { text|optionalarg }, { text|optionalarg } };
-static const size_t coloroutput_numargs = sizeof(coloroutput_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(coloroutput, { text|objectvalue }, { text|objectvalue }, { text|objectvalue }, { text|optionalarg }, { text|optionalarg } );
 static void coloroutput_func(BuiltinFunctionContextPtr f)
 {
   AnalogIoPtr red = AnalogIoObj::analogIoFromArg(f->arg(0), true, 0);
@@ -861,7 +850,7 @@ static void coloroutput_func(BuiltinFunctionContextPtr f)
 
 
 static const BuiltinMemberDescriptor analogioGlobals[] = {
-  { "analogio", executable|null, analogio_numargs, analogio_args, &analogio_func },
+  FUNC_DEF_W_ARG(analogio, executable|null),
   #if ENABLE_ANALOGIO_COLOR_SUPPORT
   { "analogcoloroutput", executable|null, coloroutput_numargs, coloroutput_args, &coloroutput_func },
   #endif

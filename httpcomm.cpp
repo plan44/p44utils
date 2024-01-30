@@ -654,15 +654,13 @@ static void httpFuncImpl(BuiltinFunctionContextPtr f, string aMethod)
 }
 
 // geturl("<url>"[,timeout])
-static const BuiltInArgDesc geturl_args[] = { { text }, { numeric|optionalarg } };
-static const size_t geturl_numargs = sizeof(geturl_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(geturl, { text }, { numeric|optionalarg } );
 static void geturl_func(BuiltinFunctionContextPtr f)
 {
   httpFuncImpl(f, "GET");
 }
 
-static const BuiltInArgDesc postputurl_args[] = { { text } , { anyvalid|optionalarg }, { anyvalid|optionalarg } };
-static const size_t postputurl_numargs = sizeof(postputurl_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(postputurl, { text } , { anyvalid|optionalarg }, { anyvalid|optionalarg } );
 
 // posturl("<url>"[,timeout][,"<data>"])
 static void posturl_func(BuiltinFunctionContextPtr f)
@@ -678,8 +676,7 @@ static void puturl_func(BuiltinFunctionContextPtr f)
 
 
 // httprequest(requestparams [,"<data>"])
-static const BuiltInArgDesc httprequest_args[] = { { objectvalue }, { anyvalid|optionalarg} };
-static const size_t httprequest_numargs = sizeof(httprequest_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(httprequest, { objectvalue }, { anyvalid|optionalarg} );
 static void httprequest_func(BuiltinFunctionContextPtr f)
 {
   httpFuncImpl(f, "");
@@ -687,8 +684,7 @@ static void httprequest_func(BuiltinFunctionContextPtr f)
 
 
 // urlencode(texttoencode [, x-www-form-urlencoded])
-static const BuiltInArgDesc urlencode_args[] = { { text } , { anyvalid|optionalarg }, { anyvalid|optionalarg } };
-static const size_t urlencode_numargs = sizeof(urlencode_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(urlencode, { text } , { anyvalid|optionalarg }, { anyvalid|optionalarg } );
 static void urlencode_func(BuiltinFunctionContextPtr f)
 {
   f->finish(new StringValue(HttpComm::urlEncode(f->arg(0)->stringValue(), f->arg(1)->boolValue())));
@@ -696,11 +692,11 @@ static void urlencode_func(BuiltinFunctionContextPtr f)
 
 
 static const BuiltinMemberDescriptor httpGlobals[] = {
-  { "geturl", executable|async|text, geturl_numargs, geturl_args, &geturl_func },
-  { "posturl", executable|async|text, postputurl_numargs, postputurl_args, &posturl_func },
-  { "puturl", executable|async|text, postputurl_numargs, postputurl_args, &puturl_func },
-  { "httprequest", executable|async|text, httprequest_numargs, httprequest_args, &httprequest_func },
-  { "urlencode", executable|text, urlencode_numargs, urlencode_args, &urlencode_func },
+  FUNC_DEF_W_ARG(geturl, executable|async|text),
+  FUNC_DEF_C_ARG(posturl, executable|async|text, postputurl),
+  FUNC_DEF_C_ARG(puturl, executable|async|text, postputurl),
+  FUNC_DEF_W_ARG(httprequest, executable|async|text),
+  FUNC_DEF_W_ARG(urlencode, executable|text),
   { NULL } // terminator
 };
 

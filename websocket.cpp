@@ -232,8 +232,7 @@ using namespace P44Script;
 
 
 // close([code [, reason])
-static const BuiltInArgDesc close_args[] = { { numeric|optionalarg }, { text|optionalarg } };
-static const size_t close_numargs = sizeof(close_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(close, { numeric|optionalarg }, { text|optionalarg } );
 static void websocket_closed(BuiltinFunctionContextPtr f)
 {
   f->finish();
@@ -252,8 +251,7 @@ static void close_func(BuiltinFunctionContextPtr f)
 
 
 // send(data [, opcode])
-static const BuiltInArgDesc send_args[] = { { anyvalid }, { numeric|optionalarg } };
-static const size_t send_numargs = sizeof(send_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(send, { anyvalid }, { numeric|optionalarg } );
 static void send_func(BuiltinFunctionContextPtr f)
 {
   WebSocketObj* s = dynamic_cast<WebSocketObj*>(f->thisObj().get());
@@ -283,9 +281,9 @@ static void message_func(BuiltinFunctionContextPtr f)
 
 
 static const BuiltinMemberDescriptor webSocketFunctions[] = {
-  { "send", executable|error, send_numargs, send_args, &send_func },
-  { "close", executable|error, close_numargs, close_args, &close_func },
-  { "message", executable|text|null, 0, NULL, &message_func },
+  FUNC_DEF_W_ARG(send, executable|error),
+  FUNC_DEF_W_ARG(close, executable|error),
+  FUNC_DEF_NOARG(message, executable|text|null),
   { NULL } // terminator
 };
 
@@ -324,8 +322,7 @@ void WebSocketObj::gotMessage(const string aMessage, ErrorPtr aError)
 
 
 // websocket(url_or_config_obj [,protocol [, pinginterval]])
-static const BuiltInArgDesc websocket_args[] = { { text|objectvalue }, { text|optionalarg }, { numeric|optionalarg } };
-static const size_t websocket_numargs = sizeof(websocket_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(websocket, { text|objectvalue }, { text|optionalarg }, { numeric|optionalarg } );
 static void websocket_connected(BuiltinFunctionContextPtr f, WebSocketClientPtr aWebsocket, ErrorPtr aError)
 {
   if (Error::isOK(aError)) {
@@ -375,7 +372,7 @@ static void websocket_func(BuiltinFunctionContextPtr f)
 }
 
 static const BuiltinMemberDescriptor websocketGlobals[] = {
-  { "websocket", executable|null, websocket_numargs, websocket_args, &websocket_func },
+  FUNC_DEF_W_ARG(websocket, executable|null),
   { NULL } // terminator
 };
 

@@ -938,8 +938,7 @@ void DnsSdServiceBrowser::resolve_callback(AvahiServiceResolver *r, AvahiIfIndex
 using namespace P44Script;
 
 // dnssdbrowse(type [,host])
-static const BuiltInArgDesc dnssdbrowse_args[] = { { text } , { text|optionalarg } };
-static const size_t dnssdbrowse_numargs = sizeof(dnssdbrowse_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(dnssdbrowse, { text } , { text|optionalarg } );
 // handler
 static bool dnssdbrowsehandler(BuiltinFunctionContextPtr f, ArrayValuePtr aBrowsingresults, ErrorPtr aError, DnsSdServiceInfoPtr aServiceInfo)
 {
@@ -1005,7 +1004,7 @@ static void dnssdbrowse_func(BuiltinFunctionContextPtr f)
 
 
 static const BuiltinMemberDescriptor dnssdGlobals[] = {
-  { "dnssdbrowse", executable|async|arrayvalue, dnssdbrowse_numargs, dnssdbrowse_args, &dnssdbrowse_func },
+  FUNC_DEF_W_ARG(dnssdbrowse, executable|async|arrayvalue),
   { NULL } // terminator
 };
 

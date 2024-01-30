@@ -1281,8 +1281,7 @@ void LEDChainArrangement::end()
 using namespace P44Script;
 
 // addledchain(ledchainconfigstring)
-static const BuiltInArgDesc addledchain_args[] = { { text } };
-static const size_t addledchain_numargs = sizeof(addledchain_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(addledchain, { text } );
 static void addledchain_func(BuiltinFunctionContextPtr f)
 {
   LEDChainLookup* l = dynamic_cast<LEDChainLookup*>(f->funcObj()->getMemberLookup());
@@ -1327,8 +1326,7 @@ static void setmaxledpower_func(BuiltinFunctionContextPtr f)
 
 
 // setledrefresh(minUpdateInterval, [maxpriorityinterval])
-static const BuiltInArgDesc setledrefresh_args[] = { { numeric }, { numeric|optionalarg } };
-static const size_t setledrefresh_numargs = sizeof(setledrefresh_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(setledrefresh, { numeric }, { numeric|optionalarg } );
 static void setledrefresh_func(BuiltinFunctionContextPtr f)
 {
   LEDChainLookup* l = dynamic_cast<LEDChainLookup*>(f->funcObj()->getMemberLookup());
@@ -1341,8 +1339,7 @@ static void setledrefresh_func(BuiltinFunctionContextPtr f)
 
 
 // setrootview(view)
-static const BuiltInArgDesc setrootview_args[] = { { objectvalue } };
-static const size_t setrootview_numargs = sizeof(setrootview_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(setrootview, { objectvalue } );
 static void setrootview_func(BuiltinFunctionContextPtr f)
 {
   LEDChainLookup* l = dynamic_cast<LEDChainLookup*>(f->funcObj()->getMemberLookup());
@@ -1371,17 +1368,16 @@ static void ledchaincover_func(BuiltinFunctionContextPtr f)
 
 
 
-static const BuiltInArgDesc setmaxledpower_args[] = { { numeric } };
-static const size_t setmaxledpower_numargs = sizeof(setmaxledpower_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(setmaxledpower, { numeric } );
 static const BuiltinMemberDescriptor ledChainArrangementGlobals[] = {
-  { "addledchain", executable, addledchain_numargs, addledchain_args, &addledchain_func },
-  { "removeledchains", executable, 0, NULL, &removeledchains_func },
-  { "ledchaincover", executable|objectvalue, 0, NULL, &ledchaincover_func },
-  { "neededledpower", executable|numeric, 0, NULL, &neededledpower_func },
-  { "currentledpower", executable|numeric, 0, NULL, &currentledpower_func },
-  { "setmaxledpower", executable, setmaxledpower_numargs, setmaxledpower_args, &setmaxledpower_func },
-  { "setrootview", executable, setrootview_numargs, setrootview_args, &setrootview_func },
-  { "setledrefresh", executable, setledrefresh_numargs, setledrefresh_args, &setledrefresh_func },
+  FUNC_DEF_W_ARG(addledchain, executable),
+  FUNC_DEF_NOARG(removeledchains, executable),
+  FUNC_DEF_NOARG(ledchaincover, executable|objectvalue),
+  FUNC_DEF_NOARG(neededledpower, executable|numeric),
+  FUNC_DEF_NOARG(currentledpower, executable|numeric),
+  FUNC_DEF_W_ARG(setmaxledpower, executable),
+  FUNC_DEF_W_ARG(setrootview, executable),
+  FUNC_DEF_W_ARG(setledrefresh, executable),
   { NULL } // terminator
 };
 

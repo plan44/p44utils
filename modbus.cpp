@@ -2091,8 +2091,7 @@ bool ModbusFileHandler::fileIntegrityOK()
 // MARK: - modbus connection scripting
 
 // bytetime(byte_time_in_seconds)
-static const BuiltInArgDesc bytetime_args[] = { { numeric } };
-static const size_t bytetime_numargs = sizeof(bytetime_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(bytetime, { numeric } );
 static void bytetime_func(ModbusConnectionPtr aModbusConnection, BuiltinFunctionContextPtr f)
 {
   int bytetime = f->arg(0)->doubleValue()*1E9;
@@ -2111,8 +2110,7 @@ static void s_bytetime_func(BuiltinFunctionContextPtr f)
 
 
 // recoverymode(link, protocol)
-static const BuiltInArgDesc recoverymode_args[] = { { numeric|optionalarg }, { numeric|optionalarg } };
-static const size_t recoverymode_numargs = sizeof(recoverymode_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(recoverymode, { numeric|optionalarg }, { numeric|optionalarg } );
 static void recoverymode_func(ModbusConnectionPtr aModbusConnection, BuiltinFunctionContextPtr f)
 {
   int rmod = MODBUS_ERROR_RECOVERY_NONE;
@@ -2133,8 +2131,7 @@ static void s_recoverymode_func(BuiltinFunctionContextPtr f)
 
 
 // debug(enable)
-static const BuiltInArgDesc debug_args[] = { { numeric } };
-static const size_t debug_numargs = sizeof(debug_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(debug, { numeric } );
 static void debug_func(ModbusConnectionPtr aModbusConnection, BuiltinFunctionContextPtr f)
 {
   aModbusConnection->setDebug(f->arg(0)->boolValue());
@@ -2154,8 +2151,7 @@ static void s_debug_func(BuiltinFunctionContextPtr f)
 
 
 // connection(connectionspec [, txenablepin|RS232|RTS [, rxenablepin, [, txdisabledelay]])
-static const BuiltInArgDesc connection_args[] = { { text }, { text|objectvalue|optionalarg }, { text|objectvalue|optionalarg } };
-static const size_t connection_numargs = sizeof(connection_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(connection, { text }, { text|objectvalue|optionalarg }, { text|objectvalue|optionalarg } );
 static void connection_func(ModbusConnectionPtr aModbusConnection, BuiltinFunctionContextPtr f)
 {
   const char* txspecP = NULL;
@@ -2204,8 +2200,7 @@ static void s_connection_func(BuiltinFunctionContextPtr f)
 
 
 // connect([autoflush])
-static const BuiltInArgDesc connect_args[] = { { numeric|optionalarg } };
-static const size_t connect_numargs = sizeof(connect_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(connect, { numeric|optionalarg } );
 static void connect_func(ModbusConnectionPtr aModbusConnection, BuiltinFunctionContextPtr f)
 {
   f->finish(ErrorValue::trueOrError(aModbusConnection->connect(f->arg(0)->boolValue())));
@@ -2256,8 +2251,7 @@ ModbusSlaveObjPtr ModbusSlave::representingScriptObj()
 
 // setreg(regaddr, value [,input])
 // setbit(bitaddr, value [,input])
-static const BuiltInArgDesc set_args[] = { { numeric }, { numeric }, { numeric|optionalarg } };
-static const size_t set_numargs = sizeof(set_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(set, { numeric }, { numeric }, { numeric|optionalarg } );
 static void setreg_func(BuiltinFunctionContextPtr f)
 {
   ModbusSlaveObj* o = dynamic_cast<ModbusSlaveObj*>(f->thisObj().get());
@@ -2277,8 +2271,7 @@ static void setbit_func(BuiltinFunctionContextPtr f)
 // getreg(regaddr [,input])
 // getsreg(regaddr [,input]) // signed interpretation of 16-bit value
 // getbit(bitaddr [,input])
-static const BuiltInArgDesc get_args[] = { { numeric }, { numeric|optionalarg } };
-static const size_t get_numargs = sizeof(get_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(get, { numeric }, { numeric|optionalarg } );
 static void getreg_func(BuiltinFunctionContextPtr f)
 {
   ModbusSlaveObj* o = dynamic_cast<ModbusSlaveObj*>(f->thisObj().get());
@@ -2310,8 +2303,7 @@ static void access_func(BuiltinFunctionContextPtr f)
 
 
 // slaveaddress([slave_address])
-static const BuiltInArgDesc slaveaddress_args[] = { { numeric|optionalarg } };
-static const size_t slaveaddress_numargs = sizeof(slaveaddress_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(slaveaddress, { numeric|optionalarg } );
 static void slaveaddress_func(BuiltinFunctionContextPtr f)
 {
   ModbusSlaveObj* o = dynamic_cast<ModbusSlaveObj*>(f->thisObj().get());
@@ -2324,8 +2316,7 @@ static void slaveaddress_func(BuiltinFunctionContextPtr f)
 
 
 // slaveid(slave_id_string)
-static const BuiltInArgDesc slaveid_args[] = { { text } };
-static const size_t slaveid_numargs = sizeof(slaveid_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(slaveid, { text } );
 static void slaveid_func(BuiltinFunctionContextPtr f)
 {
   ModbusSlaveObj* o = dynamic_cast<ModbusSlaveObj*>(f->thisObj().get());
@@ -2337,8 +2328,7 @@ static void slaveid_func(BuiltinFunctionContextPtr f)
 
 // setmodel(registermodel_json)
 //   { "coils" : { "first":100, "num":10 }, "registers":{ "first":100, "num":20 } }
-static const BuiltInArgDesc setmodel_args[] = { { objectvalue } };
-static const size_t setmodel_numargs = sizeof(setmodel_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(setmodel, { objectvalue } );
 static void setmodel_func(BuiltinFunctionContextPtr f)
 {
   ModbusSlaveObj* o = dynamic_cast<ModbusSlaveObj*>(f->thisObj().get());
@@ -2392,15 +2382,15 @@ static const BuiltinMemberDescriptor modbusSlaveMembers[] = {
   { "connect", executable|null, connect_numargs, connect_args, &s_connect_func },
   { "close", executable|null, 0, NULL, &s_close_func },
   // slave only
-  { "setreg", executable|null, set_numargs, set_args, &setreg_func },
-  { "setbit", executable|null, set_numargs, set_args, &setbit_func },
-  { "getreg", executable|null, get_numargs, get_args, &getreg_func },
-  { "getsreg", executable|null, get_numargs, get_args, &getsreg_func },
-  { "getbit", executable|null, get_numargs, get_args, &getbit_func },
-  { "access", executable|text|null, 0, NULL, &access_func },
-  { "slaveaddress", executable|numeric, slaveaddress_numargs, slaveaddress_args, &slaveaddress_func },
-  { "slaveid", executable|null, slaveid_numargs, slaveid_args, &slaveid_func },
-  { "setmodel", executable|null, setmodel_numargs, setmodel_args, &setmodel_func },
+  FUNC_DEF_C_ARG(setreg, executable|null, set),
+  FUNC_DEF_C_ARG(setbit, executable|null, set),
+  FUNC_DEF_C_ARG(getreg, executable|null, get),
+  FUNC_DEF_C_ARG(getsreg, executable|null, get),
+  FUNC_DEF_C_ARG(getbit, executable|null, get),
+  FUNC_DEF_NOARG(access, executable|text|null),
+  FUNC_DEF_W_ARG(slaveaddress, executable|numeric),
+  FUNC_DEF_W_ARG(slaveid, executable|null),
+  FUNC_DEF_W_ARG(setmodel, executable|null),
   { NULL } // terminator
 };
 
@@ -2452,8 +2442,7 @@ ModbusMasterObjPtr ModbusMaster::representingScriptObj()
 
 
 // slave(slaveaddress)
-static const BuiltInArgDesc slave_args[] = { { numeric } };
-static const size_t slave_numargs = sizeof(slave_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(slave, { numeric } );
 static void slave_func(BuiltinFunctionContextPtr f)
 {
   ModbusMasterObj* o = dynamic_cast<ModbusMasterObj*>(f->thisObj().get());
@@ -2465,8 +2454,7 @@ static void slave_func(BuiltinFunctionContextPtr f)
 
 // writereg(regaddr, value)
 // writebit(bitaddr, value)
-static const BuiltInArgDesc write_args[] = { { numeric }, { numeric } };
-static const size_t write_numargs = sizeof(write_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(write, { numeric }, { numeric } );
 static void writereg_func(BuiltinFunctionContextPtr f)
 {
   ModbusMasterObj* o = dynamic_cast<ModbusMasterObj*>(f->thisObj().get());
@@ -2494,8 +2482,7 @@ static void writebit_func(BuiltinFunctionContextPtr f)
 // readreg(regaddr [,input])
 // readsreg(regaddr [,input]) // signed interpretation of 16-bit value
 // readbit(bitaddr [,input])
-static const BuiltInArgDesc read_args[] = { { numeric }, { numeric|optionalarg } };
-static const size_t read_numargs = sizeof(read_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(read, { numeric }, { numeric|optionalarg } );
 static void readreg_func(BuiltinFunctionContextPtr f)
 {
   ModbusMasterObj* o = dynamic_cast<ModbusMasterObj*>(f->thisObj().get());
@@ -2550,8 +2537,7 @@ static void readinfo_func(BuiltinFunctionContextPtr f)
 
 
 // findslaves(idmatch, from, to)
-static const BuiltInArgDesc findslaves_args[] = { { text }, { numeric }, { numeric } };
-static const size_t findslaves_numargs = sizeof(findslaves_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(findslaves, { text }, { numeric }, { numeric } );
 static void findslaves_func(BuiltinFunctionContextPtr f)
 {
   ModbusMasterObj* o = dynamic_cast<ModbusMasterObj*>(f->thisObj().get());
@@ -2583,14 +2569,14 @@ static const BuiltinMemberDescriptor modbusMasterMembers[] = {
   { "connect", executable|null, connect_numargs, connect_args, &m_connect_func },
   { "close", executable|null, 0, NULL, &m_close_func },
   // master only
-  { "slave", executable|objectvalue, slave_numargs, slave_args, &slave_func },
-  { "findslaves", executable|objectvalue, findslaves_numargs, findslaves_args, &findslaves_func },
-  { "writereg", executable|error|null, write_numargs, write_args, &writereg_func },
-  { "writebit", executable|error|null, write_numargs, write_args, &writebit_func },
-  { "readreg", executable|error|numeric, read_numargs, read_args, &readreg_func },
-  { "readsreg", executable|error|numeric, read_numargs, read_args, &readsreg_func },
-  { "readbit", executable|error|numeric, read_numargs, read_args, &readbit_func },
-  { "readinfo", executable|error|text, 0, NULL, &readinfo_func },
+  FUNC_DEF_W_ARG(slave, executable|objectvalue),
+  FUNC_DEF_W_ARG(findslaves, executable|objectvalue),
+  FUNC_DEF_C_ARG(writereg, executable|error|null, write),
+  FUNC_DEF_C_ARG(writebit, executable|error|null, write),
+  FUNC_DEF_C_ARG(readreg, executable|error|numeric, read),
+  FUNC_DEF_C_ARG(readsreg, executable|error|numeric, read),
+  FUNC_DEF_C_ARG(readbit, executable|error|numeric, read),
+  FUNC_DEF_NOARG(readinfo, executable|error|text),
   { NULL } // terminator
 };
 
@@ -2642,8 +2628,8 @@ static void modbusslave_func(BuiltinFunctionContextPtr f)
 
 
 static const BuiltinMemberDescriptor modbusGlobals[] = {
-  { "modbusmaster", executable|null, 0, NULL, &modbusmaster_func },
-  { "modbusslave", executable|null, 0, NULL, &modbusslave_func },
+  FUNC_DEF_NOARG(modbusmaster, executable|null),
+  FUNC_DEF_NOARG(modbusslave, executable|null),
   { NULL } // terminator
 };
 

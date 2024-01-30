@@ -1103,8 +1103,7 @@ I2CDeviceObjPtr I2CDevice::representingScriptObj()
 }
 
 // rawread([count])
-static const BuiltInArgDesc rawread_args[] = { { numeric|optionalarg } };
-static const size_t rawread_numargs = sizeof(rawread_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(rawread, { numeric|optionalarg } );
 static void rawread_func(BuiltinFunctionContextPtr f)
 {
   I2CDeviceObj* o = dynamic_cast<I2CDeviceObj*>(f->thisObj().get());
@@ -1135,8 +1134,7 @@ static void rawread_func(BuiltinFunctionContextPtr f)
 
 
 // rawwrite(byte)
-static const BuiltInArgDesc rawwrite_args[] = { { numeric } };
-static const size_t rawwrite_numargs = sizeof(rawwrite_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(rawwrite, { numeric } );
 static void rawwrite_func(BuiltinFunctionContextPtr f)
 {
   I2CDeviceObj* o = dynamic_cast<I2CDeviceObj*>(f->thisObj().get());
@@ -1154,8 +1152,7 @@ static void rawwrite_func(BuiltinFunctionContextPtr f)
 
 
 // smbusread(reg [,type])
-static const BuiltInArgDesc smbusread_args[] = { { numeric }, { text|optionalarg } };
-static const size_t smbusread_numargs = sizeof(smbusread_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(smbusread, { numeric }, { text|optionalarg } );
 static void smbusread_func(BuiltinFunctionContextPtr f)
 {
   I2CDeviceObj* o = dynamic_cast<I2CDeviceObj*>(f->thisObj().get());
@@ -1196,8 +1193,7 @@ static void smbusread_func(BuiltinFunctionContextPtr f)
 
 
 // smbuswrite(reg, value [,type])
-static const BuiltInArgDesc smbuswrite_args[] = { { numeric }, { text|numeric }, { text|optionalarg } };
-static const size_t smbuswrite_numargs = sizeof(smbuswrite_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(smbuswrite, { numeric }, { text|numeric }, { text|optionalarg } );
 static void smbuswrite_func(BuiltinFunctionContextPtr f)
 {
   I2CDeviceObj* o = dynamic_cast<I2CDeviceObj*>(f->thisObj().get());
@@ -1247,10 +1243,10 @@ static void smbuswrite_func(BuiltinFunctionContextPtr f)
 
 
 static const BuiltinMemberDescriptor i2cDeviceMembers[] = {
-  { "rawread", executable|error|text|numeric, rawread_numargs, rawread_args, &rawread_func },
-  { "smbusread", executable|error|text|numeric, smbusread_numargs, smbusread_args, &smbusread_func },
-  { "rawwrite", executable|error|text|numeric, rawwrite_numargs, rawwrite_args, &rawwrite_func },
-  { "smbuswrite", executable|error|text|numeric, smbuswrite_numargs, smbuswrite_args, &smbuswrite_func },
+  FUNC_DEF_W_ARG(rawread, executable|error|text|numeric),
+  FUNC_DEF_W_ARG(smbusread, executable|error|text|numeric),
+  FUNC_DEF_W_ARG(rawwrite, executable|error|text|numeric),
+  FUNC_DEF_W_ARG(smbuswrite, executable|error|text|numeric),
   { NULL } // terminator
 };
 
@@ -1264,8 +1260,7 @@ I2CDeviceObj::I2CDeviceObj(I2CDevicePtr aI2CDevice) :
 
 
 // i2cdevice(busnumber, devicespec)
-static const BuiltInArgDesc i2cdevice_args[] = { { numeric }, { text } };
-static const size_t i2cdevice_numargs = sizeof(i2cdevice_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(i2cdevice, { numeric }, { text } );
 static void i2cdevice_func(BuiltinFunctionContextPtr f)
 {
   #if ENABLE_APPLICATION_SUPPORT
@@ -1284,7 +1279,7 @@ static void i2cdevice_func(BuiltinFunctionContextPtr f)
 
 
 static const BuiltinMemberDescriptor i2cGlobals[] = {
-  { "i2cdevice", executable|null, i2cdevice_numargs, i2cdevice_args, &i2cdevice_func },
+  FUNC_DEF_W_ARG(i2cdevice, executable|null),
   { NULL } // terminator
 };
 
