@@ -163,7 +163,7 @@ bool EventSource::sendEvent(ScriptObjPtr aEvent)
     for (EventSinkMap::iterator pos=mEventSinks.begin(); pos!=mEventSinks.end(); ++pos) {
       ScriptObjPtr tbSent = aEvent;
       if (!pos->second.eventFilter || pos->second.eventFilter->filteredEventObj(tbSent)) {
-        // no filter or event object passes filter
+        // no filter, or event object passes filter
         pos->first->processEvent(tbSent, *this, pos->second.regId);
         sentAtLeastOne = true;
         if (mSinksModified) break;
@@ -706,12 +706,16 @@ ErrorValue::ErrorValue(ScriptObjPtr aErrVal)
 ScriptObjPtr ErrorValue::trueOrError(ErrorPtr aError)
 {
   // return a ErrorValue if aError is set and not OK, a true value otherwise
-  if (Error::isOK(aError)) {
-    return new BoolValue(true);
-  }
-  else {
-    return new ErrorValue(aError);
-  }
+  if (Error::notOK(aError)) return new ErrorValue(aError);
+  return new BoolValue(true);
+}
+
+
+ScriptObjPtr ErrorValue::nothingOrError(ErrorPtr aError)
+{
+  // return a ErrorValue if aError is set and not OK, nothing otherwise
+  if (Error::notOK(aError)) return new ErrorValue(aError);
+  return nullptr;
 }
 
 
@@ -7286,21 +7290,18 @@ void ScriptCodeThread::continueWithMode(PausingMode aNewPausingMode)
 namespace BuiltinFunctions {
 
 // for single argument math functions
-static const BuiltInArgDesc math1arg_args[] = { { scalar|undefres } };
-static const size_t math1arg_numargs = sizeof(math1arg_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(math1arg, { scalar|undefres } );
 
 
 // ifvalid(a, b)   if a is a valid value, return it, otherwise return the default as specified by b
-static const BuiltInArgDesc ifvalid_args[] = { { anyvalid|error|null }, { anyvalid|error|null } };
-static const size_t ifvalid_numargs = sizeof(ifvalid_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(ifvalid, { anyvalid|error|null }, { anyvalid|error|null } );
 static void ifvalid_func(BuiltinFunctionContextPtr f)
 {
   f->finish(f->arg(0)->hasType(value) ? f->arg(0) : f->arg(1));
 }
 
 // isvalid(a)      if a is a valid value, return true, otherwise return false
-static const BuiltInArgDesc isvalid_args[] = { { anyvalid|error|null } };
-static const size_t isvalid_numargs = sizeof(isvalid_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(isvalid, { anyvalid|error|null } );
 static void isvalid_func(BuiltinFunctionContextPtr f)
 {
   f->finish(new BoolValue(f->arg(0)->hasType(value)));
@@ -7308,16 +7309,14 @@ static void isvalid_func(BuiltinFunctionContextPtr f)
 
 
 // ifok(a, b)   if a can be accessed w/o error, return it, otherwise return the default as specified by b
-static const BuiltInArgDesc ifok_args[] = { { anyvalid|error|null }, { anyvalid|error|null } };
-static const size_t ifok_numargs = sizeof(ifok_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(ifok, { anyvalid|error|null }, { anyvalid|error|null } );
 static void ifok_func(BuiltinFunctionContextPtr f)
 {
   f->finish(f->arg(0)->hasType(error) ? f->arg(1) : f->arg(0));
 }
 
 // isok(a)      if a does not produce an error
-static const BuiltInArgDesc isok_args[] = { { anyvalid|error|null } };
-static const size_t isok_numargs = sizeof(isok_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(isok, { anyvalid|error|null } );
 static void isok_func(BuiltinFunctionContextPtr f)
 {
   f->finish(new BoolValue(!f->arg(0)->hasType(error)));
@@ -7326,8 +7325,7 @@ static void isok_func(BuiltinFunctionContextPtr f)
 
 
 // if (c, a, b)    if c evaluates to true, return a, otherwise b
-static const BuiltInArgDesc if_args[] = { { value|null }, { anyvalid|error|null }, { anyvalid|error|null } };
-static const size_t if_numargs = sizeof(if_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(if, { value|null }, { anyvalid|error|null }, { anyvalid|error|null } );
 static void if_func(BuiltinFunctionContextPtr f)
 {
   f->finish(f->arg(0)->boolValue() ? f->arg(1) : f->arg(2));
@@ -7384,8 +7382,7 @@ static void exp_func(BuiltinFunctionContextPtr f)
 
 // round (a)       round value to integer
 // round (a, p)    round value to specified precision (1=integer, 0.5=halves, 100=hundreds, etc...)
-static const BuiltInArgDesc round_args[] = { { scalar|undefres }, { numeric|optionalarg } };
-static const size_t round_numargs = sizeof(round_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(round, { scalar|undefres }, { numeric|optionalarg } );
 static void round_func(BuiltinFunctionContextPtr f)
 {
   double precision = 1;
@@ -7397,8 +7394,7 @@ static void round_func(BuiltinFunctionContextPtr f)
 
 
 // random (a,b [, resolution])  float random value from a up to and including b, with optional resolution step
-static const BuiltInArgDesc random_args[] = { { numeric }, { numeric }, { numeric|optionalarg } };
-static const size_t random_numargs = sizeof(random_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(random, { numeric }, { numeric }, { numeric|optionalarg } );
 static void random_func(BuiltinFunctionContextPtr f)
 {
   double offs = f->arg(0)->doubleValue();
@@ -7417,8 +7413,7 @@ static void random_func(BuiltinFunctionContextPtr f)
 
 
 // min (a, b)    return the smaller value of a and b
-static const BuiltInArgDesc min_args[] = { { scalar|undefres }, { value|undefres } };
-static const size_t min_numargs = sizeof(min_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(min, { scalar|undefres }, { value|undefres } );
 static void min_func(BuiltinFunctionContextPtr f)
 {
   if (f->argval(0)<f->argval(1)) f->finish(f->arg(0));
@@ -7427,8 +7422,7 @@ static void min_func(BuiltinFunctionContextPtr f)
 
 
 // max (a, b)    return the bigger value of a and b
-static const BuiltInArgDesc max_args[] = { { scalar|undefres }, { value|undefres } };
-static const size_t max_numargs = sizeof(max_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(max, { scalar|undefres }, { value|undefres } );
 static void max_func(BuiltinFunctionContextPtr f)
 {
   if (f->argval(0)>f->argval(1)) f->finish(f->arg(0));
@@ -7437,8 +7431,7 @@ static void max_func(BuiltinFunctionContextPtr f)
 
 
 // limited (x, a, b)    return min(max(x,a),b), i.e. x limited to values between and including a and b
-static const BuiltInArgDesc limited_args[] = { { scalar|undefres }, { numeric }, { numeric } };
-static const size_t limited_numargs = sizeof(limited_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(limited, { scalar|undefres }, { numeric }, { numeric } );
 static void limited_func(BuiltinFunctionContextPtr f)
 {
   ScriptObj &a = f->argval(0);
@@ -7449,8 +7442,7 @@ static void limited_func(BuiltinFunctionContextPtr f)
 
 
 // cyclic (x, a, b)    return x with wraparound into range a..b (not including b because it means the same thing as a)
-static const BuiltInArgDesc cyclic_args[] = { { scalar|undefres }, { numeric }, { numeric } };
-static const size_t cyclic_numargs = sizeof(cyclic_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(cyclic, { scalar|undefres }, { numeric }, { numeric } );
 static void cyclic_func(BuiltinFunctionContextPtr f)
 {
   double o = f->arg(1)->doubleValue();
@@ -7463,8 +7455,7 @@ static void cyclic_func(BuiltinFunctionContextPtr f)
 
 
 // string(anything)
-static const BuiltInArgDesc string_args[] = { { anyvalid|error|null } };
-static const size_t string_numargs = sizeof(string_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(string, { anyvalid|error|null } );
 static void string_func(BuiltinFunctionContextPtr f)
 {
   // Note: This is the only way to get the stringValue() of a derived StringValue which
@@ -7474,8 +7465,7 @@ static void string_func(BuiltinFunctionContextPtr f)
 
 
 // describe(anything)
-static const BuiltInArgDesc describe_args[] = { { anyvalid|error|null } };
-static const size_t describe_numargs = sizeof(describe_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(describe, { anyvalid|error|null } );
 static void describe_func(BuiltinFunctionContextPtr f)
 {
   f->finish(new StringValue(ScriptObj::describe(f->arg(0))));
@@ -7483,8 +7473,7 @@ static void describe_func(BuiltinFunctionContextPtr f)
 
 
 // annotation(anything)
-static const BuiltInArgDesc annotation_args[] = { { anyvalid|error|null } };
-static const size_t annotation_numargs = sizeof(annotation_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(annotation, { anyvalid|error|null } );
 static void annotation_func(BuiltinFunctionContextPtr f)
 {
   f->finish(new StringValue(f->arg(0)->getAnnotation()));
@@ -7492,8 +7481,7 @@ static void annotation_func(BuiltinFunctionContextPtr f)
 
 
 // null(annotation)
-static const BuiltInArgDesc null_args[] = { { text|optionalarg } };
-static const size_t null_numargs = sizeof(null_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(null, { text|optionalarg } );
 static void null_func(BuiltinFunctionContextPtr f)
 {
   f->finish(new AnnotatedNullValue(f->arg(0)->stringValue()));
@@ -7501,8 +7489,7 @@ static void null_func(BuiltinFunctionContextPtr f)
 
 
 // number(anything)
-static const BuiltInArgDesc number_args[] = { { anyvalid|error|null } };
-static const size_t number_numargs = sizeof(number_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(number, { anyvalid|error|null } );
 static void number_func(BuiltinFunctionContextPtr f)
 {
   // Note: This is the only way to get the doubleValue() of a derived NumericValue which
@@ -7511,8 +7498,7 @@ static void number_func(BuiltinFunctionContextPtr f)
 }
 
 // boolean(anything)
-static const BuiltInArgDesc boolean_args[] = { { anyvalid|error|null } };
-static const size_t boolean_numargs = sizeof(boolean_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(boolean, { anyvalid|error|null } );
 static void boolean_func(BuiltinFunctionContextPtr f)
 {
   // Note: This is the only way to get the boolValue() of a derived NumericValue which
@@ -7524,8 +7510,7 @@ static void boolean_func(BuiltinFunctionContextPtr f)
 #if SCRIPTING_JSON_SUPPORT
 
 // json(anything [, allowcomments])     parse json into p44script objects/arrays/values from string
-static const BuiltInArgDesc json_args[] = { { anyvalid }, { numeric|optionalarg } };
-static const size_t json_numargs = sizeof(json_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(json, { anyvalid }, { numeric|optionalarg } );
 static void json_func(BuiltinFunctionContextPtr f)
 {
   JsonObjectPtr j;
@@ -7548,8 +7533,7 @@ static void json_func(BuiltinFunctionContextPtr f)
 
 
 // elements(array)
-static const BuiltInArgDesc elements_args[] = { { anyvalid|undefres } };
-static const size_t elements_numargs = sizeof(elements_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(elements, { anyvalid|undefres } );
 static void elements_func(BuiltinFunctionContextPtr f)
 {
   if (f->arg(0)->hasType(structured)) {
@@ -7562,8 +7546,7 @@ static void elements_func(BuiltinFunctionContextPtr f)
 
 #if ENABLE_JSON_APPLICATION
 
-static const BuiltInArgDesc jsonresource_args[] = { { text+undefres } };
-static const size_t jsonresource_numargs = sizeof(jsonresource_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(jsonresource, { text+undefres } );
 static void jsonresource_func(BuiltinFunctionContextPtr f)
 {
   ErrorPtr err;
@@ -7588,8 +7571,7 @@ static void jsonresource_func(BuiltinFunctionContextPtr f)
 
 
 // lastarg(expr, expr, exprlast)
-static const BuiltInArgDesc lastarg_args[] = { { anyvalid|null|multiple, "side-effect" } };
-static const size_t lastarg_numargs = sizeof(lastarg_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(lastarg, { anyvalid|null|multiple, "side-effect" } );
 static void lastarg_func(BuiltinFunctionContextPtr f)
 {
   // (for executing side effects of non-last arg evaluation, before returning the last arg)
@@ -7601,8 +7583,7 @@ static void lastarg_func(BuiltinFunctionContextPtr f)
 #if P44SCRIPT_FULL_SUPPORT
 
 // maprange(x, a1, b1, a2, b2)    map the range a1..a2 onto the range a2..b2
-static const BuiltInArgDesc maprange_args[] = { { scalar|undefres }, { numeric }, { numeric }, { numeric }, { numeric } };
-static const size_t maprange_numargs = sizeof(maprange_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(maprange, { scalar|undefres }, { numeric }, { numeric }, { numeric }, { numeric } );
 static void maprange_func(BuiltinFunctionContextPtr f)
 {
   double x = f->arg(0)->doubleValue();
@@ -7627,8 +7608,7 @@ static void maprange_func(BuiltinFunctionContextPtr f)
 
 
 // ord(string)
-static const BuiltInArgDesc ord_args[] = { { text } };
-static const size_t ord_numargs = sizeof(ord_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(ord, { text } );
 static void ord_func(BuiltinFunctionContextPtr f)
 {
   f->finish(new IntegerValue((uint8_t)*f->arg(0)->stringValue().c_str()));
@@ -7636,8 +7616,7 @@ static void ord_func(BuiltinFunctionContextPtr f)
 
 
 // chr(number)
-static const BuiltInArgDesc chr_args[] = { { numeric } };
-static const size_t chr_numargs = sizeof(chr_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(chr, { numeric } );
 static void chr_func(BuiltinFunctionContextPtr f)
 {
   string s;
@@ -7647,8 +7626,7 @@ static void chr_func(BuiltinFunctionContextPtr f)
 
 
 // hex(binarystring [,bytesep])
-static const BuiltInArgDesc hex_args[] = { { text }, { text|optionalarg } };
-static const size_t hex_numargs = sizeof(hex_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(hex, { text }, { text|optionalarg } );
 static void hex_func(BuiltinFunctionContextPtr f)
 {
   char sep = 0;
@@ -7658,8 +7636,7 @@ static void hex_func(BuiltinFunctionContextPtr f)
 
 
 // binary(hexstring [, spacesallowed])
-static const BuiltInArgDesc binary_args[] = { { text }, { numeric|optionalarg } };
-static const size_t binary_numargs = sizeof(binary_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(binary, { text }, { numeric|optionalarg } );
 static void binary_func(BuiltinFunctionContextPtr f)
 {
   f->finish(new StringValue(hexToBinaryString(f->arg(0)->stringValue().c_str(), f->arg(1)->boolValue())));
@@ -7683,8 +7660,7 @@ static uint64_t bitmask(int aNextArg, int& aLoBit, int& aHiBit, BuiltinFunctionC
 
 // bit(bitno, value) - get bit from value
 // bit(firstbit, lastbit, value [, signed]) - get bit range from value
-static const BuiltInArgDesc bit_args[] = { { numeric }, { numeric }, { numeric|optionalarg }, { numeric|optionalarg } };
-static const size_t bit_numargs = sizeof(bit_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(bit, { numeric }, { numeric }, { numeric|optionalarg }, { numeric|optionalarg } );
 static void bit_func(BuiltinFunctionContextPtr f)
 {
   int nextarg = f->numArgs()>2 ? 2 : 1;
@@ -7702,8 +7678,7 @@ static void bit_func(BuiltinFunctionContextPtr f)
 
 // setbit(bitno, newbit, value) - set a bit in value
 // setbit(firstbit, lastbit, newvalue, value) - set bit range in value
-static const BuiltInArgDesc setbit_args[] = { { numeric }, { numeric }, { numeric }, { numeric|optionalarg } };
-static const size_t setbit_numargs = sizeof(setbit_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(setbit, { numeric }, { numeric }, { numeric }, { numeric|optionalarg } );
 static void setbit_func(BuiltinFunctionContextPtr f)
 {
   int nextarg = f->numArgs()>3 ? 2 : 1;
@@ -7719,8 +7694,7 @@ static void setbit_func(BuiltinFunctionContextPtr f)
 
 // flipbit(bitno, value)
 // flipbit(firstbit, lastbit, value)
-static const BuiltInArgDesc flipbit_args[] = { { numeric }, { numeric }, { numeric|optionalarg } };
-static const size_t flipbit_numargs = sizeof(flipbit_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(flipbit, { numeric }, { numeric }, { numeric|optionalarg } );
 static void flipbit_func(BuiltinFunctionContextPtr f)
 {
   int nextarg = f->numArgs()>2 ? 2 : 1;
@@ -7733,8 +7707,7 @@ static void flipbit_func(BuiltinFunctionContextPtr f)
 
 
 // strlen(string)
-static const BuiltInArgDesc strlen_args[] = { { text|undefres } };
-static const size_t strlen_numargs = sizeof(strlen_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(strlen, { text|undefres } );
 static void strlen_func(BuiltinFunctionContextPtr f)
 {
   f->finish(new IntegerValue((double)f->arg(0)->stringValue().size())); // length of string
@@ -7742,8 +7715,7 @@ static void strlen_func(BuiltinFunctionContextPtr f)
 
 
 // strrep(string, count)
-static const BuiltInArgDesc strrep_args[] = { { text|undefres }, { numeric|undefres } };
-static const size_t strrep_numargs = sizeof(strrep_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(strrep, { text|undefres }, { numeric|undefres } );
 static void strrep_func(BuiltinFunctionContextPtr f)
 {
   string s = f->arg(0)->stringValue();
@@ -7760,8 +7732,7 @@ static void strrep_func(BuiltinFunctionContextPtr f)
 // substr(string, from)
 // substr(string, from, count)
 // substr(string, -fromend, count)
-static const BuiltInArgDesc substr_args[] = { { text|undefres }, { numeric }, { numeric|optionalarg } };
-static const size_t substr_numargs = sizeof(substr_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(substr, { text|undefres }, { numeric }, { numeric|optionalarg } );
 static void substr_func(BuiltinFunctionContextPtr f)
 {
   string s = f->arg(0)->stringValue();
@@ -7779,8 +7750,7 @@ static void substr_func(BuiltinFunctionContextPtr f)
 // find(haystack, needle)
 // find(haystack, needle, from)
 // find(haystack, needle, from, caseinsensitive)
-static const BuiltInArgDesc find_args[] = { { text|undefres }, { text }, { numeric|optionalarg }  };
-static const size_t find_numargs = sizeof(find_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(find, { text|undefres }, { text }, { numeric|optionalarg }  );
 static void find_func(BuiltinFunctionContextPtr f)
 {
   string haystack;
@@ -7808,8 +7778,7 @@ static void find_func(BuiltinFunctionContextPtr f)
 
 // replace(haystack, needle, replacement)
 // replace(haystack, needle, replacement, howmany)
-static const BuiltInArgDesc replace_args[] = { { text|undefres }, { text }, { text }, { numeric|optionalarg } };
-static const size_t replace_numargs = sizeof(replace_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(replace, { text|undefres }, { text }, { text }, { numeric|optionalarg } );
 static void replace_func(BuiltinFunctionContextPtr f)
 {
   string haystack;
@@ -7836,8 +7805,7 @@ static void replace_func(BuiltinFunctionContextPtr f)
 
 // uppercase(string)
 // lowercase(string)
-static const BuiltInArgDesc xcase_args[] = { { text|undefres } };
-static const size_t xcase_numargs = sizeof(xcase_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(xcase, { text|undefres } );
 static void uppercase_func(BuiltinFunctionContextPtr f)
 {
   f->finish(new StringValue(upperCase(f->arg(0)->stringValue())));
@@ -7849,8 +7817,7 @@ static void lowercase_func(BuiltinFunctionContextPtr f)
 
 
 // shellquote(shellargument)
-static const BuiltInArgDesc shellquote_args[] = { { anyvalid } };
-static const size_t shellquote_numargs = sizeof(shellquote_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(shellquote, { anyvalid } );
 static void shellquote_func(BuiltinFunctionContextPtr f)
 {
   f->finish(new StringValue(shellQuote(f->arg(0)->stringValue())));
@@ -7858,8 +7825,7 @@ static void shellquote_func(BuiltinFunctionContextPtr f)
 
 
 // cquote(string)
-static const BuiltInArgDesc cquote_args[] = { { anyvalid } };
-static const size_t cquote_numargs = sizeof(cquote_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(cquote, { anyvalid } );
 static void cquote_func(BuiltinFunctionContextPtr f)
 {
   f->finish(new StringValue(cstringQuote(f->arg(0)->stringValue())));
@@ -7922,8 +7888,7 @@ static ScriptObjPtr format_string(BuiltinFunctionContextPtr f, size_t aFmtArgIdx
 
 // format(formatstring, value [, value...])
 // only % + - 0..9 . d, x, and f supported
-static const BuiltInArgDesc format_args[] = { { text }, { anyvalid|null|error|multiple } };
-static const size_t format_numargs = sizeof(format_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(format, { text }, { anyvalid|null|error|multiple } );
 static void format_func(BuiltinFunctionContextPtr f)
 {
   f->finish(format_string(f, 0));
@@ -7931,8 +7896,7 @@ static void format_func(BuiltinFunctionContextPtr f)
 
 
 // formattime([time] [formatstring]])
-static const BuiltInArgDesc formattime_args[] = { { numeric|text|optionalarg } , { text|optionalarg } };
-static const size_t formattime_numargs = sizeof(formattime_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(formattime, { numeric|text|optionalarg } , { text|optionalarg } );
 static void formattime_func(BuiltinFunctionContextPtr f)
 {
   MLMicroSeconds t;
@@ -7957,8 +7921,7 @@ static void formattime_func(BuiltinFunctionContextPtr f)
 
 
 // throw(value)       - throw value as-is if it is an error value, otherwise a user error with value converted to string as errormessage
-static const BuiltInArgDesc throw_args[] = { { anyvalid|error } };
-static const size_t throw_numargs = sizeof(throw_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(throw, { anyvalid|error } );
 static void throw_func(BuiltinFunctionContextPtr f)
 {
   // throw(errvalue)    - (re-)throw with the error of the value passed
@@ -7976,8 +7939,7 @@ static void throw_func(BuiltinFunctionContextPtr f)
 
 
 // error(value)       - create a user error value with the string value of value as errormessage, in all cases, even if value is already an error
-static const BuiltInArgDesc error_args[] = { { anyvalid|error|null } };
-static const size_t error_numargs = sizeof(error_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(error, { anyvalid|error|null } );
 static void error_func(BuiltinFunctionContextPtr f)
 {
   ErrorValuePtr e = new ErrorValue(Error::err<ScriptError>(ScriptError::User, "%s", f->arg(0)->stringValue().c_str()));
@@ -7987,8 +7949,7 @@ static void error_func(BuiltinFunctionContextPtr f)
 
 
 // errordomain(errvalue)
-static const BuiltInArgDesc errordomain_args[] = { { error|undefres } };
-static const size_t errordomain_numargs = sizeof(errordomain_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(errordomain, { error|undefres } );
 static void errordomain_func(BuiltinFunctionContextPtr f)
 {
   ErrorPtr err = f->arg(0)->errorValue();
@@ -7998,8 +7959,7 @@ static void errordomain_func(BuiltinFunctionContextPtr f)
 
 
 // errorcode(errvalue)
-static const BuiltInArgDesc errorcode_args[] = { { error|undefres } };
-static const size_t errorcode_numargs = sizeof(errorcode_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(errorcode, { error|undefres } );
 static void errorcode_func(BuiltinFunctionContextPtr f)
 {
   ErrorPtr err = f->arg(0)->errorValue();
@@ -8009,8 +7969,7 @@ static void errorcode_func(BuiltinFunctionContextPtr f)
 
 
 // errormessage(value)
-static const BuiltInArgDesc errormessage_args[] = { { error|undefres } };
-static const size_t errormessage_numargs = sizeof(errormessage_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(errormessage, { error|undefres } );
 static void errormessage_func(BuiltinFunctionContextPtr f)
 {
   ErrorPtr err = f->arg(0)->errorValue();
@@ -8020,8 +7979,7 @@ static void errormessage_func(BuiltinFunctionContextPtr f)
 
 
 // eval(string, [args...])    have string executed as script code, with access to optional args as arg1, arg2, ... argN
-static const BuiltInArgDesc eval_args[] = { { text|executable }, { anyvalid|null|error|multiple } };
-static const size_t eval_numargs = sizeof(eval_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(eval, { text|executable }, { anyvalid|null|error|multiple } );
 static void eval_func(BuiltinFunctionContextPtr f)
 {
   ScriptObjPtr evalcode;
@@ -8058,8 +8016,7 @@ static void eval_func(BuiltinFunctionContextPtr f)
 
 
 // maxblocktime([time [, localthreadonly]])
-static const BuiltInArgDesc maxblocktime_args[] = { { numeric|optionalarg }, { numeric|optionalarg } };
-static const size_t maxblocktime_numargs = sizeof(maxblocktime_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(maxblocktime, { numeric|optionalarg }, { numeric|optionalarg } );
 static void maxblocktime_func(BuiltinFunctionContextPtr f)
 {
   if (f->numArgs()==0) {
@@ -8075,8 +8032,7 @@ static void maxblocktime_func(BuiltinFunctionContextPtr f)
 
 
 // maxruntime([time])
-static const BuiltInArgDesc maxruntime_args[] = { { numeric|null|optionalarg } };
-static const size_t maxruntime_numargs = sizeof(maxruntime_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(maxruntime, { numeric|null|optionalarg } );
 static void maxruntime_func(BuiltinFunctionContextPtr f)
 {
   if (f->numArgs()==0) {
@@ -8122,8 +8078,7 @@ static void system_done(BuiltinFunctionContextPtr f, ErrorPtr aError, const stri
     f->finish(new ErrorValue(aError));
   }
 }
-static const BuiltInArgDesc system_args[] = { { text } };
-static const size_t system_numargs = sizeof(system_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(system, { text } );
 static void system_func(BuiltinFunctionContextPtr f)
 {
   #if !ALWAYS_ALLOW_SYSTEM_FUNC
@@ -8146,8 +8101,7 @@ static void system_func(BuiltinFunctionContextPtr f)
 
 // restartapp()
 // restartapp(shutdown|reboot|upgrade)
-static const BuiltInArgDesc restartapp_args[] = { { text|optionalarg } };
-static const size_t restartapp_numargs = sizeof(restartapp_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(restartapp, { text|optionalarg } );
 static void restartapp_func(BuiltinFunctionContextPtr f)
 {
   int ec = 0; // default to regular termination
@@ -8169,8 +8123,7 @@ static void appversion_func(BuiltinFunctionContextPtr f)
 
 
 // writefile(filename, data [, append])
-static const BuiltInArgDesc writefile_args[] = { { text }, { anyvalid|null }, { numeric|optionalarg } };
-static const size_t writefile_numargs = sizeof(writefile_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(writefile, { text }, { anyvalid|null }, { numeric|optionalarg } );
 static void writefile_func(BuiltinFunctionContextPtr f)
 {
   string fn = f->arg(0)->stringValue();
@@ -8219,8 +8172,7 @@ static void writefile_func(BuiltinFunctionContextPtr f)
 
 
 // readfile(filename)
-static const BuiltInArgDesc readfile_args[] = { { text } };
-static const size_t readfile_numargs = sizeof(readfile_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(readfile, { text } );
 static void readfile_func(BuiltinFunctionContextPtr f)
 {
   string fn = f->arg(0)->stringValue();
@@ -8399,8 +8351,7 @@ void endLockWait(BuiltinFunctionContextPtr f, bool aEntered)
 }
 
 // enter([timeout])    wait until we can enter or timeout expires. returns true if entered, false on timeout
-static const BuiltInArgDesc enter_args[] = { { numeric|optionalarg } };
-static const size_t enter_numargs = sizeof(enter_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(enter, { numeric|optionalarg } );
 static void enter_func(BuiltinFunctionContextPtr f)
 {
   LockObj* lock = dynamic_cast<LockObj *>(f->thisObj().get());
@@ -8425,9 +8376,9 @@ static void leave_func(BuiltinFunctionContextPtr f)
 
 
 static const BuiltinMemberDescriptor enter_desc =
-  { "enter", executable|numeric|async, enter_numargs, enter_args, &enter_func };
+  FUNC_DEF_W_ARG(enter, executable|numeric|async);
 static const BuiltinMemberDescriptor leave_desc =
-  { "leave", executable|numeric, 0, NULL, &leave_func };
+  FUNC_DEF_NOARG(leave, executable|numeric);
 
 const ScriptObjPtr LockObj::memberByName(const string aName, TypeInfo aMemberAccessFlags) const
 {
@@ -8441,8 +8392,7 @@ const ScriptObjPtr LockObj::memberByName(const string aName, TypeInfo aMemberAcc
 }
 
 // lock([createentered]) create a lock object, that can be entered and left
-static const BuiltInArgDesc lock_args[] = { { numeric|optionalarg } };
-static const size_t lock_numargs = sizeof(lock_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(lock, { numeric|optionalarg } );
 static void lock_func(BuiltinFunctionContextPtr f)
 {
   if (f->arg(0)->boolValue()) {
@@ -8465,8 +8415,7 @@ public:
 };
 
 // send([signaldata]) send the signal
-static const BuiltInArgDesc signal_args[] = { { anyvalid|optionalarg } };
-static const size_t signal_numargs = sizeof(signal_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(send, { anyvalid|optionalarg } );
 static void send_func(BuiltinFunctionContextPtr f)
 {
   SignalObj* sig = dynamic_cast<SignalObj *>(f->thisObj().get());
@@ -8474,7 +8423,7 @@ static void send_func(BuiltinFunctionContextPtr f)
   f->finish();
 }
 static const BuiltinMemberDescriptor answer_desc =
-  { "send", executable|anyvalid, signal_numargs, signal_args, &send_func };
+  FUNC_DEF_W_ARG(send, executable|anyvalid);
 
 const ScriptObjPtr SignalObj::memberByName(const string aName, TypeInfo aMemberAccessFlags) const
 {
@@ -8522,8 +8471,7 @@ static void await_abort(AwaitEventSink* aAwaitEventSink)
   delete aAwaitEventSink;
 }
 
-static const BuiltInArgDesc await_args[] = { { anyvalid|null }, { anyvalid|null|optionalarg|multiple } };
-static const size_t await_numargs = sizeof(await_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(await, { anyvalid|null }, { anyvalid|null|optionalarg|multiple } );
 static void await_func(BuiltinFunctionContextPtr f)
 {
   int ai=0;
@@ -8563,8 +8511,7 @@ static void await_func(BuiltinFunctionContextPtr f)
 
 // abort(thread [,exitvalue [, ownchain])   abort specified thread
 // abort()                                  abort all subthreads
-static const BuiltInArgDesc abort_args[] = { { threadref|exacttype|optionalarg }, { anyvalid|optionalarg }, { numeric|optionalarg } };
-static const size_t abort_numargs = sizeof(abort_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(abort, { threadref|exacttype|optionalarg }, { anyvalid|optionalarg }, { numeric|optionalarg } );
 static void abort_func(BuiltinFunctionContextPtr f)
 {
   if (f->numArgs()>0) {
@@ -8599,8 +8546,7 @@ static void delay_abort(TicketObjPtr aTicket)
 {
   aTicket->mTicket.cancel();
 }
-static const BuiltInArgDesc delayx_args[] = { { numeric } };
-static const size_t delayx_numargs = sizeof(delayx_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(delayx, { numeric } );
 static void delay_func(BuiltinFunctionContextPtr f)
 {
   MLMicroSeconds delay = f->arg(0)->doubleValue()*Second;
@@ -8650,8 +8596,7 @@ static void undeclare_func(BuiltinFunctionContextPtr f)
 // log (logformat, ...)
 // log (loglevel, tobeloggedobj)
 // log (loglevel, logformat, ...)
-static const BuiltInArgDesc log_args[] = { { anyvalid|null|error|multiple } };
-static const size_t log_numargs = sizeof(log_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(log, { anyvalid|null|error|multiple } );
 static void log_func(BuiltinFunctionContextPtr f)
 {
   int loglevel = LOG_NOTICE;
@@ -8680,8 +8625,7 @@ static void log_func(BuiltinFunctionContextPtr f)
 
 // loglevel()
 // loglevel(newlevel [, deltatime, [, symbols [, coloring]])
-static const BuiltInArgDesc loglevel_args[] = { { numeric|optionalarg }, { numeric|optionalarg } };
-static const size_t loglevel_numargs = sizeof(loglevel_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(loglevel, { numeric|optionalarg }, { numeric|optionalarg } );
 static void loglevel_func(BuiltinFunctionContextPtr f)
 {
   int oldLevel = LOGLEVEL;
@@ -8716,8 +8660,7 @@ static void loglevel_func(BuiltinFunctionContextPtr f)
 
 // logleveloffset()
 // logleveloffset(newoffset)
-static const BuiltInArgDesc logleveloffset_args[] = { { numeric|optionalarg } };
-static const size_t logleveloffset_numargs = sizeof(logleveloffset_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(logleveloffset, { numeric|optionalarg } );
 static void logleveloffset_func(BuiltinFunctionContextPtr f)
 {
   int oldOffset = f->getLogLevelOffset();
@@ -8735,8 +8678,7 @@ static void logleveloffset_func(BuiltinFunctionContextPtr f)
 // rgb(obj) // convert to webcolor string
 // hsv(webcolor) // convert webcolor to hsv obj
 // rgb(webcolor) // convert webcolor to rgb obj
-static const BuiltInArgDesc col_args[] = { { numeric|text|objectvalue }, { numeric+optionalarg }, { numeric+optionalarg }, { numeric+optionalarg } };
-static const size_t col_numargs = sizeof(col_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(col, { numeric|text|objectvalue }, { numeric+optionalarg }, { numeric+optionalarg }, { numeric+optionalarg } );
 static const char* colnames[2][4] = {
   { "r", "g", "b", "a" },
   { "hue", "saturation", "brightness", "a" }
@@ -8804,8 +8746,7 @@ static void rgb_func(BuiltinFunctionContextPtr f) { return color_conversion(f, f
 
 
 // is_weekday(w,w,w,...)
-static const BuiltInArgDesc is_weekday_args[] = { { numeric|multiple } };
-static const size_t is_weekday_numargs = sizeof(is_weekday_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(is_weekday, { numeric|multiple } );
 static void is_weekday_func(BuiltinFunctionContextPtr f)
 {
   struct tm loctim; MainLoop::getLocalTime(loctim);
@@ -8883,16 +8824,14 @@ static void timeCheckFunc(bool aIsTime, BuiltinFunctionContextPtr f)
 
 
 // after_time(time)
-static const BuiltInArgDesc after_time_args[] = { { numeric }, { numeric|optionalarg } };
-static const size_t after_time_numargs = sizeof(after_time_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(after_time, { numeric }, { numeric|optionalarg } );
 static void after_time_func(BuiltinFunctionContextPtr f)
 {
   timeCheckFunc(false, f);
 }
 
 // is_time(time)
-static const BuiltInArgDesc is_time_args[] = { { numeric }, { numeric|optionalarg } };
-static const size_t is_time_numargs = sizeof(is_time_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(is_time, { numeric }, { numeric|optionalarg } );
 static void is_time_func(BuiltinFunctionContextPtr f)
 {
   timeCheckFunc(true, f);
@@ -8910,8 +8849,7 @@ static void initial_func(BuiltinFunctionContextPtr f)
 // testlater(seconds, timedtest [, retrigger])
 // return "invalid" now, re-evaluate after given seconds and return value of test then.
 // If retrigger is true then, the timer will be re-scheduled
-static const BuiltInArgDesc testlater_args[] = { { numeric }, { numeric }, { numeric|optionalarg } };
-static const size_t testlater_numargs = sizeof(testlater_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(testlater, { numeric }, { numeric }, { numeric|optionalarg } );
 static void testlater_func(BuiltinFunctionContextPtr f)
 {
   CompiledTrigger* trigger = f->trigger();
@@ -8960,8 +8898,7 @@ static void testlater_func(BuiltinFunctionContextPtr f)
 // returns true once every interval
 // Note: first true is returned at first evaluation or, if syncoffset is set,
 //   at next integer number of intervals calculated from beginning of the day + syncoffset
-static const BuiltInArgDesc every_args[] = { { numeric }, { numeric|optionalarg } };
-static const size_t every_numargs = sizeof(every_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(every, { numeric }, { numeric|optionalarg } );
 static void every_func(BuiltinFunctionContextPtr f)
 {
   CompiledTrigger* trigger = f->trigger();
@@ -9008,8 +8945,7 @@ static void every_func(BuiltinFunctionContextPtr f)
 }
 
 
-static const BuiltInArgDesc between_dates_args[] = { { numeric }, { numeric } };
-static const size_t between_dates_numargs = sizeof(between_dates_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(between_dates, { numeric }, { numeric } );
 static void between_dates_func(BuiltinFunctionContextPtr f)
 {
   struct tm loctim; MainLoop::getLocalTime(loctim);
@@ -9127,8 +9063,7 @@ static void dusk_func(BuiltinFunctionContextPtr f)
 // epochtime() - epoch time of right now
 // epochtime(daysecond [, yearday [, year]]) - epoch time of given daysecond, yearday, year
 // epochtime(hour, minute, second [,day [,month [,year]]]) - epoch time of given time and optional date components (second<1900)
-static const BuiltInArgDesc epochtime_args[] = { { numeric|optionalarg }, { numeric|optionalarg }, { numeric|optionalarg }, { numeric|optionalarg }, { numeric|optionalarg }, { numeric|optionalarg } };
-static const size_t epochtime_numargs = sizeof(epochtime_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(epochtime, { numeric|optionalarg }, { numeric|optionalarg }, { numeric|optionalarg }, { numeric|optionalarg }, { numeric|optionalarg }, { numeric|optionalarg } );
 static void epochtime_func(BuiltinFunctionContextPtr f)
 {
   if (f->numArgs()==0) {
@@ -9200,8 +9135,7 @@ static double prepTime(BuiltinFunctionContextPtr f, struct tm &aLocTim)
 
 
 // common argument descriptor for all time funcs
-static const BuiltInArgDesc timegetter_args[] = { { numeric|optionalarg } };
-static const size_t timegetter_numargs = sizeof(timegetter_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(timegetter, { numeric|optionalarg } );
 
 // timeofday([epochtime])
 static void timeofday_func(BuiltinFunctionContextPtr f)
@@ -9337,126 +9271,126 @@ static void threadvars_func(BuiltinFunctionContextPtr f)
 
 // The standard function descriptor table
 static const BuiltinMemberDescriptor standardFunctions[] = {
-  { "ifok", executable|anyvalid, ifok_numargs, ifok_args, &ifok_func },
-  { "ifvalid", executable|anyvalid, ifvalid_numargs, ifvalid_args, &ifvalid_func },
-  { "isok", executable|numeric, isok_numargs, isok_args, &isok_func },
-  { "isvalid", executable|numeric, isvalid_numargs, isvalid_args, &isvalid_func },
-  { "if", executable|anyvalid, if_numargs, if_args, &if_func },
-  { "abs", executable|numeric|null, math1arg_numargs, math1arg_args, &abs_func },
-  { "int", executable|numeric|null, math1arg_numargs, math1arg_args, &int_func },
-  { "frac", executable|numeric|null, math1arg_numargs, math1arg_args, &frac_func },
-  { "sin", executable|numeric, math1arg_numargs, math1arg_args, &sin_func },
-  { "cos", executable|numeric, math1arg_numargs, math1arg_args, &cos_func },
-  { "ln", executable|numeric, math1arg_numargs, math1arg_args, &ln_func },
-  { "exp", executable|numeric, math1arg_numargs, math1arg_args, &exp_func },
-  { "round", executable|numeric|null, round_numargs, round_args, &round_func },
-  { "random", executable|numeric, random_numargs, random_args, &random_func },
-  { "min", executable|numeric|null, min_numargs, min_args, &min_func },
-  { "max", executable|numeric|null, max_numargs, max_args, &max_func },
-  { "limited", executable|numeric|null, limited_numargs, limited_args, &limited_func },
-  { "cyclic", executable|numeric|null, cyclic_numargs, cyclic_args, &cyclic_func },
-  { "string", executable|text, string_numargs, string_args, &string_func },
-  { "number", executable|numeric, number_numargs, number_args, &number_func },
-  { "boolean", executable|numeric, boolean_numargs, boolean_args, &boolean_func },
-  { "describe", executable|text, describe_numargs, describe_args, &describe_func },
-  { "annotation", executable|text, annotation_numargs, annotation_args, &annotation_func },
-  { "null", executable|null, null_numargs, null_args, &null_func },
-  { "lastarg", executable|anyvalid, lastarg_numargs, lastarg_args, &lastarg_func },
+  FUNC_DEF_W_ARG(ifok, executable|anyvalid),
+  FUNC_DEF_W_ARG(ifvalid, executable|anyvalid),
+  FUNC_DEF_W_ARG(isok, executable|numeric),
+  FUNC_DEF_W_ARG(isvalid, executable|numeric),
+  FUNC_DEF_W_ARG(if, executable|anyvalid),
+  FUNC_DEF_C_ARG(abs, executable|numeric|null, math1arg),
+  FUNC_DEF_C_ARG(int, executable|numeric|null, math1arg),
+  FUNC_DEF_C_ARG(frac, executable|numeric|null, math1arg),
+  FUNC_DEF_C_ARG(sin, executable|numeric, math1arg),
+  FUNC_DEF_C_ARG(cos, executable|numeric, math1arg),
+  FUNC_DEF_C_ARG(ln, executable|numeric, math1arg),
+  FUNC_DEF_C_ARG(exp, executable|numeric, math1arg),
+  FUNC_DEF_W_ARG(round, executable|numeric|null),
+  FUNC_DEF_W_ARG(random, executable|numeric),
+  FUNC_DEF_W_ARG(min, executable|numeric|null),
+  FUNC_DEF_W_ARG(max, executable|numeric|null),
+  FUNC_DEF_W_ARG(limited, executable|numeric|null),
+  FUNC_DEF_W_ARG(cyclic, executable|numeric|null),
+  FUNC_DEF_W_ARG(string, executable|text),
+  FUNC_DEF_W_ARG(number, executable|numeric),
+  FUNC_DEF_W_ARG(boolean, executable|numeric),
+  FUNC_DEF_W_ARG(describe, executable|text),
+  FUNC_DEF_W_ARG(annotation, executable|text),
+  FUNC_DEF_W_ARG(null, executable|null),
+  FUNC_DEF_W_ARG(lastarg, executable|anyvalid),
   #if SCRIPTING_JSON_SUPPORT
-  { "json", executable|value, json_numargs, json_args, &json_func },
+  FUNC_DEF_W_ARG(json, executable|value),
   #if ENABLE_JSON_APPLICATION
-  { "jsonresource", executable|value|error, jsonresource_numargs, jsonresource_args, &jsonresource_func },
+  FUNC_DEF_W_ARG(jsonresource, executable|value|error),
   #endif // ENABLE_JSON_APPLICATION
   #endif // SCRIPTING_JSON_SUPPORT
   #if P44SCRIPT_FULL_SUPPORT
-  { "maprange", executable|numeric|null, maprange_numargs, maprange_args, &maprange_func },
-  { "ord", executable|numeric, ord_numargs, ord_args, &ord_func },
-  { "chr", executable|text, chr_numargs, chr_args, &chr_func },
-  { "hex", executable|text, hex_numargs, hex_args, &hex_func },
-  { "binary", executable|text, binary_numargs, binary_args, &binary_func },
-  { "bit", executable|numeric, bit_numargs, bit_args, &bit_func },
-  { "setbit", executable|numeric, setbit_numargs, setbit_args, &setbit_func },
-  { "flipbit", executable|numeric, flipbit_numargs, flipbit_args, &flipbit_func },
-  { "elements", executable|numeric|null, elements_numargs, elements_args, &elements_func },
-  { "strlen", executable|numeric|null, strlen_numargs, strlen_args, &strlen_func },
-  { "strrep", executable|text, strrep_numargs, strrep_args, &strrep_func },
-  { "substr", executable|text|null, substr_numargs, substr_args, &substr_func },
-  { "find", executable|numeric|null, find_numargs, find_args, &find_func },
-  { "replace", executable|text, replace_numargs, replace_args, &replace_func },
-  { "lowercase", executable|text, xcase_numargs, xcase_args, &lowercase_func },
-  { "uppercase", executable|text, xcase_numargs, xcase_args, &uppercase_func },
-  { "shellquote", executable|text, shellquote_numargs, shellquote_args, &shellquote_func },
-  { "cquote", executable|text, cquote_numargs, cquote_args, &cquote_func },
-  { "format", executable|text, format_numargs, format_args, &format_func },
-  { "formattime", executable|text, formattime_numargs, formattime_args, &formattime_func },
-  { "throw", executable|anyvalid, throw_numargs, throw_args, &throw_func },
-  { "error", executable|error, error_numargs, error_args, &error_func },
-  { "errordomain", executable|text|null, errordomain_numargs, errordomain_args, &errordomain_func },
-  { "errorcode", executable|numeric|null, errorcode_numargs, errorcode_args, &errorcode_func },
-  { "errormessage", executable|text|null, errormessage_numargs, errormessage_args, &errormessage_func },
-  { "abort", executable|null, abort_numargs, abort_args, &abort_func },
-  { "undeclare", executable|null, 0, NULL, &undeclare_func },
-  { "log", executable|text, log_numargs, log_args, &log_func },
-  { "loglevel", executable|numeric, loglevel_numargs, loglevel_args, &loglevel_func },
-  { "logleveloffset", executable|numeric, logleveloffset_numargs, logleveloffset_args, &logleveloffset_func },
-  { "hsv", executable|text|objectvalue, col_numargs, col_args, &hsv_func },
-  { "rgb", executable|text|objectvalue, col_numargs, col_args, &rgb_func },
+  FUNC_DEF_W_ARG(maprange, executable|numeric|null),
+  FUNC_DEF_W_ARG(ord, executable|numeric),
+  FUNC_DEF_W_ARG(chr, executable|text),
+  FUNC_DEF_W_ARG(hex, executable|text),
+  FUNC_DEF_W_ARG(binary, executable|text),
+  FUNC_DEF_W_ARG(bit, executable|numeric),
+  FUNC_DEF_W_ARG(setbit, executable|numeric),
+  FUNC_DEF_W_ARG(flipbit, executable|numeric),
+  FUNC_DEF_W_ARG(elements, executable|numeric|null),
+  FUNC_DEF_W_ARG(strlen, executable|numeric|null),
+  FUNC_DEF_W_ARG(strrep, executable|text),
+  FUNC_DEF_W_ARG(substr, executable|text|null),
+  FUNC_DEF_W_ARG(find, executable|numeric|null),
+  FUNC_DEF_W_ARG(replace, executable|text),
+  FUNC_DEF_C_ARG(lowercase, executable|text, xcase),
+  FUNC_DEF_C_ARG(uppercase, executable|text, xcase),
+  FUNC_DEF_W_ARG(shellquote, executable|text),
+  FUNC_DEF_W_ARG(cquote, executable|text),
+  FUNC_DEF_W_ARG(format, executable|text),
+  FUNC_DEF_W_ARG(formattime, executable|text),
+  FUNC_DEF_W_ARG(throw, executable|anyvalid),
+  FUNC_DEF_W_ARG(error, executable|error),
+  FUNC_DEF_W_ARG(errordomain, executable|text|null),
+  FUNC_DEF_W_ARG(errorcode, executable|numeric|null),
+  FUNC_DEF_W_ARG(errormessage, executable|text|null),
+  FUNC_DEF_W_ARG(abort, executable|null),
+  FUNC_DEF_NOARG(undeclare, executable|null),
+  FUNC_DEF_W_ARG(log, executable|text),
+  FUNC_DEF_W_ARG(loglevel, executable|numeric),
+  FUNC_DEF_W_ARG(logleveloffset, executable|numeric),
+  FUNC_DEF_C_ARG(hsv, executable|text|objectvalue, col),
+  FUNC_DEF_C_ARG(rgb, executable|text|objectvalue, col),
   #endif // P44SCRIPT_FULL_SUPPORT
-  { "is_weekday", executable|anyvalid, is_weekday_numargs, is_weekday_args, &is_weekday_func },
-  { "after_time", executable|numeric, after_time_numargs, after_time_args, &after_time_func },
-  { "is_time", executable|numeric, is_time_numargs, is_time_args, &is_time_func },
-  { "initial", executable|numeric, 0, NULL, &initial_func },
-  { "testlater", executable|numeric, testlater_numargs, testlater_args, &testlater_func },
-  { "every", executable|numeric, every_numargs, every_args, &every_func },
-  { "between_dates", executable|numeric, between_dates_numargs, between_dates_args, &between_dates_func },
-  { "sunrise", executable|numeric|null, timegetter_numargs, timegetter_args, &sunrise_func },
-  { "dawn", executable|numeric|null, timegetter_numargs, timegetter_args, &dawn_func },
-  { "sunset", executable|numeric|null, timegetter_numargs, timegetter_args, &sunset_func },
-  { "dusk", executable|numeric|null, timegetter_numargs, timegetter_args, &dusk_func },
-  { "epochtime", executable|anyvalid, epochtime_numargs, epochtime_args, &epochtime_func },
-  { "epochdays", executable|anyvalid, 0, NULL, &epochdays_func },
-  { "timeofday", executable|numeric, timegetter_numargs, timegetter_args, &timeofday_func },
-  { "hour", executable|numeric, timegetter_numargs, timegetter_args, &hour_func },
-  { "minute", executable|numeric, timegetter_numargs, timegetter_args, &minute_func },
-  { "second", executable|numeric, timegetter_numargs, timegetter_args, &second_func },
-  { "year", executable|numeric, timegetter_numargs, timegetter_args, &year_func },
-  { "month", executable|numeric, timegetter_numargs, timegetter_args, &month_func },
-  { "day", executable|numeric, timegetter_numargs, timegetter_args, &day_func },
-  { "weekday", executable|numeric, timegetter_numargs, timegetter_args, &weekday_func },
-  { "yearday", executable|numeric, timegetter_numargs, timegetter_args, &yearday_func },
+  FUNC_DEF_W_ARG(is_weekday, executable|anyvalid),
+  FUNC_DEF_W_ARG(after_time, executable|numeric),
+  FUNC_DEF_W_ARG(is_time, executable|numeric),
+  FUNC_DEF_NOARG(initial, executable|numeric),
+  FUNC_DEF_W_ARG(testlater, executable|numeric),
+  FUNC_DEF_W_ARG(every, executable|numeric),
+  FUNC_DEF_W_ARG(between_dates, executable|numeric),
+  FUNC_DEF_C_ARG(sunrise, executable|numeric|null, timegetter),
+  FUNC_DEF_C_ARG(dawn, executable|numeric|null, timegetter),
+  FUNC_DEF_C_ARG(sunset, executable|numeric|null, timegetter),
+  FUNC_DEF_C_ARG(dusk, executable|numeric|null, timegetter),
+  FUNC_DEF_W_ARG(epochtime, executable|anyvalid),
+  FUNC_DEF_NOARG(epochdays, executable|anyvalid),
+  FUNC_DEF_C_ARG(timeofday, executable|numeric, timegetter),
+  FUNC_DEF_C_ARG(hour, executable|numeric, timegetter),
+  FUNC_DEF_C_ARG(minute, executable|numeric, timegetter),
+  FUNC_DEF_C_ARG(second, executable|numeric, timegetter),
+  FUNC_DEF_C_ARG(year, executable|numeric, timegetter),
+  FUNC_DEF_C_ARG(month, executable|numeric, timegetter),
+  FUNC_DEF_C_ARG(day, executable|numeric, timegetter),
+  FUNC_DEF_C_ARG(weekday, executable|numeric, timegetter),
+  FUNC_DEF_C_ARG(yearday, executable|numeric, timegetter),
   // Introspection
   #if SCRIPTING_JSON_SUPPORT
-  { "globalvars", executable|structured, 0, NULL, &globalvars_func},
-  { "globals", builtinmember|structured, 0, NULL, (BuiltinFunctionImplementation)&globals_accessor }, // Note: correct '.accessor=&lrg_accessor' form does not work with OpenWrt g++, so need ugly cast here
-  { "contextvars", executable|structured, 0, NULL, &contextvars_func },
-  { "localvars", executable|structured, 0, NULL, &localvars_func },
-  { "threadvars", executable|structured, 0, NULL, &threadvars_func },
+  FUNC_DEF_NOARG(globalvars, executable|structured),
+  MEMBER_DEF(globals, builtinmember|structured),
+  FUNC_DEF_NOARG(contextvars, executable|structured),
+  FUNC_DEF_NOARG(localvars, executable|structured),
+  FUNC_DEF_NOARG(threadvars, executable|structured),
   #if P44SCRIPT_FULL_SUPPORT
-  { "globalhandlers", executable|structured, 0, NULL, &globalhandlers_func },
-  { "contexthandlers", executable|structured, 0, NULL, &contexthandlers_func },
+  FUNC_DEF_NOARG(globalhandlers, executable|structured),
+  FUNC_DEF_NOARG(contexthandlers, executable|structured),
   #endif
-  { "globalbuiltins", executable|structured, 0, NULL, &globalbuiltins_func },
-  { "contextbuiltins", executable|structured, 0, NULL, &contextbuiltins_func },
+  FUNC_DEF_NOARG(globalbuiltins, executable|structured),
+  FUNC_DEF_NOARG(contextbuiltins, executable|structured),
   #endif
   #if P44SCRIPT_FULL_SUPPORT
-  { "lock", executable|anyvalid, lock_numargs, lock_args, &lock_func },
-  { "signal", executable|anyvalid, 0, NULL, &signal_func },
+  FUNC_DEF_W_ARG(lock, executable|anyvalid),
+  FUNC_DEF_NOARG(signal, executable|anyvalid),
   // Async
-  { "await", executable|async|anyvalid, await_numargs, await_args, &await_func },
-  { "delay", executable|async|null, delayx_numargs, delayx_args, &delay_func },
-  { "delayuntil", executable|async|null, delayx_numargs, delayx_args, &delayuntil_func },
-  { "eval", executable|async|anyvalid, eval_numargs, eval_args, &eval_func },
-  { "maxblocktime", executable|anyvalid, maxblocktime_numargs, maxblocktime_args, &maxblocktime_func },
-  { "maxruntime", executable|anyvalid, maxruntime_numargs, maxruntime_args, &maxruntime_func },
-  { "breakpoint", executable|anyvalid, 0, NULL, &breakpoint_func },
+  FUNC_DEF_W_ARG(await, executable|async|anyvalid),
+  FUNC_DEF_C_ARG(delay, executable|async|null, delayx),
+  FUNC_DEF_C_ARG(delayuntil, executable|async|null, delayx),
+  FUNC_DEF_W_ARG(eval, executable|async|anyvalid),
+  FUNC_DEF_W_ARG(maxblocktime, executable|anyvalid),
+  FUNC_DEF_W_ARG(maxruntime, executable|anyvalid),
+  FUNC_DEF_NOARG(breakpoint, executable|anyvalid),
   #if !ESP_PLATFORM
-  { "system", executable|async|text, system_numargs, system_args, &system_func },
+  FUNC_DEF_W_ARG(system, executable|async|text),
   // Other system/app stuff
-  { "restartapp", executable|null, restartapp_numargs, restartapp_args, &restartapp_func },
-  { "appversion", executable|null, 0, NULL, &appversion_func },
+  FUNC_DEF_W_ARG(restartapp, executable|null),
+  FUNC_DEF_NOARG(appversion, executable|null),
   #if ENABLE_APPLICATION_SUPPORT
-  { "readfile", executable|error|text, readfile_numargs, readfile_args, &readfile_func },
-  { "writefile", executable|error|null, writefile_numargs, writefile_args, &writefile_func },
+  FUNC_DEF_W_ARG(readfile, executable|error|text),
+  FUNC_DEF_W_ARG(writefile, executable|error|null),
   #endif // ENABLE_APPLICATION_SUPPORT
   #endif // !ESP_PLATFORM
   #endif // P44SCRIPT_FULL_SUPPORT

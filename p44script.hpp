@@ -862,6 +862,7 @@ namespace p44 { namespace P44Script {
     ErrorValue(ScriptError::ErrorCodes aErrCode, const char *aFmt, ...);
     ErrorValue(ScriptObjPtr aErrVal);
     static ScriptObjPtr trueOrError(ErrorPtr aError); ///< return a ErrorValue if aError is set and not OK, a true value otherwise
+    static ScriptObjPtr nothingOrError(ErrorPtr aError); ///< return a ErrorValue if aError is set and not OK, nothing otherwise
     virtual string getAnnotation() const P44_OVERRIDE { return "error"; };
     virtual TypeInfo getTypeInfo() const P44_OVERRIDE { return error; };
     // value getters
@@ -3206,6 +3207,19 @@ namespace p44 { namespace P44Script {
       BuiltinMemberAccessor accessor; ///< function pointer to accessor (as a plain function)
     };
   } BuiltinMemberDescriptor;
+
+
+  #define FUNC_ARG_DEFS(f, ...) \
+    static const BuiltInArgDesc f ## _args[] = { __VA_ARGS__ }; \
+    static const size_t f ## _numargs = sizeof(f ## _args)/sizeof(BuiltInArgDesc);
+  #define FUNC_DEF_NOARG(f, r) \
+    { #f, r, 0, nullptr, & f ## _func }
+  #define FUNC_DEF_W_ARG(f, r) \
+    { #f, r, f ## _numargs, f ## _args, & f ## _func }
+  #define FUNC_DEF_C_ARG(f, r, a) \
+    { #f, r, a ## _numargs, a ## _args, & f ## _func }
+  #define MEMBER_DEF(m, r) \
+    { #m, r, 0, nullptr, (BuiltinFunctionImplementation)& m ## _accessor }
 
 
   class BuiltInLValue : public ScriptLValue
