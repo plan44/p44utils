@@ -87,20 +87,22 @@ namespace p44 {
     typedef FdComm inherited;
 
     // serial connection
-    string connectionPath;
-    uint16_t connectionPort;
-    int baudRate;
-    int charSize; // character size 5..8 bits
-    bool parityEnable;
-    bool evenParity;
-    bool twoStopBits;
-    bool hardwareHandshake;
-    bool connectionOpen;
-    int connectionFd;
-    struct termios oldTermIO;
-    bool serialConnection;
-    bool reconnecting;
-    MLTicket reconnectTicket;
+    string mConnectionPath;
+    uint16_t mConnectionPort;
+    int mBaudRate;
+    int mCharSize; // character size 5..8 bits
+    bool mParityEnable;
+    bool mEvenParity;
+    bool mTwoStopBits;
+    bool mHardwareHandshake;
+    bool mConnectionOpen;
+    int mConnectionFd;
+    int mDeviceOpenFlags;
+    bool mUnknownReadyBytes;
+    struct termios mOldTermIO;
+    bool mDeviceConnection;
+    bool mReconnecting;
+    MLTicket mReconnectTicket;
 
   public:
 
@@ -111,9 +113,10 @@ namespace p44 {
     /// @param aConnectionSpec "/dev[:commParams]" or "hostname[:port]"
     /// @param aDefaultPort default port number for TCP connection (irrelevant for direct serial device connection)
     /// @param aDefaultCommParams default communication parameters (in case spec does not contain :commParams)
-    /// @note commParams syntax is: [baud rate][,[bits][,[parity][,[stopbits][,[H]]]]]
+    /// @note commParams syntax is: `[baud rate][,[bits][,[parity][,[stopbits][,[H]]]]]`
     ///   - parity can be O, E or N
     ///   - H means hardware handshake enabled
+    /// @note commParams can also be set to `none` to use the device without applying any termios settings
     void setConnectionSpecification(const char* aConnectionSpec, uint16_t aDefaultPort, const char *aDefaultCommParams);
 
     /// @return true if local serial port, false otherwise (none or IP)
@@ -129,8 +132,18 @@ namespace p44 {
       uint16_t &aConnectionPort
     );
 
+    /// set special operation parameters
+    /// @param aOpenFlags these are the flags passed to open() when connection specification is a OS device (e.g. /dev/xx).
+    ///   Default open flags are O_RDWR (O_NOCTTY is always added implicitly)
+    ///   If 0 is passed, the default flags are set
+    /// @param aUnknownReadyBytes if set, this indicates the FD might not be able to correctly
+    ///   report the number of bytes ready to read, and the receive handler will be called even if
+    ///   the number of bytes reported by FIONREAD at POLLIN is zero. The handler must NOT
+    ///   rely on numBytesReady() and just read what's available (non-blocking, see `FdComm::makeNonBlocking()`).
+    void setDeviceOpParams(int aDeviceOpenFlags, bool aUnknownReadyBytes);
+
     /// @return connection path (IP address or device path)
-    string getConnectionPath() { return connectionPath; };
+    string getConnectionPath() { return mConnectionPath; };
 
     /// establish the serial connection
     /// @note can be called multiple times, opens connection only if not already open
@@ -163,12 +176,12 @@ namespace p44 {
 
     /// This is called when
     /// an exception (HUP or error) occurs on the file descriptor
-    virtual void dataExceptionHandler(int aFd, int aPollFlags);
-
+    virtual void dataExceptionHandler(int aFd, int aPollFlags) P44_OVERRIDE;
 
   private:
 
     void reconnectHandler();
+    bool nativeSerialPort() { return mDeviceConnection && mBaudRate>0; }
 
   };
 
