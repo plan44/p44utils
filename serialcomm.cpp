@@ -26,6 +26,11 @@
 
 using namespace p44;
 
+#if ENABLE_SERIAL_SCRIPT_FUNCS
+#include "application.hpp" // for userlevel check
+using namespace P44Script;
+#endif
+
 #define DEFAULT_OPEN_FLAGS (O_RDWR)
 
 SerialComm::SerialComm(MainLoop &aMainLoop) :
@@ -392,3 +397,152 @@ void SerialComm::reconnectHandler()
 }
 
 
+#if ENABLE_SERIAL_SCRIPT_FUNCS
+
+// MARK: - midi scripting
+
+// received()
+static void received_func(BuiltinFunctionContextPtr f)
+{
+  EventSource* es = dynamic_cast<EventSource*>(f->thisObj().get());
+  assert(es);
+  f->finish(new OneShotEventNullValue(es, "serial data"));
+}
+
+// send(senddata)
+FUNC_ARG_DEFS(send, { anyvalid });
+static void send_func(BuiltinFunctionContextPtr f)
+{
+  SerialCommObj* o = dynamic_cast<SerialCommObj*>(f->thisObj().get());
+  assert(o);
+  o->serialComm()->sendString(f->arg(0)->stringValue());
+  f->finish();
+}
+
+// rts(on)
+// dtr(on)
+FUNC_ARG_DEFS(boolarg, { numeric } );
+static void rts_func(BuiltinFunctionContextPtr f)
+{
+  SerialCommObj* o = dynamic_cast<SerialCommObj*>(f->thisObj().get());
+  assert(o);
+  o->serialComm()->setRTS(f->arg(0)->boolValue());
+  f->finish();
+}
+static void dtr_func(BuiltinFunctionContextPtr f)
+{
+  SerialCommObj* o = dynamic_cast<SerialCommObj*>(f->thisObj().get());
+  assert(o);
+  o->serialComm()->setDTR(f->arg(0)->boolValue());
+  f->finish();
+}
+
+// sendbreak()
+static void sendbreak_func(BuiltinFunctionContextPtr f)
+{
+  SerialCommObj* o = dynamic_cast<SerialCommObj*>(f->thisObj().get());
+  assert(o);
+  o->serialComm()->sendBreak();
+  f->finish();
+}
+
+static const BuiltinMemberDescriptor serialCommMembers[] = {
+  FUNC_DEF_W_ARG(send, executable|null),
+  FUNC_DEF_NOARG(received, executable|null),
+  FUNC_DEF_C_ARG(dtr, executable|null, boolarg),
+  FUNC_DEF_C_ARG(rts, executable|null, boolarg),
+  FUNC_DEF_NOARG(sendbreak, executable|null),
+  { NULL } // terminator
+};
+
+static BuiltInMemberLookup* sharedSerialCommFunctionLookupP = NULL;
+
+SerialCommObj::SerialCommObj(SerialCommPtr aSerialComm, char aSeparator) :
+  mSerialComm(aSerialComm)
+{
+  // install the input handler
+  mSerialComm->setReceiveHandler(boost::bind(&SerialCommObj::hasData, this, _1), aSeparator);
+
+  registerSharedLookup(sharedSerialCommFunctionLookupP, serialCommMembers);
+}
+
+
+void SerialCommObj::deactivate()
+{
+  if (mSerialComm) {
+    mSerialComm->closeConnection();
+    mSerialComm.reset();
+  }
+}
+
+
+SerialCommObj::~SerialCommObj()
+{
+  deactivate();
+}
+
+
+void SerialCommObj::hasData(ErrorPtr aStatus)
+{
+  if (Error::isOK(aStatus)) {
+    // get the data
+    string data;
+    if (mSerialComm->mDelimiter) {
+      // receiving delimited chunks
+      if (mSerialComm->receiveDelimitedString(data)) {
+        sendEvent(new StringValue(data));
+      }
+      return;
+    }
+    else {
+      // no delimiter, report available data
+      aStatus = mSerialComm->receiveIntoString(data, 4096);
+      if (Error::isOK(aStatus)) {
+        sendEvent(new StringValue(data));
+        return;
+      }
+    }
+  }
+  // failed
+  sendEvent(new ErrorValue(aStatus));
+}
+
+
+// serial(serialconnectionspec)
+// serial(serialconnectionspec, delimiter)
+FUNC_ARG_DEFS(serial, { text }, { text|numeric|optionalarg } );
+static void serial_func(BuiltinFunctionContextPtr f)
+{
+  #if ENABLE_APPLICATION_SUPPORT
+  if (Application::sharedApplication()->userLevel()<1) { // user level >=1 is needed for IO access
+    f->finish(new ErrorValue(ScriptError::NoPrivilege, "no IO privileges"));
+  }
+  #endif
+  SerialCommPtr serialComm = new SerialComm;
+  serialComm->setConnectionSpecification(f->arg(0)->stringValue().c_str(), 2101, "none");
+  char delimiter = 0;
+  if (f->arg(1)->hasType(text)) delimiter = *(f->arg(1)->stringValue().c_str()); // one char or NUL
+  else if (f->arg(1)->boolValue()) delimiter = '\n'; // just true means LF (and removing CRs, too)
+  SerialCommObjPtr serialObj = new SerialCommObj(serialComm, delimiter);
+  ErrorPtr err = serialObj->serialComm()->establishConnection();
+  if (Error::isOK(err)) {
+    f->finish(serialObj);
+  }
+  else {
+    f->finish(new ErrorValue(err));
+  }
+}
+
+
+static const BuiltinMemberDescriptor serialGlobals[] = {
+  FUNC_DEF_W_ARG(serial, executable|null),
+  { NULL } // terminator
+};
+
+SerialLookup::SerialLookup() :
+  inherited(serialGlobals)
+{
+}
+
+
+#endif // ENABLE_SERIAL_SCRIPT_FUNCS

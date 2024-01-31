@@ -45,6 +45,17 @@
 #include <netdb.h>
 #include <netinet/in.h>
 
+#if ENABLE_P44SCRIPT && !defined(ENABLE_SERIAL_SCRIPT_FUNCS)
+  #define ENABLE_SERIAL_SCRIPT_FUNCS 1
+#endif
+#if ENABLE_SERIAL_SCRIPT_FUNCS && !ENABLE_P44SCRIPT
+  #error "ENABLE_P44SCRIPT required when ENABLE_SERIAL_SCRIPT_FUNCS is set"
+#endif
+
+#if ENABLE_SERIAL_SCRIPT_FUNCS
+  #include "p44script.hpp"
+#endif
+
 
 using namespace std;
 
@@ -81,10 +92,21 @@ namespace p44 {
   class SerialComm;
   typedef boost::intrusive_ptr<SerialComm> SerialCommPtr;
 
+  #if ENABLE_SERIAL_SCRIPT_FUNCS
+  namespace P44Script {
+    class SerialCommObj;
+    typedef boost::intrusive_ptr<SerialCommObj> SerialCommObjPtr;
+  }
+  #endif
+
   /// A class providing serialized access to a serial device attached directly or via a TCP proxy
   class SerialComm : public FdComm
   {
     typedef FdComm inherited;
+
+    #if ENABLE_SERIAL_SCRIPT_FUNCS
+    friend class P44Script::SerialCommObj;
+    #endif
 
     // serial connection
     string mConnectionPath;
@@ -171,7 +193,6 @@ namespace p44 {
     /// send BREAK
     void sendBreak();
 
-
   protected:
 
     /// This is called when
@@ -184,6 +205,39 @@ namespace p44 {
     bool nativeSerialPort() { return mDeviceConnection && mBaudRate>0; }
 
   };
+
+
+  #if ENABLE_SERIAL_SCRIPT_FUNCS
+  namespace P44Script {
+
+    /// represents a serial interface bus
+    class SerialCommObj : public StructuredLookupObject, public EventSource
+    {
+      typedef StructuredLookupObject inherited;
+      friend class p44::SerialComm;
+
+      SerialCommPtr mSerialComm;
+    public:
+      SerialCommObj(SerialCommPtr aSerialComm, char aSeparator);
+      virtual ~SerialCommObj();
+      virtual void deactivate() P44_OVERRIDE;
+      virtual string getAnnotation() const P44_OVERRIDE { return "serial interface"; };
+      SerialCommPtr serialComm() { return mSerialComm; }
+    private:
+      void hasData(ErrorPtr aStatus);
+    };
+
+
+    /// represents the global objects related to serial interfaces
+    class SerialLookup : public BuiltInMemberLookup
+    {
+      typedef BuiltInMemberLookup inherited;
+    public:
+      SerialLookup();
+    };
+
+  } // namespace P44Script
+  #endif // ENABLE_SERIAL_SCRIPT_FUNCS
 
 } // namespace p44
 

@@ -972,6 +972,7 @@ namespace p44 { namespace P44Script {
   class StringValue : public ScriptObj
   {
     typedef ScriptObj inherited;
+  protected:
     string mStr;
   public:
     StringValue(string aString) : mStr(aString) {};
