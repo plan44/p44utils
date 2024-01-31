@@ -25,13 +25,13 @@
 #define ALWAYS_DEBUG 0
 // - set FOCUSLOGLEVEL to non-zero log level (usually, 5,6, or 7==LOG_DEBUG) to get focus (extensive logging) for this file
 //   Note: must be before including "logger.hpp" (or anything that includes "logger.hpp")
-#define FOCUSLOGLEVEL 7
+#define FOCUSLOGLEVEL 0
 
 #include "midi.hpp"
 
 #if ENABLE_MIDI
 
-#include "application.hpp" // for temp dir path
+#include "application.hpp" // for userlevel check
 #include "utils.hpp"
 
 using namespace p44;
@@ -67,17 +67,20 @@ void MidiBus::setMidiDataHandler(MidiDataCB aMidiDataCB)
 }
 
 
-ErrorPtr MidiBus::open(const string aMidiInterface)
+ErrorPtr MidiBus::open(const string aMidiConnectionSpec)
 {
+  ErrorPtr err;
   close(); // closes/deletes existing mMidiDevice
-  mMidiDevice = new FdComm;
-  int midiFd = ::open(aMidiInterface.c_str(), O_RDWR|O_NONBLOCK);
-  if (midiFd<0) return SysError::errNo();
-  // successfully open, start monitoring
-  mMidiDevice->setReceiveHandler(boost::bind(&MidiBus::midiDataHandler, this, _1));
-  mMidiDevice->setFd(midiFd, true); // do not rely on numBytesReady()
-  mMidiDevice->makeNonBlocking();
-  return ErrorPtr();
+  mMidiDevice = new SerialComm;
+  mMidiDevice->setConnectionSpecification(aMidiConnectionSpec.c_str(), 2077, "none");
+  mMidiDevice->setDeviceOpParams(O_RDWR|O_NONBLOCK, true); // do not rely on numBytesReady()
+  err = mMidiDevice->establishConnection();
+  if (Error::isOK(err)) {
+    // successfully open, start monitoring
+    mMidiDevice->setReceiveHandler(boost::bind(&MidiBus::midiDataHandler, this, _1));
+    mMidiDevice->makeNonBlocking();
+  }
+  return err;
 }
 
 
@@ -551,12 +554,12 @@ MidiBusObj::~MidiBusObj()
 }
 
 
-// midibus(mididevicepath)
+// midibus(midiconnectionspec)
 FUNC_ARG_DEFS(midibus, { text } );
 static void midibus_func(BuiltinFunctionContextPtr f)
 {
   #if ENABLE_APPLICATION_SUPPORT
-  if (Application::sharedApplication()->userLevel()<2) { // user level >=2 is needed for IO access
+  if (Application::sharedApplication()->userLevel()<1) { // user level >=1 is needed for IO access
     f->finish(new ErrorValue(ScriptError::NoPrivilege, "no IO privileges"));
   }
   #endif

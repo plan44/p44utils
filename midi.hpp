@@ -33,7 +33,7 @@
 
 #if ENABLE_MIDI
 
-#include "fdcomm.hpp"
+#include "serialcomm.hpp"
 
 #include <stdio.h>
 
@@ -119,7 +119,7 @@ namespace p44 {
     P44Script::MidiBusObjPtr mRepresentingObj; ///< the (singleton) ScriptObj representing this midi interface
     #endif
 
-    FdCommPtr mMidiDevice;
+    SerialCommPtr mMidiDevice;
 
     MidiDataCB mMidiDataCB;
 
@@ -147,10 +147,11 @@ namespace p44 {
     /// @return the object type (used for context descriptions such as logging context)
     virtual string contextType() const P44_OVERRIDE { return "midi bus"; };
 
-    /// open the connection
-    /// @param aMidiInterface open a midi interface device
+    /// open a midi interface device
+    /// @param aMidiConnectionSpec the connection specification
+    ///    (usually a simple /dev/xxx, but can also be a IP socket level connection)
     /// @return error, if any
-    ErrorPtr open(const string aMidiInterface);
+    ErrorPtr open(const string aMidiConnectionSpec);
 
     /// close the midi interface
     virtual void close();
@@ -168,7 +169,7 @@ namespace p44 {
     ErrorPtr sendMidi(const MidiMessage& aMidiMessage, bool aRunningStatus, const string* aSysExData = nullptr);
 
     #if ENABLE_MIDI_SCRIPT_FUNCS
-    /// @return a singleton script object, representing this modbus slave, which can be registered as named member in a scripting domain
+    /// @return a singleton script object, representing this midi bus, which can be registered as named member in a scripting domain
     P44Script::MidiBusObjPtr representingScriptObj();
     #endif
 
@@ -188,7 +189,7 @@ namespace p44 {
     /// represents a midi message
     class MidiMessageObj : public ScriptObj
     {
-      typedef ObjectValue inherited;
+      typedef ScriptObj inherited;
       MidiMessage mMessage;
     public:
       MidiMessageObj(const MidiMessage& aMessage) : mMessage(aMessage) {};
@@ -224,8 +225,7 @@ namespace p44 {
       MidiLookup();
     };
 
-
-  }
+  } // namespace P44Script
   #endif // ENABLE_MIDI_SCRIPT_FUNCS
 
 
