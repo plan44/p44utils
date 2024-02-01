@@ -205,7 +205,7 @@ namespace p44 { namespace P44Script {
     stopall = stoprunning+queue, ///< stop everything
     concurrently = 0x10000, ///< run concurrently with already executing code (when whith queued, thread is started when all previously queued threads are done)
     keepvars = 0x20000, ///< keep the local variables already set in the context
-    mainthread = 0x40000, ///< if a thread with this flag set terminates, it also terminates all of its siblings
+    mainthread = 0x40000, ///< when a thread with this flag set terminates, it also terminates all of its siblings
     singlestep = 0x80000, ///< thread must start with pausing mode = singlestep (means: stopping at first statement of a function body, handler or script)
     neverpause = 0x100000, ///< thread must never pause, i.e. not inhert domain's defaultpausingmode
     // compilation modifiers
@@ -271,14 +271,14 @@ namespace p44 { namespace P44Script {
   /// script thread run/debug mode or pause reason
   /// @note higher pausing mode include all of the lower ones
   typedef enum {
-    nopause, ///< run normally, never pause
+    running, ///< run normally, never pause
     unpause, ///< unpause, will prevent re-pausing because location is the same etc.
     breakpoint, ///< run normally, but pause at breakpoints (breakpoint() in code or by cursor position)
     step_out, /// pause at end of user defined functions (aka step out)
     step_over, ///< pause at beginning of a statement (aka step over)
     step_into, ///< when entering a function, pass "statements" runmode into function's "child thread" (aka step into)
     interrupt, ///< externally set interrupt
-    terminate, ///< as occasion: thread has terminated. As continuing mode -> abort now
+    terminated, ///< as occasion: thread has terminated. As continuing mode -> abort now
     numPausingModes
   } PausingMode;
 
@@ -2163,7 +2163,7 @@ namespace p44 { namespace P44Script {
       inherited(ScriptingDomainPtr(), ScriptObjPtr()), mGeoLocationP(NULL),
       mMaxBlockTime(DEFAULT_MAX_BLOCK_TIME)
       #if P44SCRIPT_DEBUGGING_SUPPORT
-      , mDefaultPausingMode(nopause)
+      , mDefaultPausingMode(running)
       #endif
     {};
 

@@ -1908,7 +1908,7 @@ void ScriptCodeContext::execute(ScriptObjPtr aToExecute, EvaluationFlags aEvalFl
   }
   #if P44SCRIPT_DEBUGGING_SUPPORT
   // if debugging is enabled, make sure no paused thread is already running this same code
-  if (domain()->defaultPausingMode()>nopause && hasThreadPausedIn(code)) {
+  if (domain()->defaultPausingMode()>running && hasThreadPausedIn(code)) {
     OLOG(LOG_WARNING, "'%s' is already executing in paused thread -> SUPPRESSED starting again in new thread", code->getIdentifier().c_str());
     return;
   }
@@ -6638,7 +6638,7 @@ void ScriptingDomain::threadPaused(ScriptCodeThreadPtr aThread)
 {
   if (!mPauseHandlerCB) {
     OLOG(LOG_WARNING, "Thread %04d requested pause (reason: %s) but no pause handling active (any more) -> continuing w/o debugging", aThread->threadId(), ScriptCodeThread::pausingName(aThread->pauseReason()));
-    aThread->continueWithMode(nopause);
+    aThread->continueWithMode(running);
   }
   else {
     // call handler
@@ -6728,8 +6728,8 @@ ScriptCodeThread::ScriptCodeThread(ScriptCodeContextPtr aOwner, CompiledCodePtr 
   mMaxRunTime(Infinite),
   mRunningSince(Never)
   #if P44SCRIPT_DEBUGGING_SUPPORT
-  ,mPausingMode(nopause) // not debugging
-  ,mPauseReason(nopause) // not paused
+  ,mPausingMode(running) // not debugging
+  ,mPauseReason(running) // not paused
   #endif
 {
   setCursor(aStartCursor);
@@ -6798,7 +6798,7 @@ void ScriptCodeThread::prepareRun(
     mPausingMode = step_over;
   }
   else if (aEvalFlags & (neverpause|scanning|checking)) {
-    mPausingMode = nopause;
+    mPausingMode = running;
   }
   else {
     // use domain's standard mode
@@ -6917,7 +6917,7 @@ void ScriptCodeThread::complete(ScriptObjPtr aFinalResult)
   mChainedFromThread.reset();
   if (mOwner) mOwner->threadTerminated(this, mEvaluationFlags);
   #if P44SCRIPT_DEBUGGING_SUPPORT
-  if (pauseCheck(terminate)) {
+  if (pauseCheck(terminated)) {
     // paused at termination
     OLOG(LOG_NOTICE, "thread paused at termination");
   }
@@ -7219,14 +7219,14 @@ void ScriptCodeThread::memberEventCheck()
 
 
 static const char* pausingModeNames[numPausingModes] = {
-  "nopause",
+  "running",
   "unpause",
   "breakpoint",
   "step_out",
   "step_over",
   "step_into",
   "interrupt",
-  "terminate"
+  "terminated"
 };
 
 const char* ScriptCodeThread::pausingName(PausingMode aPausingMode)
@@ -7240,15 +7240,15 @@ PausingMode ScriptCodeThread::pausingModeNamed(const string aPauseName)
   for (int i=0; i<numPausingModes; i++) {
     if (aPauseName==pausingModeNames[i]) return static_cast<PausingMode>(i);
   }
-  return nopause;
+  return running;
 }
 
 
 
 bool ScriptCodeThread::pauseCheck(PausingMode aPausingOccasion)
 {
-  if (mSkipping || mPausingMode==nopause) return false; // not debugging or not executing (just skipping)
-  if (mPausingMode==terminate) {
+  if (mSkipping || mPausingMode==running) return false; // not debugging or not executing (just skipping)
+  if (mPausingMode==terminated) {
     abort(new ErrorValue(ScriptError::Aborted, "terminated while paused"));
     return true; // do not continue normally
   }
@@ -7256,7 +7256,7 @@ bool ScriptCodeThread::pauseCheck(PausingMode aPausingOccasion)
     // continuing after a pause, must overcome the current pausing reason
     OLOG(LOG_INFO, "Thread continues in mode '%s' after pause", pausingName(mPausingMode));
     mRunningSince = MainLoop::currentMainLoop().now(); // re-start run time restriction
-    mPauseReason = nopause;
+    mPauseReason = running;
     return false;
   }
   // Actually check for pausing
@@ -7281,7 +7281,7 @@ bool ScriptCodeThread::pauseCheck(PausingMode aPausingOccasion)
       }
       // pause at statement
       break;
-    case terminate:
+    case terminated:
       if (mPausingMode<breakpoint) return false; // debugging disabled
       if ((!mResult || !mResult->isErr()) && mPausingMode<step_over) return false; // terminating w/o error only pauses when stepped into
       // terminated with error
@@ -7304,11 +7304,11 @@ bool ScriptCodeThread::pauseCheck(PausingMode aPausingOccasion)
 
 void ScriptCodeThread::continueWithMode(PausingMode aNewPausingMode)
 {
-  if (mPauseReason==nopause) {
+  if (mPauseReason==running) {
     OLOG(LOG_WARNING, "Trying to continue thread %04d which is NOT paused", threadId());
     return;
   }
-  if (mPauseReason!=terminate) {
+  if (mPauseReason!=terminated) {
     // not pausing in terminated state, we can continue
     mPauseReason = unpause;
     mPausingMode = aNewPausingMode;
