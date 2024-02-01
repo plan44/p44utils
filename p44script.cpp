@@ -4144,7 +4144,7 @@ void SourceProcessor::defineTrigger(bool aGlobal)
     return;
   }
   CompiledTriggerPtr trigger;
-  if (!compiling()) // all handlers are context local and captured not before actually executed
+  if (!compiling() && !mSkipping) // all handlers are context local and captured not before actually executed
   {
     trigger = new CompiledTrigger("trigger", getTriggerAndHandlerMainContext());
     mResult = captureCode(trigger);
