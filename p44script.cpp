@@ -6915,16 +6915,21 @@ void ScriptCodeThread::complete(ScriptObjPtr aFinalResult)
   );
   sendEvent(mResult); // send the final result as event to registered EventSinks
   mChainedFromThread.reset();
-  if (mOwner) mOwner->threadTerminated(this, mEvaluationFlags);
   #if P44SCRIPT_DEBUGGING_SUPPORT
   if (pauseCheck(terminated)) {
     // paused at termination
     OLOG(LOG_NOTICE, "thread paused at termination");
+    // Note: the thread is not yet reported terminated to the owner at this point
+    //   This will happen at continueWithMode() when the debugger continues or
+    //   kills the thread. Reason is that the thread must remain in the
+    //   threads list in order to get detected by hasThreadPausedIn() and
+    //   avoid heaping up paused threads
   }
   else
   #endif
   {
     // deactivate myself to break any remaining retain loops
+    if (mOwner) mOwner->threadTerminated(this, mEvaluationFlags);
     deactivate();
   }
   // now thread object might be actually released (unless kept as paused thread)
@@ -7282,6 +7287,7 @@ bool ScriptCodeThread::pauseCheck(PausingMode aPausingOccasion)
       // pause at statement
       break;
     case terminated:
+      if (mChainedFromThread) return false; // do not pause at end of function call pseudo-threads, error or not
       if (mPausingMode<breakpoint) return false; // debugging disabled
       if ((!mResult || !mResult->isErr()) && mPausingMode<step_over) return false; // terminating w/o error only pauses when stepped into
       // terminated with error
@@ -7316,6 +7322,8 @@ void ScriptCodeThread::continueWithMode(PausingMode aNewPausingMode)
   }
   else {
     // now the thread can finally be disposed of
+    // - finally report terminated
+    if (mOwner) mOwner->threadTerminated(this, mEvaluationFlags);
     // - deactivate to break all retain loops
     deactivate();
     // when this call chain goes out of scope, thread object should get destructed
