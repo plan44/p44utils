@@ -1358,6 +1358,11 @@ namespace p44 { namespace P44Script {
     /// get context local variables
     ScriptObjPtr contextLocals() { return &mLocalVars; }
 
+    #if P44SCRIPT_DEBUGGING_SUPPORT
+    /// @return an array containing an object with info for each thread and a ThreadValue for the thread itself
+    ScriptObjPtr threadsList() const;
+    #endif
+
     /// access to local variables by name
     virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aMemberAccessFlags = none) const P44_OVERRIDE;
 

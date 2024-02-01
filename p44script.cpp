@@ -1748,6 +1748,32 @@ void ScriptCodeContext::clearVars()
 }
 
 
+#if P44SCRIPT_DEBUGGING_SUPPORT
+ScriptObjPtr ScriptCodeContext::threadsList() const
+{
+  ArrayValuePtr a = new ArrayValue;
+  for (ThreadList::const_iterator pos = mThreads.begin(); pos!=mThreads.end(); ++pos) {
+    ObjectValuePtr o = new ObjectValue;
+    o->setMemberByName("id", new IntegerValue((*pos)->threadId()));
+    o->setMemberByName("thread", new ThreadValue(*pos));
+    o->setMemberByName("source", new StringValue((*pos)->describePos()));
+    o->setMemberByName("status", new StringValue(ScriptCodeThread::pausingName((*pos)->pauseReason())));
+    o->setMemberByName("mainthread", new BoolValue((*pos)->mEvaluationFlags & mainthread));
+    a->appendMember(o);
+  }
+  for (ThreadList::const_iterator pos = mQueuedThreads.begin(); pos!=mQueuedThreads.end(); ++pos) {
+    ObjectValuePtr o = new ObjectValue;
+    o->setMemberByName("id", new IntegerValue((*pos)->threadId()));
+    o->setMemberByName("thread", new ThreadValue(*pos));
+    o->setMemberByName("pos", new StringValue((*pos)->describePos()));
+    o->setMemberByName("status", new StringValue("queued"));
+    a->appendMember(o);
+  }
+  return a;
+}
+#endif
+
+
 void ScriptCodeContext::appendFieldNames(FieldNameList& aList, TypeInfo aInterestedInTypes) const
 {
   // add local vars
@@ -9282,6 +9308,15 @@ static void threadvars_func(BuiltinFunctionContextPtr f)
   f->finish(f->thread()->threadLocals());
 }
 
+#if P44SCRIPT_DEBUGGING_SUPPORT
+static void threads_func(BuiltinFunctionContextPtr f)
+{
+  // create a threads list
+  f->finish(f->thread()->owner()->threadsList());
+}
+#endif
+
+
 #endif // SCRIPTING_JSON_SUPPORT
 
 
@@ -9381,6 +9416,9 @@ static const BuiltinMemberDescriptor standardFunctions[] = {
   FUNC_DEF_NOARG(contextvars, executable|structured),
   FUNC_DEF_NOARG(localvars, executable|structured),
   FUNC_DEF_NOARG(threadvars, executable|structured),
+  #if P44SCRIPT_DEBUGGING_SUPPORT
+  FUNC_DEF_NOARG(threads, executable|structured),
+  #endif
   #if P44SCRIPT_FULL_SUPPORT
   FUNC_DEF_NOARG(globalhandlers, executable|structured),
   FUNC_DEF_NOARG(contexthandlers, executable|structured),
