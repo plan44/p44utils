@@ -85,6 +85,8 @@ namespace p44 { namespace P44Script {
   typedef boost::intrusive_ptr<CompiledHandler> CompiledHandlerPtr;
   #endif // P44SCRIPT_FULL_SUPPORT
 
+  class StructuredLookupObject;
+  typedef boost::intrusive_ptr<StructuredLookupObject> StructuredLookupObjectPtr;
   class ExecutionContext;
   typedef boost::intrusive_ptr<ExecutionContext> ExecutionContextPtr;
   class ScriptCodeContext;
@@ -216,7 +218,7 @@ namespace p44 { namespace P44Script {
 
   /// Type info
   enum {
-    // content type flags, usually one per object, but object/array can be combined with regular type
+    // content type flags, usually one per object
     typeMask = 0x0FFF,
     none = 0x000, ///< no type specification
     // - scalars
@@ -230,15 +232,17 @@ namespace p44 { namespace P44Script {
     // - special
     executable = 0x100, ///< executable code
     threadref = 0x200, ///< represents a running thread
+    // type check modifier flags
+    allof = 0x400, ///< for type requirements only: checked type (within checkedTypesMask) must have all type flags set present in the requirements
+    nonebut = 0x800, ///< for type requirements only: hecked type (within checkedTypesMask) must not have any type flags set not present in the requirements
+    checkedTypesMask = typeMask&~(allof|nonebut), ///< type flags minus check flags
     // - type classes
-    alltypes = typeMask, ///< all types
+    alltypes = checkedTypesMask, ///< all types
     anyvalid = typeMask-null-error, ///< any type except null and error
     scalar = numeric+text, // +json, ///< scalar types (json can also be structured)
     structured = objectvalue+arrayvalue, ///< structured types
     value = scalar+structured, ///< all value types (excludes executables)
     jsonrepresentable = value+null, ///< all data including null (but not error) - this is what is directly representable by JSON
-    // - check flags
-    anyof = 0x800, ///< special flag for checking, means that checked type must only match one of the passed flags, not all
     // attributes
     attrMask = 0xFFFFF000,
     // - for argument checking
@@ -247,19 +251,25 @@ namespace p44 { namespace P44Script {
     exacttype = 0x02000, ///< if set, type of argument must match, no autoconversion
     undefres = 0x04000, ///< if set, and an argument does not match type, the function result is automatically made null/undefined without executing the implementation
     async = 0x08000, ///< if set, the object cannot evaluate synchronously
-    // - storage attributes and directives for named members
-    lvalue = 0x10000, ///< is a left hand value (lvalue), possibly assignable, probably needs makeValid() to get real value
-    create = 0x20000, ///< set to create member if not yet existing (special use also for explicitly created errors)
-    onlycreate = 0x40000, ///< set to only create if new, but not overwrite
-    nooverride = 0x80000, ///< do not override existing globals by creating a local var
-    unset = 0x100000, ///< set to unset/delete member
-    global = 0x200000, ///< set to store in global context
-    threadlocal = 0x400000, ///< set to store as thread local
-    constant = 0x800000, ///< set to select only constant  (in the sense of: not settable by scripts) members
-    objscope = 0x1000000, ///< set to select only object scope members
-    classscope = 0x2000000, ///< set to select only class scope members
-    allscopes = classscope+objscope+global+threadlocal,
-    builtinmember = 0x4000000, ///< special flag for use in built-in member descriptions to differentiate members from functions
+    // - storage scopes, attributes and directives for named members
+    //   Note: some of these flags serve more than one of the above categories
+    lvalue = 0x10000, ///< is (attribute) or should be retrieved as (directive) a left hand value "lvalue"
+    create = 0x20000, ///< set to create member if not yet existing (directive), special use also for explicitly created errors (attribute)
+    onlycreate = 0x40000, ///< (directive) set to only create if new, but not overwrite
+    nooverride = 0x80000, ///< (directive) do not override existing globals by creating a local var
+    unset = 0x100000, ///< (directive) set to unset/delete member
+    global = 0x200000, ///< (directive, scope) set to store in global context
+    threadlocal = 0x400000, ///< (directive, scope) set to store as thread local
+    builtin = 0x800000, ///< (attribute) set to select only builtin members (functions, values)
+    objscope = 0x1000000, ///< (scope) set to select only object scope members
+    classscope = 0x2000000, ///< (scope) set to select only class scope members
+    // - attribute flag categories
+    allscopes = global|classscope|objscope|threadlocal, // all flags that can designate member scope
+    puredirectives = unset|create|onlycreate|nooverride, // all flags that only direct member creation/deletion
+    nonscopes = puredirectives|lvalue, // all flags that are not member scopes
+    alldirectives = nonscopes|global, // all flags that can be directives OR scopes/attributes
+    // - special flags
+    builtinvalue = 0x4000000, ///< special flag for use in built-in field descriptions (to differentiate from functions)
     keeporiginal = 0x8000000, ///< special flag for values that should NOT be replaced by their actualValue()
     oneshot = 0x10000000, ///< special flag for values that occur only once, such as event messages. Relevant for triggers, which will auto-reset when oneshot values are involved
     freezable = 0x20000000, ///< special flag for values that are delivered as events to trigger evaluation and should be frozen for use in the trigger evaluation, rather than re-read
@@ -436,7 +446,7 @@ namespace p44 { namespace P44Script {
     virtual TypeInfo getTypeInfo() const { return null; }; // base object is a null/undefined
 
     /// @return a type description for logs and error messages
-    static string typeDescription(TypeInfo aInfo);
+    static string typeDescription(TypeInfo aInfo, bool aTerse);
 
     /// @return text description for the passed aObj, NULL allowed
     static string describe(const ScriptObj* aObj);
@@ -446,28 +456,31 @@ namespace p44 { namespace P44Script {
     virtual string getIdentifier() const { return ""; };
 
     /// get annotation text - defaults to type description
-    virtual string getAnnotation() const { return typeDescription(getTypeInfo()); };
+    virtual string getAnnotation() const { return typeDescription(getTypeInfo(), false); };
 
     /// check type compatibility
     /// @param aTypeInfo what type(s) we are looking for
     /// @return true if this object has any of the types specified in aTypeInfo
     bool hasType(TypeInfo aTypeInfo) const { return (getTypeInfo() & aTypeInfo)!=0; }
 
-    /// check type compatibility
-    /// @param aRequirements what type flags MUST be set (`anyof`=0) or MAY be set (`anyof`=1)
-    /// @param aMask what type flags are checked (defaults to typeMask)
-    /// @return true if this object has all of the type flags requested within the mask
-    ///   or, when `anyof` is set as well, the object does not have flags not in aRequirements
-    bool meetsRequirement(TypeInfo aRequirements, TypeInfo aMask = typeMask) const
-      { return typeRequirementMet(getTypeInfo(), aRequirements, aMask); }
+    /// check this object's type compatibility
+    /// @param aRequirements type requirements (see typeRequirementMet())
+    /// @return true if this object meets the requirements
+    bool meetsRequirement(TypeInfo aRequirements) const
+      { return typeRequirementMet(getTypeInfo(), aRequirements); }
 
     /// check type compatibility
-    /// @param aInfo the flags to check
-    /// @param aRequirements what type flags MUST be set
-    /// @param aMask what type flags are checked (defaults to typeMask)
-    /// @return true if this object has all of the type flags requested within the mask
-    ///   or, when `anyof` is set as well, the object does not have flags not in aRequirements
-    static bool typeRequirementMet(TypeInfo aInfo, TypeInfo aRequirements, TypeInfo aMask = typeMask);
+    /// @param aInfo the actual type flags to check
+    /// @param aRequirements type requirements as follows:
+    /// - if zero, no type checking at all is performed
+    /// - otherwise type flags WITHIN checkedTypesMask are checked as follows:
+    ///   - if `allof` bit is set, ALL flags in aRequirements must be set, otherwise
+    ///     it is sufficient that actual type and aRequirements share at least on set bit
+    ///   - if `nonebut` bit is set, NO flag outside those in aRequirements may be set
+    /// - if aRequirements has other flags within attrMask, one of these must also be present
+    ///   in the actual type (implicit `anyof`)
+    /// @return true if aInfo meets the requirements
+    static bool typeRequirementMet(TypeInfo aInfo, TypeInfo aRequirements);
 
     /// check for null/undefined
     bool undefined() const { return (getTypeInfo() & null)!=0; }
@@ -583,12 +596,10 @@ namespace p44 { namespace P44Script {
     virtual ErrorPtr setMemberAtIndex(size_t aIndex, const ScriptObjPtr aMember, const string aName = "");
 
     /// create and initialize a iterator for iterating over this objects members
-    /// @param aInterestedInTypes types+attributes we are interested in at all, i.e.
-    ///   iterator may only return elements which have no type and attribute bits set which are not
-    ///   also set in aInterestedInTypes.
+    /// @param aTypeRequirements requirements for the returned objects
     ///   This filter might not be implemented in all iterators.
     /// @return iterator over members of this object
-    virtual ValueIteratorPtr newIterator(TypeInfo aInterestedInTypes) const;
+    virtual ValueIteratorPtr newIterator(TypeInfo aTypeRequirements) const;
 
     /// @}
 
@@ -1006,12 +1017,12 @@ namespace p44 { namespace P44Script {
     virtual string stringValue() const P44_OVERRIDE;
     virtual bool boolValue() const P44_OVERRIDE;
     virtual TypeInfo getTypeInfo() const P44_OVERRIDE { return structured; } // subclasses might narrow down that to object / array only
-    virtual ValueIteratorPtr newIterator(TypeInfo aInterestedInTypes) const P44_OVERRIDE;
+    virtual ValueIteratorPtr newIterator(TypeInfo aTypeRequirements) const P44_OVERRIDE;
     #if SCRIPTING_JSON_SUPPORT
     virtual JsonObjectPtr jsonValue(bool aDescribeNonJSON = false) const P44_OVERRIDE;
     #endif
   protected:
-    virtual void appendFieldNames(FieldNameList& aList, TypeInfo aInterestedInTypes) const { /* NOP in base class */ }
+    virtual void appendFieldNames(FieldNameList& aList, TypeInfo aTypeRequirements) const { /* NOP in base class */ }
   };
 
 
@@ -1032,11 +1043,11 @@ namespace p44 { namespace P44Script {
     FieldNameList mNameList;
     FieldNameList::iterator mNameIterator;
 
+  public:
+
     /// iterator over object fields
     /// @param aObj the object that will be iterated over
-    ObjectFieldsIterator(const StructuredValue* aObj, TypeInfo aInterestedInTypes);
-
-  public:
+    ObjectFieldsIterator(const StructuredValue* aObj, TypeInfo aTypeRequirements);
 
     virtual void reset() P44_OVERRIDE;
     virtual void next() P44_OVERRIDE;
@@ -1066,7 +1077,7 @@ namespace p44 { namespace P44Script {
     virtual size_t numIndexedMembers() const P44_OVERRIDE;
     virtual const ScriptObjPtr memberAtIndex(size_t aIndex, TypeInfo aMemberAccessFlags = none) const P44_OVERRIDE;
     virtual ErrorPtr setMemberAtIndex(size_t aIndex, const ScriptObjPtr aMember, const string aName = "") P44_OVERRIDE;
-    virtual ValueIteratorPtr newIterator(TypeInfo aInterestedInTypes) const P44_OVERRIDE;
+    virtual ValueIteratorPtr newIterator(TypeInfo aTypeRequirements) const P44_OVERRIDE;
     void appendMember(const ScriptObjPtr aMember); ///< convenience helper
     // operators
     virtual bool operator<(const ScriptObj& aRightSide) const P44_OVERRIDE;
@@ -1103,7 +1114,7 @@ namespace p44 { namespace P44Script {
     virtual bool operator==(const ScriptObj& aRightSide) const P44_OVERRIDE;
     virtual ScriptObjPtr operator+(const ScriptObj& aRightSide) const P44_OVERRIDE;
   protected:
-    virtual void appendFieldNames(FieldNameList& aList, TypeInfo aInterestedInTypes) const P44_OVERRIDE;
+    virtual void appendFieldNames(FieldNameList& aList, TypeInfo aTypeRequirements) const P44_OVERRIDE;
   };
   typedef boost::intrusive_ptr<ObjectValue> ObjectValuePtr;
 
@@ -1136,7 +1147,7 @@ namespace p44 { namespace P44Script {
     virtual ErrorPtr setMemberByName(const string aName, const ScriptObjPtr aMember) P44_OVERRIDE;
 
     /// internal for generic StructuredValue level iterator support
-    virtual void appendFieldNames(FieldNameList& aList, TypeInfo aInterestedInTypes) const P44_OVERRIDE;
+    virtual void appendFieldNames(FieldNameList& aList, TypeInfo aTypeRequirements) const P44_OVERRIDE;
   };
 
 
@@ -1176,7 +1187,7 @@ namespace p44 { namespace P44Script {
 
   protected:
     /// internal for generic StructuredValue level iterator support
-    virtual void appendFieldNames(FieldNameList& aList, TypeInfo aInterestedInTypes) const P44_OVERRIDE;
+    virtual void appendFieldNames(FieldNameList& aList, TypeInfo aTypeRequirements) const P44_OVERRIDE;
 
   };
 
@@ -1190,7 +1201,7 @@ namespace p44 { namespace P44Script {
 
     /// return mask of all types that may be (but not necessarily are) in this lookup
     /// @note this is for optimizing lookups for certain types. Base class potentially has all kind of objects
-    virtual TypeInfo containsTypes() const { return alltypes+constant+allscopes; }
+    virtual TypeInfo containsTypes() const { return alltypes|builtin|allscopes; }
 
     /// get object subfield/member by name
     /// @param aThisObj the object _instance_ of which we want to access a member (can be NULL in case of singletons)
@@ -1206,8 +1217,8 @@ namespace p44 { namespace P44Script {
 
     /// add all member field names to aList
     /// @param aList member names will be added to this list
-    /// @param aInterestedInTypes what types of fields we are interested in at all (not included ones MIGHT be omitted if callee supports filtering)
-    virtual void appendMemberNames(FieldNameList& aList, TypeInfo aInterestedInTypes) = 0;
+    /// @param aTypeRequirements requirements for the members - is only a hint, not all lookup might support that filter
+    virtual void appendMemberNames(FieldNameList& aList, TypeInfo aTypeRequirements) = 0;
 
   };
 
@@ -1223,7 +1234,7 @@ namespace p44 { namespace P44Script {
     virtual ScriptObjPtr memberByNameFrom(ScriptObjPtr aThisObj, const string aName, TypeInfo aTypeRequirements) const P44_OVERRIDE;
     virtual void registerMember(const string aName, ScriptObjPtr aMember) P44_OVERRIDE;
 
-    virtual void appendMemberNames(FieldNameList& aList, TypeInfo aInterestedInTypes) P44_OVERRIDE;
+    virtual void appendMemberNames(FieldNameList& aList, TypeInfo aTypeRequirements) P44_OVERRIDE;
   };
 
 
@@ -1410,7 +1421,7 @@ namespace p44 { namespace P44Script {
 
   protected:
     /// internal for generic StructuredValue level iterator support
-    virtual void appendFieldNames(FieldNameList& aList, TypeInfo aInterestedInTypes) const P44_OVERRIDE;
+    virtual void appendFieldNames(FieldNameList& aList, TypeInfo aTypeRequirements) const P44_OVERRIDE;
 
   private:
 
@@ -1495,7 +1506,7 @@ namespace p44 { namespace P44Script {
   {
     typedef ScriptObj inherited;
   public:
-    virtual TypeInfo getTypeInfo() const { return executable; };
+    virtual TypeInfo getTypeInfo() const P44_OVERRIDE { return executable; };
   };
 
 
@@ -1613,6 +1624,7 @@ namespace p44 { namespace P44Script {
     void skipNonCode(); ///< skip non-code, i.e. whitespace and comments
     string displaycode(size_t aMaxLen) const; ///< @return code on single line for displaying from current position, @param aMaxLen how much to show max before abbreviating with "..."
     const char *originLabel() const; ///< @return the origin label of the source container
+    string describePos(size_t aCodeMaxLen = 30) const; ///< @return executing position description
 
     // parsing utilities
     bool parseIdentifier(string& aIdentifier, size_t* aIdentifierLenP = NULL); ///< @return true if identifier found, stored in aIndentifier and cursor advanced
@@ -2890,8 +2902,10 @@ namespace p44 { namespace P44Script {
   {
     typedef CompiledScript inherited;
 
-    CompiledTriggerPtr mTrigger; ///< the trigger
   public:
+
+    CompiledTriggerPtr mTrigger; ///< the trigger
+
     CompiledHandler(const string aName, ScriptMainContextPtr aMainContext) : inherited(aName, aMainContext) {};
     virtual ~CompiledHandler() { deactivate(); } // even if deactivate() is usually called before dtor, make sure it happens even if not
 
@@ -3039,9 +3053,6 @@ namespace p44 { namespace P44Script {
 
     /// run the thread
     virtual void run();
-
-    /// @return describe the execution position
-    string describePos(size_t aCodeMaxLen = 30) const;
 
     /// get the maximum blocking time for script execution
     MLMicroSeconds getMaxBlockTime() const { return mMaxBlockTime; };
@@ -3220,13 +3231,13 @@ namespace p44 { namespace P44Script {
     static const BuiltInArgDesc f ## _args[] = { __VA_ARGS__ }; \
     static const size_t f ## _numargs = sizeof(f ## _args)/sizeof(BuiltInArgDesc);
   #define FUNC_DEF_NOARG(f, r) \
-    { #f, r, 0, nullptr, & f ## _func }
+    { #f, r|builtin, 0, nullptr, & f ## _func }
   #define FUNC_DEF_W_ARG(f, r) \
-    { #f, r, f ## _numargs, f ## _args, & f ## _func }
+    { #f, r|builtin, f ## _numargs, f ## _args, & f ## _func }
   #define FUNC_DEF_C_ARG(f, r, a) \
-    { #f, r, a ## _numargs, a ## _args, & f ## _func }
+    { #f, r|builtin, a ## _numargs, a ## _args, & f ## _func }
   #define MEMBER_DEF(m, r) \
-    { #m, r, 0, nullptr, (BuiltinFunctionImplementation)& m ## _accessor }
+    { #m, r|builtin|builtinvalue, 0, nullptr, (BuiltinFunctionImplementation)& m ## _accessor }
 
 
   class BuiltInLValue : public ScriptLValue
@@ -3236,6 +3247,7 @@ namespace p44 { namespace P44Script {
     ScriptObjPtr mThisObj;
     const BuiltinMemberDescriptor *mDescriptor; ///< function signature, name and pointer to actual implementation function
   public:
+    virtual TypeInfo getTypeInfo() const P44_OVERRIDE { return inherited::getTypeInfo()|builtin; }; // all builtins are `constant`
     BuiltInLValue(const BuiltInMemberLookupPtr aLookup, const BuiltinMemberDescriptor *aMemberDescriptor, ScriptObjPtr aThisObj, ScriptObjPtr aCurrentValue);
     virtual void assignLValue(EvaluationCB aEvaluationCB, ScriptObjPtr aNewValue) P44_OVERRIDE;
     virtual string getIdentifier() const P44_OVERRIDE { return mDescriptor ? mDescriptor->name : ""; };
@@ -3253,10 +3265,10 @@ namespace p44 { namespace P44Script {
     /// @param aMemberDescriptors pointer to an array of member descriptors, terminated with an entry with .name==NULL
     BuiltInMemberLookup(const BuiltinMemberDescriptor* aMemberDescriptors);
 
-    virtual TypeInfo containsTypes() const P44_OVERRIDE { return constant+allscopes+alltypes; } // constant, from all scopes, any type
+    virtual TypeInfo containsTypes() const P44_OVERRIDE { return builtin|allscopes|alltypes; } // constant, from all scopes, any type
     virtual ScriptObjPtr memberByNameFrom(ScriptObjPtr aThisObj, const string aName, TypeInfo aMemberAccessFlags) const P44_OVERRIDE;
 
-    virtual void appendMemberNames(FieldNameList& aList, TypeInfo aInterestedInTypes) P44_OVERRIDE;
+    virtual void appendMemberNames(FieldNameList& aList, TypeInfo aTypeRequirements) P44_OVERRIDE;
   };
 
 
@@ -3272,7 +3284,9 @@ namespace p44 { namespace P44Script {
 
   public:
 
-    virtual string getAnnotation() const P44_OVERRIDE { return "built-in function"; };
+    virtual string getAnnotation() const P44_OVERRIDE;
+
+    virtual TypeInfo getTypeInfo() const P44_OVERRIDE { return executable|builtin; };
 
     BuiltinFunctionObj(const BuiltinMemberDescriptor *aDescriptor, ScriptObjPtr aThisObj, const BuiltInMemberLookup* aMemberLookupP) :
       mDescriptor(aDescriptor), mThisObj(aThisObj), mMemberLookupP(aMemberLookupP) {};

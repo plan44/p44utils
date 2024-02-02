@@ -217,7 +217,7 @@ ErrorPtr ScriptObj::setMemberAtIndex(size_t aIndex, const ScriptObjPtr aMember, 
   return ScriptError::err(ScriptError::NotFound, "cannot assign at %zu", aIndex);
 }
 
-ValueIteratorPtr ScriptObj::newIterator(TypeInfo aInterestedInTypes) const
+ValueIteratorPtr ScriptObj::newIterator(TypeInfo aTypeRequirements) const
 {
   // by default, iterate by index, types ignored
   return new IndexedValueIterator(this);
@@ -238,58 +238,66 @@ void ScriptObj::assignLValue(EvaluationCB aEvaluationCB, ScriptObjPtr aNewValue)
 
 
 
-string ScriptObj::typeDescription(TypeInfo aInfo)
+string ScriptObj::typeDescription(TypeInfo aInfo, bool aTerse)
 {
   string s;
   if ((aInfo & anyvalid)==anyvalid) {
-    s = "any value";
-    if ((aInfo & (null|error))!=(null|error)) {
-      s += " but not";
-      if ((aInfo & null)==0) {
-        s += " undefined";
-        if ((aInfo & error)==0) s += " or";
+    if (aTerse) {
+      s = "any";
+    }
+    else {
+      s = "any value";
+      if ((aInfo & (null|error))!=(null|error)) {
+        s += " but not";
+        if ((aInfo & null)==0) {
+          s += " undefined";
+          if ((aInfo & error)==0) s += " or";
+        }
+        if ((aInfo & error)==0) s += " error";
       }
-      if ((aInfo & error)==0) s += " error";
     }
   }
   else {
     // structure
+    const char* commasep = aTerse ? "|" : ", ";
+    const char* orsep = aTerse ? "|" : " or ";
     if (aInfo & objectvalue) {
       // identify structured values that are both object and array just as object
       s = "object";
     }
-    else if (aInfo & arrayvalue) {
+    if (aInfo & arrayvalue) {
+      if (!s.empty()) s += "/";
       s = "array";
     }
     // special
     if (aInfo & threadref) {
-      if (!s.empty()) s += ", ";
+      if (!s.empty()) s += commasep;
       s += "thread";
     }
     if (aInfo & executable) {
-      if (!s.empty()) s += ", ";
+      if (!s.empty()) s += commasep;
       s += "executable";
     }
     // scalar
     if (aInfo & numeric) {
-      if (!s.empty()) s += ", ";
+      if (!s.empty()) s += commasep;
       s += "numeric";
     }
     if (aInfo & text) {
-      if (!s.empty()) s += ", ";
+      if (!s.empty()) s += commasep;
       s += "string";
     }
     // alternatives
     if (aInfo & error) {
-      if (!s.empty()) s += " or ";
+      if (!s.empty()) s += orsep;
       s += "error";
     }
     if (aInfo & null) {
-      if (!s.empty()) s += " or ";
+      if (!s.empty()) s += orsep;
       s += "undefined";
     }
     if (aInfo & lvalue) {
-      if (!s.empty()) s += " or ";
+      if (!s.empty()) s += orsep;
       s += "lvalue";
     }
   }
@@ -305,7 +313,7 @@ string ScriptObj::describe(const ScriptObj* aObj)
   ScriptObjPtr valObj = aObj->actualValue();
   ScriptObjPtr calcObj;
   if (valObj) calcObj = valObj->calculationValue();
-  string ty = typeDescription(aObj->getTypeInfo());
+  string ty = typeDescription(aObj->getTypeInfo(), false);
   string ann = aObj->getAnnotation();
   string v;
   if (calcObj) {
@@ -326,14 +334,25 @@ string ScriptObj::describe(const ScriptObj* aObj)
 }
 
 
-bool ScriptObj::typeRequirementMet(TypeInfo aInfo, TypeInfo aRequirements, TypeInfo aMask)
+bool ScriptObj::typeRequirementMet(TypeInfo aInfo, TypeInfo aRequirements)
 {
-  if (aRequirements & anyof) {
-    return (aInfo & aMask & ~((aRequirements&aMask)|anyof))==0;
+  if (aRequirements & attrMask) {
+    // there are attribute requirements: at least one of the required flags must be set
+    if ((aInfo & aRequirements & attrMask)==0) return false;
   }
-  else {
-    return (aInfo & aRequirements & aMask)==(aRequirements & aMask);
+  if (aRequirements & checkedTypesMask) {
+    // there are type requirements
+    // - any outside the allowed?
+    if ((aRequirements & nonebut) && (aInfo & checkedTypesMask & ~aRequirements)!=0) return false;
+    if (aRequirements & allof) {
+      return (aInfo & checkedTypesMask & aRequirements) == (aRequirements & checkedTypesMask);
+    }
+    else {
+      return (aInfo & checkedTypesMask & aRequirements) != 0;
+    }
   }
+  // no checks at all
+  return true;
 }
 
 
@@ -952,13 +971,13 @@ JsonObjectPtr StructuredValue::jsonValue(bool aDescribeNonJSON) const
   // (e.g. ArrayValue, ObjecValue) have more efficient specialized versions
   // Note: values that would need makeValid() to obtain the actual value asynchronously cannot be represented as json
   JsonObjectPtr obj = JsonObject::newObj();
-  ValueIteratorPtr iter = newIterator(value);
+  ValueIteratorPtr iter = newIterator(aDescribeNonJSON ? none : nonebut|jsonrepresentable);
   ScriptObjPtr o;
   while ((o = iter->obtainKey(false))) {
     string key = o->stringValue();
-    o = iter->obtainValue(anyof|jsonrepresentable);
+    o = iter->obtainValue(aDescribeNonJSON ? none : nonebut|jsonrepresentable);
     if (o) {
-      obj->add(key.c_str(), o->jsonValue());
+      obj->add(key.c_str(), o->jsonValue(aDescribeNonJSON));
     }
     iter->next();
   }
@@ -990,19 +1009,19 @@ JsonObjectPtr ObjectValue::jsonValue(bool aDescribeNonJSON) const
 
 // MARK: - Structured Values
 
-ValueIteratorPtr StructuredValue::newIterator(TypeInfo aInterestedInTypes) const
+ValueIteratorPtr StructuredValue::newIterator(TypeInfo aTypeRequirements) const
 {
-  return new ObjectFieldsIterator(this, aInterestedInTypes);
+  return new ObjectFieldsIterator(this, aTypeRequirements);
 }
 
 
 // MARK: - Iterator for Fields of structured Values
 
-ObjectFieldsIterator::ObjectFieldsIterator(const StructuredValue* aObj, TypeInfo aInterestedInTypes) :
+ObjectFieldsIterator::ObjectFieldsIterator(const StructuredValue* aObj, TypeInfo aTypeRequirements) :
   mIteratedObj(const_cast<StructuredValue*>(aObj))
 {
   // capture name list
-  aObj->appendFieldNames(mNameList, aInterestedInTypes);
+  aObj->appendFieldNames(mNameList, aTypeRequirements);
   reset();
 }
 
@@ -1171,7 +1190,7 @@ ScriptObjPtr ArrayValue::operator+(const ScriptObj& aRightSide) const
 }
 
 
-ValueIteratorPtr ArrayValue::newIterator(TypeInfo aInterestedInTypes) const
+ValueIteratorPtr ArrayValue::newIterator(TypeInfo aTypeRequirements) const
 {
   return new IndexedValueIterator(this);
 }
@@ -1242,7 +1261,7 @@ const ScriptObjPtr ObjectValue::memberAtIndex(size_t aIndex, TypeInfo aMemberAcc
 }
 
 
-void ObjectValue::appendFieldNames(FieldNameList& aList, TypeInfo aInterestedInTypes) const
+void ObjectValue::appendFieldNames(FieldNameList& aList, TypeInfo aTypeRequirements) const
 {
   for(FieldsMap::const_iterator pos = mFields.begin(); pos!=mFields.end(); ++pos) {
     aList.push_back(pos->first);
@@ -1300,7 +1319,7 @@ ScriptObjPtr ObjectValue::operator+(const ScriptObj& aRightSide) const
     if (right->numIndexedMembers()>0) {
       // there is something to add
       FieldNameList names;
-      right->appendFieldNames(names, typeMask+attrMask); // we want everything
+      right->appendFieldNames(names, none); // not type requirements, we want everything
       ScriptObjPtr merged = assignmentValue();
       for (FieldNameList::const_iterator pos = names.begin(); pos!=names.end(); ++pos) {
         merged->setMemberByName(*pos, right->memberByName(*pos, none));
@@ -1368,7 +1387,7 @@ void SimpleVarContainer::clearFloating()
 }
 
 
-void SimpleVarContainer::appendFieldNames(FieldNameList& aList, TypeInfo aInterestedInTypes) const
+void SimpleVarContainer::appendFieldNames(FieldNameList& aList, TypeInfo aTypeRequirements) const
 {
   for(NamedVarMap::const_iterator pos = mNamedVars.begin(); pos!=mNamedVars.end(); ++pos) {
     aList.push_back(pos->first);
@@ -1384,7 +1403,7 @@ const ScriptObjPtr SimpleVarContainer::memberByName(const string aName, TypeInfo
   if (pos!=mNamedVars.end()) {
     // we have that member
     m = pos->second;
-    if (m->meetsRequirement(aMemberAccessFlags, typeMask)) {
+    if (m->meetsRequirement(aMemberAccessFlags & ~nonscopes)) {
       if ((aMemberAccessFlags & lvalue) && (aMemberAccessFlags & onlycreate)==0) {
         return new StandardLValue(const_cast<SimpleVarContainer*>(this), aName, m); // it is allowed to overwrite this value
       }
@@ -1439,7 +1458,10 @@ const ScriptObjPtr StructuredLookupObject::memberByName(const string aName, Type
   LookupList::const_iterator pos = mLookups.begin();
   while (pos!=mLookups.end()) {
     MemberLookupPtr lookup = *pos;
-    if (typeRequirementMet(lookup->containsTypes(), aMemberAccessFlags&~anyof, typeMask)) {
+    // ignore the `nonebut` flag here, we only want to exclude lookups that *cannot* possibly contain the requested type at all
+    // ignore the access flags for container selection
+    if (typeRequirementMet(lookup->containsTypes(), aMemberAccessFlags&~nonebut&typeMask)) {
+      // now pass the entire requirements as-is
       if ((m = lookup->memberByNameFrom(const_cast<StructuredLookupObject*>(this), aName, aMemberAccessFlags))) return m;
     }
     ++pos;
@@ -1480,13 +1502,14 @@ void StructuredLookupObject::registerMember(const string aName, ScriptObjPtr aMe
   mSingleMembers->registerMember(aName, aMember);
 }
 
-void StructuredLookupObject::appendFieldNames(FieldNameList& aList, TypeInfo aInterestedInTypes) const
+void StructuredLookupObject::appendFieldNames(FieldNameList& aList, TypeInfo aTypeRequirements) const
 {
   for (LookupList::const_iterator pos = mLookups.begin(); pos!=mLookups.end(); ++pos) {
     MemberLookupPtr lookup = *pos;
-    if (lookup->containsTypes() & aInterestedInTypes) {
-      // lookup contains what we are interested in
-      lookup->appendMemberNames(aList, aInterestedInTypes);
+    // ignore the `nonebut` flag here, we only want to exclude lookups that *cannot* possibly contain the requested type at all
+    if (ScriptObj::typeRequirementMet(lookup->containsTypes(), aTypeRequirements&~nonebut)) {
+      // lookup possibly contains what we are interested in
+      lookup->appendMemberNames(aList, aTypeRequirements);
     }
   }
 }
@@ -1508,7 +1531,7 @@ void PredefinedMemberLookup::registerMember(const string aName, ScriptObjPtr aMe
 }
 
 
-void PredefinedMemberLookup::appendMemberNames(FieldNameList& aList, TypeInfo aInterestedInTypes)
+void PredefinedMemberLookup::appendMemberNames(FieldNameList& aList, TypeInfo aTypeRequirements)
 {
   for(NamedVarMap::const_iterator pos = mMembers.begin(); pos!=mMembers.end(); ++pos) {
     aList.push_back(pos->first);
@@ -1571,7 +1594,7 @@ const ScriptObjPtr ExecutionContext::memberAtIndex(size_t aIndex, TypeInfo aMemb
   if (aIndex<mIndexedVars.size()) {
     // we have that member
     m = mIndexedVars[aIndex];
-    if (!m->meetsRequirement(aMemberAccessFlags, typeMask)) return ScriptObjPtr();
+    if (!m->meetsRequirement(aMemberAccessFlags & typeMask)) return ScriptObjPtr();
     if ((aMemberAccessFlags & lvalue) && (aMemberAccessFlags & onlycreate)==0) {
       m = new StandardLValue(const_cast<ExecutionContext*>(this), aIndex, m); // it is allowed to overwrite this value
     }
@@ -1626,7 +1649,7 @@ ScriptObjPtr ExecutionContext::checkAndSetArgument(ScriptObjPtr aArgument, size_
       return new ErrorValue(ScriptError::Syntax,
         "missing argument %zu (%s) in call to '%s'",
         aIndex+1,
-        typeDescription(info.typeInfo).c_str(),
+        typeDescription(info.typeInfo, false).c_str(),
         aCallee->getIdentifier().c_str()
       );
     }
@@ -1656,8 +1679,8 @@ ScriptObjPtr ExecutionContext::checkAndSetArgument(ScriptObjPtr aArgument, size_
             "argument %zu in call to '%s' is %s - expected %s",
             aIndex+1,
             aCallee->getIdentifier().c_str(),
-            typeDescription(argInfo).c_str(),
-            typeDescription(allowed).c_str()
+            typeDescription(argInfo, false).c_str(),
+            typeDescription(allowed, false).c_str()
           );
         }
       }
@@ -1756,7 +1779,7 @@ ScriptObjPtr ScriptCodeContext::threadsList() const
     ObjectValuePtr o = new ObjectValue;
     o->setMemberByName("id", new IntegerValue((*pos)->threadId()));
     o->setMemberByName("thread", new ThreadValue(*pos));
-    o->setMemberByName("source", new StringValue((*pos)->describePos()));
+    o->setMemberByName("source", new StringValue((*pos)->mSrc.describePos()));
     o->setMemberByName("status", new StringValue(ScriptCodeThread::pausingName((*pos)->pauseReason())));
     o->setMemberByName("mainthread", new BoolValue((*pos)->mEvaluationFlags & mainthread));
     a->appendMember(o);
@@ -1765,7 +1788,7 @@ ScriptObjPtr ScriptCodeContext::threadsList() const
     ObjectValuePtr o = new ObjectValue;
     o->setMemberByName("id", new IntegerValue((*pos)->threadId()));
     o->setMemberByName("thread", new ThreadValue(*pos));
-    o->setMemberByName("pos", new StringValue((*pos)->describePos()));
+    o->setMemberByName("pos", new StringValue((*pos)->mSrc.describePos()));
     o->setMemberByName("status", new StringValue("queued"));
     a->appendMember(o);
   }
@@ -1774,12 +1797,12 @@ ScriptObjPtr ScriptCodeContext::threadsList() const
 #endif
 
 
-void ScriptCodeContext::appendFieldNames(FieldNameList& aList, TypeInfo aInterestedInTypes) const
+void ScriptCodeContext::appendFieldNames(FieldNameList& aList, TypeInfo aTypeRequirements) const
 {
   // add local vars
-  mLocalVars.appendFieldNames(aList, aInterestedInTypes);
+  mLocalVars.appendFieldNames(aList, aTypeRequirements);
   // inherited, too
-  inherited::appendFieldNames(aList, aInterestedInTypes);
+  inherited::appendFieldNames(aList, aTypeRequirements);
 }
 
 
@@ -2084,14 +2107,9 @@ ScriptObjPtr ScriptMainContext::handlersInfo()
   for (HandlerList::iterator pos = mHandlers.begin(); pos!=mHandlers.end(); pos++) {
     CompiledHandlerPtr h = *pos;
     ObjectValue* info = new ObjectValue();
-    info->setMemberByName("name", new StringValue(h->mName));
-    info->setMemberByName("origin", new StringValue(h->mCursor.originLabel()));
-    P44LoggingObj *l = h->mCursor.mSourceContainer->loggingContext();
-    if (l) info->setMemberByName("logcontext", new StringValue(l->logContextPrefix()));
-    info->setMemberByName("line", new IntegerValue(h->mCursor.lineno()+1));
-    info->setMemberByName("char", new IntegerValue(h->mCursor.charpos()+1));
-    info->setMemberByName("posid", new IntegerValue((intptr_t)h->mCursor.mPos.posId()));
-    infos->setMemberAtIndex(infos->numIndexedMembers(), info);
+    info->setMemberByName("trigger", new StringValue(h->mTrigger->mCursor.describePos()));
+    info->setMemberByName("handler", new StringValue(h->mCursor.describePos()));
+    infos->appendMember(info);
   }
   return infos;
 }
@@ -2144,8 +2162,8 @@ const ScriptObjPtr ScriptMainContext::memberByName(const string aName, TypeInfo 
     g = domain()->memberByName(aName, aMemberAccessFlags & ~create); // might return main/global by that name that already exists
     // still check for local...
   }
-  if ((aMemberAccessFlags & (constant|(domain() ? global : none)))==0) {
-    // Only if not looking only for constant members (in the sense of: not settable by scripts) or globals (which are locals when we are the domain!)
+  if ((aMemberAccessFlags & (builtin|(domain() ? global : none)))==0) {
+    // Only if not looking only for builtin members or globals (which are locals when we are the domain!)
     // 1) lookup local variables/arguments in this context...
     // 2) ...and members of the instance (if any)
     FOCUSLOGCALLER("inherited's variables");
@@ -2159,7 +2177,7 @@ const ScriptObjPtr ScriptMainContext::memberByName(const string aName, TypeInfo 
   }
   // 4) lookup global members in the script domain (vars, functions, constants)
   FOCUSLOGCALLER("globals");
-  if (domain() && (m = domain()->memberByName(aName, aMemberAccessFlags&~(classscope|constant|objscope|global)))) return m;
+  if (domain() && (m = domain()->memberByName(aName, aMemberAccessFlags&~(classscope|builtin|objscope|global)))) return m;
   // nothing found (note that inherited was queried early above, already!)
   return m;
 }
@@ -2216,10 +2234,10 @@ ScriptObjPtr BuiltInMemberLookup::memberByNameFrom(ScriptObjPtr aThisObj, const 
   if (pos!=mMembers.end()) {
     // we have a member by that name
     TypeInfo ty = pos->second->returnTypeInfo;
-    if (ty & builtinmember) {
+    if (ty & builtinvalue) {
       // is a built-in variable/object/property
       m = pos->second->accessor(*const_cast<BuiltInMemberLookup *>(this), aThisObj, ScriptObjPtr(), pos->second); // read access
-      if (ScriptObj::typeRequirementMet(ty, aMemberAccessFlags, typeMask)) {
+      if (ScriptObj::typeRequirementMet(ty, aMemberAccessFlags & typeMask)) {
         if ((ty & lvalue) && (aMemberAccessFlags & lvalue) && (aMemberAccessFlags & onlycreate)==0) {
           m = new BuiltInLValue(const_cast<BuiltInMemberLookup *>(this), pos->second, aThisObj, m); // it is allowed to overwrite this value
         }
@@ -2234,11 +2252,12 @@ ScriptObjPtr BuiltInMemberLookup::memberByNameFrom(ScriptObjPtr aThisObj, const 
 }
 
 
-void BuiltInMemberLookup::appendMemberNames(FieldNameList& aList, TypeInfo aInterestedInTypes)
+void BuiltInMemberLookup::appendMemberNames(FieldNameList& aList, TypeInfo aTypeRequirements)
 {
   for(MemberMap::const_iterator pos = mMembers.begin(); pos!=mMembers.end(); ++pos) {
-    if ((pos->second->returnTypeInfo & typeMask & ~aInterestedInTypes)==0) {
-      // no type bits set in member which are not also in aInterestedInTypes
+    // ALL built-ins are "constant", so we add that flag here to returnTypeInf
+    // (should be in returnTypeInfo as macros add it, but just to make sure)
+    if (ScriptObj::typeRequirementMet(pos->second->returnTypeInfo|builtin, aTypeRequirements)) {
       aList.push_back(pos->first);
     }
   }
@@ -2265,6 +2284,25 @@ bool BuiltinFunctionObj::argumentInfo(size_t aIndex, ArgumentDescriptor& aArgDes
   aArgDesc.name = nonNullCStr(ad->name);
   return true;
 }
+
+
+string BuiltinFunctionObj::getAnnotation() const
+{
+  string s = "builtin function ";
+  s += mDescriptor->name;
+  s += "(";
+  const char* sep = "";
+  for (int i=0; i<mDescriptor->numArgs; i++) {
+    s += sep;
+    sep = ", ";
+    if (mDescriptor->arguments[i].typeInfo & multiple) s += "...";
+    else s += typeDescription(mDescriptor->arguments[i].typeInfo, true);
+  }
+  s += ")";
+  return s;
+}
+
+
 
 
 BuiltinFunctionContext::BuiltinFunctionContext(ScriptMainContextPtr aMainContext, ScriptCodeThreadPtr aThread) :
@@ -2542,6 +2580,16 @@ const char *SourceCursor::originLabel() const
   if (!mSourceContainer) return "<none>";
   if (!mSourceContainer->mOriginLabel) return "<unlabeled>";
   return mSourceContainer->mOriginLabel;
+}
+
+
+string SourceCursor::describePos(size_t aCodeMaxLen) const
+{
+  return string_format(
+    "(%s:%zu,%zu):  %s",
+    originLabel(), lineno()+1, charpos()+1,
+    displaycode(aCodeMaxLen).c_str()
+  );
 }
 
 
@@ -6810,21 +6858,10 @@ void ScriptCodeThread::prepareRun(
 }
 
 
-string ScriptCodeThread::describePos(size_t aCodeMaxLen) const
-{
-  return string_format(
-    "(%s:%zu,%zu):  %s",
-    mSrc.originLabel(), mSrc.lineno()+1, mSrc.charpos()+1,
-    mSrc.displaycode(aCodeMaxLen).c_str()
-  );
-}
-
-
-
 void ScriptCodeThread::run()
 {
   mRunningSince = MainLoop::now();
-  OLOG(LOG_DEBUG, "starting %04d at %s", threadId(), describePos(90).c_str());
+  OLOG(LOG_DEBUG, "starting %04d at %s", threadId(), mSrc.describePos(90).c_str());
   start();
 }
 
@@ -7302,7 +7339,7 @@ bool ScriptCodeThread::pauseCheck(PausingMode aPausingOccasion)
   // - find next code, that's (visually) where we are pausing
   mSrc.skipNonCode();
   // - now pause
-  OLOG(LOG_INFO, "Thread paused with reason '%s' at %s", pausingName(mPauseReason), describePos(20).c_str());
+  OLOG(LOG_INFO, "Thread paused with reason '%s' at %s", pausingName(mPauseReason), mSrc.describePos(20).c_str());
   mOwner->domain()->threadPaused(this);
   return true; // signal pausing
 }
@@ -7340,7 +7377,7 @@ void ScriptCodeThread::continueWithMode(PausingMode aNewPausingMode)
 namespace BuiltinFunctions {
 
 // for single argument math functions
-FUNC_ARG_DEFS(math1arg, { scalar|undefres } );
+FUNC_ARG_DEFS(math1arg, { numeric|undefres } );
 
 
 // ifvalid(a, b)   if a is a valid value, return it, otherwise return the default as specified by b
@@ -7432,7 +7469,7 @@ static void exp_func(BuiltinFunctionContextPtr f)
 
 // round (a)       round value to integer
 // round (a, p)    round value to specified precision (1=integer, 0.5=halves, 100=hundreds, etc...)
-FUNC_ARG_DEFS(round, { scalar|undefres }, { numeric|optionalarg } );
+FUNC_ARG_DEFS(round, { numeric|undefres }, { numeric|optionalarg } );
 static void round_func(BuiltinFunctionContextPtr f)
 {
   double precision = 1;
@@ -7463,7 +7500,7 @@ static void random_func(BuiltinFunctionContextPtr f)
 
 
 // min (a, b)    return the smaller value of a and b
-FUNC_ARG_DEFS(min, { scalar|undefres }, { value|undefres } );
+FUNC_ARG_DEFS(min, { value|undefres }, { value|undefres } );
 static void min_func(BuiltinFunctionContextPtr f)
 {
   if (f->argval(0)<f->argval(1)) f->finish(f->arg(0));
@@ -7472,7 +7509,7 @@ static void min_func(BuiltinFunctionContextPtr f)
 
 
 // max (a, b)    return the bigger value of a and b
-FUNC_ARG_DEFS(max, { scalar|undefres }, { value|undefres } );
+FUNC_ARG_DEFS(max, { value|undefres }, { value|undefres } );
 static void max_func(BuiltinFunctionContextPtr f)
 {
   if (f->argval(0)>f->argval(1)) f->finish(f->arg(0));
@@ -7481,7 +7518,7 @@ static void max_func(BuiltinFunctionContextPtr f)
 
 
 // limited (x, a, b)    return min(max(x,a),b), i.e. x limited to values between and including a and b
-FUNC_ARG_DEFS(limited, { scalar|undefres }, { numeric }, { numeric } );
+FUNC_ARG_DEFS(limited, { value|undefres }, { value }, { value } );
 static void limited_func(BuiltinFunctionContextPtr f)
 {
   ScriptObj &a = f->argval(0);
@@ -7492,7 +7529,7 @@ static void limited_func(BuiltinFunctionContextPtr f)
 
 
 // cyclic (x, a, b)    return x with wraparound into range a..b (not including b because it means the same thing as a)
-FUNC_ARG_DEFS(cyclic, { scalar|undefres }, { numeric }, { numeric } );
+FUNC_ARG_DEFS(cyclic, { numeric|undefres }, { numeric }, { numeric } );
 static void cyclic_func(BuiltinFunctionContextPtr f)
 {
   double o = f->arg(1)->doubleValue();
@@ -7596,7 +7633,7 @@ static void elements_func(BuiltinFunctionContextPtr f)
 
 #if ENABLE_JSON_APPLICATION
 
-FUNC_ARG_DEFS(jsonresource, { text+undefres } );
+FUNC_ARG_DEFS(jsonresource, { text|undefres } );
 static void jsonresource_func(BuiltinFunctionContextPtr f)
 {
   ErrorPtr err;
@@ -9261,16 +9298,67 @@ static void yearday_func(BuiltinFunctionContextPtr f)
 
 #if SCRIPTING_JSON_SUPPORT
 
+class BuiltinsInfoIterator : public ObjectFieldsIterator
+{
+  typedef ObjectFieldsIterator inherited;
+
+public:
+
+  BuiltinsInfoIterator(const StructuredValue* aObj, TypeInfo aTypeRequirements) : inherited(aObj, aTypeRequirements) {};
+
+  virtual ScriptObjPtr obtainValue(TypeInfo aMemberAccessFlags) P44_OVERRIDE
+  {
+    ScriptObjPtr m;
+    if (mNameIterator!=mNameList.end()) {
+      m = mIteratedObj->memberByName(*mNameIterator, aMemberAccessFlags);
+      if (m && !m->meetsRequirement(nonebut|scalar)) {
+        m = new StringValue("// " + m->getAnnotation()); // show the annotation instead of non-JSONable value for functions and structured objects
+      }
+    }
+    return m;
+  };
+};
+
+
+// special wrapper that iterates over builtins such that JSON-able info is returned for non-scalars
+class BuiltinsInfoIteratorWrapper : public StructuredValue
+{
+  typedef StructuredValue inherited;
+
+  StructuredLookupObjectPtr mContext;
+public:
+  BuiltinsInfoIteratorWrapper(StructuredLookupObjectPtr aContext) : mContext(aContext) {};
+
+  virtual string getAnnotation() const P44_OVERRIDE { return "builtins list"; };
+
+  ValueIteratorPtr newIterator(TypeInfo aTypeRequirements) const P44_OVERRIDE
+  {
+    // ignore the filter passed, only return builtin members and executables
+    return new BuiltinsInfoIterator(mContext.get(), builtin);
+  };
+};
+
+
 static void globalbuiltins_func(BuiltinFunctionContextPtr f)
 {
-  f->finish(f->thread()->owner()->domain());
+  f->finish(new BuiltinsInfoIteratorWrapper(f->thread()->owner()->domain()));
 }
 
 
 static void contextbuiltins_func(BuiltinFunctionContextPtr f)
 {
-  f->finish(f->thread()->owner()->scriptmain());
+  f->finish(new BuiltinsInfoIteratorWrapper(f->thread()->owner()->scriptmain()));
 }
+
+
+FUNC_ARG_DEFS(builtins, { structured } );
+static void builtins_func(BuiltinFunctionContextPtr f)
+{
+  StructuredLookupObjectPtr o = dynamic_pointer_cast<StructuredLookupObject>(f->arg(0));
+  if (o) f->finish(new BuiltinsInfoIteratorWrapper(o));
+  else f->finish(new AnnotatedNullValue("no builtin members"));
+}
+
 
 #if P44SCRIPT_FULL_SUPPORT
 
@@ -9420,7 +9508,7 @@ static const BuiltinMemberDescriptor standardFunctions[] = {
   // Introspection
   #if SCRIPTING_JSON_SUPPORT
   FUNC_DEF_NOARG(globalvars, executable|structured),
-  MEMBER_DEF(globals, builtinmember|structured),
+  MEMBER_DEF(globals, builtinvalue|structured),
   FUNC_DEF_NOARG(contextvars, executable|structured),
   FUNC_DEF_NOARG(localvars, executable|structured),
   FUNC_DEF_NOARG(threadvars, executable|structured),
@@ -9428,11 +9516,12 @@ static const BuiltinMemberDescriptor standardFunctions[] = {
   FUNC_DEF_NOARG(threads, executable|structured),
   #endif
   #if P44SCRIPT_FULL_SUPPORT
-  FUNC_DEF_NOARG(globalhandlers, executable|structured),
-  FUNC_DEF_NOARG(contexthandlers, executable|structured),
+  FUNC_DEF_NOARG(globalhandlers, executable|arrayvalue),
+  FUNC_DEF_NOARG(contexthandlers, executable|arrayvalue),
   #endif
-  FUNC_DEF_NOARG(globalbuiltins, executable|structured),
-  FUNC_DEF_NOARG(contextbuiltins, executable|structured),
+  FUNC_DEF_NOARG(globalbuiltins, executable|objectvalue),
+  FUNC_DEF_NOARG(contextbuiltins, executable|objectvalue),
+  FUNC_DEF_W_ARG(builtins, executable|objectvalue),
   #endif
   #if P44SCRIPT_FULL_SUPPORT
   FUNC_DEF_W_ARG(lock, executable|anyvalid),

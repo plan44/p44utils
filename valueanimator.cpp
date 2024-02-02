@@ -545,8 +545,8 @@ static const BuiltinMemberDescriptor animatorFunctions[] = {
   FUNC_DEF_W_ARG(step, executable|null),
   FUNC_DEF_NOARG(stop, executable|anyvalid),
   FUNC_DEF_NOARG(reset, executable|anyvalid),
-  MEMBER_DEF(current, builtinmember|numeric),
-  MEMBER_DEF(running, builtinmember|numeric),
+  MEMBER_DEF(current, builtinvalue|numeric),
+  MEMBER_DEF(running, builtinvalue|numeric),
   { NULL } // terminator
 };
 
