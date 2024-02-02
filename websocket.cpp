@@ -282,7 +282,7 @@ static void message_func(BuiltinFunctionContextPtr f)
 
 static const BuiltinMemberDescriptor webSocketFunctions[] = {
   FUNC_DEF_W_ARG(send, executable|error),
-  FUNC_DEF_W_ARG(close, executable|error),
+  FUNC_DEF_W_ARG(close, executable|async|error),
   FUNC_DEF_NOARG(message, executable|text|null),
   { NULL } // terminator
 };
@@ -372,7 +372,7 @@ static void websocket_func(BuiltinFunctionContextPtr f)
 }
 
 static const BuiltinMemberDescriptor websocketGlobals[] = {
-  FUNC_DEF_W_ARG(websocket, executable|null),
+  FUNC_DEF_W_ARG(websocket, executable|async|null),
   { NULL } // terminator
 };
 
