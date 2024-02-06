@@ -1,6 +1,6 @@
 //  SPDX-License-Identifier: GPL-3.0-or-later
 //
-//  Copyright (c) 2017-2023 plan44.ch / Lukas Zeller, Zurich, Switzerland
+//  Copyright (c) 2017-2024 plan44.ch / Lukas Zeller, Zurich, Switzerland
 //
 //  Author: Lukas Zeller <luz@plan44.ch>
 //
@@ -903,7 +903,7 @@ namespace p44 { namespace P44Script {
     virtual string getAnnotation() const P44_OVERRIDE { return "thread"; };
     virtual TypeInfo getTypeInfo() const P44_OVERRIDE;
     virtual void deactivate() P44_OVERRIDE { mThreadExitValue.reset(); mThread.reset(); inherited::deactivate(); }
-    virtual ScriptObjPtr calculationValue() P44_OVERRIDE; /// < ThreadValue calculates to NULL as long as running or to the thread's exit value
+    virtual ScriptObjPtr calculationValue() P44_OVERRIDE; ///< ThreadValue calculates to NULL as long as running or to the thread's exit value
     virtual bool isEventSource() const P44_OVERRIDE;
     virtual void registerForFilteredEvents(EventSink* aEventSink, intptr_t aRegId = 0) P44_OVERRIDE;
     ScriptCodeThreadPtr thread() { return mThread; }; ///< @return the thread
@@ -1255,7 +1255,7 @@ namespace p44 { namespace P44Script {
 
     typedef std::vector<ScriptObjPtr> IndexedVarVector;
     IndexedVarVector mIndexedVars;
-    ScriptMainContextPtr mMainContext; ///< the main context
+    ScriptMainContextPtr mMainContext; ///< the main context. Note: is only set in contexts which are NOT main themselves. Use scriptmain() to get main context in all cases
 
     ExecutionContext(ScriptMainContextPtr aMainContext);
 
@@ -1312,7 +1312,7 @@ namespace p44 { namespace P44Script {
     /// @name execution environment info
     /// @{
 
-    /// @return the main context from which this context was called (as a subroutine)
+    /// @return the main context from which this context was called (as a subroutine/function)
     virtual ScriptMainContextPtr scriptmain() const { return mMainContext; }
 
     /// @return the object _instance_ that is the implicit "this" for the context
@@ -1344,8 +1344,8 @@ namespace p44 { namespace P44Script {
     SimpleVarContainer mLocalVars;
 
     typedef std::list<ScriptCodeThreadPtr> ThreadList;
-    ThreadList mThreads; ///< the running "threads" in this context. First is the main thread of the evaluation.
-    ThreadList mQueuedThreads; ///< the queued threads in this context
+    ThreadList mThreads; ///< the running "threads" in this context.
+    ThreadList mQueuedThreads; ///< the queued threads to execute later in this context
 
     ScriptCodeContext(ScriptMainContextPtr aMainContext);
 
@@ -1355,24 +1355,19 @@ namespace p44 { namespace P44Script {
 
   public:
 
-    virtual ~ScriptCodeContext() { deactivate(); } // even if deactivate() is usually called before dtor, make sure it happens even if not
+    virtual ~ScriptCodeContext(); // even if deactivate() is usually called before dtor, make sure it happens even if not
 
     virtual void releaseObjsFromSource(SourceContainerPtr aSource) P44_OVERRIDE;
 
     virtual bool isExecutingSource(SourceContainerPtr aSource) P44_OVERRIDE;
 
-    virtual void deactivate() P44_OVERRIDE { abort(); inherited::deactivate(); }
+    virtual void deactivate() P44_OVERRIDE;
 
     /// clear local variables (named members)
     virtual void clearVars() P44_OVERRIDE;
 
     /// get context local variables
     ScriptObjPtr contextLocals() { return &mLocalVars; }
-
-    #if P44SCRIPT_DEBUGGING_SUPPORT
-    /// @return an array containing an object with info for each thread and a ThreadValue for the thread itself
-    ScriptObjPtr threadsList() const;
-    #endif
 
     /// access to local variables by name
     virtual const ScriptObjPtr memberByName(const string aName, TypeInfo aMemberAccessFlags = none) const P44_OVERRIDE;
@@ -1411,12 +1406,16 @@ namespace p44 { namespace P44Script {
     /// @param aSource source to check
     /// @param aAbortResult value to pass to abort()
     /// @return true if any thread was aborted
-    bool abortThreadsRunningSource(SourceContainerPtr aSource, ScriptObjPtr aAbortResult);
+    virtual bool abortThreadsRunningSource(SourceContainerPtr aSource, ScriptObjPtr aAbortResult);
 
     #if P44SCRIPT_DEBUGGING_SUPPORT
+
+    /// @return an array containing an object with info for each thread and a ThreadValue for the thread itself
+    virtual ArrayValuePtr threadsList() const;
+
     /// @param aCodeObj the object to check for
     /// @return true if aCodeObj already has a paused thread in this context
-    bool hasThreadPausedIn(CompiledCodePtr aCodeObj);
+    virtual bool hasThreadPausedIn(CompiledCodePtr aCodeObj) const;
     #endif
 
   protected:
@@ -1444,6 +1443,7 @@ namespace p44 { namespace P44Script {
     #if P44SCRIPT_FULL_SUPPORT
     typedef std::list<CompiledHandlerPtr> HandlerList;
     HandlerList mHandlers;
+    ThreadList mRelatedThreads; ///< the threads related to this context (those started by child contexts). The threads running in this context are in mThreads
     #endif // P44SCRIPT_FULL_SUPPORT
 
     /// private constructor, only ScriptingDomain should use it
@@ -1459,25 +1459,20 @@ namespace p44 { namespace P44Script {
     /// clear functions and handlers that have embedded source (i.e. not linked to a still accessible source)
     void clearFloating();
 
-    virtual void deactivate() P44_OVERRIDE
-    {
-      #if P44SCRIPT_FULL_SUPPORT
-      mHandlers.clear();
-      #endif
-      mDomainObj.reset();
-      mThisObj.reset();
-      inherited::deactivate();
-    }
+    virtual void deactivate() P44_OVERRIDE;
 
-    #if P44SCRIPT_FULL_SUPPORT
+    virtual bool isExecutingSource(SourceContainerPtr aSource) P44_OVERRIDE;
 
-    /// @return info about handlers
-    ScriptObjPtr handlersInfo();
+    #if P44SCRIPT_DEBUGGING_SUPPORT
 
-    /// clear context-local variables and handlers (those that were created run-time, not declared)
-    virtual void clearVars() P44_OVERRIDE;
+    /// @return an array containing an object with info for each thread and a ThreadValue for the thread itself
+    virtual ArrayValuePtr threadsList() const P44_OVERRIDE;
 
-    #endif // P44SCRIPT_FULL_SUPPORT
+    /// @param aCodeObj the object to check for
+    /// @return true if aCodeObj already has a paused thread in this context
+    virtual bool hasThreadPausedIn(CompiledCodePtr aCodeObj) const P44_OVERRIDE;
+
+    #endif // P44SCRIPT_DEBUGGING_SUPPORT
 
     // access to objects in the context hierarchy of a local execution
     // (local objects, parent context objects, global objects)
@@ -1490,12 +1485,26 @@ namespace p44 { namespace P44Script {
 
     #if P44SCRIPT_FULL_SUPPORT
 
-    virtual void releaseObjsFromSource(SourceContainerPtr aSource) P44_OVERRIDE;
+    /// @return info about handlers
+    ScriptObjPtr handlersInfo();
 
     /// register a handler in this main context
     /// @param aHandler the handler to register
     /// @return Ok or error
     ScriptObjPtr registerHandler(ScriptObjPtr aHandler);
+
+    virtual void clearVars() P44_OVERRIDE;
+    virtual void releaseObjsFromSource(SourceContainerPtr aSource) P44_OVERRIDE;
+    virtual bool abort(EvaluationFlags aAbortFlags = stopall, ScriptObjPtr aAbortResult = ScriptObjPtr(), ScriptCodeThreadPtr aExceptThread = ScriptCodeThreadPtr()) P44_OVERRIDE;
+    virtual bool abortThreadsRunningSource(SourceContainerPtr aSource, ScriptObjPtr aAbortResult) P44_OVERRIDE;
+
+    /// register creation of a related thread (one that runs in a subcontext of this main context)
+    /// @param aThread the thread to register
+    void registerRelatedThread(ScriptCodeThreadPtr aThread);
+
+    /// unregister creation of a related thread (one that runs in a subcontext of this main context)
+    /// @param aThread the thread to unregister
+    void unregisterRelatedThread(ScriptCodeThreadPtr aThread);
 
     #endif // P44SCRIPT_FULL_SUPPORT
 
@@ -2305,6 +2314,8 @@ namespace p44 { namespace P44Script {
 
     SourceProcessor();
 
+    virtual void deactivate();
+
     /// logging context to use
     virtual P44LoggingObj* loggingContext();
 
@@ -2939,6 +2950,9 @@ namespace p44 { namespace P44Script {
 
     ScriptCompiler(ScriptingDomainPtr aDomain) : mDomain(aDomain) {}
 
+    virtual void deactivate() P44_OVERRIDE;
+
+
     /// Scan code, extract function definitions, global vars, event handlers into scripting domain, return actual code
     /// @param aSource the source code
     /// @param aIntoCodeObj the CompiledCode object where to store the main code of the script compiled
@@ -2994,6 +3008,7 @@ namespace p44 { namespace P44Script {
   {
     typedef SourceProcessor inherited;
     friend class ScriptCodeContext;
+    friend class ScriptMainContext;
     friend class BuiltinFunctionContext;
 
     ScriptCodeContextPtr mOwner; ///< the execution context which owns (has started) this thread
@@ -3025,7 +3040,7 @@ namespace p44 { namespace P44Script {
 
     virtual ~ScriptCodeThread();
 
-    virtual void deactivate();
+    virtual void deactivate() P44_OVERRIDE;
 
     /// logging context to use
     virtual P44LoggingObj* loggingContext() P44_OVERRIDE;
@@ -3080,11 +3095,7 @@ namespace p44 { namespace P44Script {
     /// @return true when thread (or any subthread) is executing source code from aSource
     bool isExecutingSource(SourceContainerPtr aSource);
 
-    /// abort all threads in the same context execpt this one
-    /// @param aAbortResult if set, this is what abort will report back
-    void abortOthers(EvaluationFlags aAbortFlags = stopall, ScriptObjPtr aAbortResult = ScriptObjPtr());
-
-    /// @return NULL when the thread is still running, final result value otherwise
+    /// @return NULL only when the thread is still running, final result value otherwise (can be a explicit null object)
     ScriptObjPtr finalResult();
 
     /// complete the current thread
@@ -3180,6 +3191,7 @@ namespace p44 { namespace P44Script {
 
   private:
 
+    // for code running a function to report back function return
     void executedResult(ScriptObjPtr aResult);
 
   };

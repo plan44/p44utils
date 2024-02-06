@@ -1,6 +1,6 @@
 //  SPDX-License-Identifier: GPL-3.0-or-later
 //
-//  Copyright (c) 2017-2023 plan44.ch / Lukas Zeller, Zurich, Switzerland
+//  Copyright (c) 2017-2024 plan44.ch / Lukas Zeller, Zurich, Switzerland
 //
 //  Author: Lukas Zeller <luz@plan44.ch>
 //
@@ -267,7 +267,7 @@ string ScriptObj::typeDescription(TypeInfo aInfo, bool aTerse)
     }
     if (aInfo & arrayvalue) {
       if (!s.empty()) s += "/";
-      s = "array";
+      s += "array";
     }
     // special
     if (aInfo & threadref) {
@@ -1728,14 +1728,37 @@ ScriptObjPtr ExecutionContext::executeSynchronously(ScriptObjPtr aToExecute, Eva
 
 // MARK: - ScriptCodeContext
 
+#if DEBUG
+int gNumContexts = 0;
+#endif
+
 
 ScriptCodeContext::ScriptCodeContext(ScriptMainContextPtr aMainContext) :
   inherited(aMainContext)
 {
   mLocalVars.isMemberVariable();
+  #if DEBUG
+  gNumContexts++;
+  LOG(LOG_NOTICE, "== CONTEXT created: 0x%04x - total: %d", (uint32_t)((intptr_t)static_cast<ScriptCodeContext *>(this)) & 0xFFFF, gNumContexts);
+  #endif
 }
 
 
+ScriptCodeContext::~ScriptCodeContext()
+{
+  deactivate();
+  #if DEBUG
+  gNumContexts--;
+  LOG(LOG_NOTICE, "== CONTEXT deleted: 0x%04x - total: %d", (uint32_t)((intptr_t)static_cast<ScriptCodeContext *>(this)) & 0xFFFF, gNumContexts);
+  #endif
+}
+
+
+void ScriptCodeContext::deactivate()
+{
+  abort();
+  inherited::deactivate();
+}
 
 
 void ScriptCodeContext::releaseObjsFromSource(SourceContainerPtr aSource)
@@ -1755,12 +1778,10 @@ bool ScriptCodeContext::isExecutingSource(SourceContainerPtr aSource)
 }
 
 
-
 void ScriptCodeContext::clearFloating()
 {
   mLocalVars.clearFloating();
 }
-
 
 
 void ScriptCodeContext::clearVars()
@@ -1772,7 +1793,7 @@ void ScriptCodeContext::clearVars()
 
 
 #if P44SCRIPT_DEBUGGING_SUPPORT
-ScriptObjPtr ScriptCodeContext::threadsList() const
+ArrayValuePtr ScriptCodeContext::threadsList() const
 {
   ArrayValuePtr a = new ArrayValue;
   for (ThreadList::const_iterator pos = mThreads.begin(); pos!=mThreads.end(); ++pos) {
@@ -1901,9 +1922,9 @@ bool ScriptCodeContext::abortThreadsRunningSource(SourceContainerPtr aSource, Sc
 
 /// @param aCodeObj the object to check for
 /// @return true if aCodeObj already has a paused thread in this context
-bool ScriptCodeContext::hasThreadPausedIn(CompiledCodePtr aCodeObj)
+bool ScriptCodeContext::hasThreadPausedIn(CompiledCodePtr aCodeObj) const
 {
-  for (ThreadList::iterator pos = mThreads.begin(); pos!=mThreads.end(); ++pos) {
+  for (ThreadList::const_iterator pos = mThreads.begin(); pos!=mThreads.end(); ++pos) {
     if ((*pos)->pauseReason()>unpause && (*pos)->mCodeObj==aCodeObj) {
       return true;
     }
@@ -1963,14 +1984,15 @@ ScriptCodeThreadPtr ScriptCodeContext::newThreadFrom(CompiledCodePtr aCodeObj, S
   MLMicroSeconds maxBlockTime = aEvalFlags&synchronously ? aMaxRunTime : domain()->getMaxBlockTime();
   newThread->prepareRun(aEvaluationCB, aEvalFlags, maxBlockTime, aMaxRunTime);
   // now check how and when to run it
+  // - check if stopping all others in the context (including related/floating ones in subcontexts)
+  if (aEvalFlags & stoprunning) {
+    // kill all current threads (with or without queued, depending on queue set in aEvalFlags or not) first...
+    abort(aEvalFlags & stopall, new ErrorValue(ScriptError::Aborted, "Aborted by another script starting"));
+    // ...then start new
+  }
   if (!mThreads.empty()) {
-    // some threads already running
-    if (aEvalFlags & stoprunning) {
-      // kill all current threads (with or without queued, depending on queue set in aEvalFlags or not) first...
-      abort(aEvalFlags & stopall, new ErrorValue(ScriptError::Aborted, "Aborted by another script starting"));
-      // ...then start new
-    }
-    else if (aEvalFlags & queue) {
+    // some threads are running in the context
+    if (aEvalFlags & queue) {
       if (aEvalFlags & concurrently) {
         // queue+concurrently means queue if another queued thread is already running, otherwise just run
         for (ThreadList::iterator pos=mThreads.begin(); pos!=mThreads.end(); ++pos) {
@@ -1996,13 +2018,17 @@ ScriptCodeThreadPtr ScriptCodeContext::newThreadFrom(CompiledCodePtr aCodeObj, S
   }
   // can start new thread now
   mThreads.push_back(newThread);
+  if (mMainContext) mMainContext->registerRelatedThread(newThread);
   return newThread;
 }
 
 
 void ScriptCodeContext::threadTerminated(ScriptCodeThreadPtr aThread, EvaluationFlags aThreadEvalFlags)
 {
-  // a thread has ended, remove it from the list
+  // a thread has ended
+  // - in case this is not the main context, also remove it from main context's "related" list
+  if (mMainContext) mMainContext->unregisterRelatedThread(aThread);
+  // - remove it from the local list
   ThreadList::iterator pos=mThreads.begin();
   bool anyFromQueue = false;
   while (pos!=mThreads.end()) {
@@ -2035,7 +2061,9 @@ void ScriptCodeContext::threadTerminated(ScriptCodeThreadPtr aThread, Evaluation
       mQueuedThreads.pop_front();
       // and start it
       mThreads.push_back(nextThread);
+      if (mMainContext) mMainContext->registerRelatedThread(nextThread);
       nextThread->run();
+      return; // no need to check for no threads, we've just started one
     }
   }
 }
@@ -2052,8 +2080,37 @@ ScriptMainContext::ScriptMainContext(ScriptingDomainPtr aDomain, ScriptObjPtr aT
 }
 
 
-#if P44SCRIPT_FULL_SUPPORT
+void ScriptMainContext::clearFloating()
+{
+  #if P44SCRIPT_FULL_SUPPORT
+  HandlerList::iterator pos = mHandlers.begin();
+  while (pos!=mHandlers.end()) {
+    if ((*pos)->floating()) {
+      pos = mHandlers.erase(pos); // source is gone -> remove
+    }
+    else {
+      ++pos;
+    }
+  }
+  #endif // P44SCRIPT_FULL_SUPPORT
+  inherited::clearFloating();
+}
 
+
+void ScriptMainContext::deactivate()
+{
+  #if P44SCRIPT_FULL_SUPPORT
+  mHandlers.clear();
+  #endif
+  mRelatedThreads.clear();
+  mDomainObj.reset();
+  mThisObj.reset();
+  inherited::deactivate();
+}
+
+
+
+#if P44SCRIPT_FULL_SUPPORT
 
 void ScriptMainContext::releaseObjsFromSource(SourceContainerPtr aSource)
 {
@@ -2126,28 +2183,113 @@ void ScriptMainContext::clearVars()
 }
 
 
-void ScriptMainContext::clearFloating()
+bool ScriptMainContext::isExecutingSource(SourceContainerPtr aSource)
 {
-  #if P44SCRIPT_FULL_SUPPORT
-  HandlerList::iterator pos = mHandlers.begin();
-  while (pos!=mHandlers.end()) {
-    if ((*pos)->floating()) {
-      pos = mHandlers.erase(pos); // source is gone -> remove
-    }
-    else {
-      ++pos;
-    }
+  if (inherited::isExecutingSource(aSource)) return true;
+  // also check related threads
+  for (ThreadList::iterator pos = mRelatedThreads.begin(); pos!=mRelatedThreads.end(); ++pos) {
+    if ((*pos)->isExecutingSource(aSource)) return true;
   }
-  #endif // P44SCRIPT_FULL_SUPPORT
-  inherited::clearFloating();
+  return false;
 }
 
 
+#if P44SCRIPT_DEBUGGING_SUPPORT
+
+/// @param aCodeObj the object to check for
+/// @return true if aCodeObj already has a paused thread in this context
+bool ScriptMainContext::hasThreadPausedIn(CompiledCodePtr aCodeObj) const
+{
+  if (inherited::hasThreadPausedIn(aCodeObj)) return true;
+  // also check related threads
+  for (ThreadList::const_iterator pos = mRelatedThreads.begin(); pos!=mRelatedThreads.end(); ++pos) {
+    if ((*pos)->pauseReason()>unpause && (*pos)->mCodeObj==aCodeObj) {
+      return true;
+    }
+  }
+  return false;
+}
+
+
+ArrayValuePtr ScriptMainContext::threadsList() const
+{
+  ArrayValuePtr a = inherited::threadsList();
+  for (ThreadList::const_iterator pos = mRelatedThreads.begin(); pos!=mRelatedThreads.end(); ++pos) {
+    ObjectValuePtr o = new ObjectValue;
+    o->setMemberByName("id", new IntegerValue((*pos)->threadId()));
+    o->setMemberByName("thread", new ThreadValue(*pos));
+    o->setMemberByName("source", new StringValue((*pos)->mSrc.describePos()));
+    o->setMemberByName("status", new StringValue(ScriptCodeThread::pausingName((*pos)->pauseReason())));
+    o->setMemberByName("floating", new BoolValue(true)); // related threads are "floating"
+    a->appendMember(o);
+  }
+  return a;
+}
+
+#endif // P44SCRIPT_DEBUGGING_SUPPORT
+
+
+bool ScriptMainContext::abort(EvaluationFlags aAbortFlags, ScriptObjPtr aAbortResult, ScriptCodeThreadPtr aExceptThread)
+{
+  bool anyAborted = inherited::abort(aAbortFlags, aAbortResult, aExceptThread);
+  if (aAbortFlags & stoprunning) {
+    // must include related threads
+    ThreadList tba = mRelatedThreads; // copy list as original get modified while aborting
+    for (ThreadList::iterator pos = tba.begin(); pos!=tba.end(); ++pos) {
+      if (!aExceptThread || aExceptThread!=(*pos)) {
+        anyAborted = true;
+        (*pos)->abort(aAbortResult); // should cause threadTerminated to get called which will remove actually terminated thread from the list
+      }
+    }
+  }
+  return anyAborted;
+}
+
+
+bool ScriptMainContext::abortThreadsRunningSource(SourceContainerPtr aSource, ScriptObjPtr aError)
+{
+  bool anyAborted = inherited::abortThreadsRunningSource(aSource, aError);
+  ThreadList tba = mRelatedThreads; // copy list as original get modified while aborting
+  for (ThreadList::iterator pos = tba.begin(); pos!=tba.end(); ++pos) {
+    if ((*pos)->isExecutingSource(aSource)) {
+      anyAborted = true;
+      (*pos)->abort(aError); // should cause threadTerminated to get called which will remove actually terminated thread from the list
+    }
+  }
+  return anyAborted;
+}
+
+
+void ScriptMainContext::registerRelatedThread(ScriptCodeThreadPtr aThread)
+{
+  #if DEBUG
+  LOG(LOG_NOTICE, "== THREAD related: 0x%04x - REGISTERED", (uint32_t)((intptr_t)static_cast<SourceProcessor *>(aThread.get())) & 0xFFFF);
+  #endif
+  mRelatedThreads.push_back(aThread);
+}
+
+
+void ScriptMainContext::unregisterRelatedThread(ScriptCodeThreadPtr aThread)
+{
+  ThreadList::iterator pos = mRelatedThreads.begin();
+  while (pos!=mRelatedThreads.end()) {
+    if (aThread==*pos) {
+      #if P44_CPP11_FEATURE
+      pos = mRelatedThreads.erase(pos);
+      #else
+      ThreadList::iterator dpos = pos++;
+      mRelatedThreads.erase(dpos);
+      #endif
+      #if DEBUG
+      LOG(LOG_NOTICE, "== THREAD related: 0x%04x - UNREGISTERED", (uint32_t)((intptr_t)static_cast<SourceProcessor *>(aThread.get())) & 0xFFFF);
+      #endif
+      continue;
+    }
+    pos++;
+  }
+}
 
 #endif // P44SCRIPT_FULL_SUPPORT
-
-
-
 
 
 const ScriptObjPtr ScriptMainContext::memberByName(const string aName, TypeInfo aMemberAccessFlags) const
@@ -2910,6 +3052,17 @@ SourceProcessor::SourceProcessor() :
   mPendingOperation(op_none)
 {
   mThreadId = cThreadIdGen++; // unique thread ID
+}
+
+
+void SourceProcessor::deactivate()
+{
+  // reset everything that could be part of a retain cycle
+  mCompletedCB = NoOP;
+  mResult.reset();
+  mOlderResult.reset();
+  mFuncCallContext.reset();
+  mStack.clear();
 }
 
 
@@ -5764,6 +5917,15 @@ void CompiledHandler::deactivate()
 
 static void flagSetter(bool* aFlag) { *aFlag = true; }
 
+void ScriptCompiler::deactivate()
+{
+  // reset everything that could be part of a retain cycle
+  mDomain.reset();
+  mCompileForContext.reset();
+  inherited::deactivate();
+}
+
+
 ScriptObjPtr ScriptCompiler::compile(SourceContainerPtr aSource, CompiledCodePtr aIntoCodeObj, EvaluationFlags aParsingMode, ScriptMainContextPtr aMainContext)
 {
   if (!aSource) return new ErrorValue(ScriptError::Internal, "No source code");
@@ -6767,6 +6929,10 @@ ScriptHostPtr ScriptingDomain::getHostForThread(const ScriptCodeThreadPtr aScrip
 
 // MARK: - ScriptCodeThread
 
+#if DEBUG
+static int gNumThreads = 0;
+#endif
+
 ScriptCodeThread::ScriptCodeThread(ScriptCodeContextPtr aOwner, CompiledCodePtr aCode, const SourceCursor& aStartCursor, ScriptObjPtr aThreadLocals, ScriptCodeThreadPtr aChainedFromThread) :
   mOwner(aOwner),
   mCodeObj(aCode),
@@ -6782,12 +6948,25 @@ ScriptCodeThread::ScriptCodeThread(ScriptCodeContextPtr aOwner, CompiledCodePtr 
 {
   setCursor(aStartCursor);
   FOCUSLOG("\n%04x START        thread created : %s", (uint32_t)((intptr_t)static_cast<SourceProcessor *>(this)) & 0xFFFF, mSrc.displaycode(130).c_str());
+  #if DEBUG
+  gNumThreads++;
+  LOG(LOG_NOTICE,
+    "== THREAD created: 0x%04x - total now: %d - CONTEXT: 0x%04x",
+    (uint32_t)((intptr_t)static_cast<SourceProcessor *>(this)) & 0xFFFF,
+    gNumThreads,
+    (uint32_t)((intptr_t)static_cast<ScriptCodeContext *>(mOwner.get())) & 0xFFFF
+  );
+  #endif
 }
 
 ScriptCodeThread::~ScriptCodeThread()
 {
   deactivate(); // even if deactivate() is usually called before dtor, make sure it happens even if not
   FOCUSLOG("\n%04x END          thread deleted : %s", (uint32_t)((intptr_t)static_cast<SourceProcessor *>(this)) & 0xFFFF, mSrc.displaycode(130).c_str());
+  #if DEBUG
+  gNumThreads--;
+  LOG(LOG_NOTICE, "== THREAD deleted: 0x%04x - total now: %d", (uint32_t)((intptr_t)static_cast<SourceProcessor *>(this)) & 0xFFFF, gNumThreads);
+  #endif
 }
 
 
@@ -6798,7 +6977,9 @@ void ScriptCodeThread::deactivate()
   mCodeObj.reset();
   mThreadLocals.reset();
   mChainedFromThread.reset();
+  mChainedExecutionContext.reset();
   mRunningSince = Never; // just to make sure
+  inherited::deactivate();
 }
 
 
@@ -6870,7 +7051,7 @@ bool ScriptCodeThread::isExecutingSource(SourceContainerPtr aSource)
 {
   if (mRunningSince==Never) return false; // not running at all
   if (mCodeObj && mCodeObj->originatesFrom(aSource)) return true; // this thread's starting point is in aSource
-  if (mChainedExecutionContext && mChainedExecutionContext->isExecutingSource(aSource)) return true; // chained thread runs from aSource
+  // Note threads running in a child context are caught by main context's related thread list
   return false; // not running this source
 }
 
@@ -6897,15 +7078,6 @@ void ScriptCodeThread::abort(ScriptObjPtr aAbortResult)
     complete(aAbortResult); // complete now, will eventually invoke completion callback
   }
 }
-
-
-void ScriptCodeThread::abortOthers(EvaluationFlags aAbortFlags, ScriptObjPtr aAbortResult)
-{
-  if (mOwner) {
-    mOwner->abort(aAbortFlags, aAbortResult, this);
-  }
-}
-
 
 
 ScriptObjPtr ScriptCodeThread::finalResult()
@@ -7211,9 +7383,14 @@ void ScriptCodeThread::executedResult(ScriptObjPtr aResult)
     aResult = new AnnotatedNullValue("no return value");
   }
   #if P44SCRIPT_DEBUGGING_SUPPORT
+  // determine if we are coming back from a user context (rather than from a builtin function context)
   bool wasChained = dynamic_cast<ScriptCodeContext*>(mChainedExecutionContext.get())!=nullptr;
   #endif
   mChainedExecutionContext.reset(); // release the child context
+  // Note: at this point the function context may or may not continue to exist, and
+  //   thus exist in main context's mRelatedThreads  list, depending on whether the function call created
+  //   additional threads or not. Removing from mRelatedThreads is NOT our task here, that
+  //   must happen when threads start and stop
   if (aResult->isErr()) {
     // update (or add) position of error occurring to call site (log will show "call stack" as LOG_ERR messages)
     aResult = new ErrorPosValue(mSrc, aResult);
@@ -8597,7 +8774,7 @@ static void await_func(BuiltinFunctionContextPtr f)
 
 
 // abort(thread [,exitvalue [, ownchain])   abort specified thread
-// abort()                                  abort all subthreads
+// abort()                                  abort all threads in this context except caller
 FUNC_ARG_DEFS(abort, { threadref|exacttype|optionalarg }, { anyvalid|optionalarg }, { numeric|optionalarg } );
 static void abort_func(BuiltinFunctionContextPtr f)
 {
@@ -8615,14 +8792,14 @@ static void abort_func(BuiltinFunctionContextPtr f)
         // really abort
         ScriptObjPtr exitValue;
         if (f->arg(1)->defined()) exitValue = f->arg(1);
-        else exitValue = new AnnotatedNullValue("abort() function called");
+        else exitValue = new AnnotatedNullValue("stopped by abort() function");
         t->abort(exitValue);
       }
     }
   }
   else {
-    // all subthreads
-    f->thread()->abortOthers(stopall);
+    // all threads in the context except myself
+    f->scriptmain()->abort(stopall, new AnnotatedNullValue("abort() stops all threads"), f->thread());
   }
   f->finish();
 }
