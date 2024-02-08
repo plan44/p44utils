@@ -26,6 +26,8 @@
 // - set FOCUSLOGLEVEL to non-zero log level (usually, 5,6, or 7==LOG_DEBUG) to get focus (extensive logging) for this file
 //   Note: must be before including "logger.hpp" (or anything that includes "logger.hpp")
 #define FOCUSLOGLEVEL 0
+// - log level for thread and context lifecycle debugging, 0 = off
+#define P44SCRIPT_LIFECYCLE_DBG 0
 
 #include "p44script.hpp"
 
@@ -49,6 +51,12 @@
   #define ALWAYS_ALLOW_ALL_FILES 0
 #endif
 
+
+#if P44SCRIPT_LIFECYCLE_DBG
+  #define LCDBG(...) LOG(P44SCRIPT_LIFECYCLE_DBG, ##__VA_ARGS__)
+#else
+  #define LCDBG(...)
+#endif
 
 using namespace p44;
 using namespace p44::P44Script;
@@ -1733,7 +1741,7 @@ ScriptObjPtr ExecutionContext::executeSynchronously(ScriptObjPtr aToExecute, Eva
 
 // MARK: - ScriptCodeContext
 
-#if DEBUG
+#if P44SCRIPT_LIFECYCLE_DBG
 int gNumContexts = 0;
 #endif
 
@@ -1742,9 +1750,9 @@ ScriptCodeContext::ScriptCodeContext(ScriptMainContextPtr aMainContext) :
   inherited(aMainContext)
 {
   mLocalVars.isMemberVariable();
-  #if DEBUG
+  #if P44SCRIPT_LIFECYCLE_DBG
   gNumContexts++;
-  LOG(LOG_NOTICE, "== CONTEXT created: 0x%04x - total: %d", (uint32_t)((intptr_t)static_cast<ScriptCodeContext *>(this)) & 0xFFFF, gNumContexts);
+  LCDBG("== CONTEXT created: 0x%04x - total: %d", (uint32_t)((intptr_t)static_cast<ScriptCodeContext *>(this)) & 0xFFFF, gNumContexts);
   #endif
 }
 
@@ -1752,9 +1760,9 @@ ScriptCodeContext::ScriptCodeContext(ScriptMainContextPtr aMainContext) :
 ScriptCodeContext::~ScriptCodeContext()
 {
   deactivate();
-  #if DEBUG
+  #if P44SCRIPT_LIFECYCLE_DBG
   gNumContexts--;
-  LOG(LOG_NOTICE, "== CONTEXT deleted: 0x%04x - total: %d", (uint32_t)((intptr_t)static_cast<ScriptCodeContext *>(this)) & 0xFFFF, gNumContexts);
+  LCDBG("== CONTEXT deleted: 0x%04x - total: %d", (uint32_t)((intptr_t)static_cast<ScriptCodeContext *>(this)) & 0xFFFF, gNumContexts);
   #endif
 }
 
@@ -2267,9 +2275,7 @@ bool ScriptMainContext::abortThreadsRunningSource(SourceContainerPtr aSource, Sc
 
 void ScriptMainContext::registerRelatedThread(ScriptCodeThreadPtr aThread)
 {
-  #if DEBUG
-  LOG(LOG_NOTICE, "== THREAD related: 0x%04x - REGISTERED", (uint32_t)((intptr_t)static_cast<SourceProcessor *>(aThread.get())) & 0xFFFF);
-  #endif
+  LCDBG("== THREAD related: 0x%04x - REGISTERED", (uint32_t)((intptr_t)static_cast<SourceProcessor *>(aThread.get())) & 0xFFFF);
   mRelatedThreads.push_back(aThread);
 }
 
@@ -2285,9 +2291,7 @@ void ScriptMainContext::unregisterRelatedThread(ScriptCodeThreadPtr aThread)
       ThreadList::iterator dpos = pos++;
       mRelatedThreads.erase(dpos);
       #endif
-      #if DEBUG
-      LOG(LOG_NOTICE, "== THREAD related: 0x%04x - UNREGISTERED", (uint32_t)((intptr_t)static_cast<SourceProcessor *>(aThread.get())) & 0xFFFF);
-      #endif
+      LCDBG("== THREAD related: 0x%04x - UNREGISTERED", (uint32_t)((intptr_t)static_cast<SourceProcessor *>(aThread.get())) & 0xFFFF);
       continue;
     }
     pos++;
@@ -6935,7 +6939,7 @@ ScriptHostPtr ScriptingDomain::getHostForThread(const ScriptCodeThreadPtr aScrip
 
 // MARK: - ScriptCodeThread
 
-#if DEBUG
+#if P44SCRIPT_LIFECYCLE_DBG
 static int gNumThreads = 0;
 #endif
 
@@ -6954,24 +6958,24 @@ ScriptCodeThread::ScriptCodeThread(ScriptCodeContextPtr aOwner, CompiledCodePtr 
 {
   setCursor(aStartCursor);
   FOCUSLOG("\n%04x START        thread created : %s", (uint32_t)((intptr_t)static_cast<SourceProcessor *>(this)) & 0xFFFF, mSrc.displaycode(130).c_str());
-  #if DEBUG
+  #if P44SCRIPT_LIFECYCLE_DBG
   gNumThreads++;
-  LOG(LOG_NOTICE,
+  LCDBG(
     "== THREAD created: 0x%04x - total now: %d - CONTEXT: 0x%04x",
     (uint32_t)((intptr_t)static_cast<SourceProcessor *>(this)) & 0xFFFF,
     gNumThreads,
     (uint32_t)((intptr_t)static_cast<ScriptCodeContext *>(mOwner.get())) & 0xFFFF
   );
-  #endif
+  #endif // P44SCRIPT_LIFECYCLE_DBG
 }
 
 ScriptCodeThread::~ScriptCodeThread()
 {
   deactivate(); // even if deactivate() is usually called before dtor, make sure it happens even if not
   FOCUSLOG("\n%04x END          thread deleted : %s", (uint32_t)((intptr_t)static_cast<SourceProcessor *>(this)) & 0xFFFF, mSrc.displaycode(130).c_str());
-  #if DEBUG
+  #if P44SCRIPT_LIFECYCLE_DBG
   gNumThreads--;
-  LOG(LOG_NOTICE, "== THREAD deleted: 0x%04x - total now: %d", (uint32_t)((intptr_t)static_cast<SourceProcessor *>(this)) & 0xFFFF, gNumThreads);
+  LCDBG("== THREAD deleted: 0x%04x - total now: %d", (uint32_t)((intptr_t)static_cast<SourceProcessor *>(this)) & 0xFFFF, gNumThreads);
   #endif
 }
 
