@@ -820,7 +820,7 @@ ScriptObjPtr ThreadValue::calculationValue()
 
 TypeInfo ThreadValue::getTypeInfo() const
 {
-  return threadref|keeporiginal|(!mThread ? nowait : 0);
+  return threadref|keeporiginal|oneshot|(!mThread ? nowait : 0);
 }
 
 
@@ -2169,7 +2169,7 @@ ScriptObjPtr ScriptMainContext::handlersInfo()
   for (HandlerList::iterator pos = mHandlers.begin(); pos!=mHandlers.end(); pos++) {
     CompiledHandlerPtr h = *pos;
     ObjectValue* info = new ObjectValue();
-    info->setMemberByName("trigger", new StringValue(h->mTrigger->mCursor.describePos()));
+    if (h->mTrigger) info->setMemberByName("trigger", new StringValue(h->mTrigger->mCursor.describePos()));
     info->setMemberByName("handler", new StringValue(h->mCursor.describePos()));
     infos->appendMember(info);
   }
@@ -4501,7 +4501,7 @@ void SourceProcessor::processStatement()
       return;
     }
     // complete
-    complete(mResult);
+    complete(mEvaluationFlags & implicitreturn ? mResult : nullptr);
     return;
   }
   // beginning of a new statement
@@ -6624,7 +6624,8 @@ ScriptObjPtr ScriptHost::defaultCommandImplementation(ScriptCommand aCommand, Ev
   ScriptObjPtr ret;
   assert(active());
   EvaluationFlags flags = inherit;
-  switch(aCommand) {
+  if (aCommand & evaluate) flags |= implicitreturn;
+  switch(aCommand & commandmask) {
     case check:
       ret = syntaxcheck();
       break;
@@ -7378,7 +7379,7 @@ void ScriptCodeThread::executeResult()
       // Note: must pass singlestep flag when current thread is in `into_function` (step-into) pausing mode
       if (mPausingMode==step_into) dbg |= singlestep;
       #endif // P44SCRIPT_DEBUGGING_SUPPORT
-      mFuncCallContext->execute(mResult, (mEvaluationFlags&~scopeMask)|scriptbody|keepvars|dbg, boost::bind(&ScriptCodeThread::executedResult, this, _1), this, mThreadLocals);
+      mFuncCallContext->execute(mResult, (mEvaluationFlags&~scopeMask&~implicitreturn)|scriptbody|keepvars|dbg, boost::bind(&ScriptCodeThread::executedResult, this, _1), this, mThreadLocals);
       #else // P44SCRIPT_FULL_SUPPORT
       // only built-in functions can occur, eval scope flags are not relevant (only existing scope is expression)
       mFuncCallContext->execute(mResult, (mEvaluationFlags&~scopeMask)|expression|keepvars, boost::bind(&ScriptCodeThread::executedResult, this, _1), this, mThreadLocals);
@@ -8285,8 +8286,10 @@ static void eval_func(BuiltinFunctionContextPtr f)
         ctx->setMemberAtIndex(i-1, f->arg(i), string_format("arg%zu", i));
       }
       // evaluate, end all threads when main thread ends
-      // Note: must have keepvars because these are the arguments!
-      ctx->execute(evalcode, scriptbody|mainthread|keepvars, boost::bind(&BuiltinFunctionContext::finish, f, _1), NULL);
+      // Notes:
+      // - must have keepvars because these are the arguments!
+      // - must have implicitreturn because eval implies we want the result of an expression (even if it is in fact a script)
+      ctx->execute(evalcode, scriptbody|mainthread|keepvars|implicitreturn, boost::bind(&BuiltinFunctionContext::finish, f, _1), NULL);
       return;
     }
   }

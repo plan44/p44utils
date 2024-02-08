@@ -199,20 +199,21 @@ namespace p44 { namespace P44Script {
     sourcecode = 0x400, ///< evaluate as script (include parsing functions and handlers)
     block = 0x800, ///< evaluate as a block (complete when reaching end of block)
     #endif // P44SCRIPT_FULL_SUPPORT
-    // execution modifiers
-    execModifierMask = 0xFF000,
-    synchronously = 0x1000, ///< evaluate synchronously, error out on async code
-    stoprunning = 0x2000, ///< abort running execution in the same context before starting a new one
-    queue = 0x4000, ///< queue for execution (with concurrently also set, thread will start when all previously queued threads are done, but possibly concurrently with other threads)
+    // execution andf compilation modifiers
+    execModifierMask = 0xFFF000,
+    synchronously = 0x001000, ///< evaluate synchronously, error out on async code
+    stoprunning = 0x002000, ///< abort running execution in the same context before starting a new one
+    queue = 0x004000, ///< queue for execution (with concurrently also set, thread will start when all previously queued threads are done, but possibly concurrently with other threads)
     stopall = stoprunning+queue, ///< stop everything
-    concurrently = 0x10000, ///< run concurrently with already executing code (when whith queued, thread is started when all previously queued threads are done)
-    keepvars = 0x20000, ///< keep the local variables already set in the context
-    mainthread = 0x40000, ///< when a thread with this flag set terminates, it also terminates all of its siblings
-    singlestep = 0x80000, ///< thread must start with pausing mode = singlestep (means: stopping at first statement of a function body, handler or script)
+    concurrently = 0x010000, ///< run concurrently with already executing code (when whith queued, thread is started when all previously queued threads are done)
+    keepvars = 0x020000, ///< keep the local variables already set in the context
+    mainthread = 0x040000, ///< when a thread with this flag set terminates, it also terminates all of its siblings
+    singlestep = 0x080000, ///< thread must start with pausing mode = singlestep (means: stopping at first statement of a function body, handler or script)
     neverpause = 0x100000, ///< thread must never pause, i.e. not inhert domain's defaultpausingmode
+    implicitreturn = 0x200000, ///< return last evaluation at EOT (like for expressions)
     // compilation modifiers
-    ephemeralSource = 0x200000, ///< threads are kept running and global function+handler definitions are not deleted when originating source code is changed/deleted
-    anonymousfunction = 0x400000, ///< compile and run as anonymous function body
+    ephemeralSource = 0x400000, ///< threads are kept running and global function+handler definitions are not deleted when originating source code is changed/deleted
+    anonymousfunction = 0x800000, ///< compile and run as anonymous function body
   };
   typedef uint32_t EvaluationFlags;
 
@@ -1737,11 +1738,15 @@ namespace p44 { namespace P44Script {
 
 
   typedef enum {
-    check,
-    start,
-    debug,
-    restart,
-    stop
+    // basic commands
+    check = 0x01,
+    start = 0x02,
+    debug = 0x03,
+    restart = 0x04,
+    stop = 0x05,
+    commandmask = 0x0F,
+    // modfiers
+    evaluate = 0x10
   } ScriptCommand;
 
   typedef boost::function<ScriptObjPtr (ScriptCommand aScriptCommand, EvaluationCB aScriptResultCB, ScriptObjPtr aThreadLocals, ScriptHost& aScriptHost)> ScriptCommandCB;
@@ -2052,7 +2057,7 @@ namespace p44 { namespace P44Script {
 
     /// for single-line tests
     ScriptObjPtr test(EvaluationFlags aEvalFlags, const string aSource)
-      { setSource(aSource, aEvalFlags); return run(aEvalFlags|regular|synchronously, NoOP, ScriptObjPtr(), Infinite); }
+      { setSource(aSource, aEvalFlags); return run(aEvalFlags|regular|synchronously|implicitreturn, NoOP, ScriptObjPtr(), Infinite); }
 
   };
 

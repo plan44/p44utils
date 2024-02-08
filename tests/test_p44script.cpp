@@ -161,7 +161,7 @@ public:
   ScriptObjPtr scriptTest(EvaluationFlags aEvalFlags, const string aSource)
   {
     testResult.reset();
-    s.setSource(aSource, aEvalFlags);
+    s.setSource(aSource, aEvalFlags|implicitreturn);
     EvaluationCB cb = boost::bind(&AsyncScriptingFixture::resultCapture, this, _1);
     // Note: as we share an eval context with all triggers and handlers, main script must be concurrent as well
     MainLoop::currentMainLoop().executeNow(boost::bind(&ScriptHost::run, &s, aEvalFlags|regular|concurrently, cb, ScriptObjPtr(), /* 20*Second */ Infinite));
