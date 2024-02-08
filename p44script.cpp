@@ -8817,7 +8817,7 @@ static void abort_func(BuiltinFunctionContextPtr f)
   }
   else {
     // all threads in the context except myself
-    exitValue = new AnnotatedNullValue("stopped all threads in context");
+    exitValue = new ErrorValue(ScriptError::Aborted, "stopped all threads in context");
     f->scriptmain()->abort(stopall, exitValue, f->thread());
   }
   f->finish(exitValue);
