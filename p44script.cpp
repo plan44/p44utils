@@ -314,7 +314,9 @@ string ScriptObj::describe(const ScriptObj* aObj)
   ScriptObjPtr calcObj;
   if (valObj) calcObj = valObj->calculationValue();
   string ty = typeDescription(aObj->getTypeInfo(), false);
-  string ann = aObj->getAnnotation();
+  string ann;
+  if (calcObj) ann = calcObj->getAnnotation();
+  else ann = aObj->getAnnotation();
   string v;
   if (calcObj) {
     v = calcObj->stringValue();
@@ -782,34 +784,37 @@ string ErrorPosValue::stringValue() const
 
 ThreadValue::ThreadValue(ScriptCodeThreadPtr aThread) : mThread(aThread)
 {
+  // register myself so I can capture the exit value
+  if (mThread) mThread->registerForEvents(this); // no filters
+}
+
+
+void ThreadValue::deactivate()
+{
+  mThreadExitValue.reset();
+  if (mThread) mThread->unregisterFromEvents(this);
+  mThread.reset();
+  inherited::deactivate();
+}
+
+
+void ThreadValue::processEvent(ScriptObjPtr aEvent, EventSource &aSource, intptr_t aRegId)
+{
+  // event is always the exit value
+  mThreadExitValue = aEvent->calculationValue(); // capture it
+  // detach as much as possible
+  if (mThread) {
+    mThread->unregisterFromEvents(this);
+    mThread.reset();
+  }
 }
 
 
 ScriptObjPtr ThreadValue::calculationValue()
 {
-  if (!mThreadExitValue) {
-    // might still be running, or is in zombie state holding final result
-    if (mThread) {
-      mThreadExitValue = mThread->finalResult();
-      if (mThreadExitValue) {
-        mThread.reset(); // release the zombie thread object itself
-      }
-    }
-  }
-  if (!mThreadExitValue) return new AnnotatedNullValue("still running");
+  if (mThread && mThread->isRunning()) return new AnnotatedNullValue("running thread");
+  if (!mThreadExitValue) return new AnnotatedNullValue("terminated thread without result");
   return mThreadExitValue;
-}
-
-
-void ThreadValue::abort(ScriptObjPtr aAbortResult)
-{
-  if (mThread) mThread->abort(aAbortResult);
-}
-
-
-bool ThreadValue::running()
-{
-  return mThread && (mThread->finalResult()==NULL);
 }
 
 
@@ -7047,9 +7052,16 @@ void ScriptCodeThread::run()
 }
 
 
+bool ScriptCodeThread::isRunning()
+{
+  return mRunningSince!=Never;
+}
+
+
+
 bool ScriptCodeThread::isExecutingSource(SourceContainerPtr aSource)
 {
-  if (mRunningSince==Never) return false; // not running at all
+  if (!isRunning()) return false; // not running at all
   if (mCodeObj && mCodeObj->originatesFrom(aSource)) return true; // this thread's starting point is in aSource
   // Note threads running in a child context are caught by main context's related thread list
   return false; // not running this source
@@ -7064,12 +7076,15 @@ ScriptCodeThreadPtr ScriptCodeThread::chainOriginThread()
 
 void ScriptCodeThread::abort(ScriptObjPtr aAbortResult)
 {
-  if (mRunningSince==Never) {
+  if (!isRunning()) {
     OLOG(LOG_DEBUG, "prevent aborting already completed %04d again", threadId());
     return;
   }
-  // Note: calling abort must execute the callback passed to this thread when starting it
+  // reduce to simple as possible value, as final result will survive deactivate() so should
+  // not be a object possibly retaining other objects
+  aAbortResult = aAbortResult->calculationValue();
   inherited::abort(aAbortResult); // set the result
+  // Note: calling abort must execute the callback passed to this thread when starting it
   if (mChainedExecutionContext) {
     // having a chained context means that a function (built-in or scripted) is executing
     mChainedExecutionContext->abort(stopall, aAbortResult); // will call resume() via the callback of the thread we've started the child context for
@@ -7082,8 +7097,8 @@ void ScriptCodeThread::abort(ScriptObjPtr aAbortResult)
 
 ScriptObjPtr ScriptCodeThread::finalResult()
 {
-  if (mCurrentState==NULL) return mResult; // exit value of the thread
-  return ScriptObjPtr(); // still running
+  if (isRunning()) return ScriptObjPtr(); // still running
+  return mResult; // exit value of the thread (if any)
 }
 
 
@@ -8774,14 +8789,15 @@ static void await_func(BuiltinFunctionContextPtr f)
 
 
 // abort(thread [,exitvalue [, ownchain])   abort specified thread
-// abort()                                  abort all threads in this context except caller
+// abort()                                  abort all threads in this context, except for caller
 FUNC_ARG_DEFS(abort, { threadref|exacttype|optionalarg }, { anyvalid|optionalarg }, { numeric|optionalarg } );
 static void abort_func(BuiltinFunctionContextPtr f)
 {
+  ScriptObjPtr exitValue;
   if (f->numArgs()>0) {
     // single thread represented by arg0
     ThreadValue *t = dynamic_cast<ThreadValue *>(f->arg(0).get());
-    if (t && t->running()) {
+    if (t && t->thread() && t->thread()->isRunning()) {
       // still running
       if (!f->arg(2)->boolValue() && f->thread()->chainOriginThread()==t->thread()) {
         // is in my chain of execution (apparent user thread)
@@ -8790,18 +8806,18 @@ static void abort_func(BuiltinFunctionContextPtr f)
       }
       else {
         // really abort
-        ScriptObjPtr exitValue;
         if (f->arg(1)->defined()) exitValue = f->arg(1);
-        else exitValue = new AnnotatedNullValue("stopped by abort() function");
-        t->abort(exitValue);
+        else exitValue = new AnnotatedNullValue("stopped specifically");
+        t->thread()->abort(exitValue);
       }
     }
   }
   else {
     // all threads in the context except myself
-    f->scriptmain()->abort(stopall, new AnnotatedNullValue("abort() stops all threads"), f->thread());
+    exitValue = new AnnotatedNullValue("stopped all threads in context");
+    f->scriptmain()->abort(stopall, exitValue, f->thread());
   }
-  f->finish();
+  f->finish(exitValue);
 }
 
 

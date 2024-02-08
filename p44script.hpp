@@ -892,7 +892,7 @@ namespace p44 { namespace P44Script {
 
   // MARK: - ThreadValue
 
-  class ThreadValue : public ScriptObj
+  class ThreadValue : public ScriptObj, public EventSink
   {
     typedef ScriptObj inherited;
     ScriptCodeThreadPtr mThread;
@@ -902,13 +902,12 @@ namespace p44 { namespace P44Script {
     virtual ~ThreadValue() { deactivate(); } // even if deactivate() is usually called before dtor, make sure it happens even if not
     virtual string getAnnotation() const P44_OVERRIDE { return "thread"; };
     virtual TypeInfo getTypeInfo() const P44_OVERRIDE;
-    virtual void deactivate() P44_OVERRIDE { mThreadExitValue.reset(); mThread.reset(); inherited::deactivate(); }
+    virtual void deactivate() P44_OVERRIDE;
     virtual ScriptObjPtr calculationValue() P44_OVERRIDE; ///< ThreadValue calculates to NULL as long as running or to the thread's exit value
     virtual bool isEventSource() const P44_OVERRIDE;
     virtual void registerForFilteredEvents(EventSink* aEventSink, intptr_t aRegId = 0) P44_OVERRIDE;
     ScriptCodeThreadPtr thread() { return mThread; }; ///< @return the thread
-    bool running(); ///< @return true if still running
-    void abort(ScriptObjPtr aAbortResult = ScriptObjPtr()); ///< abort the thread
+    virtual void processEvent(ScriptObjPtr aEvent, EventSource &aSource, intptr_t aRegId) P44_OVERRIDE;
   };
 
 
@@ -3069,6 +3068,9 @@ namespace p44 { namespace P44Script {
     /// run the thread
     virtual void run();
 
+    /// @return true if running
+    bool isRunning();
+
     /// get the maximum blocking time for script execution
     MLMicroSeconds getMaxBlockTime() const { return mMaxBlockTime; };
 
@@ -3095,7 +3097,7 @@ namespace p44 { namespace P44Script {
     /// @return true when thread (or any subthread) is executing source code from aSource
     bool isExecutingSource(SourceContainerPtr aSource);
 
-    /// @return NULL only when the thread is still running, final result value otherwise (can be a explicit null object)
+    /// @return NULL when the thread is still running, final result value otherwise (can be NULL as well)
     ScriptObjPtr finalResult();
 
     /// complete the current thread
