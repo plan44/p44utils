@@ -555,11 +555,7 @@ static BuiltInMemberLookup* sharedAnimatorFunctionLookupP = NULL;
 ValueAnimatorObj::ValueAnimatorObj(ValueAnimatorPtr aAnimator) :
   mAnimator(aAnimator)
 {
-  if (sharedAnimatorFunctionLookupP==NULL) {
-    sharedAnimatorFunctionLookupP = new BuiltInMemberLookup(animatorFunctions);
-    sharedAnimatorFunctionLookupP->isMemberVariable(); // disable refcounting
-  }
-  registerMemberLookup(sharedAnimatorFunctionLookupP);
+  registerSharedLookup(sharedAnimatorFunctionLookupP, animatorFunctions);
 }
 
 TypeInfo ValueAnimatorObj::getTypeInfo() const
