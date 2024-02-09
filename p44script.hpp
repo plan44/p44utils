@@ -437,7 +437,12 @@ namespace p44 { namespace P44Script {
   class ScriptObj : public P44LoggingObj
   {
     typedef P44LoggingObj inherited;
+
+    int mAssignmentRefCount; ///< reference count for use of assignmentValue() and deactivateAssignment()
+
   public:
+
+    ScriptObj() : mAssignmentRefCount(0) {};
 
     /// @name information
     /// @{
@@ -535,9 +540,17 @@ namespace p44 { namespace P44Script {
     /// @return the value that should be used to assign to a variable.
     ///   The purpose of this can be to detach the the assigned value from the original value (e.g. arrays
     ///   and objects which needs to copy elements/subfields when assiging).
-    ///   Simple values are immutable and can be shared between variables,
+    /// @note
+    /// - Simple values are immutable and can be shared between variables,
     ///   so this base implementation returns itself.
-    virtual ScriptObjPtr assignmentValue() const { return ScriptObjPtr(const_cast<ScriptObj*>(this)); }
+    /// - Some variable types might not be immutable, but work as references, and thus should be
+    ///   assigned as-is. To manage deactivate() for those, calling assignmentValue() increments
+    ///   a reference count so calls to assignmentValue() should be balanced by calls to
+    ///   deactivateAssignment(), which deactivates only when the assignmentValue count gets zero
+    virtual ScriptObjPtr assignmentValue() const;
+
+    /// should be called when assigned variables are
+    void deactivateAssignment();
 
     /// @return a value to be used in calculations. This should return a basic type whenever possible
     virtual ScriptObjPtr calculationValue() { return ScriptObjPtr(this); }

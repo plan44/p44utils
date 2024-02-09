@@ -27,7 +27,9 @@
 //   Note: must be before including "logger.hpp" (or anything that includes "logger.hpp")
 #define FOCUSLOGLEVEL 0
 // - log level for thread and context lifecycle debugging, 0 = off
-#define P44SCRIPT_LIFECYCLE_DBG 0
+#if DEBUG
+  #define P44SCRIPT_LIFECYCLE_DBG 0
+#endif
 
 #include "p44script.hpp"
 
@@ -243,6 +245,23 @@ void ScriptObj::assignLValue(EvaluationCB aEvaluationCB, ScriptObjPtr aNewValue)
 {
   if (aEvaluationCB) aEvaluationCB(new ErrorValue(ScriptError::err(ScriptError::NotLvalue, "not assignable")));
 }
+
+
+ScriptObjPtr ScriptObj::assignmentValue() const
+{
+  const_cast<ScriptObj *>(this)->mAssignmentRefCount++;
+  LCDBG("obj %p : assignment added, now: %d - %s", this, mAssignmentRefCount, describe(this).c_str());
+  return ScriptObjPtr(const_cast<ScriptObj*>(this));
+}
+
+void ScriptObj::deactivateAssignment()
+{
+  if (mAssignmentRefCount>0) mAssignmentRefCount--;
+  LCDBG("obj %p : assignment removed, now: %d - %s", this, mAssignmentRefCount, describe(this).c_str());
+  if (mAssignmentRefCount<=0) deactivate();
+}
+
+
 
 
 
@@ -1293,6 +1312,7 @@ ScriptObjPtr ObjectValue::assignmentValue() const
     }
     return obj;
   }
+  // return myself (which increases assignment refcount)
   return inherited::assignmentValue();
 }
 
@@ -1354,7 +1374,8 @@ void SimpleVarContainer::clearVars()
 {
   FOCUSLOGCLEAR("SimpleVarContainer");
   while (!mNamedVars.empty()) {
-    mNamedVars.begin()->second->deactivate();
+    // - conditional deactivation: only if this value has not been assigned multiple times
+    mNamedVars.begin()->second->deactivateAssignment();
     mNamedVars.erase(mNamedVars.begin());
   }
   mNamedVars.clear();
@@ -1448,8 +1469,8 @@ ErrorPtr SimpleVarContainer::setMemberByName(const string aName, const ScriptObj
     }
     else {
       // delete
-      // - deactivate first to break retain cycles
-      pos->second->deactivate();
+      // - conditional deactivation: only if this value has not been assigned multiple times (perhaps into other var containers)
+      pos->second->deactivateAssignment();
       // - now release from container
       mNamedVars.erase(pos);
     }
@@ -1699,7 +1720,7 @@ ScriptObjPtr ExecutionContext::checkAndSetArgument(ScriptObjPtr aArgument, size_
       }
     }
     // argument is fine, set it
-    ErrorPtr err = setMemberAtIndex(aIndex, aArgument, info.name);
+    ErrorPtr err = setMemberAtIndex(aIndex, aArgument->assignmentValue(), info.name);
     if (Error::notOK(err)) {
       return new ErrorValue(err);
     }
@@ -6012,7 +6033,7 @@ void ScriptCompiler::storeHandler()
       mResult = mDomain->registerHandler(mResult);
     }
     else {
-      // handler in script body must NOT be stored
+      // handler in script body must NOT be stored but discarded
       mResult->deactivate();
       mResult.reset();
     }
@@ -7353,7 +7374,7 @@ void ScriptCodeThread::storeHandler()
 /// apply the specified argument to the current result
 void ScriptCodeThread::pushFunctionArgument(ScriptObjPtr aArgument)
 {
-  // apply the specified argument to the current function call context
+  // assign the specified argument to the current function call context
   if (mFuncCallContext) {
     ScriptObjPtr errVal = mFuncCallContext->checkAndSetArgument(aArgument, mFuncCallContext->numIndexedMembers(), mResult);
     if (errVal) mResult = errVal;
