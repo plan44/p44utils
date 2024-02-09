@@ -8757,13 +8757,15 @@ public:
   virtual void processEvent(ScriptObjPtr aEvent, EventSource &aSource, intptr_t aRegId) P44_OVERRIDE
   {
     // unwind stack before actually responding (to avoid changing containers this event originates from)
-    MainLoop::currentMainLoop().executeNow(boost::bind(&AwaitEventSink::finishWait, this, aEvent));
-  }
-  void finishWait(ScriptObjPtr aEvent)
-  {
-    f->finish(aEvent);
-    f->setAbortCallback(NoOP);
+    MainLoop::currentMainLoop().executeNow(boost::bind(&AwaitEventSink::finishWait, f, aEvent));
+    // Note: the actual execution does not need this object any more, only f and aEvent which are kept
+    //   by the bind object until execution can happen.
     delete this;
+  }
+  static void finishWait(BuiltinFunctionContextPtr aF, ScriptObjPtr aEvent)
+  {
+    aF->finish(aEvent);
+    aF->setAbortCallback(NoOP);
   }
   void timeout()
   {
