@@ -205,6 +205,7 @@ void MidiBus::midiDataHandler(ErrorPtr aStatus)
   // gobble up all available bytes
   uint8_t by;
   while (mMidiDevice->receiveBytes(1, &by, err)>0) {
+    OLOG(LOG_DEBUG, "got midi byte = 0x%02x", by);
     if (Error::notOK(err)) break;
     size_t dsz = 0;
     // byte received
@@ -212,22 +213,26 @@ void MidiBus::midiDataHandler(ErrorPtr aStatus)
       case idle:
       case running:
         if ((by & MidiStatus::statusbit)==0) {
-          // expecting status, got data
-          if (mReceiveState==running) goto newdata; // running status
+          if (mReceiveState==running) goto initialData; // evaluate as first data according to last received status
           // no running status, cannot process data
           OLOG(LOG_WARNING, "expecting status, got 0x%02x", by);
+          mReceiveState = idle;
           break;
         }
+        // is a new status
+        goto newstatus;
+      resync:
+        OLOG(LOG_WARNING, "was expecting data, got new status 0x%02x -> re-sync", by);
+        mReceiveState = idle;
+        // process new status
       newstatus:
         // new status
         mLastReceivedStatus = static_cast<MidiStatus>(by);
-        mFirstData = 0;
-        mFinalData = 0;
-        if (mLastReceivedStatus==system_exclusive) {
-          mReceiveState = sysex;
-        }
-        else if (mLastReceivedStatus==system_eox) {
+        if (mLastReceivedStatus==system_eox) {
           mReceiveState = idle;
+        }
+        else if (mLastReceivedStatus==system_exclusive) {
+          mReceiveState = sysex;
         }
         else {
           dsz = numMidiDataBytes(mLastReceivedStatus);
@@ -236,43 +241,39 @@ void MidiBus::midiDataHandler(ErrorPtr aStatus)
             processMidiCommand();
             mReceiveState = idle;
           }
-          else if (dsz==1) {
-            // single data byte expected
-            mReceiveState = finaldata;
-          }
           else {
-            // two data bytes expected
-            mReceiveState = firstdata;
+            mReceiveState = initialData;
           }
         }
         break;
-      case firstdata:
-      case finaldata:
+      case initialData:
+      initialData:
+        if (by & MidiStatus::statusbit) goto resync;
+        mFirstData = by; // is first byte
+        mFinalData = by; // and possibly final as well for 1-byte commands
+        dsz = numMidiDataBytes(mLastReceivedStatus);
+        if (dsz==1) goto process; // single byte command, process now
+        // second data byte expected
+        mFinalData = 0; // we don't have the final data
+        mReceiveState = secondData;
+        break;
+      case secondData:
+        mFinalData = by;
+        goto process; // second byte found, process now
       case sysex:
-        // expecting data
+        // expecting sysex data
         if (by & MidiStatus::statusbit) {
-          OLOG(LOG_WARNING, "was expecting data, got new status 0x%02x -> re-sync", by);
-          mReceiveState = idle;
+          if (by!=system_eox) goto resync; // only EOX is expected -> resync
+          // proper EOX
+          // TODO: maybe later: process sysex
           goto newstatus;
         }
-      newdata:
-        // new data
-        if (mReceiveState==firstdata) {
-          // first (of 2) data bytes
-          mFirstData = by;
-          mReceiveState = finaldata;
-        }
-        else if (mReceiveState==sysex) {
-          // TODO: collect sysex data later, for now we are just skipping it
-          break;
-        }
-        else {
-          // final (second or only) data byte
-          mFinalData = by;
-          mReceiveState = running;
-          // process the command
-          processMidiCommand();
-        }
+        // TODO: maybe later: collect sysex data
+        break;
+      process:
+        // data collected, process command
+        processMidiCommand();
+        mReceiveState = running;
         break;
     }
   }

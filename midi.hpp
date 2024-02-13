@@ -128,14 +128,14 @@ namespace p44 {
     static const int numChannels = 16;
     static const int num14BitControls = 32;
     uint8_t mControlMSBCache[numChannels*num14BitControls]; ///< cache for MSBs of all 32 14bit controls in all 16 channels
-    uint8_t mFirstData; ///< first (of two) data bytes
-    uint8_t mFinalData; ///< final (second or only) data byte
+    uint8_t mFirstData; ///< first (maybe only) data byte
+    uint8_t mFinalData; ///< second (or only, in that case a copy of mFirstData) data byte
 
     enum {
       idle, // waiting for status
-      running, // running status, more data may follow
-      firstdata, // waiting for first of 2 byte data
-      finaldata, // waiting for final data
+      running, // running status, new status or data
+      initialData, // waiting for first or final data byte
+      secondData, // waiting for second and final data byte
       sysex, // system exclusive, just swallow data
     } mReceiveState;
 
