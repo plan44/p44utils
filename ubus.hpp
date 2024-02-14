@@ -35,6 +35,7 @@ extern "C" {
   #include <libubus.h>
 }
 
+
 using namespace std;
 
 namespace p44 {
@@ -68,12 +69,12 @@ namespace p44 {
     typedef P44Obj inherited;
     friend class UbusServer;
 
-    struct ubus_request_data *currentReq; ///< the current request
-    struct ubus_request_data deferredReq; ///< the deferred request structure (needed to answer it later)
+    struct ubus_request_data *mCurrentReqP; ///< the current request
+    struct ubus_request_data mDeferredReq; ///< the deferred request structure (needed to answer it later)
     JsonObjectPtr mRequestMsg; ///< the request message
     string mRequestMethod; ///< the request method name
-    UbusServerPtr ubusServer; ///< the ubus server (needed to actually send answer later)
-    int ubusErr; ///< the ubus error status set with sendResponse()
+    UbusServerPtr mUbusServer; ///< the ubus server (needed to actually send answer later)
+    int mUbusErr; ///< the ubus error status set with sendResponse()
 
     // private constructor, only UbusServer may create me
     UbusRequest(UbusServerPtr aUbusServer, struct ubus_request_data *aReq, const char *aMethodName, JsonObjectPtr aMsg);

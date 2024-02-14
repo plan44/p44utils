@@ -130,8 +130,8 @@ void UbusServer::registerObject(UbusObjectPtr aUbusObject)
 // MARK: - UbusRequest
 
 UbusRequest::UbusRequest(UbusServerPtr aUbusServer, struct ubus_request_data *aReq, const char *aMethodName, JsonObjectPtr aMsg) :
-  ubusServer(aUbusServer),
-  currentReq(aReq),
+  mUbusServer(aUbusServer),
+  mCurrentReqP(aReq),
   mRequestMethod(aMethodName),
   mRequestMsg(aMsg)
 {
@@ -149,43 +149,43 @@ UbusRequest::~UbusRequest()
 
 void UbusRequest::defer()
 {
-  if (ubusServer && currentReq) {
-    ubus_defer_request(&ubusServer->mUbusServerCtx->ctx, currentReq, &deferredReq);
-    currentReq = NULL; // can no longer directly respond
+  if (mUbusServer && mCurrentReqP) {
+    ubus_defer_request(&mUbusServer->mUbusServerCtx->ctx, mCurrentReqP, &mDeferredReq);
+    mCurrentReqP = NULL; // can no longer directly respond
   }
 }
 
 
 bool UbusRequest::responded()
 {
-  return ubusServer.get()==NULL;
+  return mUbusServer.get()==NULL;
 }
 
 
 
 void UbusRequest::sendResponse(JsonObjectPtr aResponse, int aUbusErr)
 {
-  ubusErr = aUbusErr;
-  if (ubusServer) {
+  mUbusErr = aUbusErr;
+  if (mUbusServer) {
     // send reply
-    POLOG(ubusServer, LOG_INFO, "response status: %d, message: %s", aUbusErr, JsonObject::text(aResponse));
+    POLOG(mUbusServer, LOG_INFO, "response status: %d, message: %s", aUbusErr, JsonObject::text(aResponse));
     struct blob_buf responseBuffer;
     memset(&responseBuffer, 0, sizeof(responseBuffer)); // essential for blob_buf_init
     blob_buf_init(&responseBuffer, 0);
     if (aResponse) blobmsg_add_object(&responseBuffer, (struct json_object *)aResponse->jsoncObj());
-    if (currentReq) {
-      ubus_send_reply(&ubusServer->mUbusServerCtx->ctx, currentReq, responseBuffer.head);
+    if (mCurrentReqP) {
+      ubus_send_reply(&mUbusServer->mUbusServerCtx->ctx, mCurrentReqP, responseBuffer.head);
     }
     else {
       // is a deferred request
-      ubus_send_reply(&ubusServer->mUbusServerCtx->ctx, &deferredReq, responseBuffer.head);
-      ubus_complete_deferred_request(&ubusServer->mUbusServerCtx->ctx, &deferredReq, ubusErr);
-      ubusErr = UBUS_STATUS_OK;
+      ubus_send_reply(&mUbusServer->mUbusServerCtx->ctx, &mDeferredReq, responseBuffer.head);
+      ubus_complete_deferred_request(&mUbusServer->mUbusServerCtx->ctx, &mDeferredReq, mUbusErr);
+      mUbusErr = UBUS_STATUS_OK;
     }
     // response is out, can no longer be used and must not keep server alive any more
     mRequestMsg.reset(); // no message any more
     mRequestMethod.clear(); // no method any more
-    ubusServer.reset(); // release server
+    mUbusServer.reset(); // release server
   }
 }
 
