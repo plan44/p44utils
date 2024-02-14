@@ -169,9 +169,20 @@ void UbusRequest::sendResponse(JsonObjectPtr aResponse, int aUbusErr)
   if (mUbusServer) {
     // send reply
     POLOG(mUbusServer, LOG_INFO, "response status: %d, message: %s", aUbusErr, JsonObject::text(aResponse));
+    // Note: the semantics of blob buffer is a bit hard to grasp because it is
+    //   is apparently designed to be a on-demand-sized, re-usable buffer. In actual OpenWrt code
+    //   it is very rarely freed, but in most cases a static "b" instance is used and re-used.
+    //   The main trick is that blob_buf_init() is actually a "reinit", unless the struct blob_buf
+    //   is passed in zeroed out, then the buffer grow callback is initialized to a default.
+    //   Otherwise, blob_buf_init() just rewinds the write pointer to the existing buffer.
+    //   Unfortuntately, the very clean and efficient C code of libubus is strictly comment and
+    //   documentation free ;-) So:
+    // - fresh blob buffer struct must be zeroed out
     struct blob_buf responseBuffer;
     memset(&responseBuffer, 0, sizeof(responseBuffer)); // essential for blob_buf_init
+    // - then initialized
     blob_buf_init(&responseBuffer, 0);
+    // - then used
     if (aResponse) blobmsg_add_object(&responseBuffer, (struct json_object *)aResponse->jsoncObj());
     if (mCurrentReqP) {
       ubus_send_reply(&mUbusServer->mUbusServerCtx->ctx, mCurrentReqP, responseBuffer.head);
@@ -182,6 +193,8 @@ void UbusRequest::sendResponse(JsonObjectPtr aResponse, int aUbusErr)
       ubus_complete_deferred_request(&mUbusServer->mUbusServerCtx->ctx, &mDeferredReq, mUbusErr);
       mUbusErr = UBUS_STATUS_OK;
     }
+    // - but as we are not keeping responseBuffer, it must be freed here, or we leak mem here!
+    blob_buf_free(&responseBuffer);
     // response is out, can no longer be used and must not keep server alive any more
     mRequestMsg.reset(); // no message any more
     mRequestMethod.clear(); // no method any more
