@@ -9479,6 +9479,15 @@ static void second_func(BuiltinFunctionContextPtr f)
 }
 
 
+// fracsecond([epochtime])
+static void fracsecond_func(BuiltinFunctionContextPtr f)
+{
+  struct tm loctim; double fracSecs = prepTime(f, loctim);
+  f->finish(new NumericValue(fracSecs));
+}
+
+
+
 // year([epochtime])
 static void year_func(BuiltinFunctionContextPtr f)
 {
@@ -9723,6 +9732,7 @@ static const BuiltinMemberDescriptor standardFunctions[] = {
   FUNC_DEF_C_ARG(hour, executable|numeric, timegetter),
   FUNC_DEF_C_ARG(minute, executable|numeric, timegetter),
   FUNC_DEF_C_ARG(second, executable|numeric, timegetter),
+  FUNC_DEF_C_ARG(fracsecond, executable|numeric, timegetter),
   FUNC_DEF_C_ARG(year, executable|numeric, timegetter),
   FUNC_DEF_C_ARG(month, executable|numeric, timegetter),
   FUNC_DEF_C_ARG(day, executable|numeric, timegetter),
