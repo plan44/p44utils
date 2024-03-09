@@ -9244,7 +9244,7 @@ static void every_func(BuiltinFunctionContextPtr f)
       // synchronize with real time
       double fracSecs;
       struct tm loctim; MainLoop::getLocalTime(loctim, &fracSecs);
-      double secondOfDay = ((loctim.tm_hour*60)+loctim.tm_min)*60+loctim.tm_sec+fracSecs; // second of day right now
+      double secondOfDay = (double)((loctim.tm_hour*60)+loctim.tm_min)*60+loctim.tm_sec+fracSecs; // second of day right now
       double untilNext = syncoffset+(floor((secondOfDay-syncoffset)/interval)+1)*interval - secondOfDay; // time to next repetition
       trigger->newTimedFreeze(frozenP, secs, freezeId, MainLoop::now()+untilNext*Second, true);
     }
@@ -9451,7 +9451,7 @@ FUNC_ARG_DEFS(timegetter, { numeric|optionalarg } );
 static void timeofday_func(BuiltinFunctionContextPtr f)
 {
   struct tm loctim; double fracSecs = prepTime(f, loctim);
-  f->finish(new NumericValue(((loctim.tm_hour*60)+loctim.tm_min)*60+loctim.tm_sec+fracSecs));
+  f->finish(new NumericValue((double)((loctim.tm_hour*60)+loctim.tm_min)*60+loctim.tm_sec+fracSecs));
 }
 
 
