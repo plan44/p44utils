@@ -797,6 +797,7 @@ namespace p44 {
     uint8_t* getBitAddress(int aAddress, bool aInput, int aBits);
     uint16_t* getRegisterAddress(int aAddress, bool aInput, int aRegs);
 
+    void connectionWasClosed(int aFD);
     void cancelMsgReception();
     void startTimeout();
     void startMsgReception();

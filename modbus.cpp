@@ -300,8 +300,13 @@ bool ModbusConnection::connectionAcceptHandler(int aFd, int aPollFlags)
 {
   if (aPollFlags & POLLIN) {
     // server socket has data, means connection waiting to get accepted
-    modbus_tcp_accept(mModbus, &mServerSocket);
-    startServing();
+    if (modbus_get_socket(mModbus)>=0) {
+      OLOG(LOG_ERR, "cannot handle multiple connections yet");
+    }
+    else {
+      modbus_tcp_accept(mModbus, &mServerSocket);
+      startServing();
+    }
   }
   // handled
   return true;
@@ -1064,6 +1069,24 @@ void ModbusSlave::stopServing()
 }
 
 
+void ModbusSlave::connectionWasClosed(int aFD)
+{
+  // connection was closed from the other end
+  // - in any case, unregister this FD to prevent endless loop
+  MainLoop::currentMainLoop().unregisterPollHandler(aFD);
+  // - for safety, check if the modbus socket is still the same
+  int fd = modbus_get_socket(mModbus);
+  if (aFD==fd) {
+    // same socket
+    cancelMsgReception();
+    modbus_close(mModbus);
+  }
+  else {
+    OLOG(LOG_WARNING, "connection different from current one reported closed");
+  }
+}
+
+
 void ModbusSlave::cancelMsgReception()
 {
   if (mModbusRcv) {
@@ -1144,7 +1167,7 @@ bool ModbusSlave::modbusFdPollHandler(int aFD, int aPollFlags)
     if (aPollFlags & POLLHUP) {
       // connection terminated
       FOCUSOLOG("POLLIN+POLLHUP - connection terminated");
-      stopServing();
+      connectionWasClosed(aFD);
     }
     else {
       // connection still open, start reception of next message
@@ -1155,13 +1178,13 @@ bool ModbusSlave::modbusFdPollHandler(int aFD, int aPollFlags)
   }
   else if (aPollFlags & POLLHUP) {
     FOCUSOLOG("only POLLHUP - connection terminated");
-    stopServing();
+    connectionWasClosed(aFD);
   }
   else if (aPollFlags & POLLERR) {
     // try to reconnect
     FOCUSOLOG("POLLERR - close and reopen connection");
-    close(); // not just stop serving, really disconnect!
-    startServing();
+    close(); // actively close
+    connectionWasClosed(aFD);
     return true;
   }
   return false;
