@@ -42,7 +42,7 @@
   #include <sys/stat.h> // for mkdir
   #include <stdio.h>
 #endif
-#if P44SCRIPT_FULL_SUPPORT
+#if P44SCRIPT_FULL_SUPPORT && ENABLE_P44LRGRAPHICS
   #include "colorutils.hpp"
 #endif // P44SCRIPT_FULL_SUPPORT
 
@@ -8981,6 +8981,7 @@ static void logleveloffset_func(BuiltinFunctionContextPtr f)
   f->finish(new IntegerValue(oldOffset));
 }
 
+#if ENABLE_P44LRGRAPHICS
 
 // hsv(hue, sat, bri, alpha) // convert to webcolor string
 // hsv(obj)
@@ -9051,6 +9052,7 @@ static void color_conversion(BuiltinFunctionContextPtr f, bool aHSV)
 static void hsv_func(BuiltinFunctionContextPtr f) { return color_conversion(f, true); }
 static void rgb_func(BuiltinFunctionContextPtr f) { return color_conversion(f, false); }
 
+#endif // ENABLE_P44LRGRAPHICS
 
 #endif // P44SCRIPT_FULL_SUPPORT
 
@@ -9712,8 +9714,10 @@ static const BuiltinMemberDescriptor standardFunctions[] = {
   FUNC_DEF_W_ARG(log, executable|text),
   FUNC_DEF_W_ARG(loglevel, executable|numeric),
   FUNC_DEF_W_ARG(logleveloffset, executable|numeric),
+  #if ENABLE_P44LRGRAPHICS
   FUNC_DEF_C_ARG(hsv, executable|text|objectvalue, col),
   FUNC_DEF_C_ARG(rgb, executable|text|objectvalue, col),
+  #endif // ENABLE_P44LRGRAPHICS
   #endif // P44SCRIPT_FULL_SUPPORT
   FUNC_DEF_W_ARG(is_weekday, executable|anyvalid),
   FUNC_DEF_W_ARG(after_time, executable|numeric),
