@@ -333,7 +333,7 @@ string p44::upperCase(const char *aString, size_t aMaxSize)
 
 string p44::upperCase(const string &aString)
 {
-  return lowerCase(aString.c_str());
+  return upperCase(aString.c_str());
 }
 
 
