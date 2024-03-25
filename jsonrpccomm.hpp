@@ -58,7 +58,7 @@ namespace p44 {
   /// callback for delivering a received JSON-RPC method or notification request
   /// @param aMethod If this is a method call, this is the JSON-RPC (2.0) method or notification requested by the peer.
   /// @param aJsonRpcId the client id. The handler must use this id when calling sendResult(). If this is a notification request, aJsonRpcId is NULL.
-  typedef boost::function<void (const char *aMethod, const char *aJsonRpcId, JsonObjectPtr aParams)> JsonRpcRequestCB;
+  typedef boost::function<void (const char *aMethod, const JsonObjectPtr aJsonRpcId, JsonObjectPtr aParams)> JsonRpcRequestCB;
 
   /// callback for delivering a received JSON-RPC method result
   /// @param aResponseId the response Id (always integer for requests we send, as the id originates from us)
@@ -115,7 +115,7 @@ namespace p44 {
     /// @param aJsonRpcId this must be the aJsonRpcId as received in the JsonRpcRequestCB handler.
     /// @param aResult the result as a JsonObject. Can be nullptr for procedure calls without return value
     /// @result empty or Error object in case of error sending result response
-    ErrorPtr sendResult(const char *aJsonRpcId, JsonObjectPtr aResult);
+    ErrorPtr sendResult(const JsonObjectPtr aJsonRpcId, JsonObjectPtr aResult);
 
     /// send a JSON-RPC error (answer for unsuccesful method call)
     /// @param aJsonRpcId this must be the aJsonRpcId as received in the JsonRpcRequestCB handler.
@@ -123,14 +123,14 @@ namespace p44 {
     /// @param aErrorMessage the error message or NULL to generate a standard text
     /// @param aErrorData the optional "data" member for the JSON-RPC error object
     /// @result empty or Error object in case of error sending error response
-    ErrorPtr sendError(const char *aJsonRpcId, uint32_t aErrorCode, const char *aErrorMessage = NULL, JsonObjectPtr aErrorData = JsonObjectPtr());
+    ErrorPtr sendError(const JsonObjectPtr aJsonRpcId, uint32_t aErrorCode, const char *aErrorMessage = NULL, JsonObjectPtr aErrorData = JsonObjectPtr());
 
     /// send p44utils::Error object as JSON-RPC error
     /// @param aJsonRpcId this must be the aJsonRpcId as received in the JsonRpcRequestCB handler.
     /// @param aErrorToSend From this error object, getErrorCode() and description() will be used as "code" and "message" members
     ///   of the JSON-RPC 2.0 error object.
     /// @result empty or Error object in case of error sending error response
-    ErrorPtr sendError(const char *aJsonRpcId, ErrorPtr aErrorToSend);
+    ErrorPtr sendError(const JsonObjectPtr aJsonRpcId, ErrorPtr aErrorToSend);
 
     /// clear all callbacks
     /// @note this is important because handlers might cause retain cycles when they have smart ptr arguments
