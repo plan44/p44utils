@@ -4597,6 +4597,7 @@ void SourceProcessor::processStatement()
       }
       push(mCurrentState); // return to current state when for finishes
       // create loop controller
+      mSrc.skipNonCode();
       ForWhileController* forWhileControllerP = new ForWhileController;
       mStatementHelper = forWhileControllerP;
       forWhileControllerP->mIsFor = true;
@@ -5077,6 +5078,7 @@ void SourceProcessor::s_loopCondition()
   // while or for condition is evaluated
   // - result contains result of the evaluation
   // - ???mPoppedPos points to beginning of while condition
+  mSrc.skipNonCode();
   ForWhileController* forWhileControllerP = static_cast<ForWhileController*>(mStatementHelper.get());
   if (forWhileControllerP->mIsFor) {
     // capture the finalisation statement
@@ -5105,7 +5107,7 @@ void SourceProcessor::s_loopNext()
   FOCUSLOGSTATE
   // older result is still the loop condition
   if (!mSrc.nextIf(')')) {
-    exitWithSyntaxError("missing ')' after 'while' condition");
+    exitWithSyntaxError("missing ')' after 'for' end-of-loop statement");
     return;
   }
   s_loopBody();
