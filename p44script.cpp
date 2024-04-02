@@ -4487,7 +4487,13 @@ void SourceProcessor::defineHandler(bool aGlobal)
 void SourceProcessor::s_noStatement()
 {
   FOCUSLOGSTATE
-  mSrc.nextIf(';');
+  SourcePos eoS = mSrc.mPos; // remember end of actual statement
+  mSrc.skipNonCode();
+  if (!mSrc.nextIf(';')) {
+    // no explicit end of statement marker following
+    // rewind to implicit end of statement, before any intermediate non-code
+    mSrc.mPos = eoS;
+  }
   pop();
   checkAndResume();
 }
