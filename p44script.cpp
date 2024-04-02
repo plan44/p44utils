@@ -4502,7 +4502,6 @@ void SourceProcessor::s_noStatement()
 void SourceProcessor::s_oneStatement()
 {
   FOCUSLOGSTATE
-  setState(&SourceProcessor::s_noStatement);
   processStatement();
 }
 
@@ -4538,6 +4537,7 @@ void SourceProcessor::processStatement()
   // beginning of a new statement
   if (mSrc.nextIf('{')) {
     // new block starts
+    if (mCurrentState==&SourceProcessor::s_oneStatement) setState(&SourceProcessor::s_noStatement); // after block, no more statements!
     push(mCurrentState); // return to current state when block finishes
     resumeAt(&SourceProcessor::s_block); // continue as block
     return;
@@ -4569,6 +4569,7 @@ void SourceProcessor::processStatement()
     return;
   }
   #endif
+  if (mCurrentState==&SourceProcessor::s_oneStatement) setState(&SourceProcessor::s_noStatement);
   // - no result to begin with at the beginning of a statement. Important for if/else, try/catch!
   mResult.reset();
   // - could be language keyword, variable assignment

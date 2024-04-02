@@ -24,6 +24,7 @@
 
 #include "p44script.hpp"
 #include <stdlib.h>
+#include <time.h> // for getting UTC offset
 
 #include "utils.hpp"
 #include "httpcomm.hpp"
@@ -98,6 +99,7 @@ class ScriptingCodeFixture
   TestLookup testLookup;
 public:
   ScriptHost s;
+  long utc_offset;
 
   ScriptingCodeFixture() :
     s(scriptbody)
@@ -105,6 +107,11 @@ public:
     SETDAEMONMODE(false);
     SETLOGLEVEL(LOG_NOTICE);
     LOG(LOG_INFO, "\n+++++++ constructing ScriptingCodeFixture");
+    // get current UTC offset
+    time_t utc_timestamp = time(NULL);
+    struct tm* local_time_info = localtime(&utc_timestamp);
+    utc_offset = local_time_info->tm_gmtoff;
+    // setup scripting context
     testLookup.isMemberVariable();
     StandardScriptingDomain::sharedDomain().setLogLevelOffset(LOGLEVELOFFSET);
     mainContext = StandardScriptingDomain::sharedDomain().newContext();
@@ -604,7 +611,7 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "expressions", "[scripting],[FOCUS]") {
     REQUIRE(s.test(expression, "maprange(120,100,0,0,1)")->doubleValue() == Catch::Approx(0));
     REQUIRE(s.test(expression, "epochdays()")->int64Value() == floor(MainLoop::unixtime()/Day));
     REQUIRE(s.test(expression, "epochtime()")->doubleValue() == Catch::Approx((double)MainLoop::unixtime()/Second));
-    REQUIRE(s.test(expression, "epochtime(0:00, 1.Jan, 1970)")->intValue() == -3600); // assuming we are in CET, epoch is GMT
+    REQUIRE(s.test(expression, "epochtime(0:00, 1.Jan, 1970)")->intValue() == -utc_offset); // utc_offset is calculated for the current time in the fixture
     // REQUIRE(s.test(expression, "formattime(epochtime(22:42:05, 29.Jun, 2007))")->stringValue() == "2007-06-29 22:42:05"); // is not DST safe
     REQUIRE(s.test(expression, "formattime(epochtime(22, 42, 05, 29, 06, 2007))")->stringValue() == "2007-06-29 22:42:05");
     REQUIRE(s.test(expression, "hour(23:42)")->doubleValue() == 23);
@@ -819,10 +826,12 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "statements", "[scripting]" )
     // while, continue, break
     REQUIRE(s.test(scriptbody, "var count = 0; while (count<5) count = count+1; return count")->doubleValue() == 5);
     REQUIRE(s.test(scriptbody, "var res = ''; var count = 0; while (count<5) { count = count+1; res = res+string(count); } return res")->stringValue() == "12345");
+    REQUIRE(s.test(scriptbody, "var res = ''; var count = 0; while ( count < 5 ) { count = count+1; res = res+string(count); } return res")->stringValue() == "12345"); // spaces in while ()
     REQUIRE(s.test(scriptbody, "var res = ''; var count = 0; while (count<5) { count = count+1; if (count==3) continue; res = res+string(count); } return res")->stringValue() == "1245");
     REQUIRE(s.test(scriptbody, "var res = ''; var count = 0; while (count<5) { count = count+1; if (count==3) break; res = res+string(count); } return res")->stringValue() == "12");
     // for, continue, break
     REQUIRE(s.test(scriptbody, "var res = ''; for (var count = 0; count<7; count++) { res += string(count); } return res")->stringValue() == "0123456");
+    REQUIRE(s.test(scriptbody, "var res = ''; for ( var count = 0 ; count < 7 ; count ++ )  { res += string( count ); } return res")->stringValue() == "0123456"); // spaces in for ()
     REQUIRE(s.test(scriptbody, "var res = ''; for (var count = 0; count<7; count++) { if (count==3) continue; if (count==6) break; res += string(count); } return res")->stringValue() == "01245");
     // foreach, continue, break
     REQUIRE(s.test(scriptbody, "var res = ''; foreach [11,22,33] as val { res = res+string(val); } return res")->stringValue() == "112233");
