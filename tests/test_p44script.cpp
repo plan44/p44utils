@@ -692,8 +692,10 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "statements", "[scripting]" )
     REQUIRE(s.test(scriptbody, "var x = 4321; X = 1234; return X")->doubleValue() == 1234); // case insensitivity
     REQUIRE(s.test(scriptbody, "var x = 4321; x = x + 1234; return x")->doubleValue() == 1234+4321); // case insensitivity
     REQUIRE(s.test(scriptbody, "var x = 1; var x = 2; return x")->doubleValue() == 2); // locals initialized whenerver encountered (now! was different before)
-    REQUIRE(s.test(scriptbody, "glob g default 1; return g")->doubleValue() == 1); // globals can be initialized whereever they are put (but only using "default" -> it is NOT a regular assignment but happens at compile time)
-    REQUIRE(s.test(scriptbody, "glob g; g = 4; return g")->doubleValue() == 4); // normal assignment is possible, however
+    REQUIRE(s.test(scriptbody, "glob g default 1; return g")->doubleValue() == 1); // globals can be initialized whereever they are put (but only using "default" -> it is NOT a regular assignment but already happens at compile time)
+    REQUIRE(s.test(scriptbody, "g=3; glob g default 2; return g")->doubleValue() == 3); // g exists from previous case, so default must not be applied again!
+    REQUIRE(s.test(scriptbody, "unset g; glob g default 2; return g")->doubleValue() == 2); // default is NOT applied at compile time (because g is still set then), but it is applied at runtime because g is removed at runtime
+    REQUIRE(s.test(scriptbody, "unset g; glob g; g = 4; return g")->doubleValue() == 4); // normal assignment is possible, however
     #if SCRIPT_OPERATOR_MODE==SCRIPT_OPERATOR_MODE_FLEXIBLE
     REQUIRE(s.test(scriptbody, "var h; var i = 8; h = 3 + (i = 8)")->doubleValue() == 4); // inner "=" is treated as comparison
     #elif SCRIPT_OPERATOR_MODE==SCRIPT_OPERATOR_MODE_C
@@ -914,7 +916,7 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "statements", "[scripting]" )
 
 // MARK: - Async
 
-TEST_CASE_METHOD(AsyncScriptingFixture, "async", "[scripting]") {
+TEST_CASE_METHOD(AsyncScriptingFixture, "async", "[scripting][slow]") {
 
   SECTION("fixtureTest") {
     REQUIRE(scriptTest(scriptbody, "42")->doubleValue() == 42);

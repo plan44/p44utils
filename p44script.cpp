@@ -4742,7 +4742,7 @@ void SourceProcessor::processStatement()
       // - during compilation run, initialisation makes sense
       // - when running, encountering a glob only ensures the var exists, but does NOT assign it.
       //   Note that this behaviour (not assigning again) is vital for globals which might serve
-      //   as interface between scripts which cannot know if their counterparts has run or not (yet),
+      //   as interface between scripts which cannot know if their counterparts have run or not (yet),
       //   so may want to make sure the global is created with a default value, but not overwrite it
       //   if already existing.
       // - After some back and forth at this place (see git history) the conclusion is
@@ -4834,12 +4834,12 @@ void SourceProcessor::processVarDefs(TypeInfo aVarFlags, bool aAllowAssignment)
     // check for "default" keyword
     if (mSrc.checkForIdentifier("default")) {
       // default means assigning when not existing before
-      // - default values are processed only at compile time.
-      mSkipping = !compiling();
+      // - default values are always processed, but only assigned to not-yet-existing variables
+      if (compiling()) mSkipping = false; // while compiling, process wherever seen
       mPendingOperation = op_assign; // needed for s_assignExpression to check when we have the lvalue
       setState(&SourceProcessor::s_assignDefault);
-      // only create, do not use existing value
-      memberByIdentifier(aVarFlags|onlycreate);
+      // only create, do not use/modify existing value
+      memberByIdentifier(aVarFlags|onlycreate, true); // no notFound error
       return;
     }
     // just create and initialize with null (if not already existing)
@@ -6013,7 +6013,7 @@ void ScriptCompiler::memberByIdentifier(TypeInfo aMemberAccessFlags, bool aNoNot
   }
   // non-skipping compilation means evaluating global var initialisation
   mResult = mDomain->memberByName(mIdentifier, aMemberAccessFlags);
-  if (!mResult) {
+  if (!mResult && !aNoNotFoundError) {
     mResult = new ErrorPosValue(mSrc, ScriptError::Syntax, "'%s' cannot be accessed in declarations", mIdentifier.c_str());
   }
   checkAndResume();
