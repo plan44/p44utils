@@ -6640,16 +6640,20 @@ void ScriptHost::setScriptResultHandler(EvaluationCB aScriptResultCB)
 
 ScriptObjPtr ScriptHost::runCommand(ScriptCommand aCommand, EvaluationCB aScriptResultCB, ScriptObjPtr aThreadLocals)
 {
+  ScriptObjPtr res;
   if (!active()) return new ErrorValue(ScriptError::Internal, "script is not active");
   if (!aScriptResultCB) aScriptResultCB = mActiveParams->mScriptResultCB;
   if (mActiveParams->mScriptCommandCB) {
     // use customized command implementation
-    return mActiveParams->mScriptCommandCB(aCommand, aScriptResultCB, aThreadLocals, *this);
+    res = mActiveParams->mScriptCommandCB(aCommand, aScriptResultCB, aThreadLocals, *this);
   }
   else {
     // run my own default implementation
-    return defaultCommandImplementation(aCommand, aScriptResultCB, aThreadLocals);
+    res = defaultCommandImplementation(aCommand, aScriptResultCB, aThreadLocals);
   }
+  // always uncompile on explicit stop (note: NOT on restart)
+  if (aCommand==stop) uncompile();
+  return res;
 }
 
 
