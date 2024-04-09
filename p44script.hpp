@@ -104,7 +104,6 @@ namespace p44 { namespace P44Script {
   typedef boost::intrusive_ptr<ScriptHost> ScriptHostPtr;
 
   class SourceProcessor;
-  typedef boost::intrusive_ptr<SourceProcessor> SourceProcessorPtr;
   class Compiler;
   class ScriptCodeThread;
   typedef boost::intrusive_ptr<ScriptCodeThread> ScriptCodeThreadPtr;

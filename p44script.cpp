@@ -4375,8 +4375,10 @@ void SourceProcessor::defineTrigger(bool aGlobal)
     return;
   }
   CompiledTriggerPtr trigger;
-  if (!compiling() && !mSkipping) // all handlers are context local and captured not before actually executed
-  {
+  if (
+    (compiling() && aGlobal) || // global handlers are captured at compilation
+    (!compiling() && !mSkipping && !aGlobal) // context local handlers must not be captured not before actually executed
+  ) {
     trigger = new CompiledTrigger("trigger", getTriggerAndHandlerMainContext());
     mResult = captureCode(trigger);
   }
@@ -4475,11 +4477,9 @@ void SourceProcessor::defineHandler(bool aGlobal)
     handler->installAndInitializeTrigger(mOlderResult);
     storeHandler();
   }
-  else {
-    checkAndResume();
-  }
   // back to where we were before
   pop();
+  checkAndResume();
 }
 
 // MARK: Statements
@@ -6037,15 +6037,8 @@ void ScriptCompiler::storeFunction()
 void ScriptCompiler::storeHandler()
 {
   if (!mResult->isErr()) {
-    // only handlers in declaration part must be stored at compile time
-    if (mEvaluationFlags & sourcecode) {
-      mResult = mDomain->registerHandler(mResult);
-    }
-    else {
-      // handler in script body must NOT be stored but discarded
-      mResult->deactivate();
-      mResult.reset();
-    }
+    // we only get here for global handlers, context handlers are stored when executed
+    mResult = mDomain->registerHandler(mResult);
   }
   checkAndResume();
 }
