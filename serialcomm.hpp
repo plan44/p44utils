@@ -1,6 +1,6 @@
 //  SPDX-License-Identifier: GPL-3.0-or-later
 //
-//  Copyright (c) 2013-2023 plan44.ch / Lukas Zeller, Zurich, Switzerland
+//  Copyright (c) 2013-2024 plan44.ch / Lukas Zeller, Zurich, Switzerland
 //
 //  Author: Lukas Zeller <luz@plan44.ch>
 //
@@ -25,25 +25,7 @@
 
 #include "p44utils_main.hpp"
 
-#include "fdcomm.hpp"
-
-// unix I/O and network
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <fcntl.h>
-#include <termios.h>
-#include <stdio.h>
-#include <string.h>
-#include <stdlib.h>
-#include <unistd.h>
-#include <sys/select.h>
-#include <sys/param.h>
-#include <errno.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <netdb.h>
-#include <netinet/in.h>
+#include "fdcomm.hpp" // includes all unix/linux I/O and network includes
 
 #if ENABLE_P44SCRIPT && !defined(ENABLE_SERIAL_SCRIPT_FUNCS)
   #define ENABLE_SERIAL_SCRIPT_FUNCS 1
@@ -71,7 +53,7 @@ namespace p44 {
       UnknownBaudrate,
       numErrorCodes
     } ErrorCodes;
-    
+
     static const char *domain() { return "SerialComm"; }
     virtual const char *getErrorDomain() const P44_OVERRIDE { return SerialCommError::domain(); };
     SerialCommError(ErrorCodes aError) : Error(ErrorCode(aError)) {};
@@ -121,7 +103,11 @@ namespace p44 {
     int mConnectionFd;
     int mDeviceOpenFlags;
     bool mUnknownReadyBytes;
+    #if defined(TCGETS2)
+    struct termios2 mOldTermIO;
+    #else
     struct termios mOldTermIO;
+    #endif
     bool mDeviceConnection;
     bool mReconnecting;
     MLTicket mReconnectTicket;

@@ -1,6 +1,6 @@
 //  SPDX-License-Identifier: GPL-3.0-or-later
 //
-//  Copyright (c) 2013-2023 plan44.ch / Lukas Zeller, Zurich, Switzerland
+//  Copyright (c) 2013-2024 plan44.ch / Lukas Zeller, Zurich, Switzerland
 //
 //  Author: Lukas Zeller <luz@plan44.ch>
 //
@@ -20,9 +20,14 @@
 //  along with p44utils. If not, see <http://www.gnu.org/licenses/>.
 //
 
-#include "serialcomm.hpp"
+// File scope debugging options
+// - Set ALWAYS_DEBUG to 1 to enable DBGLOG output even in non-DEBUG builds of this file
+#define ALWAYS_DEBUG 0
+// - set FOCUSLOGLEVEL to non-zero log level (usually, 5,6, or 7==LOG_DEBUG) to get focus (extensive logging) for this file
+//   Note: must be before including "logger.hpp" (or anything that includes "logger.hpp")
+#define FOCUSLOGLEVEL 7
 
-#include <sys/ioctl.h>
+#include "serialcomm.hpp"
 
 using namespace p44;
 
@@ -31,10 +36,14 @@ using namespace p44;
 using namespace P44Script;
 #endif
 
+#if defined(__linux__)
+#include <linux/serial.h>
+#endif
+
 #define DEFAULT_OPEN_FLAGS (O_RDWR)
 
 SerialComm::SerialComm(MainLoop &aMainLoop) :
-	inherited(aMainLoop),
+  inherited(aMainLoop),
   mConnectionPort(0),
   mBaudRate(9600),
   mCharSize(8),
@@ -172,6 +181,14 @@ void SerialComm::setDeviceOpParams(int aDeviceOpenFlags, bool aUnknownReadyBytes
   mUnknownReadyBytes = aUnknownReadyBytes;
 }
 
+// Setting baud rate on Linux, see sample code at the bottom of the tty_ioctl man page:
+// https://www.man7.org/linux/man-pages/man4/tty_ioctl.4.html
+
+#if defined(BOTHER)
+#define OTHERBAUDRATE (BOTHER)
+#elif P44_BUILD_OW
+#define OTHERBAUDRATE (CBAUDEX)
+#endif
 
 ErrorPtr SerialComm::establishConnection()
 {
@@ -179,12 +196,16 @@ ErrorPtr SerialComm::establishConnection()
     // Open connection to bridge
     mConnectionFd = 0;
     int res;
-    struct termios newtio;
+    #if defined(TCGETS2)
+    struct termios2 newTermIO;
+    #else
+    struct termios newTermIO;
+    #endif
     // check type of connection
     mDeviceConnection = mConnectionPath[0]=='/';
     if (mDeviceConnection) {
       // char device code
-      int baudRateCode = 0;
+      int baudRateCode = -1; // invalid
       if (nativeSerialPort()) {
         // actual serial port we want to set termios params
         // - convert the baudrate
@@ -207,8 +228,25 @@ ErrorPtr SerialComm::establishConnection()
           case 57600 : baudRateCode = B57600; break;
           case 115200 : baudRateCode = B115200; break;
           case 230400 : baudRateCode = B230400; break;
+          #if defined(__linux__)
+          case 460800 : baudRateCode = B460800; break;
+          case 500000 : baudRateCode = B500000; break;
+          case 576000 : baudRateCode = B576000; break;
+          case 921600 : baudRateCode = B921600; break;
+          case 1000000 : baudRateCode = B1000000; break;
+          case 1152000 : baudRateCode = B1152000; break;
+          case 1500000 : baudRateCode = B1500000; break;
+          case 2000000 : baudRateCode = B2000000; break;
+          case 2500000 : baudRateCode = B2500000; break;
+          case 3000000 : baudRateCode = B3000000; break;
+          case 3500000 : baudRateCode = B3500000; break;
+          case 4000000 : baudRateCode = B4000000; break;
+          #endif
+          #ifdef OTHERBAUDRATE
+          default : baudRateCode = OTHERBAUDRATE; break;
+          #endif
         }
-        if (baudRateCode==0) {
+        if (baudRateCode<=0) {
           return ErrorPtr(new SerialCommError(SerialCommError::UnknownBaudrate));
         }
       }
@@ -219,32 +257,93 @@ ErrorPtr SerialComm::establishConnection()
       }
       if (nativeSerialPort()) {
         // actual serial port we want to set termios params
-        tcgetattr(mConnectionFd,&mOldTermIO); // save current port settings
+        // - save current port settings
+        #if defined(TCGETS2)
+        ioctl(mConnectionFd, TCGETS2, &mOldTermIO);
+        #elif defined(TCGETS)
+        ioctl(mConnectionFd, TCGETS, &mOldTermIO);
+        #else
+        tcgetattr(mConnectionFd, &mOldTermIO); // save current port settings
+        #endif
         // see "man termios" for details
-        memset(&newtio, 0, sizeof(newtio));
+        memset(&newTermIO, 0, sizeof(newTermIO));
         // - 8-N-1,
-        newtio.c_cflag =
+        newTermIO.c_cflag =
         CLOCAL | CREAD | // no modem control lines (local), reading enabled
         (mCharSize==5 ? CS5 : (mCharSize==6 ? CS6 : (mCharSize==7 ? CS7 : CS8))) | // char size
         (mTwoStopBits ? CSTOPB : 0) | // stop bits
         (mParityEnable ? PARENB | (mEvenParity ? 0 : PARODD) : 0) | // parity
         (mHardwareHandshake ? CRTSCTS : 0); // hardware handshake
         // - ignore parity errors
-        newtio.c_iflag =
+        newTermIO.c_iflag =
         mParityEnable ? INPCK : IGNPAR; // check or ignore parity
         // - no output control
-        newtio.c_oflag = 0;
+        newTermIO.c_oflag = 0;
         // - no input control (non-canonical)
-        newtio.c_lflag = 0;
+        newTermIO.c_lflag = 0;
         // - no inter-char time
-        newtio.c_cc[VTIME]    = 0;   /* inter-character timer unused */
+        newTermIO.c_cc[VTIME]    = 0;   /* inter-character timer unused */
         // - receive every single char seperately
-        newtio.c_cc[VMIN]     = 1;   /* blocking read until 1 chars received */
-        // - set speed (as this ors into c_cflag, this must be after setting c_cflag initial value)
-        cfsetspeed(&newtio, baudRateCode);
+        newTermIO.c_cc[VMIN]     = 1;   /* blocking read until 1 chars received */
+        // - baud rate
+        #ifdef OTHERBAUDRATE
+        if (baudRateCode==OTHERBAUDRATE) {
+          // we have a non-standard baudrate
+          #if defined(BOTHER)
+          FOCUSLOG("SerialComm: requested custom baud rate = %d -> setting with BOTHER to c_ispeed/c_ospeed", mBaudRate);
+          // Linux: set the baudrate directly via BOTHER
+          // - output
+          newTermIO.c_cflag &= ~CBAUD; // not necessary because we cleared all flags
+          newTermIO.c_cflag |= BOTHER;
+          newTermIO.c_ospeed = mBaudRate;
+          // - input
+          #ifdef IBSHIFT
+          newTermIO.c_cflag &= ~(CBAUD << IBSHIFT); // not necessary because we cleared all flags
+          newTermIO.c_cflag |= BOTHER << IBSHIFT;
+          #endif
+          newTermIO.c_ispeed = mBaudRate;
+          #elif P44_BUILD_OW
+          // try the alias trick
+          newTermIO.c_cflag &= ~(CBAUD | CBAUDEX);
+          newTermIO.c_cflag |= B38400;
+          // - actual baud rate magic happens after tcsetattr(), see below
+          #endif // P44_BUILD_OW
+        }
+        else
+        #endif // OTHERBAUDRATE
+        {
+          // Most compatible way to set standard baudrates
+          // Note: as this ors into c_cflag, this must be after setting c_cflag initial value
+          cfsetspeed(&newTermIO, baudRateCode);
+        }
         // - set new params
         tcflush(mConnectionFd, TCIFLUSH);
-        tcsetattr(mConnectionFd,TCSANOW,&newtio);
+        #if defined(TCGETS2)
+        res = ioctl(mConnectionFd, TCSETS2, &newTermIO);
+        #elif defined(TCGETS)
+        res = ioctl(mConnectionFd, TCSETS, &newTermIO);
+        #else
+        res = tcsetattr(mConnectionFd, TCSANOW, &newTermIO);
+        #endif
+        if (res<0) {
+          return SysError::errNo("Error setting serial port parameters: ");
+        }
+        // - baud rate settings needed after tcsetattr()
+        #ifdef OTHERBAUDRATE
+        if (baudRateCode==OTHERBAUDRATE && mBaudRate>0) {
+          #if P44_BUILD_OW
+          struct serial_struct serial;
+          if (ioctl(mConnectionFd, TIOCGSERIAL, &serial)) return SysError::errNo("Error getting with TIOCGSERIAL: ");
+          serial.flags &= ~ASYNC_SPD_MASK;
+          serial.flags |= ASYNC_SPD_CUST;
+          serial.custom_divisor = serial.baud_base / mBaudRate;
+          FOCUSLOG("SerialComm: requested custom baud rate = %d, serial.baud_base = %d -> serial.custom_divisor = %d, ACTUAL baud = %d",
+            mBaudRate, serial.baud_base, serial.custom_divisor, serial.baud_base/serial.custom_divisor
+          );
+          if (ioctl(mConnectionFd, TIOCSSERIAL, &serial)) return SysError::errNo("Error setting with TIOCSSERIAL: ");
+          #endif // P44_BUILD_OW
+        }
+        #endif
       }
     }
     else {
@@ -271,8 +370,8 @@ ErrorPtr SerialComm::establishConnection()
     }
     // successfully opened
     mConnectionOpen = true;
-		// now set FD for FdComm to monitor
-		setFd(mConnectionFd, mUnknownReadyBytes);
+    // now set FD for FdComm to monitor
+    setFd(mConnectionFd, mUnknownReadyBytes);
   }
   mReconnecting = false; // successfully opened, don't try to reconnect any more
   return ErrorPtr(); // ok
@@ -300,11 +399,17 @@ void SerialComm::closeConnection()
 {
   mReconnecting = false; // explicit close, don't try to reconnect any more
   if (mConnectionOpen) {
-		// stop monitoring
-		setFd(-1);
+    // stop monitoring
+    setFd(-1);
     // restore IO settings
     if (nativeSerialPort()) {
-      tcsetattr(mConnectionFd,TCSANOW,&mOldTermIO);
+      #if defined(TCGETS2)
+      ioctl(mConnectionFd, TCSETS2, &mOldTermIO);
+      #elif defined(TCGETS)
+      ioctl(mConnectionFd, TCSETS, &mOldTermIO);
+      #else
+      tcsetattr(mConnectionFd, TCSANOW, &mOldTermIO);
+      #endif
     }
     // close
     close(mConnectionFd);

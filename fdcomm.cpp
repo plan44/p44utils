@@ -1,6 +1,6 @@
 //  SPDX-License-Identifier: GPL-3.0-or-later
 //
-//  Copyright (c) 2013-2023 plan44.ch / Lukas Zeller, Zurich, Switzerland
+//  Copyright (c) 2013-2024 plan44.ch / Lukas Zeller, Zurich, Switzerland
 //
 //  Author: Lukas Zeller <luz@plan44.ch>
 //
@@ -283,10 +283,10 @@ bool FdComm::transmitString(const string &aString)
 size_t FdComm::receiveBytes(size_t aNumBytes, uint8_t *aBytes, ErrorPtr &aError)
 {
   if (mDataFd>=0) {
-		// read
+    // read
     ssize_t res = 0;
-		if (aNumBytes>0) {
-			res = read(mDataFd,aBytes,aNumBytes); // read
+    if (aNumBytes>0) {
+      res = read(mDataFd,aBytes,aNumBytes); // read
       if (res<0) {
         if (errno==EWOULDBLOCK)
           return 0; // nothing received
@@ -298,7 +298,7 @@ size_t FdComm::receiveBytes(size_t aNumBytes, uint8_t *aBytes, ErrorPtr &aError)
       return (size_t)res;
     }
   }
-	return 0; // no fd set, nothing to read
+  return 0; // no fd set, nothing to read
 }
 
 
@@ -340,7 +340,7 @@ size_t FdComm::numBytesReady()
     int res = ioctl(mDataFd, FIONREAD, &numBytes);
     return (size_t)(res!=0 ? 0 : numBytes);
   }
-	return 0; // no fd set, nothing to read
+  return 0; // no fd set, nothing to read
 }
 
 
