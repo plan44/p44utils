@@ -172,6 +172,8 @@ void SerialComm::setDeviceOpParams(int aDeviceOpenFlags, bool aUnknownReadyBytes
   mUnknownReadyBytes = aUnknownReadyBytes;
 }
 
+// Setting baud rate on Linux, see sample code at the bottom of the tty_ioctl man page:
+// https://www.man7.org/linux/man-pages/man4/tty_ioctl.4.html
 
 ErrorPtr SerialComm::establishConnection()
 {
@@ -179,7 +181,11 @@ ErrorPtr SerialComm::establishConnection()
     // Open connection to bridge
     mConnectionFd = 0;
     int res;
-    struct termios newtio;
+    #if defined(TCGETS2)
+    struct termios2 newTermIO;
+    #else
+    struct termios newTermIO;
+    #endif
     // check type of connection
     mDeviceConnection = mConnectionPath[0]=='/';
     if (mDeviceConnection) {
@@ -207,6 +213,9 @@ ErrorPtr SerialComm::establishConnection()
           case 57600 : baudRateCode = B57600; break;
           case 115200 : baudRateCode = B115200; break;
           case 230400 : baudRateCode = B230400; break;
+          #if defined(BOTHER)
+          default : baudRateCode = BOTHER; break;
+          #endif
         }
         if (baudRateCode==0) {
           return ErrorPtr(new SerialCommError(SerialCommError::UnknownBaudrate));
@@ -219,32 +228,61 @@ ErrorPtr SerialComm::establishConnection()
       }
       if (nativeSerialPort()) {
         // actual serial port we want to set termios params
-        tcgetattr(mConnectionFd,&mOldTermIO); // save current port settings
+        // - save current port settings
+        #if defined(TCGETS2)
+        ioctl(mConnectionFd, TCGETS2, &mOldTermIO);
+        #elif defined(TCGETS)
+        ioctl(mConnectionFd, TCGETS, &mOldTermIO);
+        #else
+        tcgetattr(mConnectionFd, &mOldTermIO); // save current port settings
+        #endif
         // see "man termios" for details
-        memset(&newtio, 0, sizeof(newtio));
+        memset(&newTermIO, 0, sizeof(newTermIO));
         // - 8-N-1,
-        newtio.c_cflag =
+        newTermIO.c_cflag =
         CLOCAL | CREAD | // no modem control lines (local), reading enabled
         (mCharSize==5 ? CS5 : (mCharSize==6 ? CS6 : (mCharSize==7 ? CS7 : CS8))) | // char size
         (mTwoStopBits ? CSTOPB : 0) | // stop bits
         (mParityEnable ? PARENB | (mEvenParity ? 0 : PARODD) : 0) | // parity
         (mHardwareHandshake ? CRTSCTS : 0); // hardware handshake
         // - ignore parity errors
-        newtio.c_iflag =
+        newTermIO.c_iflag =
         mParityEnable ? INPCK : IGNPAR; // check or ignore parity
         // - no output control
-        newtio.c_oflag = 0;
+        newTermIO.c_oflag = 0;
         // - no input control (non-canonical)
-        newtio.c_lflag = 0;
+        newTermIO.c_lflag = 0;
         // - no inter-char time
-        newtio.c_cc[VTIME]    = 0;   /* inter-character timer unused */
+        newTermIO.c_cc[VTIME]    = 0;   /* inter-character timer unused */
         // - receive every single char seperately
-        newtio.c_cc[VMIN]     = 1;   /* blocking read until 1 chars received */
-        // - set speed (as this ors into c_cflag, this must be after setting c_cflag initial value)
-        cfsetspeed(&newtio, baudRateCode);
+        newTermIO.c_cc[VMIN]     = 1;   /* blocking read until 1 chars received */
+        #if defined(BOTHER)
+        // - set the baudrate directly via BOTHER
+        // - output
+        newTermIO.c_cflag &= ~CBAUD; // not necessary because we cleared all flags
+        newTermIO.c_cflag |= BOTHER;
+        newTermIO.c_ospeed = mBaudRate;
+        // - input
+        newTermIO.c_cflag &= ~(CBAUD << IBSHIFT); // not necessary because we cleared all flags
+        newTermIO.c_cflag |= BOTHER << IBSHIFT;
+        newTermIO.c_ispeed = mBaudRate;
+        #else
+        // - set standard baud rate via code/macro
+        //   (as this ors into c_cflag, this must be after setting c_cflag initial value)
+        cfsetspeed(&newTermIO, baudRateCode);
+        #endif
         // - set new params
         tcflush(mConnectionFd, TCIFLUSH);
-        tcsetattr(mConnectionFd,TCSANOW,&newtio);
+        #if defined(TCGETS2)
+        res = ioctl(mConnectionFd, TCSETS2, &newTermIO);
+        #elif defined(TCGETS)
+        res = ioctl(mConnectionFd, TCSETS, &newTermIO);
+        #else
+        res = tcsetattr(mConnectionFd, TCSANOW, &newTermIO);
+        #endif
+        if (res<0) {
+          return SysError::errNo("Error setting serial port parameters: ");
+        }
       }
     }
     else {
@@ -304,7 +342,13 @@ void SerialComm::closeConnection()
 		setFd(-1);
     // restore IO settings
     if (nativeSerialPort()) {
-      tcsetattr(mConnectionFd,TCSANOW,&mOldTermIO);
+      #if defined(TCGETS2)
+      ioctl(mConnectionFd, TCSETS2, &mOldTermIO);
+      #elif defined(TCGETS)
+      ioctl(mConnectionFd, TCSETS, &mOldTermIO);
+      #else
+      tcsetattr(mConnectionFd, TCSANOW, &mOldTermIO);
+      #endif
     }
     // close
     close(mConnectionFd);

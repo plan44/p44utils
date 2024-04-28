@@ -121,7 +121,11 @@ namespace p44 {
     int mConnectionFd;
     int mDeviceOpenFlags;
     bool mUnknownReadyBytes;
+    #if defined(TCGETS2)
+    struct termios2 mOldTermIO;
+    #else
     struct termios mOldTermIO;
+    #endif
     bool mDeviceConnection;
     bool mReconnecting;
     MLTicket mReconnectTicket;
