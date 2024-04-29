@@ -282,6 +282,11 @@ namespace p44 {
     /// @return value of object as lowercase string
     string lowercaseStringValue() const;
 
+    
+    /// wrap a value in an object as the value of the named field
+    /// @param the name of the field the current object should have in the wrapper object
+    JsonObjectPtr wrapAs(const string aFieldName);
+
   };
 
 } // namespace

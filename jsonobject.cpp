@@ -692,3 +692,11 @@ string JsonObject::lowercaseStringValue() const
 {
   return lowerCase(c_strValue());
 }
+
+
+JsonObjectPtr JsonObject::wrapAs(const string aFieldName)
+{
+  JsonObjectPtr wrapper = JsonObject::newObj();
+  wrapper->add(aFieldName.c_str(), this);
+  return wrapper;
+}
