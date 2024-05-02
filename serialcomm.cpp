@@ -427,10 +427,56 @@ bool SerialComm::connectionIsOpen()
 
 // MARK: - break
 
-void SerialComm::sendBreak()
+#define SENDBREAK_WORKS_WITH_SHORT_BREAK (!P44_BUILD_OW) // assume it does, normally - but does not on OpenWrt Linux for MT7688 SoC
+
+void SerialComm::sendBreak(MLMicroSeconds aDuration)
 {
   if (!connectionIsOpen() || !nativeSerialPort()) return; // ignore
-  tcsendbreak(mConnectionFd, 0); // send standard break, which should be >=0.25sec and <=0.5sec
+  #if SENDBREAK_WORKS_WITH_SHORT_BREAK || !defined(TIOCGSERIAL)
+  // tcsendbreak accepts duration (or we don't have means to mess with baud rate)
+  int breaklen = 0; // standard break, which should be >=0.25sec and <=0.5sec
+  if (aDuration>0) breaklen = static_cast<int>((aDuration+MilliSecond-1)/MilliSecond);
+  FOCUSLOG("- tcsendbreak with duration=%d", breaklen);
+  tcsendbreak(mConnectionFd, breaklen);
+  #else
+  if (aDuration==0) {
+    // standard break, which should be >=0.25sec and <=0.5sec
+    FOCUSLOG("- tcsendbreak with standard duration");
+    tcsendbreak(mConnectionFd, 0);
+  }
+  else {
+    // non-standard duration, need to fake it
+    // - drain
+    FOCUSLOG("- will drain before break");
+    tcdrain(mConnectionFd);
+    FOCUSLOG("- did drain before break");
+    // - manipulate baud rate
+    struct serial_struct oldserial;
+    struct serial_struct serial;
+    if (ioctl(mConnectionFd, TIOCGSERIAL, &serial)) return;
+    memcpy(&oldserial, &serial, sizeof(struct serial_struct));
+    serial.flags &= ~ASYNC_SPD_MASK;
+    serial.flags |= ASYNC_SPD_CUST;
+    // start
+    serial.custom_divisor = (int)((MLMicroSeconds)serial.baud_base / 9 * aDuration / Second);
+    FOCUSLOG("- will set fake baud for break: serial.custom_divisor = %d", serial.custom_divisor);
+    if (ioctl(mConnectionFd, TIOCSSERIAL, &serial)) return;
+    FOCUSLOG("- did set fake baud rate");
+    // send one 0x00 with slower baudrate to fake a BREAK
+    uint8_t b = 0;
+    write(mConnectionFd, &b, 1);
+    FOCUSLOG("- did write a 0x00 byte");
+    // Note: do NOT drain here, it consumes enormous time on MT7688. Just wait long enough, we drained
+    //   already above, so timing should be ok with just waiting
+    // await break to go out
+    MainLoop::sleep(aDuration);
+    FOCUSLOG("- did sleep for the break duration");
+    // restore actual baud rate
+    FOCUSLOG("- will restore actual baud rate after break: serial.custom_divisor = %d", oldserial.custom_divisor)
+    if (ioctl(mConnectionFd, TIOCSSERIAL, &oldserial)) return;
+    FOCUSLOG("- did restore the original baud rate");
+  }
+  #endif
 }
 
 

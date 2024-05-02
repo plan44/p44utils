@@ -177,7 +177,11 @@ namespace p44 {
     void setRTS(bool aActive);
 
     /// send BREAK
-    void sendBreak();
+    /// @param aDuration how long the breaks should be at least (1mS resolution on standard Linux
+    ///    might be more precise depending on implementation), 0 = system default lenght (0.25-0.5 sec)
+    /// @note sending break is usually BLOCKING, like sleep (however might differ depending on platform).
+    /// @note aDuration!=0 might not work as expected on all platforms
+    void sendBreak(MLMicroSeconds aDuration = 0);
 
   protected:
 
