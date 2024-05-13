@@ -808,7 +808,7 @@ bool MCP3008::getPinRange(int aPinNo, double &aMin, double &aMax, double &aResol
 {
   // as we don't know what will be connected to the inputs, we return raw A/D value.
   aMin = 0;
-  aMax = 1024;
+  aMax = 1023;
   aResolution = 1;
   return true;
 }
@@ -876,7 +876,7 @@ bool MCP3002::getPinRange(int aPinNo, double &aMin, double &aMax, double &aResol
 {
   // as we don't know what will be connected to the inputs, we return raw A/D value.
   aMin = 0;
-  aMax = 1024;
+  aMax = 1023;
   aResolution = 1;
   return true;
 }

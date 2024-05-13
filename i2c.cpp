@@ -902,7 +902,7 @@ bool PCA9685::getPinRange(int aPinNo, double &aMin, double &aMax, double &aResol
 {
   aMin = 0;
   aMax = 100;
-  aResolution = 1.0/4096;
+  aResolution = 100.0/4095;
   return true;
 }
 
@@ -985,7 +985,7 @@ bool MCP3021::getPinRange(int aPinNo, double &aMin, double &aMax, double &aResol
 {
   // as we don't know what will be connected to the inputs, we return raw A/D value.
   aMin = 0;
-  aMax = 1024;
+  aMax = 1023;
   aResolution = 1;
   return true;
 }
@@ -1039,7 +1039,7 @@ bool MAX1161x::getPinRange(int aPinNo, double &aMin, double &aMax, double &aReso
 {
   // as we don't know what will be connected to the inputs, we return raw A/D value.
   aMin = 0;
-  aMax = 4096;
+  aMax = 4095;
   aResolution = 1;
   return true;
 }
