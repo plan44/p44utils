@@ -45,19 +45,19 @@ int p44::sendRawPacket(struct sockaddr_in *aSockAddrP, const char *aDatagramP, s
 #include <string.h> // memset
 #include <arpa/inet.h> // for inet_addr
 #include <unistd.h> // For getopt/optarg
-#include <sys/socket.h>	// for socket ofcourse
+#include <sys/socket.h> // for socket ofcourse
 #include <stdlib.h> // for exit(0);
 #include <errno.h> // For errno - the error number
-#include <netinet/ip.h>	// Provides declarations for IP header
+#include <netinet/ip.h> // Provides declarations for IP header
 #include <linux/igmp.h> // provides IGMP group addresses such as IGMP_ALL_HOSTS
 
 
 // Generic checksum calculation function
 static unsigned short csum(unsigned short *ptr,int nbytes)
 {
-  register long sum;
+  long sum;
   unsigned short oddbyte;
-  register short answer;
+  short answer;
 
   sum=0;
   while(nbytes>1) {
@@ -110,7 +110,7 @@ size_t p44::sendIGMP(uint8_t aType, uint8_t aMaxRespTime, const char *aGroupAddr
   iph->version = 4;
   iph->tos = 0;
   iph->tot_len = sizeof(struct iphdr) + sizeof(struct igmp); // total length of packet
-  iph->id = htonl (rand() & 0xFFFF);	// Id of this packet
+  iph->id = htonl (rand() & 0xFFFF);  // Id of this packet
   iph->frag_off = 0;
   iph->ttl = 1; // do not cross LAN boundary!
   iph->protocol = IPPROTO_IGMP;

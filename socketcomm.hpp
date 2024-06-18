@@ -25,20 +25,14 @@
 
 #include "p44utils_main.hpp"
 
-#include "fdcomm.hpp"
+#include "fdcomm.hpp" // includes all unix/linux I/O and network includes
 
-// unix I/O and network
-#include <sys/socket.h>
 #ifdef ESP_PLATFORM
   #define  NI_MAXHOST  1025
   #define  NI_MAXSERV  32
 #else
   #include <sys/un.h>
 #endif
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <netdb.h>
-#include <netinet/in.h>
 
 #if ENABLE_P44SCRIPT && !defined(ENABLE_SOCKET_SCRIPT_FUNCS)
   #define ENABLE_SOCKET_SCRIPT_FUNCS 1

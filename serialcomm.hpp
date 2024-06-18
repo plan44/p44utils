@@ -1,6 +1,6 @@
 //  SPDX-License-Identifier: GPL-3.0-or-later
 //
-//  Copyright (c) 2013-2023 plan44.ch / Lukas Zeller, Zurich, Switzerland
+//  Copyright (c) 2013-2024 plan44.ch / Lukas Zeller, Zurich, Switzerland
 //
 //  Author: Lukas Zeller <luz@plan44.ch>
 //
@@ -25,25 +25,7 @@
 
 #include "p44utils_main.hpp"
 
-#include "fdcomm.hpp"
-
-// unix I/O and network
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <fcntl.h>
-#include <termios.h>
-#include <stdio.h>
-#include <string.h>
-#include <stdlib.h>
-#include <unistd.h>
-#include <sys/select.h>
-#include <sys/param.h>
-#include <errno.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <netdb.h>
-#include <netinet/in.h>
+#include "fdcomm.hpp" // includes all unix/linux I/O and network includes
 
 #if ENABLE_P44SCRIPT && !defined(ENABLE_SERIAL_SCRIPT_FUNCS)
   #define ENABLE_SERIAL_SCRIPT_FUNCS 1
@@ -54,6 +36,13 @@
 
 #if ENABLE_SERIAL_SCRIPT_FUNCS
   #include "p44script.hpp"
+#endif
+
+#if defined(TCGETS2) && P44_BUILD_OW
+  // apparently, TCGETS2/termios2 is not properly usable on standard glibc linux without
+  // super ugly header duplications, which I do not want to employ here. So we restrict
+  // termios2 dependent features to the OpenWrt build environment where we know it works.
+  #define USE_TERMIOS2 1
 #endif
 
 
@@ -71,7 +60,7 @@ namespace p44 {
       UnknownBaudrate,
       numErrorCodes
     } ErrorCodes;
-    
+
     static const char *domain() { return "SerialComm"; }
     virtual const char *getErrorDomain() const P44_OVERRIDE { return SerialCommError::domain(); };
     SerialCommError(ErrorCodes aError) : Error(ErrorCode(aError)) {};
@@ -121,7 +110,7 @@ namespace p44 {
     int mConnectionFd;
     int mDeviceOpenFlags;
     bool mUnknownReadyBytes;
-    #if defined(TCGETS2)
+    #if USE_TERMIOS2
     struct termios2 mOldTermIO;
     #else
     struct termios mOldTermIO;
@@ -195,7 +184,11 @@ namespace p44 {
     void setRTS(bool aActive);
 
     /// send BREAK
-    void sendBreak();
+    /// @param aDuration how long the breaks should be at least (1mS resolution on standard Linux
+    ///    might be more precise depending on implementation), 0 = system default lenght (0.25-0.5 sec)
+    /// @note sending break is usually BLOCKING, like sleep (however might differ depending on platform).
+    /// @note aDuration!=0 might not work as expected on all platforms
+    void sendBreak(MLMicroSeconds aDuration = 0);
 
   protected:
 
