@@ -196,7 +196,7 @@ ErrorPtr SerialComm::establishConnection()
     // Open connection to bridge
     mConnectionFd = 0;
     int res;
-    #if defined(TCGETS2)
+    #if USE_TERMIOS2
     struct termios2 newTermIO;
     #else
     struct termios newTermIO;
@@ -258,7 +258,7 @@ ErrorPtr SerialComm::establishConnection()
       if (nativeSerialPort()) {
         // actual serial port we want to set termios params
         // - save current port settings
-        #if defined(TCGETS2)
+        #if USE_TERMIOS2
         ioctl(mConnectionFd, TCGETS2, &mOldTermIO);
         #elif defined(TCGETS)
         ioctl(mConnectionFd, TCGETS, &mOldTermIO);
@@ -318,7 +318,7 @@ ErrorPtr SerialComm::establishConnection()
         }
         // - set new params
         tcflush(mConnectionFd, TCIFLUSH);
-        #if defined(TCGETS2)
+        #if USE_TERMIOS2
         res = ioctl(mConnectionFd, TCSETS2, &newTermIO);
         #elif defined(TCGETS)
         res = ioctl(mConnectionFd, TCSETS, &newTermIO);
@@ -403,7 +403,7 @@ void SerialComm::closeConnection()
     setFd(-1);
     // restore IO settings
     if (nativeSerialPort()) {
-      #if defined(TCGETS2)
+      #if USE_TERMIOS2
       ioctl(mConnectionFd, TCSETS2, &mOldTermIO);
       #elif defined(TCGETS)
       ioctl(mConnectionFd, TCSETS, &mOldTermIO);

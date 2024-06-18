@@ -38,6 +38,13 @@
   #include "p44script.hpp"
 #endif
 
+#if defined(TCGETS2) && P44_BUILD_OW
+  // apparently, TCGETS2/termios2 is not properly usable on standard glibc linux without
+  // super ugly header duplications, which I do not want to employ here. So we restrict
+  // termios2 dependent features to the OpenWrt build environment where we know it works.
+  #define USE_TERMIOS2 1
+#endif
+
 
 using namespace std;
 
@@ -103,7 +110,7 @@ namespace p44 {
     int mConnectionFd;
     int mDeviceOpenFlags;
     bool mUnknownReadyBytes;
-    #if defined(TCGETS2)
+    #if USE_TERMIOS2
     struct termios2 mOldTermIO;
     #else
     struct termios mOldTermIO;
