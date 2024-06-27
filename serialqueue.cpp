@@ -42,7 +42,7 @@ using namespace p44;
 // set transmitter
 void SerialOperation::setTransmitter(SerialOperationTransmitter aTransmitter)
 {
-  transmitter = aTransmitter;
+  mTransmitter = aTransmitter;
 }
 
 
@@ -57,9 +57,9 @@ ssize_t SerialOperation::acceptBytes(size_t aNumBytes, uint8_t *aBytes)
 
 
 SerialOperationSend::SerialOperationSend() :
-  dataP(NULL),
-  dataSize(0),
-  appendIndex(0)
+  mDataP(NULL),
+  mDataSize(0),
+  mAppendIndex(0)
 {
 }
 
@@ -74,12 +74,12 @@ SerialOperationSend::~SerialOperationSend()
 
 void SerialOperationSend::clearData()
 {
-  if (dataP) {
-    delete [] dataP;
-    dataP = NULL;
+  if (mDataP) {
+    delete [] mDataP;
+    mDataP = NULL;
   }
-  dataSize = 0;
-  appendIndex = 0;
+  mDataSize = 0;
+  mAppendIndex = 0;
 }
 
 
@@ -87,19 +87,19 @@ void SerialOperationSend::setDataSize(size_t aDataSize)
 {
   clearData();
   if (aDataSize>0) {
-    dataSize = aDataSize;
-    dataP = new uint8_t[dataSize];
+    mDataSize = aDataSize;
+    mDataP = new uint8_t[mDataSize];
   }
 }
 
 
 void SerialOperationSend::appendData(size_t aNumBytes, uint8_t *aBytes)
 {
-  if (appendIndex+aNumBytes>dataSize)
-    aNumBytes = dataSize-appendIndex;
+  if (mAppendIndex+aNumBytes>mDataSize)
+    aNumBytes = mDataSize-mAppendIndex;
   if (aNumBytes>0) {
-    memcpy(dataP+appendIndex, aBytes, aNumBytes);
-    appendIndex += aNumBytes;
+    memcpy(mDataP+mAppendIndex, aBytes, aNumBytes);
+    mAppendIndex += aNumBytes;
   }
 }
 
@@ -115,10 +115,10 @@ bool SerialOperationSend::initiate()
 {
   FOCUSLOG("SerialOperationSend::initiate: sending %zd bytes now", dataSize);
   size_t res;
-  if (dataP && transmitter) {
+  if (mDataP && mTransmitter) {
     // transmit
-    res = transmitter(dataSize,dataP);
-    if (res!=dataSize) {
+    res = mTransmitter(mDataSize,mDataP);
+    if (res!=mDataSize) {
       // error
       abortOperation(ErrorPtr(new SQError(SQError::Transmit)));
     }
@@ -135,9 +135,9 @@ bool SerialOperationSend::initiate()
 
 
 SerialOperationReceive::SerialOperationReceive() :
-  dataP(NULL),
-  expectedBytes(0),
-  dataIndex(0)
+  mDataP(NULL),
+  mExpectedBytes(0),
+  mDataIndex(0)
 {
   // allocate buffer
   setTimeout(DEFAULT_RECEIVE_TIMEOUT);
@@ -152,34 +152,34 @@ SerialOperationReceive::~SerialOperationReceive()
 
 void SerialOperationReceive::setExpectedBytes(size_t aExpectedBytes)
 {
-  expectedBytes = aExpectedBytes;
-  dataP = new uint8_t[expectedBytes];
-  dataIndex = 0;
+  mExpectedBytes = aExpectedBytes;
+  mDataP = new uint8_t[mExpectedBytes];
+  mDataIndex = 0;
 }
 
 
 void SerialOperationReceive::clearData()
 {
-  if (dataP) {
-    delete [] dataP;
-    dataP = NULL;
+  if (mDataP) {
+    delete [] mDataP;
+    mDataP = NULL;
   }
-  expectedBytes = 0;
-  dataIndex = 0;
+  mExpectedBytes = 0;
+  mDataIndex = 0;
 }
 
 
 ssize_t SerialOperationReceive::acceptBytes(size_t aNumBytes, uint8_t *aBytes)
 {
   // append bytes into buffer
-  if (!initiated)
+  if (!mInitiated)
     return 0; // cannot accept bytes when not yet initiated
-  if (aNumBytes>expectedBytes)
-    aNumBytes = expectedBytes;
+  if (aNumBytes>mExpectedBytes)
+    aNumBytes = mExpectedBytes;
   if (aNumBytes>0) {
-    memcpy(dataP+dataIndex, aBytes, aNumBytes);
-    dataIndex += aNumBytes;
-    expectedBytes -= aNumBytes;
+    memcpy(mDataP+mDataIndex, aBytes, aNumBytes);
+    mDataIndex += aNumBytes;
+    mExpectedBytes -= aNumBytes;
   }
   // return number of bytes actually accepted
   return aNumBytes;
@@ -189,7 +189,7 @@ ssize_t SerialOperationReceive::acceptBytes(size_t aNumBytes, uint8_t *aBytes)
 bool SerialOperationReceive::hasCompleted()
 {
   // completed if all expected bytes received
-  return expectedBytes<=0;
+  return mExpectedBytes<=0;
 }
 
 
@@ -206,13 +206,13 @@ void SerialOperationReceive::abortOperation(ErrorPtr aError)
 // Link into mainloop
 SerialOperationQueue::SerialOperationQueue(MainLoop &aMainLoop) :
   inherited(aMainLoop),
-  acceptBufferP(NULL),
-  acceptBufferSize(0),
-  bufferedBytes(0)
+  mAcceptBufferP(NULL),
+  mAcceptBufferSize(0),
+  mBufferedBytes(0)
 {
   // Set handlers for FdComm
-  serialComm = SerialCommPtr(new SerialComm(aMainLoop));
-  serialComm->setReceiveHandler(boost::bind(&SerialOperationQueue::receiveHandler, this, _1));
+  mSerialComm = SerialCommPtr(new SerialComm(aMainLoop));
+  mSerialComm->setReceiveHandler(boost::bind(&SerialOperationQueue::receiveHandler, this, _1));
   // TODO: once we implement buffered write, install the ready-for-transmission handler here
   //serialComm.setTransmitHandler(boost::bind(&SerialOperationQueue::transmitHandler, this, _1));
   // Set standard transmitter and receiver for operations
@@ -223,33 +223,33 @@ SerialOperationQueue::SerialOperationQueue(MainLoop &aMainLoop) :
 
 SerialOperationQueue::~SerialOperationQueue()
 {
-  serialComm->closeConnection();
+  mSerialComm->closeConnection();
   setAcceptBuffer(0);
 }
 
 
 void SerialOperationQueue::setTransmitter(SerialOperationTransmitter aTransmitter)
 {
-  transmitter = aTransmitter;
+  mTransmitter = aTransmitter;
 }
 
 
 void SerialOperationQueue::setReceiver(SerialOperationReceiver aReceiver)
 {
-  receiver = aReceiver;
+  mReceiver = aReceiver;
 }
 
 
 void SerialOperationQueue::setExtraBytesHandler(SerialOperationExtraBytesHandler aExtraBytesHandler)
 {
-  extraBytesHandler = aExtraBytesHandler;
+  mExtraBytesHandler = aExtraBytesHandler;
 }
 
 
 ssize_t SerialOperationQueue::acceptExtraBytes(size_t aNumBytes, uint8_t *aBytes)
 {
-  if (extraBytesHandler) {
-    return extraBytesHandler(aNumBytes, aBytes);
+  if (mExtraBytesHandler) {
+    return mExtraBytesHandler(aNumBytes, aBytes);
   }
   else {
     return 0; // base class does not accept any extra bytes by default
@@ -263,9 +263,9 @@ ssize_t SerialOperationQueue::acceptExtraBytes(size_t aNumBytes, uint8_t *aBytes
 // handles incoming data from serial interface
 void SerialOperationQueue::receiveHandler(ErrorPtr aError)
 {
-  if (receiver) {
+  if (mReceiver) {
     uint8_t buffer[RECBUFFER_SIZE];
-    size_t numBytes = receiver(RECBUFFER_SIZE, buffer);
+    size_t numBytes = mReceiver(RECBUFFER_SIZE, buffer);
     FOCUSLOG("SerialOperationQueue::receiveHandler: got %zd bytes to accept", numBytes);
     if (numBytes>0) {
       acceptBytes(numBytes, buffer);
@@ -277,7 +277,7 @@ void SerialOperationQueue::receiveHandler(ErrorPtr aError)
 // queue a new serial I/O operation
 void SerialOperationQueue::queueSerialOperation(SerialOperationPtr aOperation)
 {
-  aOperation->setTransmitter(transmitter);
+  aOperation->setTransmitter(mTransmitter);
   inherited::queueOperation(aOperation);
 }
 
@@ -285,15 +285,15 @@ void SerialOperationQueue::queueSerialOperation(SerialOperationPtr aOperation)
 
 void SerialOperationQueue::setAcceptBuffer(size_t aBufferSize)
 {
-  if (acceptBufferP) {
-    delete [] acceptBufferP;
-    acceptBufferP = NULL;
+  if (mAcceptBufferP) {
+    delete [] mAcceptBufferP;
+    mAcceptBufferP = NULL;
   }
-  bufferedBytes = 0;
-  acceptBufferSize = 0;
+  mBufferedBytes = 0;
+  mAcceptBufferSize = 0;
   if (aBufferSize>0) {
-    acceptBufferSize = aBufferSize;
-    acceptBufferP = new uint8_t[acceptBufferSize];
+    mAcceptBufferSize = aBufferSize;
+    mAcceptBufferP = new uint8_t[mAcceptBufferSize];
   }
 }
 
@@ -310,14 +310,14 @@ size_t SerialOperationQueue::acceptBytes(size_t aNumBytes, uint8_t *aBytes)
   while (aNumBytes>0) {
     FOCUSLOG("- %zd bytes left to process", aNumBytes);
     // buffered mode?
-    if (acceptBufferSize>0) {
+    if (mAcceptBufferSize>0) {
       // buffered mode - collect in buffer and then let operations process
-      ssize_t by = acceptBufferSize - bufferedBytes;
+      ssize_t by = mAcceptBufferSize - mBufferedBytes;
       if (by>0) {
         // still room in the buffer, append to buffer
         if (aNumBytes<by) by = aNumBytes; // buffer at most aNumBytes
-        memcpy(acceptBufferP+bufferedBytes, aBytes, by); // buffer
-        bufferedBytes += by;
+        memcpy(mAcceptBufferP+mBufferedBytes, aBytes, by); // buffer
+        mBufferedBytes += by;
         aNumBytes -= by;
         aBytes += by;
         FOCUSLOG("- %zd bytes buffered, %zd total buffered, %zd remaining", by, bufferedBytes, aNumBytes);
@@ -328,8 +328,8 @@ size_t SerialOperationQueue::acceptBytes(size_t aNumBytes, uint8_t *aBytes)
         break; // no point in iterating
       }
       // initiate processing on buffered data
-      bytes = acceptBufferP;
-      numBytes = bufferedBytes;
+      bytes = mAcceptBufferP;
+      numBytes = mBufferedBytes;
     }
     else {
       // unbuffered, directly process incoming data
@@ -346,7 +346,7 @@ size_t SerialOperationQueue::acceptBytes(size_t aNumBytes, uint8_t *aBytes)
       FOCUSLOG("- attempting to process %zd bytes: %s", numBytes, s.c_str());
     }
     ssize_t consumed = 0;
-    for (OperationList::iterator pos = operationQueue.begin(); pos!=operationQueue.end(); ++pos) {
+    for (OperationList::iterator pos = mOperationQueue.begin(); pos!=mOperationQueue.end(); ++pos) {
       FOCUSLOG("- offering %zd bytes to next operation to accept", numBytes);
       SerialOperationPtr sop = boost::dynamic_pointer_cast<SerialOperation>(*pos);
       if (sop) {
@@ -379,13 +379,13 @@ size_t SerialOperationQueue::acceptBytes(size_t aNumBytes, uint8_t *aBytes)
       }
     }
     // buffered mode?
-    if (acceptBufferSize>0) {
+    if (mAcceptBufferSize>0) {
       // in buffered mode, remove accepted bytes and keep rest for next run
-      bufferedBytes = numBytes;
+      mBufferedBytes = numBytes;
       if (numBytes>0) {
         // still bytes left unprocessed, move them to the beginning of the buffer
         // Note: in buffered mode, numBytes is always less or equal acceptBufferSize, so we know we can move the rest
-        memmove(acceptBufferP, bytes, numBytes);
+        memmove(mAcceptBufferP, bytes, numBytes);
       }
     }
     else {
@@ -414,10 +414,10 @@ size_t SerialOperationQueue::standardTransmitter(size_t aNumBytes, const uint8_t
   FOCUSLOG("SerialOperationQueue::standardTransmitter(%zd bytes) called", aNumBytes);
   ssize_t res = 0;
   size_t numWritten = 0;
-  ErrorPtr err = serialComm->establishConnection();
+  ErrorPtr err = mSerialComm->establishConnection();
   if (Error::isOK(err)) {
     while (aNumBytes>0) {
-      res = serialComm->transmitBytes(aNumBytes, aBytes+numWritten, err);
+      res = mSerialComm->transmitBytes(aNumBytes, aBytes+numWritten, err);
       if (Error::notOK(err)) {
         FOCUSLOG("Error writing serial data: %s", err->text());
         break;
@@ -453,10 +453,10 @@ size_t SerialOperationQueue::standardReceiver(size_t aMaxBytes, uint8_t *aBytes)
 {
   FOCUSLOG("SerialOperationQueue::standardReceiver(%zd bytes) called", aMaxBytes);
   size_t gotBytes = 0;
-  if (serialComm->connectionIsOpen()) {
+  if (mSerialComm->connectionIsOpen()) {
 		// get number of bytes available
     ErrorPtr err;
-    gotBytes = serialComm->receiveBytes(aMaxBytes, aBytes, err);
+    gotBytes = mSerialComm->receiveBytes(aMaxBytes, aBytes, err);
     if (Error::notOK(err)) {
       FOCUSLOG("- Error reading serial: %s", err->text());
       return 0;

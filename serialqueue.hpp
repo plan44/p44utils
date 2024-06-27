@@ -76,7 +76,7 @@ namespace p44 {
 
   protected:
 
-    SerialOperationTransmitter transmitter;
+    SerialOperationTransmitter mTransmitter;
 
   public:
 
@@ -102,9 +102,9 @@ namespace p44 {
   {
     typedef SerialOperation inherited;
 
-    size_t dataSize;
-    size_t appendIndex;
-    uint8_t *dataP;
+    size_t mDataSize;
+    size_t mAppendIndex;
+    uint8_t *mDataP;
 
   public:
 
@@ -142,9 +142,9 @@ namespace p44 {
   {
     typedef SerialOperation inherited;
 
-    size_t expectedBytes;
-    uint8_t *dataP;
-    size_t dataIndex;
+    size_t mExpectedBytes;
+    uint8_t *mDataP;
+    size_t mDataIndex;
 
   public:
 
@@ -163,11 +163,11 @@ namespace p44 {
 
     /// get size of data received
     /// @return size of data accessible via getDataP()
-    size_t getDataSize() { return dataIndex; };
+    size_t getDataSize() { return mDataIndex; };
 
     /// get data buffer pointer
     /// @return pointer to data
-    uint8_t *getDataP() { return dataP; };
+    uint8_t *getDataP() { return mDataP; };
 
     /// accepts bytes into buffer until expected number
     virtual ssize_t acceptBytes(size_t aNumBytes, uint8_t *aBytes);
@@ -195,18 +195,18 @@ namespace p44 {
   {
     typedef OperationQueue inherited;
 
-    SerialOperationTransmitter transmitter;
-    SerialOperationReceiver receiver;
-    SerialOperationExtraBytesHandler extraBytesHandler;
+    SerialOperationTransmitter mTransmitter;
+    SerialOperationReceiver mReceiver;
+    SerialOperationExtraBytesHandler mExtraBytesHandler;
 
-    size_t acceptBufferSize;
-    size_t bufferedBytes;
-    uint8_t *acceptBufferP;
+    size_t mAcceptBufferSize;
+    size_t mBufferedBytes;
+    uint8_t *mAcceptBufferP;
 
 	public:
 
     /// the serial communication channel
-    SerialCommPtr serialComm;
+    SerialCommPtr mSerialComm;
 
     /// create operation queue linked into specified Synchronous IO mainloop
     SerialOperationQueue(MainLoop &aMainLoop = MainLoop::currentMainLoop());

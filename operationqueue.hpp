@@ -68,22 +68,22 @@ namespace p44 {
   {
   protected:
 
-    bool initiated;
-    bool aborted;
-    MLMicroSeconds timeout; ///< timeout
-    MLMicroSeconds timesOutAt; ///< absolute time for timeout
-    MLMicroSeconds initiationDelay; ///< how much to delay initiation after first attempt to initiate (or after last initiation, see below)
-    bool fromLastInitiation; ///< if set, initiationDelay counts from last initiation happened on this queue
-    MLMicroSeconds initiatesNotBefore; ///< absolute time for earliest initiation
+    bool mInitiated;
+    bool mAborted;
+    MLMicroSeconds mTimeout; ///< timeout
+    MLMicroSeconds mTimesOutAt; ///< absolute time for timeout
+    MLMicroSeconds mInitiationDelay; ///< how much to delay initiation after first attempt to initiate (or after last initiation, see below)
+    bool mFromLastInitiation; ///< if set, initiationDelay counts from last initiation happened on this queue
+    MLMicroSeconds mInitiatesNotBefore; ///< absolute time for earliest initiation
 
-    StatusCB completionCB; ///< completion callback
-    OperationPtr chainedOp; ///< operation to insert once this operation has finalized
+    StatusCB mCompletionCB; ///< completion callback
+    OperationPtr mChainedOp; ///< operation to insert once this operation has finalized
 
 
   public:
 
     /// if this flag is set, no operation queued after this operation will execute
-    bool inSequence;
+    bool mInSequence;
 
     /// constructor
     Operation();
@@ -170,15 +170,15 @@ namespace p44 {
   typedef boost::intrusive_ptr<OperationQueue> OperationQueuePtr;
   class OperationQueue : public P44LoggingObj
   {
-    MainLoop &mainLoop;
-    bool processingQueue; ///< set when queue is currently processing
-    MLTicket recheckTicket; ///< regular checking of the queue
-    MLMicroSeconds lastInitiation; ///< time when last initiation was fired
+    MainLoop &mMainLoop;
+    bool mIsProcessingQueue; ///< set when queue is currently processing
+    MLTicket mRecheckTicket; ///< regular checking of the queue
+    MLMicroSeconds mLastInitiation; ///< time when last initiation was fired
 
   protected:
 
     typedef list<OperationPtr> OperationList;
-    OperationList operationQueue;
+    OperationList mOperationQueue;
 
   public:
 
