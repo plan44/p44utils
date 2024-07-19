@@ -1691,6 +1691,8 @@ ScriptObjPtr ExecutionContext::checkAndSetArgument(ScriptObjPtr aArgument, size_
   if (aArgument) {
     // not just checking for required arguments
     TypeInfo allowed = info.typeInfo;
+    // if object is allowed, array must be, too, because many objects have array access and identify as such, too
+    if (allowed & objectvalue) allowed |= arrayvalue;
     // now check argument we DO have
     TypeInfo argInfo = aArgument->getTypeInfo();
     if ((argInfo & allowed & typeMask) != (argInfo & typeMask)) {
