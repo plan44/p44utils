@@ -185,6 +185,20 @@ void Application::terminateApp(int aExitCode)
 }
 
 
+void Application::runToTerminationWith(int aExitCode)
+{
+  // flag for immediate termination
+  terminateApp(aExitCode);
+  if (mMainLoop.startedAt()!=Never) {
+    // already running, this call must be from within run(), just retunr and let
+    // mainloop exit
+    return;
+  }
+  // mainloop never started, means we are in main and must call run and exit afterwards
+  aExitCode = run();
+  exit(aExitCode);
+}
+
 
 void Application::terminateAppWith(ErrorPtr aError)
 {
@@ -849,12 +863,21 @@ bool CmdLineApp::getIntArgument(size_t aArgumentIndex, int &aInteger)
 }
 
 
-
-
-
 size_t CmdLineApp::numArguments()
 {
   return mArguments.size();
+}
+
+
+void CmdLineApp::exitWithcommandLineError(const char *aFmt, ...)
+{
+  va_list args;
+  va_start(args, aFmt);
+  vfprintf(stderr, aFmt, args);
+  va_end(args);
+  fprintf(stderr, "\n\n");
+  showUsage();
+  runToTerminationWith(EXIT_FAILURE);
 }
 
 

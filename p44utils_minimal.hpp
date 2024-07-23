@@ -37,6 +37,7 @@
   // we have C++ 11
   #define P44_FINAL final
   #define P44_OVERRIDE override
+  #define P44_MUST_USE_RESULT __attribute__((warn_unused_result))
   #define P44_CPP11_FEATURE 1
   #if __cplusplus >= 201703L
     // we have C++ 17
@@ -54,6 +55,7 @@
 #else
   #define P44_FINAL
   #define P44_OVERRIDE
+  #define P44_MUST_USE_RESULT
   #define P44_CPP11_FEATURE 0
   #define P44_CPP17_FEATURE 0
   #define P44_CPP20_FEATURE 0

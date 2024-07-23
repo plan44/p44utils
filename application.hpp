@@ -99,6 +99,14 @@ namespace p44 {
     /// @param aExitCode the exit code to return to the parent
     void terminateApp(int aExitCode);
 
+    /// run the app to termination
+    /// @note this usually is called before run(). If so, run() is started while the mainloop is already
+    ///    flagged terminated, expecting it to terminate quickly. Then, exit is called.
+    ///    Otherwise, when mainloop is running, it must be from within run(), so the function
+    ///    simply returns to allow the mainloop to terminate cleanly and finally exit run().
+    /// @param aExitCode the exit code
+    void runToTerminationWith(int aExitCode);
+
     /// terminate app
     /// @param aError if NULL or ErrorOK, app will terminate with EXIT_SUCCESS
     ///   otherwise, app will log aError's description at LOG_ERR level and then terminate with EXIT_FAILURE
@@ -183,7 +191,7 @@ namespace p44 {
     void daemonize();
 
     /// start running the app's main loop
-    int run();
+    int P44_MUST_USE_RESULT run();
 
     /// scheduled to run when mainloop has started
     virtual void initialize();
@@ -397,6 +405,10 @@ namespace p44 {
     /// @return number of arguments not already processed by processArgument() returning true
     /// @note parseCommandLine() must be called before using this method
     size_t numArguments();
+
+    /// exit with command line error
+    /// @note: calls runToTerminationWith() to exit, see there for details 
+    void exitWithcommandLineError(const char *aFmt, ...) __printflike(2,3);
 
   };
 
