@@ -136,11 +136,15 @@ namespace p44 {
     SocketComm(MainLoop &aMainLoop = MainLoop::currentMainLoop());
     virtual ~SocketComm();
 
+    #define PF_INET4_AND_6 ((PF_MAX)+1) // pseudo protocol family meaning IPv4+IPv6
+
     /// Set parameters for connection (client and server)
     /// @param aHostNameOrAddress host name/address (1.2.3.4 or xxx.yy) - client only
     /// @param aServiceOrPortOrSocket port number, service name or absolute local socket path
     /// @param aSocketType defaults to SOCK_STREAM (TCP)
-    /// @param aProtocolFamily defaults to PF_UNSPEC, means that address family is derived from host name and/or service name (starting with slash means PF_LOCAL)
+    /// @param aProtocolFamily defaults to PF_UNSPEC, means that address family is derived from host
+    ///   name and/or service name (starting with slash means PF_LOCAL).
+    ///   Can be set to pseudo-Family PF_INET4_AND_6 for creating a server socket accepting both IPv4 and IPv6
     /// @param aProtocol defaults to 0
     /// @param aInterface specific network interface to be used, defaults to NULL
     /// @note must be called before initiateConnection() or startServer()

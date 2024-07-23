@@ -98,6 +98,7 @@ ErrorPtr SocketComm::startServer(ServerConnectionCB aServerConnectionHandler, in
   int proto = IPPROTO_IP;
   int one = 1;
   int socketFD = -1;
+  bool v4v6 = false;
 
   mMaxServerConnections = aMaxConnections;
   // check for protocolfamily auto-choice
@@ -113,7 +114,14 @@ ErrorPtr SocketComm::startServer(ServerConnectionCB aServerConnectionHandler, in
       mProtocolFamily = PF_INET; // otherwise, default to IPv4 for now
     }
   }
-  // - protocol derived from socket type
+  #if !REDUCED_FOOTPRINT
+  // check for v6+v4 accepting socket
+  else if (mProtocolFamily==PF_INET4_AND_6) {
+    v4v6 = true;
+    mProtocolFamily = PF_INET6;
+  }
+  #endif
+  // derive protocol from socket type if not specified
   if (mProtocol==0) {
     // determine protocol automatically from socket type
     if (mSocketType==SOCK_STREAM)
@@ -150,8 +158,10 @@ ErrorPtr SocketComm::startServer(ServerConnectionCB aServerConnectionHandler, in
     if ((sinP->sin_port = htons((in_port_t)atoi(mServiceOrPortOrSocket.c_str()))) == 0) {
       err = Error::err<SocketCommError>(SocketCommError::CannotResolve, "Unknown service/port name");
     }
-  } else if (mProtocolFamily==PF_INET6) {
-    // IPv6 socket
+  }
+  #if !REDUCED_FOOTPRINT
+  else if (mProtocolFamily==PF_INET6) {
+    // IPv6 socket (optionally also acceppting v4 connections)
     struct servent *pse;
     // - create suitable socket address
     struct sockaddr_in6 *sinP = new struct sockaddr_in6;
@@ -175,6 +185,7 @@ ErrorPtr SocketComm::startServer(ServerConnectionCB aServerConnectionHandler, in
       err = Error::err<SocketCommError>(SocketCommError::CannotResolve, "Unknown service/port name");
     }
   }
+  #endif // !REDUCED_FOOTPRINT
   #ifndef ESP_PLATFORM
   else if (mProtocolFamily==PF_LOCAL) {
     // Local (UNIX) socket
@@ -197,29 +208,41 @@ ErrorPtr SocketComm::startServer(ServerConnectionCB aServerConnectionHandler, in
   }
   // now create and configure socket
   if (Error::isOK(err)) {
+    // handle IPv6/IPv4 combined mode
     socketFD = socket(mProtocolFamily, mSocketType, proto);
     if (socketFD<0) {
       err = SysError::errNo("Cannot create server socket: ");
     }
     else {
       // socket created, set options
-      if (setsockopt(socketFD, SOL_SOCKET, SO_REUSEADDR, (char *)&one, (int)sizeof(one)) == -1) {
-        err = SysError::errNo("Cannot setsockopt(SO_REUSEADDR): ");
+      #if !REDUCED_FOOTPRINT
+      if (mProtocolFamily==PF_INET6) {
+        int onlyv6 = !v4v6;
+        if (setsockopt(socketFD, IPPROTO_IPV6, IPV6_V6ONLY, (char*)&onlyv6, (int)sizeof(onlyv6)) == -1) {
+          err = SysError::errNo("Cannot setsockopt(IPV6_V6ONLY): ");
+        }
       }
-      else {
-        #if defined(ESP_PLATFORM) || defined(__APPLE__)
-        if (!mInterface.empty()) {
-          err = TextError::err("SO_BINDTODEVICE not supported on macOS");
+      if (Error::isOK(err))
+      #endif
+      {
+        if (setsockopt(socketFD, SOL_SOCKET, SO_REUSEADDR, (char *)&one, (int)sizeof(one)) == -1) {
+          err = SysError::errNo("Cannot setsockopt(SO_REUSEADDR): ");
         }
-        #else
-        if (!mInterface.empty() && setsockopt(socketFD, SOL_SOCKET, SO_BINDTODEVICE, mInterface.c_str(), (socklen_t)mInterface.size()) == -1) {
-          err = SysError::errNo("Cannot setsockopt(SO_BINDTODEVICE): ");
-        }
-        #endif
         else {
-          // options ok, bind to address
-          if (::bind(socketFD, saP, saLen) < 0) {
-            err = SysError::errNo("Cannot bind socket (server already running?): ");
+          #if defined(ESP_PLATFORM) || defined(__APPLE__)
+          if (!mInterface.empty()) {
+            err = TextError::err("SO_BINDTODEVICE not supported on macOS");
+          }
+          #else
+          if (!mInterface.empty() && setsockopt(socketFD, SOL_SOCKET, SO_BINDTODEVICE, mInterface.c_str(), (socklen_t)mInterface.size()) == -1) {
+            err = SysError::errNo("Cannot setsockopt(SO_BINDTODEVICE): ");
+          }
+          #endif
+          else {
+            // options ok, bind to address
+            if (::bind(socketFD, saP, saLen) < 0) {
+              err = SysError::errNo("Cannot bind socket (server already running?): ");
+            }
           }
         }
       }
