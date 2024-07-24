@@ -672,21 +672,25 @@ void p44::splitURL(const char *aURI,string *aProtocol,string *aHost,string *aDoc
 
 void p44::splitHost(const char *aHostSpec, string *aHostName, uint16_t *aPortNumber)
 {
-  const char *p = aHostSpec;
-  const char *q;
-
-  if (!p) return; // safeguard
-  q=strchr(p,':');
+  if (!aHostSpec) return; // safeguard
+  const char *q = aHostSpec;
+  if (*q=='[') {
+    // IPv6 address specification, advance to closing ] to skip colons that are part of the IPv6
+    q = strchr(q+1,']');
+  }
+  if (q) {
+    q=strchr(q,':');
+  }
   if (q) {
     // there is a port specification
     uint16_t port;
     if (sscanf(q+1,"%hd", &port)==1) {
       if (aPortNumber) *aPortNumber = port;
     }
-    if (aHostName) aHostName->assign(p,(size_t)(q-p));
+    if (aHostName) aHostName->assign(aHostSpec,(size_t)(q-aHostSpec));
   }
   else {
-    if (aHostName) aHostName->assign(p);
+    if (aHostName) aHostName->assign(aHostSpec);
   }
 }
 

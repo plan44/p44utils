@@ -30,6 +30,7 @@
 #include "socketcomm.hpp"
 
 #include <sys/ioctl.h>
+#include <net/if.h>
 #ifdef ESP_PLATFORM
 const struct in6_addr in6addr_loopback = IN6ADDR_LOOPBACK_INIT;
 #elif P44_BUILD_DIGI
@@ -77,13 +78,29 @@ SocketComm::~SocketComm()
 void SocketComm::setConnectionParams(const char* aHostNameOrAddress, const char* aServiceOrPortOrSocket, int aSocketType, int aProtocolFamily, int aProtocol, const char* aInterface)
 {
   closeConnection();
-  mHostNameOrAddress = nonNullCStr(aHostNameOrAddress);
   mServiceOrPortOrSocket = nonNullCStr(aServiceOrPortOrSocket);
   mProtocolFamily = aProtocolFamily;
   mSocketType = aSocketType;
   mProtocol = aProtocol;
   mInterface = nonNullCStr(aInterface);
   mConnectionLess = mSocketType==SOCK_DGRAM;
+  mHostNameOrAddress = nonNullCStr(aHostNameOrAddress);
+  // IPv6 literals might be surrounded by square brackets, remove those
+  if (!mHostNameOrAddress.empty() && mHostNameOrAddress[0]=='[') {
+    mHostNameOrAddress.erase(0,1);
+    size_t n = mHostNameOrAddress.find_first_of("]");
+    if (n!=string::npos) mHostNameOrAddress.erase(n,1);
+    // adjust protocol family
+    mProtocolFamily = PF_INET6;
+  }
+  // interface specification can also be part of the hostname (in particular, IPv6 literals)
+  if (mInterface.empty()) {
+    size_t n = mHostNameOrAddress.find_first_of("%");
+    if (n!=string::npos) {
+      mInterface = mHostNameOrAddress.substr(n+1);
+      mHostNameOrAddress.erase(n);
+    }
+  }
 }
 
 
@@ -98,27 +115,26 @@ ErrorPtr SocketComm::startServer(ServerConnectionCB aServerConnectionHandler, in
   int proto = IPPROTO_IP;
   int one = 1;
   int socketFD = -1;
-  bool v4v6 = false;
 
   mMaxServerConnections = aMaxConnections;
   // check for protocolfamily auto-choice
+  int family = mProtocolFamily;
   if (mProtocolFamily==PF_UNSPEC) {
     // not specified, choose default
     #ifndef ESP_PLATFORM
     if (mServiceOrPortOrSocket.size()>1 && mServiceOrPortOrSocket[0]=='/') {
-      mProtocolFamily = PF_LOCAL; // absolute paths are considered local sockets
+      family = PF_LOCAL; // absolute paths are considered local sockets
     }
     else
     #endif  // !ESP_PLATFORM
     {
-      mProtocolFamily = PF_INET; // otherwise, default to IPv4 for now
+      family = PF_INET; // otherwise, default to IPv4 for now
     }
   }
   #if !REDUCED_FOOTPRINT
   // check for v6+v4 accepting socket
   else if (mProtocolFamily==PF_INET4_AND_6) {
-    v4v6 = true;
-    mProtocolFamily = PF_INET6;
+    family = PF_INET6;
   }
   #endif
   // derive protocol from socket type if not specified
@@ -132,7 +148,7 @@ ErrorPtr SocketComm::startServer(ServerConnectionCB aServerConnectionHandler, in
   else
     proto = mProtocol;
   // now start server
-  if (mProtocolFamily==PF_INET) {
+  if (family==PF_INET) {
     // IPv4 socket
     struct servent *pse;
     // - create suitable socket address
@@ -141,7 +157,7 @@ ErrorPtr SocketComm::startServer(ServerConnectionCB aServerConnectionHandler, in
     saP = (struct sockaddr *)sinP;
     memset((char *)saP, 0, saLen);
     // - set listening socket address
-    sinP->sin_family = (sa_family_t)mProtocolFamily;
+    sinP->sin_family = (sa_family_t)family;
     if (mNonLocal)
       sinP->sin_addr.s_addr = htonl(INADDR_ANY);
     else
@@ -160,8 +176,8 @@ ErrorPtr SocketComm::startServer(ServerConnectionCB aServerConnectionHandler, in
     }
   }
   #if !REDUCED_FOOTPRINT
-  else if (mProtocolFamily==PF_INET6) {
-    // IPv6 socket (optionally also acceppting v4 connections)
+  else if (family==PF_INET6) {
+    // IPv6 socket (optionally also accepting v4 connections)
     struct servent *pse;
     // - create suitable socket address
     struct sockaddr_in6 *sinP = new struct sockaddr_in6;
@@ -169,7 +185,7 @@ ErrorPtr SocketComm::startServer(ServerConnectionCB aServerConnectionHandler, in
     saP = (struct sockaddr *)sinP;
     memset((char *)saP, 0, saLen);
     // - set listening socket address
-    sinP->sin6_family = (sa_family_t)mProtocolFamily;
+    sinP->sin6_family = (sa_family_t)family;
     if (mNonLocal)
       sinP->sin6_addr = in6addr_any;
     else
@@ -187,7 +203,7 @@ ErrorPtr SocketComm::startServer(ServerConnectionCB aServerConnectionHandler, in
   }
   #endif // !REDUCED_FOOTPRINT
   #ifndef ESP_PLATFORM
-  else if (mProtocolFamily==PF_LOCAL) {
+  else if (family==PF_LOCAL) {
     // Local (UNIX) socket
     // - create suitable socket address
     struct sockaddr_un *sunP = new struct sockaddr_un;
@@ -195,7 +211,7 @@ ErrorPtr SocketComm::startServer(ServerConnectionCB aServerConnectionHandler, in
     saP = (struct sockaddr *)sunP;
     memset((char *)saP, 0, saLen);
     // - set socket address
-    sunP->sun_family = (sa_family_t)mProtocolFamily;
+    sunP->sun_family = (sa_family_t)family;
     strncpy(sunP->sun_path, mServiceOrPortOrSocket.c_str(), sizeof (sunP->sun_path));
     sunP->sun_path[sizeof (sunP->sun_path) - 1] = '\0'; // emergency terminator
     // - protocol for local socket is not specific
@@ -209,15 +225,15 @@ ErrorPtr SocketComm::startServer(ServerConnectionCB aServerConnectionHandler, in
   // now create and configure socket
   if (Error::isOK(err)) {
     // handle IPv6/IPv4 combined mode
-    socketFD = socket(mProtocolFamily, mSocketType, proto);
+    socketFD = socket(family, mSocketType, proto);
     if (socketFD<0) {
       err = SysError::errNo("Cannot create server socket: ");
     }
     else {
       // socket created, set options
       #if !REDUCED_FOOTPRINT
-      if (mProtocolFamily==PF_INET6) {
-        int onlyv6 = !v4v6;
+      if (family==PF_INET6) {
+        int onlyv6 = mProtocolFamily!=PF_INET4_AND_6;
         if (setsockopt(socketFD, IPPROTO_IPV6, IPV6_V6ONLY, (char*)&onlyv6, (int)sizeof(onlyv6)) == -1) {
           err = SysError::errNo("Cannot setsockopt(IPV6_V6ONLY): ");
         }
@@ -460,26 +476,41 @@ ErrorPtr SocketComm::initiateConnection()
       struct addrinfo hint;
       memset(&hint, 0, sizeof(addrinfo));
       hint.ai_flags = 0; // no flags
-      hint.ai_family = mProtocolFamily;
       hint.ai_socktype = mSocketType;
       hint.ai_protocol = mProtocol;
+      hint.ai_family = mProtocolFamily==PF_INET4_AND_6 ? PF_UNSPEC : mProtocolFamily;
       res = getaddrinfo(mHostNameOrAddress.empty() ? NULL : mHostNameOrAddress.c_str(), mServiceOrPortOrSocket.c_str(), &hint, &mAddressInfoList);
       if (res!=0) {
         // error
         #ifdef ESP_PLATFORM
-        err = Error::err<SocketCommError>(SocketCommError::CannotResolve, "getaddrinfo error %d", res);
+        err = Error::err<SocketCommError>(SocketCommError::CannotResolve, "host '%s', service '%s': error %d", mHostNameOrAddress.c_str(), mServiceOrPortOrSocket.c_str(), res);
         #else
-        err = Error::err<SocketCommError>(SocketCommError::CannotResolve, "getaddrinfo error %d: %s", res, gai_strerror(res));
+        err = Error::err<SocketCommError>(SocketCommError::CannotResolve, "host '%s', service '%s': error %d: %s", mHostNameOrAddress.c_str(), mServiceOrPortOrSocket.c_str(), res, gai_strerror(res));
         #endif
         DBGLOG(LOG_DEBUG, "SocketComm: getaddrinfo failed: %s", err->text());
         goto done;
+      }
+      // augment IPv6 with scope index info in case we have it
+      if (mAddressInfoList->ai_family==PF_INET6 && !mInterface.empty()) {
+        struct sockaddr_in6* addr6 = (struct sockaddr_in6 *)mAddressInfoList->ai_addr;
+        addr6->sin6_scope_id = if_nametoindex(mInterface.c_str());
+        if (addr6->sin6_scope_id==0) {
+          #ifdef ESP_PLATFORM
+          err = Error::err<SocketCommError>(SocketCommError::CannotResolve, "scope id '%s': error %d", mInterface.c_str(), res);
+          #else
+          err = Error::err<SocketCommError>(SocketCommError::CannotResolve, "scope id '%s': error %d: %s", mInterface.c_str(), res, gai_strerror(res));
+          #endif
+          DBGLOG(LOG_DEBUG, "SocketComm: if_nametoindex failed: %s", err->text());
+          goto done;
+
+        }
       }
     }
     // now try all addresses in the list
     // - init iterator pointer
     mCurrentAddressInfo = mAddressInfoList;
     // - try connecting first address
-    LOG(LOG_DEBUG, "Initializing socket for connection to %s:%s", mHostNameOrAddress.c_str(), mServiceOrPortOrSocket.c_str());
+    LOG(LOG_DEBUG, "Initializing socket for connection to %s port %s", mHostNameOrAddress.c_str(), mServiceOrPortOrSocket.c_str());
     err = connectNextAddress();
   }
 done:
@@ -617,7 +648,7 @@ ErrorPtr SocketComm::connectNextAddress()
   if (!startedConnecting) {
     // exhausted addresses without starting to connect
     if (!err) err = Error::err<SocketCommError>(SocketCommError::NoConnection, "No connection could be established");
-    LOG(LOG_DEBUG, "Cannot initiate connection to %s:%s - %s", mHostNameOrAddress.c_str(), mServiceOrPortOrSocket.c_str(), err->text());
+    LOG(LOG_DEBUG, "Cannot initiate connection to %s port %s - %s", mHostNameOrAddress.c_str(), mServiceOrPortOrSocket.c_str(), err->text());
   }
   else {
     if (!mConnectionLess) {
@@ -710,7 +741,7 @@ bool SocketComm::connectionMonitorHandler(int aFd, int aPollFlags)
     err = connectNextAddress();
     if (err) {
       // no next attempt started, report error
-      LOG(LOG_WARNING, "Connection to %s:%s failed: %s", mHostNameOrAddress.c_str(), mServiceOrPortOrSocket.c_str(), err->text());
+      LOG(LOG_WARNING, "Connection to %s port %s failed: %s", mHostNameOrAddress.c_str(), mServiceOrPortOrSocket.c_str(), err->text());
       if (mConnectionStatusHandler) {
         mConnectionStatusHandler(this, err);
       }
