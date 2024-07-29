@@ -46,6 +46,11 @@
 #ifndef P44SCRIPT_DEBUGGING_SUPPORT
   #define P44SCRIPT_DEBUGGING_SUPPORT P44SCRIPT_FULL_SUPPORT // on for full script support
 #endif
+#ifndef P44SCRIPT_OTHER_SOURCES
+  #define P44SCRIPT_OTHER_SOURCES P44SCRIPT_FULL_SUPPORT // also support editing non-script sources when we have full script support
+#endif
+
+
 
 #if SCRIPTING_JSON_SUPPORT
   #include "jsonobject.hpp"
@@ -100,6 +105,8 @@ namespace p44 { namespace P44Script {
   class SourceCursor;
   class SourceContainer;
   typedef boost::intrusive_ptr<SourceContainer> SourceContainerPtr;
+  class SourceHost;
+  typedef boost::intrusive_ptr<SourceHost> SourceHostPtr;
   class ScriptHost;
   typedef boost::intrusive_ptr<ScriptHost> ScriptHostPtr;
 
@@ -1749,6 +1756,47 @@ namespace p44 { namespace P44Script {
   };
 
 
+  // class representing an editable source text, such as script, html page, config file etc.
+  // @note this base class is present for allowing non-p44script files to have a IDE representation like scripts do
+  //   For actual scripts, use ScriptHost derived class
+  class SourceHost : public P44Obj
+  {
+
+  public:
+
+    /// @return the source UID or a dummy placeholder in case it is not set
+    virtual string getSourceUid() = 0;
+
+    /// @return true for scripts that can be started/stopped/debugged, false for other editable source texts
+    virtual bool isScript() const = 0;
+
+    /// @return true if source is unstored/unstorable (e.g. for p44script playground etc.)
+    virtual bool isUnstored() { return false; }
+
+    /// get the source code
+    /// @return the source code as set by setSource()
+    virtual string getSource() const = 0;
+
+    /// sets source text and stores source by scriptSourceUid to domain level if different from previous version
+    /// @param aSource the source text to set
+    /// @return relevant / applicable only for
+    virtual bool setAndStoreSource(const string& aSource) = 0;
+
+    /// @return title for this source
+    virtual string getSourceTitle() = 0;
+
+    /// @return the origin label string
+    virtual const char* getOriginLabel() { return ""; }
+
+    /// @return the context type for this source text, to allow editor to group texts
+    virtual string getContextType() { return "unknown"; };
+
+    /// @return the context object that uses this script source
+    virtual P44LoggingObj* getLoggingContext() { return nullptr; };
+
+  };
+
+
   typedef enum {
     // basic commands
     check = 0x01,
@@ -1765,8 +1813,10 @@ namespace p44 { namespace P44Script {
 
   /// class representing a script source in its entiety including all context needed to run it,
   /// ie. is the object that "hosts" the script
-  class ScriptHost : public P44Obj
+  class ScriptHost : public SourceHost
   {
+    typedef SourceHost inherited;
+
   protected:
 
     typedef struct {
@@ -1827,6 +1877,9 @@ namespace p44 { namespace P44Script {
 
     /// @return true if active and not unstored
     bool storable() const;
+
+    /// @return true for scripts that can be started/stopped/debugged, false for other editable source texts
+    virtual bool isScript() const P44_OVERRIDE { return true; }
 
     /// activate the script for actually being used
     /// @note once activated, the function can be called again but is NOP and ignores activation params
@@ -1913,7 +1966,7 @@ namespace p44 { namespace P44Script {
     /// @return true if aSource was different from the previous source AND is not stored in domain-level store.
     ///   This return value is indended for the caller to to mark a locally persisted object dirty if the changed
     ///   source must be stored locally.
-    bool setAndStoreSource(const string& aSource);
+    virtual bool setAndStoreSource(const string& aSource) P44_OVERRIDE;
 
     /// stores source by scriptSourceUid to domain level store if it was changed by setSource since last load or store
     /// @note if called when inactive, it is just NOP (no script -> nothing to store)
@@ -1935,10 +1988,10 @@ namespace p44 { namespace P44Script {
     void setScriptHostUid(const string aScriptHostUid, bool aUnstored = false);
 
     /// @return the script source UID or a dummy placeholder in case it is not set
-    string scriptSourceUid();
+    virtual string getSourceUid() P44_OVERRIDE;
 
     /// @return true if script is unstored/unstorable (or not active)
-    bool isUnstored() { return active() ? mActiveParams->mUnstored : true; }
+    virtual bool isUnstored() P44_OVERRIDE { return active() ? mActiveParams->mUnstored : true; }
 
     /// register the script under a UID, but do not store it
     /// @param the sourceUid to register the script with, but prevent storing the source
@@ -1990,14 +2043,17 @@ namespace p44 { namespace P44Script {
 
     /// get the source code
     /// @return the source code as set by setSource()
-    string getSource() const;
+    virtual string getSource() const P44_OVERRIDE;
 
     /// @return the context object that uses this script source
-    P44LoggingObj* getLoggingContext();
+    virtual P44LoggingObj* getLoggingContext() P44_OVERRIDE;
 
     /// @return the origin label string
     /// @note can be inserted into script title template using %O
-    const char* getOriginLabel();
+    virtual const char* getOriginLabel() P44_OVERRIDE;
+
+    /// @return the context type for this source text, to allow editor to group texts
+    virtual string getContextType() P44_OVERRIDE;
 
     /// @return title of script context (such as: device name or UID when unnamed, etc.) for the script
     /// @note can be inserted into script title using %C
@@ -2010,7 +2066,7 @@ namespace p44 { namespace P44Script {
     ///    - %T will be replaced by context type
     ///    - %I will be replaced by technical context ID
     ///    - %O will be replaced by origin label
-    string getScriptTitle();
+    virtual string getSourceTitle() P44_OVERRIDE;
 
     /// check if a cursor refers to this source
     /// @param aCursor the cursor to check
@@ -2167,6 +2223,64 @@ namespace p44 { namespace P44Script {
   };
 
 
+  #if P44SCRIPT_OTHER_SOURCES
+
+  // class representing non-script text file source
+  class TextFileHost : public SourceHost
+  {
+    typedef SourceHost inherited;
+    friend class ScriptingDomain;
+
+    ScriptingDomain& mDomain;
+    string mSourceHostUid; ///< domain-unique, persistent ID for this source
+    string mEditedFilePath; ///< the file this TextFileHost edits
+    string mTitle; ///< title to display
+    string mContextType; ///< the context type
+    uint32_t mContentHash; ///< the content hash to prevent unneeded saves
+
+    // private constructor, use addTextFileHost() factory method in domain
+    TextFileHost(
+      ScriptingDomain& aDomain,
+      const string aSourceHostUid,
+      const string aFilePath,
+      const string aTitle,
+      const string aContextType
+    );
+
+    virtual ~TextFileHost();
+
+  public:
+
+    /// @return the source UID or a dummy placeholder in case it is not set
+    virtual string getSourceUid() P44_OVERRIDE;
+
+    /// @return true for scripts that can be started/stopped/debugged, false for other editable source texts
+    virtual bool isScript() const P44_OVERRIDE { return false; }
+
+    /// get the source code
+    /// @return the source code as set by setSource()
+    virtual string getSource() const P44_OVERRIDE;
+
+    /// sets source text and stores source by scriptSourceUid to domain level if different from previous version
+    /// @param aSource the source text to set
+    /// @return true if aSource was different from the previous source AND is not stored in domain-level store.
+    ///   This return value is indended for the caller to to mark a locally persisted object dirty if the changed
+    ///   source must be stored locally.
+    virtual bool setAndStoreSource(const string& aSource) P44_OVERRIDE;
+
+    /// @return title for this source
+    virtual string getSourceTitle() P44_OVERRIDE;
+
+    /// @return the context type for this source text, to allow editor to group texts
+    virtual string getContextType() P44_OVERRIDE;
+
+  };
+
+  #endif // P44SCRIPT_OTHER_SOURCES
+
+
+
+
 
   #if P44SCRIPT_DEBUGGING_SUPPORT
   /// called when a thread is paused
@@ -2185,8 +2299,8 @@ namespace p44 { namespace P44Script {
     MLMicroSeconds mMaxBlockTime;
 
     #if P44SCRIPT_REGISTERED_SOURCE
-    typedef std::vector<ScriptHost*> ScriptHostsVector;
-    ScriptHostsVector mScriptHosts;
+    typedef std::vector<SourceHost*> SourceHostsVector;
+    SourceHostsVector mSourceHosts;
     #endif
 
     #if P44SCRIPT_DEBUGGING_SUPPORT
@@ -2258,17 +2372,18 @@ namespace p44 { namespace P44Script {
 
     /// @param aScriptHost register this source under its ScriptHostUid.
     /// @return true if registered anew, false if source was registered already
-    bool registerScriptHost(ScriptHost &aScriptHost);
+    /// @note domain will not own the source host, caller or scripthost itself is responsible for unregistering before lifetime ends
+    bool registerSourceHost(SourceHost &aScriptHost);
 
     /// @param aScriptHost the scriptsource to unregister. Nothing will happen if this source is not registered.
     /// @return true if unregistered now, false if source was not registered
-    bool unregisterScriptHost(ScriptHost &aScriptHost);
+    bool unregisterSourceHost(SourceHost &aScriptHost);
 
-    /// @return number of registered source hosts
-    size_t numRegisteredHosts() const { return mScriptHosts.size(); }
+    /// @return number of registered source hosts (scripts and non-scripts)
+    size_t numRegisteredHosts() const { return mSourceHosts.size(); }
 
-    /// @return script source specified by index or NULL if it does not exist
-    ScriptHostPtr getHostByIndex(size_t aSourceIndex) const;
+    /// @return source (scripts and non-scripts) specified by index or NULL if it does not exist
+    SourceHostPtr getHostByIndex(size_t aSourceIndex) const;
 
     /// @return script source specified by index or NULL if it does not exist
     ScriptHostPtr getHostByUid(const string aSourceUid) const;
@@ -2285,6 +2400,20 @@ namespace p44 { namespace P44Script {
     /// @param aSource source text to be stored
     /// @return true if aSource (even empty) could be persisted in the domain level storage
     virtual bool storeSource(const string &aScriptHostUid, const string &aSource) { return false; /* no actual storage in base class */ }
+
+    #if P44SCRIPT_OTHER_SOURCES
+
+    /// create a non-script source host as a proxy for a editable text file
+    /// @param aFilePath the file path to be edited
+    /// @param aTitle the title to display for the file, defaults to file name w/o path
+    /// @param aTitle the context type (indication for sorting editable files in UI), defaults to "textfile"
+    ErrorPtr addTextFileHost(
+      string aFilePath,
+      string aTitle,
+      string aContextType
+    );
+
+    #endif // P44SCRIPT_OTHER_SOURCES
 
     /// @}
     #endif

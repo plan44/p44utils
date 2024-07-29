@@ -45,6 +45,9 @@
 #if P44SCRIPT_FULL_SUPPORT && ENABLE_P44LRGRAPHICS
   #include "colorutils.hpp"
 #endif // P44SCRIPT_FULL_SUPPORT
+#if P44SCRIPT_OTHER_SOURCES
+  #include "fnv.hpp"
+#endif
 
 #ifndef ALWAYS_ALLOW_SYSTEM_FUNC
   #define ALWAYS_ALLOW_SYSTEM_FUNC 0
@@ -52,7 +55,6 @@
 #ifndef ALWAYS_ALLOW_ALL_FILES
   #define ALWAYS_ALLOW_ALL_FILES 0
 #endif
-
 
 #if P44SCRIPT_LIFECYCLE_DBG
   #define LCDBG(...) LOG(P44SCRIPT_LIFECYCLE_DBG, ##__VA_ARGS__)
@@ -6131,7 +6133,7 @@ ScriptHost::~ScriptHost()
     // remove non-retaining references
     // - unregister
     #if P44SCRIPT_REGISTERED_SOURCE
-    domain()->unregisterScriptHost(*this);
+    domain()->unregisterSourceHost(*this);
     #endif
     // - possible backreference in container
     if (mActiveParams->mSourceContainer && mActiveParams->mSourceContainer->mScriptHostP==this) {
@@ -6195,7 +6197,7 @@ void ScriptHost::setScriptHostUid(const string aScriptHostUid, bool aUnstored)
 void ScriptHost::registerScript()
 {
   if (active() && !mActiveParams->mScriptHostUid.empty()) {
-    domain()->registerScriptHost(*this);
+    domain()->registerSourceHost(*this);
   }
 }
 
@@ -6207,10 +6209,18 @@ void ScriptHost::registerUnstoredScript(const string aScriptHostUid)
 }
 
 
-string ScriptHost::scriptSourceUid()
+string ScriptHost::getSourceUid()
 {
   if (!active()) return "<inactive>";
   return mActiveParams->mScriptHostUid;
+}
+
+
+string ScriptHost::getContextType()
+{
+  P44LoggingObj* cobj = getLoggingContext();
+  if (cobj) return cobj->contextType();
+  return inherited::getContextType();
 }
 
 
@@ -6230,7 +6240,7 @@ string ScriptHost::getContextTitle()
 }
 
 
-string ScriptHost::getScriptTitle()
+string ScriptHost::getSourceTitle()
 {
   string t;
   if (active()) {
@@ -6565,7 +6575,7 @@ const char* ScriptHost::getOriginLabel()
 
 P44LoggingObj* ScriptHost::getLoggingContext()
 {
-  return active() ? mActiveParams->mLoggingContextP : nullptr;
+  return active() ? mActiveParams->mLoggingContextP : inherited::getLoggingContext();
 }
 
 
@@ -6666,10 +6676,10 @@ ScriptObjPtr ScriptHost::defaultCommandImplementation(ScriptCommand aCommand, Ev
       // stop
       if (mActiveParams->mSharedMainContext) {
         // abort via main context
-        mActiveParams->mSharedMainContext->abort(stopall, new ErrorValue(ScriptError::Aborted, "manually aborted: %s", getScriptTitle().c_str()));
+        mActiveParams->mSharedMainContext->abort(stopall, new ErrorValue(ScriptError::Aborted, "manually aborted: %s", getSourceTitle().c_str()));
       }
       else  {
-        ret = new ErrorValue(ScriptError::Internal, "cannot stop without context: %s", getScriptTitle().c_str());
+        ret = new ErrorValue(ScriptError::Internal, "cannot stop without context: %s", getSourceTitle().c_str());
       }
       break;
     case debug:
@@ -6871,6 +6881,116 @@ void TriggerSource::nextEvaluationNotLaterThan(MLMicroSeconds aLatestEval)
 }
 
 
+#if P44SCRIPT_OTHER_SOURCES
+
+// MARK: - TextFileHost
+
+// factory method in domain
+ErrorPtr ScriptingDomain::addTextFileHost(
+  string aFilePath,
+  string aTitle,
+  string aContextType
+) {
+  size_t p = aFilePath.find_last_of("/");
+  if (aFilePath.empty() || aFilePath[0]!='/' || p==string::npos || p==1) {
+    return TextError::err("TextFileHost file path must be non-empty, absolute and not a file in root dir");
+  }
+  // create a source ID without revealing the path: just name and hash of path
+  Fnv32 pathHash;
+  pathHash.addString(aFilePath);
+  string sourceHostUid = string_format("%s_%08X", aFilePath.substr(p+1).c_str(), pathHash.getHash());
+  // title defaults to file name without path
+  if (aTitle.empty()) aTitle = aFilePath.substr(p+1);
+  // now create
+  TextFileHost* tfh = new TextFileHost(*this, sourceHostUid, aFilePath, aTitle, aContextType);
+  tfh->isMemberVariable(); // like a member of the main program, never to be destroyed until program exits
+  return ErrorPtr(); // ok
+}
+
+
+TextFileHost::TextFileHost(
+  ScriptingDomain& aDomain,
+  const string aSourceHostUid,
+  const string aFilePath,
+  const string aTitle,
+  const string aContextType
+) :
+  mDomain(aDomain),
+  mSourceHostUid(aSourceHostUid),
+  mEditedFilePath(aFilePath),
+  mTitle(aTitle),
+  mContextType(aContextType)
+{
+  // register
+  mDomain.registerSourceHost(*this);
+  // init content hash
+  Fnv32 contentHash;
+  mContentHash = contentHash.getHash(); // hash for empty text
+}
+
+
+TextFileHost::~TextFileHost()
+{
+  mDomain.unregisterSourceHost(*this);
+}
+
+
+string TextFileHost::getSourceUid()
+{
+  return mSourceHostUid;
+}
+
+
+string TextFileHost::getSource() const
+{
+  string content;
+  ErrorPtr err = string_fromfile(mEditedFilePath, content);
+  if (Error::notOK(err) && !Error::isError(err, SysError::domain(), ENOENT)) {
+    LOG(LOG_ERR, "TextFileHost: error loading %s: %s", mEditedFilePath.c_str(), err->text());
+  }
+  Fnv32 contentHash;
+  contentHash.addString(content);
+  const_cast<TextFileHost*>(this)->mContentHash = contentHash.getHash();
+  return content;
+}
+
+
+bool TextFileHost::setAndStoreSource(const string& aSource)
+{
+  Fnv32 contentHash;
+  contentHash.addString(aSource);
+  if (contentHash.getHash()!=mContentHash) {
+    // actually changed
+    ErrorPtr err = string_tofile(mEditedFilePath, aSource);
+    if (Error::notOK(err)) {
+      LOG(LOG_ERR, "TextFileHost: error saving %s: %s", mEditedFilePath.c_str(), err->text());
+      return true; // not stored at domain level (not really relevant/checked in text file case, but semantically correct answer)
+    }
+    else {
+      // sucessfully saved, update hash
+      mContentHash = contentHash.getHash();
+    }
+  }
+  return false; // stored, no need for storing otherwise
+}
+
+
+string TextFileHost::getSourceTitle()
+{
+  return mTitle;
+}
+
+
+string TextFileHost::getContextType()
+{
+  if (mContextType.empty()) return "textfile";
+  return mContextType;
+}
+
+#endif // P44SCRIPT_OTHER_SOURCES
+
+
+
 
 // MARK: - ScriptingDomain
 
@@ -6901,24 +7021,24 @@ void ScriptingDomain::threadPaused(ScriptCodeThreadPtr aThread)
 #if P44SCRIPT_REGISTERED_SOURCE
 
 
-bool ScriptingDomain::registerScriptHost(ScriptHost &aHostSource)
+bool ScriptingDomain::registerSourceHost(SourceHost &aHostSource)
 {
-  for(ScriptHostsVector::const_iterator pos = mScriptHosts.begin(); pos!=mScriptHosts.end(); ++pos) {
+  for(SourceHostsVector::const_iterator pos = mSourceHosts.begin(); pos!=mSourceHosts.end(); ++pos) {
     if (&aHostSource==*pos) {
       return false; // already registered
     }
   }
   // not yet registered
-  mScriptHosts.push_back(&aHostSource);
+  mSourceHosts.push_back(&aHostSource);
   return true;
 }
 
 
-bool ScriptingDomain::unregisterScriptHost(ScriptHost &aHostSource)
+bool ScriptingDomain::unregisterSourceHost(SourceHost &aHostSource)
 {
-  for(ScriptHostsVector::const_iterator pos = mScriptHosts.begin(); pos!=mScriptHosts.end(); ++pos) {
+  for(SourceHostsVector::const_iterator pos = mSourceHosts.begin(); pos!=mSourceHosts.end(); ++pos) {
     if (&aHostSource==*pos) {
-      mScriptHosts.erase(pos);
+      mSourceHosts.erase(pos);
       return true;
     }
   }
@@ -6926,17 +7046,19 @@ bool ScriptingDomain::unregisterScriptHost(ScriptHost &aHostSource)
 }
 
 
-ScriptHostPtr ScriptingDomain::getHostByIndex(size_t aSourceIndex) const
+SourceHostPtr ScriptingDomain::getHostByIndex(size_t aSourceIndex) const
 {
-  if (aSourceIndex>mScriptHosts.size()) return nullptr;
-  return mScriptHosts[aSourceIndex];
+  if (aSourceIndex>mSourceHosts.size()) return nullptr;
+  return mSourceHosts[aSourceIndex];
 }
 
 
 ScriptHostPtr ScriptingDomain::getHostByUid(const string aSourceUid) const
 {
-  for(ScriptHostsVector::const_iterator pos = mScriptHosts.begin(); pos!=mScriptHosts.end(); ++pos) {
-    if (aSourceUid==(*pos)->scriptSourceUid()) return *pos;
+  for(SourceHostsVector::const_iterator pos = mSourceHosts.begin(); pos!=mSourceHosts.end(); ++pos) {
+    if (aSourceUid==(*pos)->getSourceUid()) {
+      return dynamic_cast<ScriptHost*>(*pos); // could be a non-script, would return null
+    }
   }
   return nullptr;
 }
@@ -6953,10 +7075,10 @@ ScriptHostPtr ScriptingDomain::getHostForThread(const ScriptCodeThreadPtr aScrip
       host = new ScriptHost(container);
       host->setScriptHostUid(string_format("thread_%08d", aScriptCodeThread->threadId()), true);
       host->setSharedMainContext(aScriptCodeThread->owner()->scriptmain());
-      registerScriptHost(*host);
+      registerSourceHost(*host);
     }
     // register to make sure (usually already registered)
-    registerScriptHost(*host);
+    registerSourceHost(*host);
   }
   return host;
 }
