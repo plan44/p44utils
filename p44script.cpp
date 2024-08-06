@@ -7773,6 +7773,15 @@ static void abs_func(BuiltinFunctionContextPtr f)
 }
 
 
+// sign(a)         sign of a
+static void sign_func(BuiltinFunctionContextPtr f)
+{
+  double v = f->arg(0)->doubleValue();
+  f->finish(new NumericValue(v==0 ? 0 : (v>0 ? 1 : -1)));
+}
+
+
+
 // int(a)         integer value of a
 static void int_func(BuiltinFunctionContextPtr f)
 {
@@ -9788,6 +9797,7 @@ static const BuiltinMemberDescriptor standardFunctions[] = {
   FUNC_DEF_W_ARG(isvalid, executable|numeric),
   FUNC_DEF_W_ARG(if, executable|anyvalid),
   FUNC_DEF_C_ARG(abs, executable|numeric|null, math1arg),
+  FUNC_DEF_C_ARG(sign, executable|numeric|null, math1arg),
   FUNC_DEF_C_ARG(int, executable|numeric|null, math1arg),
   FUNC_DEF_C_ARG(frac, executable|numeric|null, math1arg),
   FUNC_DEF_C_ARG(sin, executable|numeric, math1arg),
