@@ -4873,6 +4873,7 @@ void SourceProcessor::s_ifCondition()
   // if condition is evaluated
   // - if not skipping, result is the result of the evaluation, or NULL if all of the following if/else if/else statement chain must be skipped
   // - if already skipping here, result can be anything and must be reset to propagate cutting the else chain
+  mSrc.skipNonCode();
   if (!mSrc.nextIf(')')) {
     exitWithSyntaxError("missing ')' after 'if' condition");
     return;
