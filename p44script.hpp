@@ -2708,7 +2708,7 @@ namespace p44 { namespace P44Script {
 
     // state that can be pushed
     SourceCursor mSrc; ///< the scanning position within code
-    SourcePos mPoppedPos; ///< the position popped from the stack (can be applied to jump back for loops)
+    SourceCursor mPoppedSrc; ///< the position popped from the stack (can be applied to jump back for loops)
     P44ObjPtr mStatementHelper; ///< a helper for a statement, for example a loop controller, if any is needed
     StateHandler mCurrentState; ///< next state to call
     ScriptObjPtr mResult; ///< the current result object
@@ -2725,7 +2725,7 @@ namespace p44 { namespace P44Script {
     class StackFrame {
     public:
       StackFrame(
-        SourcePos& aPos,
+        SourceCursor& aSrc,
         bool aSkipping,
         StateHandler aReturnToState,
         ScriptObjPtr aResult,
@@ -2734,7 +2734,7 @@ namespace p44 { namespace P44Script {
         int aPrecedence,
         ScriptOperator aPendingOperation
       ) :
-        mPos(aPos),
+        mSrc(aSrc),
         mSkipping(aSkipping),
         mReturnToState(aReturnToState),
         mResult(aResult),
@@ -2743,7 +2743,7 @@ namespace p44 { namespace P44Script {
         mPrecedence(aPrecedence),
         mPendingOperation(aPendingOperation)
       {}
-      SourcePos mPos; ///< scanning position
+      SourceCursor mSrc; ///< scanning position
       bool mSkipping; ///< set if only skipping code, not evaluating
       StateHandler mReturnToState; ///< next state to run after pop
       ScriptObjPtr mResult; ///< the current result object

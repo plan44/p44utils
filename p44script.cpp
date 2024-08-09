@@ -3287,10 +3287,10 @@ void SourceProcessor::checkAndResume()
 }
 
 
-void SourceProcessor::push(StateHandler aReturnToState, bool aPushPoppedPos)
+void SourceProcessor::push(StateHandler aReturnToState, bool aPushPoppedSrc)
 {
   FOCUSLOG("                        push[%2lu] :                             result = %s", mStack.size()+1, ScriptObj::describe(mResult).c_str());
-  mStack.push_back(StackFrame(aPushPoppedPos ? mPoppedPos : mSrc.mPos, mSkipping, aReturnToState, mResult, mFuncCallContext, mStatementHelper, mPrecedence, mPendingOperation));
+  mStack.push_back(StackFrame(aPushPoppedSrc ? mPoppedSrc : mSrc, mSkipping, aReturnToState, mResult, mFuncCallContext, mStatementHelper, mPrecedence, mPendingOperation));
 }
 
 
@@ -3308,7 +3308,7 @@ void SourceProcessor::pop()
   mFuncCallContext = s.mFuncCallContext;
   mStatementHelper = s.mStatementHelper;
   // these are restored separately, returnToState must decide what to do
-  mPoppedPos = s.mPos;
+  mPoppedSrc = s.mSrc;
   mOlderResult = s.mResult;
   FOCUSLOG("                         pop[%2lu] :                        olderResult = %s (result = %s)", mStack.size(), ScriptObj::describe(mOlderResult).c_str(), ScriptObj::describe(mResult).c_str());
   // continue here
@@ -3448,12 +3448,12 @@ ScriptObjPtr SourceProcessor::captureCode(ScriptObjPtr aCodeContainer)
   else {
     if (mEvaluationFlags & ephemeralSource) {
       // copy from the original source
-      SourceContainerPtr s = SourceContainerPtr(new SourceContainer(mSrc, mPoppedPos, mSrc.mPos));
+      SourceContainerPtr s = SourceContainerPtr(new SourceContainer(mSrc, mPoppedSrc.mPos, mSrc.mPos));
       code->setCursor(s->getCursor());
     }
     else {
       // refer to the source code part that defines the function
-      code->setCursor(SourceCursor(mSrc.mSourceContainer, mPoppedPos, mSrc.mPos));
+      code->setCursor(SourceCursor(mSrc.mSourceContainer, mPoppedSrc.mPos, mSrc.mPos));
     }
   }
   return code;
@@ -4372,7 +4372,7 @@ void SourceProcessor::defineTrigger(bool aGlobal)
   FOCUSLOGSTATE
   // on (triggerexpression) [changing|toggling|evaluating|gettingtrue] [ stable <stabilizing time numeric literal>] [ as triggerresult ] { handlercode }
   // after scanning the trigger condition expression of a on() statement
-  // - mPoppedPos points to the beginning of the expression
+  // - mPoppedSrc points to the beginning of the expression
   // - src.pos should be on the ')' of the trigger expression
   if (mSrc.c()!=')') {
     exitWithSyntaxError("')' as end of trigger expression expected");
@@ -4471,7 +4471,7 @@ void SourceProcessor::s_defineGlobalHandler()
 void SourceProcessor::defineHandler(bool aGlobal)
 {
   // after scanning a block containing a handler body
-  // - mPoppedPos points to the opening '{' of the body
+  // - mPoppedSrc points to the opening '{' of the body
   // - src.pos is after the closing '}' of the body
   // - olderResult is the trigger, mode already set
   if (compiling()==aGlobal) {
@@ -4510,9 +4510,9 @@ void SourceProcessor::s_include()
   mResult = ScriptingDomain().getIncludedCode(fn, isResource);
   CompiledCodePtr code = boost::dynamic_pointer_cast<CompiledCode>(mResult);
   if (code) {
-    // continue processing in the included code
+  // continue processing in the included code
     push(mCurrentState); // return to where we were before after the include
-    mSrc = code->getCursor(); // now continue in the include
+  mSrc = code->getCursor(); // now continue in the include
   }
   // resume in include or report error
   checkAndResume();
@@ -5088,7 +5088,7 @@ void SourceProcessor::s_foreachBody()
 {
   FOCUSLOGSTATE
   // mSkipping and loop variables are set, now run the body
-  push(&SourceProcessor::s_foreachStatement, false); // beginning of loop statement (block) = position we'll have as mPoppedPos at s_foreachStatement
+  push(&SourceProcessor::s_foreachStatement, false); // beginning of loop statement (block) = position we'll have as mPoppedSrc at s_foreachStatement
   checkAndResumeAt(&SourceProcessor::s_oneStatement);
 }
 
@@ -5109,7 +5109,7 @@ void SourceProcessor::s_foreachStatement()
   foreachControllerP->mIterator->next();
   // TODO: optimize to avoid skip run at the end
   // go back to loop beginning
-  mSrc.mPos = mPoppedPos;
+  mSrc.mPos = mPoppedSrc.mPos;
   resumeAt(&SourceProcessor::s_foreachLoopIteration);
 }
 
@@ -5133,7 +5133,7 @@ void SourceProcessor::s_loopCondition()
   FOCUSLOGSTATE
   // while or for condition is evaluated
   // - result contains result of the evaluation
-  // - ???mPoppedPos points to beginning of while condition
+  // - ???mPoppedSrc.mPos points to beginning of while condition
   mSrc.skipNonCode();
   ForWhileController* forWhileControllerP = static_cast<ForWhileController*>(mStatementHelper.get());
   if (forWhileControllerP->mIsFor) {
@@ -5194,7 +5194,7 @@ void SourceProcessor::s_loopBodyDone()
     checkAndResumeAt(&SourceProcessor::s_oneStatement);
     return;
   }
-  mPoppedPos = mSrc.mPos; // s_loopEnd expects to be normally called from pop
+  mPoppedSrc = mSrc; // s_loopEnd expects to be normally called from pop
   s_loopRecheck();
 }
 
@@ -5212,7 +5212,7 @@ void SourceProcessor::s_loopRecheck()
     return;
   }
   // no need to re-evaluate
-  mPoppedPos = mSrc.mPos; // s_loopEnd expects to be normally called from pop
+  mPoppedSrc = mSrc; // s_loopEnd expects to be normally called from pop
   s_loopEnd();
 }
 
@@ -5221,7 +5221,7 @@ void SourceProcessor::s_loopEnd()
 {
   FOCUSLOGSTATE
   // result is re-evaluation of the condition
-  // mPoppedPos is at the end of the loop body
+  // mPoppedSrc is at the end of the loop body
   if (!mSkipping) {
     ForWhileController* forWhileControllerP = static_cast<ForWhileController*>(mStatementHelper.get());
     if (mResult->boolValue()) {
@@ -5233,7 +5233,7 @@ void SourceProcessor::s_loopEnd()
     }
   }
   // done or skipping because condition was false in the first place or "break" set skipping in the stack with skipUntilReaching()
-  mSrc.mPos = mPoppedPos; // end of loop body
+  mSrc = mPoppedSrc; // end of loop body
   pop(); // end while
   checkAndResume();
   return;
