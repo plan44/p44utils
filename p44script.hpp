@@ -59,6 +59,9 @@
 #ifndef P44SCRIPT_DATA_SUBDIR
   #define P44SCRIPT_DATA_SUBDIR "p44script"
 #endif
+#ifndef P44SCRIPT_INCLUDE_SUBDIR
+  #define P44SCRIPT_INCLUDE_SUBDIR "p44include"
+#endif
 
 
 using namespace std;
@@ -80,6 +83,8 @@ namespace p44 { namespace P44Script {
   class ImplementationObj;
   class CompiledCode;
   typedef boost::intrusive_ptr<CompiledCode> CompiledCodePtr;
+  class CompiledFunction;
+  typedef boost::intrusive_ptr<CompiledFunction> CompiledFunctionPtr;
   class CompiledScript;
   typedef boost::intrusive_ptr<CompiledScript> CompiledScriptPtr;
   class CompiledTrigger;
@@ -107,6 +112,8 @@ namespace p44 { namespace P44Script {
   typedef boost::intrusive_ptr<SourceContainer> SourceContainerPtr;
   class SourceHost;
   typedef boost::intrusive_ptr<SourceHost> SourceHostPtr;
+  class ScriptIncludeHost;
+  typedef boost::intrusive_ptr<ScriptIncludeHost> ScriptIncludeHostPtr;
   class ScriptHost;
   typedef boost::intrusive_ptr<ScriptHost> ScriptHostPtr;
 
@@ -1357,7 +1364,7 @@ namespace p44 { namespace P44Script {
     typedef ExecutionContext inherited;
     friend class ScriptCodeThread;
     friend class ScriptMainContext;
-    friend class CompiledCode;
+    friend class CompiledFunction;
     friend class CompiledScript;
 
     SimpleVarContainer mLocalVars;
@@ -1412,7 +1419,7 @@ namespace p44 { namespace P44Script {
     /// @param aChainedFromThread the thread which chains to this thread (e.g. to execute a function), waiting for completion
     /// @param aThreadLocals optionally, the (structured) object that provides thread local members
     /// @param aMaxRunTime optionally, maximum time the thread may run before it is aborted by timeout
-    ScriptCodeThreadPtr newThreadFrom(CompiledCodePtr aCodeObj, SourceCursor &aFromCursor, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB, ScriptCodeThreadPtr aChainedFromThread, ScriptObjPtr aThreadLocals = ScriptObjPtr(), MLMicroSeconds aMaxRunTime = Infinite);
+    ScriptCodeThreadPtr newThreadFrom(CompiledFunctionPtr aCodeObj, SourceCursor &aFromCursor, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB, ScriptCodeThreadPtr aChainedFromThread, ScriptObjPtr aThreadLocals = ScriptObjPtr(), MLMicroSeconds aMaxRunTime = Infinite);
 
     /// abort evaluation of all threads
     /// @param aAbortFlags set stoprunning to abort currently running threads, queue to empty the queued threads
@@ -1434,7 +1441,7 @@ namespace p44 { namespace P44Script {
 
     /// @param aCodeObj the object to check for
     /// @return true if aCodeObj already has a paused thread in this context
-    virtual bool hasThreadPausedIn(CompiledCodePtr aCodeObj) const;
+    virtual bool hasThreadPausedIn(CompiledFunctionPtr aCodeObj) const;
     #endif
 
   protected:
@@ -1489,7 +1496,7 @@ namespace p44 { namespace P44Script {
 
     /// @param aCodeObj the object to check for
     /// @return true if aCodeObj already has a paused thread in this context
-    virtual bool hasThreadPausedIn(CompiledCodePtr aCodeObj) const P44_OVERRIDE;
+    virtual bool hasThreadPausedIn(CompiledFunctionPtr aCodeObj) const P44_OVERRIDE;
 
     #endif // P44SCRIPT_DEBUGGING_SUPPORT
 
@@ -1695,25 +1702,31 @@ namespace p44 { namespace P44Script {
   class SourceContainer : public P44Obj
   {
     friend class SourceCursor;
+    friend class ScriptIncludeHost;
     friend class ScriptHost;
     friend class CompiledScript;
     friend class CompiledCode;
     friend class ExecutionContext;
+    friend class CompiledCode;
+    friend class CompiledFunction;
+    friend class CompiledScript;
 
     const char *mOriginLabel; ///< a label used for logging and error reporting
     P44LoggingObj* mLoggingContextP; ///< the logging context
     string mSource; ///< the source code as written by the script author
     bool mFloating; ///< if set, the source is not linked but is a private copy
-    ScriptHost* mScriptHostP; ///< the script host
+    SourceHost* mSourceHostP; ///< the source host
 
   public:
     /// create source container not attached to a script source
     /// @note this kind of container cannot be used for debugging as there is no way for the debugger to find the source
     SourceContainer(const char *aOriginLabel, P44LoggingObj* aLoggingContextP, const string aSource);
 
-    /// create source container linked to script source
-    /// @note origin label, logging context, source will be taken from script source
-    SourceContainer(ScriptHost* aHostSourceP, const string aSource);
+    #if P44SCRIPT_REGISTERED_SOURCE
+    /// create source container linked to source host
+    /// @note origin label and logging context will be taken from aHostSourceP
+    SourceContainer(SourceHost* aHostSourceP, const string aSource);
+    #endif
 
     /// create source container copying a source part from another container
     SourceContainer(const SourceCursor &aCodeFrom, const SourcePos &aStartPos, const SourcePos &aEndPos);
@@ -1723,7 +1736,7 @@ namespace p44 { namespace P44Script {
 
     /// @return script source host of this container, or nullptr when the container is not hosted by a ScriptHost
     /// @note this is a non-retaining backreference
-    ScriptHost* scriptHost() { return mScriptHostP; }
+    SourceHost* scriptHost() { return mSourceHostP; }
 
     /// @return true if this source is floating, i.e. not part of a still existing script
     bool floating() { return mFloating; }
@@ -1795,6 +1808,140 @@ namespace p44 { namespace P44Script {
     virtual P44LoggingObj* getLoggingContext() { return nullptr; };
 
   };
+
+
+  #if P44SCRIPT_REGISTERED_SOURCE
+
+
+  // class representing source in a file
+  class FileHost : public SourceHost
+  {
+    typedef SourceHost inherited;
+    friend class ScriptingDomain;
+
+    string mSourceHostUid; ///< domain-unique, persistent ID for this source
+    string mTitle; ///< title to display
+
+  protected:
+
+    ScriptingDomain& mDomain;
+    string mFilePath; ///< the file this ExternalFileHost represents
+    uint32_t mContentHash; ///< the content hash to prevent unneeded saves
+
+    FileHost(
+      ScriptingDomain& aDomain,
+      const string aSourceHostUid,
+      const string aFilePath,
+      const string aTitle
+    );
+
+    virtual ~FileHost();
+
+    /// read from file and update content hash
+    static ErrorPtr readFromFile(const string aFilePath, string& aContent, uint32_t& aContentHash, bool aMustExist);
+
+    /// save to file when content hash has changed
+    static ErrorPtr saveToFile(const string aFilePath, const string aContent, uint32_t& aContentHash);
+
+  public:
+
+    /// @return the source UID or a dummy placeholder in case it is not set
+    virtual string getSourceUid() P44_OVERRIDE;
+
+    /// @return true for scripts that can be started/stopped in their own context, false otherwise
+    virtual bool isScript() const P44_OVERRIDE { return false; }
+
+    /// @return title for this source
+    virtual string getSourceTitle() P44_OVERRIDE;
+
+    /// helper for file path parsing and checking
+    static ErrorPtr parsePath(const string aFilePath, string &aSourceHostUid, string& aTitle);
+
+  };
+
+
+  // class representing an included script source
+  class ScriptIncludeHost : public FileHost
+  {
+    typedef FileHost inherited;
+    friend class ScriptingDomain;
+    friend class CompiledInclude;
+    SourceContainerPtr mSourceContainer; ///< contains the include (cached for execution)
+    bool mReadOnly;
+
+  protected:
+
+    // protected constructor, use factory/lookup methods in domain to create
+    ScriptIncludeHost(
+      ScriptingDomain& aDomain,
+      const string aSourceHostUid,
+      const string aIncludedFilePath,
+      const string aTitle,
+      const string aContent,
+      uint32_t aContentHash,
+      bool aReadOnly
+    );
+
+  public:
+
+    /// get the source code
+    /// @return the source code as set by setSource()
+    virtual string getSource() const P44_OVERRIDE;
+
+    /// sets source text and stores source by scriptSourceUid to domain level if different from previous version
+    /// @param aSource the source text to set
+    /// @return true if aSource was different from the previous source AND is not stored in domain-level store.
+    ///   This return value is indended for the caller to to mark a locally persisted object dirty if the changed
+    ///   source must be stored locally.
+    virtual bool setAndStoreSource(const string& aSource) P44_OVERRIDE;
+
+    /// @return the context type for this source text, to allow editor to group texts
+    virtual string getContextType() P44_OVERRIDE { return "include"; };
+
+  };
+
+
+  #if P44SCRIPT_OTHER_SOURCES
+
+  // class representing non-script text file source
+  class ExternalFileHost : public FileHost
+  {
+    typedef FileHost inherited;
+    friend class ScriptingDomain;
+
+    string mContextType; ///< the context type
+
+    // private constructor, use addTextFileHost() factory method in domain
+    ExternalFileHost(
+      ScriptingDomain& aDomain,
+      const string aSourceHostUid,
+      const string aFilePath,
+      const string aTitle,
+      const string aContextType
+    );
+
+  public:
+
+    /// get the source code
+    /// @return the source code as set by setSource()
+    virtual string getSource() const P44_OVERRIDE;
+
+    /// sets source text and stores source by scriptSourceUid to domain level if different from previous version
+    /// @param aSource the source text to set
+    /// @return true if aSource was different from the previous source AND is not stored in domain-level store.
+    ///   This return value is indended for the caller to to mark a locally persisted object dirty if the changed
+    ///   source must be stored locally.
+    virtual bool setAndStoreSource(const string& aSource) P44_OVERRIDE;
+
+    /// @return the context type for this source text, to allow editor to group texts
+    virtual string getContextType() P44_OVERRIDE;
+
+  };
+
+  #endif // P44SCRIPT_OTHER_SOURCES
+  #endif // P44SCRIPT_REGISTERED_SOURCE
+
+
 
 
   typedef enum {
@@ -2068,11 +2215,6 @@ namespace p44 { namespace P44Script {
     ///    - %O will be replaced by origin label
     virtual string getSourceTitle() P44_OVERRIDE;
 
-    /// check if a cursor refers to this source
-    /// @param aCursor the cursor to check
-    /// @return true if the cursor is in this source
-    bool refersTo(const SourceCursor& aCursor);
-
     /// @return true if empty
     bool empty() const;
 
@@ -2223,65 +2365,6 @@ namespace p44 { namespace P44Script {
   };
 
 
-  #if P44SCRIPT_OTHER_SOURCES
-
-  // class representing non-script text file source
-  class TextFileHost : public SourceHost
-  {
-    typedef SourceHost inherited;
-    friend class ScriptingDomain;
-
-    ScriptingDomain& mDomain;
-    string mSourceHostUid; ///< domain-unique, persistent ID for this source
-    string mEditedFilePath; ///< the file this TextFileHost edits
-    string mTitle; ///< title to display
-    string mContextType; ///< the context type
-    uint32_t mContentHash; ///< the content hash to prevent unneeded saves
-
-    // private constructor, use addTextFileHost() factory method in domain
-    TextFileHost(
-      ScriptingDomain& aDomain,
-      const string aSourceHostUid,
-      const string aFilePath,
-      const string aTitle,
-      const string aContextType
-    );
-
-    virtual ~TextFileHost();
-
-  public:
-
-    /// @return the source UID or a dummy placeholder in case it is not set
-    virtual string getSourceUid() P44_OVERRIDE;
-
-    /// @return true for scripts that can be started/stopped/debugged, false for other editable source texts
-    virtual bool isScript() const P44_OVERRIDE { return false; }
-
-    /// get the source code
-    /// @return the source code as set by setSource()
-    virtual string getSource() const P44_OVERRIDE;
-
-    /// sets source text and stores source by scriptSourceUid to domain level if different from previous version
-    /// @param aSource the source text to set
-    /// @return true if aSource was different from the previous source AND is not stored in domain-level store.
-    ///   This return value is indended for the caller to to mark a locally persisted object dirty if the changed
-    ///   source must be stored locally.
-    virtual bool setAndStoreSource(const string& aSource) P44_OVERRIDE;
-
-    /// @return title for this source
-    virtual string getSourceTitle() P44_OVERRIDE;
-
-    /// @return the context type for this source text, to allow editor to group texts
-    virtual string getContextType() P44_OVERRIDE;
-
-  };
-
-  #endif // P44SCRIPT_OTHER_SOURCES
-
-
-
-
-
   #if P44SCRIPT_DEBUGGING_SUPPORT
   /// called when a thread is paused
   /// @param aPausedThread the thread that got paused
@@ -2299,7 +2382,7 @@ namespace p44 { namespace P44Script {
     MLMicroSeconds mMaxBlockTime;
 
     #if P44SCRIPT_REGISTERED_SOURCE
-    typedef std::vector<SourceHost*> SourceHostsVector;
+    typedef std::vector<SourceHostPtr> SourceHostsVector;
     SourceHostsVector mSourceHosts;
     #endif
 
@@ -2386,10 +2469,10 @@ namespace p44 { namespace P44Script {
     SourceHostPtr getHostByIndex(size_t aSourceIndex) const;
 
     /// @return script source specified by index or NULL if it does not exist
-    ScriptHostPtr getHostByUid(const string aSourceUid) const;
+    SourceHostPtr getHostByUid(const string aSourceUid) const;
 
-    /// @return script source host for given thread - auto-create/register one if thread does not originate from an already registered host
-    ScriptHostPtr getHostForThread(const ScriptCodeThreadPtr aScriptCodeThread);
+    /// @return source host for given thread - auto-create/register one if thread does not originate from an already registered host
+    SourceHostPtr getHostForThread(const ScriptCodeThreadPtr aScriptCodeThread);
 
     /// try to load source text from domain level script storage
     /// @param aSource will be set to the source code loaded
@@ -2401,18 +2484,22 @@ namespace p44 { namespace P44Script {
     /// @return true if aSource (even empty) could be persisted in the domain level storage
     virtual bool storeSource(const string &aScriptHostUid, const string &aSource) { return false; /* no actual storage in base class */ }
 
-    #if P44SCRIPT_OTHER_SOURCES
+    /// get include host from domain level storage
+    /// @param aIncludeFilePath the include file path to lookup/load the include file for
+    /// @param aReadOnly if set, the file must exist. Otherwise, non-existing files will be registered with empty content
+    /// @return CompiledCode for the include or error
+    ScriptObjPtr getIncludedCode(const string aIncludeFilePath, bool aReadOnly);
 
+    #if P44SCRIPT_OTHER_SOURCES
     /// create a non-script source host as a proxy for a editable text file
     /// @param aFilePath the file path to be edited
     /// @param aTitle the title to display for the file, defaults to file name w/o path
     /// @param aTitle the context type (indication for sorting editable files in UI), defaults to "textfile"
-    ErrorPtr addTextFileHost(
+    ErrorPtr addExternalFileHost(
       string aFilePath,
       string aTitle,
       string aContextType
     );
-
     #endif // P44SCRIPT_OTHER_SOURCES
 
     /// @}
@@ -2813,6 +2900,10 @@ namespace p44 { namespace P44Script {
     void s_defineGlobalHandler(); ///< store the handler script of a of a global on(...) {...} statement
     void s_defineLocalHandler(); ///< store the handler script of a of a on(...) {...} statement
     void defineHandler(bool aGlobal); ///< store the handler script
+    #if P44SCRIPT_REGISTERED_SOURCE
+    // Include
+    void s_include();
+    #endif // P44SCRIPT_REGISTERED_SOURCE
     #endif // P44SCRIPT_FULL_SUPPORT
 
     // Generic
@@ -2830,10 +2921,47 @@ namespace p44 { namespace P44Script {
 
   // MARK: "compiled" code
 
-  /// compiled code, by default as a subroutine/function called from a context
+  /// compiled code part, ready to be executed
   class CompiledCode : public ImplementationObj
   {
     typedef ImplementationObj inherited;
+
+  protected:
+
+    SourceCursor mCursor; ///< reference to the source part from which this object originates from
+
+  public:
+
+    void setCursor(const SourceCursor& aCursor);
+
+    SourceCursor getCursor() { return mCursor; };
+
+    bool codeFromSameSourceAs(const CompiledCode &aCode) const; ///< return true if both compiled codes are from the same source position
+    virtual bool originatesFrom(SourceContainerPtr aSource) const P44_OVERRIDE { return mCursor.refersTo(aSource); };
+    virtual bool floating() const P44_OVERRIDE { return mCursor.mSourceContainer->floating(); }
+    virtual P44LoggingObj* loggingContext() const P44_OVERRIDE { return mCursor.mSourceContainer ? mCursor.mSourceContainer->mLoggingContextP : NULL; };
+  };
+
+
+  #if P44SCRIPT_REGISTERED_SOURCE
+
+  class CompiledInclude : public CompiledCode
+  {
+    typedef CompiledCode inherited;
+  public:
+
+    CompiledInclude(const SourceCursor& aCursor) { mCursor = aCursor; };
+
+    virtual string getAnnotation() const P44_OVERRIDE { return "include"; };
+  };
+
+  #endif // P44SCRIPT_REGISTERED_SOURCE
+
+
+  /// compiled function, by default as a subroutine/function called from a context
+  class CompiledFunction : public CompiledCode
+  {
+    typedef CompiledCode inherited;
     friend class ScriptCodeContext;
     friend class SourceProcessor;
     friend class ScriptMainContext;
@@ -2842,7 +2970,6 @@ namespace p44 { namespace P44Script {
 
   protected:
     string mName;
-    SourceCursor mCursor; ///< reference to the source part from which this object originates from
 
     /// define argument
     void pushArgumentDefinition(TypeInfo aTypeInfo, const string aArgumentName);
@@ -2850,14 +2977,9 @@ namespace p44 { namespace P44Script {
   public:
     virtual string getAnnotation() const P44_OVERRIDE { return "function"; };
 
-    CompiledCode(const string aName) : mName(aName) {};
-    CompiledCode(const string aName, const SourceCursor& aCursor) : mName(aName), mCursor(aCursor) {};
-    virtual ~CompiledCode();
-    void setCursor(const SourceCursor& aCursor);
-    bool codeFromSameSourceAs(const CompiledCode &aCode) const; ///< return true if both compiled codes are from the same source position
-    virtual bool originatesFrom(SourceContainerPtr aSource) const P44_OVERRIDE { return mCursor.refersTo(aSource); };
-    virtual bool floating() const P44_OVERRIDE { return mCursor.mSourceContainer->floating(); }
-    virtual P44LoggingObj* loggingContext() const P44_OVERRIDE { return mCursor.mSourceContainer ? mCursor.mSourceContainer->mLoggingContextP : NULL; };
+    CompiledFunction(const string aName) : mName(aName) {};
+    CompiledFunction(const string aName, const SourceCursor& aCursor) : mName(aName) { mCursor = aCursor; };
+    virtual ~CompiledFunction();
 
     /// get subroutine context to call this object as a subroutine/function call from a given context
     /// @param aMainContext the context from where this function is now called (the same function can be called
@@ -2872,15 +2994,14 @@ namespace p44 { namespace P44Script {
 
     /// get identifier (name) of this function object
     virtual string getIdentifier() const P44_OVERRIDE { return mName; };
-
-
   };
 
 
+
   /// compiled main script, using a specific main context to run in
-  class CompiledScript : public CompiledCode
+  class CompiledScript : public CompiledFunction
   {
-    typedef CompiledCode inherited;
+    typedef CompiledFunction inherited;
     friend class ScriptCompiler;
 
   protected:
@@ -3104,7 +3225,7 @@ namespace p44 { namespace P44Script {
     /// @param aParsingMode how to parse (as expression, scriptbody or full script with function+handler definitions)
     /// @param aMainContext the context in which this script should execute in. It is stored with the
     /// @return aIntoCodeObj on success or error on failure (syntax, other fatal problems)
-    ScriptObjPtr compile(SourceContainerPtr aSource, CompiledCodePtr aIntoCodeObj, EvaluationFlags aParsingMode, ScriptMainContextPtr aMainContext);
+    ScriptObjPtr compile(SourceContainerPtr aSource, CompiledFunctionPtr aIntoCodeObj, EvaluationFlags aParsingMode, ScriptMainContextPtr aMainContext);
 
     #if P44SCRIPT_FULL_SUPPORT
 
@@ -3158,7 +3279,7 @@ namespace p44 { namespace P44Script {
 
     ScriptCodeContextPtr mOwner; ///< the execution context which owns (has started) this thread
     ScriptObjPtr mThreadLocals; ///< the thread locals (might be set at thread creation already, or gets created on demand as SimpleVarContainer later)
-    CompiledCodePtr mCodeObj; ///< the code object this thread is running
+    CompiledFunctionPtr mCodeObj; ///< the code object this thread is running
     MLMicroSeconds mMaxBlockTime; ///< how long the thread is allowed to block in evaluate()
     MLMicroSeconds mMaxRunTime; ///< how long the thread is allowed to run overall
 
@@ -3181,7 +3302,7 @@ namespace p44 { namespace P44Script {
     /// @param aStartCursor the start point for the script
     /// @param aThreadLocals the (structured) object that provides thread local members (can be NULL)
     /// @param aChainOriginThread the origin of the sequential "thread" chain (as user defined functions always start a "thread")
-    ScriptCodeThread(ScriptCodeContextPtr aOwner, CompiledCodePtr aCode, const SourceCursor& aStartCursor, ScriptObjPtr aThreadLocals, ScriptCodeThreadPtr aChainedFromThread);
+    ScriptCodeThread(ScriptCodeContextPtr aOwner, CompiledFunctionPtr aCode, const SourceCursor& aStartCursor, ScriptObjPtr aThreadLocals, ScriptCodeThreadPtr aChainedFromThread);
 
     virtual ~ScriptCodeThread();
 

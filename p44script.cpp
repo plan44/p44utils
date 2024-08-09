@@ -1960,7 +1960,7 @@ bool ScriptCodeContext::abortThreadsRunningSource(SourceContainerPtr aSource, Sc
 
 /// @param aCodeObj the object to check for
 /// @return true if aCodeObj already has a paused thread in this context
-bool ScriptCodeContext::hasThreadPausedIn(CompiledCodePtr aCodeObj) const
+bool ScriptCodeContext::hasThreadPausedIn(CompiledFunctionPtr aCodeObj) const
 {
   for (ThreadList::const_iterator pos = mThreads.begin(); pos!=mThreads.end(); ++pos) {
     if ((*pos)->pauseReason()>unpause && (*pos)->mCodeObj==aCodeObj) {
@@ -1983,7 +1983,7 @@ void ScriptCodeContext::execute(ScriptObjPtr aToExecute, EvaluationFlags aEvalFl
     return;
   }
   // must be compiled code at this point
-  CompiledCodePtr code = boost::dynamic_pointer_cast<CompiledCode>(aToExecute);
+  CompiledFunctionPtr code = boost::dynamic_pointer_cast<CompiledFunction>(aToExecute);
   if (!code) {
     if (aEvaluationCB) aEvaluationCB(new ErrorValue(ScriptError::Internal, "Object to be run must be compiled code!"));
     return;
@@ -2013,7 +2013,7 @@ void ScriptCodeContext::execute(ScriptObjPtr aToExecute, EvaluationFlags aEvalFl
 }
 
 
-ScriptCodeThreadPtr ScriptCodeContext::newThreadFrom(CompiledCodePtr aCodeObj, SourceCursor &aFromCursor, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB, ScriptCodeThreadPtr aChainedFromThread, ScriptObjPtr aThreadLocals, MLMicroSeconds aMaxRunTime)
+ScriptCodeThreadPtr ScriptCodeContext::newThreadFrom(CompiledFunctionPtr aCodeObj, SourceCursor &aFromCursor, EvaluationFlags aEvalFlags, EvaluationCB aEvaluationCB, ScriptCodeThreadPtr aChainedFromThread, ScriptObjPtr aThreadLocals, MLMicroSeconds aMaxRunTime)
 {
   // prepare a thread for executing now or later
   // Note: thread gets an owning Ptr back to this, so this context cannot be destructed before all
@@ -2236,7 +2236,7 @@ bool ScriptMainContext::isExecutingSource(SourceContainerPtr aSource)
 
 /// @param aCodeObj the object to check for
 /// @return true if aCodeObj already has a paused thread in this context
-bool ScriptMainContext::hasThreadPausedIn(CompiledCodePtr aCodeObj) const
+bool ScriptMainContext::hasThreadPausedIn(CompiledFunctionPtr aCodeObj) const
 {
   if (inherited::hasThreadPausedIn(aCodeObj)) return true;
   // also check related threads
@@ -3441,7 +3441,7 @@ void SourceProcessor::throwOrComplete(ErrorValuePtr aError)
 
 ScriptObjPtr SourceProcessor::captureCode(ScriptObjPtr aCodeContainer)
 {
-  CompiledCodePtr code = boost::dynamic_pointer_cast<CompiledCode>(aCodeContainer);
+  CompiledFunctionPtr code = boost::dynamic_pointer_cast<CompiledFunction>(aCodeContainer);
   if (!code) {
     return new ErrorPosValue(mSrc, ScriptError::Internal, "no compiled code");
   }
@@ -4236,8 +4236,8 @@ void SourceProcessor::s_exprRightSide()
 
 #if P44SCRIPT_FULL_SUPPORT
 
-// MARK: Declarations
 
+// MARK: Declarations
 
 void SourceProcessor::s_declarations()
 {
@@ -4264,7 +4264,7 @@ void SourceProcessor::processFunction(bool aGlobal)
     exitWithSyntaxError("function name expected");
     return;
   }
-  CompiledCodePtr function = CompiledCodePtr(new CompiledCode(mIdentifier));
+  CompiledFunctionPtr function = CompiledFunctionPtr(new CompiledFunction(mIdentifier));
   // optional argument list
   mSrc.skipNonCode();
   if (mSrc.nextIf('(')) {
@@ -4485,6 +4485,41 @@ void SourceProcessor::defineHandler(bool aGlobal)
   pop();
   checkAndResume();
 }
+
+
+#if P44SCRIPT_REGISTERED_SOURCE
+
+// MARK: Include
+
+void SourceProcessor::s_include()
+{
+  string fn = mResult->stringValue();
+  #if !ALWAYS_ALLOW_ALL_FILES
+  bool isResource = fn.substr(0,2)=="+/";
+  size_t psz = isResource || fn.substr(0,2)=="_/" ? 2 : 0; // allow _/ temp and +/ resource prefix (but not =/)
+  if (
+    Application::sharedApplication()->userLevel()<2 && // only user level 2 is allowed to write everywhere
+    (fn.find("/", psz)!=string::npos || fn.find("..", psz)!=string::npos)
+  ) {
+    mResult = new ErrorValue(ScriptError::NoPrivilege, "no privilege for this include path");
+    checkAndResume();
+    return;
+  }
+  #endif
+  fn = Application::sharedApplication()->dataPath(fn, P44SCRIPT_INCLUDE_SUBDIR "/", !isResource);
+  mResult = ScriptingDomain().getIncludedCode(fn, isResource);
+  CompiledCodePtr code = boost::dynamic_pointer_cast<CompiledCode>(mResult);
+  if (code) {
+    // continue processing in the included code
+    push(mCurrentState); // return to where we were before after the include
+    mSrc = code->getCursor(); // now continue in the include
+  }
+  // resume in include or report error
+  checkAndResume();
+}
+
+#endif // P44SCRIPT_REGISTERED_SOURCE
+
 
 // MARK: Statements
 
@@ -4792,6 +4827,15 @@ void SourceProcessor::processStatement()
       processFunction(true); // global function
       return;
     }
+    #if P44SCRIPT_REGISTERED_SOURCE
+    // check for include
+    if (uequals(mIdentifier, "include")) {
+      mSrc.skipNonCode();
+      push(&SourceProcessor::s_include);
+      resumeAt(&SourceProcessor::s_expression);
+      return;
+    }
+    #endif
     // identifier we've parsed above is not a keyword, rewind cursor
     mSrc.mPos = memPos;
   }
@@ -5448,7 +5492,7 @@ void SourceProcessor::memberEventCheck()
 void CompiledCode::setCursor(const SourceCursor& aCursor)
 {
   mCursor = aCursor;
-  FOCUSLOG("New code named '%s' @ 0x%p: %s", mName.c_str(), this, mCursor.displaycode(70).c_str());
+  FOCUSOLOG("New code @ 0x%p: %s", this, mCursor.displaycode(70).c_str());
 }
 
 
@@ -5458,18 +5502,22 @@ bool CompiledCode::codeFromSameSourceAs(const CompiledCode &aCode) const
 }
 
 
-CompiledCode::~CompiledCode()
+
+
+// MARK: - CompiledFunction
+
+CompiledFunction::~CompiledFunction()
 {
   FOCUSLOG("Released code named '%s' @ 0x%p", mName.c_str(), this);
 }
 
-ExecutionContextPtr CompiledCode::contextForCallingFrom(ScriptMainContextPtr aMainContext, ScriptCodeThreadPtr aThread) const
+ExecutionContextPtr CompiledFunction::contextForCallingFrom(ScriptMainContextPtr aMainContext, ScriptCodeThreadPtr aThread) const
 {
   // functions get executed in a private context linked to the caller's (main) context
   return new ScriptCodeContext(aMainContext);
 }
 
-void CompiledCode::pushArgumentDefinition(TypeInfo aTypeInfo, const string aArgumentName)
+void CompiledFunction::pushArgumentDefinition(TypeInfo aTypeInfo, const string aArgumentName)
 {
   ArgumentDescriptor arg;
   arg.typeInfo = aTypeInfo;
@@ -5478,7 +5526,7 @@ void CompiledCode::pushArgumentDefinition(TypeInfo aTypeInfo, const string aArgu
 }
 
 
-bool CompiledCode::argumentInfo(size_t aIndex, ArgumentDescriptor& aArgDesc) const
+bool CompiledFunction::argumentInfo(size_t aIndex, ArgumentDescriptor& aArgDesc) const
 {
   size_t idx = aIndex;
   if (idx>=mArguments.size()) {
@@ -5970,7 +6018,7 @@ void ScriptCompiler::deactivate()
 }
 
 
-ScriptObjPtr ScriptCompiler::compile(SourceContainerPtr aSource, CompiledCodePtr aIntoCodeObj, EvaluationFlags aParsingMode, ScriptMainContextPtr aMainContext)
+ScriptObjPtr ScriptCompiler::compile(SourceContainerPtr aSource, CompiledFunctionPtr aIntoCodeObj, EvaluationFlags aParsingMode, ScriptMainContextPtr aMainContext)
 {
   if (!aSource) return new ErrorValue(ScriptError::Internal, "No source code");
   // set up starting point
@@ -6054,23 +6102,24 @@ void ScriptCompiler::storeHandler()
 // MARK: - SourceContainer
 
 
-SourceContainer::SourceContainer(ScriptHost* aHostSourceP, const string aSource) :
+#if P44SCRIPT_REGISTERED_SOURCE
+SourceContainer::SourceContainer(SourceHost* aHostSourceP, const string aSource) :
   mFloating(false),
-  mScriptHostP(aHostSourceP)
+  mSourceHostP(aHostSourceP)
 {
-  assert(mScriptHostP);
-  mOriginLabel = mScriptHostP->getOriginLabel();
-  mLoggingContextP = mScriptHostP->getLoggingContext();
+  assert(mSourceHostP);
+  mOriginLabel = mSourceHostP->getOriginLabel();
+  mLoggingContextP = mSourceHostP->getLoggingContext();
   mSource = aSource;
 }
-
+#endif
 
 SourceContainer::SourceContainer(const char *aOriginLabel, P44LoggingObj* aLoggingContextP, const string aSource) :
   mOriginLabel(aOriginLabel),
   mLoggingContextP(aLoggingContextP),
   mSource(aSource),
   mFloating(false),
-  mScriptHostP(nullptr)
+  mSourceHostP(nullptr)
 {
 }
 
@@ -6079,7 +6128,7 @@ SourceContainer::SourceContainer(const SourceCursor &aCodeFrom, const SourcePos 
   mOriginLabel("copied"),
   mLoggingContextP(aCodeFrom.mSourceContainer->mLoggingContextP),
   mFloating(true), // copied source is floating
-  mScriptHostP(nullptr)
+  mSourceHostP(nullptr)
 {
   mSource.assign(aStartPos.mPtr, aEndPos.mPtr-aStartPos.mPtr);
 }
@@ -6137,8 +6186,8 @@ ScriptHost::~ScriptHost()
     domain()->unregisterSourceHost(*this);
     #endif
     // - possible backreference in container
-    if (mActiveParams->mSourceContainer && mActiveParams->mSourceContainer->mScriptHostP==this) {
-      mActiveParams->mSourceContainer->mScriptHostP = nullptr;
+    if (mActiveParams->mSourceContainer && mActiveParams->mSourceContainer->mSourceHostP==this) {
+      mActiveParams->mSourceContainer->mSourceHostP = nullptr;
     }
     delete mActiveParams;
     mActiveParams = nullptr;
@@ -6205,7 +6254,7 @@ void ScriptHost::registerScript()
 
 void ScriptHost::registerUnstoredScript(const string aScriptHostUid)
 {
-  setScriptHostUid(aScriptHostUid);
+  setScriptHostUid(aScriptHostUid, true);
   registerScript();
 }
 
@@ -6581,12 +6630,6 @@ P44LoggingObj* ScriptHost::getLoggingContext()
 
 
 
-bool ScriptHost::refersTo(const SourceCursor& aCursor)
-{
-  return active() ? aCursor.refersTo(mActiveParams->mSourceContainer) : false; // can't refer to inactive source
-}
-
-
 ScriptObjPtr ScriptHost::getExecutable()
 {
   if (active() && mActiveParams->mSourceContainer) {
@@ -6598,9 +6641,9 @@ ScriptObjPtr ScriptHost::getExecutable()
         // default to independent execution in a non-object context (no instance pointer)
         mctx = domain()->newContext();
       }
-      CompiledCodePtr code;
+      CompiledFunctionPtr code;
       if (mActiveParams->mDefaultFlags & anonymousfunction) {
-        code = new CompiledCode("anonymous");
+        code = new CompiledFunction("anonymous");
       }
       else if (mActiveParams->mDefaultFlags & (triggered|timed|initial)) {
         code = new CompiledTrigger(!mActiveParams->mOriginLabel.empty() ? mActiveParams->mOriginLabel : "trigger", mctx);
@@ -6626,7 +6669,7 @@ ScriptObjPtr ScriptHost::syntaxcheck()
     // default to independent execution in a non-object context (no instance pointer)
     mctx = domain()->newContext();
   }
-  return compiler.compile(mActiveParams->mSourceContainer, CompiledCodePtr(), checkFlags, mctx);
+  return compiler.compile(mActiveParams->mSourceContainer, CompiledFunctionPtr(), checkFlags, mctx);
 }
 
 
@@ -6882,44 +6925,200 @@ void TriggerSource::nextEvaluationNotLaterThan(MLMicroSeconds aLatestEval)
 }
 
 
-#if P44SCRIPT_OTHER_SOURCES
+#if P44SCRIPT_REGISTERED_SOURCE
 
-// MARK: - TextFileHost
+// MARK: - FileHost
 
-// factory method in domain
-ErrorPtr ScriptingDomain::addTextFileHost(
-  string aFilePath,
-  string aTitle,
-  string aContextType
-) {
+FileHost::FileHost(
+  ScriptingDomain& aDomain,
+  const string aSourceHostUid,
+  const string aFilePath,
+  const string aTitle
+) :
+  mDomain(aDomain),
+  mSourceHostUid(aSourceHostUid),
+  mFilePath(aFilePath),
+  mTitle(aTitle)
+{
+  // register
+  mDomain.registerSourceHost(*this);
+}
+
+
+FileHost::~FileHost()
+{
+  mDomain.unregisterSourceHost(*this);
+}
+
+
+string FileHost::getSourceUid()
+{
+  return mSourceHostUid;
+}
+
+
+string FileHost::getSourceTitle()
+{
+  return mTitle;
+}
+
+
+ErrorPtr FileHost::parsePath(const string aFilePath, string& aSourceHostUid, string& aTitle)
+{
   size_t p = aFilePath.find_last_of("/");
   if (aFilePath.empty() || aFilePath[0]!='/' || p==string::npos || p==1) {
-    return TextError::err("TextFileHost file path must be non-empty, absolute and not a file in root dir");
+    return TextError::err("FileHost file path must be non-empty, absolute and not a file in root dir");
   }
   // create a source ID without revealing the path: just name and hash of path
   Fnv32 pathHash;
   pathHash.addString(aFilePath);
-  string sourceHostUid = string_format("%s_%08X", aFilePath.substr(p+1).c_str(), pathHash.getHash());
+  aSourceHostUid = string_format("%s_%08X", aFilePath.substr(p+1).c_str(), pathHash.getHash());
   // title defaults to file name without path
   if (aTitle.empty()) aTitle = aFilePath.substr(p+1);
-  // now create
-  TextFileHost* tfh = new TextFileHost(*this, sourceHostUid, aFilePath, aTitle, aContextType);
-  tfh->isMemberVariable(); // like a member of the main program, never to be destroyed until program exits
-  return ErrorPtr(); // ok
+  return ErrorPtr();
 }
 
 
-TextFileHost::TextFileHost(
+
+ErrorPtr FileHost::readFromFile(const string aFilePath, string& aContent, uint32_t& aContentHash, bool aMustExist)
+{
+  // as this is an external file we only manage e.g. for accessing from an external editor
+  // but do not process the contents otherwise, do not waste RAM by caching it.
+  ErrorPtr err = string_fromfile(aFilePath, aContent);
+  if (Error::notOK(err) && (aMustExist || !Error::isError(err, SysError::domain(), ENOENT))) return err;
+  // new content
+  Fnv32 contentHash;
+  contentHash.addString(aContent);
+  aContentHash = contentHash.getHash();
+  return ErrorPtr();
+}
+
+
+ErrorPtr FileHost::saveToFile(const string aFilePath, const string aContent, uint32_t& aContentHash)
+{
+  ErrorPtr err;
+  Fnv32 contentHash;
+  contentHash.addString(aContent);
+  if (contentHash.getHash()!=aContentHash) {
+    // actually changed
+    err = string_tofile(aFilePath, aContent);
+    if (Error::isOK(err)) {
+      // sucessfully saved, update hash
+      aContentHash = contentHash.getHash();
+    }
+  }
+  return err;
+}
+
+
+// MARK: - IncludeHost
+
+// lookup/factory method in domain
+ScriptObjPtr ScriptingDomain::getIncludedCode(const string aIncludeFilePath, bool aReadOnly)
+{
+  string sourceHostUid;
+  string title;
+  ScriptIncludeHostPtr includeHost;
+  ErrorPtr err = FileHost::parsePath(aIncludeFilePath, sourceHostUid, title);
+  if (Error::notOK(err)) return new ErrorValue(err);
+  // see if we already have it
+  SourceHostPtr s = getHostByUid(sourceHostUid);
+  if (s) {
+    includeHost = boost::dynamic_pointer_cast<ScriptIncludeHost>(s);
+    if (!includeHost) return new ErrorValue(ScriptError::Internal, "file uid = '%s' exists but is not an include", sourceHostUid.c_str());
+  }
+  // if we do not have it, create empty sourcehost so editor will see it
+  if (!includeHost) {
+    // try to load from file
+    string content;
+    uint32_t contentHash;
+    ErrorPtr err = FileHost::readFromFile(aIncludeFilePath, content, contentHash, aReadOnly); // must exist if it is readonly
+    if (Error::notOK(err)) return new ErrorValue(err);
+    // create the
+    includeHost = new ScriptIncludeHost(*this, sourceHostUid, aIncludeFilePath, title, content, contentHash, aReadOnly);
+  }
+  // now we DO have a include host (but maybe no file yet when)
+  return new CompiledInclude(includeHost->mSourceContainer->getCursor());
+}
+
+
+ScriptIncludeHost::ScriptIncludeHost(
+  ScriptingDomain& aDomain,
+  const string aSourceHostUid,
+  const string aIncludedFilePath,
+  const string aTitle,
+  const string aText,
+  uint32_t aContentHash,
+  bool aReadOnly
+) :
+  inherited(aDomain, aSourceHostUid, aIncludedFilePath, aTitle),
+  mReadOnly(aReadOnly)
+{
+  mSourceContainer = new SourceContainer(this, aText);
+  mContentHash = aContentHash;
+}
+
+
+string ScriptIncludeHost::getSource() const
+{
+  return mSourceContainer->mSource;
+}
+
+
+bool ScriptIncludeHost::setAndStoreSource(const string& aSource)
+{
+  if (mReadOnly) {
+    LOG(LOG_ERR, "include file '%s' is read-only!", mFilePath.c_str());
+    return true; // not stored
+  }
+  // uncompile everything related
+  // TODO: track which contexts are using this file so we can abort them
+  //mSharedMainContext->abortThreadsRunningSource(mSourceContainer, new ErrorValue(ScriptError::Aborted, "Include changed while executing"));
+  mDomain.releaseObjsFromSource(mSourceContainer); // release all global objects from this source
+  // TODO: track which contexts are using this file so we can release all objects
+  //mSharedMainContext->releaseObjsFromSource(mSourceContainer); // release all main context objects from this source
+  mSourceContainer.reset(); // release that container
+  // TODO: handle breakpoints
+  // create a new one
+  mSourceContainer = new SourceContainer(this, aSource);
+  ErrorPtr err = FileHost::saveToFile(mFilePath, aSource, mContentHash);
+  if (Error::notOK(err)) {
+    LOG(LOG_ERR, "include file '%s' could not be stored", mFilePath.c_str());
+  }
+  return Error::notOK(err); // consider not stored on error
+}
+
+#endif // P44SCRIPT_REGISTERED_SOURCE
+
+
+#if P44SCRIPT_OTHER_SOURCES
+// MARK: - ExternalFileHost
+
+// factory method in domain
+ErrorPtr ScriptingDomain::addExternalFileHost(
+  string aFilePath,
+  string aTitle,
+  string aContextType
+) {
+  string sourceHostUid;
+  ErrorPtr err = FileHost::parsePath(aFilePath, sourceHostUid, aTitle);
+  if (Error::isOK(err)) {
+    // now create
+    ExternalFileHost* tfh = new ExternalFileHost(*this, sourceHostUid, aFilePath, aTitle, aContextType);
+    tfh->isMemberVariable(); // like a member of the main program, never to be destroyed until program exits
+  }
+  return err;
+}
+
+
+ExternalFileHost::ExternalFileHost(
   ScriptingDomain& aDomain,
   const string aSourceHostUid,
   const string aFilePath,
   const string aTitle,
   const string aContextType
 ) :
-  mDomain(aDomain),
-  mSourceHostUid(aSourceHostUid),
-  mEditedFilePath(aFilePath),
-  mTitle(aTitle),
+  inherited(aDomain, aSourceHostUid, aFilePath, aTitle),
   mContextType(aContextType)
 {
   // register
@@ -6930,41 +7129,31 @@ TextFileHost::TextFileHost(
 }
 
 
-TextFileHost::~TextFileHost()
+string ExternalFileHost::getSource() const
 {
-  mDomain.unregisterSourceHost(*this);
-}
-
-
-string TextFileHost::getSourceUid()
-{
-  return mSourceHostUid;
-}
-
-
-string TextFileHost::getSource() const
-{
+  // as this is an external file we only manage e.g. for accessing from an external editor
+  // but do not process the contents otherwise, do not waste RAM by caching it.
   string content;
-  ErrorPtr err = string_fromfile(mEditedFilePath, content);
+  ErrorPtr err = string_fromfile(mFilePath, content);
   if (Error::notOK(err) && !Error::isError(err, SysError::domain(), ENOENT)) {
-    LOG(LOG_ERR, "TextFileHost: error loading %s: %s", mEditedFilePath.c_str(), err->text());
+    LOG(LOG_ERR, "TextFileHost: error loading %s: %s", mFilePath.c_str(), err->text());
   }
   Fnv32 contentHash;
   contentHash.addString(content);
-  const_cast<TextFileHost*>(this)->mContentHash = contentHash.getHash();
+  const_cast<ExternalFileHost*>(this)->mContentHash = contentHash.getHash();
   return content;
 }
 
 
-bool TextFileHost::setAndStoreSource(const string& aSource)
+bool ExternalFileHost::setAndStoreSource(const string& aSource)
 {
   Fnv32 contentHash;
   contentHash.addString(aSource);
   if (contentHash.getHash()!=mContentHash) {
     // actually changed
-    ErrorPtr err = string_tofile(mEditedFilePath, aSource);
+    ErrorPtr err = string_tofile(mFilePath, aSource);
     if (Error::notOK(err)) {
-      LOG(LOG_ERR, "TextFileHost: error saving %s: %s", mEditedFilePath.c_str(), err->text());
+      LOG(LOG_ERR, "TextFileHost: error saving %s: %s", mFilePath.c_str(), err->text());
       return true; // not stored at domain level (not really relevant/checked in text file case, but semantically correct answer)
     }
     else {
@@ -6976,13 +7165,7 @@ bool TextFileHost::setAndStoreSource(const string& aSource)
 }
 
 
-string TextFileHost::getSourceTitle()
-{
-  return mTitle;
-}
-
-
-string TextFileHost::getContextType()
+string ExternalFileHost::getContextType()
 {
   if (mContextType.empty()) return "textfile";
   return mContextType;
@@ -7054,29 +7237,29 @@ SourceHostPtr ScriptingDomain::getHostByIndex(size_t aSourceIndex) const
 }
 
 
-ScriptHostPtr ScriptingDomain::getHostByUid(const string aSourceUid) const
+SourceHostPtr ScriptingDomain::getHostByUid(const string aSourceUid) const
 {
   for(SourceHostsVector::const_iterator pos = mSourceHosts.begin(); pos!=mSourceHosts.end(); ++pos) {
     if (aSourceUid==(*pos)->getSourceUid()) {
-      return dynamic_cast<ScriptHost*>(*pos); // could be a non-script, would return null
+      return *pos;
     }
   }
   return nullptr;
 }
 
 
-ScriptHostPtr ScriptingDomain::getHostForThread(const ScriptCodeThreadPtr aScriptCodeThread)
+SourceHostPtr ScriptingDomain::getHostForThread(const ScriptCodeThreadPtr aScriptCodeThread)
 {
   SourceContainerPtr container = aScriptCodeThread->cursor().mSourceContainer;
-  ScriptHostPtr host;
+  SourceHostPtr host;
   if (container) {
     host = container->scriptHost();
     if (!host) {
       // create a ephemeral (unstored) host
-      host = new ScriptHost(container);
-      host->setScriptHostUid(string_format("thread_%08d", aScriptCodeThread->threadId()), true);
-      host->setSharedMainContext(aScriptCodeThread->owner()->scriptmain());
-      registerSourceHost(*host);
+      ScriptHost* scripthost = new ScriptHost(container);
+      scripthost->setScriptHostUid(string_format("thread_%08d", aScriptCodeThread->threadId()), true);
+      scripthost->setSharedMainContext(aScriptCodeThread->owner()->scriptmain());
+      host = scripthost;
     }
     // register to make sure (usually already registered)
     registerSourceHost(*host);
@@ -7095,7 +7278,7 @@ ScriptHostPtr ScriptingDomain::getHostForThread(const ScriptCodeThreadPtr aScrip
 static int gNumThreads = 0;
 #endif
 
-ScriptCodeThread::ScriptCodeThread(ScriptCodeContextPtr aOwner, CompiledCodePtr aCode, const SourceCursor& aStartCursor, ScriptObjPtr aThreadLocals, ScriptCodeThreadPtr aChainedFromThread) :
+ScriptCodeThread::ScriptCodeThread(ScriptCodeContextPtr aOwner, CompiledFunctionPtr aCode, const SourceCursor& aStartCursor, ScriptObjPtr aThreadLocals, ScriptCodeThreadPtr aChainedFromThread) :
   mOwner(aOwner),
   mCodeObj(aCode),
   mThreadLocals(aThreadLocals),
