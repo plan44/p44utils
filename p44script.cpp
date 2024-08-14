@@ -4498,7 +4498,7 @@ void SourceProcessor::s_include()
   bool isResource = fn.substr(0,2)=="+/";
   size_t psz = isResource || fn.substr(0,2)=="_/" ? 2 : 0; // allow _/ temp and +/ resource prefix (but not =/)
   if (
-    Application::sharedApplication()->userLevel()<2 && // only user level 2 is allowed to write everywhere
+    Application::sharedApplication()->userLevel()<2 && // only user level 2 is allowed to include from everywhere
     (fn.find("/", psz)!=string::npos || fn.find("..", psz)!=string::npos)
   ) {
     mResult = new ErrorValue(ScriptError::NoPrivilege, "no privilege for this include path");
@@ -4507,15 +4507,18 @@ void SourceProcessor::s_include()
   }
   #endif
   fn = Application::sharedApplication()->dataPath(fn, P44SCRIPT_INCLUDE_SUBDIR "/", !isResource);
-  mResult = ScriptingDomain().getIncludedCode(fn, isResource);
+  mResult = domain()->getIncludedCode(fn, isResource);
   CompiledCodePtr code = boost::dynamic_pointer_cast<CompiledCode>(mResult);
-  if (code) {
-  // continue processing in the included code
-    push(mCurrentState); // return to where we were before after the include
-  mSrc = code->getCursor(); // now continue in the include
+  pop(); // back to the original state of where the include was encounterd
+  if (!code) {
+    // no code to include, return mResult which is probably an error
+    checkAndResume();
+    return;
   }
-  // resume in include or report error
-  checkAndResume();
+  // continue processing in the included code
+  push(mCurrentState); // now with the correct cursor
+  mSrc = code->getCursor(); // now continue in the include
+  resumeAt(&SourceProcessor::s_included);
 }
 
 #endif // P44SCRIPT_REGISTERED_SOURCE
@@ -4559,13 +4562,26 @@ void SourceProcessor::s_body()
 }
 
 
+void SourceProcessor::s_included()
+{
+  FOCUSLOGSTATE
+  processStatement();
+}
+
+
 void SourceProcessor::processStatement()
 {
   FOCUSLOG("\n========== At statement boundary : %s", mSrc.displaycode(130).c_str());
   mSrc.skipNonCode();
   if (mSrc.EOT()) {
     // end of code
-    if (mCurrentState!=&SourceProcessor::s_body) {
+    if (mCurrentState==&SourceProcessor::s_included) {
+      pop(); // back to before the include
+      mSrc = mPoppedSrc;
+      resume();
+      return;
+    }
+    else if (mCurrentState!=&SourceProcessor::s_body) {
       exitWithSyntaxError("unexpected end of code");
       return;
     }
@@ -4831,6 +4847,7 @@ void SourceProcessor::processStatement()
     // check for include
     if (uequals(mIdentifier, "include")) {
       mSrc.skipNonCode();
+      push(mCurrentState); // we need to return here later
       push(&SourceProcessor::s_include);
       resumeAt(&SourceProcessor::s_expression);
       return;
@@ -7354,6 +7371,14 @@ string ScriptCodeThread::logContextPrefix()
   }
   return prefix;
 }
+
+
+ScriptingDomainPtr ScriptCodeThread::domain()
+{
+  assert(mOwner);
+  return mOwner->domain();
+}
+
 
 
 void ScriptCodeThread::prepareRun(

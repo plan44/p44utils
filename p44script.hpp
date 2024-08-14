@@ -2548,6 +2548,9 @@ namespace p44 { namespace P44Script {
 
     virtual void deactivate();
 
+    /// @return the domain we are operating in
+    virtual ScriptingDomainPtr domain() = 0;
+
     /// logging context to use
     virtual P44LoggingObj* loggingContext();
 
@@ -2855,7 +2858,8 @@ namespace p44 { namespace P44Script {
     void s_block(); ///< within a block, exits when '}' is encountered, but skips ';'
     void s_noStatement(); ///< no more statements can follow, but an extra separator MAY follow
     void s_oneStatement(); ///< a single statement, exits when ';' is encountered
-    void s_body(); ///< at the body level of a function or script (end of expression ends body)
+    void s_body(); ///< at the body level of a function or script (end of text ends body)
+    void s_included(); ///< at the root level of an include (end of text returns to where included from)
     void processStatement(); ///< common processing for statement states
     void processVarDefs(TypeInfo aVarFlags, bool aAllowAssignment); ///< common processing of variable declarations/assignments
     // - if/then/else
@@ -3218,6 +3222,8 @@ namespace p44 { namespace P44Script {
 
     virtual void deactivate() P44_OVERRIDE;
 
+    /// @return the domain we are operating in
+    virtual ScriptingDomainPtr domain() P44_OVERRIDE { return mDomain; };
 
     /// Scan code, extract function definitions, global vars, event handlers into scripting domain, return actual code
     /// @param aSource the source code
@@ -3318,6 +3324,8 @@ namespace p44 { namespace P44Script {
     /// @note is virtual because some objects might want to use the log level offset of another object
     virtual int getLogLevelOffset() P44_OVERRIDE;
 
+    /// @return the domain we are operating in
+    virtual ScriptingDomainPtr domain() P44_OVERRIDE;
 
     /// prepare for running
     /// @param aTerminationCB will be called to deliver when the thread ends
