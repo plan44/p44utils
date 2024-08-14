@@ -221,17 +221,10 @@ ErrorPtr PersistentParams::loadFromStore(const char *aParentIdentifier)
 
 
 
-void PersistentParams::markDirty()
+void PersistentParams::setDirty(bool aDirty)
 {
-  mDirty = true;
+  mDirty = aDirty;
 }
-
-
-void PersistentParams::markClean()
-{
-  mDirty = false;
-}
-
 
 
 /// bind values to passed statement

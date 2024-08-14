@@ -127,10 +127,13 @@ namespace p44 {
     /// @}
 
     /// mark the parameter set dirty (so it will be saved to DB next time saveToStore is called
-    virtual void markDirty();
+    void markDirty() { setDirty(true); }
 
     /// mark the parameter set clean (e.g. after setting default values that must not be saved, but which trigger dirty flag)
-    virtual void markClean();
+    void markClean() { setDirty(false); }
+
+    /// directly set or clear dirty flag in device and all behaviours
+    virtual void setDirty(bool aDirty);
 
     /// @return true if needs to be saved
     bool isDirty() { return mDirty; }
