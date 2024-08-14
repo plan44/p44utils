@@ -40,9 +40,9 @@ namespace p44 {
     typedef SQLite3Persistence inherited;
 
   public:
-    uint32_t writeOpsCount; ///< global number of write operations (INSERT, UPDATE, DELETE)
+    uint32_t mWriteOpsCount; ///< global number of write operations (INSERT, UPDATE, DELETE)
 
-    ParamStore() : writeOpsCount(0) {};
+    ParamStore() : mWriteOpsCount(0) {};
 
   };
 
@@ -51,14 +51,14 @@ namespace p44 {
   /// @note this class does NOT derive from P44Obj, so it can be added as "interface" using multiple-inheritance
   class PersistentParams
   {
-    bool dirty; ///< if set, means that values need to be saved
+    bool mDirty; ///< if set, means that values need to be saved
 
   protected:
-    ParamStore &paramStore; ///< the associated parameter store
+    ParamStore &mParamStore; ///< the associated parameter store
 
   public:
     PersistentParams(ParamStore &aParamStore);
-    uint64_t rowid; ///< ROWID of the persisted data, 0 if not yet persisted
+    uint64_t mRowId; ///< ROWID of the persisted data, 0 if not yet persisted
 
     /// @name interface to be implemented for specific parameter sets in subclasses
     /// @{
@@ -133,7 +133,7 @@ namespace p44 {
     virtual void markClean();
 
     /// @return true if needs to be saved
-    bool isDirty() { return dirty; }
+    bool isDirty() { return mDirty; }
 
     /// set a variable representing a persistent value and mark PersistentParams object dirty if value has changed
     /// @param aTargetValue the variable to update
