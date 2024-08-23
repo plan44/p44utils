@@ -1807,6 +1807,14 @@ namespace p44 { namespace P44Script {
     /// @return the context object that uses this script source
     virtual P44LoggingObj* getLoggingContext() { return nullptr; };
 
+    #if P44SCRIPT_DEBUGGING_SUPPORT
+    /// @return breakpoint line numbers as std::set or null if none exist
+    virtual SourceContainer::BreakpointLineSet* breakpoints() { return nullptr; };
+
+    /// @return number of breakpoints
+    virtual size_t numBreakpoints() { return 0; };
+    #endif
+
   };
 
 
@@ -1898,6 +1906,13 @@ namespace p44 { namespace P44Script {
     /// @return the context type for this source text, to allow editor to group texts
     virtual string getContextType() P44_OVERRIDE { return "include"; };
 
+    #if P44SCRIPT_DEBUGGING_SUPPORT
+    /// @return breakpoint line numbers as std::set or null if none exist
+    virtual SourceContainer::BreakpointLineSet* breakpoints() P44_OVERRIDE;
+
+    /// @return number of breakpoints
+    virtual size_t numBreakpoints() P44_OVERRIDE;
+    #endif
   };
 
 
@@ -2153,10 +2168,10 @@ namespace p44 { namespace P44Script {
 
     #if P44SCRIPT_DEBUGGING_SUPPORT
     /// @return breakpoint line numbers as std::set or null if none exist
-    SourceContainer::BreakpointLineSet* breakpoints();
+    virtual SourceContainer::BreakpointLineSet* breakpoints() P44_OVERRIDE;
 
     /// @return number of breakpoints
-    size_t numBreakPoints();
+    virtual size_t numBreakpoints() P44_OVERRIDE;
     #endif
 
 

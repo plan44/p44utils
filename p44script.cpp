@@ -6517,7 +6517,7 @@ SourceContainer::BreakpointLineSet* ScriptHost::breakpoints()
 }
 
 
-size_t ScriptHost::numBreakPoints()
+size_t ScriptHost::numBreakpoints()
 {
   return active() && mActiveParams->mSourceContainer ? mActiveParams->mSourceContainer->breakpoints().size() : 0;
 }
@@ -6602,7 +6602,7 @@ bool ScriptHost::setSource(const string aSource, EvaluationFlags aEvaluationFlag
   #if P44SCRIPT_DEBUGGING_SUPPORT
   // extract the breakpoints
   SourceContainer::BreakpointLineSet breakpoints;
-  if (numBreakPoints()>0) {
+  if (numBreakpoints()>0) {
     breakpoints = mActiveParams->mSourceContainer->breakpoints();
   }
   #endif
@@ -7094,16 +7094,42 @@ bool ScriptIncludeHost::setAndStoreSource(const string& aSource)
   mDomain.releaseObjsFromSource(mSourceContainer); // release all global objects from this source
   // TODO: track which contexts are using this file so we can release all objects
   //mSharedMainContext->releaseObjsFromSource(mSourceContainer); // release all main context objects from this source
+  #if P44SCRIPT_DEBUGGING_SUPPORT
+  // extract the breakpoints
+  SourceContainer::BreakpointLineSet breakpoints;
+  if (numBreakpoints()>0) {
+    breakpoints = mSourceContainer->breakpoints();
+  }
+  #endif
   mSourceContainer.reset(); // release that container
-  // TODO: handle breakpoints
   // create a new one
   mSourceContainer = new SourceContainer(this, aSource);
+  #if P44SCRIPT_DEBUGGING_SUPPORT
+  // re-apply the breakpoints to new source
+  mSourceContainer->setBreakpoints(breakpoints);
+  #endif
+  // save it
   ErrorPtr err = FileHost::saveToFile(mFilePath, aSource, mContentHash);
   if (Error::notOK(err)) {
     LOG(LOG_ERR, "include file '%s' could not be stored", mFilePath.c_str());
   }
   return Error::notOK(err); // consider not stored on error
 }
+
+
+#if P44SCRIPT_DEBUGGING_SUPPORT
+
+SourceContainer::BreakpointLineSet* ScriptIncludeHost::breakpoints()
+{
+  return mSourceContainer ? &mSourceContainer->breakpoints() : nullptr;
+}
+
+size_t ScriptIncludeHost::numBreakpoints()
+{
+  return mSourceContainer ? mSourceContainer->breakpoints().size() : 0;
+}
+
+#endif // P44SCRIPT_DEBUGGING_SUPPORT
 
 #endif // P44SCRIPT_REGISTERED_SOURCE
 
