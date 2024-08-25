@@ -4493,6 +4493,12 @@ void SourceProcessor::defineHandler(bool aGlobal)
 
 void SourceProcessor::s_include()
 {
+  // do not allow includes from non-hosted script parts
+  SourceHostPtr host = mSrc.mSourceContainer->sourceHost();
+  if (!host) {
+    exitWithSyntaxError("include not allowed from here");
+    return;
+  }
   string fn = mResult->stringValue();
   #if !ALWAYS_ALLOW_ALL_FILES
   bool isResource = fn.substr(0,2)=="+/";
@@ -4507,7 +4513,7 @@ void SourceProcessor::s_include()
   }
   #endif
   fn = Application::sharedApplication()->dataPath(fn, P44SCRIPT_INCLUDE_SUBDIR "/", !isResource);
-  mResult = domain()->getIncludedCode(fn, isResource);
+  mResult = domain()->getIncludedCode(fn, isResource, host);
   CompiledCodePtr code = boost::dynamic_pointer_cast<CompiledCode>(mResult);
   pop(); // back to the original state of where the include was encounterd
   if (!code) {
@@ -6195,9 +6201,10 @@ ScriptHost::ScriptHost(
 
 ScriptHost::~ScriptHost()
 {
+  // Note: in most cases ScriptHost is a member variable, so the destructor is called
+  //   even when retaining pointers exist, so we need to make sure these are removed!
   if (storable()) setSource(""); // force removal of global objects depending on this source
   if (mActiveParams) {
-    // remove non-retaining references
     // - unregister
     #if P44SCRIPT_REGISTERED_SOURCE
     domain()->unregisterSourceHost(*this);
@@ -6206,6 +6213,9 @@ ScriptHost::~ScriptHost()
     if (mActiveParams->mSourceContainer && mActiveParams->mSourceContainer->mSourceHostP==this) {
       mActiveParams->mSourceContainer->mSourceHostP = nullptr;
     }
+    // - have includes release their includer
+    domain()->unincludeFrom(*this);
+    // done
     delete mActiveParams;
     mActiveParams = nullptr;
   }
@@ -6530,18 +6540,18 @@ size_t ScriptHost::numBreakpoints()
 void ScriptHost::setDomain(ScriptingDomainPtr aDomain)
 {
   assert(active());
-  mActiveParams->mScriptingDomain = aDomain;
+  inherited::setDomain(aDomain);
 };
 
 
 ScriptingDomainPtr ScriptHost::domain()
 {
   assert(active());
-  if (!mActiveParams->mScriptingDomain) {
+  if (!mScriptingDomain) {
     // none assigned so far, assign default
-    mActiveParams->mScriptingDomain = ScriptingDomainPtr(&StandardScriptingDomain::sharedDomain());
+    mScriptingDomain = ScriptingDomainPtr(&StandardScriptingDomain::sharedDomain());
   }
-  return mActiveParams->mScriptingDomain;
+  return mScriptingDomain;
 }
 
 
@@ -6577,7 +6587,10 @@ void ScriptHost::uncompile(bool aNoAbort)
     mActiveParams->mCachedExecutable.reset(); // release cached executable (will release SourceCursor holding our source)
   }
   if (mActiveParams->mSourceContainer) {
-    if (mActiveParams->mScriptingDomain) mActiveParams->mScriptingDomain->releaseObjsFromSource(mActiveParams->mSourceContainer); // release all global objects from this source
+    if (mScriptingDomain) {
+      mScriptingDomain->releaseObjsFromSource(mActiveParams->mSourceContainer); // release all global objects from this source
+      mScriptingDomain->unincludeFrom(*this);
+    }
     if (mActiveParams->mSharedMainContext) mActiveParams->mSharedMainContext->releaseObjsFromSource(mActiveParams->mSourceContainer); // release all main context objects from this source
   }
 }
@@ -7031,7 +7044,7 @@ ErrorPtr FileHost::saveToFile(const string aFilePath, const string aContent, uin
 // MARK: - IncludeHost
 
 // lookup/factory method in domain
-ScriptObjPtr ScriptingDomain::getIncludedCode(const string aIncludeFilePath, bool aReadOnly)
+ScriptObjPtr ScriptingDomain::getIncludedCode(const string aIncludeFilePath, bool aReadOnly, SourceHostPtr aIncludingHost)
 {
   string sourceHostUid;
   string title;
@@ -7053,7 +7066,10 @@ ScriptObjPtr ScriptingDomain::getIncludedCode(const string aIncludeFilePath, boo
     if (Error::notOK(err)) return new ErrorValue(err);
     // create the
     includeHost = new ScriptIncludeHost(*this, sourceHostUid, aIncludeFilePath, title, content, contentHash, aReadOnly);
+    includeHost->setDomain(this);
   }
+  // register includer
+  includeHost->registerIncluder(aIncludingHost);
   // now we DO have a include host (but maybe no file yet when)
   return new CompiledInclude(includeHost->mSourceContainer->getCursor());
 }
@@ -7082,6 +7098,19 @@ string ScriptIncludeHost::getSource() const
 }
 
 
+void ScriptIncludeHost::uncompile(bool aNoAbort)
+{
+  IncludingHostsSet includers = mIncludingHosts; // original will be modified while iterating
+  for (IncludingHostsSet::iterator pos = includers.begin(); pos!=includers.end(); ++pos) {
+    (*pos)->uncompile();
+  }
+  // no longer included, will be registered again when including code is recompiled
+  mIncludingHosts.clear();
+  // also propagate to those that we have included
+  if (mScriptingDomain) mScriptingDomain->unincludeFrom(*this);
+}
+
+
 bool ScriptIncludeHost::setAndStoreSource(const string& aSource)
 {
   if (mReadOnly) {
@@ -7089,11 +7118,7 @@ bool ScriptIncludeHost::setAndStoreSource(const string& aSource)
     return true; // not stored
   }
   // uncompile everything related
-  // TODO: track which contexts are using this file so we can abort them
-  //mSharedMainContext->abortThreadsRunningSource(mSourceContainer, new ErrorValue(ScriptError::Aborted, "Include changed while executing"));
-  mDomain.releaseObjsFromSource(mSourceContainer); // release all global objects from this source
-  // TODO: track which contexts are using this file so we can release all objects
-  //mSharedMainContext->releaseObjsFromSource(mSourceContainer); // release all main context objects from this source
+  uncompile();
   #if P44SCRIPT_DEBUGGING_SUPPORT
   // extract the breakpoints
   SourceContainer::BreakpointLineSet breakpoints;
@@ -7114,6 +7139,18 @@ bool ScriptIncludeHost::setAndStoreSource(const string& aSource)
     LOG(LOG_ERR, "include file '%s' could not be stored", mFilePath.c_str());
   }
   return Error::notOK(err); // consider not stored on error
+}
+
+
+void ScriptIncludeHost::registerIncluder(SourceHostPtr aIncludingHost)
+{
+  mIncludingHosts.insert(aIncludingHost);
+}
+
+
+void ScriptIncludeHost::unregisterIncluder(SourceHostPtr aIncludingHost)
+{
+  mIncludingHosts.erase(aIncludingHost);
 }
 
 
@@ -7273,6 +7310,17 @@ bool ScriptingDomain::unregisterSourceHost(SourceHost &aHostSource)
 }
 
 
+void ScriptingDomain::unincludeFrom(SourceHost &aIncludingHost)
+{
+  for(SourceHostsVector::const_iterator pos = mSourceHosts.begin(); pos!=mSourceHosts.end(); ++pos) {
+    ScriptIncludeHostPtr incl = dynamic_pointer_cast<ScriptIncludeHost>(*pos);
+    if (incl) {
+      incl->unregisterIncluder(&aIncludingHost);
+    }
+  }
+}
+
+
 SourceHostPtr ScriptingDomain::getHostByIndex(size_t aSourceIndex) const
 {
   if (aSourceIndex>mSourceHosts.size()) return nullptr;
@@ -7296,7 +7344,7 @@ SourceHostPtr ScriptingDomain::getHostForThread(const ScriptCodeThreadPtr aScrip
   SourceContainerPtr container = aScriptCodeThread->cursor().mSourceContainer;
   SourceHostPtr host;
   if (container) {
-    host = container->scriptHost();
+    host = container->sourceHost();
     if (!host) {
       // create a ephemeral (unstored) host
       ScriptHost* scripthost = new ScriptHost(container);

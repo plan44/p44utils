@@ -1736,7 +1736,7 @@ namespace p44 { namespace P44Script {
 
     /// @return script source host of this container, or nullptr when the container is not hosted by a ScriptHost
     /// @note this is a non-retaining backreference
-    SourceHost* scriptHost() { return mSourceHostP; }
+    SourceHost* sourceHost() { return mSourceHostP; }
 
     /// @return true if this source is floating, i.e. not part of a still existing script
     bool floating() { return mFloating; }
@@ -1774,6 +1774,11 @@ namespace p44 { namespace P44Script {
   //   For actual scripts, use ScriptHost derived class
   class SourceHost : public P44Obj
   {
+  protected:
+
+    #if P44SCRIPT_REGISTERED_SOURCE
+    ScriptingDomainPtr mScriptingDomain; ///< the scripting domain
+    #endif
 
   public:
 
@@ -1785,6 +1790,12 @@ namespace p44 { namespace P44Script {
 
     /// @return true if source is unstored/unstorable (e.g. for p44script playground etc.)
     virtual bool isUnstored() { return false; }
+
+    #if P44SCRIPT_REGISTERED_SOURCE
+    /// set domain (where global objects from compilation will be stored)
+    /// @param aDomain the domain.
+    virtual void setDomain(ScriptingDomainPtr aDomain) { mScriptingDomain = aDomain; }
+    #endif
 
     /// get the source code
     /// @return the source code as set by setSource()
@@ -1807,6 +1818,10 @@ namespace p44 { namespace P44Script {
     /// @return the context object that uses this script source
     virtual P44LoggingObj* getLoggingContext() { return nullptr; };
 
+    /// reset to state before compilation, i.e. stop all threads running code from this source
+    /// including handlers, undeclare all handlers that were declared by this source
+    virtual void uncompile(bool aNoAbort = false) { /* NOP at base class */ };
+
     #if P44SCRIPT_DEBUGGING_SUPPORT
     /// @return breakpoint line numbers as std::set or null if none exist
     virtual SourceContainer::BreakpointLineSet* breakpoints() { return nullptr; };
@@ -1814,7 +1829,6 @@ namespace p44 { namespace P44Script {
     /// @return number of breakpoints
     virtual size_t numBreakpoints() { return 0; };
     #endif
-
   };
 
 
@@ -1877,6 +1891,9 @@ namespace p44 { namespace P44Script {
     SourceContainerPtr mSourceContainer; ///< contains the include (cached for execution)
     bool mReadOnly;
 
+    typedef std::set<SourceHostPtr> IncludingHostsSet;
+    IncludingHostsSet mIncludingHosts;
+
   protected:
 
     // protected constructor, use factory/lookup methods in domain to create
@@ -1905,6 +1922,15 @@ namespace p44 { namespace P44Script {
 
     /// @return the context type for this source text, to allow editor to group texts
     virtual string getContextType() P44_OVERRIDE { return "include"; };
+
+    /// register a source host that includes this include file
+    void registerIncluder(SourceHostPtr aIncludingHost);
+
+    /// unregister a source host from including this include file
+    void unregisterIncluder(SourceHostPtr aIncludingHost);
+
+    /// make sure all includers get uncompiled
+    virtual void uncompile(bool aNoAbort = false) P44_OVERRIDE;
 
     #if P44SCRIPT_DEBUGGING_SUPPORT
     /// @return breakpoint line numbers as std::set or null if none exist
@@ -1982,7 +2008,6 @@ namespace p44 { namespace P44Script {
   protected:
 
     typedef struct {
-      ScriptingDomainPtr mScriptingDomain; ///< the scripting domain
       ScriptMainContextPtr mSharedMainContext; ///< a shared context to always run this source in. If not set, each script gets a new main context
       ScriptObjPtr mCachedExecutable; ///< the compiled executable for the script's body.
       EvaluationFlags mDefaultFlags; ///< default flags for how to compile (as expression, scriptbody, source), also used as default run flags
@@ -2179,8 +2204,9 @@ namespace p44 { namespace P44Script {
     #endif // P44SCRIPT_REGISTERED_SOURCE
 
     /// set domain (where global objects from compilation will be stored)
-    /// @param aDomain the domain. Defaults to StandardScriptingDomain::sharedDomain() if not explicitly set
-    void setDomain(ScriptingDomainPtr aDomain);
+    /// @param aDomain the domain. In ScriptHosts, will be assigned StandardScriptingDomain::sharedDomain()
+    ///   if not explicitly set before using domain() for the first time.
+    virtual void setDomain(ScriptingDomainPtr aDomain) P44_OVERRIDE;
 
     /// get the domain assiciated with this source.
     /// If none was set specifically, the StandardScriptingDomain is returned.
@@ -2246,7 +2272,7 @@ namespace p44 { namespace P44Script {
     /// @param aNoAbort if set, threads will not be aborted, and will possibly keep previous source code alive until
     ///    all threads have terminated.
     /// @note running will re-compile and re-declare all handlers
-    void uncompile(bool aNoAbort = false);
+    virtual void uncompile(bool aNoAbort = false) P44_OVERRIDE;
 
     /// @param aScriptCommandCB set the handler to implement script commands in a context specific way
     void setScriptCommandHandler(ScriptCommandCB aScriptCommandCB);
@@ -2477,6 +2503,10 @@ namespace p44 { namespace P44Script {
     /// @return true if unregistered now, false if source was not registered
     bool unregisterSourceHost(SourceHost &aScriptHost);
 
+    /// release from being included from another hosted source
+    /// @param aIncludingHost the host that releases all its includes now (for example because it gets recompiled)
+    void unincludeFrom(SourceHost &aIncludingHost);
+
     /// @return number of registered source hosts (scripts and non-scripts)
     size_t numRegisteredHosts() const { return mSourceHosts.size(); }
 
@@ -2502,8 +2532,9 @@ namespace p44 { namespace P44Script {
     /// get include host from domain level storage
     /// @param aIncludeFilePath the include file path to lookup/load the include file for
     /// @param aReadOnly if set, the file must exist. Otherwise, non-existing files will be registered with empty content
+    /// @param aIncludingHost where we are including from
     /// @return CompiledCode for the include or error
-    ScriptObjPtr getIncludedCode(const string aIncludeFilePath, bool aReadOnly);
+    ScriptObjPtr getIncludedCode(const string aIncludeFilePath, bool aReadOnly, SourceHostPtr aIncludingHost);
 
     #if P44SCRIPT_OTHER_SOURCES
     /// create a non-script source host as a proxy for a editable text file
