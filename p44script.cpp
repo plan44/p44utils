@@ -4495,8 +4495,9 @@ void SourceProcessor::s_include()
 {
   // do not allow includes from non-hosted script parts
   SourceHostPtr host = mSrc.mSourceContainer->sourceHost();
-  if (!host) {
-    exitWithSyntaxError("include not allowed from here");
+  if (!host || (mEvaluationFlags & ephemeralSource)!=0) {
+    mResult = new ErrorValue(ScriptError::WrongContext, "include is only allowed from persistent scripts");
+    checkAndResume();
     return;
   }
   string fn = mResult->stringValue();
@@ -6576,11 +6577,25 @@ ScriptMainContextPtr ScriptHost::sharedMainContext() const
 }
 
 
+EvaluationFlags ScriptHost::defaultEvaluationFlags()
+{
+  if (!active()) return 0;
+  return mActiveParams->mDefaultFlags;
+}
 
-void ScriptHost::uncompile(bool aNoAbort)
+
+void ScriptHost::setDefaultEvaluationFlags(EvaluationFlags aDefaultFlags)
+{
+  if (active()) {
+    mActiveParams->mDefaultFlags = aDefaultFlags;
+  }
+}
+
+
+void ScriptHost::uncompile(bool aDoAbort, bool aAllowAutoRestart)
 {
   if (!active()) return; // cannot be compiled or running, just NOP
-  if (mActiveParams->mSharedMainContext && !aNoAbort) {
+  if (mActiveParams->mSharedMainContext && aDoAbort) {
     mActiveParams->mSharedMainContext->abortThreadsRunningSource(mActiveParams->mSourceContainer, new ErrorValue(ScriptError::Aborted, "Source code changed while executing"));
   }
   if (mActiveParams->mCachedExecutable) {
@@ -6593,6 +6608,18 @@ void ScriptHost::uncompile(bool aNoAbort)
     }
     if (mActiveParams->mSharedMainContext) mActiveParams->mSharedMainContext->releaseObjsFromSource(mActiveParams->mSourceContainer); // release all main context objects from this source
   }
+  // auto-restart?
+  if ((mActiveParams->mDefaultFlags & autorestart)!=0 && aAllowAutoRestart) {
+    // unwind stack and restart
+    MainLoop::currentMainLoop().executeNow(boost::bind(&ScriptHost::doAutorestart, this));
+  }
+}
+
+
+void ScriptHost::doAutorestart()
+{
+  POLOG(mActiveParams->mLoggingContextP, LOG_WARNING, "auto-restarting changed script");
+  runCommand(restart);
 }
 
 
@@ -6610,7 +6637,7 @@ bool ScriptHost::setSource(const string aSource, EvaluationFlags aEvaluationFlag
     }
   }
   // changed, invalidate everything related to the previous code
-  uncompile(mActiveParams->mDefaultFlags & ephemeralSource);
+  uncompile((mActiveParams->mDefaultFlags & ephemeralSource)==0, true);
   if (aEvaluationFlags!=inherit) mActiveParams->mDefaultFlags = aEvaluationFlags;
   #if P44SCRIPT_DEBUGGING_SUPPORT
   // extract the breakpoints
@@ -6731,7 +6758,7 @@ ScriptObjPtr ScriptHost::runCommand(ScriptCommand aCommand, EvaluationCB aScript
     res = defaultCommandImplementation(aCommand, aScriptResultCB, aThreadLocals);
   }
   // always uncompile on explicit stop (note: NOT on restart)
-  if (aCommand==stop) uncompile();
+  if (aCommand==stop) uncompile(true, false); // abort, but do not allow autorestart
   return res;
 }
 
@@ -7098,11 +7125,11 @@ string ScriptIncludeHost::getSource() const
 }
 
 
-void ScriptIncludeHost::uncompile(bool aNoAbort)
+void ScriptIncludeHost::uncompile(bool aDoAbort, bool aAllowAutoRestart)
 {
   IncludingHostsSet includers = mIncludingHosts; // original will be modified while iterating
   for (IncludingHostsSet::iterator pos = includers.begin(); pos!=includers.end(); ++pos) {
-    (*pos)->uncompile();
+    (*pos)->uncompile(aDoAbort, aAllowAutoRestart);
   }
   // no longer included, will be registered again when including code is recompiled
   mIncludingHosts.clear();
@@ -7118,7 +7145,7 @@ bool ScriptIncludeHost::setAndStoreSource(const string& aSource)
     return true; // not stored
   }
   // uncompile everything related
-  uncompile();
+  uncompile(true, true);
   #if P44SCRIPT_DEBUGGING_SUPPORT
   // extract the breakpoints
   SourceContainer::BreakpointLineSet breakpoints;
@@ -8778,6 +8805,32 @@ static void maxruntime_func(BuiltinFunctionContextPtr f)
 }
 
 
+// autorestart([yes])
+FUNC_ARG_DEFS(autorestart, { numeric|optionalarg } );
+static void autorestart_func(BuiltinFunctionContextPtr f)
+{
+  ScriptHost* scriptHostP = dynamic_cast<ScriptHost*>(f->thread()->cursor().mSourceContainer->sourceHost());
+  if (!scriptHostP) {
+    f->finish(new ErrorValue(ScriptError::WrongContext, "only allowed in scripts"));
+  }
+  else {
+    EvaluationFlags flags = scriptHostP->defaultEvaluationFlags();
+    if (f->numArgs()==0) {
+      // return current state
+      f->finish(new BoolValue(flags & autorestart));
+    }
+    else {
+      // set
+      flags = flags & ~autorestart;
+      if (f->arg(0)->boolValue()) flags |= autorestart;
+      scriptHostP->setDefaultEvaluationFlags(flags);
+      f->finish();
+    }
+  }
+}
+
+
+
 static void breakpoint_func(BuiltinFunctionContextPtr f)
 {
   #if P44SCRIPT_DEBUGGING_SUPPORT
@@ -10193,6 +10246,7 @@ static const BuiltinMemberDescriptor standardFunctions[] = {
   FUNC_DEF_W_ARG(eval, executable|async|anyvalid),
   FUNC_DEF_W_ARG(maxblocktime, executable|anyvalid),
   FUNC_DEF_W_ARG(maxruntime, executable|anyvalid),
+  FUNC_DEF_W_ARG(autorestart, executable|anyvalid),
   FUNC_DEF_NOARG(breakpoint, executable|anyvalid),
   #if !ESP_PLATFORM
   FUNC_DEF_W_ARG(system, executable|async|text),

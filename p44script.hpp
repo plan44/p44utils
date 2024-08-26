@@ -156,6 +156,7 @@ namespace p44 { namespace P44Script {
       Aborted, ///< externally aborted
       Timeout, ///< aborted because max execution time limit reached
       AsyncNotAllowed, ///< async executable encountered during synchronous execution
+      WrongContext, ///< wrong context for this function/statement/operation
       Internal, ///< internal inconsistency
       numErrorCodes
     } ErrorCodes;
@@ -185,6 +186,7 @@ namespace p44 { namespace P44Script {
       "Aborted",
       "Timeout",
       "AsyncNotAllowed",
+      "WrongContext",
       "Internal",
     };
     #endif // ENABLE_NAMED_ERRORS
@@ -212,8 +214,8 @@ namespace p44 { namespace P44Script {
     sourcecode = 0x400, ///< evaluate as script (include parsing functions and handlers)
     block = 0x800, ///< evaluate as a block (complete when reaching end of block)
     #endif // P44SCRIPT_FULL_SUPPORT
-    // execution andf compilation modifiers
-    execModifierMask = 0xFFF000,
+    // execution and compilation modifiers
+    execModifierMask = 0xFFFF000,
     synchronously = 0x001000, ///< evaluate synchronously, error out on async code
     stoprunning = 0x002000, ///< abort running execution in the same context before starting a new one
     queue = 0x004000, ///< queue for execution (with concurrently also set, thread will start when all previously queued threads are done, but possibly concurrently with other threads)
@@ -227,6 +229,7 @@ namespace p44 { namespace P44Script {
     // compilation modifiers
     ephemeralSource = 0x400000, ///< threads are kept running and global function+handler definitions are not deleted when originating source code is changed/deleted
     anonymousfunction = 0x800000, ///< compile and run as anonymous function body
+    autorestart = 0x1000000, ///< automatically re-start when scripthost gets uncompiled
   };
   typedef uint32_t EvaluationFlags;
 
@@ -1820,7 +1823,7 @@ namespace p44 { namespace P44Script {
 
     /// reset to state before compilation, i.e. stop all threads running code from this source
     /// including handlers, undeclare all handlers that were declared by this source
-    virtual void uncompile(bool aNoAbort = false) { /* NOP at base class */ };
+    virtual void uncompile(bool aDoAbort, bool aAllowAutoRestart) { /* NOP at base class */ };
 
     #if P44SCRIPT_DEBUGGING_SUPPORT
     /// @return breakpoint line numbers as std::set or null if none exist
@@ -1930,7 +1933,13 @@ namespace p44 { namespace P44Script {
     void unregisterIncluder(SourceHostPtr aIncludingHost);
 
     /// make sure all includers get uncompiled
-    virtual void uncompile(bool aNoAbort = false) P44_OVERRIDE;
+    /// @param aDoAbort if set, threads will be aborted. Otherwise, threads will keep running and will possibly keep
+    ///    previous source code version alive until all threads have terminated.
+    /// @param aAllowAutoRestart if set, and default evaluation flags have `autorestart` set, `runcommand(restart)`
+    ///    will be executed after uncompile.
+    /// @note aDoAbort and aAllowAutoRestart are irrelevant for the include file itself, but will be applied
+    ///    to scripts that are using this include file
+    virtual void uncompile(bool aDoAbort, bool aAllowAutoRestart) P44_OVERRIDE;
 
     #if P44SCRIPT_DEBUGGING_SUPPORT
     /// @return breakpoint line numbers as std::set or null if none exist
@@ -2203,6 +2212,15 @@ namespace p44 { namespace P44Script {
 
     #endif // P44SCRIPT_REGISTERED_SOURCE
 
+    /// @return default evaluation flags for this source host
+    EvaluationFlags defaultEvaluationFlags();
+
+    /// set new default evaluation flags
+    /// @param aDefaultFlags new flags
+    /// @note this is usually only for adjusting a flag like autorestart, as most
+    ///   original default flags are usually important and should not be changed
+    void setDefaultEvaluationFlags(EvaluationFlags aDefaultFlags);
+
     /// set domain (where global objects from compilation will be stored)
     /// @param aDomain the domain. In ScriptHosts, will be assigned StandardScriptingDomain::sharedDomain()
     ///   if not explicitly set before using domain() for the first time.
@@ -2269,10 +2287,12 @@ namespace p44 { namespace P44Script {
 
     /// reset to state before compilation, i.e. stop all threads running code from this source
     /// including handlers, undeclare all handlers that were declared by this source
-    /// @param aNoAbort if set, threads will not be aborted, and will possibly keep previous source code alive until
-    ///    all threads have terminated.
-    /// @note running will re-compile and re-declare all handlers
-    virtual void uncompile(bool aNoAbort = false) P44_OVERRIDE;
+    /// @param aDoAbort if set, threads will be aborted. Otherwise, threads will keep running and will possibly keep
+    ///    previous source code version alive until all threads have terminated.
+    /// @param aAllowAutoRestart if set, and default evaluation flags have `autorestart` set, `runcommand(restart)`
+    ///    will be executed after uncompile.
+    /// @note running after uncompile() will re-compile and re-declare all handlers
+    virtual void uncompile(bool aDoAbort, bool aAllowAutoRestart) P44_OVERRIDE;
 
     /// @param aScriptCommandCB set the handler to implement script commands in a context specific way
     void setScriptCommandHandler(ScriptCommandCB aScriptCommandCB);
@@ -2309,6 +2329,10 @@ namespace p44 { namespace P44Script {
     /// for single-line tests
     ScriptObjPtr test(EvaluationFlags aEvalFlags, const string aSource)
       { setSource(aSource, aEvalFlags); return run(aEvalFlags|regular|synchronously|implicitreturn, NoOP, ScriptObjPtr(), Infinite); }
+
+  private:
+
+    void doAutorestart();
 
   };
 
