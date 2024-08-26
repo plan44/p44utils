@@ -1794,6 +1794,9 @@ namespace p44 { namespace P44Script {
     /// @return true if source is unstored/unstorable (e.g. for p44script playground etc.)
     virtual bool isUnstored() { return false; }
 
+    /// @return true for scripts that can are read-only (e.g. includes from ROM resources)
+    virtual bool isReadOnly() const { return false; }
+
     #if P44SCRIPT_REGISTERED_SOURCE
     /// set domain (where global objects from compilation will be stored)
     /// @param aDomain the domain.
@@ -1911,6 +1914,9 @@ namespace p44 { namespace P44Script {
     );
 
   public:
+
+    /// @return true for includes are read-only (e.g. from ROM resources)
+    virtual bool isReadOnly() const P44_OVERRIDE { return mReadOnly; }
 
     /// get the source code
     /// @return the source code as set by setSource()
