@@ -220,21 +220,59 @@ void Application::terminateAppWith(ErrorPtr aError)
 }
 
 
+Application::PathType Application::getPathType(const string aPath, int aFreePathUserLevel, bool aTempPrefixOnly, size_t* aPrefixLenP)
+{
+  PathType ty;
+  size_t prefixLen = 0;
+  if (aPath.empty()) return empty;
+  if (aPath[0]=='/') ty = absolute;
+  else if (aPath.substr(0,2)=="./") { ty = explicit_relative; prefixLen = 2; }
+  else if (aPath.substr(0,2)=="+/") { ty = resource_relative; ; prefixLen = 2; }
+  else if (aPath.substr(0,2)=="=/") { ty = data_relative; ; prefixLen = 2; }
+  else if (aPath.substr(0,2)=="_/") { ty = temp_relative; ; prefixLen = 2; }
+  else ty = relative;
+  if (aPrefixLenP) *aPrefixLenP = prefixLen;
+  #if !ALWAYS_ALLOW_ALL_FILES
+  if (aFreePathUserLevel>0 && mUserLevel<aFreePathUserLevel) {
+    // must be of an allowed type and not contain any slashes or ".."
+    if (aTempPrefixOnly && (ty==resource_relative || ty==data_relative) || aPath.find("/", prefixLen)!=string::npos || aPath.find("..", prefixLen)!=string::npos) {
+      return notallowed;
+    }
+  }
+  #endif
+  return ty;
+}
+
+
+Application::PathType Application::extractPathType(string& aPath, int aFreePathUserLevel, bool aTempPrefixOnly)
+{
+  PathType ty;
+  size_t prefixLen;
+  ty = getPathType(aPath, aFreePathUserLevel, aTempPrefixOnly, &prefixLen);
+  aPath.erase(0, prefixLen);
+  return ty;
+}
+
+
+
+
 string Application::resourcePath(const string aResource, const string aPrefix)
 {
-  if (aResource.empty() && aPrefix.empty())
+  string path = aResource;
+  PathType ty = extractPathType(path, 0, false);
+  if (ty==empty && aPrefix.empty())
     return mResourcepath; // just return resource path
-  if (aResource[0]=='/')
-    return aResource; // argument is absolute path, use it as-is
+  if (ty==absolute)
+    return path; // argument is absolute path, use it as-is
   // relative to resource directory
-  if (aResource.substr(0,2)=="./" || aResource.substr(0,2)=="+/")
-    return mResourcepath + "/" + aResource.substr(2); // omit prefix
-  else if (aResource.substr(0,2)=="=/")
-    return mDatapath + "/" + aResource.substr(2); // make it datapath-relative, w/o prefix 
-  else if (aResource.substr(0,2)=="_/")
-    return tempPath(aResource.substr(2)); // make it temppath-relative, w/o prefix
+  if (ty==explicit_relative || ty==resource_relative)
+    return mResourcepath + "/" + path; // omit prefix
+  else if (ty==data_relative)
+    return mDatapath + "/" + path; // make it datapath-relative, w/o prefix
+  else if (ty==temp_relative)
+    return tempPath(path); // make it temppath-relative, w/o prefix
   else
-    return mResourcepath + "/" + aPrefix + aResource; // resource path with prefix (which must end with "/" when it is to be a subdirectory)
+    return mResourcepath + "/" + aPrefix + path; // resource path with prefix (which must end with "/" when it is to be a subdirectory)
 }
 
 
@@ -249,28 +287,24 @@ void Application::setResourcePath(const char* aResourcePath)
 
 string Application::dataPath(const string aDataFile, const string aPrefix, bool aCreatePrefix)
 {
-  if (aDataFile.empty() && aPrefix.empty())
+  string path = aDataFile;
+  PathType ty = extractPathType(path, 0, false);
+  if (ty==empty && aPrefix.empty())
     return mDatapath; // just return data path
-  if (aDataFile[0]=='/')
-    return aDataFile; // argument is absolute path, use it as-is
+  if (ty==absolute)
+    return path; // argument is absolute path, use it as-is
   // relative to data directory, with the option to be relative to temp with
   // prefix "_/" and resource with prefix "+/". Prefix "=/" is ignored.
   string p;
-  string f = aDataFile;
-  if (f.substr(0,2)=="_/") {
-    // _/ uses temp path instead of data path
-    f.erase(0,2);
+  if (ty==temp_relative) {
     p = tempPath();
   }
-  else if (f.substr(0,2)=="+/") {
+  else if (ty==resource_relative) {
     // +/ uses resource path instead of data path, but never creates any directories
-    return resourcePath(f);
+    return resourcePath(path);
   }
-  else {
+  else if (ty==data_relative || ty==relative || ty==explicit_relative) {
     // =/ datapath prefix is allowed, but optional
-    if (f.substr(0,2)=="=/") {
-      f.erase(0,2); // just ignore it
-    }
     p = mDatapath;
   }
   if (aPrefix.empty()) {
@@ -283,7 +317,7 @@ string Application::dataPath(const string aDataFile, const string aPrefix, bool 
       ensureDirExists(p.substr(0,p.size()-1), 3, S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
     }
   }
-  return p + f;
+  return p + path;
 }
 
 
