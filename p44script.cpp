@@ -8305,15 +8305,10 @@ static void jsonresource_func(BuiltinFunctionContextPtr f)
 {
   ErrorPtr err;
   string fn = f->arg(0)->stringValue();
-  #if !ALWAYS_ALLOW_ALL_FILES
-  if (
-    (fn.find("/")!=string::npos || fn.find("..")!=string::npos) &&
-    Application::sharedApplication()->userLevel()<1 // user level 1 is allowed to read everywhere
-  ) {
-    f->finish(new ErrorValue(ScriptError::NoPrivilege, "no path reading privileges"));
+  if (Application::sharedApplication()->getPathType(fn, 1, false)==Application::notallowed) {
+    f->finish(new ErrorValue(ScriptError::NoPrivilege, "no reading privileges for this path"));
     return;
   }
-  #endif
   JsonObjectPtr j = Application::jsonResource(fn, &err);
   if (Error::isOK(err))
     f->finish(ScriptObj::valueFromJSON(j));
@@ -8909,20 +8904,15 @@ FUNC_ARG_DEFS(writefile, { text }, { anyvalid|null }, { numeric|optionalarg } );
 static void writefile_func(BuiltinFunctionContextPtr f)
 {
   string fn = f->arg(0)->stringValue();
-  if (fn.empty()) {
+  Application::PathType ty = Application::sharedApplication()->getPathType(fn, 2, true); // only temp prefix allowed
+  if (ty==Application::empty) {
     f->finish(new ErrorValue(ScriptError::Invalid, "no filename"));
     return;
   }
-  #if !ALWAYS_ALLOW_ALL_FILES
-  size_t psz = fn.substr(0,2)=="_/" ? 2 : 0; // allow _/ temp prefix (but none of the others: =/ and +/)
-  if (
-    Application::sharedApplication()->userLevel()<2 && // only user level 2 is allowed to write everywhere
-    (fn.find("/", psz)!=string::npos || fn.find("..", psz)!=string::npos)
-  ) {
-    f->finish(new ErrorValue(ScriptError::NoPrivilege, "no path writing privileges"));
+  if (ty==Application::notallowed) {
+    f->finish(new ErrorValue(ScriptError::NoPrivilege, "no writing privileges for this path"));
     return;
   }
-  #endif
   fn = Application::sharedApplication()->dataPath(fn, P44SCRIPT_DATA_SUBDIR "/", true);
   ErrorPtr err;
   if (f->arg(1)->defined()) {
@@ -8958,20 +8948,16 @@ FUNC_ARG_DEFS(readfile, { text } );
 static void readfile_func(BuiltinFunctionContextPtr f)
 {
   string fn = f->arg(0)->stringValue();
-  if (fn.empty()) {
+  // user level 1 is allowed to read everywhere
+  Application::PathType ty = Application::sharedApplication()->getPathType(fn, 1, true);
+  if (ty==Application::empty) {
     f->finish(new ErrorValue(ScriptError::Invalid, "no filename"));
     return;
   }
-  #if !ALWAYS_ALLOW_ALL_FILES
-  size_t psz = fn.substr(0,2)=="_/" ? 2 : 0; // allow _/ temp prefix (but none of the others: =/ and +/)
-  if (
-    Application::sharedApplication()->userLevel()<1 && // user level 1 is allowed to read everywhere
-    (fn.find("/", psz)!=string::npos || fn.find("..", psz)!=string::npos)
-  ) {
-    f->finish(new ErrorValue(ScriptError::NoPrivilege, "no path reading privileges"));
+  if (ty==Application::notallowed) {
+    f->finish(new ErrorValue(ScriptError::NoPrivilege, "no reading privileges for this path"));
     return;
   }
-  #endif
   string data;
   ErrorPtr err = string_fromfile(Application::sharedApplication()->dataPath(fn, P44SCRIPT_DATA_SUBDIR "/", false), data);
   if (Error::notOK(err)) {
