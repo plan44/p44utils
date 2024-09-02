@@ -60,7 +60,7 @@
   #define P44SCRIPT_DATA_SUBDIR "p44script"
 #endif
 #ifndef P44SCRIPT_INCLUDE_SUBDIR
-  #define P44SCRIPT_INCLUDE_SUBDIR "p44include"
+  #define P44SCRIPT_INCLUDE_SUBDIR "include"
 #endif
 
 
@@ -2564,7 +2564,10 @@ namespace p44 { namespace P44Script {
     /// @param aReadOnly if set, the file must exist. Otherwise, non-existing files will be registered with empty content
     /// @param aIncludingHost where we are including from
     /// @return CompiledCode for the include or error
-    ScriptObjPtr getIncludedCode(const string aIncludeFilePath, bool aReadOnly, SourceHostPtr aIncludingHost);
+    ScriptObjPtr getIncludedCode(const string aIncludeFilePath, SourceHostPtr aIncludingHost);
+
+    /// @return the script storage directory (no trailing /)
+    virtual string scriptStoragePath();
 
     #if P44SCRIPT_OTHER_SOURCES
     /// create a non-script source host as a proxy for a editable text file
@@ -3790,11 +3793,14 @@ namespace p44 { namespace P44Script {
   {
     typedef StandardScriptingDomain inherited;
 
-    string mScriptDir;
+    string mScriptDir; ///< the script storage directory (no trailing /)
 
   public:
 
     FileStorageStandardScriptingDomain() {};
+
+    /// @return the script storage directory (no trailing /)
+    virtual string scriptStoragePath() P44_OVERRIDE { return mScriptDir; };
 
     /// set the file storage path
     /// @aScriptDir

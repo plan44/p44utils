@@ -2361,6 +2361,12 @@ const ScriptObjPtr ScriptMainContext::memberByName(const string aName, TypeInfo 
 
 // MARK: - Scripting Domain
 
+string ScriptingDomain::scriptStoragePath()
+{
+  // base class: just the data dir when we do not have script file support in the domain
+  return Application::sharedApplication()->dataPath();
+}
+
 
 // MARK: - Built-in member support
 
@@ -4501,20 +4507,7 @@ void SourceProcessor::s_include()
     return;
   }
   string fn = mResult->stringValue();
-  #if !ALWAYS_ALLOW_ALL_FILES
-  bool isResource = fn.substr(0,2)=="+/";
-  size_t psz = isResource || fn.substr(0,2)=="_/" ? 2 : 0; // allow _/ temp and +/ resource prefix (but not =/)
-  if (
-    Application::sharedApplication()->userLevel()<2 && // only user level 2 is allowed to include from everywhere
-    (fn.find("/", psz)!=string::npos || fn.find("..", psz)!=string::npos)
-  ) {
-    mResult = new ErrorValue(ScriptError::NoPrivilege, "no privilege for this include path");
-    checkAndResume();
-    return;
-  }
-  #endif
-  fn = Application::sharedApplication()->dataPath(fn, P44SCRIPT_INCLUDE_SUBDIR "/", !isResource);
-  mResult = domain()->getIncludedCode(fn, isResource, host);
+  mResult = domain()->getIncludedCode(fn, host);
   CompiledCodePtr code = boost::dynamic_pointer_cast<CompiledCode>(mResult);
   pop(); // back to the original state of where the include was encounterd
   if (!code) {
@@ -7071,12 +7064,31 @@ ErrorPtr FileHost::saveToFile(const string aFilePath, const string aContent, uin
 // MARK: - IncludeHost
 
 // lookup/factory method in domain
-ScriptObjPtr ScriptingDomain::getIncludedCode(const string aIncludeFilePath, bool aReadOnly, SourceHostPtr aIncludingHost)
+ScriptObjPtr ScriptingDomain::getIncludedCode(const string aIncludeFilePath, SourceHostPtr aIncludingHost)
 {
+  ErrorPtr err;
+  string path;
+  size_t prefixlen;
+  Application::PathType ty = Application::sharedApplication()->getPathType(aIncludeFilePath, 2, false, &prefixlen);
+  if (ty==Application::notallowed) {
+    return new ErrorValue(ScriptError::NoPrivilege, "no privilege for this include path");
+  }
+  if (ty==Application::relative || ty==Application::explicit_relative) {
+    ty = Application::relative; // both count as relative to include dir -> editable
+    // normal include files should be within the domain storage
+    string includedir = scriptStoragePath() + "/" P44SCRIPT_INCLUDE_SUBDIR;
+    err = ensureDirExists(includedir, 1, S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
+    if (Error::notOK(err)) return new ErrorValue(err);
+    path = includedir + "/" + aIncludeFilePath.substr(prefixlen);
+  }
+  else {
+    path = Application::sharedApplication()->dataPath(path, "", false);
+  }
+  // now process the absolute path
   string sourceHostUid;
   string title;
   ScriptIncludeHostPtr includeHost;
-  ErrorPtr err = FileHost::parsePath(aIncludeFilePath, sourceHostUid, title);
+  err = FileHost::parsePath(path, sourceHostUid, title);
   if (Error::notOK(err)) return new ErrorValue(err);
   // see if we already have it
   SourceHostPtr s = getHostByUid(sourceHostUid);
@@ -7089,10 +7101,10 @@ ScriptObjPtr ScriptingDomain::getIncludedCode(const string aIncludeFilePath, boo
     // try to load from file
     string content;
     uint32_t contentHash;
-    ErrorPtr err = FileHost::readFromFile(aIncludeFilePath, content, contentHash, aReadOnly); // must exist if it is readonly
+    ErrorPtr err = FileHost::readFromFile(path, content, contentHash, ty!=Application::relative); // non-standard include files are read only
     if (Error::notOK(err)) return new ErrorValue(err);
     // create the
-    includeHost = new ScriptIncludeHost(*this, sourceHostUid, aIncludeFilePath, title, content, contentHash, aReadOnly);
+    includeHost = new ScriptIncludeHost(*this, sourceHostUid, path, title, content, contentHash, ty==Application::resource_relative);
     includeHost->setDomain(this);
   }
   // register includer
@@ -10286,8 +10298,8 @@ void StandardScriptingDomain::setStandardScriptingDomain(ScriptingDomainPtr aSta
 
 bool FileStorageStandardScriptingDomain::loadSource(const string &aScriptHostUid, string &aSource)
 {
-  if (mScriptDir.empty()) return false;
-  ErrorPtr err = string_fromfile(mScriptDir+"/"+aScriptHostUid+P44SCRIPT_FILE_EXTENSION, aSource);
+  if (scriptStoragePath().empty()) return false;
+  ErrorPtr err = string_fromfile(scriptStoragePath()+"/"+aScriptHostUid+P44SCRIPT_FILE_EXTENSION, aSource);
   if (Error::isOK(err)) return true;
   if (Error::isError(err, SysError::domain(), ENOENT)) return false; // no such file, but that's ok
   LOG(LOG_ERR, "Cannot load script '%s" P44SCRIPT_FILE_EXTENSION "'", aScriptHostUid.c_str());
@@ -10297,8 +10309,8 @@ bool FileStorageStandardScriptingDomain::loadSource(const string &aScriptHostUid
 
 bool FileStorageStandardScriptingDomain::storeSource(const string &aScriptHostUid, const string &aSource)
 {
-  if (mScriptDir.empty()) return false;
-  string scriptfn = mScriptDir+"/"+aScriptHostUid+P44SCRIPT_FILE_EXTENSION;
+  if (scriptStoragePath().empty()) return false;
+  string scriptfn = scriptStoragePath()+"/"+aScriptHostUid+P44SCRIPT_FILE_EXTENSION;
   ErrorPtr err;
   if (aSource.empty()) {
     // remove entirely empty script files
