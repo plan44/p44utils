@@ -305,7 +305,7 @@ ErrorPtr FdComm::receiveAndAppendToString(string &aString, ssize_t aMaxBytes)
   ErrorPtr err;
   size_t max;
   if (mUnknownReadyBytes) {
-    max = aMaxBytes;
+    max = (size_t)aMaxBytes;
   }
   else {
     max = numBytesReady();

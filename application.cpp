@@ -235,7 +235,7 @@ Application::PathType Application::getPathType(const string aPath, int aFreePath
   #if !ALWAYS_ALLOW_ALL_FILES
   if (aFreePathUserLevel>0 && mUserLevel<aFreePathUserLevel) {
     // must be of an allowed type and not contain any slashes or ".."
-    if (aTempPrefixOnly && (ty==resource_relative || ty==data_relative) || aPath.find("/", prefixLen)!=string::npos || aPath.find("..", prefixLen)!=string::npos) {
+    if ((aTempPrefixOnly && (ty==resource_relative || ty==data_relative)) || aPath.find("/", prefixLen)!=string::npos || aPath.find("..", prefixLen)!=string::npos) {
       return notallowed;
     }
   }
