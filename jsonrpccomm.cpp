@@ -124,7 +124,7 @@ ErrorPtr JsonRpcComm::sendResult(const JsonObjectPtr aJsonRpcId, JsonObjectPtr a
 }
 
 
-ErrorPtr JsonRpcComm::sendError(const JsonObjectPtr aJsonRpcId, uint32_t aErrorCode, const char *aErrorMessage, JsonObjectPtr aErrorData)
+ErrorPtr JsonRpcComm::sendError(const JsonObjectPtr aJsonRpcId, int32_t aErrorCode, const char *aErrorMessage, JsonObjectPtr aErrorData)
 {
   JsonObjectPtr response = jsonRPCObj();
   // create the error object
@@ -155,7 +155,7 @@ ErrorPtr JsonRpcComm::sendError(const JsonObjectPtr aJsonRpcId, uint32_t aErrorC
 ErrorPtr JsonRpcComm::sendError(const JsonObjectPtr aJsonRpcId, ErrorPtr aErrorToSend)
 {
   if (Error::notOK(aErrorToSend)) {
-    return sendError(aJsonRpcId, (uint32_t)aErrorToSend->getErrorCode(), aErrorToSend->text());
+    return sendError(aJsonRpcId, (int32_t)aErrorToSend->getErrorCode(), aErrorToSend->text());
   }
   return ErrorPtr();
 }

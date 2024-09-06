@@ -35,13 +35,13 @@ namespace p44 {
     enum {
       ParseError = -32700,
       InvalidRequest = -32600,
-        MethodNotFound = -32601,
+      MethodNotFound = -32601,
       InvalidParams = -32602,
       InternalError = -32603,
       ServerError = -32000,
       ServerErrorMax = -32099
     };
-    typedef uint32_t ErrorCodes;
+    typedef int32_t ErrorCodes;
 
     static const char *domain() { return "JsonRPC"; }
     virtual const char *getErrorDomain() const P44_OVERRIDE { return JsonRpcError::domain(); };
@@ -123,7 +123,7 @@ namespace p44 {
     /// @param aErrorMessage the error message or NULL to generate a standard text
     /// @param aErrorData the optional "data" member for the JSON-RPC error object
     /// @result empty or Error object in case of error sending error response
-    ErrorPtr sendError(const JsonObjectPtr aJsonRpcId, uint32_t aErrorCode, const char *aErrorMessage = NULL, JsonObjectPtr aErrorData = JsonObjectPtr());
+    ErrorPtr sendError(const JsonObjectPtr aJsonRpcId, int32_t aErrorCode, const char *aErrorMessage = NULL, JsonObjectPtr aErrorData = JsonObjectPtr());
 
     /// send p44utils::Error object as JSON-RPC error
     /// @param aJsonRpcId this must be the aJsonRpcId as received in the JsonRpcRequestCB handler.
