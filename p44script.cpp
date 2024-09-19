@@ -8511,7 +8511,7 @@ static void substr_func(BuiltinFunctionContextPtr f)
 // find(haystack, needle)
 // find(haystack, needle, from)
 // find(haystack, needle, from, caseinsensitive)
-FUNC_ARG_DEFS(find, { text|undefres }, { text }, { numeric|optionalarg }  );
+FUNC_ARG_DEFS(find, { text|undefres }, { text }, { numeric|optionalarg }, { numeric|optionalarg } );
 static void find_func(BuiltinFunctionContextPtr f)
 {
   string haystack;
