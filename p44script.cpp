@@ -6225,6 +6225,7 @@ void ScriptHost::activate(EvaluationFlags aDefaultFlags, const char* aOriginLabe
     mActiveParams->mTitleTemplate = nonNullCStr(aTitleTemplate);
     mActiveParams->mLoggingContextP = aLoggingContextP;
     mActiveParams->mSourceDirty = false;
+    mActiveParams->mUnstored = false;
     #if P44SCRIPT_MIGRATE_TO_DOMAIN_SOURCE
     mActiveParams->mDomainSource = false;
     mActiveParams->mLocalDataReportedRemoved = false;
