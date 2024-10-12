@@ -976,7 +976,7 @@ static bool dnssdbrowsehandler(BuiltinFunctionContextPtr f, ArrayValuePtr aBrows
         txts->setMemberByName(pos->first.c_str(), new StringValue(pos->second));
       }
       r->setMemberByName("txts", txts);
-      aBrowsingresults->appendMember(txts);
+      aBrowsingresults->appendMember(r);
     }
     return true; // continue collecting until AllForNow
   }
