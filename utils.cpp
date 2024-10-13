@@ -751,7 +751,7 @@ string p44::hexToBinaryString(const char *aHexString, bool aSpacesAllowed, size_
 
 string p44::binaryToHexString(const string &aBinaryString, char aSeparator)
 {
-  return dataToHexString(aBinaryString.c_str(), aBinaryString.size());
+  return dataToHexString(aBinaryString.c_str(), aBinaryString.size(), aSeparator);
 }
 
 
