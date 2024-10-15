@@ -30,7 +30,8 @@ using namespace std;
 namespace p44 {
 
   enum {
-    tlv_invalid = 0x03, // unsiged needing 32bit length -> does not exist
+    tlv_any = 0x02, // Marker only, not a tag (unsiged needing 16bit length -> does not exist)
+    tlv_invalid = 0x03, // Marker only, not a tag (unsiged needing 32bit length -> does not exist)
     // Tag IDs
     tlv_unsigned = 0x00,
     tlv_signed = 0x04,
@@ -74,6 +75,8 @@ namespace p44 {
     void start_counted_container();
     void end_container();
 
+    TLVWriter* current();
+
     string finalize();
 
   protected:
@@ -100,6 +103,7 @@ namespace p44 {
 
     const string& mTLV;
     size_t mPos;
+    size_t mStartPos;
     size_t mEndPos;
     TLVReader* mNestedReader;
 
@@ -110,15 +114,38 @@ namespace p44 {
     TLVTag nextTag();
     TLVTag nextTag(string &aId);
     TLVTag nextTag(uint32_t &aId);
+    TLVTag nextDataTag();
 
+    /// restart scanning from beginning, closing all open containers
+    void reset();
+
+    /// rewind to beginning of currently open container (or entire TLV when at root)
+    void rewind();
+
+    /// @return true if there is no next tag
+    bool eot();
+
+    /// @return true if specified (or any if aTag==tag\_any) tag with given id is found
     bool nextIs(TLVTag aTag, const string aId);
     bool nextIs(TLVTag aTag, uint32_t aId);
 
+    /// seek to specified tag
+    /// @return next tag as specified (or any if aTag==tag\_any) with given ID
+    template<typename T> TLVTag seekNext(TLVTag aTag, T aId)
+    {
+      while(!eot()) {
+        if (nextIs(aTag, aId)) return nextTag();
+        skip();
+      }
+      return tlv_invalid; // not found
+    }
+
+    /// skip current tag
     bool skip();
 
     template<typename T> bool read_unsigned(T& aUnsigned)
     {
-      if (nextTag()!=tlv_unsigned) return false;
+      if (nextDataTag()!=tlv_unsigned) return false;
       size_t start, size;
       if (!get_TL(start, size)) return false;
       aUnsigned = static_cast<T>(get_int_bytes(start, size, 0));
@@ -127,7 +154,7 @@ namespace p44 {
 
     template<typename T> bool read_signed(T& aSigned)
     {
-      if (nextTag()!=tlv_signed) return false;
+      if (nextDataTag()!=tlv_signed) return false;
       size_t start, size;
       if (!get_TL(start, size)) return false;
       aSigned = static_cast<T>(get_int_bytes(start, size, sizeof(T)));
@@ -142,6 +169,11 @@ namespace p44 {
     bool open_counted_container(size_t& aCount);
     bool close_container();
 
+    /// @return this returns the currently active reader, i.e. the innermost container being scanned now.
+    /// This can be used to take more direct control (such as seeking) over sub-TLVs
+    /// @note might return a pointer to this instance if no container is open
+    TLVReader* current();
+
     string dump(int aIndent = 0);
 
   protected:
@@ -151,6 +183,7 @@ namespace p44 {
     bool get_TL(size_t& aStart, size_t& aSize);
     bool get_TLV_string(string& aString);
     size_t pos() { return mPos; };
+    void setPos(size_t aPos) { mPos = aPos; };
   };
 
 

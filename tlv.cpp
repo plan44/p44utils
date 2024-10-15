@@ -24,6 +24,11 @@
 
 using namespace p44;
 
+// TODO: implementation is not optimized
+//   in particular the forwarding chain to nested readers/writers is not
+//   efficient for highly nested documents (could be solved by maintaining
+//   a pointer to the current sub-reader in the root.
+
 // MARK: - TLVWriter
 
 TLVWriter::TLVWriter() :
@@ -206,11 +211,20 @@ void TLVWriter::start_counted_container()
 }
 
 
+TLVWriter* TLVWriter::current()
+{
+  if (mNestedWriter) return mNestedWriter->current();
+  return this;
+}
+
+
 string TLVWriter::finalize()
 {
-  if (mNestedWriter) mNestedWriter->finalize();
-  delete mNestedWriter;
-  mNestedWriter = nullptr;
+  if (mNestedWriter) {
+    mNestedWriter->finalize();
+    delete mNestedWriter;
+    mNestedWriter = nullptr;
+  }
   return mTLV;
 }
 
@@ -221,6 +235,7 @@ string TLVWriter::finalize()
 TLVReader::TLVReader(const string &aTLVString, size_t aPos, size_t aEndPos) :
   mTLV(aTLVString),
   mPos(aPos),
+  mStartPos(aPos),
   mEndPos(aEndPos),
   mNestedReader(nullptr)
 {
@@ -230,8 +245,7 @@ TLVReader::TLVReader(const string &aTLVString, size_t aPos, size_t aEndPos) :
 
 TLVReader::~TLVReader()
 {
-  if (mNestedReader) delete mNestedReader;
-  mNestedReader = nullptr;
+  reset();
 }
 
 
@@ -240,6 +254,28 @@ TLVTag TLVReader::nextTag()
   if (mNestedReader) return mNestedReader->nextTag();
   if (mPos>=mEndPos) return tlv_invalid;
   return mTLV[mPos] & tlv_tagmask;
+}
+
+
+bool TLVReader::eot()
+{
+  return nextTag()==tlv_invalid;
+}
+
+
+void TLVReader::reset()
+{
+  if (mNestedReader) mNestedReader->reset();
+  delete mNestedReader;
+  mNestedReader = nullptr;
+  rewind();
+}
+
+
+void TLVReader::rewind()
+{
+  if (mNestedReader) mNestedReader->rewind();
+  mPos = mStartPos;
 }
 
 
@@ -320,34 +356,48 @@ TLVTag TLVReader::nextTag(uint32_t &aId)
 }
 
 
+TLVTag TLVReader::nextDataTag()
+{
+  while(true) {
+    TLVTag tag = nextTag();
+    if (tag!=tlv_id_string && tag!=tlv_id_unsigned) return tag;
+    skip();
+  }
+}
+
+
 bool TLVReader::nextIs(TLVTag aTag, const string aId)
 {
+  size_t oldpos = current()->pos();
   string id;
   TLVTag tag = nextTag(id);
-  return tag==aTag && id==aId;
+  if ((aTag==tlv_any || tag==aTag) && id==aId) return true;
+  current()->setPos(oldpos);
+  return false;
 }
 
 
 bool TLVReader::nextIs(TLVTag aTag, uint32_t aId)
 {
+  size_t oldpos = current()->pos();
   uint32_t id;
   TLVTag tag = nextTag(id);
-  return tag==aTag && id==aId;
+  if ((aTag==tlv_any || tag==aTag) && id==aId) return true;
+  current()->setPos(oldpos);
+  return false;
 }
-
-
 
 
 bool TLVReader::read_string(string& aString)
 {
-  if (nextTag()!=tlv_string) return false;
+  if (nextDataTag()!=tlv_string) return false;
   return get_TLV_string(aString);
 }
 
 
 bool TLVReader::read_blob(string& aBlob)
 {
-  if (nextTag()!=tlv_blob) return false;
+  if (nextDataTag()!=tlv_blob) return false;
   return get_TLV_string(aBlob);
   return true;
 }
@@ -355,7 +405,7 @@ bool TLVReader::read_blob(string& aBlob)
 
 bool TLVReader::read_blob(void* aBuffer, size_t aBufSiz)
 {
-  if (nextTag()!=tlv_blob) return false;
+  if (nextDataTag()!=tlv_blob) return false;
   size_t start, size;
   if (!get_TL(start, size)) return false;
   memcpy(aBuffer, mTLV.c_str()+mPos, size>aBufSiz ? aBufSiz : size);
@@ -366,7 +416,7 @@ bool TLVReader::read_blob(void* aBuffer, size_t aBufSiz)
 bool TLVReader::open_container()
 {
   if (mNestedReader) return mNestedReader->open_container();
-  if (nextTag()!=tlv_container) return false;
+  if (nextDataTag()!=tlv_container) return false;
   size_t start, size;
   get_TL(start, size);
   mNestedReader = new TLVReader(mTLV, start, start+size);
@@ -377,7 +427,7 @@ bool TLVReader::open_container()
 bool TLVReader::open_counted_container(size_t& aCount)
 {
   if (mNestedReader) return mNestedReader->open_counted_container(aCount);
-  if (nextTag()!=tlv_counted_container) return false;
+  if (nextDataTag()!=tlv_counted_container) return false;
   size_t start, size;
   get_TL(start, size);
   mNestedReader = new TLVReader(mTLV, start, start+size);
@@ -395,11 +445,18 @@ bool TLVReader::close_container()
   if (!mNestedReader) return false; // I am the leaf
   if (mNestedReader->close_container()) return true; // nested was not the leaf
   // nested is the leaf or in error, close it
-  size_t nestedPos = mNestedReader->pos();
+  //size_t nestedPos = mNestedReader->pos();
   delete mNestedReader;
   mNestedReader = nullptr;
   // nestedPos==mPos; // content fully read?
   return true; // closed
+}
+
+
+TLVReader* TLVReader::current()
+{
+  if (mNestedReader) return mNestedReader->current();
+  return this;
 }
 
 
