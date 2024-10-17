@@ -1855,12 +1855,14 @@ namespace p44 { namespace P44Script {
     ScriptingDomain& mDomain;
     string mFilePath; ///< the file this ExternalFileHost represents
     uint32_t mContentHash; ///< the content hash to prevent unneeded saves
+    bool mReadOnly;
 
     FileHost(
       ScriptingDomain& aDomain,
       const string aSourceHostUid,
       const string aFilePath,
-      const string aTitle
+      const string aTitle,
+      bool aReadOnly
     );
 
     virtual ~FileHost();
@@ -1872,6 +1874,9 @@ namespace p44 { namespace P44Script {
     static ErrorPtr saveToFile(const string aFilePath, const string aContent, uint32_t& aContentHash);
 
   public:
+
+    /// @return true for includes are read-only (e.g. from ROM resources)
+    virtual bool isReadOnly() const P44_OVERRIDE { return mReadOnly; }
 
     /// @return the source UID or a dummy placeholder in case it is not set
     virtual string getSourceUid() P44_OVERRIDE;
@@ -1895,7 +1900,6 @@ namespace p44 { namespace P44Script {
     friend class ScriptingDomain;
     friend class CompiledInclude;
     SourceContainerPtr mSourceContainer; ///< contains the include (cached for execution)
-    bool mReadOnly;
 
     typedef std::set<SourceHostPtr> IncludingHostsSet;
     IncludingHostsSet mIncludingHosts;
@@ -1914,9 +1918,6 @@ namespace p44 { namespace P44Script {
     );
 
   public:
-
-    /// @return true for includes are read-only (e.g. from ROM resources)
-    virtual bool isReadOnly() const P44_OVERRIDE { return mReadOnly; }
 
     /// get the source code
     /// @return the source code as set by setSource()
@@ -1973,7 +1974,8 @@ namespace p44 { namespace P44Script {
       const string aSourceHostUid,
       const string aFilePath,
       const string aTitle,
-      const string aContextType
+      const string aContextType,
+      bool aReadOnly
     );
 
   public:
@@ -2574,10 +2576,12 @@ namespace p44 { namespace P44Script {
     /// @param aFilePath the file path to be edited
     /// @param aTitle the title to display for the file, defaults to file name w/o path
     /// @param aTitle the context type (indication for sorting editable files in UI), defaults to "textfile"
+    /// @param aReadOnly if set, the file cannot be modified
     ErrorPtr addExternalFileHost(
       string aFilePath,
       string aTitle,
-      string aContextType
+      string aContextType,
+      bool aReadOnly
     );
     #endif // P44SCRIPT_OTHER_SOURCES
 

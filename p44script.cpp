@@ -40,6 +40,7 @@
 #if ENABLE_JSON_APPLICATION && SCRIPTING_JSON_SUPPORT || ENABLE_APPLICATION_SUPPORT
   #include "application.hpp"
   #include <sys/stat.h> // for mkdir
+  #include <dirent.h>
   #include <stdio.h>
 #endif
 #if P44SCRIPT_FULL_SUPPORT && ENABLE_P44LRGRAPHICS
@@ -6984,12 +6985,14 @@ FileHost::FileHost(
   ScriptingDomain& aDomain,
   const string aSourceHostUid,
   const string aFilePath,
-  const string aTitle
+  const string aTitle,
+  bool aReadOnly
 ) :
   mDomain(aDomain),
   mSourceHostUid(aSourceHostUid),
   mFilePath(aFilePath),
-  mTitle(aTitle)
+  mTitle(aTitle),
+  mReadOnly(aReadOnly)
 {
   // register
   mDomain.registerSourceHost(*this);
@@ -7124,8 +7127,7 @@ ScriptIncludeHost::ScriptIncludeHost(
   uint32_t aContentHash,
   bool aReadOnly
 ) :
-  inherited(aDomain, aSourceHostUid, aIncludedFilePath, aTitle),
-  mReadOnly(aReadOnly)
+  inherited(aDomain, aSourceHostUid, aIncludedFilePath, aTitle, aReadOnly)
 {
   mSourceContainer = new SourceContainer(this, aText);
   mContentHash = aContentHash;
@@ -7218,13 +7220,14 @@ size_t ScriptIncludeHost::numBreakpoints()
 ErrorPtr ScriptingDomain::addExternalFileHost(
   string aFilePath,
   string aTitle,
-  string aContextType
+  string aContextType,
+  bool aReadOnly
 ) {
   string sourceHostUid;
   ErrorPtr err = FileHost::parsePath(aFilePath, sourceHostUid, aTitle);
   if (Error::isOK(err)) {
     // now create
-    ExternalFileHost* tfh = new ExternalFileHost(*this, sourceHostUid, aFilePath, aTitle, aContextType);
+    ExternalFileHost* tfh = new ExternalFileHost(*this, sourceHostUid, aFilePath, aTitle, aContextType, aReadOnly);
     tfh->isMemberVariable(); // like a member of the main program, never to be destroyed until program exits
   }
   return err;
@@ -7236,9 +7239,10 @@ ExternalFileHost::ExternalFileHost(
   const string aSourceHostUid,
   const string aFilePath,
   const string aTitle,
-  const string aContextType
+  const string aContextType,
+  bool aReadOnly
 ) :
-  inherited(aDomain, aSourceHostUid, aFilePath, aTitle),
+  inherited(aDomain, aSourceHostUid, aFilePath, aTitle, aReadOnly),
   mContextType(aContextType)
 {
   // register
@@ -7270,8 +7274,14 @@ bool ExternalFileHost::setAndStoreSource(const string& aSource)
   Fnv32 contentHash;
   contentHash.addString(aSource);
   if (contentHash.getHash()!=mContentHash) {
-    // actually changed
-    ErrorPtr err = string_tofile(mFilePath, aSource);
+    ErrorPtr err;
+    if (isReadOnly()) {
+      err = TextError::err("cannot save, file is read-only");
+    }
+    else {
+      // actually changed
+      err = string_tofile(mFilePath, aSource);
+    }
     if (Error::notOK(err)) {
       LOG(LOG_ERR, "TextFileHost: error saving %s: %s", mFilePath.c_str(), err->text());
       return true; // not stored at domain level (not really relevant/checked in text file case, but semantically correct answer)
@@ -8912,6 +8922,71 @@ static void appversion_func(BuiltinFunctionContextPtr f)
 }
 
 
+// listfiles(pathname)
+FUNC_ARG_DEFS(listfiles, { text } );
+static void listfiles_func(BuiltinFunctionContextPtr f)
+{
+  string fn = f->arg(0)->stringValue();
+  // user level 1 is allowed to read everywhere
+  Application::PathType ty = Application::sharedApplication()->getPathType(fn, 1, true);
+  if (ty==Application::empty) {
+    f->finish(new ErrorValue(ScriptError::Invalid, "no filename"));
+    return;
+  }
+  if (ty==Application::notallowed) {
+    f->finish(new ErrorValue(ScriptError::NoPrivilege, "no reading privileges for this path"));
+    return;
+  }
+  ErrorPtr err;
+  ArrayValuePtr arr = new ArrayValue();
+  fn = Application::sharedApplication()->dataPath(fn, P44SCRIPT_DATA_SUBDIR "/", false);
+  DIR *dir = opendir(fn.c_str());
+  if (!dir) {
+    err = SysError::errNo("error opening directory: ");
+  }
+  else {
+    struct dirent* entry;
+    while ((entry = readdir(dir))) {
+      string name = entry->d_name;
+      if (name=="." || name=="..") continue;
+      if (entry->d_type==DT_DIR) name += "/";
+      arr->appendMember(new StringValue(name));
+    }
+    closedir(dir);
+  }
+  if (Error::notOK(err)) {
+    f->finish(new ErrorValue(err));
+    return;
+  }
+  f->finish(arr);
+}
+
+
+// readfile(filename)
+FUNC_ARG_DEFS(readfile, { text } );
+static void readfile_func(BuiltinFunctionContextPtr f)
+{
+  string fn = f->arg(0)->stringValue();
+  // user level 1 is allowed to read everywhere
+  Application::PathType ty = Application::sharedApplication()->getPathType(fn, 1, true);
+  if (ty==Application::empty) {
+    f->finish(new ErrorValue(ScriptError::Invalid, "no filename"));
+    return;
+  }
+  if (ty==Application::notallowed) {
+    f->finish(new ErrorValue(ScriptError::NoPrivilege, "no reading privileges for this path"));
+    return;
+  }
+  string data;
+  ErrorPtr err = string_fromfile(Application::sharedApplication()->dataPath(fn, P44SCRIPT_DATA_SUBDIR "/", false), data);
+  if (Error::notOK(err)) {
+    f->finish(new ErrorValue(err));
+    return;
+  }
+  f->finish(new StringValue(data));
+}
+
+
 // writefile(filename, data [, append])
 FUNC_ARG_DEFS(writefile, { text }, { anyvalid|null }, { numeric|optionalarg } );
 static void writefile_func(BuiltinFunctionContextPtr f)
@@ -8956,29 +9031,45 @@ static void writefile_func(BuiltinFunctionContextPtr f)
 }
 
 
-// readfile(filename)
-FUNC_ARG_DEFS(readfile, { text } );
-static void readfile_func(BuiltinFunctionContextPtr f)
+#if P44SCRIPT_OTHER_SOURCES
+
+// editfile(filename [, context [, title]])
+FUNC_ARG_DEFS(editfile, { text }, { text|null|optionalarg }, { text|optionalarg } );
+static void editfile_func(BuiltinFunctionContextPtr f)
 {
   string fn = f->arg(0)->stringValue();
-  // user level 1 is allowed to read everywhere
-  Application::PathType ty = Application::sharedApplication()->getPathType(fn, 1, true);
+  Application::PathType ty = Application::sharedApplication()->getPathType(fn, 2, true); // only temp prefix allowed for writing
   if (ty==Application::empty) {
     f->finish(new ErrorValue(ScriptError::Invalid, "no filename"));
     return;
   }
+  bool readonly = false;
   if (ty==Application::notallowed) {
-    f->finish(new ErrorValue(ScriptError::NoPrivilege, "no reading privileges for this path"));
-    return;
+    // no sufficient user level for writing
+    readonly = true;
+    // try reading
+    ty = Application::sharedApplication()->getPathType(fn, 1, false); // all prefixes allowed for reading
+    if (ty==Application::notallowed) {
+      f->finish(new ErrorValue(ScriptError::NoPrivilege, "no writing privileges for this path"));
+      return;
+    }
   }
-  string data;
-  ErrorPtr err = string_fromfile(Application::sharedApplication()->dataPath(fn, P44SCRIPT_DATA_SUBDIR "/", false), data);
+  if (ty==p44::Application::resource_relative) readonly=true;
+  fn = Application::sharedApplication()->dataPath(fn, P44SCRIPT_DATA_SUBDIR "/", !readonly); // create prefix for writables
+  ErrorPtr err;
+  string title;
+  string context;
+  if (f->arg(1)->defined()) context = f->arg(1)->stringValue();
+  if (f->arg(2)->defined()) title = f->arg(2)->stringValue();
+  err = f->domain()->addExternalFileHost(fn, title, context, readonly);
   if (Error::notOK(err)) {
     f->finish(new ErrorValue(err));
     return;
   }
-  f->finish(new StringValue(data));
+  f->finish();
 }
+
+#endif // P44SCRIPT_OTHER_SOURCES
 
 #endif // ENABLE_APPLICATION_SUPPORT
 #endif // !ESP_PLATFORM
@@ -10255,7 +10346,11 @@ static const BuiltinMemberDescriptor standardFunctions[] = {
   #if ENABLE_APPLICATION_SUPPORT
   FUNC_DEF_W_ARG(readfile, executable|error|text),
   FUNC_DEF_W_ARG(writefile, executable|error|null),
+  FUNC_DEF_W_ARG(listfiles, executable|error|null),
   #endif // ENABLE_APPLICATION_SUPPORT
+  #if P44SCRIPT_OTHER_SOURCES
+  FUNC_DEF_W_ARG(editfile, executable|error|null),
+  #endif
   #endif // !ESP_PLATFORM
   #endif // P44SCRIPT_FULL_SUPPORT
   { NULL } // terminator
