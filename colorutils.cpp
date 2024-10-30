@@ -288,12 +288,24 @@ string p44::pixelToWebColor(const PixelColor aPixelColor, bool aWithHash)
 }
 
 
-void p44::pixelToRGB(PixelColor aPixelColor, Row3 &aRGB)
+void p44::pixelToRGB(const PixelColor aPixelColor, Row3 &aRGB)
 {
   aRGB[0] = ((double)aPixelColor.r * aPixelColor.a)/255/255;
   aRGB[1] = ((double)aPixelColor.g * aPixelColor.a)/255/255;
   aRGB[2] = ((double)aPixelColor.b * aPixelColor.a)/255/255;
 }
+
+
+PixelColor p44::rgbToPixel(const Row3 &aRGB)
+{
+  PixelColor res;
+  res.a = 255;
+  res.r = aRGB[0]*255;
+  res.g = aRGB[1]*255;
+  res.b = aRGB[2]*255;
+  return res;
+}
+
 
 #endif // !REDUCED_FOOTPRINT
 

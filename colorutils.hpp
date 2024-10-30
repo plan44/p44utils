@@ -144,7 +144,13 @@ namespace p44 {
   /// convert pixel color to RGB color components in 0..1 double range
   /// @param aPixelColor pixel color, alpha will be applied to dim output
   /// @param aRGB will receive R,G,B scaled to 0..1 range
-  void pixelToRGB(PixelColor aPixelColor, Row3 &aRGB);
+  void pixelToRGB(const PixelColor aPixelColor, Row3 &aRGB);
+
+  /// convert RGB values in 0..1 range to pixel color
+  /// @param aRGB will R,G,B values in 0..1 range
+  /// @return pixel color, alpha set to 255
+  PixelColor rgbToPixel(const Row3 &aRGB);
+
 
   /// @}
 
