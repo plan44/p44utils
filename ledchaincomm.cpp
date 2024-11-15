@@ -50,13 +50,14 @@ using namespace p44;
 // Power consumption according to
 // https://www.thesmarthomehookup.com/the-complete-guide-to-selecting-individually-addressable-led-strips/
 static const LEDChainComm::LedChipDesc ledChipDescriptors[LEDChainComm::num_ledchips] = {
-  { "none",    0,   0,  0, false },
-  { "WS2811",  8,  64,  0, false },
-  { "WS2812",  4,  60,  0, false },
-  { "WS2813",  4,  85,  0, false },
-  { "WS2815", 24, 120,  0, true },
-  { "P9823",   8,  80,  0, false }, // no real data, rough assumption
-  { "SK6812",  6,  50, 95, false }
+  { "none",    0,   0,  0, 1, false },
+  { "WS2811",  8,  64,  0, 1, false },
+  { "WS2812",  4,  60,  0, 1, false },
+  { "WS2813",  4,  85,  0, 1, false },
+  { "WS2815", 24, 120,  0, 1, true },
+  { "P9823",   8,  80,  0, 1, false }, // no real data, rough assumption
+  { "SK6812",  6,  50, 95, 1, false },
+  { "WS2816",  4,  85,  0, 2, false } // no real data, assume same as WS2813
 };
 
 
@@ -109,6 +110,7 @@ LEDChainComm::LEDChainComm(
   mTMaxPassive_uS = 0;
   mMaxRetries = 0;
   mNumColorComponents = 3;
+  mNumBytesPerComponent = 1;
   // Parse led type string
   // - check legacy type names
   if (aLedType=="SK6812") {
@@ -156,6 +158,7 @@ LEDChainComm::LEDChainComm(
   // device name/channel
   mDeviceName = aDeviceName;
   mNumColorComponents = ledChipDescriptors[mLedChip].whiteChannelMw>0 ? 4 : 3;
+  mNumBytesPerComponent = ledChipDescriptors[mLedChip].numBytesPerChannel;
   mInactiveStartLeds = aInactiveStartLeds;
   mInactiveBetweenLeds = aInactiveBetweenLeds;
   mInactiveEndLeds = aInactiveEndLeds;
@@ -217,6 +220,9 @@ bool LEDChainComm::begin(size_t aHintAtTotalChains)
     }
     else {
       #ifdef ESP_PLATFORM
+      #if PWMBITS!=8
+      #error "16-bit LEDs not yet implemented"
+      #endif
       if (mDeviceName.substr(0,4)=="gpio") {
         sscanf(mDeviceName.c_str()+4, "%d", &gpioNo);
       }
@@ -318,6 +324,11 @@ bool LEDChainComm::begin(size_t aHintAtTotalChains)
           }
           break;
         }
+        case ledchip_ws2816:
+          // FIXME: workaround, use two RGB (non-swapped) 8-bit for one 16-bit LED
+          mRPiWS281x.channel[0].count = mNumLeds*2;
+          mRPiWS281x.channel[0].strip_type = WS2811_STRIP_RGB;
+          break;
       }
       mRPiWS281x.channel[0].leds = NULL; // will be allocated by the library
       // channel 1 - unused
@@ -345,7 +356,7 @@ bool LEDChainComm::begin(size_t aHintAtTotalChains)
       }
       if (mLedChip!=ledchip_none) {
         const int hdrsize = 5; // v6 header size
-        rawBytes = mNumColorComponents*mNumLeds+1+hdrsize;
+        rawBytes = mNumColorComponents*mNumBytesPerComponent*mNumLeds+1+hdrsize;
         rawBuffer = new uint8_t[rawBytes];
         ledBuffer = rawBuffer+1+hdrsize; // led data starts here
         // prepare header for p44-ledchain v6 and later compatible drivers
@@ -358,11 +369,11 @@ bool LEDChainComm::begin(size_t aHintAtTotalChains)
       }
       else {
         // chip not known here: must be legacy driver w/o header
-        rawBytes = mNumColorComponents*mNumLeds;
+        rawBytes = mNumColorComponents*mNumBytesPerComponent*mNumLeds;
         rawBuffer = new uint8_t[rawBytes];
         ledBuffer = rawBuffer;
       }
-      memset(ledBuffer, 0, mNumColorComponents*mNumLeds);
+      memset(ledBuffer, 0, mNumColorComponents*mNumBytesPerComponent*mNumLeds);
       ledFd = open(mDeviceName.c_str(), O_RDWR);
       if (ledFd>=0) {
         mInitialized = true;
@@ -392,9 +403,10 @@ void LEDChainComm::clear()
     #ifdef ESP_PLATFORM
     for (uint16_t i=0; i<mNumLeds; i++) pixels[i].num = 0;
     #elif ENABLE_RPIWS281X
-    for (uint16_t i=0; i<mNumLeds; i++) mRPiWS281x.channel[0].leds[i] = 0;
+    // FIXME: workaround, use two 8-bit for one 16-bit LED
+    for (uint16_t i=0; i<mNumLeds*mNumBytesPerComponent; i++) mRPiWS281x.channel[0].leds[i] = 0;
     #else
-    memset(ledBuffer, 0, mNumColorComponents*mNumLeds);
+    memset(ledBuffer, 0, mNumColorComponents*mNumBytesPerComponent*mNumLeds);
     #endif
   }
 }
@@ -448,7 +460,7 @@ void LEDChainComm::show()
 }
 
 
-#if LEDCHAIN_LEGACY_API
+#if LEDCHAIN_LEGACY_API && PWMBITS==8
 
 void LEDChainComm::setColorAtLedIndex(uint16_t aLedIndex, uint8_t aRed, uint8_t aGreen, uint8_t aBlue, uint8_t aWhite)
 {
@@ -471,10 +483,10 @@ void LEDChainComm::getColorAtLedIndex(uint16_t aLedIndex, uint8_t &aRed, uint8_t
   aWhite = brightnesstable[w];
 }
 
-#endif // LEDCHAIN_LEGACY_API
+#endif // LEDCHAIN_LEGACY_API && PWMBITS==8
 
 
-void LEDChainComm::setPowerAtLedIndex(uint16_t aLedIndex, uint8_t aRed, uint8_t aGreen, uint8_t aBlue, uint8_t aWhite)
+void LEDChainComm::setPowerAtLedIndex(uint16_t aLedIndex, PWMColorComponent aRed, PWMColorComponent aGreen, PWMColorComponent aBlue, PWMColorComponent aWhite)
 {
   if (mChainDriver) {
     // delegate actual output
@@ -484,30 +496,77 @@ void LEDChainComm::setPowerAtLedIndex(uint16_t aLedIndex, uint8_t aRed, uint8_t 
     // local driver, store change in my own LED buffer
     if (aLedIndex>=mNumLeds) return;
     #ifdef ESP_PLATFORM
+    #if PWMBITS!=8
+    #error "16-bit LEDs not yet implemented"
+    #endif
     if (!pixels) return;
     pixels[aLedIndex] = esp_ws281x_makeRGBVal(aRed, aGreen, aBlue, aWhite);
     #elif ENABLE_RPIWS281X
-    ws2811_led_t pixel =
-      ((uint32_t)aRed << 16) |
-      ((uint32_t)aGreen << 8) |
-      ((uint32_t)aBlue);
-    if (mNumColorComponents>3) {
-      pixel |= ((uint32_t)aWhite << 24);
+    #if PWMBITS!=16
+    #error "implementation is for 16-bit PWM only"
+    #endif
+    if (mNumBytesPerComponent>1) {
+      // FIXME: workaround, only works with GRB WS2816 for now
+      // spread over 2 leds
+      aLedIndex<<1;
+      // - G-MSB, G-LSB, R-MSB
+      ws2811_led_t pixel =
+      ((uint32_t)((uint8_t)(aGreen>>8)) << 16) |
+        ((uint32_t)((uint8_t)(aGreen&0xFF)) << 8) |
+        ((uint32_t)((uint8_t)(aRed>>8)));
+      mRPiWS281x.channel[0].leds[aLedIndex++] = pixel;
+      // - R-LSB, B-MSB, B-LSB
+      ws2811_led_t pixel =
+        ((uint32_t)((uint8_t)(aRed&0xFF)) << 16) |
+        ((uint32_t)((uint8_t)(aBlue>>8)) << 8) |
+        ((uint32_t)((uint8_t)(aBlue&0xFF)));
+      mRPiWS281x.channel[0].leds[aLedIndex] = pixel;
     }
-    mRPiWS281x.channel[0].leds[aLedIndex] = pixel;
+    else {
+      // 8-bit LEDs
+      ws2811_led_t pixel =
+        ((uint32_t)pwmTo8Bits(aRed) << 16) |
+        ((uint32_t)pwmTo8Bits(aGreen) << 8) |
+        ((uint32_t)pwmTo8Bits(aBlue));
+      if (mNumColorComponents>3) {
+        pixel |= ((uint32_t)pwmTo8Bits(aWhite) << 24);
+      }
+      mRPiWS281x.channel[0].leds[aLedIndex] = pixel;
+    }
     #else
-    ledBuffer[mNumColorComponents*aLedIndex] = aRed;
-    ledBuffer[mNumColorComponents*aLedIndex+1] = aGreen;
-    ledBuffer[mNumColorComponents*aLedIndex+2] = aBlue;
-    if (mNumColorComponents>3) {
-      ledBuffer[mNumColorComponents*aLedIndex+3] = aWhite;
+    #if PWMBITS!=16
+    #error "implementation is for 16-bit PWM only"
+    #endif
+    int byteindex = mNumColorComponents*aLedIndex;
+    if (mNumBytesPerComponent>1) {
+      // 16 bit
+      byteindex = byteindex<<1; // double number of bytes
+      ledBuffer[byteindex++] = aRed>>8;
+      ledBuffer[byteindex++] = aRed & 0xFF;
+      ledBuffer[byteindex++] = aGreen>>8;
+      ledBuffer[byteindex++] = aGreen & 0xFF;
+      ledBuffer[byteindex++] = aBlue>>8;
+      ledBuffer[byteindex++] = aBlue & 0xFF;
+      if (mNumColorComponents>3) {
+        ledBuffer[byteindex++] = aWhite>>8;
+        ledBuffer[byteindex++] = aWhite & 0xFF;
+      }
+    }
+    else {
+      // 8bit, send MSB only
+      ledBuffer[byteindex++] = pwmTo8Bits(aRed);
+      ledBuffer[byteindex++] = pwmTo8Bits(aGreen);
+      ledBuffer[byteindex++] = pwmTo8Bits(aBlue);
+      if (mNumColorComponents>3) {
+        ledBuffer[byteindex++] = pwmTo8Bits(aWhite);
+      }
     }
     #endif
   }
 }
 
 
-void LEDChainComm::getPowerAtLedIndex(uint16_t aLedIndex, uint8_t &aRed, uint8_t &aGreen, uint8_t &aBlue, uint8_t &aWhite)
+void LEDChainComm::getPowerAtLedIndex(uint16_t aLedIndex, PWMColorComponent &aRed, PWMColorComponent &aGreen, PWMColorComponent &aBlue, PWMColorComponent &aWhite)
 {
   if (mChainDriver) {
     // delegate actual output
@@ -516,6 +575,9 @@ void LEDChainComm::getPowerAtLedIndex(uint16_t aLedIndex, uint8_t &aRed, uint8_t
   else {
     if (aLedIndex>=mNumLeds) return;
     #ifdef ESP_PLATFORM
+    #if PWMBITS!=8
+    #error "16-bit LEDs not yet implemented"
+    #endif
     if (!pixels) return;
     Esp_ws281x_pixel &pixel = pixels[aLedIndex];
     aRed = pixel.r;
@@ -523,25 +585,64 @@ void LEDChainComm::getPowerAtLedIndex(uint16_t aLedIndex, uint8_t &aRed, uint8_t
     aBlue = pixel.b;
     aWhite = pixel.w;
     #elif ENABLE_RPIWS281X
-    ws2811_led_t pixel = mRPiWS281x.channel[0].leds[aLedIndex];
-    aRed = (pixel>>16) & 0xFF;
-    aGreen = (pixel>>8) & 0xFF;
-    aBlue = pixel & 0xFF;
-    if (mNumColorComponents>3) {
-      aWhite = (pixel>>24) & 0xFF;
+    #if PWMBITS!=16
+    #error "implementation is for 16-bit PWM only"
+    #endif
+    if (mNumBytesPerComponent>1) {
+      // FIXME: workaround, only works with GRB WS2816 for now
+      // spread over 2 leds
+      aLedIndex<<1;
+      // - G-MSB, G-LSB, R-MSB
+      ws2811_led_t pixel1 = mRPiWS281x.channel[0].leds[aLedIndex];
+      // - R-LSB, B-MSB, B-LSB
+      ws2811_led_t pixel2 = mRPiWS281x.channel[1].leds[aLedIndex];
+      aGreen = ((pixel1>>8) & 0xFFFF);
+      aRed = ((pixel1<<8) & 0xFF00) + ((pixel2>>16) & 0xFF);
+      aBlue = (pixel2 & 0xFFFF);
     }
     else {
-      aWhite = 0;
+      // 8-bit LED
+      ws2811_led_t pixel = mRPiWS281x.channel[0].leds[aLedIndex];
+      aRed = pwmFrom8Bits((pixel>>16) & 0xFF);
+      aGreen = pwmFrom8Bits((pixel>>8) & 0xFF);
+      aBlue = pwmFrom8Bits(pixel & 0xFF);
+      if (mNumColorComponents>3) {
+        aWhite = pwmFrom8Bits((pixel>>24) & 0xFF);
+      }
+      else {
+        aWhite = 0;
+      }
     }
     #else
-    aRed = ledBuffer[mNumColorComponents*aLedIndex];
-    aGreen = ledBuffer[mNumColorComponents*aLedIndex+1];
-    aBlue = ledBuffer[mNumColorComponents*aLedIndex+2];
-    if (mNumColorComponents>3) {
-      aWhite = ledBuffer[mNumColorComponents*aLedIndex+3];
+    #if PWMBITS!=16
+    #error "implementation is for 16-bit PWM only"
+    #endif
+    int byteindex = mNumColorComponents*aLedIndex;
+    if (mNumBytesPerComponent>1) {
+      // 16-bit
+      byteindex = byteindex<<1;
+      aRed = ((PWMColorComponent)ledBuffer[byteindex++]<<8);
+      aRed |= ledBuffer[byteindex++];
+      aGreen = ((PWMColorComponent)ledBuffer[byteindex++]<<8);
+      aGreen |= ledBuffer[byteindex++];
+      aBlue = ((PWMColorComponent)ledBuffer[byteindex++]<<8);
+      aBlue |= ledBuffer[byteindex++];
+      if (mNumColorComponents>3) {
+        aWhite = ((PWMColorComponent)ledBuffer[byteindex++]<<8);
+        aWhite |= ledBuffer[byteindex++];
+      }
     }
     else {
-      aWhite = 0;
+      // 8-bit
+      aRed = pwmFrom8Bits((PWMColorComponent)ledBuffer[byteindex++]);
+      aGreen = pwmFrom8Bits((PWMColorComponent)ledBuffer[byteindex++]);
+      aBlue = pwmFrom8Bits((PWMColorComponent)ledBuffer[byteindex++]);
+      if (mNumColorComponents>3) {
+        aWhite = pwmFrom8Bits((PWMColorComponent)ledBuffer[byteindex++]);
+      }
+      else {
+        aWhite = 0;
+      }
     }
     #endif
   }
@@ -574,7 +675,7 @@ uint8_t LEDChainComm::getMinVisibleColorIntensity()
   // return highest brightness that still produces lowest non-zero output.
   // (which is: lowest brightness that produces 2, minus 1)
   // we take the upper limit so the chance of seeing something even for not pure r,g,b combinations is better
-  return brightnesstable[2]-1;
+  return pwm8BitToBrightness(2)-1;
 }
 
 
@@ -599,7 +700,7 @@ uint16_t LEDChainComm::ledIndexFromXY(uint16_t aX, uint16_t aY)
 }
 
 
-#if LEDCHAIN_LEGACY_API
+#if LEDCHAIN_LEGACY_API && PWMBITS==8
 
 void LEDChainComm::setColorXY(uint16_t aX, uint16_t aY, uint8_t aRed, uint8_t aGreen, uint8_t aBlue, uint8_t aWhite)
 {
@@ -645,17 +746,17 @@ void LEDChainComm::getColorXY(uint16_t aX, uint16_t aY, uint8_t &aRed, uint8_t &
   getColorAtLedIndex(ledindex, aRed, aGreen, aBlue, aWhite);
 }
 
-#endif // LEDCHAIN_LEGACY_API
+#endif // LEDCHAIN_LEGACY_API && PWMBITS==8
 
 
-void LEDChainComm::setPowerXY(uint16_t aX, uint16_t aY, uint8_t aRed, uint8_t aGreen, uint8_t aBlue, uint8_t aWhite)
+void LEDChainComm::setPowerXY(uint16_t aX, uint16_t aY, PWMColorComponent aRed, PWMColorComponent aGreen, PWMColorComponent aBlue, PWMColorComponent aWhite)
 {
   uint16_t ledindex = ledIndexFromXY(aX,aY);
   setPowerAtLedIndex(ledindex, aRed, aGreen, aBlue, aWhite);
 }
 
 
-void LEDChainComm::setPower(uint16_t aLedNumber, uint8_t aRed, uint8_t aGreen, uint8_t aBlue, uint8_t aWhite)
+void LEDChainComm::setPower(uint16_t aLedNumber, PWMColorComponent aRed, PWMColorComponent aGreen, PWMColorComponent aBlue, PWMColorComponent aWhite)
 {
   int y = aLedNumber / getSizeX();
   int x = aLedNumber % getSizeX();
@@ -663,7 +764,7 @@ void LEDChainComm::setPower(uint16_t aLedNumber, uint8_t aRed, uint8_t aGreen, u
 }
 
 
-void LEDChainComm::getPowerXY(uint16_t aX, uint16_t aY, uint8_t &aRed, uint8_t &aGreen, uint8_t &aBlue, uint8_t &aWhite)
+void LEDChainComm::getPowerXY(uint16_t aX, uint16_t aY, PWMColorComponent &aRed, PWMColorComponent &aGreen, PWMColorComponent &aBlue, PWMColorComponent &aWhite)
 {
   uint16_t ledindex = ledIndexFromXY(aX,aY);
   getPowerAtLedIndex(ledindex, aRed, aGreen, aBlue, aWhite);
@@ -1047,18 +1148,18 @@ MLMicroSeconds LEDChainArrangement::updateDisplay()
                     pix.b = b*f;
                   }
                   // transfer to power
-                  uint8_t Pr, Pg, Pb, Pw;
+                  PWMColorComponent Pr, Pg, Pb, Pw;
                   if (powerDim) {
-                    Pr = dimVal(pwmtable[pix.r], powerDim);
-                    Pg = dimVal(pwmtable[pix.g], powerDim);
-                    Pb = dimVal(pwmtable[pix.b], powerDim);
-                    Pw = dimVal(pwmtable[w], powerDim);
+                    Pr = dimPower(brightnessToPwm(pix.r), powerDim);
+                    Pg = dimPower(brightnessToPwm(pix.g), powerDim);
+                    Pb = dimPower(brightnessToPwm(pix.b), powerDim);
+                    Pw = dimPower(brightnessToPwm(w), powerDim);
                   }
                   else {
-                    Pr = pwmtable[pix.r];
-                    Pg = pwmtable[pix.g];
-                    Pb = pwmtable[pix.b];
-                    Pw = pwmtable[w];
+                    Pr = brightnessToPwm(pix.r);
+                    Pg = brightnessToPwm(pix.g);
+                    Pb = brightnessToPwm(pix.b);
+                    Pw = brightnessToPwm(w);
                   }
                   // measure
                   // - every LED consumes the idle power
@@ -1083,7 +1184,7 @@ MLMicroSeconds LEDChainArrangement::updateDisplay()
               }
               // end of one chain
               // - update actual power (according to chip type)
-              lightPowerMw += lightPowerPWM*chip.rgbChannelMw/255 + lightPowerPWMWhite*chip.whiteChannelMw/255;
+              lightPowerMw += lightPowerPWM*chip.rgbChannelMw/PWMMAX + lightPowerPWMWhite*chip.whiteChannelMw/PWMMAX;
             }
             // update stats (including idle power)
             mActualLightPowerMw = lightPowerMw+idlePowerMw; // what we measured in this pass

@@ -36,12 +36,30 @@ namespace p44 {
   typedef double Row3[3];
   typedef double Matrix3x3[3][3];
 
-  #if !REDUCED_FOOTPRINT
+
+  /// @name PWM scale definitions
+  /// @{
+
+  #define PWM8BIT_GLUE 1 // if set, glue routines for 8bit PWM value access are still available
+  #define PWMBITS 16 // number of PWM bit resolution
+
+  #define PWMMAX ((1<<PWMBITS)-1)
+
+  #if PWMBITS>8
+  typedef uint16_t PWMColorComponent;
+  #else
+  typedef uint8_t PWMColorComponent;
+  #endif
+
+  /// @}
+
 
   /// @name pixel color, utilities
   /// @{
 
   typedef uint8_t PixelColorComponent;
+
+  #if !REDUCED_FOOTPRINT
 
   typedef struct {
     PixelColorComponent r;
@@ -49,6 +67,8 @@ namespace p44 {
     PixelColorComponent b;
     PixelColorComponent a; // alpha
   } PixelColor;
+
+  #define PIXELMAX 255
 
   const PixelColor transparent = { .r=0, .g=0, .b=0, .a=0 };
   const PixelColor black = { .r=0, .g=0, .b=0, .a=255 };
@@ -59,6 +79,12 @@ namespace p44 {
   /// @param aDim 0..255: dim, >255: light up (255=100%)
   /// @return dimmed value, limited to max==255
   PixelColorComponent dimVal(PixelColorComponent aVal, uint16_t aDim);
+
+  /// dim down (or light up) power value
+  /// @param aVal 0..PWMMAX power value to dim up or down
+  /// @param aDim 0..255: dim, >255: light up (255=100%)
+  /// @return dimmed value, limited to max==PWMMAX
+  PWMColorComponent dimPower(PWMColorComponent aVal, uint16_t aDim);
 
   /// dim  r,g,b values of a pixel (alpha unaffected)
   /// @param aPix the pixel
@@ -203,25 +229,37 @@ namespace p44 {
 
   /// @}
 
-
   /// @name PWM/brightness conversions
   /// @{
 
   /// convert PWM value to brightness
-  /// @param aPWM PWM (energy) value 0..255
+  /// @param aPWM PWM (energy) value 0..PWMMAX
   /// @return brightness 0..255
-  uint8_t pwmToBrightness(uint8_t aPWM);
+  PixelColorComponent pwmToBrightness(PWMColorComponent aPWM);
 
   /// convert brightness value to PWM
   /// @param aBrightness brightness 0..255
-  /// @return PWM (energy) value 0..255
-  uint8_t brightnessToPwm(uint8_t aBrightness);
+  /// @return PWM (energy) value 0..PWMMAX
+  PWMColorComponent brightnessToPwm(PixelColorComponent aBrightness);
 
-  /// lookup tables to use for time critical conversions (as used by pwmToBrightness/brightnessToPwm)
-  extern const uint8_t pwmtable[256]; ///< brightness 0..255 to PWM 0..255 lookup table
-  extern const uint8_t brightnesstable[256]; ///< pwm 0..255 to brightness 0..255 lookup table
+  /// get an 8-bit value from a given PWM value
+  /// @param aPWM PWM (energy) value 0..PWMMAX
+  /// @return 8-bit PWM (energy) value 0..255
+  uint8_t pwmTo8Bits(PWMColorComponent aPWM);
+
+  /// get an 8-bit value from a given PWM value
+  /// @param aPWM8 8-bit PWM (energy) value 0..255
+  /// @return PWM (energy) value 0..PWMMAX
+  PWMColorComponent pwmFrom8Bits(uint8_t aPWM8);
+
+  #if PWM8BIT_GLUE
+  PixelColorComponent pwm8BitToBrightness(uint8_t aPWM8);
+  uint8_t brightnessTo8BitPwm(uint8_t aBrightness);
+  #endif
 
   /// @}
+
+
 
 } // namespace p44
 

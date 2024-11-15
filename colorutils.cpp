@@ -39,6 +39,14 @@ PixelColorComponent p44::dimVal(PixelColorComponent aVal, uint16_t aDim)
 }
 
 
+PWMColorComponent p44::dimPower(PWMColorComponent aVal, uint16_t aDim)
+{
+  uint32_t d = ((uint32_t)aDim+1)*aVal;
+  if (d>(1l<<(PWMBITS+8))-1) return PWMMAX;
+  return d>>8;
+}
+
+
 void p44::dimPixel(PixelColor &aPix, uint16_t aDim)
 {
   if (aDim==255) return; // 100% -> NOP
@@ -115,14 +123,14 @@ void p44::overlayPixel(PixelColor &aPixel, PixelColor aOverlay)
 void p44::averagePixelPower(FracValue& aR, FracValue& aG, FracValue& aB, FracValue& aA, FracValue& aTotalWeight, const PixelColor& aInput, FracValue aWeight)
 {
   if (aWeight>0) {
-    //FracValue powerA = FP_FROM_INT(brightnessToPwm(aInput.a));
-    //FracValue powerA = FP_FROM_INT(((int16_t)brightnessToPwm(aInput.a)*256+128)/255);
-    int powerA = brightnessToPwm(aInput.a); // 0..255
+    //FracValue powerA = FP_FROM_INT(brightnessTo8BitPwm(aInput.a));
+    //FracValue powerA = FP_FROM_INT(((int16_t)brightnessTo8BitPwm(aInput.a)*256+128)/255);
+    int powerA = brightnessTo8BitPwm(aInput.a); // 0..255
     FracValue powerFact = FP_FROM_INT(powerA*FP_FRACFACT/255)/FP_FRACFACT;
     aA += powerA*aWeight; // only one FracValue factor, no corr needed
-    aR += FP_MUL_CORR(powerFact*brightnessToPwm(aInput.r)*aWeight);
-    aG += FP_MUL_CORR(powerFact*brightnessToPwm(aInput.g)*aWeight);
-    aB += FP_MUL_CORR(powerFact*brightnessToPwm(aInput.b)*aWeight);
+    aR += FP_MUL_CORR(powerFact*brightnessTo8BitPwm(aInput.r)*aWeight);
+    aG += FP_MUL_CORR(powerFact*brightnessTo8BitPwm(aInput.g)*aWeight);
+    aB += FP_MUL_CORR(powerFact*brightnessTo8BitPwm(aInput.b)*aWeight);
   }
   aTotalWeight += aWeight;
 }
@@ -141,11 +149,11 @@ PixelColor p44::averagedPixelResult(FracValue& aR, FracValue& aG, FracValue& aB,
     FracValue a = FP_DIV(aA,aTotalWeight); // in 0..255 scale
     if (a>0) {
       FracValue alphaboost = FP_DIV(aTotalWeight*BOOST_SCALING, aA); // in 1/256*BOOST_SCALING
-      assignPixelComponent(pc.a, pwmToBrightness(FP_INT_VAL(a)));
+      assignPixelComponent(pc.a, pwm8BitToBrightness(FP_INT_VAL(a)));
       // no need for FP_ correction when we have a a multiplication followed by a division
-      assignPixelComponent(pc.r, pwmToBrightness(FP_TIMES_FRACFACT_INT_VAL(aR*alphaboost/aTotalWeight/BOOST_SCALING)));
-      assignPixelComponent(pc.g, pwmToBrightness(FP_TIMES_FRACFACT_INT_VAL(aG*alphaboost/aTotalWeight/BOOST_SCALING)));
-      assignPixelComponent(pc.b, pwmToBrightness(FP_TIMES_FRACFACT_INT_VAL(aB*alphaboost/aTotalWeight/BOOST_SCALING)));
+      assignPixelComponent(pc.r, pwm8BitToBrightness(FP_TIMES_FRACFACT_INT_VAL(aR*alphaboost/aTotalWeight/BOOST_SCALING)));
+      assignPixelComponent(pc.g, pwm8BitToBrightness(FP_TIMES_FRACFACT_INT_VAL(aG*alphaboost/aTotalWeight/BOOST_SCALING)));
+      assignPixelComponent(pc.b, pwm8BitToBrightness(FP_TIMES_FRACFACT_INT_VAL(aB*alphaboost/aTotalWeight/BOOST_SCALING)));
       return pc;
     }
   }
@@ -159,19 +167,19 @@ void p44::mixinPixel(PixelColor &aMainPixel, PixelColor aOutsidePixel, PixelColo
   if (aAmountOutside>0) {
     if (aMainPixel.a!=255 || aOutsidePixel.a!=255) {
       // mixed transparency
-      PixelColorComponent alpha = dimVal(aMainPixel.a, pwmToBrightness(255-aAmountOutside)) + dimVal(aOutsidePixel.a, pwmToBrightness(aAmountOutside));
+      PixelColorComponent alpha = dimVal(aMainPixel.a, pwm8BitToBrightness(255-aAmountOutside)) + dimVal(aOutsidePixel.a, pwm8BitToBrightness(aAmountOutside));
       if (alpha>0) {
         // calculation only needed for not totallay transparent result
         // - alpha boost compensates for energy
         uint16_t ab = 65025/alpha;
         // Note: aAmountOutside is on the energy scale, not brightness, so need to add in PWM scale!
-        uint16_t r_e = ( (((uint16_t)brightnessToPwm(dimVal(aMainPixel.r, aMainPixel.a))+1)*(255-aAmountOutside)) + (((uint16_t)brightnessToPwm(dimVal(aOutsidePixel.r, aOutsidePixel.a))+1)*(aAmountOutside)) )>>8;
-        uint16_t g_e = ( (((uint16_t)brightnessToPwm(dimVal(aMainPixel.g, aMainPixel.a))+1)*(255-aAmountOutside)) + (((uint16_t)brightnessToPwm(dimVal(aOutsidePixel.g, aOutsidePixel.a))+1)*(aAmountOutside)) )>>8;
-        uint16_t b_e = ( (((uint16_t)brightnessToPwm(dimVal(aMainPixel.b, aMainPixel.a))+1)*(255-aAmountOutside)) + (((uint16_t)brightnessToPwm(dimVal(aOutsidePixel.b, aOutsidePixel.a))+1)*(aAmountOutside)) )>>8;
+        uint16_t r_e = ( (((uint16_t)brightnessTo8BitPwm(dimVal(aMainPixel.r, aMainPixel.a))+1)*(255-aAmountOutside)) + (((uint16_t)brightnessTo8BitPwm(dimVal(aOutsidePixel.r, aOutsidePixel.a))+1)*(aAmountOutside)) )>>8;
+        uint16_t g_e = ( (((uint16_t)brightnessTo8BitPwm(dimVal(aMainPixel.g, aMainPixel.a))+1)*(255-aAmountOutside)) + (((uint16_t)brightnessTo8BitPwm(dimVal(aOutsidePixel.g, aOutsidePixel.a))+1)*(aAmountOutside)) )>>8;
+        uint16_t b_e = ( (((uint16_t)brightnessTo8BitPwm(dimVal(aMainPixel.b, aMainPixel.a))+1)*(255-aAmountOutside)) + (((uint16_t)brightnessTo8BitPwm(dimVal(aOutsidePixel.b, aOutsidePixel.a))+1)*(aAmountOutside)) )>>8;
         // - back to brightness, add alpha boost
-        uint16_t r = (((uint16_t)pwmToBrightness(r_e)+1)*ab)>>8;
-        uint16_t g = (((uint16_t)pwmToBrightness(g_e)+1)*ab)>>8;
-        uint16_t b = (((uint16_t)pwmToBrightness(b_e)+1)*ab)>>8;
+        uint16_t r = (((uint16_t)pwm8BitToBrightness(r_e)+1)*ab)>>8;
+        uint16_t g = (((uint16_t)pwm8BitToBrightness(g_e)+1)*ab)>>8;
+        uint16_t b = (((uint16_t)pwm8BitToBrightness(b_e)+1)*ab)>>8;
         // - check max brightness
         uint16_t m = r; if (g>m) m = g; if (b>m) m = b;
         if (m>255) {
@@ -203,12 +211,12 @@ void p44::mixinPixel(PixelColor &aMainPixel, PixelColor aOutsidePixel, PixelColo
     }
     else {
       // no transparency on either side, simplified case
-      uint16_t r_e = ( (((uint16_t)brightnessToPwm(aMainPixel.r)+1)*(255-aAmountOutside)) + (((uint16_t)brightnessToPwm(aOutsidePixel.r)+1)*(aAmountOutside)) )>>8;
-      uint16_t g_e = ( (((uint16_t)brightnessToPwm(aMainPixel.g)+1)*(255-aAmountOutside)) + (((uint16_t)brightnessToPwm(aOutsidePixel.g)+1)*(aAmountOutside)) )>>8;
-      uint16_t b_e = ( (((uint16_t)brightnessToPwm(aMainPixel.b)+1)*(255-aAmountOutside)) + (((uint16_t)brightnessToPwm(aOutsidePixel.b)+1)*(aAmountOutside)) )>>8;
-      aMainPixel.r = r_e>255 ? 255 : pwmToBrightness(r_e);
-      aMainPixel.g = g_e>255 ? 255 : pwmToBrightness(g_e);
-      aMainPixel.b = b_e>255 ? 255 : pwmToBrightness(b_e);
+      uint16_t r_e = ( (((uint16_t)brightnessTo8BitPwm(aMainPixel.r)+1)*(255-aAmountOutside)) + (((uint16_t)brightnessTo8BitPwm(aOutsidePixel.r)+1)*(aAmountOutside)) )>>8;
+      uint16_t g_e = ( (((uint16_t)brightnessTo8BitPwm(aMainPixel.g)+1)*(255-aAmountOutside)) + (((uint16_t)brightnessTo8BitPwm(aOutsidePixel.g)+1)*(aAmountOutside)) )>>8;
+      uint16_t b_e = ( (((uint16_t)brightnessTo8BitPwm(aMainPixel.b)+1)*(255-aAmountOutside)) + (((uint16_t)brightnessTo8BitPwm(aOutsidePixel.b)+1)*(aAmountOutside)) )>>8;
+      aMainPixel.r = r_e>255 ? 255 : pwm8BitToBrightness(r_e);
+      aMainPixel.g = g_e>255 ? 255 : pwm8BitToBrightness(g_e);
+      aMainPixel.b = b_e>255 ? 255 : pwm8BitToBrightness(b_e);
       aMainPixel.a = 255;
     }
   }
@@ -723,25 +731,33 @@ void p44::transferFromColor(const Row3 &aCol, double aAmount, double &aRed, doub
 
 // MARK: - PWM to brightness conversions
 
+#if PWMBITS==8
+
+#define PWMTBLBITS 8
+#define PWMSTEPS (1<<PWMTBLBITS)
+
 // brightness to PWM value conversion
-const uint8_t p44::pwmtable[256] = {
-  0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2,
-  3, 3, 3, 3, 3, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 5, 5, 5, 5, 5, 5, 6, 6, 6, 6, 6,
-  6, 7, 7, 7, 7, 7, 7, 8, 8, 8, 8, 8, 9, 9, 9, 9, 10, 10, 10, 10, 10, 11, 11, 11,
-  11, 12, 12, 12, 12, 13, 13, 13, 14, 14, 14, 14, 15, 15, 15, 16, 16, 16, 17, 17,
-  17, 18, 18, 18, 19, 19, 20, 20, 20, 21, 21, 22, 22, 22, 23, 23, 24, 24, 25, 25,
-  26, 26, 26, 27, 27, 28, 29, 29, 30, 30, 31, 31, 32, 32, 33, 34, 34, 35, 35, 36,
-  37, 37, 38, 39, 39, 40, 41, 42, 42, 43, 44, 44, 45, 46, 47, 48, 49, 49, 50, 51,
-  52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 72,
-  73, 74, 75, 77, 78, 79, 81, 82, 83, 85, 86, 87, 89, 90, 92, 93, 95, 97, 98, 100,
-  101, 103, 105, 107, 108, 110, 112, 114, 116, 118, 120, 121, 123, 126, 128, 130,
-  132, 134, 136, 138, 141, 143, 145, 148, 150, 152, 155, 157, 160, 163, 165, 168,
-  171, 174, 176, 179, 182, 185, 188, 191, 194, 197, 201, 204, 207, 210, 214, 217,
-  221, 224, 228, 232, 235, 239, 243, 247, 251, 255
+static const PWMColorComponent pwmtable[PIXELMAX+1] = {
+    0,   0,   0,   0,   0,   0,   0,   1,   1,   1,   1,   1,   1,   1,   1,   1,
+    1,   1,   2,   2,   2,   2,   2,   2,   2,   2,   2,   3,   3,   3,   3,   3,
+    3,   3,   3,   3,   4,   4,   4,   4,   4,   4,   4,   5,   5,   5,   5,   5,
+    5,   6,   6,   6,   6,   6,   6,   7,   7,   7,   7,   7,   7,   8,   8,   8,
+    8,   8,   9,   9,   9,   9,  10,  10,  10,  10,  10,  11,  11,  11,  11,  12,
+   12,  12,  12,  13,  13,  13,  14,  14,  14,  14,  15,  15,  15,  16,  16,  16,
+   17,  17,  17,  18,  18,  18,  19,  19,  20,  20,  20,  21,  21,  22,  22,  22,
+   23,  23,  24,  24,  25,  25,  26,  26,  26,  27,  27,  28,  29,  29,  30,  30,
+   31,  31,  32,  32,  33,  34,  34,  35,  35,  36,  37,  37,  38,  39,  39,  40,
+   41,  42,  42,  43,  44,  44,  45,  46,  47,  48,  49,  49,  50,  51,  52,  53,
+   54,  55,  56,  57,  58,  59,  60,  61,  62,  63,  64,  65,  66,  67,  68,  69,
+   70,  72,  73,  74,  75,  77,  78,  79,  81,  82,  83,  85,  86,  87,  89,  90,
+   92,  93,  95,  97,  98, 100, 101, 103, 105, 107, 108, 110, 112, 114, 116, 118,
+  120, 121, 123, 126, 128, 130, 132, 134, 136, 138, 141, 143, 145, 148, 150, 152,
+  155, 157, 160, 163, 165, 168, 171, 174, 176, 179, 182, 185, 188, 191, 194, 197,
+  201, 204, 207, 210, 214, 217, 221, 224, 228, 232, 235, 239, 243, 247, 251, 255
 };
 
 
-const uint8_t p44::brightnesstable[256] = {
+static const PixelColorComponent brightnesstable[PWMSTEPS] = {
   0, 7, 18, 27, 36, 43, 49, 55, 61, 66, 70, 75, 79, 83, 86, 90, 93, 96, 99, 102, 104,
   107, 109, 112, 114, 116, 118, 121, 123, 124, 126, 128, 130, 132, 133, 135, 137, 138,
   140, 141, 143, 144, 145, 147, 148, 150, 151, 152, 153, 154, 156, 157, 158, 159, 160,
@@ -760,16 +776,273 @@ const uint8_t p44::brightnesstable[256] = {
 };
 
 
-uint8_t p44::pwmToBrightness(uint8_t aPWM)
+uint8_t p44::pwmTo8Bits(PWMColorComponent aPWM)
+{
+  return aPWM;
+}
+
+
+PWMColorComponent p44::pwmFrom8Bits(uint8_t aPWM8)
+{
+  return aPWM8;
+}
+
+
+PixelColorComponent p44::pwm8BitToBrightness(uint8_t aPWM8)
+{
+  return brightnesstable[aPWM8];
+}
+
+uint8_t p44::brightnessTo8BitPwm(uint8_t aBrightness)
+{
+  return (pwmtable[aBrightness]);
+}
+
+
+PixelColorComponent p44::pwmToBrightness(PWMColorComponent aPWM)
 {
   return brightnesstable[aPWM];
 }
 
 
-uint8_t p44::brightnessToPwm(uint8_t aBrightness)
+#else
+
+static const PWMColorComponent pwmtable[PIXELMAX+1] = {
+      0,    19,    39,    59,    79,   100,   121,   142,   163,   185,   208,   230,   253,   277,   300,   324,
+    349,   374,   399,   425,   451,   477,   504,   531,   559,   587,   616,   645,   674,   704,   735,   766,
+    797,   829,   862,   894,   928,   962,   996,  1032,  1067,  1103,  1140,  1178,  1216,  1254,  1293,  1333,
+   1373,  1414,  1456,  1498,  1542,  1585,  1630,  1675,  1721,  1767,  1814,  1862,  1911,  1961,  2011,  2062,
+   2114,  2167,  2220,  2275,  2330,  2386,  2443,  2501,  2560,  2620,  2681,  2742,  2805,  2869,  2933,  2999,
+   3066,  3134,  3203,  3273,  3344,  3416,  3489,  3564,  3639,  3716,  3794,  3874,  3954,  4036,  4119,  4204,
+   4289,  4377,  4465,  4555,  4646,  4739,  4833,  4929,  5026,  5125,  5226,  5328,  5431,  5536,  5643,  5752,
+   5862,  5974,  6088,  6203,  6321,  6440,  6561,  6684,  6809,  6936,  7065,  7196,  7329,  7465,  7602,  7741,
+   7883,  8027,  8173,  8322,  8473,  8626,  8782,  8940,  9101,  9264,  9430,  9598,  9769,  9943, 10119, 10299,
+  10481, 10666, 10854, 11045, 11239, 11436, 11636, 11839, 12046, 12255, 12469, 12685, 12905, 13128, 13355, 13586,
+  13820, 14058, 14299, 14545, 14794, 15047, 15304, 15566, 15831, 16101, 16374, 16653, 16935, 17222, 17514, 17810,
+  18111, 18417, 18727, 19043, 19363, 19689, 20019, 20355, 20696, 21043, 21395, 21752, 22115, 22484, 22859, 23240,
+  23627, 24020, 24419, 24824, 25236, 25654, 26079, 26511, 26949, 27395, 27847, 28307, 28773, 29248, 29729, 30219,
+  30716, 31221, 31734, 32255, 32784, 33322, 33868, 34423, 34986, 35559, 36140, 36731, 37331, 37940, 38560, 39189,
+  39827, 40476, 41136, 41805, 42486, 43177, 43879, 44592, 45316, 46052, 46799, 47558, 48330, 49113, 49909, 50717,
+  51538, 52373, 53220, 54081, 54955, 55843, 56745, 57662, 58593, 59539, 60499, 61475, 62466, 63473, 64496, 65535
+};
+
+
+#define PWM_HIRES_INDEX_BITS 12
+#define PWM_HIRES_STEPS 256 // just the beginning
+
+
+const uint8_t hiresbrightnesstable[PWM_HIRES_STEPS] = {
+   0,   1,   2,   3,   4,   5,   5,   6,   7,   8,   8,   9,  10,  10,  11,  12, // 0..15 (PWM 0..240)
+  13,  13,  14,  15,  15,  16,  17,  17,  18,  19,  19,  20,  20,  21,  22,  22, // 16..31 (PWM 256..496)
+  23,  23,  24,  25,  25,  26,  26,  27,  27,  28,  28,  29,  29,  30,  31,  31, // 32..47 (PWM 512..752)
+  32,  32,  33,  33,  34,  34,  35,  35,  36,  36,  36,  37,  37,  38,  38,  39, // 48..63 (PWM 768..1008)
+  39,  40,  40,  41,  41,  42,  42,  42,  43,  43,  44,  44,  44,  45,  45,  46, // 64..79 (PWM 1024..1264)
+  46,  47,  47,  47,  48,  48,  49,  49,  49,  50,  50,  50,  51,  51,  52,  52, // 80..95 (PWM 1280..1520)
+  52,  53,  53,  53,  54,  54,  55,  55,  55,  56,  56,  56,  57,  57,  57,  58, // 96..111 (PWM 1536..1776)
+  58,  58,  59,  59,  59,  60,  60,  60,  61,  61,  61,  62,  62,  62,  63,  63, // 112..127 (PWM 1792..2032)
+  63,  64,  64,  64,  64,  65,  65,  65,  66,  66,  66,  67,  67,  67,  67,  68, // 128..143 (PWM 2048..2288)
+  68,  68,  69,  69,  69,  69,  70,  70,  70,  71,  71,  71,  71,  72,  72,  72, // 144..159 (PWM 2304..2544)
+  72,  73,  73,  73,  74,  74,  74,  74,  75,  75,  75,  75,  76,  76,  76,  76, // 160..175 (PWM 2560..2800)
+  77,  77,  77,  77,  78,  78,  78,  78,  79,  79,  79,  79,  80,  80,  80,  80, // 176..191 (PWM 2816..3056)
+  81,  81,  81,  81,  82,  82,  82,  82,  82,  83,  83,  83,  83,  84,  84,  84, // 192..207 (PWM 3072..3312)
+  84,  84,  85,  85,  85,  85,  86,  86,  86,  86,  86,  87,  87,  87,  87,  88, // 208..223 (PWM 3328..3568)
+  88,  88,  88,  88,  89,  89,  89,  89,  89,  90,  90,  90,  90,  90,  91,  91, // 224..239 (PWM 3584..3824)
+  91,  91,  91,  92,  92,  92,  92,  92,  93,  93,  93,  93,  93,  94,  94,  94, // 240..255 (PWM 3840..4080)
+};
+
+
+#define PWM_LORES_INDEX_BITS 10
+#define PWM_LORES_STEPS_IN_HIRES (PWM_HIRES_STEPS/(1<<(PWM_HIRES_INDEX_BITS-PWM_LORES_INDEX_BITS)))
+#define PWM_LORES_STEPS ((1<<PWM_LORES_INDEX_BITS)-PWM_LORES_STEPS_IN_HIRES)
+
+
+const uint8_t loresbrightnesstable[PWM_LORES_STEPS] = {
+//    0,   4,   7,  10,  13,  15,  18,  20,  23,  25,  27,  29,  32,  34,  36,  37, // 0..15 (PWM 0..960)
+//   39,  41,  43,  44,  46,  48,  49,  51,  52,  54,  55,  57,  58,  59,  61,  62, // 16..31 (PWM 1024..1984)
+//   63,  64,  66,  67,  68,  69,  70,  71,  72,  74,  75,  76,  77,  78,  79,  80, // 32..47 (PWM 2048..3008)
+//   81,  82,  82,  83,  84,  85,  86,  87,  88,  89,  89,  90,  91,  92,  93,  93, // 48..63 (PWM 3072..4032)
+   94,  95,  96,  96,  97,  98,  99,  99, 100, 101, 101, 102, 103, 103, 104, 105, // 64..79 (PWM 4096..5056)
+  105, 106, 107, 107, 108, 109, 109, 110, 110, 111, 112, 112, 113, 113, 114, 114, // 80..95 (PWM 5120..6080)
+  115, 116, 116, 117, 117, 118, 118, 119, 119, 120, 120, 121, 121, 122, 122, 123, // 96..111 (PWM 6144..7104)
+  123, 124, 124, 125, 125, 126, 126, 127, 127, 128, 128, 128, 129, 129, 130, 130, // 112..127 (PWM 7168..8128)
+  131, 131, 131, 132, 132, 133, 133, 134, 134, 134, 135, 135, 136, 136, 136, 137, // 128..143 (PWM 8192..9152)
+  137, 138, 138, 138, 139, 139, 140, 140, 140, 141, 141, 141, 142, 142, 142, 143, // 144..159 (PWM 9216..10176)
+  143, 144, 144, 144, 145, 145, 145, 146, 146, 146, 147, 147, 147, 148, 148, 148, // 160..175 (PWM 10240..11200)
+  149, 149, 149, 150, 150, 150, 151, 151, 151, 152, 152, 152, 152, 153, 153, 153, // 176..191 (PWM 11264..12224)
+  154, 154, 154, 155, 155, 155, 155, 156, 156, 156, 157, 157, 157, 157, 158, 158, // 192..207 (PWM 12288..13248)
+  158, 159, 159, 159, 159, 160, 160, 160, 161, 161, 161, 161, 162, 162, 162, 162, // 208..223 (PWM 13312..14272)
+  163, 163, 163, 163, 164, 164, 164, 164, 165, 165, 165, 165, 166, 166, 166, 166, // 224..239 (PWM 14336..15296)
+  167, 167, 167, 167, 168, 168, 168, 168, 169, 169, 169, 169, 170, 170, 170, 170, // 240..255 (PWM 15360..16320)
+  171, 171, 171, 171, 171, 172, 172, 172, 172, 173, 173, 173, 173, 173, 174, 174, // 256..271 (PWM 16384..17344)
+  174, 174, 175, 175, 175, 175, 175, 176, 176, 176, 176, 177, 177, 177, 177, 177, // 272..287 (PWM 17408..18368)
+  178, 178, 178, 178, 178, 179, 179, 179, 179, 179, 180, 180, 180, 180, 180, 181, // 288..303 (PWM 18432..19392)
+  181, 181, 181, 181, 182, 182, 182, 182, 182, 183, 183, 183, 183, 183, 183, 184, // 304..319 (PWM 19456..20416)
+  184, 184, 184, 184, 185, 185, 185, 185, 185, 186, 186, 186, 186, 186, 186, 187, // 320..335 (PWM 20480..21440)
+  187, 187, 187, 187, 188, 188, 188, 188, 188, 188, 189, 189, 189, 189, 189, 189, // 336..351 (PWM 21504..22464)
+  190, 190, 190, 190, 190, 190, 191, 191, 191, 191, 191, 191, 192, 192, 192, 192, // 352..367 (PWM 22528..23488)
+  192, 192, 193, 193, 193, 193, 193, 193, 194, 194, 194, 194, 194, 194, 195, 195, // 368..383 (PWM 23552..24512)
+  195, 195, 195, 195, 196, 196, 196, 196, 196, 196, 196, 197, 197, 197, 197, 197, // 384..399 (PWM 24576..25536)
+  197, 198, 198, 198, 198, 198, 198, 198, 199, 199, 199, 199, 199, 199, 199, 200, // 400..415 (PWM 25600..26560)
+  200, 200, 200, 200, 200, 200, 201, 201, 201, 201, 201, 201, 201, 202, 202, 202, // 416..431 (PWM 26624..27584)
+  202, 202, 202, 202, 203, 203, 203, 203, 203, 203, 203, 204, 204, 204, 204, 204, // 432..447 (PWM 27648..28608)
+  204, 204, 205, 205, 205, 205, 205, 205, 205, 205, 206, 206, 206, 206, 206, 206, // 448..463 (PWM 28672..29632)
+  206, 207, 207, 207, 207, 207, 207, 207, 207, 208, 208, 208, 208, 208, 208, 208, // 464..479 (PWM 29696..30656)
+  209, 209, 209, 209, 209, 209, 209, 209, 210, 210, 210, 210, 210, 210, 210, 210, // 480..495 (PWM 30720..31680)
+  211, 211, 211, 211, 211, 211, 211, 211, 212, 212, 212, 212, 212, 212, 212, 212, // 496..511 (PWM 31744..32704)
+  212, 213, 213, 213, 213, 213, 213, 213, 213, 214, 214, 214, 214, 214, 214, 214, // 512..527 (PWM 32768..33728)
+  214, 214, 215, 215, 215, 215, 215, 215, 215, 215, 216, 216, 216, 216, 216, 216, // 528..543 (PWM 33792..34752)
+  216, 216, 216, 217, 217, 217, 217, 217, 217, 217, 217, 217, 218, 218, 218, 218, // 544..559 (PWM 34816..35776)
+  218, 218, 218, 218, 218, 219, 219, 219, 219, 219, 219, 219, 219, 219, 220, 220, // 560..575 (PWM 35840..36800)
+  220, 220, 220, 220, 220, 220, 220, 220, 221, 221, 221, 221, 221, 221, 221, 221, // 576..591 (PWM 36864..37824)
+  221, 222, 222, 222, 222, 222, 222, 222, 222, 222, 222, 223, 223, 223, 223, 223, // 592..607 (PWM 37888..38848)
+  223, 223, 223, 223, 223, 224, 224, 224, 224, 224, 224, 224, 224, 224, 224, 225, // 608..623 (PWM 38912..39872)
+  225, 225, 225, 225, 225, 225, 225, 225, 225, 226, 226, 226, 226, 226, 226, 226, // 624..639 (PWM 39936..40896)
+  226, 226, 226, 227, 227, 227, 227, 227, 227, 227, 227, 227, 227, 227, 228, 228, // 640..655 (PWM 40960..41920)
+  228, 228, 228, 228, 228, 228, 228, 228, 229, 229, 229, 229, 229, 229, 229, 229, // 656..671 (PWM 41984..42944)
+  229, 229, 229, 230, 230, 230, 230, 230, 230, 230, 230, 230, 230, 230, 231, 231, // 672..687 (PWM 43008..43968)
+  231, 231, 231, 231, 231, 231, 231, 231, 231, 232, 232, 232, 232, 232, 232, 232, // 688..703 (PWM 44032..44992)
+  232, 232, 232, 232, 232, 233, 233, 233, 233, 233, 233, 233, 233, 233, 233, 233, // 704..719 (PWM 45056..46016)
+  234, 234, 234, 234, 234, 234, 234, 234, 234, 234, 234, 234, 235, 235, 235, 235, // 720..735 (PWM 46080..47040)
+  235, 235, 235, 235, 235, 235, 235, 235, 236, 236, 236, 236, 236, 236, 236, 236, // 736..751 (PWM 47104..48064)
+  236, 236, 236, 236, 237, 237, 237, 237, 237, 237, 237, 237, 237, 237, 237, 237, // 752..767 (PWM 48128..49088)
+  238, 238, 238, 238, 238, 238, 238, 238, 238, 238, 238, 238, 239, 239, 239, 239, // 768..783 (PWM 49152..50112)
+  239, 239, 239, 239, 239, 239, 239, 239, 239, 240, 240, 240, 240, 240, 240, 240, // 784..799 (PWM 50176..51136)
+  240, 240, 240, 240, 240, 240, 241, 241, 241, 241, 241, 241, 241, 241, 241, 241, // 800..815 (PWM 51200..52160)
+  241, 241, 241, 242, 242, 242, 242, 242, 242, 242, 242, 242, 242, 242, 242, 242, // 816..831 (PWM 52224..53184)
+  243, 243, 243, 243, 243, 243, 243, 243, 243, 243, 243, 243, 243, 243, 244, 244, // 832..847 (PWM 53248..54208)
+  244, 244, 244, 244, 244, 244, 244, 244, 244, 244, 244, 245, 245, 245, 245, 245, // 848..863 (PWM 54272..55232)
+  245, 245, 245, 245, 245, 245, 245, 245, 245, 246, 246, 246, 246, 246, 246, 246, // 864..879 (PWM 55296..56256)
+  246, 246, 246, 246, 246, 246, 246, 247, 247, 247, 247, 247, 247, 247, 247, 247, // 880..895 (PWM 56320..57280)
+  247, 247, 247, 247, 247, 248, 248, 248, 248, 248, 248, 248, 248, 248, 248, 248, // 896..911 (PWM 57344..58304)
+  248, 248, 248, 248, 249, 249, 249, 249, 249, 249, 249, 249, 249, 249, 249, 249, // 912..927 (PWM 58368..59328)
+  249, 249, 249, 250, 250, 250, 250, 250, 250, 250, 250, 250, 250, 250, 250, 250, // 928..943 (PWM 59392..60352)
+  250, 250, 251, 251, 251, 251, 251, 251, 251, 251, 251, 251, 251, 251, 251, 251, // 944..959 (PWM 60416..61376)
+  251, 252, 252, 252, 252, 252, 252, 252, 252, 252, 252, 252, 252, 252, 252, 252, // 960..975 (PWM 61440..62400)
+  252, 253, 253, 253, 253, 253, 253, 253, 253, 253, 253, 253, 253, 253, 253, 253, // 976..991 (PWM 62464..63424)
+  254, 254, 254, 254, 254, 254, 254, 254, 254, 254, 254, 254, 254, 254, 254, 254, // 992..1007 (PWM 63488..64448)
+  255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255  // 1008..1023 (PWM 64449..65472)
+};
+
+
+PixelColorComponent p44::pwm8BitToBrightness(uint8_t aPWM8)
+{
+  uint16_t i = aPWM8 << (PWM_HIRES_INDEX_BITS-(PWMBITS-8));
+  if (i<PWM_HIRES_STEPS) return hiresbrightnesstable[i];
+  return loresbrightnesstable[(i>>(PWM_HIRES_INDEX_BITS-PWM_LORES_INDEX_BITS))-PWM_LORES_STEPS_IN_HIRES];
+}
+
+
+uint8_t p44::pwmTo8Bits(PWMColorComponent aPWM)
+{
+  if (aPWM>=0xFF80) return 0xFF;
+  return ((aPWM+0x80)>>8);
+}
+
+
+PWMColorComponent p44::pwmFrom8Bits(uint8_t aPWM8)
+{
+  return (PWMColorComponent)aPWM8<<8;
+}
+
+
+uint8_t p44::brightnessTo8BitPwm(uint8_t aBrightness)
+{
+  return pwmTo8Bits(pwmtable[aBrightness]);
+}
+
+
+PixelColorComponent p44::pwmToBrightness(PWMColorComponent aPWM)
+{
+  aPWM >>= (PWMBITS-PWM_HIRES_INDEX_BITS);
+  if (aPWM<PWM_HIRES_STEPS) return hiresbrightnesstable[aPWM];
+  return loresbrightnesstable[(aPWM>>(PWM_HIRES_INDEX_BITS-PWM_LORES_INDEX_BITS))-PWM_LORES_STEPS_IN_HIRES];
+}
+
+#endif
+
+PWMColorComponent p44::brightnessToPwm(uint8_t aBrightness)
 {
   return pwmtable[aBrightness];
 }
 
 
+#if DEBUG
 
+static const uint8_t oldpwmtable[256] = {
+  0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2,
+  3, 3, 3, 3, 3, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 5, 5, 5, 5, 5, 5, 6, 6, 6, 6, 6,
+  6, 7, 7, 7, 7, 7, 7, 8, 8, 8, 8, 8, 9, 9, 9, 9, 10, 10, 10, 10, 10, 11, 11, 11,
+  11, 12, 12, 12, 12, 13, 13, 13, 14, 14, 14, 14, 15, 15, 15, 16, 16, 16, 17, 17,
+  17, 18, 18, 18, 19, 19, 20, 20, 20, 21, 21, 22, 22, 22, 23, 23, 24, 24, 25, 25,
+  26, 26, 26, 27, 27, 28, 29, 29, 30, 30, 31, 31, 32, 32, 33, 34, 34, 35, 35, 36,
+  37, 37, 38, 39, 39, 40, 41, 42, 42, 43, 44, 44, 45, 46, 47, 48, 49, 49, 50, 51,
+  52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 72,
+  73, 74, 75, 77, 78, 79, 81, 82, 83, 85, 86, 87, 89, 90, 92, 93, 95, 97, 98, 100,
+  101, 103, 105, 107, 108, 110, 112, 114, 116, 118, 120, 121, 123, 126, 128, 130,
+  132, 134, 136, 138, 141, 143, 145, 148, 150, 152, 155, 157, 160, 163, 165, 168,
+  171, 174, 176, 179, 182, 185, 188, 191, 194, 197, 201, 204, 207, 210, 214, 217,
+  221, 224, 228, 232, 235, 239, 243, 247, 251, 255
+};
+
+
+static const uint8_t oldbrightnesstable[256] = {
+  0, 7, 18, 27, 36, 43, 49, 55, 61, 66, 70, 75, 79, 83, 86, 90, 93, 96, 99, 102, 104,
+  107, 109, 112, 114, 116, 118, 121, 123, 124, 126, 128, 130, 132, 133, 135, 137, 138,
+  140, 141, 143, 144, 145, 147, 148, 150, 151, 152, 153, 154, 156, 157, 158, 159, 160,
+  161, 162, 163, 164, 165, 166, 167, 168, 169, 170, 171, 172, 173, 174, 175, 176, 177,
+  177, 178, 179, 180, 181, 181, 182, 183, 184, 184, 185, 186, 187, 187, 188, 189, 190,
+  190, 191, 192, 192, 193, 194, 194, 195, 195, 196, 197, 197, 198, 199, 199, 200, 200,
+  201, 201, 202, 203, 203, 204, 204, 205, 205, 206, 206, 207, 207, 208, 208, 209, 210,
+  210, 211, 211, 211, 212, 212, 213, 213, 214, 214, 215, 215, 216, 216, 217, 217, 218,
+  218, 218, 219, 219, 220, 220, 221, 221, 221, 222, 222, 223, 223, 224, 224, 224, 225,
+  225, 226, 226, 226, 227, 227, 227, 228, 228, 229, 229, 229, 230, 230, 230, 231, 231,
+  231, 232, 232, 233, 233, 233, 234, 234, 234, 235, 235, 235, 236, 236, 236, 237, 237,
+  237, 238, 238, 238, 239, 239, 239, 240, 240, 240, 240, 241, 241, 241, 242, 242, 242,
+  243, 243, 243, 244, 244, 244, 244, 245, 245, 245, 246, 246, 246, 246, 247, 247, 247,
+  248, 248, 248, 248, 249, 249, 249, 249, 250, 250, 250, 251, 251, 251, 251, 252, 252,
+  252, 252, 253, 253, 253, 253, 254, 254, 254, 254, 255, 255, 255, 255
+};
+
+
+
+class PWMTableVerifier
+{
+public:
+  PWMTableVerifier() {
+    //uint8_t powerDim = 255;
+    uint8_t powerDim = 98*255/100;
+    PixelColorComponent pixb = 255;
+    printf("\npixb=%d, powerDim = %d = %d%%:\n", pixb, powerDim, powerDim*100/255);
+    PWMColorComponent pwm = brightnessToPwm(pixb);
+    PWMColorComponent Pb = dimPower(pwm, powerDim);
+    printf("==> pwm=%d/0x%04x  Pb=%d/0x%04x\n\n", pwm, pwm, Pb, Pb);
+    exit(1);
+
+    // verification table
+    printf("\nBack and forth verification:\n");
+    for (int bright=0; bright<=PIXELMAX; bright++) {
+      PWMColorComponent pwm16 = brightnessToPwm(bright);
+      uint8_t pwm8 = brightnessTo8BitPwm(bright);
+      uint8_t pwm8old = oldpwmtable[bright];
+      int diffold = pwm8-pwm8old;
+      PixelColorComponent backFrom16 = pwmToBrightness(pwm16);
+      PixelColorComponent backFrom8 = pwm8BitToBrightness(pwm8);
+      PixelColorComponent backFrom8old = oldbrightnesstable[pwm8];
+      PixelColorComponent backOldFrom8old = oldbrightnesstable[pwm8old];
+      int diff16 = bright-backFrom16;
+      int diff8 = bright-backFrom8;
+      int diff8old = bright-backFrom8;
+      int diffold8old = bright-backOldFrom8old;
+      printf(
+        "Brightness=%3d | PWM16=%6d, PWM16->bri=%3d, diff16=%2d  |  PWM8=%3d, PWM8old=%3d, diff=%2d  |  PWM8->bri=%3d, diff8=%2d | PWM8->briOld=%3d, diff8old=%2d | PWM8old->briOld=%3d, diffOld8old=%2d | diff8-diffOld8old=%2d\n",
+        bright, pwm16, backFrom16, diff16, pwm8, pwm8old, diffold, backFrom8, diff8, backFrom8old, diff8old, backOldFrom8old, diffold8old, diff8-diffold8old
+      );
+    }
+    printf("--- done ---\n\n");
+    exit(1);
+  }
+};
+
+static PWMTableVerifier gV;
+
+#endif
