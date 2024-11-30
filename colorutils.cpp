@@ -729,15 +729,11 @@ void p44::transferFromColor(const Row3 &aCol, double aAmount, double &aRed, doub
 
 
 
-// MARK: - PWM to brightness conversions
+// MARK: - PWM / brightness conversions
 
-#if PWMBITS==8
+#if PWM8BIT_GLUE
 
-#define PWMTBLBITS 8
-#define PWMSTEPS (1<<PWMTBLBITS)
-
-// brightness to PWM value conversion
-static const PWMColorComponent pwmtable[PIXELMAX+1] = {
+static const PWMColorComponent pwmtable8[PIXELMAX+1] = {
     0,   0,   0,   0,   0,   0,   0,   1,   1,   1,   1,   1,   1,   1,   1,   1,
     1,   1,   2,   2,   2,   2,   2,   2,   2,   2,   2,   3,   3,   3,   3,   3,
     3,   3,   3,   3,   4,   4,   4,   4,   4,   4,   4,   5,   5,   5,   5,   5,
@@ -757,7 +753,7 @@ static const PWMColorComponent pwmtable[PIXELMAX+1] = {
 };
 
 
-static const PixelColorComponent brightnesstable[PWMSTEPS] = {
+static const PixelColorComponent brightnesstable8[256] = {
   0, 7, 18, 27, 36, 43, 49, 55, 61, 66, 70, 75, 79, 83, 86, 90, 93, 96, 99, 102, 104,
   107, 109, 112, 114, 116, 118, 121, 123, 124, 126, 128, 130, 132, 133, 135, 137, 138,
   140, 141, 143, 144, 145, 147, 148, 150, 151, 152, 153, 154, 156, 157, 158, 159, 160,
@@ -776,6 +772,27 @@ static const PixelColorComponent brightnesstable[PWMSTEPS] = {
 };
 
 
+PixelColorComponent p44::pwm8BitToBrightness(uint8_t aPWM8)
+{
+  return brightnesstable8[aPWM8];
+}
+
+uint8_t p44::brightnessTo8BitPwm(uint8_t aBrightness)
+{
+  return (pwmtable8[aBrightness]);
+}
+
+#endif // PWM8BIT_GLUE
+
+
+#if PWMBITS==8
+
+PixelColorComponent p44::pwmToBrightness(PWMColorComponent aPWM)
+{
+  return brightnesstable8[aPWM];
+}
+
+
 uint8_t p44::pwmTo8Bits(PWMColorComponent aPWM)
 {
   return aPWM;
@@ -788,26 +805,16 @@ PWMColorComponent p44::pwmFrom8Bits(uint8_t aPWM8)
 }
 
 
-PixelColorComponent p44::pwm8BitToBrightness(uint8_t aPWM8)
+PWMColorComponent p44::brightnessToPwm(uint8_t aBrightness)
 {
-  return brightnesstable[aPWM8];
-}
-
-uint8_t p44::brightnessTo8BitPwm(uint8_t aBrightness)
-{
-  return (pwmtable[aBrightness]);
-}
-
-
-PixelColorComponent p44::pwmToBrightness(PWMColorComponent aPWM)
-{
-  return brightnesstable[aPWM];
+  return pwmtable8[aBrightness];
 }
 
 
 #else
 
-static const PWMColorComponent pwmtable[PIXELMAX+1] = {
+
+static const PWMColorComponent pwmtable16[PIXELMAX+1] = {
       0,    19,    39,    59,    79,   100,   121,   142,   163,   185,   208,   230,   253,   277,   300,   324,
     349,   374,   399,   425,   451,   477,   504,   531,   559,   587,   616,   645,   674,   704,   735,   766,
     797,   829,   862,   894,   928,   962,   996,  1032,  1067,  1103,  1140,  1178,  1216,  1254,  1293,  1333,
@@ -831,7 +838,7 @@ static const PWMColorComponent pwmtable[PIXELMAX+1] = {
 #define PWM_HIRES_STEPS 256 // just the beginning
 
 
-const uint8_t hiresbrightnesstable[PWM_HIRES_STEPS] = {
+const uint8_t hiresbrightnesstable16[PWM_HIRES_STEPS] = {
    0,   1,   2,   3,   4,   5,   5,   6,   7,   8,   8,   9,  10,  10,  11,  12, // 0..15 (PWM 0..240)
   13,  13,  14,  15,  15,  16,  17,  17,  18,  19,  19,  20,  20,  21,  22,  22, // 16..31 (PWM 256..496)
   23,  23,  24,  25,  25,  26,  26,  27,  27,  28,  28,  29,  29,  30,  31,  31, // 32..47 (PWM 512..752)
@@ -856,7 +863,7 @@ const uint8_t hiresbrightnesstable[PWM_HIRES_STEPS] = {
 #define PWM_LORES_STEPS ((1<<PWM_LORES_INDEX_BITS)-PWM_LORES_STEPS_IN_HIRES)
 
 
-const uint8_t loresbrightnesstable[PWM_LORES_STEPS] = {
+const uint8_t loresbrightnesstable16[PWM_LORES_STEPS] = {
 //    0,   4,   7,  10,  13,  15,  18,  20,  23,  25,  27,  29,  32,  34,  36,  37, // 0..15 (PWM 0..960)
 //   39,  41,  43,  44,  46,  48,  49,  51,  52,  54,  55,  57,  58,  59,  61,  62, // 16..31 (PWM 1024..1984)
 //   63,  64,  66,  67,  68,  69,  70,  71,  72,  74,  75,  76,  77,  78,  79,  80, // 32..47 (PWM 2048..3008)
@@ -924,18 +931,10 @@ const uint8_t loresbrightnesstable[PWM_LORES_STEPS] = {
 };
 
 
-PixelColorComponent p44::pwm8BitToBrightness(uint8_t aPWM8)
-{
-  uint16_t i = aPWM8 << (PWM_HIRES_INDEX_BITS-(PWMBITS-8));
-  if (i<PWM_HIRES_STEPS) return hiresbrightnesstable[i];
-  return loresbrightnesstable[(i>>(PWM_HIRES_INDEX_BITS-PWM_LORES_INDEX_BITS))-PWM_LORES_STEPS_IN_HIRES];
-}
-
-
 uint8_t p44::pwmTo8Bits(PWMColorComponent aPWM)
 {
   if (aPWM>=0xFF80) return 0xFF;
-  return ((aPWM+0x80)>>8);
+  return ((aPWM+0x66)>>8); // 0x66 empirically determined, least rounding errors compared with real 8bit table
 }
 
 
@@ -945,70 +944,35 @@ PWMColorComponent p44::pwmFrom8Bits(uint8_t aPWM8)
 }
 
 
-uint8_t p44::brightnessTo8BitPwm(uint8_t aBrightness)
-{
-  return pwmTo8Bits(pwmtable[aBrightness]);
-}
-
-
 PixelColorComponent p44::pwmToBrightness(PWMColorComponent aPWM)
 {
   aPWM >>= (PWMBITS-PWM_HIRES_INDEX_BITS);
-  if (aPWM<PWM_HIRES_STEPS) return hiresbrightnesstable[aPWM];
-  return loresbrightnesstable[(aPWM>>(PWM_HIRES_INDEX_BITS-PWM_LORES_INDEX_BITS))-PWM_LORES_STEPS_IN_HIRES];
+  if (aPWM<PWM_HIRES_STEPS) return hiresbrightnesstable16[aPWM];
+  return loresbrightnesstable16[(aPWM>>(PWM_HIRES_INDEX_BITS-PWM_LORES_INDEX_BITS))-PWM_LORES_STEPS_IN_HIRES];
 }
 
-#endif
 
 PWMColorComponent p44::brightnessToPwm(uint8_t aBrightness)
 {
-  return pwmtable[aBrightness];
+  return pwmtable16[aBrightness];
 }
 
-
-#if DEBUG
-
-static const uint8_t oldpwmtable[256] = {
-  0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2,
-  3, 3, 3, 3, 3, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 5, 5, 5, 5, 5, 5, 6, 6, 6, 6, 6,
-  6, 7, 7, 7, 7, 7, 7, 8, 8, 8, 8, 8, 9, 9, 9, 9, 10, 10, 10, 10, 10, 11, 11, 11,
-  11, 12, 12, 12, 12, 13, 13, 13, 14, 14, 14, 14, 15, 15, 15, 16, 16, 16, 17, 17,
-  17, 18, 18, 18, 19, 19, 20, 20, 20, 21, 21, 22, 22, 22, 23, 23, 24, 24, 25, 25,
-  26, 26, 26, 27, 27, 28, 29, 29, 30, 30, 31, 31, 32, 32, 33, 34, 34, 35, 35, 36,
-  37, 37, 38, 39, 39, 40, 41, 42, 42, 43, 44, 44, 45, 46, 47, 48, 49, 49, 50, 51,
-  52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 72,
-  73, 74, 75, 77, 78, 79, 81, 82, 83, 85, 86, 87, 89, 90, 92, 93, 95, 97, 98, 100,
-  101, 103, 105, 107, 108, 110, 112, 114, 116, 118, 120, 121, 123, 126, 128, 130,
-  132, 134, 136, 138, 141, 143, 145, 148, 150, 152, 155, 157, 160, 163, 165, 168,
-  171, 174, 176, 179, 182, 185, 188, 191, 194, 197, 201, 204, 207, 210, 214, 217,
-  221, 224, 228, 232, 235, 239, 243, 247, 251, 255
-};
+#endif // !(PWMBITS==8)
 
 
-static const uint8_t oldbrightnesstable[256] = {
-  0, 7, 18, 27, 36, 43, 49, 55, 61, 66, 70, 75, 79, 83, 86, 90, 93, 96, 99, 102, 104,
-  107, 109, 112, 114, 116, 118, 121, 123, 124, 126, 128, 130, 132, 133, 135, 137, 138,
-  140, 141, 143, 144, 145, 147, 148, 150, 151, 152, 153, 154, 156, 157, 158, 159, 160,
-  161, 162, 163, 164, 165, 166, 167, 168, 169, 170, 171, 172, 173, 174, 175, 176, 177,
-  177, 178, 179, 180, 181, 181, 182, 183, 184, 184, 185, 186, 187, 187, 188, 189, 190,
-  190, 191, 192, 192, 193, 194, 194, 195, 195, 196, 197, 197, 198, 199, 199, 200, 200,
-  201, 201, 202, 203, 203, 204, 204, 205, 205, 206, 206, 207, 207, 208, 208, 209, 210,
-  210, 211, 211, 211, 212, 212, 213, 213, 214, 214, 215, 215, 216, 216, 217, 217, 218,
-  218, 218, 219, 219, 220, 220, 221, 221, 221, 222, 222, 223, 223, 224, 224, 224, 225,
-  225, 226, 226, 226, 227, 227, 227, 228, 228, 229, 229, 229, 230, 230, 230, 231, 231,
-  231, 232, 232, 233, 233, 233, 234, 234, 234, 235, 235, 235, 236, 236, 236, 237, 237,
-  237, 238, 238, 238, 239, 239, 239, 240, 240, 240, 240, 241, 241, 241, 242, 242, 242,
-  243, 243, 243, 244, 244, 244, 244, 245, 245, 245, 246, 246, 246, 246, 247, 247, 247,
-  248, 248, 248, 248, 249, 249, 249, 249, 250, 250, 250, 251, 251, 251, 251, 252, 252,
-  252, 252, 253, 253, 253, 253, 254, 254, 254, 254, 255, 255, 255, 255
-};
-
-
+#if 0
 
 class PWMTableVerifier
 {
 public:
   PWMTableVerifier() {
+    //roundingoptimizer();
+    tabledump();
+    //testcalc();
+    exit(1);
+  }
+
+  void testcalc() {
     //uint8_t powerDim = 255;
     uint8_t powerDim = 98*255/100;
     PixelColorComponent pixb = 255;
@@ -1016,30 +980,57 @@ public:
     PWMColorComponent pwm = brightnessToPwm(pixb);
     PWMColorComponent Pb = dimPower(pwm, powerDim);
     printf("==> pwm=%d/0x%04x  Pb=%d/0x%04x\n\n", pwm, pwm, Pb, Pb);
-    exit(1);
+  }
 
+  void roundingoptimizer() {
+    int mindiff = 999;
+    int mindiffroundoffs = 0;
+    for (uint8_t roundoffs=0; roundoffs<0x9F; roundoffs++) {
+      int diffs = 0;
+      for (int bright=0; bright<=PIXELMAX; bright++) {
+        PWMColorComponent pwm16 = brightnessToPwm(bright); // 16-bit PWM
+        uint8_t pwm8 = brightnessTo8BitPwm(bright); // direct 8-bit PWM using the original PWM table
+        // pwmTo8Bits(pwm16); // cut down 16bit PWM from new table to 8-bit (as used to drive 8-bit LEDs)
+        uint8_t pwm8from16 = pwm16>=(0xFFFF-roundoffs) ? 0xFF : (pwm16+roundoffs)>>8;
+        diffs += abs((int)pwm8-(int)pwm8from16);
+      }
+      if (diffs<mindiff) {
+        mindiff = diffs;
+        mindiffroundoffs = roundoffs;
+        printf("Best roundoff so far: %d/0x%02x, diffs=%d\n", roundoffs, roundoffs, diffs);
+      }
+      else {
+        printf("- not better: roundoff: %d/0x%02x, diffs=%d\n", roundoffs, roundoffs, diffs);
+      }
+    }
+  }
+
+  void tabledump() {
     // verification table
     printf("\nBack and forth verification:\n");
     for (int bright=0; bright<=PIXELMAX; bright++) {
-      PWMColorComponent pwm16 = brightnessToPwm(bright);
-      uint8_t pwm8 = brightnessTo8BitPwm(bright);
-      uint8_t pwm8old = oldpwmtable[bright];
-      int diffold = pwm8-pwm8old;
+      // generating PWMs
+      PWMColorComponent pwm16 = brightnessToPwm(bright); // 16-bit PWM
+      uint8_t pwm8 = brightnessTo8BitPwm(bright); // direct 8-bit PWM using the original PWM table
+      uint8_t pwm8from16 = pwmTo8Bits(pwm16); // cut down 16bit PWM from new table to 8-bit (as used to drive 8-bit LEDs)
+      int diffPwm8Pwm8from16 = pwm8-pwm8from16;
+      // converting back to brightness
       PixelColorComponent backFrom16 = pwmToBrightness(pwm16);
       PixelColorComponent backFrom8 = pwm8BitToBrightness(pwm8);
-      PixelColorComponent backFrom8old = oldbrightnesstable[pwm8];
-      PixelColorComponent backOldFrom8old = oldbrightnesstable[pwm8old];
-      int diff16 = bright-backFrom16;
-      int diff8 = bright-backFrom8;
-      int diff8old = bright-backFrom8;
-      int diffold8old = bright-backOldFrom8old;
+      PixelColorComponent backFrom8from16 = pwm8BitToBrightness(pwm8from16);
+      int diffBackFrom16 = bright-backFrom16;
+      int diffBackFrom8 = bright-backFrom8;
+      int diffBackFrom8from16 = bright-backFrom8from16;
       printf(
-        "Brightness=%3d | PWM16=%6d, PWM16->bri=%3d, diff16=%2d  |  PWM8=%3d, PWM8old=%3d, diff=%2d  |  PWM8->bri=%3d, diff8=%2d | PWM8->briOld=%3d, diff8old=%2d | PWM8old->briOld=%3d, diffOld8old=%2d | diff8-diffOld8old=%2d\n",
-        bright, pwm16, backFrom16, diff16, pwm8, pwm8old, diffold, backFrom8, diff8, backFrom8old, diff8old, backOldFrom8old, diffold8old, diff8-diffold8old
+        "Brightness=%3d | pwm16=%6d, pwm8=%3d, pwm8from16=%3d, diff88=%2d |  backFrom16=%3d, diff=%2d  |  backFrom8=%3d, diff=%2d  |  backFrom8from16=%3d, diffBackFrom8from16=%2d | diffOfBackFrom8diffs=%2d\n",
+        bright, pwm16, pwm8, pwm8from16, diffPwm8Pwm8from16,
+        backFrom16, diffBackFrom16,
+        backFrom8, diffBackFrom8,
+        backFrom8from16, diffBackFrom8from16,
+        diffBackFrom8-diffBackFrom8from16
       );
     }
     printf("--- done ---\n\n");
-    exit(1);
   }
 };
 
