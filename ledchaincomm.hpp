@@ -33,6 +33,9 @@
 #ifndef LEDCHAIN_LEGACY_API
 #define LEDCHAIN_LEGACY_API (!ENABLE_P44LRGRAPHICS) // with p44graphics, we don't need legacy API any more
 #endif
+#ifndef LEDCHAIN_READBACK
+#define LEDCHAIN_READBACK (!ENABLE_P44LRGRAPHICS) // with p44graphics, we don't need reading back LED values
+#endif
 
 #include <stdint.h>
 #include <stdio.h>
@@ -254,6 +257,7 @@ namespace p44 {
     void setColorDimmedXY(uint16_t aX, uint16_t aY, uint8_t aRed, uint8_t aGreen, uint8_t aBlue, uint8_t aWhite, uint8_t aBrightness);
     void setColorDimmed(uint16_t aLedNumber, uint8_t aRed, uint8_t aGreen, uint8_t aBlue, uint8_t aWhite, uint8_t aBrightness);
 
+    #if LEDCHAIN_READBACK
     /// get current color of LED
     /// @param aRed set to intensity of red component, 0..255
     /// @param aGreen set to intensity of green component, 0..255
@@ -264,8 +268,20 @@ namespace p44 {
     /// @note aLedNumber is the logical LED number, and aX/aY are logical coordinates, excluding any inactive LEDs
     void getColorXY(uint16_t aX, uint16_t aY, uint8_t &aRed, uint8_t &aGreen, uint8_t &aBlue, uint8_t &aWhite);
     void getColor(uint16_t aLedNumber, uint8_t &aRed, uint8_t &aGreen, uint8_t &aBlue, uint8_t &aWhite);
+    #endif // LEDCHAIN_READBACK
 
     #endif // LEDCHAIN_LEGACY_API && PWMBITS==8
+
+    #if LEDCHAIN_READBACK
+    /// set power (PWM value) of one LED
+    /// @param aX logical X coordinate
+    /// @param aY logical Y coordinate
+    /// @param aRed set to power of red component, 0..PWMMAX
+    /// @param aGreen set to power of green component, 0..PWMMAX
+    /// @param aBlue set to power of blue component, 0..PWMMAX
+    /// @param aWhite set to power of separate white component for RGBW LEDs, 0..PWMMAX
+    void getPowerXY(uint16_t aX, uint16_t aY, PWMColorComponent &aRed, PWMColorComponent &aGreen, PWMColorComponent &aBlue, PWMColorComponent &aWhite);
+    #endif // LEDCHAIN_READBACK
 
     /// set raw power (PWM value) of one LED
     /// @param aX logical X coordinate
@@ -284,15 +300,6 @@ namespace p44 {
     /// @param aWhite power of separate white component for RGBW LEDs, 0..PWMMAX
     void setPower(uint16_t aLedNumber, PWMColorComponent aRed, PWMColorComponent aGreen, PWMColorComponent aBlue, PWMColorComponent aWhite = 0);
 
-    /// set power (PWM value) of one LED
-    /// @param aX logical X coordinate
-    /// @param aY logical Y coordinate
-    /// @param aRed set to power of red component, 0..PWMMAX
-    /// @param aGreen set to power of green component, 0..PWMMAX
-    /// @param aBlue set to power of blue component, 0..PWMMAX
-    /// @param aWhite set to power of separate white component for RGBW LEDs, 0..PWMMAX
-    void getPowerXY(uint16_t aX, uint16_t aY, PWMColorComponent &aRed, PWMColorComponent &aGreen, PWMColorComponent &aBlue, PWMColorComponent &aWhite);
-
     /// @return number of active LEDs in the chain (that are active, i.e. minus inactiveStartLeds/inactiveBetweenLeds/inactiveEndLeds)
     uint16_t getNumLeds();
 
@@ -309,16 +316,20 @@ namespace p44 {
     /// set power at raw LED index with no mapping calculations in between
     void setPowerAtLedIndex(uint16_t aLedIndex, PWMColorComponent aRed, PWMColorComponent aGreen, PWMColorComponent aBlue, PWMColorComponent aWhite);
 
+    #if LEDCHAIN_READBACK
     /// get power at raw LED index with no mapping calculations in between
     void getPowerAtLedIndex(uint16_t aLedIndex, PWMColorComponent &aRed, PWMColorComponent &aGreen, PWMColorComponent &aBlue, PWMColorComponent &aWhite);
+    #endif // LEDCHAIN_READBACK
 
     #if LEDCHAIN_LEGACY_API && PWMBITS==8
 
     /// set color at raw LED index with no mapping calculations in between
     void setColorAtLedIndex(uint16_t aLedIndex, uint8_t aRed, uint8_t aGreen, uint8_t aBlue, uint8_t aWhite);
 
+    #if LEDCHAIN_READBACK
     /// set color from raw LED index with no mapping calculations in between
     void getColorAtLedIndex(uint16_t aLedIndex, uint8_t &aRed, uint8_t &aGreen, uint8_t &aBlue, uint8_t &aWhite);
+    #endif // LEDCHAIN_READBACK
 
     #endif // LEDCHAIN_LEGACY_API && PWMBITS==8
 

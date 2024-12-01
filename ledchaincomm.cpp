@@ -473,6 +473,7 @@ void LEDChainComm::setColorAtLedIndex(uint16_t aLedIndex, uint8_t aRed, uint8_t 
 }
 
 
+#if LEDCHAIN_READBACK
 void LEDChainComm::getColorAtLedIndex(uint16_t aLedIndex, uint8_t &aRed, uint8_t &aGreen, uint8_t &aBlue, uint8_t &aWhite)
 {
   uint8_t r,g,b,w;
@@ -482,6 +483,7 @@ void LEDChainComm::getColorAtLedIndex(uint16_t aLedIndex, uint8_t &aRed, uint8_t
   aBlue = brightnesstable[b];
   aWhite = brightnesstable[w];
 }
+#endif // LEDCHAIN_READBACK
 
 #endif // LEDCHAIN_LEGACY_API && PWMBITS==8
 
@@ -565,7 +567,7 @@ void LEDChainComm::setPowerAtLedIndex(uint16_t aLedIndex, PWMColorComponent aRed
   }
 }
 
-
+#if LEDCHAIN_READBACK
 void LEDChainComm::getPowerAtLedIndex(uint16_t aLedIndex, PWMColorComponent &aRed, PWMColorComponent &aGreen, PWMColorComponent &aBlue, PWMColorComponent &aWhite)
 {
   if (mChainDriver) {
@@ -647,7 +649,7 @@ void LEDChainComm::getPowerAtLedIndex(uint16_t aLedIndex, PWMColorComponent &aRe
     #endif
   }
 }
-
+#endif // LEDCHAIN_READBACK
 
 
 // MARK: - LEDChainComm logical LED access
@@ -732,6 +734,8 @@ void LEDChainComm::setColorDimmed(uint16_t aLedNumber, uint8_t aRed, uint8_t aGr
 }
 
 
+#if LEDCHAIN_READBACK
+
 void LEDChainComm::getColor(uint16_t aLedNumber, uint8_t &aRed, uint8_t &aGreen, uint8_t &aBlue, uint8_t &aWhite)
 {
   int y = aLedNumber / getSizeX();
@@ -745,6 +749,8 @@ void LEDChainComm::getColorXY(uint16_t aX, uint16_t aY, uint8_t &aRed, uint8_t &
   uint16_t ledindex = ledIndexFromXY(aX,aY);
   getColorAtLedIndex(ledindex, aRed, aGreen, aBlue, aWhite);
 }
+
+#endif // LEDCHAIN_READBACK
 
 #endif // LEDCHAIN_LEGACY_API && PWMBITS==8
 
@@ -764,13 +770,13 @@ void LEDChainComm::setPower(uint16_t aLedNumber, PWMColorComponent aRed, PWMColo
 }
 
 
+#if LEDCHAIN_READBACK
 void LEDChainComm::getPowerXY(uint16_t aX, uint16_t aY, PWMColorComponent &aRed, PWMColorComponent &aGreen, PWMColorComponent &aBlue, PWMColorComponent &aWhite)
 {
   uint16_t ledindex = ledIndexFromXY(aX,aY);
   getPowerAtLedIndex(ledindex, aRed, aGreen, aBlue, aWhite);
 }
-
-
+#endif
 
 
 #if ENABLE_P44LRGRAPHICS
