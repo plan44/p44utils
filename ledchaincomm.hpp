@@ -98,7 +98,12 @@ namespace p44 {
 
     LEDPowerTablePtr mTables[4];
 
-    void createExpTable(int aTableNo, double aExponent);
+    /// create an exponential brightness-to-power table
+    /// @param aTableNo 0..3 table index
+    /// @param aExponent the exponent for the table
+    /// @param aMinPower power to output at brightness==1, or 0 to use the curve without offset.
+    ///   When >0, the curve is offset and scaled to fi
+    void createExpTable(int aTableNo, double aExponent, LEDChannelPower aMinPower);
 
   protected:
 
@@ -110,9 +115,9 @@ namespace p44 {
 
   public:
 
-    LEDPowerConverter(double aExponent);
-    LEDPowerConverter(double aColorExponent, double aWhiteExponent);
-    LEDPowerConverter(double aRedExponent, double aGreenExponent, double aBlueExponent, double aWhiteExponent);
+    LEDPowerConverter(double aExponent, LEDChannelPower aMinPower);
+    LEDPowerConverter(double aColorExponent, LEDChannelPower aMinColorPower, double aWhiteExponent, LEDChannelPower aMinWhitePower);
+    LEDPowerConverter(double aColorExponent, LEDChannelPower aMinRedPower, LEDChannelPower aMinGreenPower, LEDChannelPower aMinBluePower, LEDChannelPower aMinWhitePower);
     virtual ~LEDPowerConverter();
 
     static LEDPowerConverter& standardPowerConverter();
@@ -294,7 +299,7 @@ namespace p44 {
 
     /// get minimal color intensity that does not completely switch off the color channel of the LED
     /// @return minimum r,g,b value
-    uint8_t getMinVisibleColorIntensity();
+    PixelColorComponent getMinVisibleColorIntensity();
 
     /// @return true if chains has a separate (fourth) white channel
     bool hasWhite() { return mNumColorComponents>=4; }

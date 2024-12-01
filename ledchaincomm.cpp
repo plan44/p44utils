@@ -43,20 +43,25 @@ using namespace p44;
 #define LEDCHAIN_DEFAULT_EXP 4 // the default exponent for the power translation
 
 
-void LEDPowerConverter::createExpTable(int aTableNo, double aExponent)
+void LEDPowerConverter::createExpTable(int aTableNo, double aExponent, LEDChannelPower aMinPower)
 {
   mTables[aTableNo] = new LEDPowerTable;
-  for (int b=0; b<=PIXELMAX; b++) {
-    uint16_t pwr = 0;
-    if (aExponent!=0) pwr = round(PWMMAX*((exp((b*aExponent)/PIXELMAX)-1)/(exp(aExponent)-1)));
-    mTables[aTableNo]->mData[b] = pwr;
+  mTables[aTableNo]->mData[0] = 0; // always 0
+  // find min power from the curve at brightness 1
+  LEDChannelPower bri1pwr = round(PWMMAX*((exp((1*aExponent)/PIXELMAX)-1)/(exp(aExponent)-1)));
+  int offs = aMinPower>0 ? aMinPower-bri1pwr : 0; // offset
+  // now calculate
+  for (int b=1; b<=PIXELMAX; b++) {
+    int pwr = 0;
+    if (aExponent!=0) pwr = offs+round((PWMMAX-offs)*((exp((b*aExponent)/PIXELMAX)-1)/(exp(aExponent)-1)));
+    mTables[aTableNo]->mData[b] = pwr>0 ? pwr : 0;
   }
 }
 
 
-LEDPowerConverter::LEDPowerConverter(double aExponent)
+LEDPowerConverter::LEDPowerConverter(double aExponent, LEDChannelPower aMinPower)
 {
-  createExpTable(0, aExponent);
+  createExpTable(0, aExponent, aMinPower);
   // use same table for all channels
   mRedPowers = mTables[0]->mData;
   mGreenPowers = mTables[0]->mData;
@@ -65,12 +70,12 @@ LEDPowerConverter::LEDPowerConverter(double aExponent)
 }
 
 
-LEDPowerConverter::LEDPowerConverter(double aRedExponent, double aGreenExponent, double aBlueExponent, double aWhiteExponent)
+LEDPowerConverter::LEDPowerConverter(double aColorExponent, LEDChannelPower aMinRedPower, LEDChannelPower aMinGreenPower, LEDChannelPower aMinBluePower, LEDChannelPower aMinWhitePower)
 {
-  createExpTable(0, aRedExponent);
-  createExpTable(1, aGreenExponent);
-  createExpTable(2, aBlueExponent);
-  createExpTable(3, aWhiteExponent);
+  createExpTable(0, aColorExponent, aMinRedPower);
+  createExpTable(1, aColorExponent, aMinGreenPower);
+  createExpTable(2, aColorExponent, aMinBluePower);
+  createExpTable(3, aColorExponent, aMinWhitePower);
   // use separate table for each channel
   mRedPowers = mTables[0]->mData;
   mGreenPowers = mTables[1]->mData;
@@ -79,15 +84,15 @@ LEDPowerConverter::LEDPowerConverter(double aRedExponent, double aGreenExponent,
 }
 
 
-LEDPowerConverter::LEDPowerConverter(double aColorExponent, double aWhiteExponent)
+LEDPowerConverter::LEDPowerConverter(double aColorExponent, LEDChannelPower aMinColorPower, double aWhiteExponent, LEDChannelPower aMinWhitePower)
 {
   // common table for RGB
-  createExpTable(0, aColorExponent);
+  createExpTable(0, aColorExponent, aMinColorPower);
   mRedPowers = mTables[0]->mData;
   mGreenPowers = mTables[0]->mData;
   mBluePowers = mTables[0]->mData;
   // separate table for white
-  createExpTable(1, aWhiteExponent);
+  createExpTable(1, aWhiteExponent, aMinWhitePower);
   mWhitePowers = mTables[1]->mData;
 }
 
@@ -102,7 +107,7 @@ static LEDPowerConverterPtr gStandardPowerConverter;
 LEDPowerConverter& LEDPowerConverter::standardPowerConverter()
 {
   if (!gStandardPowerConverter) {
-    gStandardPowerConverter = new LEDPowerConverter(LEDCHAIN_DEFAULT_EXP);
+    gStandardPowerConverter = new LEDPowerConverter(LEDCHAIN_DEFAULT_EXP, 0);
   }
   return *gStandardPowerConverter;
 }
@@ -601,6 +606,24 @@ void LEDChainComm::getColorAtLedIndex(uint16_t aLedIndex, uint8_t &aRed, uint8_t
 #endif // LEDCHAIN_LEGACY_API && PWMBITS==8
 
 
+#if PWMBITS==8
+
+static uint8_t pwmTo8Bits(LEDChannelPower aPWM)
+{
+  return aPWM;
+}
+
+#else
+
+uint8_t pwmTo8Bits(LEDChannelPower aPWM)
+{
+  if (aPWM>=0xFF80) return 0xFF;
+  return ((aPWM+0x66)>>8); // 0x66 empirically determined, least rounding errors compared with real 8bit table
+}
+
+#endif
+
+
 void LEDChainComm::setPowerAtLedIndex(uint16_t aLedIndex, LEDChannelPower aRed, LEDChannelPower aGreen, LEDChannelPower aBlue, LEDChannelPower aWhite)
 {
   if (mChainDriver) {
@@ -785,12 +808,11 @@ uint16_t LEDChainComm::getSizeY()
 }
 
 
-uint8_t LEDChainComm::getMinVisibleColorIntensity()
+PixelColorComponent LEDChainComm::getMinVisibleColorIntensity()
 {
   // return highest brightness that still produces lowest non-zero output.
-  // (which is: lowest brightness that produces 2, minus 1)
-  // we take the upper limit so the chance of seeing something even for not pure r,g,b combinations is better
-  return pwm8BitToBrightness(2)-1;
+  // TODO: maybe find more accurate way to detect lowest visible brightness
+  return 1;
 }
 
 
@@ -1032,13 +1054,18 @@ void LEDChainArrangement::addLEDChain(const string &aChainSpec)
   newCover.dy = 1;
   PixelPoint offsets = { 0, 0 };
   // parse chain specification
-  // Syntax: [ledstype:[leddevicename:]]numberOfLeds:[x:dx:y:dy:firstoffset:betweenoffset][XYSA][W#whitecolor][;Ggamma[,gamma[,gamma,gamma]]
+  // Syntax: [ledstype:[leddevicename:]]numberOfLeds:[x:dx:y:dy:firstoffset:betweenoffset][XYSA][W#whitecolor][;Cparam[,param…]]
   // where:
   // - ledstype is either a single word for old-style drivers (p44-ledchain before v6) or of the form
   //   <chip>.<layout>[.<TMaxPassive_uS>] for drivers that allow controlling type directly (p44-ledchain from v6 onwards)
   //   Usually supported chips are: WS2811, WS2812, WS2813, WS2815, SK6812, P9823
   //   Uusually supported layouts are: RGB, GRB, RGBW, GRBW
-  // - gamma spec is either one float value (same gamma curve for all channels), two values (one for colors, one for white), or 3 or 4, separate for all
+  // - Curve spec is either
+  //   - 2 params: exponent,minout
+  //   - 4 params: colorexponent,colorminout,whiteexponent,whiteminout
+  //   - 5 params: exponent,redminout,greenminout,blueminout,whiteminout
+  //   Where minout==0 means using curve as-is, minout>0 fit curve output for brightness 1..PIXELMAX to minout..PWMMAX
+
   string part;
   const char *p = aChainSpec.c_str();
   int nmbrcnt = 0;
@@ -1069,16 +1096,16 @@ void LEDChainArrangement::addLEDChain(const string &aChainSpec)
             case 'A': alternating = true; break;
             case 'W':
               ledWhite = webColorToPixel(part.substr(i+1));
-              i = part.size(); // W#whitecol ends the part (more options could follow after another colon
+              i = part.size(); // W#whitecol ends the part (more options could follow after another colon)
               break;
-            case 'G': {
-              double g1 = 0.0,g2 = 0.0,g3 = 0.0,g4 = 0.0;
-              int n = sscanf(part.c_str()+1, "%lf,%lf,%lf,%lf", &g1, &g2, &g3, &g4);
-              if (n==4) powerConverter = new LEDPowerConverter(g1, g2, g3, g4); // separate gammas
-              else if (n==2) powerConverter = new LEDPowerConverter(g1, g2); // gamma for RGB, gamma for white
-              else if (n==1) powerConverter = new LEDPowerConverter(g1); // same gamma for all
+            case 'C': {
+              double p1 = 0, p2 = 0, p3 = 0, p4 = 0, p5 = 0;
+              int n = sscanf(part.c_str()+i+1, "%lf,%lf,%lf,%lf,%lf", &p1, &p2, &p3, &p4, &p5);
+              if (n==5) powerConverter = new LEDPowerConverter(p1, p2, p3, p4, p5); // common exponent, 4 separate minout
+              else if (n==4) powerConverter = new LEDPowerConverter(p1, p2, p3, p4); // separate exponent/minout for RGB and white
+              else if (n==2) powerConverter = new LEDPowerConverter(p1, p2); // exponent and minout for all channels
               ledWhite = webColorToPixel(part.substr(i+1));
-              i = part.size(); // W#whitecol ends the part (more options could follow after another colon
+              i = part.size(); // Cxxx ends the part (more options could follow after another colon)
               break;
             }
           }
@@ -1619,3 +1646,40 @@ LEDChainLookup::LEDChainLookup(LEDChainArrangement& aLedChainArrangement) :
 
 #endif // ENABLE_P44LRGRAPHICS
 
+
+#if 0
+
+class PWMTableVerifier
+{
+public:
+  PWMTableVerifier() {
+    //roundingoptimizer();
+    tabledump();
+    //testcalc();
+    exit(1);
+  }
+
+  void tabledump() {
+    // verification table
+    double exponent = 3;
+    LEDChannelPower minpower = 0;
+
+    printf("=== Table with exponent=%f, minpower=%d\n", exponent, minpower);
+    LEDPowerConverter stdtable(exponent, minpower);
+    for (int bright=0; bright<=PIXELMAX; bright++) {
+      // generating PWMs
+      LEDChannelPower red, green, blue, white;
+      stdtable.powersForComponents(0, bright, bright, bright, bright, red, green, blue, white);
+      printf(
+        "Brightness=%3d | red16=%6d, green16=%6d, blue16=%6d, white16=%6d  |  red8=%3d, green8=%3d, blue8=%3d, white8=%3d\n",
+        bright, red, green, blue, white,
+        pwmTo8Bits(red), pwmTo8Bits(green), pwmTo8Bits(blue), pwmTo8Bits(white)
+      );
+    }
+    printf("--- done ---\n\n");
+  }
+};
+
+static PWMTableVerifier gV;
+
+#endif
