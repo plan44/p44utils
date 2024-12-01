@@ -80,12 +80,6 @@ namespace p44 {
   /// @return dimmed value, limited to max==255
   PixelColorComponent dimVal(PixelColorComponent aVal, uint16_t aDim);
 
-  /// dim down (or light up) power value
-  /// @param aVal 0..PWMMAX power value to dim up or down
-  /// @param aDim 0..255: dim, >255: light up (255=100%)
-  /// @return dimmed value, limited to max==PWMMAX
-  LEDChannelPower dimPower(LEDChannelPower aVal, uint16_t aDim);
-
   /// dim  r,g,b values of a pixel (alpha unaffected)
   /// @param aPix the pixel
   /// @param aDim 0..255: dim, >255: light up (255=100%)

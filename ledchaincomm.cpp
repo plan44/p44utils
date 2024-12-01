@@ -36,6 +36,75 @@
 
 using namespace p44;
 
+// MARK: - LEDPowerConverter
+
+static const LEDChannelPower ledPowerTable[PIXELMAX+1] = {
+      0,    19,    39,    59,    79,   100,   121,   142,   163,   185,   208,   230,   253,   277,   300,   324,
+    349,   374,   399,   425,   451,   477,   504,   531,   559,   587,   616,   645,   674,   704,   735,   766,
+    797,   829,   862,   894,   928,   962,   996,  1032,  1067,  1103,  1140,  1178,  1216,  1254,  1293,  1333,
+   1373,  1414,  1456,  1498,  1542,  1585,  1630,  1675,  1721,  1767,  1814,  1862,  1911,  1961,  2011,  2062,
+   2114,  2167,  2220,  2275,  2330,  2386,  2443,  2501,  2560,  2620,  2681,  2742,  2805,  2869,  2933,  2999,
+   3066,  3134,  3203,  3273,  3344,  3416,  3489,  3564,  3639,  3716,  3794,  3874,  3954,  4036,  4119,  4204,
+   4289,  4377,  4465,  4555,  4646,  4739,  4833,  4929,  5026,  5125,  5226,  5328,  5431,  5536,  5643,  5752,
+   5862,  5974,  6088,  6203,  6321,  6440,  6561,  6684,  6809,  6936,  7065,  7196,  7329,  7465,  7602,  7741,
+   7883,  8027,  8173,  8322,  8473,  8626,  8782,  8940,  9101,  9264,  9430,  9598,  9769,  9943, 10119, 10299,
+  10481, 10666, 10854, 11045, 11239, 11436, 11636, 11839, 12046, 12255, 12469, 12685, 12905, 13128, 13355, 13586,
+  13820, 14058, 14299, 14545, 14794, 15047, 15304, 15566, 15831, 16101, 16374, 16653, 16935, 17222, 17514, 17810,
+  18111, 18417, 18727, 19043, 19363, 19689, 20019, 20355, 20696, 21043, 21395, 21752, 22115, 22484, 22859, 23240,
+  23627, 24020, 24419, 24824, 25236, 25654, 26079, 26511, 26949, 27395, 27847, 28307, 28773, 29248, 29729, 30219,
+  30716, 31221, 31734, 32255, 32784, 33322, 33868, 34423, 34986, 35559, 36140, 36731, 37331, 37940, 38560, 39189,
+  39827, 40476, 41136, 41805, 42486, 43177, 43879, 44592, 45316, 46052, 46799, 47558, 48330, 49113, 49909, 50717,
+  51538, 52373, 53220, 54081, 54955, 55843, 56745, 57662, 58593, 59539, 60499, 61475, 62466, 63473, 64496, 65535
+};
+
+
+LEDPowerConverter::LEDPowerConverter()
+{
+  // default to standard table for all channels
+  mRedPowers = ledPowerTable;
+  mRedPowers = ledPowerTable;
+  mRedPowers = ledPowerTable;
+  mRedPowers = ledPowerTable;
+}
+
+
+LEDPowerConverter::~LEDPowerConverter()
+{
+}
+
+
+static LEDPowerConverterPtr gStandardPowerConverter;
+
+LEDPowerConverter& LEDPowerConverter::standardPowerConverter()
+{
+  if (!gStandardPowerConverter) {
+    gStandardPowerConverter = new LEDPowerConverter;
+  }
+  return *gStandardPowerConverter;
+}
+
+
+void LEDPowerConverter::powersForComponents(
+  PixelColorComponent aDimDown,
+  PixelColorComponent aRed, PixelColorComponent aGreen, PixelColorComponent aBlue, PixelColorComponent aWhite,
+  LEDChannelPower& aRedPwr, LEDChannelPower& aGreenPwr, LEDChannelPower& aBluePwr, LEDChannelPower& aWhitePwr
+) const
+{
+  if (aDimDown) {
+    uint32_t f = (uint16_t)aDimDown+1;
+    aRedPwr = (f*mRedPowers[aRed]) >> 8;
+    aGreenPwr = (f*mRedPowers[aGreen]) >> 8;
+    aBluePwr = (f*mRedPowers[aBlue]) >> 8;
+    aWhitePwr = (f*mRedPowers[aWhite]) >> 8;
+  }
+  else {
+    aRedPwr = mRedPowers[aRed];
+    aGreenPwr = mRedPowers[aGreen];
+    aBluePwr = mRedPowers[aBlue];
+    aWhitePwr = mRedPowers[aWhite];
+  }
+}
+
 
 // MARK: - LedChainComm
 
@@ -190,6 +259,26 @@ LEDChainComm::~LEDChainComm()
 void LEDChainComm::setChainDriver(LEDChainCommPtr aLedChainComm)
 {
   mChainDriver = aLedChainComm;
+}
+
+
+void LEDChainComm::setPowerConverter(const LEDPowerConverterPtr aLedPowerConverter)
+{
+  mLEDPowerConverter = aLedPowerConverter;
+}
+
+
+const LEDPowerConverter& LEDChainComm::powerConverter()
+{
+  if (!mLEDPowerConverter) {
+    if (mChainDriver) {
+      mLEDPowerConverter = const_cast<LEDPowerConverter *>(&(mChainDriver->powerConverter())); // use the chain driver's converter
+    }
+    else {
+      mLEDPowerConverter = &LEDPowerConverter::standardPowerConverter(); // use the standard converter
+    }
+  }
+  return *mLEDPowerConverter.get();
 }
 
 
@@ -1128,6 +1217,7 @@ MLMicroSeconds LEDChainArrangement::updateDisplay()
               lightPowerPWM = 0; // accumulated PWM values per chain
               lightPowerPWMWhite = 0; // separate for white which has different wattage
               LEDChainFixture& l = *pos;
+              const LEDPowerConverter& conv = l.ledChain->powerConverter(); // get the power converter
               bool hasWhite = l.ledChain->hasWhite();
               const LEDChainComm::LedChipDesc &chip = l.ledChain->ledChipDescriptor();
               for (int x=0; x<l.covers.dx; ++x) {
@@ -1155,18 +1245,7 @@ MLMicroSeconds LEDChainArrangement::updateDisplay()
                   }
                   // transfer to output power
                   LEDChannelPower Pr, Pg, Pb, Pw;
-                  if (powerDim) {
-                    Pr = dimPower(brightnessToPwm(pix.r), powerDim);
-                    Pg = dimPower(brightnessToPwm(pix.g), powerDim);
-                    Pb = dimPower(brightnessToPwm(pix.b), powerDim);
-                    Pw = dimPower(brightnessToPwm(w), powerDim);
-                  }
-                  else {
-                    Pr = brightnessToPwm(pix.r);
-                    Pg = brightnessToPwm(pix.g);
-                    Pb = brightnessToPwm(pix.b);
-                    Pw = brightnessToPwm(w);
-                  }
+                  conv.powersForComponents(powerDim, pix.r, pix.g, pix.b, w, Pr, Pg, Pb, Pw);
                   // measure
                   // - every LED consumes the idle power
                   idlePowerMw += chip.idleChipMw;

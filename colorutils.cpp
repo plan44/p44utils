@@ -39,14 +39,6 @@ PixelColorComponent p44::dimVal(PixelColorComponent aVal, uint16_t aDim)
 }
 
 
-LEDChannelPower p44::dimPower(LEDChannelPower aVal, uint16_t aDim)
-{
-  uint32_t d = ((uint32_t)aDim+1)*aVal;
-  if (d>(1l<<(PWMBITS+8))-1) return PWMMAX;
-  return d>>8;
-}
-
-
 void p44::dimPixel(PixelColor &aPix, uint16_t aDim)
 {
   if (aDim==255) return; // 100% -> NOP

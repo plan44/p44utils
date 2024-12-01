@@ -73,6 +73,36 @@ namespace p44 {
   class LEDChainComm;
   typedef boost::intrusive_ptr<LEDChainComm> LEDChainCommPtr;
 
+
+  class LEDPowerConverter : public P44Obj
+  {
+
+  protected:
+
+    // pointer to conversion tables
+    const LEDChannelPower* mRedPowers;
+    const LEDChannelPower* mGreenPowers;
+    const LEDChannelPower* mBluePowers;
+    const LEDChannelPower* mWhitePowers;
+
+  public:
+
+    LEDPowerConverter();
+    virtual ~LEDPowerConverter();
+
+    static LEDPowerConverter& standardPowerConverter();
+
+    /// get powers for color components
+    /// @param aDimDown if zero: no dimming=100%, otherwise, 255..1 proportional dimming
+    void powersForComponents(
+      PixelColorComponent aDimDown,
+      PixelColorComponent aRed, PixelColorComponent aGreen, PixelColorComponent aBlue, PixelColorComponent aWhite,
+      LEDChannelPower& aRedPwr, LEDChannelPower& aGreenPwr, LEDChannelPower& aBluePwr, LEDChannelPower& aWhitePwr
+    ) const;
+  };
+  typedef boost::intrusive_ptr<LEDPowerConverter> LEDPowerConverterPtr;
+
+
   class LEDChainComm : public P44Obj
   {
     friend class LEDChainArrangement;
@@ -144,6 +174,8 @@ namespace p44 {
 
     LEDChainCommPtr mChainDriver; // the LED chain used for outputting LED values. Usually: myself, but if this instance just maps a second part of another chain, this will point to the other chain
 
+    LEDPowerConverterPtr mLEDPowerConverter; // the converter to use for converting pixel colors to output values
+
     #ifdef ESP_PLATFORM
     int gpioNo; // the GPIO to be used
     Esp_ws281x_LedChain* espLedChain; // handle for the chain
@@ -205,6 +237,15 @@ namespace p44 {
     /// @param aLedChainComm a LedChainComm to be used to output LED values
     /// @note must be called before begin()
     void setChainDriver(LEDChainCommPtr aLedChainComm);
+
+    /// sets a custom pixelcolor-to-outputpower converter
+    /// @param aLedPowerConverter the converter to be used
+    /// @note if none is set, the standard converter will be used
+    void setPowerConverter(LEDPowerConverterPtr aLedPowerConverter);
+
+    /// @return the current power converter
+    /// note: will create the standard converter on demand if none has been set before
+    const LEDPowerConverter& powerConverter();
 
     /// @return true if this LedChainComm acts as a hardware driver (and not as a secondary)
     bool isHardwareDriver() { return mChainDriver==NULL; };
