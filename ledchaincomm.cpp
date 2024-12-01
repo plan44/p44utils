@@ -654,7 +654,7 @@ void LEDChainComm::setPowerAtLedIndex(uint16_t aLedIndex, LEDChannelPower aRed, 
         ((uint32_t)((uint8_t)(aRed>>8)));
       mRPiWS281x.channel[0].leds[aLedIndex++] = pixel;
       // - R-LSB, B-MSB, B-LSB
-      ws2811_led_t pixel =
+      pixel =
         ((uint32_t)((uint8_t)(aRed&0xFF)) << 16) |
         ((uint32_t)((uint8_t)(aBlue>>8)) << 8) |
         ((uint32_t)((uint8_t)(aBlue&0xFF)));
