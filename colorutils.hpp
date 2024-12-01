@@ -36,28 +36,14 @@ namespace p44 {
   typedef double Row3[3];
   typedef double Matrix3x3[3][3];
 
-
-  /// @name PWM scale definitions
-  /// @{
-
-  #define PWM8BIT_GLUE 1 // if set, glue routines for 8bit PWM value access are still available
-  #define PWMBITS 16 // number of PWM bit resolution
-
-  #define PWMMAX ((1<<PWMBITS)-1)
-
-  #if PWMBITS>8
-  typedef uint16_t LEDChannelPower;
-  #else
-  typedef uint8_t LEDChannelPower;
-  #endif
-
-  /// @}
-
+  typedef uint8_t PowerValue;
+  #define POWERMAX 255
 
   /// @name pixel color, utilities
   /// @{
 
   typedef uint8_t PixelColorComponent;
+  #define PIXELMAX 255
 
   #if !REDUCED_FOOTPRINT
 
@@ -67,8 +53,6 @@ namespace p44 {
     PixelColorComponent b;
     PixelColorComponent a; // alpha
   } PixelColor;
-
-  #define PIXELMAX 255
 
   const PixelColor transparent = { .r=0, .g=0, .b=0, .a=0 };
   const PixelColor black = { .r=0, .g=0, .b=0, .a=255 };
@@ -223,33 +207,18 @@ namespace p44 {
 
   /// @}
 
-  /// @name PWM/brightness conversions
+  /// @name Power/brightness conversions for calculations
   /// @{
 
-  /// convert PWM value to brightness
-  /// @param aPWM PWM (energy) value 0..PWMMAX
-  /// @return brightness 0..255
-  PixelColorComponent pwmToBrightness(LEDChannelPower aPWM);
-
-  /// convert brightness value to PWM
-  /// @param aBrightness brightness 0..255
+  /// convert brightness value to Power scale
+  /// @param aBrightness brightness 0..PIXELMAX
   /// @return PWM (energy) value 0..PWMMAX
-  LEDChannelPower brightnessToPwm(PixelColorComponent aBrightness);
+  PowerValue brightnessToPower(PixelColorComponent aBrightness);
 
-  /// get an 8-bit value from a given PWM value
-  /// @param aPWM PWM (energy) value 0..PWMMAX
-  /// @return 8-bit PWM (energy) value 0..255
-  uint8_t pwmTo8Bits(LEDChannelPower aPWM);
-
-  /// get an 8-bit value from a given PWM value
-  /// @param aPWM8 8-bit PWM (energy) value 0..255
-  /// @return PWM (energy) value 0..PWMMAX
-  LEDChannelPower pwmFrom8Bits(uint8_t aPWM8);
-
-  #if PWM8BIT_GLUE
-  PixelColorComponent pwm8BitToBrightness(uint8_t aPWM8);
-  uint8_t brightnessTo8BitPwm(uint8_t aBrightness);
-  #endif
+  /// convert power value back to brightness (not very precisely, avoid round trips!)
+  /// @param aPower power (energy) value 0..POWERMAX
+  /// @return brightness 0..PIXELMAX
+  PixelColorComponent powerToBrightness(PowerValue aPower);
 
   /// @}
 

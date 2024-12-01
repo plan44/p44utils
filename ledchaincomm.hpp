@@ -70,6 +70,17 @@ using namespace std;
 
 namespace p44 {
 
+  #define PWMBITS 16 // number of PWM bit resolution
+
+  #define PWMMAX ((1<<PWMBITS)-1)
+
+  #if PWMBITS>8
+  typedef uint16_t LEDChannelPower;
+  #else
+  typedef uint8_t LEDChannelPower;
+  #endif
+
+
   class LEDChainComm;
   typedef boost::intrusive_ptr<LEDChainComm> LEDChainCommPtr;
 
