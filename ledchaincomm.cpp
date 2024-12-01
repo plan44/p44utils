@@ -34,37 +34,61 @@
   #include "p44script.hpp"
 #endif
 
+#include <math.h>
+
 using namespace p44;
 
 // MARK: - LEDPowerConverter
 
-static const LEDChannelPower ledPowerTable[PIXELMAX+1] = {
-      0,    19,    39,    59,    79,   100,   121,   142,   163,   185,   208,   230,   253,   277,   300,   324,
-    349,   374,   399,   425,   451,   477,   504,   531,   559,   587,   616,   645,   674,   704,   735,   766,
-    797,   829,   862,   894,   928,   962,   996,  1032,  1067,  1103,  1140,  1178,  1216,  1254,  1293,  1333,
-   1373,  1414,  1456,  1498,  1542,  1585,  1630,  1675,  1721,  1767,  1814,  1862,  1911,  1961,  2011,  2062,
-   2114,  2167,  2220,  2275,  2330,  2386,  2443,  2501,  2560,  2620,  2681,  2742,  2805,  2869,  2933,  2999,
-   3066,  3134,  3203,  3273,  3344,  3416,  3489,  3564,  3639,  3716,  3794,  3874,  3954,  4036,  4119,  4204,
-   4289,  4377,  4465,  4555,  4646,  4739,  4833,  4929,  5026,  5125,  5226,  5328,  5431,  5536,  5643,  5752,
-   5862,  5974,  6088,  6203,  6321,  6440,  6561,  6684,  6809,  6936,  7065,  7196,  7329,  7465,  7602,  7741,
-   7883,  8027,  8173,  8322,  8473,  8626,  8782,  8940,  9101,  9264,  9430,  9598,  9769,  9943, 10119, 10299,
-  10481, 10666, 10854, 11045, 11239, 11436, 11636, 11839, 12046, 12255, 12469, 12685, 12905, 13128, 13355, 13586,
-  13820, 14058, 14299, 14545, 14794, 15047, 15304, 15566, 15831, 16101, 16374, 16653, 16935, 17222, 17514, 17810,
-  18111, 18417, 18727, 19043, 19363, 19689, 20019, 20355, 20696, 21043, 21395, 21752, 22115, 22484, 22859, 23240,
-  23627, 24020, 24419, 24824, 25236, 25654, 26079, 26511, 26949, 27395, 27847, 28307, 28773, 29248, 29729, 30219,
-  30716, 31221, 31734, 32255, 32784, 33322, 33868, 34423, 34986, 35559, 36140, 36731, 37331, 37940, 38560, 39189,
-  39827, 40476, 41136, 41805, 42486, 43177, 43879, 44592, 45316, 46052, 46799, 47558, 48330, 49113, 49909, 50717,
-  51538, 52373, 53220, 54081, 54955, 55843, 56745, 57662, 58593, 59539, 60499, 61475, 62466, 63473, 64496, 65535
-};
+#define LEDCHAIN_DEFAULT_EXP 4 // the default exponent for the power translation
 
 
-LEDPowerConverter::LEDPowerConverter()
+void LEDPowerConverter::createExpTable(int aTableNo, double aExponent)
 {
-  // default to standard table for all channels
-  mRedPowers = ledPowerTable;
-  mRedPowers = ledPowerTable;
-  mRedPowers = ledPowerTable;
-  mRedPowers = ledPowerTable;
+  mTables[aTableNo] = new LEDPowerTable;
+  for (int b=0; b<=PIXELMAX; b++) {
+    uint16_t pwr = 0;
+    if (aExponent!=0) pwr = round(PWMMAX*((exp((b*aExponent)/PIXELMAX)-1)/(exp(aExponent)-1)));
+    mTables[aTableNo]->mData[b] = pwr;
+  }
+}
+
+
+LEDPowerConverter::LEDPowerConverter(double aExponent)
+{
+  createExpTable(0, aExponent);
+  // use same table for all channels
+  mRedPowers = mTables[0]->mData;
+  mGreenPowers = mTables[0]->mData;
+  mBluePowers = mTables[0]->mData;
+  mWhitePowers = mTables[0]->mData;
+}
+
+
+LEDPowerConverter::LEDPowerConverter(double aRedExponent, double aGreenExponent, double aBlueExponent, double aWhiteExponent)
+{
+  createExpTable(0, aRedExponent);
+  createExpTable(1, aGreenExponent);
+  createExpTable(2, aBlueExponent);
+  createExpTable(3, aWhiteExponent);
+  // use separate table for each channel
+  mRedPowers = mTables[0]->mData;
+  mGreenPowers = mTables[1]->mData;
+  mBluePowers = mTables[2]->mData;
+  mWhitePowers = mTables[3]->mData;
+}
+
+
+LEDPowerConverter::LEDPowerConverter(double aColorExponent, double aWhiteExponent)
+{
+  // common table for RGB
+  createExpTable(0, aColorExponent);
+  mRedPowers = mTables[0]->mData;
+  mGreenPowers = mTables[0]->mData;
+  mBluePowers = mTables[0]->mData;
+  // separate table for white
+  createExpTable(1, aWhiteExponent);
+  mWhitePowers = mTables[1]->mData;
 }
 
 
@@ -78,7 +102,7 @@ static LEDPowerConverterPtr gStandardPowerConverter;
 LEDPowerConverter& LEDPowerConverter::standardPowerConverter()
 {
   if (!gStandardPowerConverter) {
-    gStandardPowerConverter = new LEDPowerConverter;
+    gStandardPowerConverter = new LEDPowerConverter(LEDCHAIN_DEFAULT_EXP);
   }
   return *gStandardPowerConverter;
 }
@@ -997,6 +1021,7 @@ void LEDChainArrangement::addLEDChain(const string &aChainSpec)
   bool swapXY = false;
   bool yReversed = false;
   PixelColor ledWhite = { 0xAA, 0xAA, 0xAA, 0xFF }; // Asume double white LED power compared with one of R,G,B
+  LEDPowerConverterPtr powerConverter; // possibly use a custom converter
   uint16_t inactiveStartLeds = 0;
   uint16_t inactiveBetweenLeds = 0;
   int remainingInactive = 0;
@@ -1007,12 +1032,13 @@ void LEDChainArrangement::addLEDChain(const string &aChainSpec)
   newCover.dy = 1;
   PixelPoint offsets = { 0, 0 };
   // parse chain specification
-  // Syntax: [ledstype:[leddevicename:]]numberOfLeds:[x:dx:y:dy:firstoffset:betweenoffset][XYSA][W#whitecolor]
+  // Syntax: [ledstype:[leddevicename:]]numberOfLeds:[x:dx:y:dy:firstoffset:betweenoffset][XYSA][W#whitecolor][;Ggamma[,gamma[,gamma,gamma]]
   // where:
   // - ledstype is either a single word for old-style drivers (p44-ledchain before v6) or of the form
   //   <chip>.<layout>[.<TMaxPassive_uS>] for drivers that allow controlling type directly (p44-ledchain from v6 onwards)
   //   Usually supported chips are: WS2811, WS2812, WS2813, WS2815, SK6812, P9823
   //   Uusually supported layouts are: RGB, GRB, RGBW, GRBW
+  // - gamma spec is either one float value (same gamma curve for all channels), two values (one for colors, one for white), or 3 or 4, separate for all
   string part;
   const char *p = aChainSpec.c_str();
   int nmbrcnt = 0;
@@ -1045,6 +1071,16 @@ void LEDChainArrangement::addLEDChain(const string &aChainSpec)
               ledWhite = webColorToPixel(part.substr(i+1));
               i = part.size(); // W#whitecol ends the part (more options could follow after another colon
               break;
+            case 'G': {
+              double g1 = 0.0,g2 = 0.0,g3 = 0.0,g4 = 0.0;
+              int n = sscanf(part.c_str()+1, "%lf,%lf,%lf,%lf", &g1, &g2, &g3, &g4);
+              if (n==4) powerConverter = new LEDPowerConverter(g1, g2, g3, g4); // separate gammas
+              else if (n==2) powerConverter = new LEDPowerConverter(g1, g2); // gamma for RGB, gamma for white
+              else if (n==1) powerConverter = new LEDPowerConverter(g1); // same gamma for all
+              ledWhite = webColorToPixel(part.substr(i+1));
+              i = part.size(); // W#whitecol ends the part (more options could follow after another colon
+              break;
+            }
           }
         }
       }
@@ -1085,9 +1121,12 @@ void LEDChainArrangement::addLEDChain(const string &aChainSpec)
     inactiveBetweenLeds,
     remainingInactive
   ));
+  // set white color
   ledChain->mLEDWhite[0] = (double)ledWhite.r/255;
   ledChain->mLEDWhite[1] = (double)ledWhite.g/255;
   ledChain->mLEDWhite[2] = (double)ledWhite.b/255;
+  // set power converter
+  if (powerConverter) ledChain->setPowerConverter(powerConverter);
   OLOG(LOG_INFO,
     "installed chain covering area: x=%d, dx=%d, y=%d, dy=%d on device '%s'. %d LEDs inactive at start, %d at end.",
     newCover.x, newCover.dx, newCover.y, newCover.dy, ledChain->getDeviceName().c_str(),

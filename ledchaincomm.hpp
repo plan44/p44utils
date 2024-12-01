@@ -74,12 +74,24 @@ namespace p44 {
   typedef boost::intrusive_ptr<LEDChainComm> LEDChainCommPtr;
 
 
+  class LEDPowerTable : public P44Obj
+  {
+  public:
+    LEDChannelPower mData[PIXELMAX+1];
+  };
+  typedef boost::intrusive_ptr<LEDPowerTable> LEDPowerTablePtr;
+
+
   class LEDPowerConverter : public P44Obj
   {
 
+    LEDPowerTablePtr mTables[4];
+
+    void createExpTable(int aTableNo, double aExponent);
+
   protected:
 
-    // pointer to conversion tables
+    // fast access pointers to conversion tables
     const LEDChannelPower* mRedPowers;
     const LEDChannelPower* mGreenPowers;
     const LEDChannelPower* mBluePowers;
@@ -87,7 +99,9 @@ namespace p44 {
 
   public:
 
-    LEDPowerConverter();
+    LEDPowerConverter(double aExponent);
+    LEDPowerConverter(double aColorExponent, double aWhiteExponent);
+    LEDPowerConverter(double aRedExponent, double aGreenExponent, double aBlueExponent, double aWhiteExponent);
     virtual ~LEDPowerConverter();
 
     static LEDPowerConverter& standardPowerConverter();
