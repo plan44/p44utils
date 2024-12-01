@@ -280,7 +280,7 @@ namespace p44 {
     /// @param aGreen set to power of green component, 0..PWMMAX
     /// @param aBlue set to power of blue component, 0..PWMMAX
     /// @param aWhite set to power of separate white component for RGBW LEDs, 0..PWMMAX
-    void getPowerXY(uint16_t aX, uint16_t aY, PWMColorComponent &aRed, PWMColorComponent &aGreen, PWMColorComponent &aBlue, PWMColorComponent &aWhite);
+    void getPowerXY(uint16_t aX, uint16_t aY, LEDChannelPower &aRed, LEDChannelPower &aGreen, LEDChannelPower &aBlue, LEDChannelPower &aWhite);
     #endif // LEDCHAIN_READBACK
 
     /// set raw power (PWM value) of one LED
@@ -290,7 +290,7 @@ namespace p44 {
     /// @param aGreen power of green component, 0..PWMMAX
     /// @param aBlue power of blue component, 0..PWMMAX
     /// @param aWhite power of separate white component for RGBW LEDs, 0..PWMMAX
-    void setPowerXY(uint16_t aX, uint16_t aY, PWMColorComponent aRed, PWMColorComponent aGreen, PWMColorComponent aBlue, PWMColorComponent aWhite = 0);
+    void setPowerXY(uint16_t aX, uint16_t aY, LEDChannelPower aRed, LEDChannelPower aGreen, LEDChannelPower aBlue, LEDChannelPower aWhite = 0);
 
     /// set raw power (PWM value) of one LED
     /// @param aLedNumber is the logical LED number
@@ -298,7 +298,7 @@ namespace p44 {
     /// @param aGreen power of green component, 0..PWMMAX
     /// @param aBlue power of blue component, 0..PWMMAX
     /// @param aWhite power of separate white component for RGBW LEDs, 0..PWMMAX
-    void setPower(uint16_t aLedNumber, PWMColorComponent aRed, PWMColorComponent aGreen, PWMColorComponent aBlue, PWMColorComponent aWhite = 0);
+    void setPower(uint16_t aLedNumber, LEDChannelPower aRed, LEDChannelPower aGreen, LEDChannelPower aBlue, LEDChannelPower aWhite = 0);
 
     /// @return number of active LEDs in the chain (that are active, i.e. minus inactiveStartLeds/inactiveBetweenLeds/inactiveEndLeds)
     uint16_t getNumLeds();
@@ -314,11 +314,11 @@ namespace p44 {
     uint16_t ledIndexFromXY(uint16_t aX, uint16_t aY);
 
     /// set power at raw LED index with no mapping calculations in between
-    void setPowerAtLedIndex(uint16_t aLedIndex, PWMColorComponent aRed, PWMColorComponent aGreen, PWMColorComponent aBlue, PWMColorComponent aWhite);
+    void setPowerAtLedIndex(uint16_t aLedIndex, LEDChannelPower aRed, LEDChannelPower aGreen, LEDChannelPower aBlue, LEDChannelPower aWhite);
 
     #if LEDCHAIN_READBACK
     /// get power at raw LED index with no mapping calculations in between
-    void getPowerAtLedIndex(uint16_t aLedIndex, PWMColorComponent &aRed, PWMColorComponent &aGreen, PWMColorComponent &aBlue, PWMColorComponent &aWhite);
+    void getPowerAtLedIndex(uint16_t aLedIndex, LEDChannelPower &aRed, LEDChannelPower &aGreen, LEDChannelPower &aBlue, LEDChannelPower &aWhite);
     #endif // LEDCHAIN_READBACK
 
     #if LEDCHAIN_LEGACY_API && PWMBITS==8

@@ -488,7 +488,7 @@ void LEDChainComm::getColorAtLedIndex(uint16_t aLedIndex, uint8_t &aRed, uint8_t
 #endif // LEDCHAIN_LEGACY_API && PWMBITS==8
 
 
-void LEDChainComm::setPowerAtLedIndex(uint16_t aLedIndex, PWMColorComponent aRed, PWMColorComponent aGreen, PWMColorComponent aBlue, PWMColorComponent aWhite)
+void LEDChainComm::setPowerAtLedIndex(uint16_t aLedIndex, LEDChannelPower aRed, LEDChannelPower aGreen, LEDChannelPower aBlue, LEDChannelPower aWhite)
 {
   if (mChainDriver) {
     // delegate actual output
@@ -568,7 +568,7 @@ void LEDChainComm::setPowerAtLedIndex(uint16_t aLedIndex, PWMColorComponent aRed
 }
 
 #if LEDCHAIN_READBACK
-void LEDChainComm::getPowerAtLedIndex(uint16_t aLedIndex, PWMColorComponent &aRed, PWMColorComponent &aGreen, PWMColorComponent &aBlue, PWMColorComponent &aWhite)
+void LEDChainComm::getPowerAtLedIndex(uint16_t aLedIndex, LEDChannelPower &aRed, LEDChannelPower &aGreen, LEDChannelPower &aBlue, LEDChannelPower &aWhite)
 {
   if (mChainDriver) {
     // delegate actual output
@@ -623,24 +623,24 @@ void LEDChainComm::getPowerAtLedIndex(uint16_t aLedIndex, PWMColorComponent &aRe
     if (mNumBytesPerComponent>1) {
       // 16-bit
       byteindex = byteindex<<1;
-      aRed = ((PWMColorComponent)ledBuffer[byteindex++]<<8);
+      aRed = ((LEDChannelPower)ledBuffer[byteindex++]<<8);
       aRed |= ledBuffer[byteindex++];
-      aGreen = ((PWMColorComponent)ledBuffer[byteindex++]<<8);
+      aGreen = ((LEDChannelPower)ledBuffer[byteindex++]<<8);
       aGreen |= ledBuffer[byteindex++];
-      aBlue = ((PWMColorComponent)ledBuffer[byteindex++]<<8);
+      aBlue = ((LEDChannelPower)ledBuffer[byteindex++]<<8);
       aBlue |= ledBuffer[byteindex++];
       if (mNumColorComponents>3) {
-        aWhite = ((PWMColorComponent)ledBuffer[byteindex++]<<8);
+        aWhite = ((LEDChannelPower)ledBuffer[byteindex++]<<8);
         aWhite |= ledBuffer[byteindex++];
       }
     }
     else {
       // 8-bit
-      aRed = pwmFrom8Bits((PWMColorComponent)ledBuffer[byteindex++]);
-      aGreen = pwmFrom8Bits((PWMColorComponent)ledBuffer[byteindex++]);
-      aBlue = pwmFrom8Bits((PWMColorComponent)ledBuffer[byteindex++]);
+      aRed = pwmFrom8Bits((LEDChannelPower)ledBuffer[byteindex++]);
+      aGreen = pwmFrom8Bits((LEDChannelPower)ledBuffer[byteindex++]);
+      aBlue = pwmFrom8Bits((LEDChannelPower)ledBuffer[byteindex++]);
       if (mNumColorComponents>3) {
-        aWhite = pwmFrom8Bits((PWMColorComponent)ledBuffer[byteindex++]);
+        aWhite = pwmFrom8Bits((LEDChannelPower)ledBuffer[byteindex++]);
       }
       else {
         aWhite = 0;
@@ -755,14 +755,14 @@ void LEDChainComm::getColorXY(uint16_t aX, uint16_t aY, uint8_t &aRed, uint8_t &
 #endif // LEDCHAIN_LEGACY_API && PWMBITS==8
 
 
-void LEDChainComm::setPowerXY(uint16_t aX, uint16_t aY, PWMColorComponent aRed, PWMColorComponent aGreen, PWMColorComponent aBlue, PWMColorComponent aWhite)
+void LEDChainComm::setPowerXY(uint16_t aX, uint16_t aY, LEDChannelPower aRed, LEDChannelPower aGreen, LEDChannelPower aBlue, LEDChannelPower aWhite)
 {
   uint16_t ledindex = ledIndexFromXY(aX,aY);
   setPowerAtLedIndex(ledindex, aRed, aGreen, aBlue, aWhite);
 }
 
 
-void LEDChainComm::setPower(uint16_t aLedNumber, PWMColorComponent aRed, PWMColorComponent aGreen, PWMColorComponent aBlue, PWMColorComponent aWhite)
+void LEDChainComm::setPower(uint16_t aLedNumber, LEDChannelPower aRed, LEDChannelPower aGreen, LEDChannelPower aBlue, LEDChannelPower aWhite)
 {
   int y = aLedNumber / getSizeX();
   int x = aLedNumber % getSizeX();
@@ -771,7 +771,7 @@ void LEDChainComm::setPower(uint16_t aLedNumber, PWMColorComponent aRed, PWMColo
 
 
 #if LEDCHAIN_READBACK
-void LEDChainComm::getPowerXY(uint16_t aX, uint16_t aY, PWMColorComponent &aRed, PWMColorComponent &aGreen, PWMColorComponent &aBlue, PWMColorComponent &aWhite)
+void LEDChainComm::getPowerXY(uint16_t aX, uint16_t aY, LEDChannelPower &aRed, LEDChannelPower &aGreen, LEDChannelPower &aBlue, LEDChannelPower &aWhite)
 {
   uint16_t ledindex = ledIndexFromXY(aX,aY);
   getPowerAtLedIndex(ledindex, aRed, aGreen, aBlue, aWhite);
@@ -1153,8 +1153,8 @@ MLMicroSeconds LEDChainArrangement::updateDisplay()
                     pix.g = g*f;
                     pix.b = b*f;
                   }
-                  // transfer to power
-                  PWMColorComponent Pr, Pg, Pb, Pw;
+                  // transfer to output power
+                  LEDChannelPower Pr, Pg, Pb, Pw;
                   if (powerDim) {
                     Pr = dimPower(brightnessToPwm(pix.r), powerDim);
                     Pg = dimPower(brightnessToPwm(pix.g), powerDim);

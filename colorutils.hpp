@@ -46,9 +46,9 @@ namespace p44 {
   #define PWMMAX ((1<<PWMBITS)-1)
 
   #if PWMBITS>8
-  typedef uint16_t PWMColorComponent;
+  typedef uint16_t LEDChannelPower;
   #else
-  typedef uint8_t PWMColorComponent;
+  typedef uint8_t LEDChannelPower;
   #endif
 
   /// @}
@@ -84,7 +84,7 @@ namespace p44 {
   /// @param aVal 0..PWMMAX power value to dim up or down
   /// @param aDim 0..255: dim, >255: light up (255=100%)
   /// @return dimmed value, limited to max==PWMMAX
-  PWMColorComponent dimPower(PWMColorComponent aVal, uint16_t aDim);
+  LEDChannelPower dimPower(LEDChannelPower aVal, uint16_t aDim);
 
   /// dim  r,g,b values of a pixel (alpha unaffected)
   /// @param aPix the pixel
@@ -235,22 +235,22 @@ namespace p44 {
   /// convert PWM value to brightness
   /// @param aPWM PWM (energy) value 0..PWMMAX
   /// @return brightness 0..255
-  PixelColorComponent pwmToBrightness(PWMColorComponent aPWM);
+  PixelColorComponent pwmToBrightness(LEDChannelPower aPWM);
 
   /// convert brightness value to PWM
   /// @param aBrightness brightness 0..255
   /// @return PWM (energy) value 0..PWMMAX
-  PWMColorComponent brightnessToPwm(PixelColorComponent aBrightness);
+  LEDChannelPower brightnessToPwm(PixelColorComponent aBrightness);
 
   /// get an 8-bit value from a given PWM value
   /// @param aPWM PWM (energy) value 0..PWMMAX
   /// @return 8-bit PWM (energy) value 0..255
-  uint8_t pwmTo8Bits(PWMColorComponent aPWM);
+  uint8_t pwmTo8Bits(LEDChannelPower aPWM);
 
   /// get an 8-bit value from a given PWM value
   /// @param aPWM8 8-bit PWM (energy) value 0..255
   /// @return PWM (energy) value 0..PWMMAX
-  PWMColorComponent pwmFrom8Bits(uint8_t aPWM8);
+  LEDChannelPower pwmFrom8Bits(uint8_t aPWM8);
 
   #if PWM8BIT_GLUE
   PixelColorComponent pwm8BitToBrightness(uint8_t aPWM8);

@@ -39,7 +39,7 @@ PixelColorComponent p44::dimVal(PixelColorComponent aVal, uint16_t aDim)
 }
 
 
-PWMColorComponent p44::dimPower(PWMColorComponent aVal, uint16_t aDim)
+LEDChannelPower p44::dimPower(LEDChannelPower aVal, uint16_t aDim)
 {
   uint32_t d = ((uint32_t)aDim+1)*aVal;
   if (d>(1l<<(PWMBITS+8))-1) return PWMMAX;
@@ -733,7 +733,7 @@ void p44::transferFromColor(const Row3 &aCol, double aAmount, double &aRed, doub
 
 #if PWM8BIT_GLUE
 
-static const PWMColorComponent pwmtable8[PIXELMAX+1] = {
+static const LEDChannelPower pwmtable8[PIXELMAX+1] = {
     0,   0,   0,   0,   0,   0,   0,   1,   1,   1,   1,   1,   1,   1,   1,   1,
     1,   1,   2,   2,   2,   2,   2,   2,   2,   2,   2,   3,   3,   3,   3,   3,
     3,   3,   3,   3,   4,   4,   4,   4,   4,   4,   4,   5,   5,   5,   5,   5,
@@ -787,25 +787,25 @@ uint8_t p44::brightnessTo8BitPwm(uint8_t aBrightness)
 
 #if PWMBITS==8
 
-PixelColorComponent p44::pwmToBrightness(PWMColorComponent aPWM)
+PixelColorComponent p44::pwmToBrightness(LEDChannelPower aPWM)
 {
   return brightnesstable8[aPWM];
 }
 
 
-uint8_t p44::pwmTo8Bits(PWMColorComponent aPWM)
+uint8_t p44::pwmTo8Bits(LEDChannelPower aPWM)
 {
   return aPWM;
 }
 
 
-PWMColorComponent p44::pwmFrom8Bits(uint8_t aPWM8)
+LEDChannelPower p44::pwmFrom8Bits(uint8_t aPWM8)
 {
   return aPWM8;
 }
 
 
-PWMColorComponent p44::brightnessToPwm(uint8_t aBrightness)
+LEDChannelPower p44::brightnessToPwm(uint8_t aBrightness)
 {
   return pwmtable8[aBrightness];
 }
@@ -814,7 +814,7 @@ PWMColorComponent p44::brightnessToPwm(uint8_t aBrightness)
 #else
 
 
-static const PWMColorComponent pwmtable16[PIXELMAX+1] = {
+static const LEDChannelPower pwmtable16[PIXELMAX+1] = {
       0,    19,    39,    59,    79,   100,   121,   142,   163,   185,   208,   230,   253,   277,   300,   324,
     349,   374,   399,   425,   451,   477,   504,   531,   559,   587,   616,   645,   674,   704,   735,   766,
     797,   829,   862,   894,   928,   962,   996,  1032,  1067,  1103,  1140,  1178,  1216,  1254,  1293,  1333,
@@ -931,20 +931,20 @@ const uint8_t loresbrightnesstable16[PWM_LORES_STEPS] = {
 };
 
 
-uint8_t p44::pwmTo8Bits(PWMColorComponent aPWM)
+uint8_t p44::pwmTo8Bits(LEDChannelPower aPWM)
 {
   if (aPWM>=0xFF80) return 0xFF;
   return ((aPWM+0x66)>>8); // 0x66 empirically determined, least rounding errors compared with real 8bit table
 }
 
 
-PWMColorComponent p44::pwmFrom8Bits(uint8_t aPWM8)
+LEDChannelPower p44::pwmFrom8Bits(uint8_t aPWM8)
 {
-  return (PWMColorComponent)aPWM8<<8;
+  return (LEDChannelPower)aPWM8<<8;
 }
 
 
-PixelColorComponent p44::pwmToBrightness(PWMColorComponent aPWM)
+PixelColorComponent p44::pwmToBrightness(LEDChannelPower aPWM)
 {
   aPWM >>= (PWMBITS-PWM_HIRES_INDEX_BITS);
   if (aPWM<PWM_HIRES_STEPS) return hiresbrightnesstable16[aPWM];
@@ -952,7 +952,7 @@ PixelColorComponent p44::pwmToBrightness(PWMColorComponent aPWM)
 }
 
 
-PWMColorComponent p44::brightnessToPwm(uint8_t aBrightness)
+LEDChannelPower p44::brightnessToPwm(uint8_t aBrightness)
 {
   return pwmtable16[aBrightness];
 }
@@ -977,8 +977,8 @@ public:
     uint8_t powerDim = 98*255/100;
     PixelColorComponent pixb = 255;
     printf("\npixb=%d, powerDim = %d = %d%%:\n", pixb, powerDim, powerDim*100/255);
-    PWMColorComponent pwm = brightnessToPwm(pixb);
-    PWMColorComponent Pb = dimPower(pwm, powerDim);
+    LEDChannelPower pwm = brightnessToPwm(pixb);
+    LEDChannelPower Pb = dimPower(pwm, powerDim);
     printf("==> pwm=%d/0x%04x  Pb=%d/0x%04x\n\n", pwm, pwm, Pb, Pb);
   }
 
@@ -988,7 +988,7 @@ public:
     for (uint8_t roundoffs=0; roundoffs<0x9F; roundoffs++) {
       int diffs = 0;
       for (int bright=0; bright<=PIXELMAX; bright++) {
-        PWMColorComponent pwm16 = brightnessToPwm(bright); // 16-bit PWM
+        LEDChannelPower pwm16 = brightnessToPwm(bright); // 16-bit PWM
         uint8_t pwm8 = brightnessTo8BitPwm(bright); // direct 8-bit PWM using the original PWM table
         // pwmTo8Bits(pwm16); // cut down 16bit PWM from new table to 8-bit (as used to drive 8-bit LEDs)
         uint8_t pwm8from16 = pwm16>=(0xFFFF-roundoffs) ? 0xFF : (pwm16+roundoffs)>>8;
@@ -1010,7 +1010,7 @@ public:
     printf("\nBack and forth verification:\n");
     for (int bright=0; bright<=PIXELMAX; bright++) {
       // generating PWMs
-      PWMColorComponent pwm16 = brightnessToPwm(bright); // 16-bit PWM
+      LEDChannelPower pwm16 = brightnessToPwm(bright); // 16-bit PWM
       uint8_t pwm8 = brightnessTo8BitPwm(bright); // direct 8-bit PWM using the original PWM table
       uint8_t pwm8from16 = pwmTo8Bits(pwm16); // cut down 16bit PWM from new table to 8-bit (as used to drive 8-bit LEDs)
       int diffPwm8Pwm8from16 = pwm8-pwm8from16;
