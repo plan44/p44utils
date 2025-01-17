@@ -73,7 +73,7 @@ ValueAnimator::~ValueAnimator()
 
 bool ValueAnimator::valid()
 {
-  return mValueSetter;
+  return mValueSetter!=NoOP;
 }
 
 
