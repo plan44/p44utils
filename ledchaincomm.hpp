@@ -157,6 +157,7 @@ namespace p44 {
       num_ledlayouts
     } LedLayout;
 
+    // Note: this enum must correspond with p44-ledchain kernel module's LedChip_t
     typedef enum {
       ledchip_none,
       ledchip_ws2811,
@@ -166,6 +167,7 @@ namespace p44 {
       ledchip_p9823,
       ledchip_sk6812,
       ledchip_ws2816,
+      ledchip_ws2813n,
       num_ledchips
     } LedChip;
 

@@ -155,7 +155,8 @@ static const LEDChainComm::LedChipDesc ledChipDescriptors[LEDChainComm::num_ledc
   { "WS2815", 24, 120,  0, 1, true },
   { "P9823",   8,  80,  0, 1, false }, // no real data, rough assumption
   { "SK6812",  6,  50, 95, 1, false },
-  { "WS2816",  4,  85,  0, 2, false } // no real data, assume same as WS2813
+  { "WS2816",  4,  85,  0, 2, false }, // no real data, assume same as WS2813
+  { "WS2813_N",  4,  85,  0, 1, false } // old/Normandled WS2813 timing with higher T0H
 };
 
 
@@ -369,6 +370,7 @@ bool LEDChainComm::begin(size_t aHintAtTotalChains)
           else elt = esp_ledtype_ws2813;
           break;
         case ledchip_ws2813:
+        case ledchip_ws2813n:
         default:
           elt = esp_ledtype_ws2813;
           break;
@@ -429,6 +431,7 @@ bool LEDChainComm::begin(size_t aHintAtTotalChains)
         case ledchip_ws2811:
         case ledchip_ws2812:
         case ledchip_ws2813:
+        case ledchip_ws2813n:
         case ledchip_ws2815:
         case ledchip_p9823: {
           switch (mLedLayout) {
