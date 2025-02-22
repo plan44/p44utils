@@ -2703,6 +2703,13 @@ bool SourceCursor::advance(size_t aNumChars)
 }
 
 
+bool SourceCursor::nextCodeIf(char aChar)
+{
+  skipNonCode();
+  return nextIf(aChar);
+}
+
+
 bool SourceCursor::nextIf(char aChar)
 {
   if (c()==aChar) {
@@ -3473,8 +3480,7 @@ void SourceProcessor::s_objectfield()
 {
   // result is object to add fields to
   // - object field name, quoted or unquoted, or [expr] calculated field name
-  mSrc.skipNonCode();
-  if (mSrc.nextIf('[')) {
+  if (mSrc.nextCodeIf('[')) {
     // calculated object name
     push(&SourceProcessor::s_varobjectfield);
     mSrc.skipNonCode();
@@ -3499,8 +3505,7 @@ void SourceProcessor::s_objectfield()
 
 void SourceProcessor::s_varobjectfield()
 {
-  mSrc.skipNonCode();
-  if (mSrc.nextIf(']')) {
+  if (mSrc.nextCodeIf(']')) {
     mIdentifier = mResult->stringValue();
     mResult = mOlderResult;
     fieldnamedefined();
@@ -3514,8 +3519,7 @@ void SourceProcessor::fieldnamedefined()
 {
   // mIdentifier is the field name now
   // mResult is the object to add to
-  mSrc.skipNonCode();
-  if (!mSrc.nextIf(':')) {
+  if (!mSrc.nextCodeIf(':')) {
     exitWithSyntaxError("missing ':' after object field name");
     return;
   }
@@ -3546,8 +3550,7 @@ void SourceProcessor::s_objectfielddone()
 {
   pop(); // get back the object itself
   mResult = mOlderResult;
-  mSrc.skipNonCode();
-  if (mSrc.nextIf(',')) {
+  if (mSrc.nextCodeIf(',')) {
     // possibly, another field follows
     mSrc.skipNonCode();
     if (mSrc.c()!='}') {
@@ -3574,8 +3577,7 @@ void SourceProcessor::s_arrayelementdone()
     mOlderResult->setMemberAtIndex(nextIndex, mResult);
   }
   mResult = mOlderResult;
-  mSrc.skipNonCode();
-  if (mSrc.nextIf(',')) {
+  if (mSrc.nextCodeIf(',')) {
     // possibly, another element follows
     mSrc.skipNonCode();
     if (mSrc.c()!=']') {
@@ -3605,12 +3607,11 @@ void SourceProcessor::s_simpleTerm()
     popWithValidResult();
     return;
   }
-  else if (mSrc.nextIf('{')) {
+  else if (mSrc.nextCodeIf('{')) {
     // json or code block literal
     // - JS type object construction
     mResult = new ObjectValue();
-    mSrc.skipNonCode();
-    if (mSrc.nextIf('}')) {
+    if (mSrc.nextCodeIf('}')) {
       // empty object
       popWithValidResult();
       return;
@@ -3628,8 +3629,7 @@ void SourceProcessor::s_simpleTerm()
   else if (mSrc.nextIf('[')) {
     // must be JSON literal array
     mResult = new ArrayValue();
-    mSrc.skipNonCode();
-    if (mSrc.nextIf(']')) {
+    if (mSrc.nextCodeIf(']')) {
       // empty array
       popWithValidResult();
       return;
@@ -3790,10 +3790,9 @@ void SourceProcessor::s_subscriptArg()
   // immediately following a subscript argument evaluation
   // - result is the subscript,
   // - olderResult is the object the subscript applies to
-  mSrc.skipNonCode();
   // determine how to proceed after accessing via subscript first...
   TypeInfo accessFlags = none; // subscript access is always local, no scope or assignment restrictions
-  if (mSrc.nextIf(']')) {
+  if (mSrc.nextCodeIf(']')) {
     // end of subscript processing, what we'll be looking up below is final member (of this subscript bracket, more [] or . may follow!)
     setState(&SourceProcessor::s_member);
     // subscript members can generally be created
@@ -3907,9 +3906,8 @@ void SourceProcessor::s_funcArg()
   // - poppedpos is the beginning of the argument
   ScriptObjPtr arg = mResult;
   mResult = mOlderResult; // restore the function
-  mSrc.skipNonCode();
   // determine how to proceed after pushing the argument...
-  if (mSrc.nextIf(')')) {
+  if (mSrc.nextCodeIf(')')) {
     // end of argument processing, execute the function after pushing the final argument below
     setState(&SourceProcessor::s_funcExec);
   }
@@ -4273,10 +4271,8 @@ void SourceProcessor::processFunction(bool aGlobal)
   }
   CompiledFunctionPtr function = CompiledFunctionPtr(new CompiledFunction(mIdentifier));
   // optional argument list
-  mSrc.skipNonCode();
-  if (mSrc.nextIf('(')) {
-    mSrc.skipNonCode();
-    if (!mSrc.nextIf(')')) {
+  if (mSrc.nextCodeIf('(')) {
+    if (!mSrc.nextCodeIf(')')) {
       do {
         mSrc.skipNonCode();
         if (mSrc.c()=='.' && mSrc.c(1)=='.' && mSrc.c(2)=='.') {
@@ -4352,8 +4348,7 @@ void SourceProcessor::processOnHandler(bool aGlobal)
 {
   // on (triggerexpression) [toggling|changing|evaluating] { code }
   push(mCurrentState); // return to current state when handler definition completes
-  mSrc.skipNonCode();
-  if (!mSrc.nextIf('(')) {
+  if (!mSrc.nextCodeIf('(')) {
     exitWithSyntaxError("'(' expected");
     return;
   }
@@ -4380,7 +4375,7 @@ void SourceProcessor::defineTrigger(bool aGlobal)
   // on (triggerexpression) [changing|toggling|evaluating|gettingtrue] [ stable <stabilizing time numeric literal>] [ as triggerresult ] { handlercode }
   // after scanning the trigger condition expression of a on() statement
   // - mPoppedSrc points to the beginning of the expression
-  // - src.pos should be on the ')' of the trigger expression
+  mSrc.skipNonCode();
   if (mSrc.c()!=')') {
     exitWithSyntaxError("')' as end of trigger expression expected");
     return;
@@ -4531,8 +4526,7 @@ void SourceProcessor::s_noStatement()
 {
   FOCUSLOGSTATE
   SourcePos eoS = mSrc.mPos; // remember end of actual statement
-  mSrc.skipNonCode();
-  if (!mSrc.nextIf(';')) {
+  if (!mSrc.nextCodeIf(';')) {
     // no explicit end of statement marker following
     // rewind to implicit end of statement, before any intermediate non-code
     mSrc.mPos = eoS;
@@ -4935,8 +4929,7 @@ void SourceProcessor::s_ifCondition()
   // if condition is evaluated
   // - if not skipping, result is the result of the evaluation, or NULL if all of the following if/else if/else statement chain must be skipped
   // - if already skipping here, result can be anything and must be reset to propagate cutting the else chain
-  mSrc.skipNonCode();
-  if (!mSrc.nextIf(')')) {
+  if (!mSrc.nextCodeIf(')')) {
     exitWithSyntaxError("missing ')' after 'if' condition");
     return;
   }
@@ -4969,8 +4962,7 @@ void SourceProcessor::s_ifTrueStatement()
     mSrc.skipNonCode();
     if (mSrc.checkForIdentifier("if")) {
       // else if
-      mSrc.skipNonCode();
-      if (!mSrc.nextIf('(')) {
+      if (!mSrc.nextCodeIf('(')) {
         exitWithSyntaxError("missing '(' after 'else if'");
         return;
       }
@@ -5029,9 +5021,8 @@ void SourceProcessor::s_foreachTarget()
 
 void SourceProcessor::s_foreachLoopVar1()
 {
-  mSrc.skipNonCode();
   ForEachController* foreachControllerP = static_cast<ForEachController*>(mStatementHelper.get());
-  if (!mSrc.nextIf(',')) {
+  if (!mSrc.nextCodeIf(',')) {
     // only value, we're done
     if (!mSkipping) foreachControllerP->mLoopValue = boost::dynamic_pointer_cast<ScriptLValue>(mResult); // first lvalue will receive value
     checkAndResumeAt(&SourceProcessor::s_foreachLoopStart);
@@ -5167,7 +5158,7 @@ void SourceProcessor::s_loopCondition()
     resumeAt(&SourceProcessor::s_oneStatement);
     return;
   }
-  if (!mSrc.nextIf(')')) {
+  if (!mSrc.nextCodeIf(')')) {
     exitWithSyntaxError("missing ')' after 'while' condition");
     return;
   }
@@ -5180,7 +5171,7 @@ void SourceProcessor::s_loopNext()
 {
   FOCUSLOGSTATE
   // older result is still the loop condition
-  if (!mSrc.nextIf(')')) {
+  if (!mSrc.nextCodeIf(')')) {
     exitWithSyntaxError("missing ')' after 'for' end-of-loop statement");
     return;
   }
@@ -5344,10 +5335,9 @@ void SourceProcessor::s_concurrent_var_value()
 
 void SourceProcessor::concurrent_var_assigned()
 {
-  mSrc.skipNonCode();
   pop();
   mResult = mOlderResult; // list of threadvars
-  if (mSrc.nextIf(',')) {
+  if (mSrc.nextCodeIf(',')) {
     // another var to pass
     mSrc.skipNonCode();
     resumeAt(&SourceProcessor::s_concurrent_var);

@@ -1657,6 +1657,7 @@ namespace p44 { namespace P44Script {
     bool EOT() const; ///< true if we are at end of text
     bool next(); ///< advance to next char, @return false if not possible to advance
     bool advance(size_t aNumChars); ///< advance by specified number of chars, includes counting lines
+    bool nextCodeIf(char aChar); ///< @return true if next code char (skipping non-code before) equals aChar, false otherwise
     bool nextIf(char aChar); ///< @return true and advance cursor if @param aChar matches current char, false otherwise
     void skipWhiteSpace(); ///< skip whitespace (but NOT comments)
     void skipNonCode(); ///< skip non-code, i.e. whitespace and comments
