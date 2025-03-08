@@ -1338,7 +1338,7 @@ MLMicroSeconds LEDChainArrangement::updateDisplay()
               }
               // end of one chain
               // - update actual power (according to chip type)
-              lightPowerMw += lightPowerPWM*chip.rgbChannelMw/PWMMAX + lightPowerPWMWhite*chip.whiteChannelMw/PWMMAX;
+              lightPowerMw += (uint64_t)lightPowerPWM*chip.rgbChannelMw/PWMMAX + (uint64_t)lightPowerPWMWhite*chip.whiteChannelMw/PWMMAX;
             }
             // update stats (including idle power)
             mActualLightPowerMw = lightPowerMw+idlePowerMw; // what we measured in this pass
