@@ -1346,7 +1346,8 @@ MLMicroSeconds LEDChainArrangement::updateDisplay()
               mRequestedLightPowerMw = mActualLightPowerMw; // what we measure without dim is the requested amount
             }
             // check if we need power limiting
-            if (mPowerLimitMw && mActualLightPowerMw>mPowerLimitMw && powerDim==0) {
+            // Note: too low mPowerLimitMw might get us here with lightPowerMw==0 and still too much (idle) power!
+            if (mPowerLimitMw && mActualLightPowerMw>mPowerLimitMw && powerDim==0 && lightPowerMw>0) {
               powerDim = (uint32_t)255*(mPowerLimitMw-idlePowerMw)/lightPowerMw; // scale proportionally to PWM dependent part of consumption (idle power cannot be reduced)
               if (!mPowerLimited) {
                 mPowerLimited = true;
