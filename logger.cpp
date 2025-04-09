@@ -26,6 +26,18 @@
 
 using namespace p44;
 
+// MARK: - C interface for logging
+
+extern "C" {
+
+  void p44log(int aErrLevel, const char* aMsg)
+  {
+    LOG(aErrLevel, "%s", aMsg);
+  }
+
+}
+
+
 // MARK: - Logger
 
 p44::Logger globalLogger;
