@@ -87,6 +87,17 @@ namespace p44 {
       return ErrorPtr(errP);
     };
 
+    /// create a Error subclass object
+    /// @param aErrorCode error code. aErrorCode==0 from any domain returns no error object
+    template<typename T> static ErrorPtr errIfNotOk(ErrorCode aErrorCode)
+    {
+      Error *errP;
+      if (aErrorCode==0) errP = nullptr;
+      else errP = new T(static_cast<typename T::ErrorCodes>(aErrorCode));
+      return ErrorPtr(errP);
+    };
+
+
 
     /// create a Error subclass object with printf-style formatted error
     /// @param aErrorCode error code. aErrorCode==0 from any domain means OK.
