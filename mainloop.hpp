@@ -76,6 +76,7 @@ namespace p44 {
     threadSignalCompleted, ///< sent to parent when child thread terminates
     threadSignalFailedToStart, ///< sent to parent when child thread could not start
     threadSignalCancelled, ///< sent to parent when child thread was cancelled
+    threadSignalScheduleCall, ///< sent to parent to let it pick up execution request
     threadSignalUserSignal ///< first user-specified signal
   };
   typedef uint8_t ThreadSignals;
@@ -117,6 +118,15 @@ namespace p44 {
   ///   Use this pointer to call signalParentThread() on
   /// @note when this routine exits, a threadSignalCompleted will be sent to the parent thread
   typedef boost::function<void (ChildThreadWrapper &aThread)> ThreadRoutine;
+
+  /// cross-thread call
+  /// @param aThread the object that wraps a child thread and manages commonication with the parent thread
+  typedef boost::function<ErrorPtr (ChildThreadWrapper &aWrapper)> CrossThreadCall;
+
+  /// cross-thread call with asynchronous termination
+  /// @param aThread the object that wraps a child thread and manages commonication with the parent thread
+  /// @param aStatusCB the callback to invoke when the async call chain terminates
+  typedef boost::function<void (ChildThreadWrapper &aThread, StatusCB aStatusCB)> CrossThreadAsyncCall;
 
   /// thread signal handler, will be called from main loop of parent thread when child thread uses signalParentThread()
   /// @param aChildThread the ChildThreadWrapper object which sent the signal
@@ -482,7 +492,7 @@ namespace p44 {
     /// @param aPipeBackStdOut if true, stdout of the child is collected via a pipe by the parent and passed back in aCallBack (or can be read using aPipeBackFdP)
     /// @param aPipeBackFdP if not NULL, and aPipeBackStdOut is set, this will be set to the file descriptor of the pipe,
     /// @param aStdErrFd if >0, stderr of the child process is set to it; if 0, stderr of the child is redirected to /dev/null
-    /// @param aStdInFd if >0, stdin of the child process is set to it;  if 0, stderr of the child is redirected to /dev/null
+    /// @param aStdInFd if >0, stdin of the child process is set to it;  if 0, stdin of the child is redirected to /dev/null
     ///   so caller can handle output data of the process. The caller is responsible for closing the fd.
     /// @return the child's PID (can be used to send signals to it), or -1 if fork fails
     pid_t fork_and_execve(ExecCB aCallback, const char *aPath, char *const aArgv[], char *const aEnvp[] = NULL, bool aPipeBackStdOut = false, int* aPipeBackFdP = NULL, int aStdErrFd = -1, int aStdInFd = -1);
@@ -494,7 +504,7 @@ namespace p44 {
     /// @param aStdOutFdP if not NULL, and aPipeBackStdOut is set, this will be set to the file descriptor of the pipe,
     ///   so caller can handle output data of the process. The caller is responsible for closing the fd.
     /// @param aStdErrFd if >0, stderr of the child process is set to it; if 0, stderr of the child is redirected to /dev/null
-    /// @param aStdInFd if >0, stdin of the child process is set to it;  if 0, stderr of the child is redirected to /dev/null
+    /// @param aStdInFd if >0, stdin of the child process is set to it;  if 0, stdin of the child is redirected to /dev/null
     /// @return the child's PID (can be used to send signals to it), or -1 if fork fails
     pid_t fork_and_system(ExecCB aCallback, const char *aCommandLine, bool aPipeBackStdOut = false, int* aStdOutFdP = NULL, int aStdErrFd = -1, int aStdInFd = -1);
 
@@ -650,6 +660,11 @@ namespace p44 {
 
     MainLoop *mMyMainLoopP; ///< the (optional) mainloop of this thread
 
+    CrossThreadCall mCrossThreadCallRoutine; ///< the routine waiting to run or actually running
+    pthread_mutex_t mCrossThreadCallMutex; ///< the mutex the caller waits on
+    pthread_cond_t mCrossThreadCallCond; ///< the condition the caller waits on
+    ErrorPtr mCrossThreadCallStatus; ///< the status of the cross thread call
+    StatusCB mCrossThreadStatusCB; ///< the status callback
 
   public:
 
@@ -658,6 +673,7 @@ namespace p44 {
 
     /// destructor
     virtual ~ChildThreadWrapper();
+
 
     /// @name methods to call from child thread
     /// @{
@@ -680,6 +696,28 @@ namespace p44 {
     /// @note thread will continue to run, but no longer call back
     void disconnect();
 
+    /// execute routine, BLOCKING the current (child) thread, on the parent thread
+    /// @param aParentThreadRoutine the routine to be executed in the parent thread
+    /// @note the calling child thread blocks until the callee returns.
+    ///   So during the excution of the routine, the callee actually owns the child thread context
+    ///   and can access data without needing extra locks. Of course, run time must be minimized!
+    ErrorPtr executeOnParentThread(CrossThreadCall aParentThreadRoutine);
+
+    /// execute routine, BLOCKING current (child) thread, on the parent thread, and provide a callback for async termination
+    /// @param aParentThreadRoutine the routine to be executed in the parent thread
+    /// @param aStatusCB is intended to be passed into async operations aParentThreadRoutine might start, and
+    ///   should be called when those terminate. The callback is then forwarded back to this thread using executeOnChildThread().
+    /// @note the calling child thread blocks until the callee returns, which means it has started running.
+    ///   In addition, the aStatusCB is called on this (child) thread later when the corresponding
+    ///   callback is called on the parent thread.
+    /// @note this requires the child thread to support startOnChildThread(), see details there.
+    void executeOnParentThreadAsync(CrossThreadAsyncCall aParentAsyncRoutine, StatusCB aStatusCB);
+
+    /// cross thread routine call processor
+    /// This must be called in the thread routine to allow executeOnChildThread() and executeOnChildThreadAsync() calls
+    /// @note this does not exit unless the child thread is terminated
+    void crossThreadCallProcessor();
+
 
     /// @}
 
@@ -696,6 +734,27 @@ namespace p44 {
     /// cancel execution and wait for cancellation to complete
     void cancel();
 
+    /// execute routine, BLOCKING the current (parent) thread, on the child thread
+    /// @param aChildThreadRoutine the routine to be executed in the child thread
+    /// @note the calling parent thread blocks until the callee returns.
+    ///   So during the excution of the routine, the callee actually owns the child thread context
+    ///   and can access data without needing extra locks. Of course, run time must be minimized!
+    /// @note use startOnChildThread() to avoid blocking, but then you are responsible for
+    ///   not calling this routine again before the previous run has completed
+    /// @note this requires that the child thread is running crossThreadCallProcessor().
+    ErrorPtr executeOnChildThread(CrossThreadCall aChildThreadRoutine);
+
+    /// start routine on the child thread, and invoke the callback when the child routine terminates
+    /// @param aChildThreadRoutine the routine to be executed in the child thread
+    /// @param aStatusCB when aChildThreadRoutine terminates, this callback is invoked by forwarding it
+    ///   using executeOnParentThread().
+    /// @note the semantics of this is NOT the same as executeOnParentThreadAsync(). Things running
+    ///   in parent thread are required to not block substantially; however in contrast,
+    ///   a child thread usually has the exact purpose to run longer-time blocking things,
+    ///   so executeOnChildThreadAsync does NOT block the caller.
+    /// @note this requires the child thread to support startOnChildThread(), see details there.
+    void executeOnChildThreadAsync(CrossThreadCall aChildThreadRoutine, StatusCB aStatusCB);
+
     /// @}
 
     /// method called from thread_start_function from this child thread
@@ -705,6 +764,24 @@ namespace p44 {
 
     bool signalPipeHandler(int aPollFlags);
     void finalizeThreadExecution();
+
+    ErrorPtr asyncParentCallExecutor(CrossThreadAsyncCall aParentAsyncRoutine, StatusCB aStatusCB);
+
+    /// start a routine on the child thread, NOT blocking current (parent) thread
+    /// @param aChildThreadRoutine the routine to be executed in the child thread
+    /// @param aStatusCB the callback to be posted to the parent thread when the routine
+    ///   completes executing.
+    /// @note the calling parent thread WILL block until the child thread has finished running
+    ///   a previous routine started earlier. This method is primarily a building block
+    ///   for executeOnChildThread() and executeOnChildThreadAsync(), so use the latter
+    ///   for longer-running child thread routines to keep track of when the processing
+    ///   terminates.
+    /// @note this requires that the child thread is running crossThreadCallProcessor().
+    void startOnChildThread(CrossThreadCall aChildThreadRoutine, StatusCB aStatusCB);
+
+    void parentToChildCallback(ErrorPtr aStatus, StatusCB aFinalCallback);
+
+    ErrorPtr crossThreadCallbackDelivery(ErrorPtr aStatus, StatusCB aFinalCallback);
 
   };
 

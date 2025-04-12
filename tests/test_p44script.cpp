@@ -173,7 +173,7 @@ public:
     // Note: as we share an eval context with all triggers and handlers, main script must be concurrent as well
     MainLoop::currentMainLoop().executeNow(boost::bind(&ScriptHost::run, &s, aEvalFlags|regular|concurrently, cb, ScriptObjPtr(), /* 20*Second */ Infinite));
     tm = MainLoop::now();
-    MainLoop::currentMainLoop().run(true);
+    MainLoop::currentMainLoop().run(true); // restart when already used!
     tm = MainLoop::now()-tm;
     return testResult;
   }

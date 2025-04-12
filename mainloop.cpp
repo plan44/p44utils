@@ -1590,7 +1590,9 @@ ChildThreadWrapper::ChildThreadWrapper(MainLoop &aParentThreadMainLoop, ThreadRo
   mParentSignalHandler(aThreadSignalHandler),
   mThreadRoutine(aThreadRoutine),
   mTerminationPending(false),
-  mMyMainLoopP(NULL)
+  mMyMainLoopP(NULL),
+  mCrossThreadCallMutex(PTHREAD_MUTEX_INITIALIZER),
+  mCrossThreadCallCond(PTHREAD_COND_INITIALIZER)
 {
   // create a signal pipe
   int pipeFdPair[2];
@@ -1730,26 +1732,161 @@ bool ChildThreadWrapper::signalPipeHandler(int aPollFlags)
     sig = threadSignalCompleted;
   }
   if (sig!=threadSignalNone) {
-    // check for thread terminated
-    if (sig==threadSignalCompleted) {
-      // finalize thread execution first
-      finalizeThreadExecution();
+    if (sig==threadSignalScheduleCall) {
+      // child thread wants to execute something on the parent thread
+      mCrossThreadCallStatus = mCrossThreadCallRoutine(*this);
+      // signal child we're done executing
+      pthread_mutex_lock(&mCrossThreadCallMutex);
+      mCrossThreadCallRoutine = NoOP; // this is also the condition variable
+      pthread_cond_signal(&mCrossThreadCallCond);
+      pthread_mutex_unlock(&mCrossThreadCallMutex);
     }
-    // got signal byte, call handler
-    if (mParentSignalHandler) {
-      ML_STAT_START_AT(mParentThreadMainLoop.now());
-      mParentSignalHandler(*this, sig);
-      ML_STAT_ADD_AT(mParentThreadMainLoop.mThreadSignalHandlerTime, mParentThreadMainLoop.now());
-    }
-    if (sig==threadSignalCompleted || sig==threadSignalFailedToStart || sig==threadSignalCancelled) {
-      // signal indicates thread has ended (successfully or not)
-      // - in case nobody keeps this object any more, it should be deleted now
-      mSelfRef.reset();
+    else {
+      // check for thread terminated
+      if (sig==threadSignalCompleted) {
+        // finalize thread execution first
+        finalizeThreadExecution();
+      }
+      // got signal byte, call handler
+      if (mParentSignalHandler) {
+        ML_STAT_START_AT(mParentThreadMainLoop.now());
+        mParentSignalHandler(*this, sig);
+        ML_STAT_ADD_AT(mParentThreadMainLoop.mThreadSignalHandlerTime, mParentThreadMainLoop.now());
+      }
+      if (sig==threadSignalCompleted || sig==threadSignalFailedToStart || sig==threadSignalCancelled) {
+        // signal indicates thread has ended (successfully or not)
+        // - in case nobody keeps this object any more, it should be deleted now
+        mSelfRef.reset();
+      }
     }
     // handled some i/O
     return true;
   }
   return false; // did not handle any I/O
 }
+
+
+// MARK: - executing code on main thread from child thread
+
+// called from child thread
+ErrorPtr ChildThreadWrapper::executeOnParentThread(CrossThreadCall aParentThreadRoutine)
+{
+  pthread_mutex_lock(&mCrossThreadCallMutex);
+  assert(!mCrossThreadCallRoutine); // having a routine pending here means seriously wrong usage
+  mCrossThreadCallRoutine = aParentThreadRoutine;
+  ChildThreadWrapper::signalParentThread(threadSignalScheduleCall); // signal the parent thread's mainloop to pick up the call
+  // wait for the parent to confirm execution
+  while(mCrossThreadCallRoutine) {
+    pthread_cond_wait(&mCrossThreadCallCond, &mCrossThreadCallMutex);
+  }
+  ErrorPtr ret = mCrossThreadCallStatus;
+  mCrossThreadCallStatus.reset();
+  pthread_mutex_unlock(&mCrossThreadCallMutex);
+  // return the result
+  return ret;
+}
+
+
+// called from child thread
+void ChildThreadWrapper::executeOnParentThreadAsync(CrossThreadAsyncCall aParentAsyncRoutine, StatusCB aStatusCB)
+{
+  CrossThreadCall cb = boost::bind(&ChildThreadWrapper::asyncParentCallExecutor, this, aParentAsyncRoutine, aStatusCB);
+  executeOnParentThread(cb);
+}
+
+
+// called from parent thread
+ErrorPtr ChildThreadWrapper::asyncParentCallExecutor(CrossThreadAsyncCall aParentAsyncRoutine, StatusCB aStatusCB)
+{
+  aParentAsyncRoutine(*this, boost::bind(&ChildThreadWrapper::parentToChildCallback, this, _1, aStatusCB));
+  return ErrorPtr();
+}
+
+
+// called from parent thread
+void ChildThreadWrapper::parentToChildCallback(ErrorPtr aStatus, StatusCB aFinalCallback)
+{
+  CrossThreadCall cb = boost::bind(&ChildThreadWrapper::crossThreadCallbackDelivery, this, aStatus, aFinalCallback);
+  executeOnChildThread(cb);
+}
+
+
+// MARK: - executing code on child thread from main thread
+
+// called from parent thread
+void ChildThreadWrapper::startOnChildThread(CrossThreadCall aChildThreadRoutine, StatusCB aStatusCB)
+{
+  assert(!mCrossThreadCallRoutine);
+  pthread_mutex_lock(&mCrossThreadCallMutex);
+  mCrossThreadCallRoutine = aChildThreadRoutine;
+  mCrossThreadStatusCB = aStatusCB;
+  pthread_cond_signal(&mCrossThreadCallCond);
+  pthread_mutex_unlock(&mCrossThreadCallMutex);
+}
+
+
+// called from parent thread
+ErrorPtr ChildThreadWrapper::executeOnChildThread(CrossThreadCall aChildThreadRoutine)
+{
+  startOnChildThread(aChildThreadRoutine, NoOP);
+  // wait for termination
+  pthread_mutex_lock(&mCrossThreadCallMutex);
+  while(mCrossThreadCallRoutine) {
+    pthread_cond_wait(&mCrossThreadCallCond, &mCrossThreadCallMutex);
+  }
+  ErrorPtr err = mCrossThreadCallStatus;
+  pthread_mutex_unlock(&mCrossThreadCallMutex);
+  return err;
+}
+
+
+// called from parent thread
+void ChildThreadWrapper::executeOnChildThreadAsync(CrossThreadCall aChildThreadRoutine, StatusCB aStatusCB)
+{
+  startOnChildThread(aChildThreadRoutine, aStatusCB);
+}
+
+
+// MARK: - cross-thread call executing
+
+
+// executes the standard StatusCB passed along
+ErrorPtr ChildThreadWrapper::crossThreadCallbackDelivery(ErrorPtr aStatus, StatusCB aFinalCallback)
+{
+  aFinalCallback(aStatus);
+  return ErrorPtr();
+}
+
+// called from child thread
+void ChildThreadWrapper::crossThreadCallProcessor()
+{
+  while (!shouldTerminate()) {
+    pthread_mutex_lock(&mCrossThreadCallMutex);
+    // wait for the parent to post a routine to call
+    while(!mCrossThreadCallRoutine) {
+      pthread_cond_wait(&mCrossThreadCallCond, &mCrossThreadCallMutex);
+      if (shouldTerminate()) {
+        pthread_mutex_unlock(&mCrossThreadCallMutex);
+        return;
+      }
+    }
+    // now we do have a routine to execute: do it
+    mCrossThreadCallStatus = mCrossThreadCallRoutine(*this);
+    mCrossThreadCallRoutine = NoOP; // done
+    CrossThreadCall cb;
+    if (mCrossThreadStatusCB) {
+      cb = boost::bind(&ChildThreadWrapper::crossThreadCallbackDelivery, this, mCrossThreadCallStatus, mCrossThreadStatusCB);
+    }
+    mCrossThreadStatusCB = NoOP;
+    pthread_cond_signal(&mCrossThreadCallCond);  // or pthread_cond_broadcast if multiple waiters
+    pthread_mutex_unlock(&mCrossThreadCallMutex);
+    if (cb) {
+      executeOnParentThread(cb);
+    }
+  }
+}
+
+
+
 
 
