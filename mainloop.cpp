@@ -1738,7 +1738,7 @@ bool ChildThreadWrapper::signalPipeHandler(int aPollFlags)
       // signal child we're done executing
       pthread_mutex_lock(&mCrossThreadCallMutex);
       mCrossThreadCallRoutine = NoOP; // this is also the condition variable
-      pthread_cond_signal(&mCrossThreadCallCond);
+      pthread_cond_broadcast(&mCrossThreadCallCond);
       pthread_mutex_unlock(&mCrossThreadCallMutex);
     }
     else {
@@ -1787,6 +1787,12 @@ ErrorPtr ChildThreadWrapper::executeOnParentThread(CrossThreadCall aParentThread
 }
 
 
+bool ChildThreadWrapper::readyForExecuteOnParent()
+{
+  return !mCrossThreadCallRoutine; // no call pending -> ready
+}
+
+
 // called from child thread
 void ChildThreadWrapper::executeOnParentThreadAsync(CrossThreadAsyncCall aParentAsyncRoutine, StatusCB aStatusCB)
 {
@@ -1820,7 +1826,7 @@ void ChildThreadWrapper::startOnChildThread(CrossThreadCall aChildThreadRoutine,
   pthread_mutex_lock(&mCrossThreadCallMutex);
   mCrossThreadCallRoutine = aChildThreadRoutine;
   mCrossThreadStatusCB = aStatusCB;
-  pthread_cond_signal(&mCrossThreadCallCond);
+  pthread_cond_broadcast(&mCrossThreadCallCond);
   pthread_mutex_unlock(&mCrossThreadCallMutex);
 }
 
@@ -1878,7 +1884,7 @@ void ChildThreadWrapper::crossThreadCallProcessor()
       cb = boost::bind(&ChildThreadWrapper::crossThreadCallbackDelivery, this, mCrossThreadCallStatus, mCrossThreadStatusCB);
     }
     mCrossThreadStatusCB = NoOP;
-    pthread_cond_signal(&mCrossThreadCallCond);  // or pthread_cond_broadcast if multiple waiters
+    pthread_cond_broadcast(&mCrossThreadCallCond);
     pthread_mutex_unlock(&mCrossThreadCallMutex);
     if (cb) {
       executeOnParentThread(cb);

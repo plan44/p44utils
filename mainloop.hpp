@@ -703,6 +703,18 @@ namespace p44 {
     ///   and can access data without needing extra locks. Of course, run time must be minimized!
     ErrorPtr executeOnParentThread(CrossThreadCall aParentThreadRoutine);
 
+    /// check if we can call executeOnParentThread.
+    /// @return true if ok to call, false otherwise
+    /// @note normally this returns true because executeOnParentThread() is blocking on the child,
+    ///   so no two parallel invocations are possible. However, in special cases it might still
+    ///   not be possible to run executeOnParentThread():
+    ///   - when calling from a third thread, not the child thread itself
+    ///     (and the child thread is also executing on the parent right mow)
+    ///   - when calling from within a executeOnChildThread() operation
+    bool readyForExecuteOnParent();
+
+
+
     /// execute routine, BLOCKING current (child) thread, on the parent thread, and provide a callback for async termination
     /// @param aParentThreadRoutine the routine to be executed in the parent thread
     /// @param aStatusCB is intended to be passed into async operations aParentThreadRoutine might start, and
