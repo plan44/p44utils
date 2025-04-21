@@ -1734,7 +1734,12 @@ bool ChildThreadWrapper::signalPipeHandler(int aPollFlags)
   if (sig!=threadSignalNone) {
     if (sig==threadSignalScheduleCall) {
       // child thread wants to execute something on the parent thread
-      mCrossThreadCallStatus = mCrossThreadCallRoutine(*this);
+      if (!mCrossThreadCallRoutine) {
+        mCrossThreadCallStatus = TextError::err("Internal: no mCrossThreadCallRoutine");
+      }
+      else {
+        mCrossThreadCallStatus = mCrossThreadCallRoutine(*this);
+      }
       // signal child we're done executing
       pthread_mutex_lock(&mCrossThreadCallMutex);
       mCrossThreadCallRoutine = NoOP; // this is also the condition variable
