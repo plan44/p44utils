@@ -1,6 +1,6 @@
 //  SPDX-License-Identifier: GPL-3.0-or-later
 //
-//  Copyright (c) 2013-2023 plan44.ch / Lukas Zeller, Zurich, Switzerland
+//  Copyright (c) 2013-2025 plan44.ch / Lukas Zeller, Zurich, Switzerland
 //
 //  Author: Lukas Zeller <luz@plan44.ch>
 //
@@ -38,7 +38,7 @@ namespace p44 {
     friend void intrusive_ptr_add_ref(P44Obj* o);
     friend void intrusive_ptr_release(P44Obj* o);
 
-    int refCount;
+    int mRefCount;
 
   public:
 
@@ -49,7 +49,7 @@ namespace p44 {
     void isMemberVariable();
 
   protected:
-    P44Obj() : refCount(0) {};
+    P44Obj() : mRefCount(0) {};
     virtual ~P44Obj() {}; // important for multiple inheritance
   };
 

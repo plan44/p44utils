@@ -1,6 +1,6 @@
 //  SPDX-License-Identifier: GPL-3.0-or-later
 //
-//  Copyright (c) 2013-2023 plan44.ch / Lukas Zeller, Zurich, Switzerland
+//  Copyright (c) 2013-2025 plan44.ch / Lukas Zeller, Zurich, Switzerland
 //
 //  Author: Lukas Zeller <luz@plan44.ch>
 //
@@ -330,7 +330,7 @@ void Logger::setLogHandler(LoggerCB aLoggerCB, bool aAllowOther)
 // MARK: - P44LoggingObj
 
 P44LoggingObj::P44LoggingObj() :
-  logLevelOffset(0)
+  mLogLevelOffset(0)
 {
 }
 
@@ -412,15 +412,15 @@ void P44LoggingObj::log(int aErrLevel, const char *aFmt, ... )
 
 int P44LoggingObj::getLogLevelOffset()
 {
-  return logLevelOffset;
+  return mLogLevelOffset;
 }
 
 
 void P44LoggingObj::setLogLevelOffset(int aLogLevelOffset)
 {
-  if (aLogLevelOffset!=logLevelOffset) {
-    log(globalLogger.getLogLevel(), "### changed log level offset from %d to %d", logLevelOffset, aLogLevelOffset);
-    logLevelOffset = aLogLevelOffset;
+  if (aLogLevelOffset!=mLogLevelOffset) {
+    log(globalLogger.getLogLevel(), "### changed log level offset from %d to %d", mLogLevelOffset, aLogLevelOffset);
+    mLogLevelOffset = aLogLevelOffset;
   }
 }
 

@@ -1,6 +1,6 @@
 //  SPDX-License-Identifier: GPL-3.0-or-later
 //
-//  Copyright (c) 2017-2024 plan44.ch / Lukas Zeller, Zurich, Switzerland
+//  Copyright (c) 2017-2025 plan44.ch / Lukas Zeller, Zurich, Switzerland
 //
 //  Author: Lukas Zeller <luz@plan44.ch>
 //
@@ -390,7 +390,7 @@ bool ScriptObj::typeRequirementMet(TypeInfo aInfo, TypeInfo aRequirements)
 
 int ScriptObj::getLogLevelOffset()
 {
-  if (logLevelOffset==0) {
+  if (mLogLevelOffset==0) {
     // no own offset - inherit context's
     if (loggingContext()) return loggingContext()->getLogLevelOffset();
     return 0;
@@ -7468,7 +7468,7 @@ P44LoggingObj* ScriptCodeThread::loggingContext()
 
 int ScriptCodeThread::getLogLevelOffset()
 {
-  if (logLevelOffset==0) {
+  if (mLogLevelOffset==0) {
     // no own offset - inherit context's
     if (loggingContext()) return loggingContext()->getLogLevelOffset();
     return 0;

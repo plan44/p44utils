@@ -1,6 +1,6 @@
 //  SPDX-License-Identifier: GPL-3.0-or-later
 //
-//  Copyright (c) 2013-2023 plan44.ch / Lukas Zeller, Zurich, Switzerland
+//  Copyright (c) 2013-2025 plan44.ch / Lukas Zeller, Zurich, Switzerland
 //
 //  Author: Lukas Zeller <luz@plan44.ch>
 //
@@ -289,7 +289,7 @@ namespace p44 {
 
   protected:
     
-    int logLevelOffset; ///< will be subtracted from log level for checking (in 7..5 range only)
+    int mLogLevelOffset; ///< will be subtracted from log level for checking (in 7..5 range only)
 
   public:
 
@@ -321,7 +321,7 @@ namespace p44 {
     virtual int getLogLevelOffset();
 
     /// @return always locally stored offset, even when getLogLevelOffset() returns something else
-    int getLocalLogLevelOffset() { return logLevelOffset; }
+    int getLocalLogLevelOffset() { return mLogLevelOffset; }
 
     /// set the log level offset on this logging object (and possibly contained sub-objects)
     /// @param aLogLevelOffset the new log level offset

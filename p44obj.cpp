@@ -1,6 +1,6 @@
 //  SPDX-License-Identifier: GPL-3.0-or-later
 //
-//  Copyright (c) 2013-2023 plan44.ch / Lukas Zeller, Zurich, Switzerland
+//  Copyright (c) 2013-2025 plan44.ch / Lukas Zeller, Zurich, Switzerland
 //
 //  Author: Lukas Zeller <luz@plan44.ch>
 //
@@ -29,12 +29,12 @@ namespace p44 {
 
   void intrusive_ptr_add_ref(P44Obj* o)
   {
-    ++(o->refCount);
+    ++(o->mRefCount);
   }
 
   void intrusive_ptr_release(P44Obj* o)
   {
-    if(--(o->refCount) == 0) {
+    if(--(o->mRefCount) == 0) {
       // Setting the refCount to an arbitrary not small negative number
       // gives us some protection (at no performance penalty for normal ref+/- operations)
       // against destructors that cause reference count to increase again (e.g. by callbacks
@@ -42,7 +42,7 @@ namespace p44 {
       // refcount re-reaches zero.
       // Only after 4242 extra references added to the object DURING DESTRUCTION, this
       // would not hold any more...
-      o->refCount = -4242;
+      o->mRefCount = -4242;
       // now delete, ONCE
       delete o;
     }
@@ -52,7 +52,7 @@ namespace p44 {
   {
     // set refcount high to avoid deletion via intrusive_ptr_release
     // the only way the object can get deleted is along with the object it is a member variable of.
-    refCount = 4242;
+    mRefCount = 4242;
   }
 
 }
