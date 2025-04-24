@@ -101,6 +101,10 @@ namespace p44 {
     /// @return the method name
     const string method() const { return mRequestMethod; }
 
+    /// get server this request originates from
+    /// @return the server
+    UbusServerPtr server() const { return mUbusServer; }
+
     /// send response to this request
     /// @param
     void sendResponse(JsonObjectPtr aResponse, int aUbusErr = UBUS_STATUS_OK);
