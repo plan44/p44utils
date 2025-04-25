@@ -494,8 +494,9 @@ namespace p44 {
     /// @param aStdErrFd if >0, stderr of the child process is set to it; if 0, stderr of the child is redirected to /dev/null
     /// @param aStdInFd if >0, stdin of the child process is set to it;  if 0, stdin of the child is redirected to /dev/null
     ///   so caller can handle output data of the process. The caller is responsible for closing the fd.
+    /// @param aParentDeathSig Linux only: if >0, this signal is sent to the child process when parent exits
     /// @return the child's PID (can be used to send signals to it), or -1 if fork fails
-    pid_t fork_and_execve(ExecCB aCallback, const char *aPath, char *const aArgv[], char *const aEnvp[] = NULL, bool aPipeBackStdOut = false, int* aPipeBackFdP = NULL, int aStdErrFd = -1, int aStdInFd = -1);
+    pid_t fork_and_execve(ExecCB aCallback, const char *aPath, char *const aArgv[], char *const aEnvp[] = NULL, bool aPipeBackStdOut = false, int* aPipeBackFdP = NULL, int aStdErrFd = -1, int aStdInFd = -1, int aParentDeathSig = -1);
 
     /// execute command line in external shell
     /// @param aCallback the functor to be called when execution is done (failed to start or completed)
@@ -505,8 +506,9 @@ namespace p44 {
     ///   so caller can handle output data of the process. The caller is responsible for closing the fd.
     /// @param aStdErrFd if >0, stderr of the child process is set to it; if 0, stderr of the child is redirected to /dev/null
     /// @param aStdInFd if >0, stdin of the child process is set to it;  if 0, stdin of the child is redirected to /dev/null
+    /// @param aParentDeathSig Linux only: if >0, this signal is sent to the child process when parent exits
     /// @return the child's PID (can be used to send signals to it), or -1 if fork fails
-    pid_t fork_and_system(ExecCB aCallback, const char *aCommandLine, bool aPipeBackStdOut = false, int* aStdOutFdP = NULL, int aStdErrFd = -1, int aStdInFd = -1);
+    pid_t fork_and_system(ExecCB aCallback, const char *aCommandLine, bool aPipeBackStdOut = false, int* aStdOutFdP = NULL, int aStdErrFd = -1, int aStdInFd = -1, int aParentDeathSig = -1);
 
 
     /// have handler called when a specific process delivers a state change

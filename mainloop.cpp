@@ -31,6 +31,8 @@
 
 #ifdef __APPLE__
   #include <mach/mach_time.h>
+#elif !defined(ESP_PLATFORM)
+  #include <sys/prctl.h> // gnu/Linux only
 #endif
 #include <unistd.h>
 #include <sys/param.h>
@@ -723,7 +725,7 @@ void MainLoop::waitForPid(WaitCB aCallback, pid_t aPid)
 extern char **environ;
 
 
-pid_t MainLoop::fork_and_execve(ExecCB aCallback, const char *aPath, char *const aArgv[], char *const aEnvp[], bool aPipeBackStdOut, int* aPipeBackFdP, int aStdErrFd, int aStdInFd)
+pid_t MainLoop::fork_and_execve(ExecCB aCallback, const char *aPath, char *const aArgv[], char *const aEnvp[], bool aPipeBackStdOut, int* aPipeBackFdP, int aStdErrFd, int aStdInFd, int aParentDeathSig)
 {
   LOG(LOG_DEBUG, "fork_and_execve: preparing to fork for executing '%s' now", aPath);
   pid_t child_pid;
@@ -767,6 +769,14 @@ pid_t MainLoop::fork_and_execve(ExecCB aCallback, const char *aPath, char *const
       // close all non-std file descriptors
       int fd = getdtablesize();
       while (fd>STDERR_FILENO) close(fd--);
+      // should the process be terminated when parent terminates?
+      if (aParentDeathSig>0) {
+        #ifdef __APPLE__
+        LOG(LOG_WARNING, "darwin does not support prctl(PR_SET_PDEATHSIG, xxx) -> child will keep running when parent dies");
+        #else
+        prctl(PR_SET_PDEATHSIG, aParentDeathSig);
+        #endif
+      }
       // change to the requested child process
       execve(aPath, aArgv, aEnvp); // replace process with new binary/script
       // execv returns only in case of error
@@ -805,14 +815,14 @@ pid_t MainLoop::fork_and_execve(ExecCB aCallback, const char *aPath, char *const
 }
 
 
-pid_t MainLoop::fork_and_system(ExecCB aCallback, const char *aCommandLine, bool aPipeBackStdOut, int* aPipeBackFdP, int aStdErrFd, int aStdInFd)
+pid_t MainLoop::fork_and_system(ExecCB aCallback, const char *aCommandLine, bool aPipeBackStdOut, int* aPipeBackFdP, int aStdErrFd, int aStdInFd, int aParentDeathSig)
 {
   char * args[4];
   args[0] = (char *)"sh";
   args[1] = (char *)"-c";
   args[2] = (char *)aCommandLine;
   args[3] = NULL;
-  return fork_and_execve(aCallback, "/bin/sh", args, NULL, aPipeBackStdOut, aPipeBackFdP, aStdErrFd, aStdInFd);
+  return fork_and_execve(aCallback, "/bin/sh", args, NULL, aPipeBackStdOut, aPipeBackFdP, aStdErrFd, aStdInFd, aParentDeathSig);
 }
 
 
