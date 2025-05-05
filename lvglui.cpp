@@ -1483,16 +1483,16 @@ ScriptObjPtr LvGLUi::representingScriptObj()
 }
 
 
-void LVGLUiElement::runEventScript(lv_event_t aEvent, ScriptSource& aScriptCode)
+void LVGLUiElement::runEventScript(lv_event_t aEvent, ScriptHost& aScriptHost)
 {
   const char* en = eventName(aEvent);
   LOG(LOG_INFO, "--- Starting/queuing action script for event='%s', LVGLUiElement '%s'", en, getName().c_str());
-  aScriptCode.setSharedMainContext(lvglui.getScriptMainContext());
+  aScriptHost.setSharedMainContext(lvglui.getScriptMainContext());
   // pass the event and sender as a thread-local variables
   SimpleVarContainer* eventThreadLocals = new SimpleVarContainer();
   eventThreadLocals->setMemberByName("event", new StringValue(en));
   eventThreadLocals->setMemberByName("sender", new LVGLUiElementObj(this));
-  aScriptCode.run(regular|queue|concurrently, boost::bind(&LvGLUi::scriptDone, this), eventThreadLocals, Infinite);
+  aScriptHost.run(regular|queue|concurrently|keepvars, boost::bind(&LvGLUi::scriptDone, this), eventThreadLocals, Infinite);
 }
 
 
@@ -1519,8 +1519,7 @@ ScriptMainContextPtr LvGLUi::getScriptMainContext()
 
 
 // findobj(elementpath)
-static const BuiltInArgDesc findobj_args[] = { { text } };
-static const size_t findobj_numargs = sizeof(findobj_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(findobj, { text });
 static void findobj_func(BuiltinFunctionContextPtr f)
 {
   LVGLUiElementObj* o = dynamic_cast<LVGLUiElementObj*>(f->thisObj().get());
@@ -1567,8 +1566,7 @@ static void value_func(BuiltinFunctionContextPtr f)
 
 
 // setvalue(value [,animationtime])
-static const BuiltInArgDesc setvalue_args[] = { { numeric }, { numeric|optionalarg } };
-static const size_t setvalue_numargs = sizeof(setvalue_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(setvalue, { numeric }, { numeric|optionalarg });
 static void setvalue_func(BuiltinFunctionContextPtr f)
 {
   LVGLUiElementObj* o = dynamic_cast<LVGLUiElementObj*>(f->thisObj().get());
@@ -1583,8 +1581,7 @@ static void setvalue_func(BuiltinFunctionContextPtr f)
 
 
 // settext(newtext)
-static const BuiltInArgDesc settext_args[] = { { text } };
-static const size_t settext_numargs = sizeof(settext_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(settext, { text });
 static void settext_func(BuiltinFunctionContextPtr f)
 {
   LVGLUiElementObj* o = dynamic_cast<LVGLUiElementObj*>(f->thisObj().get());
@@ -1605,8 +1602,7 @@ static void refresh_func(BuiltinFunctionContextPtr f)
 
 
 // showScreen(<screenname>)
-static const BuiltInArgDesc showscreen_args[] = { { text } };
-static const size_t showscreen_numargs = sizeof(showscreen_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(showscreen, { text });
 static void showscreen_func(BuiltinFunctionContextPtr f)
 {
   LVGLUiElementObj* o = dynamic_cast<LVGLUiElementObj*>(f->thisObj().get());
@@ -1617,8 +1613,7 @@ static void showscreen_func(BuiltinFunctionContextPtr f)
 
 
 // set(propertyname, newvalue)   convenience function to set (configure) a single property
-static const BuiltInArgDesc set_args[] = { { text }, { any } };
-static const size_t set_numargs = sizeof(set_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(set, { text }, { anyvalid });
 static void set_func(BuiltinFunctionContextPtr f)
 {
   LVGLUiElementObj* o = dynamic_cast<LVGLUiElementObj*>(f->thisObj().get());
@@ -1631,8 +1626,7 @@ static void set_func(BuiltinFunctionContextPtr f)
 
 
 // configure(<filename|json|key=value>)
-static const BuiltInArgDesc configure_args[] = { { text|json|object } };
-static const size_t configure_numargs = sizeof(configure_args)/sizeof(BuiltInArgDesc);
+FUNC_ARG_DEFS(configure, { text|structured });
 static void configure_func(BuiltinFunctionContextPtr f)
 {
   LVGLUiElementObj* o = dynamic_cast<LVGLUiElementObj*>(f->thisObj().get());
@@ -1640,7 +1634,7 @@ static void configure_func(BuiltinFunctionContextPtr f)
   JsonObjectPtr cfgJSON;
   ErrorPtr err;
   #if SCRIPTING_JSON_SUPPORT
-  if (f->arg(0)->hasType(json)) {
+  if (f->arg(0)->hasType(structured)) {
     // is already a JSON value, use it as-is
     cfgJSON = f->arg(0)->jsonValue();
   }
@@ -1679,16 +1673,16 @@ static void configure_func(BuiltinFunctionContextPtr f)
 
 
 static const BuiltinMemberDescriptor lvglobjFunctions[] = {
-  { "findobj", executable|object, findobj_numargs, findobj_args, &findobj_func },
-  { "name", executable|text, 0, NULL, &name_func },
-  { "parent", executable|object, 0, NULL, &parent_func },
-  { "value", executable|numeric, 0, NULL, &value_func },
-  { "setvalue", executable|object, setvalue_numargs, setvalue_args, &setvalue_func },
-  { "settext", executable|object, settext_numargs, settext_args, &settext_func },
-  { "refresh", executable|object, 0, NULL, &refresh_func },
-  { "showscreen", executable|null, showscreen_numargs, showscreen_args, &showscreen_func },
-  { "set", executable|object, set_numargs, set_args, &set_func },
-  { "configure", executable|object, configure_numargs, configure_args, &configure_func },
+  FUNC_DEF_W_ARG(findobj, executable|structured),
+  FUNC_DEF_NOARG(name, executable|text),
+  FUNC_DEF_NOARG(parent, executable|structured),
+  FUNC_DEF_NOARG(value, executable|numeric),
+  FUNC_DEF_W_ARG(setvalue, executable|structured),
+  FUNC_DEF_W_ARG(settext, executable|structured),
+  FUNC_DEF_NOARG(refresh, executable|structured),
+  FUNC_DEF_W_ARG(showscreen, executable|null),
+  FUNC_DEF_W_ARG(set, executable|structured),
+  FUNC_DEF_W_ARG(configure, executable|structured),
   { NULL } // terminator
 };
 

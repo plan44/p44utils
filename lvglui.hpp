@@ -132,8 +132,8 @@ namespace p44 {
 
     typedef LvGLUIObject inherited;
     #if ENABLE_LVGLUI_SCRIPT_FUNCS
-    P44Script::ScriptSource onEventScript; ///< script executed to process otherwise unhandled lvgl events on this element
-    P44Script::ScriptSource onRefreshScript; ///< script executed to specifically process "refresh" event
+    P44Script::ScriptHost onEventScript; ///< script executed to process otherwise unhandled lvgl events on this element
+    P44Script::ScriptHost onRefreshScript; ///< script executed to specifically process "refresh" event
     #endif
     bool handlesEvents;
 
@@ -187,7 +187,7 @@ namespace p44 {
 
     /// run event script
     #if ENABLE_LVGLUI_SCRIPT_FUNCS
-    void runEventScript(lv_event_t aEvent, P44Script::ScriptSource& aScriptCode);
+    void runEventScript(lv_event_t aEvent, P44Script::ScriptHost& aScriptCode);
     void scriptDone();
     #endif
 
@@ -290,8 +290,8 @@ namespace p44 {
   {
     typedef LvGLUiLayoutContainer inherited;
     #if ENABLE_LVGLUI_SCRIPT_FUNCS
-    P44Script::ScriptSource onPressScript;
-    P44Script::ScriptSource onReleaseScript;
+    P44Script::ScriptHost onPressScript;
+    P44Script::ScriptHost onReleaseScript;
     #endif
     lv_obj_t *label;
   public:
@@ -307,8 +307,8 @@ namespace p44 {
   {
     typedef LVGLUiElement inherited;
     #if ENABLE_LVGLUI_SCRIPT_FUNCS
-    P44Script::ScriptSource onPressScript;
-    P44Script::ScriptSource onReleaseScript;
+    P44Script::ScriptHost onPressScript;
+    P44Script::ScriptHost onReleaseScript;
     #endif
     string relImgSrc;
     string prImgSrc;
@@ -350,8 +350,8 @@ namespace p44 {
   {
     typedef LvGLUiBarBase inherited;
     #if ENABLE_LVGLUI_SCRIPT_FUNCS
-    P44Script::ScriptSource onChangeScript;
-    P44Script::ScriptSource onReleaseScript;
+    P44Script::ScriptHost onChangeScript;
+    P44Script::ScriptHost onReleaseScript;
     #endif
   public:
     LvGLUiSlider(LvGLUi& aLvGLUI, LvGLUiContainer* aParentP, lv_obj_t *aTemplate);
@@ -380,8 +380,8 @@ namespace p44 {
     #if ENABLE_LVGLUI_SCRIPT_FUNCS
     P44Script::ScriptMainContextPtr mScriptMainContext;
     P44Script::ScriptObjPtr mRepresentingObj;
-    P44Script::ScriptSource activityTimeoutScript;
-    P44Script::ScriptSource activationScript;
+    P44Script::ScriptHost activityTimeoutScript;
+    P44Script::ScriptHost activationScript;
     #endif
 
   protected:
