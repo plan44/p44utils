@@ -77,7 +77,7 @@ void PersistentParams::checkAndUpdateSchema()
 {
   // check for table
   string sql = string_format("SELECT name FROM sqlite_master WHERE name ='%s' and type='table'", tableName());
-  sqlite3pp::query qry(mParamStore, sql.c_str());
+  sqlite3pp::query qry(mParamStore.db(), sql.c_str());
   sqlite3pp::query::iterator i = qry.begin();
   if (i==qry.end()) {
     // table does not yet exist
@@ -101,7 +101,7 @@ void PersistentParams::checkAndUpdateSchema()
     sql += ")";
     // - create it
     mParamStore.mWriteOpsCount++; // count the operation
-    sqlite3pp::command cmd(mParamStore, sql.c_str());
+    sqlite3pp::command cmd(mParamStore.db(), sql.c_str());
     cmd.execute();
     // create index for parentID (first field, getKeyDef(0))
     sql = string_format("CREATE INDEX %s_parentIndex ON %s (%s)", tableName(), tableName(), getKeyDef(0)->fieldName);
@@ -116,7 +116,7 @@ void PersistentParams::checkAndUpdateSchema()
       const FieldDefinition *fd = getFieldDef(i);
       sql = string_format("ALTER TABLE %s ADD ", tableName());
       sql += fieldDeclaration(fd);
-      sqlite3pp::command cmd(mParamStore);
+      sqlite3pp::command cmd(mParamStore.db());
       if (cmd.prepare(sql.c_str())==SQLITE_OK) {
         cmd.execute();
       }
@@ -145,7 +145,7 @@ size_t PersistentParams::appendfieldList(string &sql, bool keyFields, bool aAppe
 
 sqlite3pp::query *PersistentParams::newLoadAllQuery(const char *aParentIdentifier)
 {
-  sqlite3pp::query * queryP = new sqlite3pp::query(mParamStore);
+  sqlite3pp::query * queryP = new sqlite3pp::query(mParamStore.db());
   string sql = "SELECT ROWID";
   // key fields
   appendfieldList(sql, true , true, false);
@@ -165,7 +165,7 @@ sqlite3pp::query *PersistentParams::newLoadAllQuery(const char *aParentIdentifie
     checkAndUpdateSchema();
     FOCUSLOG("newLoadAllQuery: retrying newLoadAllQuery after schema update: %s", sql.c_str());
     if (queryP->prepare(sql.c_str())!=SQLITE_OK) {
-      LOG(LOG_ERR, "newLoadAllQuery: %s - failed: %s", sql.c_str(), mParamStore.error()->description().c_str());
+      LOG(LOG_ERR, "newLoadAllQuery: %s - failed: %s", sql.c_str(), mParamStore.db().error()->description().c_str());
       // error now means something is really wrong
       delete queryP;
       return NULL;
@@ -199,7 +199,7 @@ ErrorPtr PersistentParams::loadFromStore(const char *aParentIdentifier)
   sqlite3pp::query *queryP = newLoadAllQuery(aParentIdentifier);
   if (queryP==NULL) {
     // real error preparing query
-    err = mParamStore.error();
+    err = mParamStore.db().error();
   }
   else {
     sqlite3pp::query::iterator row = queryP->begin();
@@ -241,7 +241,7 @@ ErrorPtr PersistentParams::saveToStore(const char *aParentIdentifier, bool aMult
 {
   ErrorPtr err;
   if (mDirty) {
-    sqlite3pp::command cmd(mParamStore);
+    sqlite3pp::command cmd(mParamStore.db());
     string sql;
     // cleanup: remove all previous records for that parent if not multiple children allowed
     if (!aMultipleInstancesAllowed) {
@@ -256,8 +256,8 @@ ErrorPtr PersistentParams::saveToStore(const char *aParentIdentifier, bool aMult
         conj = "AND";
       }
       FOCUSLOG("- cleanup before save: %s", sql.c_str());
-      if (mParamStore.execute(sql.c_str()) != SQLITE_OK) {
-        LOG(LOG_ERR, "- cleanup error (ignored): %s", mParamStore.error()->description().c_str());
+      if (mParamStore.db().execute(sql.c_str()) != SQLITE_OK) {
+        LOG(LOG_ERR, "- cleanup error (ignored): %s", mParamStore.db().error()->description().c_str());
       }
     }
     // now save
@@ -273,7 +273,7 @@ ErrorPtr PersistentParams::saveToStore(const char *aParentIdentifier, bool aMult
       FOCUSLOG("saveToStore: update existing row for parent='%s': %s", aParentIdentifier ? aParentIdentifier : "<none>", sql.c_str());
       if (cmd.prepare(sql.c_str())!=SQLITE_OK) {
         // error on update is always a real error - if we loaded the params from the DB, schema IS ok!
-        err = mParamStore.error();
+        err = mParamStore.db().error();
       }
       if (Error::isOK(err)) {
         // bind the values
@@ -286,7 +286,7 @@ ErrorPtr PersistentParams::saveToStore(const char *aParentIdentifier, bool aMult
         }
         else {
           // failed
-          err = mParamStore.error();
+          err = mParamStore.db().error();
         }
       }
     }
@@ -313,7 +313,7 @@ ErrorPtr PersistentParams::saveToStore(const char *aParentIdentifier, bool aMult
         FOCUSLOG("saveToStore: retrying insert after schema update: %s", sql.c_str());
         if (cmd.prepare(sql.c_str())!=SQLITE_OK) {
           // error now means something is really wrong
-          err = mParamStore.error();
+          err = mParamStore.db().error();
         }
       }
       if (Error::isOK(err)) {
@@ -323,12 +323,12 @@ ErrorPtr PersistentParams::saveToStore(const char *aParentIdentifier, bool aMult
         // now execute command
         if (cmd.execute()==SQLITE_OK) {
           // get the new ROWID
-          mRowId = mParamStore.last_insert_rowid();
+          mRowId = mParamStore.db().last_insert_rowid();
           mDirty = false;
         }
         else {
           // failed
-          err = mParamStore.error();
+          err = mParamStore.db().error();
         }
       }
     }
@@ -351,8 +351,8 @@ ErrorPtr PersistentParams::deleteFromStore()
   if (mRowId!=0) {
     mParamStore.mWriteOpsCount++; // count the operation
     FOCUSLOG("deleteFromStore: deleting row %lld in table %s", rowid, tableName());
-    if (mParamStore.executef("DELETE FROM %s WHERE ROWID=%lld", tableName(), mRowId) != SQLITE_OK) {
-      err = mParamStore.error();
+    if (mParamStore.db().executef("DELETE FROM %s WHERE ROWID=%lld", tableName(), mRowId) != SQLITE_OK) {
+      err = mParamStore.db().error();
     }
     // deleted, forget
     mRowId = 0;

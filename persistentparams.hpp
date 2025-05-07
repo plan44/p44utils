@@ -35,9 +35,9 @@ namespace p44 {
   } FieldDefinition;
 
 
-  class ParamStore : public SQLite3Persistence
+  class ParamStore : public SQLite3TableGroup
   {
-    typedef SQLite3Persistence inherited;
+    typedef SQLite3TableGroup inherited;
 
   public:
     uint32_t mWriteOpsCount; ///< global number of write operations (INSERT, UPDATE, DELETE)
