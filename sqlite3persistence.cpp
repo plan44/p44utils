@@ -123,8 +123,28 @@ SQLite3Persistence& SQLite3TableGroup::db()
 
 string SQLite3TableGroup::prefixedSql(const string& aSqlTemplate, string aPrefix)
 {
+  #if DEBUG
+  // safety check: MUST contain $PREFIX_
+  assert(aSqlTemplate.find(PREFIX_PLACEHOLDER)!=string::npos);
+  #endif
   if (!aPrefix.empty()) aPrefix += "_";
   return string_substitute(aSqlTemplate, PREFIX_PLACEHOLDER, aPrefix);
+}
+
+
+ErrorPtr SQLite3TableGroup::prefixedExecute(const char* aTemplate, ...)
+{
+  ErrorPtr err;
+  string sql;
+  va_list args;
+  va_start(args, aTemplate);
+  boost::shared_ptr<char> msql(sqlite3_vmprintf(aTemplate, args), sqlite3_free);
+  va_end(args);
+  sql = prefixedSql(msql.get());
+  if (db().execute(sql.c_str())!=SQLITE_OK) {
+    err = db().error();
+  }
+  return err;
 }
 
 
@@ -143,6 +163,9 @@ string SQLite3TableGroup::schemaUpgradeSQL(int aFromVersion, int &aToVersion)
   }
   return s;
 }
+
+
+
 
 
 ErrorPtr SQLite3TableGroup::initialize(SQLite3Persistence& aPersistence, const string aTablesPrefix, int aNeededSchemaVersion, int aLowestValidSchemaVersion, const char* aDatabaseToMigrateFrom)
@@ -264,6 +287,54 @@ ErrorPtr SQLite3TableGroup::initialize(SQLite3Persistence& aPersistence, const s
   }
   else {
     LOG(LOG_ERR, "Error initializing SQLite3TableGroup: %s", err->text());
+  }
+  return err;
+}
+
+
+// MARK: SQLiteTGQuery
+
+SQLiteTGQuery::SQLiteTGQuery(SQLite3TableGroup& aTableGroup) :
+  mTableGroup(aTableGroup),
+  inherited(aTableGroup.db())
+{
+}
+
+/// prepared query from template with $PREFIX\_ in it
+ErrorPtr SQLiteTGQuery::prefixedPrepare(const char* aTemplate, ...)
+{
+  ErrorPtr err;
+  va_list args;
+  va_start(args, aTemplate);
+  boost::shared_ptr<char> msql(sqlite3_vmprintf(aTemplate, args), sqlite3_free);
+  va_end(args);
+  string sql = mTableGroup.prefixedSql(msql.get());
+  if (inherited::prepare(sql.c_str())!=SQLITE_OK) {
+    err = mTableGroup.db().error();
+  }
+  return err;
+}
+
+
+// MARK: SQLiteTGCommand
+
+SQLiteTGCommand::SQLiteTGCommand(SQLite3TableGroup& aTableGroup) :
+  mTableGroup(aTableGroup),
+  inherited(aTableGroup.db())
+{
+}
+
+/// prepared command from template with $PREFIX\_ in it
+ErrorPtr SQLiteTGCommand::prefixedPrepare(const char* aTemplate, ...)
+{
+  ErrorPtr err;
+  va_list args;
+  va_start(args, aTemplate);
+  boost::shared_ptr<char> msql(sqlite3_vmprintf(aTemplate, args), sqlite3_free);
+  va_end(args);
+  string sql = mTableGroup.prefixedSql(msql.get());
+  if (inherited::prepare(sql.c_str())!=SQLITE_OK) {
+    err = mTableGroup.db().error();
   }
   return err;
 }

@@ -76,6 +76,9 @@ namespace p44 {
 
   class SQLite3TableGroup
   {
+    friend class SQLiteTGQuery;
+    friend class SQLiteTGCommand;
+
     SQLite3Persistence* mPersistenceP; ///< the actual persistence store
     string mTablesPrefix; ///< the prefix to be used in all tables
     bool mSchemaReady; ///< if set, the schema has been successfully verified/updated
@@ -102,21 +105,62 @@ namespace p44 {
     /// @return ok or error
     ErrorPtr initialize(SQLite3Persistence& aPersistence, const string aTablesPrefix, int aNeededSchemaVersion, int aLowestValidSchemaVersion, const char* aDatabaseToMigrateFrom);
 
+    /// check if underlying database is available (was initialized correctly)
+    bool isAvailable();
+
+    /// execute statement from template with $PREFIX\_ in it
+    ErrorPtr prefixedExecute(const char* aTemplate, ...);
+
+  private:
+
     /// substitute $PREFIX\_ with the actual table prefix (if not empty)
     /// @param aSqlTemplate the template which may contain $PREFIX_ before table names
     /// @return substituted version of SQL
     string prefixedSql(const string& aSqlTemplate) { return prefixedSql(aSqlTemplate, mTablesPrefix); }
-
-    /// check if underlying database is available (was initialized correctly)
-    bool isAvailable();
-
-  private:
 
     /// substitute $PREFIX\_ with aPrefix (if not empty)
     /// @param aSqlTemplate the template which may contain $PREFIX_ before table names
     /// @param aPrefix the prefix (empty: no prefix, non-empty: prefix NOT including underscore)
     /// @return substituted version of SQL
     static string prefixedSql(const string& aSqlTemplate, string aPrefix);
+
+  };
+
+
+  class SQLiteTGQuery : public sqlite3pp::query
+  {
+    typedef sqlite3pp::query inherited;
+
+    SQLite3TableGroup& mTableGroup;
+
+  public:
+
+    SQLiteTGQuery(SQLite3TableGroup& aTableGroup);
+
+    /// prevent standard prepare
+    int prepare(char const* stmt) = delete;
+
+    /// prepared query from template with $PREFIX\_ in it
+    ErrorPtr prefixedPrepare(const char* aTemplate, ...);
+
+  };
+
+
+  class SQLiteTGCommand : public sqlite3pp::command
+  {
+    typedef sqlite3pp::command inherited;
+
+    SQLite3TableGroup& mTableGroup;
+
+  public:
+
+    SQLiteTGCommand(SQLite3TableGroup& aTableGroup);
+
+    /// prevent standard prepare
+    int prepare(char const* stmt) = delete;
+
+    /// prepared query from template with $PREFIX\_ in it
+    ErrorPtr prefixedPrepare(const char* aTemplate, ...);
 
   };
 
