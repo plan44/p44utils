@@ -178,6 +178,7 @@ ErrorPtr SQLite3TableGroup::initialize(SQLite3Persistence& aPersistence, const s
   mTablesPrefix = aTablesPrefix;
   #if SQLITE3_UNIFY_DB_MIGRATION
   bool tryMigration = aDatabaseToMigrateFrom!=nullptr; // assume not yet migrated, but not if we don't have a name
+  bool didMigrateOk = false;
   #endif
   while(true) {
     currentSchemaVersion = 0; // assume table group not yet existing
@@ -199,34 +200,43 @@ ErrorPtr SQLite3TableGroup::initialize(SQLite3Persistence& aPersistence, const s
     #if SQLITE3_UNIFY_DB_MIGRATION
     if (tryMigration) {
       tryMigration = false; // don't try twice
-      if (db().executef("ATTACH DATABASE '%s' AS old;", aDatabaseToMigrateFrom)==SQLITE_OK) {
-        LOG(LOG_WARNING, "%s: Migrating from separate database file '%s' now", mTablesPrefix.c_str(), aDatabaseToMigrateFrom);
-        // Query all table names in the attached database
-        sqlite3pp::query tableqry(db());
-        if (tableqry.prepare("SELECT name,sql FROM old.sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%';")!=SQLITE_OK) {
-          err = db().error("Error getting old table names and schemas: ");
-        }
-        else {
-          for (sqlite3pp::query::iterator namerow = tableqry.begin(); namerow!=tableqry.end(); namerow++) {
-            string tname = namerow->get<const char *>(0);
-            string tsql = namerow->get<const char *>(1);
-            string tablecreate = prefixedSql(string_substitute(tsql, tname, string_format("$PREFIX_%s", tname.c_str()), 1));
-            if (db().execute(tablecreate.c_str())!=SQLITE_OK) {
-              err = db().error("creating new table: ");
-              break;
-            }
-            string datacopy = prefixedSql(string_format("INSERT INTO $PREFIX_%s SELECT * FROM old.%s", tname.c_str(), tname.c_str()));
-            if (db().execute(datacopy.c_str())!=SQLITE_OK) {
-              err = db().error("copying table data: ");
-              break;
+      // only attach if file exists, empty file will be created otherwise by ATTACH
+      if (access(aDatabaseToMigrateFrom, F_OK)==0) {
+        if (db().executef("ATTACH DATABASE '%s' AS old;", aDatabaseToMigrateFrom)==SQLITE_OK) {
+          LOG(LOG_WARNING, "%s: Migrating from separate database file '%s' now", mTablesPrefix.c_str(), aDatabaseToMigrateFrom);
+          // Query all table names in the attached database
+          sqlite3pp::query tableqry(db());
+          if (tableqry.prepare("SELECT name,sql FROM old.sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%';")!=SQLITE_OK) {
+            err = db().error("Error getting old table names and schemas: ");
+          }
+          else {
+            for (sqlite3pp::query::iterator namerow = tableqry.begin(); namerow!=tableqry.end(); namerow++) {
+              string tname = namerow->get<const char *>(0);
+              string tsql = namerow->get<const char *>(1);
+              string tablecreate = prefixedSql(string_substitute(tsql, tname, string_format("$PREFIX_%s", tname.c_str()), 1));
+              if (db().execute(tablecreate.c_str())!=SQLITE_OK) {
+                err = db().error("creating new table: ");
+                break;
+              }
+              string datacopy = prefixedSql(string_format("INSERT INTO $PREFIX_%s SELECT * FROM old.%s", tname.c_str(), tname.c_str()));
+              if (db().execute(datacopy.c_str())!=SQLITE_OK) {
+                err = db().error("copying table data: ");
+                break;
+              }
             }
           }
-        }
-        // always detach
-        db().executef("DETACH DATABASE old;");
-        // must read current schema version again from migrated table
-        continue;
-      }
+          // always detach
+          db().executef("DETACH DATABASE old;");
+          // must read current schema version again from migrated table
+          didMigrateOk = Error::isOK(err);
+          continue;
+        } // can be attached
+      } // db file exists
+    }
+    else if (didMigrateOk && currentSchemaVersion>0 && aDatabaseToMigrateFrom) {
+      // we have migrated the DB
+      LOG(LOG_NOTICE, "%s: migration successful, deleting separate database file '%s' now", mTablesPrefix.c_str(), aDatabaseToMigrateFrom);
+      unlink(aDatabaseToMigrateFrom);
     }
     #endif // SQLITE3_UNIFY_DB_MIGRATION
     break;
@@ -234,25 +244,26 @@ ErrorPtr SQLite3TableGroup::initialize(SQLite3Persistence& aPersistence, const s
   // check for obsolete (ancient, not-to-be-upgraded DB versions)
   if (currentSchemaVersion>0 && aLowestValidSchemaVersion!=0 && currentSchemaVersion<aLowestValidSchemaVersion) {
     // there is a DB, but it is obsolete and should be deleted
-    LOG(LOG_WARNING, "table group '%s' has non-upgradeable ancient schemaVersion (%d) -> will be reset", mTablesPrefix.c_str(), currentSchemaVersion);
+    LOG(LOG_WARNING, "%s: has non-upgradeable ancient schemaVersion (%d) -> will be reset", mTablesPrefix.c_str(), currentSchemaVersion);
     currentSchemaVersion = 0; // force re-creating
   }
   // migrate if needed
   if (currentSchemaVersion>aNeededSchemaVersion) {
-    err = SQLite3Error::err(SQLITE_PERSISTENCE_ERR_SCHEMATOONEW,"Database has too new schema version: cannot be used");
+    err = SQLite3Error::err(SQLITE_PERSISTENCE_ERR_SCHEMATOONEW,"already too new schema version -> cannot be used");
   }
   else {
     while (currentSchemaVersion<aNeededSchemaVersion) {
       // get SQL statements for schema updating
       int nextSchemaVersion = aNeededSchemaVersion;
       string tmpl = schemaUpgradeSQL(currentSchemaVersion, nextSchemaVersion);
+      LOG(LOG_INFO, "- %s: upgrading from version %d to %d (finally: %d)", mTablesPrefix.c_str(), currentSchemaVersion, nextSchemaVersion, aNeededSchemaVersion);
       // safety check: MUST contain $PREFIX_
       if (tmpl.find(PREFIX_PLACEHOLDER)==string::npos) {
-        err = SQLite3Error::err(SQLITE_PERSISTENCE_ERR_MIGRATION, "fatal internal error: template does not contain table prefix(es)");
+        err = SQLite3Error::err(SQLITE_PERSISTENCE_ERR_MIGRATION, "fatal internal error: template does not contain " PREFIX_PLACEHOLDER);
         break;
       }
       if (tmpl.size()==0) {
-        err = SQLite3Error::err(SQLITE_PERSISTENCE_ERR_MIGRATION, string_format("Database migration error: no update path available from %d to %d", currentSchemaVersion, nextSchemaVersion).c_str());
+        err = SQLite3Error::err(SQLITE_PERSISTENCE_ERR_MIGRATION, string_format("no schema updgrade path available from %d to %d", currentSchemaVersion, nextSchemaVersion).c_str());
         break;
       }
       string upgradeSQL = prefixedSql(tmpl);
@@ -262,11 +273,10 @@ ErrorPtr SQLite3TableGroup::initialize(SQLite3Persistence& aPersistence, const s
       if (sq3err==SQLITE_OK)
         sq3err = upgradeCmd.execute_all();
       if (sq3err!=SQLITE_OK) {
-        LOG(LOG_ERR,
-          "SQLite3TableGroup: Error executing schema upgrade SQL from version %d to %d = %s : %s",
-          currentSchemaVersion, nextSchemaVersion, upgradeSQL.c_str(), db().error_msg()
-        );
-        err = db().error("Error executing migration SQL: ");
+        err = db().error(string_format(
+          "Error executing schema upgrade SQL from version %d to %d = %s : ",
+          currentSchemaVersion, nextSchemaVersion, upgradeSQL.c_str()
+        ).c_str());
         break;
       }
       upgradeCmd.finish();
@@ -275,8 +285,7 @@ ErrorPtr SQLite3TableGroup::initialize(SQLite3Persistence& aPersistence, const s
       // set it in globs
       sq3err = db().executef(prefixedSql("UPDATE $PREFIX_globs SET schemaVersion = %d").c_str(), currentSchemaVersion);
       if (sq3err!=SQLITE_OK) {
-        LOG(LOG_ERR, "SQLite3TableGroup: Cannot set schemaVersion = %d: %s", currentSchemaVersion, db().error_msg());
-        err = db().error("Error setting schema version: ");
+        err = db().error(string_format("Cannot set schemaVersion = %d : ", currentSchemaVersion).c_str());
         break;
       }
     }
@@ -286,7 +295,7 @@ ErrorPtr SQLite3TableGroup::initialize(SQLite3Persistence& aPersistence, const s
     mSchemaReady = true;
   }
   else {
-    LOG(LOG_ERR, "Error initializing SQLite3TableGroup: %s", err->text());
+    LOG(LOG_ERR, "Error initializing table group %s: %s", mTablesPrefix.c_str(), err->text());
   }
   return err;
 }
