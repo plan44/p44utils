@@ -81,6 +81,7 @@ namespace sqlite3pp
     int executef(char const* sql, ...); // __printflike(2,3); // is not really printflike because of non-standard placeholders like %q 
 
     int set_busy_timeout(int ms);
+    void standby();
 
     void set_busy_handler(busy_handler h);
     void set_commit_handler(commit_handler h);

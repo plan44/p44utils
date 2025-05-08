@@ -181,6 +181,10 @@ namespace sqlite3pp
     return sqlite3_busy_timeout(db_, ms);
   }
 
+  void database::standby()
+  {
+    sqlite3_db_release_memory(db_);
+  }
 
   statement::statement(database& db, char const* stmt) : db_(db), stmt_(0), tail_(0)
   {
