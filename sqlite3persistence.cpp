@@ -54,7 +54,7 @@ ErrorPtr SQLite3Error::err(int aSQLiteError, const char *aSQLiteMessage, const c
 
 
 SQLite3Persistence::SQLite3Persistence() :
-  mInitialized(false)
+  mConnected(false)
 {
 }
 
@@ -67,9 +67,9 @@ SQLite3Persistence::~SQLite3Persistence()
 
 void SQLite3Persistence::disconnectDatabase()
 {
-  if (mInitialized) {
+  if (mConnected) {
     disconnect();
-    mInitialized = false;
+    mConnected = false;
   }
 }
 
@@ -85,9 +85,17 @@ ErrorPtr SQLite3Persistence::connectDatabase(const char *aDatabaseFileName, bool
     unlink(aDatabaseFileName);
   }
   // now initialize the DB
-  if (!mInitialized) {
+  if (!mConnected) {
     err = connect(aDatabaseFileName);
-    if (err!=SQLITE_OK) {
+    if (err==SQLITE_OK) {
+      mConnected = true;
+      // do some performance tweaking
+      // - suggest smaller cache, -2000 (=2MB) is the default which is way to much for us.
+      //   400k is a lot as well, but we do sqlite3_db_release_memory() (via standby()) after accesses,
+      //   so actual cache only fills during accesses and is much lower at most times
+      execute("PRAGMA cache_size = -400;"); // negative: number of kBytes (positive: number of pages)
+    }
+    else {
       LOG(LOG_ERR, "SQLite3Persistence: Cannot open %s : %s", aDatabaseFileName, error_msg());
       return error();
     }
@@ -103,12 +111,11 @@ ErrorPtr SQLite3Persistence::error(const char *aContextMessage)
 
 
 
-
 // MARK: SQLite3TableGroup
 
 bool SQLite3TableGroup::isAvailable()
 {
-  return mPersistenceP && mPersistenceP->mInitialized && mSchemaReady;
+  return mPersistenceP && mPersistenceP->mConnected && mSchemaReady;
 }
 
 
@@ -293,6 +300,7 @@ ErrorPtr SQLite3TableGroup::initialize(SQLite3Persistence& aPersistence, const s
   // done
   if (Error::isOK(err)) {
     mSchemaReady = true;
+    db().standby(); // release as much memory as possible
   }
   else {
     LOG(LOG_ERR, "Error initializing table group %s: %s", mTablesPrefix.c_str(), err->text());

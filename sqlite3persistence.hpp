@@ -54,7 +54,7 @@ namespace p44 {
 
     friend class SQLite3TableGroup;
 
-    bool mInitialized;
+    bool mConnected;
 
   public:
 
@@ -71,6 +71,7 @@ namespace p44 {
 
     /// disconnect and finalize
     void disconnectDatabase();
+
   };
 
 
@@ -109,7 +110,7 @@ namespace p44 {
     bool isAvailable();
 
     /// execute statement from template with $PREFIX\_ in it
-    ErrorPtr prefixedExecute(const char* aTemplate, ...);
+    ErrorPtr prefixedExecute(const char* aTemplate, ...); // __printflike(2,3); // is not really printflike because of non-standard placeholders like %q
 
   private:
 
@@ -141,7 +142,7 @@ namespace p44 {
     int prepare(char const* stmt) = delete;
 
     /// prepared query from template with $PREFIX\_ in it
-    ErrorPtr prefixedPrepare(const char* aTemplate, ...);
+    ErrorPtr prefixedPrepare(const char* aTemplate, ...); // __printflike(2,3); // is not really printflike because of non-standard placeholders like %q
 
   };
 
@@ -160,7 +161,7 @@ namespace p44 {
     int prepare(char const* stmt) = delete;
 
     /// prepared query from template with $PREFIX\_ in it
-    ErrorPtr prefixedPrepare(const char* aTemplate, ...);
+    ErrorPtr prefixedPrepare(const char* aTemplate, ...); // __printflike(2,3); // is not really printflike because of non-standard placeholders like %q
 
   };
 
