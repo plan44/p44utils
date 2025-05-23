@@ -51,6 +51,8 @@ using namespace std;
 namespace p44 {
 
   class LvGLUi;
+  typedef boost::intrusive_ptr<LvGLUi> LvGLUiPtr;
+
 
   /// base class for any configurable object
   class LvGLUIObject : public P44Obj
