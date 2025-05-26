@@ -427,13 +427,15 @@ bool SerialComm::connectionIsOpen()
 
 // MARK: - break
 
-#define SENDBREAK_WORKS_WITH_SHORT_BREAK (!P44_BUILD_OW) // assume it does, normally - but does not on OpenWrt Linux for MT7688 SoC
+#ifndef PLATFORM_HAS_SHORTBREAK
+#define PLATFORM_HAS_SHORTBREAK (!P44_BUILD_OW) // assume it does, normally - but does not on OpenWrt Linux for MT7688 SoC
+#endif
 
 void SerialComm::sendBreak(MLMicroSeconds aDuration)
 {
   if (!connectionIsOpen() || !nativeSerialPort()) return; // ignore
-  #if SENDBREAK_WORKS_WITH_SHORT_BREAK || !defined(TIOCGSERIAL)
-  // tcsendbreak accepts duration (or we don't have means to mess with baud rate)
+  #if PLATFORM_HAS_SHORTBREAK || !defined(TIOCGSERIAL)
+  // tcsendbreak accepts duration (or we don't have means to mess with baud rate anyway)
   int breaklen = 0; // standard break, which should be >=0.25sec and <=0.5sec
   if (aDuration>0) breaklen = static_cast<int>((aDuration+MilliSecond-1)/MilliSecond);
   FOCUSLOG("- tcsendbreak with duration=%d", breaklen);
