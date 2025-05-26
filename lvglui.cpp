@@ -1,5 +1,6 @@
+//  SPDX-License-Identifier: GPL-3.0-or-later
 //
-//  Copyright (c) 2019 plan44.ch / Lukas Zeller, Zurich, Switzerland
+//  Copyright (c) 2019-2025 plan44.ch / Lukas Zeller, Zurich, Switzerland
 //
 //  Author: Lukas Zeller <luz@plan44.ch>
 //
@@ -83,10 +84,6 @@ static lv_fit_t getAutoFitByName(const string aAutoFitName)
 static lv_style_t* getStyleByName(const string aStyleName)
 {
   if (aStyleName=="scr")
-    return &lv_style_scr;
-  else if (aStyleName=="transp")
-    return &lv_style_transp;
-  else if (aStyleName=="scr")
     return &lv_style_scr;
   else if (aStyleName=="transp")
     return &lv_style_transp;
