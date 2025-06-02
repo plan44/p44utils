@@ -36,10 +36,6 @@
 #if ENABLE_LVGLUI_SCRIPT_FUNCS && !ENABLE_P44SCRIPT
   #error "ENABLE_P44SCRIPT required when ENABLE_LVGLUI_SCRIPT_FUNCS is set"
 #endif
-#ifndef LVGLUI_LEGCACY_FUNCTIONS
-  #define LVGLUI_LEGCACY_FUNCTIONS 0
-#endif
-
 
 #if ENABLE_LVGLUI_SCRIPT_FUNCS
   #include "p44script.hpp"
@@ -60,19 +56,31 @@ namespace p44 {
   {
   protected:
 
-    LvGLUi& lvglui;
-    string name;
+    LvGLUi& mLvglui;
+    string mName;
+
+    /// handle setting a event handler
+    /// @param aEventCode the event to handler
+    /// @param aHandler the p44script handler for the event
+    virtual ErrorPtr setEventHandler(lv_event_code_t aEventCode, JsonObjectPtr aHandler);
 
   public:
 
-    LvGLUIObject(LvGLUi& aLvGLUI) : lvglui(aLvGLUI) {};
+    LvGLUIObject(LvGLUi& aLvGLUI) : mLvglui(aLvGLUI) {};
 
-    const string& getName() { return name; };
-    LvGLUi& getLvGLUi() { return lvglui; };
+    const string& getName() { return mName; };
+    LvGLUi& getLvGLUi() { return mLvglui; };
 
     /// configure this object from json
+    /// @note this might need to be overridden for objects that need to process
+    ///   properties in a specific order
     /// @param aConfig JSON object containing configuration propertyname/values
     virtual ErrorPtr configure(JsonObjectPtr aConfig);
+
+    /// handle setting a property
+    /// @param aName the name of the property
+    /// @param aValue the value of the property
+    virtual ErrorPtr setProperty(const string& aName, JsonObjectPtr aValue);
 
   };
 
@@ -86,13 +94,13 @@ namespace p44 {
 
   public:
 
-    lv_theme_t* theme;
+    lv_theme_t* mTheme;
 
-    LvGLUiTheme(LvGLUi& aLvGLUI) : inherited(aLvGLUI), theme(NULL) {};
+    LvGLUiTheme(LvGLUi& aLvGLUI) : inherited(aLvGLUI), mTheme(NULL) {};
 
     /// configure this object from json
     /// @param aConfig JSON object containing configuration propertyname/values
-    virtual ErrorPtr configure(JsonObjectPtr aConfig) P44_OVERRIDE;
+    virtual ErrorPtr configure(JsonObjectPtr aConfig);
 
   };
   typedef boost::intrusive_ptr<LvGLUiTheme> LvGLUiThemePtr;
@@ -106,13 +114,17 @@ namespace p44 {
 
   public:
 
-    lv_style_t style; ///< the LGVL style
+    lv_style_t mStyle; ///< the LGVL style
+    int32_t* mGridColsP; ///< grid columnts
+    int32_t* mGridRowsP; ///< grid rows
 
     LvGLUiStyle(LvGLUi& aLvGLUI);
+    virtual ~LvGLUiStyle();
 
-    /// configure this object from json
-    /// @param aConfig JSON object containing configuration propertyname/values
-    virtual ErrorPtr configure(JsonObjectPtr aConfig) P44_OVERRIDE;
+    /// handle setting a property
+    /// @param aName the name of the property
+    /// @param aValue the value of the property
+    virtual ErrorPtr setProperty(const string& aName, JsonObjectPtr aValue) P44_OVERRIDE;
 
   };
   typedef boost::intrusive_ptr<LvGLUiStyle> LvGLUiStylePtr;
@@ -128,6 +140,19 @@ namespace p44 {
   typedef boost::intrusive_ptr<LvGLUiContainer> LVGLUiContainerPtr;
 
 
+  #if ENABLE_LVGLUI_SCRIPT_FUNCS
+  class LVGLUIEventHandler : public P44Obj
+  {
+  public:
+    LVGLUiElement& mLVGLUIElement; ///< the element this handler is for
+    P44Script::ScriptHost mEventScript; ///< script executed to process event
+
+    LVGLUIEventHandler(LVGLUiElement& aElement, lv_event_code_t aEventCode, const string& aSource);
+  };
+  typedef boost::intrusive_ptr<LVGLUIEventHandler> LVGLUIEventHandlerPtr;
+  #endif
+
+
   /// abstract base class for visible UI elements, wrapping a lv_obj
   class LVGLUiElement : public LvGLUIObject
   {
@@ -135,17 +160,18 @@ namespace p44 {
 
     typedef LvGLUIObject inherited;
     #if ENABLE_LVGLUI_SCRIPT_FUNCS
-    P44Script::ScriptHost onEventScript; ///< script executed to process otherwise unhandled lvgl events on this element
-    P44Script::ScriptHost onRefreshScript; ///< script executed to specifically process "refresh" event
+    typedef std::list<LVGLUIEventHandlerPtr> EventHandlersList;
+    EventHandlersList mEventHandlers;
+    LVGLUIEventHandlerPtr mRefreshEventHandler; // separate in case we want to call it directly
     #endif
-    bool handlesEvents;
+    bool mHandlesEvents;
 
   public:
 
-    lv_obj_t* element;
-    LvGLUiContainer* parentP;
+    lv_obj_t* mElement;
+    LvGLUiContainer* mParentP;
 
-    LVGLUiElement(LvGLUi& aLvGLUI, LvGLUiContainer* aParentP, lv_obj_t *aTemplate);
+    LVGLUiElement(LvGLUi& aLvGLUI, LvGLUiContainer* aParentP);
     virtual ~LVGLUiElement();
 
     lv_obj_t* lvParent();
@@ -165,17 +191,18 @@ namespace p44 {
 
     /// configure this object from json
     /// @param aConfig JSON object containing configuration propertyname/values
-    /// @param aParent parent object, or NULL if none
     virtual ErrorPtr configure(JsonObjectPtr aConfig) P44_OVERRIDE;
 
-    /// let object handle an event
-    virtual void handleEvent(lv_event_t aEvent);
+    /// handle setting a property
+    /// @param aName the name of the property
+    /// @param aValue the value of the property
+    virtual ErrorPtr setProperty(const string& aName, JsonObjectPtr aValue) P44_OVERRIDE;
 
     /// clear this element (and all of its named and unnamed children)
     virtual void clear();
 
     /// @return true if the wrapper object must be kept around (e.g. because it needs to handle events)
-    virtual bool wrapperNeeded() { return handlesEvents || !getName().empty(); }; // simple objects need the wrapper only if they handle events or can be referenced by name
+    virtual bool wrapperNeeded() { return !mEventHandlers.empty() || !getName().empty(); }; // simple objects need the wrapper only if they handle events or can be referenced by name
 
     /// @param aValue the value to set to the element (depends on element type)
     /// @param aAnimationTime if set>0, the value change will be animated
@@ -188,17 +215,20 @@ namespace p44 {
     /// @return current value of the control
     virtual int16_t getValue() { return 0; /* no value in base class */ }
 
-    /// run event script
     #if ENABLE_LVGLUI_SCRIPT_FUNCS
-    void runEventScript(lv_event_t aEvent, P44Script::ScriptHost& aScriptCode);
+
+    /// run event script
+    void runEventScript(lv_event_code_t aEventCode, P44Script::ScriptHost& aScriptCode);
     void scriptDone();
-    #endif
+
+    /// set event handler
+    virtual ErrorPtr setEventHandler(lv_event_code_t aEventCode, JsonObjectPtr aHandler) P44_OVERRIDE;
+
+    #endif // ENABLE_LVGLUI_SCRIPT_FUNCS
 
   protected:
 
-    void installEventHandler();
     virtual void setTextRaw(const string &aNewText) { /* NOP in base class */ }
-
 
     static const void* imgSrc(const string& aSource);
 
@@ -207,33 +237,27 @@ namespace p44 {
   typedef std::list<LVGLUiElementPtr> ElementList;
 
 
-  /// abstract class for lv_cont and similar objects with layout features
-  class LvGLUiLayoutContainer : public LVGLUiElement
+  /// abstract for a UI element that can create contained child objects from config
+  class LvGLUiContainer : public LVGLUiElement
   {
     typedef LVGLUiElement inherited;
-  public:
-    LvGLUiLayoutContainer(LvGLUi& aLvGLUI, LvGLUiContainer* aParentP, lv_obj_t *aTemplate) : inherited(aLvGLUI, aParentP, aTemplate) {};
-    virtual ErrorPtr configure(JsonObjectPtr aConfig) P44_OVERRIDE;
-  };
-
-
-  /// abstract for a UI element that can create contained child objects from config
-  class LvGLUiContainer : public LvGLUiLayoutContainer
-  {
-    typedef LvGLUiLayoutContainer inherited;
     friend class LvGLUi;
 
-    ElementMap namedElements; ///< the contained elements that have a name because the need to be referencable
-    ElementList anonymousElements; ///< the contained elements that need to be around after configuration because they are actionable
+    ElementMap mNamedElements; ///< the contained elements that have a name because the need to be referencable
+    ElementList mAnonymousElements; ///< the contained elements that need to be around after configuration because they are actionable
 
   public:
 
-    LvGLUiContainer(LvGLUi& aLvGLUI, LvGLUiContainer* aParentP, lv_obj_t *aTemplate) : inherited(aLvGLUI, aParentP, aTemplate) {};
+    LvGLUiContainer(LvGLUi& aLvGLUI, LvGLUiContainer* aParentP) : inherited(aLvGLUI, aParentP) {};
 
     /// configure this object from json
     /// @param aConfig JSON object containing configuration propertyname/values
-    /// @param aParent parent object, or NULL if none
     virtual ErrorPtr configure(JsonObjectPtr aConfig) P44_OVERRIDE;
+
+    /// handle setting a property
+    /// @param aName the name of the property
+    /// @param aValue the value of the property
+    virtual ErrorPtr setProperty(const string& aName, JsonObjectPtr aValue) P44_OVERRIDE;
 
     /// clear this element (and all of its named and unnamed children)
     virtual void clear() P44_OVERRIDE;
@@ -254,7 +278,7 @@ namespace p44 {
   {
     typedef LVGLUiElement inherited;
   public:
-    LvGLUiPlain(LvGLUi& aLvGLUI, LvGLUiContainer* aParentP, lv_obj_t *aTemplate);
+    LvGLUiPlain(LvGLUi& aLvGLUI, LvGLUiContainer* aParentP);
   };
 
 
@@ -262,7 +286,7 @@ namespace p44 {
   {
     typedef LvGLUiContainer inherited;
   public:
-    LvGLUiPanel(LvGLUi& aLvGLUI, LvGLUiContainer* aParentP, lv_obj_t *aTemplate);
+    LvGLUiPanel(LvGLUi& aLvGLUI, LvGLUiContainer* aParentP);
   };
 
 
@@ -270,10 +294,10 @@ namespace p44 {
   class LvGLUiImage : public LVGLUiElement
   {
     typedef LVGLUiElement inherited;
-    string imgSrc;
+    string mImgSrc;
   public:
-    LvGLUiImage(LvGLUi& aLvGLUI, LvGLUiContainer* aParentP, lv_obj_t *aTemplate);
-    virtual ErrorPtr configure(JsonObjectPtr aConfig) P44_OVERRIDE;
+    LvGLUiImage(LvGLUi& aLvGLUI, LvGLUiContainer* aParentP);
+    virtual ErrorPtr setProperty(const string& aName, JsonObjectPtr aValue) P44_OVERRIDE;
     virtual void setTextRaw(const string &aNewText) P44_OVERRIDE;
     virtual bool wrapperNeeded() P44_OVERRIDE { return true; }; // wrapper stores the image source, must be kept
 };
@@ -283,25 +307,25 @@ namespace p44 {
   {
     typedef LVGLUiElement inherited;
   public:
-    LvGLUiLabel(LvGLUi& aLvGLUI, LvGLUiContainer* aParentP, lv_obj_t *aTemplate);
-    virtual ErrorPtr configure(JsonObjectPtr aConfig) P44_OVERRIDE;
+    LvGLUiLabel(LvGLUi& aLvGLUI, LvGLUiContainer* aParentP);
+    virtual ErrorPtr setProperty(const string& aName, JsonObjectPtr aValue) P44_OVERRIDE;
     virtual void setTextRaw(const string &aNewText) P44_OVERRIDE;
   };
 
 
-  class LvGLUiButton : public LvGLUiLayoutContainer
+  class LvGLUiButton : public LvGLUiContainer
   {
-    typedef LvGLUiLayoutContainer inherited;
+    typedef LvGLUiContainer inherited;
     #if ENABLE_LVGLUI_SCRIPT_FUNCS
-    P44Script::ScriptHost onPressScript;
-    P44Script::ScriptHost onReleaseScript;
+    P44Script::ScriptHost mOnPressScript;
+    P44Script::ScriptHost mOnReleaseScript;
     #endif
-    lv_obj_t *label;
+    lv_obj_t *mLabel;
   public:
-    LvGLUiButton(LvGLUi& aLvGLUI, LvGLUiContainer* aParentP, lv_obj_t *aTemplate);
-    virtual ErrorPtr configure(JsonObjectPtr aConfig) P44_OVERRIDE;
+    LvGLUiButton(LvGLUi& aLvGLUI, LvGLUiContainer* aParentP);
+    virtual ~LvGLUiButton();
+    virtual ErrorPtr setProperty(const string& aName, JsonObjectPtr aValue) P44_OVERRIDE;
   protected:
-    virtual void handleEvent(lv_event_t aEvent) P44_OVERRIDE;
     virtual void setTextRaw(const string &aNewText) P44_OVERRIDE;
   };
 
@@ -309,10 +333,6 @@ namespace p44 {
   class LvGLUiImgButton : public LVGLUiElement
   {
     typedef LVGLUiElement inherited;
-    #if ENABLE_LVGLUI_SCRIPT_FUNCS
-    P44Script::ScriptHost onPressScript;
-    P44Script::ScriptHost onReleaseScript;
-    #endif
     string relImgSrc;
     string prImgSrc;
     string tglPrImgSrc;
@@ -320,48 +340,35 @@ namespace p44 {
     string inaImgSrc;
     bool imgsAssigned;
   public:
-    LvGLUiImgButton(LvGLUi& aLvGLUI, LvGLUiContainer* aParentP, lv_obj_t *aTemplate);
-    virtual ErrorPtr configure(JsonObjectPtr aConfig) P44_OVERRIDE;
+    LvGLUiImgButton(LvGLUi& aLvGLUI, LvGLUiContainer* aParentP);
+    virtual ErrorPtr setProperty(const string& aName, JsonObjectPtr aValue) P44_OVERRIDE;
     virtual bool wrapperNeeded() P44_OVERRIDE { return true; }; // wrapper stores the image sources, must be kept
   protected:
-    virtual void handleEvent(lv_event_t aEvent) P44_OVERRIDE;
     static const void *imgBtnSrc(const string& aSource);
   };
 
 
-  class LvGLUiBarBase : public LVGLUiElement
+  class LvGLUiBar : public LVGLUiElement
   {
     typedef LVGLUiElement inherited;
   public:
-    LvGLUiBarBase(LvGLUi& aLvGLUI, LvGLUiContainer* aParentP, lv_obj_t *aTemplate) : inherited(aLvGLUI, aParentP, aTemplate) {};
-    virtual ErrorPtr configure(JsonObjectPtr aConfig) P44_OVERRIDE;
+    LvGLUiBar(LvGLUi& aLvGLUI, LvGLUiContainer* aParentP);
+    virtual ErrorPtr setProperty(const string& aName, JsonObjectPtr aValue) P44_OVERRIDE;
   protected:
+    virtual int16_t getValue() P44_OVERRIDE { return lv_bar_get_value(mElement); }
     virtual void setValue(int16_t aValue, uint16_t aAnimationTimeMs = 0) P44_OVERRIDE;
   };
 
 
-  class LvGLUiBar : public LvGLUiBarBase
+  class LvGLUiSlider : public LVGLUiElement
   {
-    typedef LvGLUiBarBase inherited;
+    typedef LVGLUiElement inherited;
   public:
-    LvGLUiBar(LvGLUi& aLvGLUI, LvGLUiContainer* aParentP, lv_obj_t *aTemplate);
-    virtual int16_t getValue() P44_OVERRIDE { return lv_bar_get_value(element); }
-  };
-
-
-  class LvGLUiSlider : public LvGLUiBarBase
-  {
-    typedef LvGLUiBarBase inherited;
-    #if ENABLE_LVGLUI_SCRIPT_FUNCS
-    P44Script::ScriptHost onChangeScript;
-    P44Script::ScriptHost onReleaseScript;
-    #endif
-  public:
-    LvGLUiSlider(LvGLUi& aLvGLUI, LvGLUiContainer* aParentP, lv_obj_t *aTemplate);
-    virtual ErrorPtr configure(JsonObjectPtr aConfig) P44_OVERRIDE;
+    LvGLUiSlider(LvGLUi& aLvGLUI, LvGLUiContainer* aParentP);
+    virtual ErrorPtr setProperty(const string& aName, JsonObjectPtr aValue) P44_OVERRIDE;
   protected:
-    virtual void handleEvent(lv_event_t aEvent) P44_OVERRIDE;
-    virtual int16_t getValue() P44_OVERRIDE { return lv_slider_get_value(element); }
+    virtual int16_t getValue() P44_OVERRIDE;
+    virtual void setValue(int16_t aValue, uint16_t aAnimationTimeMs = 0) P44_OVERRIDE;
   };
 
 
@@ -371,11 +378,11 @@ namespace p44 {
   {
     typedef LvGLUiContainer inherited;
 
-    lv_disp_t *display; ///< the display this gui appears on
+    lv_disp_t* mDisplay; ///< the display this gui appears on
 
-    StyleMap styles; ///< custom styles
-    StyleList adhocStyles; ///< keeps ad hoc styles
-    ThemeMap themes; ///< initialized themes (basic theme + hue + font)
+    StyleMap mStyles; ///< custom styles
+    StyleList mAdhocStyles; ///< keeps ad hoc styles
+    ThemeMap mThemes; ///< initialized themes (basic theme + hue + font)
 
     bool mDataPathResources; ///< look for resources also in data path
     string mResourcePrefix; ///< prefix for resource loading
@@ -383,8 +390,8 @@ namespace p44 {
     #if ENABLE_LVGLUI_SCRIPT_FUNCS
     P44Script::ScriptMainContextPtr mScriptMainContext;
     P44Script::ScriptObjPtr mRepresentingObj;
-    P44Script::ScriptHost activityTimeoutScript;
-    P44Script::ScriptHost activationScript;
+    P44Script::ScriptHost mActivityTimeoutScript;
+    P44Script::ScriptHost mActivationScript;
     #endif
 
   protected:
@@ -414,20 +421,22 @@ namespace p44 {
     /// @param aActivated if set, this is an UI activation, otherwise a UI timeout
     void uiActivation(bool aActivated);
 
-
     #endif // ENABLE_LVGLUI_SCRIPT_FUNCS
 
     /// initialize for use with a specified display
     /// @param aDisplay the display to use
     void initForDisplay(lv_disp_t* aDisplay);
 
+    /// @return the lv\_disp_t this UI runs on
+    lv_disp_t* display() { return mDisplay; }
+
     /// clear current UI and set new config
     /// @param aConfig the new config for the UI
     ErrorPtr setConfig(JsonObjectPtr aConfig);
 
-    /// can be used to re-configure UI later (e.g. to add more screens) without clearing existing UI hierarchy
-    /// @param aConfig configuration to apply to the global lvgl container, e.g. new screen or style
-    /// @return ok or error
+    /// configure this object from json
+    /// @note overridden because GUI setup needs to be processed in specific order
+    /// @param aConfig JSON object containing configuration propertyname/values
     virtual ErrorPtr configure(JsonObjectPtr aConfig) P44_OVERRIDE;
 
     /// get named theme (from themes defined in config)
@@ -441,10 +450,11 @@ namespace p44 {
     lv_style_t* namedStyle(const string aStyleName);
 
     /// get named style from styles list or create ad-hoc style from definition
-    /// @param aStyleNameOrDefinition single string with the name of an existing style, or object defining an ad-hoc style
-    /// @param aDefaultToPlain if true, and style does not exist or cannot be defined ad-hoc, return the plain style instead of NULL
-    /// @return specified existig or ad-hoc style, NULL (or plain if aDefaultToPlain is set) if specified style cannot be returned
-    lv_style_t* namedOrAdHocStyle(JsonObjectPtr aStyleNameOrDefinition, bool aDefaultToPlain);
+    /// @param aStyleSpecOrDefinition single string with the name and states of an existing style, or object defining an ad-hoc style and "states"
+    /// @param aStyleP will be set to named or adhoc style (owned by this UI)
+    /// @param aSelector state(s) and part(s) this style should apply to, default is LV_STATE_DEFAULT;
+    /// @return true if a style could be found/created
+    ErrorPtr namedOrAdHocStyle(JsonObjectPtr aStyleSpecOrDefinition, lv_style_t*& aStyleP, lv_style_selector_t& aSelector);
 
     /// get image file path, will possibly look up in different places (resources, data)
     /// @param aImageSpec a path or filename specifying an image
@@ -492,19 +502,6 @@ namespace p44 {
       virtual string getAnnotation() const P44_OVERRIDE { return "lvglObj"; };
       LVGLUiElementPtr element() { return mElement; }
     };
-
-
-    #if LVGLUI_LEGCACY_FUNCTIONS
-    /// represents the global objects related to lvglui
-    class LvGLUiLookup : public BuiltInMemberLookup
-    {
-      typedef BuiltInMemberLookup inherited;
-      LvGLUi& mLvGLUi;
-    public:
-      LvGLUi* lvglui() { return &mLvGLUi; };
-      LvGLUiLookup(LvGLUi &aLvGLUi);
-    };
-    #endif // LVGLUI_LEGCACY_FUNCTIONS
 
   }
   #endif // ENABLE_LVGLUI_SCRIPT_FUNCS

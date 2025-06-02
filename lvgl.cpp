@@ -40,25 +40,18 @@
 using namespace p44;
 
 LvGL::LvGL() :
-  dispdev(NULL),
-  pointer_indev(NULL),
-  keyboard_indev(NULL),
-  showCursor(false),
-  buf1(NULL)
+  mDisplay(nullptr),
+  mWithKeyboard(false)
 {
 }
 
 
 LvGL::~LvGL()
 {
-  if (buf1) {
-    delete[] buf1;
-    buf1 = NULL;
-  }
 }
 
 
-static LvGL* lvglP = NULL;
+static LvGLPtr lvglP;
 
 LvGL& LvGL::lvgl()
 {
@@ -72,16 +65,16 @@ LvGL& LvGL::lvgl()
 
 #if LV_USE_LOG
 
-extern "C" void lvgl_log_cb(lv_log_level_t level, const char *file, uint32_t line, const char *dsc)
+extern "C" void lvgl_log_cb(lv_log_level_t aLevel, const char *aMsg)
 {
   int logLevel = LOG_WARNING;
-  switch (level) {
+  switch (aLevel) {
     case LV_LOG_LEVEL_TRACE: logLevel = LOG_DEBUG; break; // A lot of logs to give detailed information
     case LV_LOG_LEVEL_INFO: logLevel = LOG_INFO; break; // Log important events
     case LV_LOG_LEVEL_WARN: logLevel = LOG_WARNING; break; // Log if something unwanted happened but didn't caused problem
     case LV_LOG_LEVEL_ERROR: logLevel = LOG_ERR; break; // Only critical issue, when the system may fail
   }
-  LOG(logLevel, "lvgl %s:%d - %s", file, line, dsc);
+  POLOG(lvglP, logLevel, "%s", aMsg);
 }
 
 #endif // LV_USE_LOG
@@ -194,10 +187,10 @@ typedef struct {
 /// @param src can be file name or pointer to a C array
 /// @param header store the info here
 /// @return LV_RES_OK: no error; LV_RES_INV: can't get the info
-static lv_res_t png_decoder_info(lv_img_decoder_t* decoder, const void* src, lv_img_header_t* header)
+static lv_res_t png_decoder_info(lv_img_decoder_t* decoder, const void* src, lv_image_header_t* header)
 {
   lv_img_src_t imgtype = lv_img_src_get_type(src);
-  if (imgtype==LV_IMG_SRC_SYMBOL) return LV_RES_INV; // short cut any PNG specifics
+  if (imgtype==LV_IMAGE_SRC_SYMBOL) return LV_RES_INV; // short cut any PNG specifics
   // maintain a PngDecoderState as user data of the decoder
   PngDecoderState* pngDecP = (PngDecoderState*)decoder->user_data;
   if (pngDecP==NULL) {
@@ -216,7 +209,7 @@ static lv_res_t png_decoder_info(lv_img_decoder_t* decoder, const void* src, lv_
     free(pngDecP->pngBuffer);
     pngDecP->pngBuffer = NULL;
   }
-  if (imgtype==LV_IMG_SRC_FILE) {
+  if (imgtype==LV_IMAGE_SRC_FILE) {
     const char *fn = (const char*)src;
     size_t n = strlen(fn);
     if(n<5 || strcmp(&fn[strlen(fn) - 4], ".png")!=0) {
@@ -230,7 +223,7 @@ static lv_res_t png_decoder_info(lv_img_decoder_t* decoder, const void* src, lv_
       return LV_RES_INV;
     }
   }
-  else if (imgtype==LV_IMG_SRC_UNKNOWN) {
+  else if (imgtype==LV_IMAGE_SRC_UNKNOWN) {
     // unknown by littlevGL, could be pointer to a PNG in memory
     size_t size = 100;
     if (png_image_begin_read_from_memory(&pngDecP->pngImage, src, size) == 0) {
@@ -384,67 +377,118 @@ static void png_decoder_close(lv_img_decoder_t * decoder, lv_img_decoder_dsc_t *
 #endif // ENABLE_IMAGE_SUPPORT
 
 
+// MARK: - get current millis
+
+static inline uint32_t getmillis(void)
+{
+  return (uint32_t)_p44_millis();
+}
+
+
+
 // MARK: - littlevGL initialisation
 
-#define DISPLAY_BUFFER_LINES 10
-#define DISPLAY_BUFFER_SIZE (LV_HOR_RES_MAX * DISPLAY_BUFFER_LINES)
-
-void LvGL::init(bool aShowCursor)
+void LvGL::init(const string aDispSpec)
 {
-  showCursor = aShowCursor;
+  // defaults
+  string dispdev = "/dev/fb0";
+  int colorformat = 0;
+  int32_t dx = 0; // default
+  int32_t dy = 0; // default
+  mWithKeyboard = false;
+  lv_display_rotation_t rotation = LV_DISPLAY_ROTATION_0; // default
+  string evdev = "/dev/input/event0";
+  // aDispSpec:
+  //   [<display device>[:<evdev device>]][<dx>:<dy>[:<colorformat>]][:<options>]
+  //   - display device name, defaults to /dev/fb0, irrelevant for SDL sim
+  //   - dx,dy: integers
+  //   - options: characters
+  //     - C: show cursor
+  //     - L: rotate left
+  //     - R: rotate right
+  //     - U: upside down
+  string part;
+  const char *p = aDispSpec.c_str();
+  int nmbrcnt = 0;
+  int txtcnt = 0;
+  while (nextPart(p, part, ':')) {
+    if (!isdigit(part[0])) {
+      // text
+      if (nmbrcnt==0) {
+        // texts before first number
+        if (txtcnt==0) {
+          dispdev = part;
+          txtcnt++;
+        }
+        else if (txtcnt==1) {
+          evdev = part;
+          txtcnt++;
+        }
+      }
+      else {
+        // text after first number are options
+        for (size_t i=0; i<part.size(); i++) {
+          switch (part[i]) {
+            case 'K': mWithKeyboard = true; break;
+            case 'R': rotation = LV_DISPLAY_ROTATION_90; break;
+            case 'U': rotation = LV_DISPLAY_ROTATION_180; break;
+            case 'L': rotation = LV_DISPLAY_ROTATION_270; break;
+          }
+        }
+      }
+    }
+    else {
+      // number
+      int n = atoi(part.c_str());
+      switch (nmbrcnt) {
+        case 0: dx = n; break;
+        case 1: dy = n; break;
+        default: break;
+      }
+      nmbrcnt++;
+    }
+  }
   // init library
   lv_init();
   #if LV_USE_LOG
   lv_log_register_print_cb(lvgl_log_cb);
   #endif
-  // init disply buffer
-  buf1 = new lv_color_t[DISPLAY_BUFFER_SIZE];
-  lv_disp_buf_init(&disp_buf, buf1, NULL, DISPLAY_BUFFER_SIZE);
-  // init the display driver
-  lv_disp_drv_t disp_drv;
-  lv_disp_drv_init(&disp_drv);
-  disp_drv.hor_res = LV_HOR_RES_MAX;
-  disp_drv.ver_res = LV_VER_RES_MAX;
-  disp_drv.buffer = &disp_buf;
+  // init tick getter
+  lv_tick_set_cb(getmillis);
+  // init display
   #if defined(__APPLE__)
-  // - use SDL2 monitor
-  monitor_init();
-  disp_drv.flush_cb = monitor_flush;
+  // - SDL2
+  if (dx<=0) dx = 720;
+  if (dy<=0) dy = 720;
+  mDisplay = lv_sdl_window_create(dx, dy);
   #else
-  // - use fbdev framebuffer device
-  fbdev_init();
-  disp_drv.flush_cb = fbdev_flush;
+  // - Linux frame buffer
+  mDisplay = lv_linux_fbdev_create();
+  lv_linux_fbdev_set_file(mDisplay, dispdev.c_str()); // will read fb properties from device
   #endif
-  dispdev = lv_disp_drv_register(&disp_drv);
-  // init input driver
-  lv_indev_drv_t pointer_indev_drv;
-  lv_indev_drv_init(&pointer_indev_drv);
-  pointer_indev_drv.type = LV_INDEV_TYPE_POINTER;
-  #if defined(__APPLE__)
-  // - use mouse
-  mouse_init();
-  pointer_indev_drv.read_cb = mouse_read;
-  #else
-  // - init input driver
-  evdev_init();
-  pointer_indev_drv.read_cb = evdev_read;
-  #endif
-  pointer_indev = lv_indev_drv_register(&pointer_indev_drv);  /*Register the driver in LittlevGL*/
-  #if MOUSE_CURSOR_SUPPORT
-  if (showCursor) {
-    lv_obj_t *cursor;
-    cursor = lv_obj_create(lv_scr_act(), NULL);
-    lv_obj_set_size(cursor, 24, 24);
-    static lv_style_t style_round;
-    lv_style_copy(&style_round, &lv_style_plain);
-    style_round.body.radius = LV_RADIUS_CIRCLE;
-    style_round.body.main_color = LV_COLOR_RED;
-    style_round.body.opa = LV_OPA_COVER;
-    lv_obj_set_style(cursor, &style_round);
-    lv_obj_set_click(cursor, false); // important, or all clicks get caught by the cursor itself!
-    lv_indev_set_cursor(pointer_indev, cursor);
+  if (dx>0 && dy>0) {
+    // manual resolution
+    lv_display_set_resolution(mDisplay, dx, dy);
   }
-  #endif // MOUSE_CURSOR_SUPPORT
+  if (colorformat>0) {
+    // manual color format
+    lv_display_set_color_format(mDisplay, (lv_color_format_t)colorformat);
+  }
+  if (rotation!=LV_DISPLAY_ROTATION_0) {
+    lv_display_set_rotation(mDisplay, rotation);
+  }
+  // init input devices
+  #if defined(__APPLE__)
+  lv_indev_t *touch = lv_sdl_mouse_create();
+  lv_indev_set_display(touch, mDisplay);
+  if (mWithKeyboard) {
+    lv_indev_t *kbd = lv_sdl_keyboard_create();
+    lv_indev_set_display(kbd, mDisplay);
+  }
+  #else
+  lv_indev_t *touch = lv_evdev_create(LV_INDEV_TYPE_POINTER, evdev.c_str());
+  lv_indev_set_display(touch, mDisplay);
+  #endif
   // - register (readonly, only for getting images) file system support
   #if LV_USE_FILESYSTEM
   memset(&pf_fs_drv, 0, sizeof(lv_fs_drv_t));    // Initialization
@@ -465,7 +509,7 @@ void LvGL::init(bool aShowCursor)
   lv_img_decoder_set_close_cb(dec, png_decoder_close);
   #endif // ENABLE_IMAGE_SUPPORT
   // - schedule updates
-  lvglTicket.executeOnce(boost::bind(&LvGL::lvglTask, this, _1, _2));
+  mLvglTicket.executeOnce(boost::bind(&LvGL::lvglTask, this, _1, _2));
 }
 
 
@@ -481,10 +525,11 @@ void LvGL::lvglTask(MLTimer &aTimer, MLMicroSeconds aNow)
   lv_task_handler();
   #if defined(__APPLE__)
   // also need to update SDL2
-  monitor_sdl_refr_core();
+  //monitor_sdl_refr_core();
+  if (mDisplay) lv_refr_now(mDisplay);
   #endif
-  if (taskCallback && dispdev) {
-    taskCallback();
+  if (mTaskCallback && mDisplay) {
+    mTaskCallback();
   }
   MainLoop::currentMainLoop().retriggerTimer(aTimer, LVGL_TICK_PERIOD);
 }
@@ -492,7 +537,7 @@ void LvGL::lvglTask(MLTimer &aTimer, MLMicroSeconds aNow)
 
 void LvGL::setTaskCallback(SimpleCB aCallback)
 {
-  taskCallback = aCallback;
+  mTaskCallback = aCallback;
 }
 
 

@@ -33,26 +33,18 @@
 
 #include "p44utils_common.hpp"
 
-#include "lvgl/lvgl.h"
-
-#if defined(__APPLE__)
-  // test&debugging build on MacOS, using SDL2 for graphics
-  // - littlevGL
-  #include "lv_drivers/display/monitor.h"
-  #include "lv_drivers/indev/mouse.h"
-#else
-  // target platform build
-  // - littlevGL
-  #include "lv_drivers/display/fbdev.h"
-  #include "lv_drivers/indev/evdev.h"
-#endif
+#include "lvgl.h"
+#include "drivers/lv_drivers.h"
 
 #ifndef MOUSE_CURSOR_SUPPORT
   #define MOUSE_CURSOR_SUPPORT 1
 #endif
 
 #ifndef ENABLE_IMAGE_SUPPORT
-  #define ENABLE_IMAGE_SUPPORT 1
+  #if !DEBUG
+    #error "tbd: re-enable"
+  #endif
+  #define ENABLE_IMAGE_SUPPORT 0
 #endif
 
 
@@ -61,20 +53,16 @@ using namespace std;
 namespace p44 {
 
   // singleton wrapper for LittlevGL
-  class LvGL
+  class LvGL : public P44LoggingObj
   {
-    lv_disp_t *dispdev; ///< the display device
-    lv_indev_t *pointer_indev; ///< the input device for pointer (touch, mouse)
-    lv_indev_t *keyboard_indev; ///< the input device for keyboard
-    MLTicket lvglTicket; ///< the display tasks timer
-    bool showCursor; ///< set if a cursor should be shown (for debug)
-    lv_disp_buf_t disp_buf; ///< the display buffer descriptors
-    lv_color_t *buf1; ///< the buffer
-    uint32_t lastActivity; ///< for activity detection
-    SimpleCB taskCallback; ///< called when detecting user activity
+    lv_display_t *mDisplay; ///< the display
+    MLTicket mLvglTicket; ///< the display tasks timer
+    bool mWithKeyboard; ///< set if a keyboard should be attached (simulator only)
+    uint32_t mLastActivity; ///< for activity detection
+    SimpleCB mTaskCallback; ///< called when detecting user activity
 
     #if LV_USE_FILESYSTEM
-    lv_fs_drv_t pf_fs_drv;
+    lv_fs_drv_t mPf_fs_drv;
     #endif
 
     LvGL();
@@ -84,18 +72,18 @@ namespace p44 {
 
     static LvGL& lvgl();
 
-    void init(bool aShowCursor);
+    void init(const string aDispSpec);
 
     void setTaskCallback(SimpleCB aCallback);
+
+    virtual string contextType() const P44_OVERRIDE { return "lvgl"; };
 
   private:
 
     void lvglTask(MLTimer &aTimer, MLMicroSeconds aNow);
 
   };
-
-
-
+  typedef boost::intrusive_ptr<LvGL> LvGLPtr;
 
 
 } // namespace p44
