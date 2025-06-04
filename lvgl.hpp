@@ -34,7 +34,6 @@
 #include "p44utils_common.hpp"
 
 #include "lvgl.h"
-#include "drivers/lv_drivers.h"
 
 #ifndef MOUSE_CURSOR_SUPPORT
   #define MOUSE_CURSOR_SUPPORT 1
@@ -42,7 +41,7 @@
 
 #ifndef ENABLE_IMAGE_SUPPORT
   #if !DEBUG
-    #error "tbd: re-enable"
+    #warning "tbd: re-enable"
   #endif
   #define ENABLE_IMAGE_SUPPORT 0
 #endif

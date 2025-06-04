@@ -559,34 +559,34 @@ static void getFlagChangesByList(const string aFlagsList, uint32_t& aFlagsToSet,
 
 static lv_event_code_t getEventCodeFromName(const string aEventName)
 {
-  if (aEventName=="pressed") return LV_EVENT_PRESSED;
+  if (aEventName=="press") return LV_EVENT_PRESSED;
   if (aEventName=="pressing") return LV_EVENT_PRESSING;
   if (aEventName=="lost") return LV_EVENT_PRESS_LOST;
   if (aEventName=="shortclick") return LV_EVENT_SHORT_CLICKED;
   if (aEventName=="longpress") return LV_EVENT_LONG_PRESSED;
   if (aEventName=="longpress_repeat") return LV_EVENT_LONG_PRESSED_REPEAT;
   if (aEventName=="click") return LV_EVENT_CLICKED;
-  if (aEventName=="released") return LV_EVENT_RELEASED;
+  if (aEventName=="release") return LV_EVENT_RELEASED;
   if (aEventName=="scroll_begin") return LV_EVENT_SCROLL_BEGIN;
   if (aEventName=="scroll_throw") return LV_EVENT_SCROLL_THROW_BEGIN;
   if (aEventName=="scroll_end") return LV_EVENT_SCROLL_END;
   if (aEventName=="scroll") return LV_EVENT_SCROLL;
   if (aEventName=="gesture") return LV_EVENT_GESTURE;
   if (aEventName=="key") return LV_EVENT_KEY;
-  if (aEventName=="focused") return LV_EVENT_FOCUSED;
-  if (aEventName=="defocused") return LV_EVENT_DEFOCUSED;
+  if (aEventName=="focus") return LV_EVENT_FOCUSED;
+  if (aEventName=="defocus") return LV_EVENT_DEFOCUSED;
   if (aEventName=="leave") return LV_EVENT_LEAVE;
   if (aEventName=="hover") return LV_EVENT_HOVER_OVER;
   if (aEventName=="endhover") return LV_EVENT_HOVER_LEAVE;
-  if (aEventName=="changed") return LV_EVENT_VALUE_CHANGED;
+  if (aEventName=="change") return LV_EVENT_VALUE_CHANGED;
   if (aEventName=="insert") return LV_EVENT_INSERT;
   if (aEventName=="refresh") return LV_EVENT_REFRESH;
   if (aEventName=="ready") return LV_EVENT_READY;
   if (aEventName=="cancel") return LV_EVENT_CANCEL;
   if (aEventName=="create") return LV_EVENT_CREATE;
   if (aEventName=="delete") return LV_EVENT_DELETE;
-  if (aEventName=="loaded") return LV_EVENT_SCREEN_LOADED;
-  if (aEventName=="unloaded") return LV_EVENT_SCREEN_UNLOADED;
+  if (aEventName=="load") return LV_EVENT_SCREEN_LOADED;
+  if (aEventName=="unload") return LV_EVENT_SCREEN_UNLOADED;
   if (aEventName=="event") return LV_EVENT_ALL; // all
   return LV_EVENT_LAST; // invalid
 }

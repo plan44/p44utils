@@ -515,11 +515,6 @@ void LvGL::init(const string aDispSpec)
 
 #define LVGL_TICK_PERIOD (5*MilliSecond)
 
-#if !LV_TICK_CUSTOM
-  #warning LV_TICK_CUSTOM must be set, p44::LvGL does not call lv_tick_inc
-#endif
-
-
 void LvGL::lvglTask(MLTimer &aTimer, MLMicroSeconds aNow)
 {
   lv_task_handler();
