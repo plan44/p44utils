@@ -313,6 +313,18 @@ namespace p44 {
   };
 
 
+  #if LV_USE_QRCODE
+  class LvGLUiQRCode : public LVGLUiElement
+  {
+    typedef LVGLUiElement inherited;
+  public:
+    LvGLUiQRCode(LvGLUi& aLvGLUI, LvGLUiContainer* aParentP);
+    virtual ErrorPtr setProperty(const string& aName, JsonObjectPtr aValue) P44_OVERRIDE;
+    virtual void setTextRaw(const string &aNewText) P44_OVERRIDE;
+  };
+  #endif
+
+
   class LvGLUiButton : public LvGLUiContainer
   {
     typedef LvGLUiContainer inherited;
@@ -360,6 +372,7 @@ namespace p44 {
   };
 
 
+  #if LV_USE_SLIDER
   class LvGLUiSlider : public LVGLUiElement
   {
     typedef LVGLUiElement inherited;
@@ -370,6 +383,20 @@ namespace p44 {
     virtual int16_t getValue() P44_OVERRIDE;
     virtual void setValue(int16_t aValue, uint16_t aAnimationTimeMs = 0) P44_OVERRIDE;
   };
+  #endif
+
+
+  #if LV_USE_SWITCH
+  class LvGLUiSwitch : public LVGLUiElement
+  {
+    typedef LVGLUiElement inherited;
+  public:
+    LvGLUiSwitch(LvGLUi& aLvGLUI, LvGLUiContainer* aParentP);
+  protected:
+    virtual int16_t getValue() P44_OVERRIDE;
+    virtual void setValue(int16_t aValue, uint16_t aAnimationTimeMs = 0) P44_OVERRIDE;
+  };
+  #endif
 
 
   // MARK: - LvGLUi

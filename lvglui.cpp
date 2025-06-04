@@ -1102,6 +1102,11 @@ static LVGLUiElementPtr createElement(LvGLUi& aLvGLUI, JsonObjectPtr aConfig, Lv
   else if (tn=="label") {
     elem = LVGLUiElementPtr(new LvGLUiLabel(aLvGLUI, aParentP));
   }
+  #if LV_USE_QRCODE
+  else if (tn=="qrcode") {
+    elem = LVGLUiElementPtr(new LvGLUiQRCode(aLvGLUI, aParentP));
+  }
+  #endif
   else if (tn=="button") {
     if (aConfig->get("image"))
       elem = LVGLUiElementPtr(new LvGLUiImgButton(aLvGLUI, aParentP));
@@ -1111,9 +1116,16 @@ static LVGLUiElementPtr createElement(LvGLUi& aLvGLUI, JsonObjectPtr aConfig, Lv
   else if (tn=="image_button") {
     elem = LVGLUiElementPtr(new LvGLUiImgButton(aLvGLUI, aParentP));
   }
+  #if LV_USE_SLIDER
   else if (tn=="slider") {
     elem = LVGLUiElementPtr(new LvGLUiSlider(aLvGLUI, aParentP));
   }
+  #endif
+  #if LV_USE_SWITCH
+  else if (tn=="switch") {
+    elem = LVGLUiElementPtr(new LvGLUiSwitch(aLvGLUI, aParentP));
+  }
+  #endif
   else {
     if (aContainerByDefault)
       elem = LVGLUiElementPtr(new LvGLUiPanel(aLvGLUI, aParentP));
@@ -1506,6 +1518,44 @@ void LvGLUiLabel::setTextRaw(const string &aNewText)
 }
 
 
+#if LV_USE_QRCODE
+
+// MARK: - LvGLUiQRCode
+
+LvGLUiQRCode::LvGLUiQRCode(LvGLUi& aLvGLUI, LvGLUiContainer* aParentP) :
+  inherited(aLvGLUI, aParentP)
+{
+  mElement = lv_qrcode_create(lvParent());
+}
+
+
+ErrorPtr LvGLUiQRCode::setProperty(const string& aName, JsonObjectPtr aValue)
+{
+  // configure params
+  if (aName=="size") {
+    lv_qrcode_set_size(mElement, aValue->int32Value());
+  }
+  else if (aName=="darkcolor") {
+    lv_qrcode_set_dark_color(mElement, getColorFromString(aValue->stringValue()));
+  }
+  else if (aName=="lightcolor") {
+    lv_qrcode_set_light_color(mElement, getColorFromString(aValue->stringValue()));
+  }
+  else {
+    return inherited::setProperty(aName, aValue);
+  }
+  return ErrorPtr();
+}
+
+
+void LvGLUiQRCode::setTextRaw(const string &aNewText)
+{
+  lv_qrcode_update(mElement, aNewText.c_str(), (uint32_t)aNewText.size());
+}
+
+#endif
+
+
 
 // MARK: - LvGLUiButton
 
@@ -1632,6 +1682,8 @@ void LvGLUiBar::setValue(int16_t aValue, uint16_t aAnimationTimeMs)
 }
 
 
+#if LV_USE_SLIDER
+
 // MARK: - LvGLUiSlider
 
 LvGLUiSlider::LvGLUiSlider(LvGLUi& aLvGLUI, LvGLUiContainer* aParentP) :
@@ -1670,6 +1722,33 @@ void LvGLUiSlider::setValue(int16_t aValue, uint16_t aAnimationTimeMs)
   }
   lv_slider_set_value(mElement, aValue, aAnimationTimeMs>0 ? LV_ANIM_ON : LV_ANIM_OFF);
 }
+
+#endif
+
+
+#if LV_USE_SWITCH
+
+// MARK: - LvGLUiSwitch
+
+LvGLUiSwitch::LvGLUiSwitch(LvGLUi& aLvGLUI, LvGLUiContainer* aParentP) :
+  inherited(aLvGLUI, aParentP)
+{
+  mElement = lv_switch_create(lvParent());
+}
+
+
+int16_t LvGLUiSwitch::getValue()
+{
+  return lv_obj_has_state(mElement, LV_STATE_CHECKED) ? 1 : 0;
+}
+
+
+void LvGLUiSwitch::setValue(int16_t aValue, uint16_t aAnimationTimeMs)
+{
+  lv_obj_set_state(mElement, LV_STATE_CHECKED, aValue>0);
+}
+
+#endif
 
 
 
