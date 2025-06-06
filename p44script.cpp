@@ -8494,6 +8494,7 @@ static void strrep_func(BuiltinFunctionContextPtr f)
 // substr(string, from)
 // substr(string, from, count)
 // substr(string, -fromend, count)
+// substr(string, from, -fromend)
 FUNC_ARG_DEFS(substr, { text|undefres }, { numeric }, { numeric|optionalarg } );
 static void substr_func(BuiltinFunctionContextPtr f)
 {
@@ -8501,9 +8502,11 @@ static void substr_func(BuiltinFunctionContextPtr f)
   ssize_t start = f->arg(1)->intValue();
   if (start<0) start = s.size()+start;
   if (start>s.size()) start = s.size();
-  size_t count = string::npos; // to the end
+  ssize_t count = string::npos; // to the end
   if (f->arg(2)->defined()) {
     count = f->arg(2)->intValue();
+    if (count<0) count = s.size()+count-start; // negative count means: relative to end of string
+    if (count<0) count = string::npos; // to the end
   }
   f->finish(new StringValue(s.substr(start, count)));
 }
