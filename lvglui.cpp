@@ -1100,17 +1100,22 @@ static LVGLUiElementPtr createElement(LvGLUi& aLvGLUI, JsonObjectPtr aConfig, Lv
   if (tn=="panel") {
     elem = LVGLUiElementPtr(new LvGLUiPanel(aLvGLUI, aParentP));
   }
+  #if LV_USE_IMAGE
   else if (tn=="image") {
     elem = LVGLUiElementPtr(new LvGLUiImage(aLvGLUI, aParentP));
   }
+  #endif
+  #if LV_USE_LABEL
   else if (tn=="label") {
     elem = LVGLUiElementPtr(new LvGLUiLabel(aLvGLUI, aParentP));
   }
+  #endif
   #if LV_USE_QRCODE
   else if (tn=="qrcode") {
     elem = LVGLUiElementPtr(new LvGLUiQRCode(aLvGLUI, aParentP));
   }
   #endif
+  #if LV_USE_BUTTON
   else if (tn=="button") {
     if (aConfig->get("image")) {
       elem = LVGLUiElementPtr(new LvGLUiImgButton(aLvGLUI, aParentP));
@@ -1119,9 +1124,12 @@ static LVGLUiElementPtr createElement(LvGLUi& aLvGLUI, JsonObjectPtr aConfig, Lv
       elem = LVGLUiElementPtr(new LvGLUiButton(aLvGLUI, aParentP));
     }
   }
+  #endif
+  #if LV_USE_IMAGEBUTTON
   else if (tn=="image_button") {
     elem = LVGLUiElementPtr(new LvGLUiImgButton(aLvGLUI, aParentP));
   }
+  #endif
   #if LV_USE_SLIDER
   else if (tn=="slider") {
     elem = LVGLUiElementPtr(new LvGLUiSlider(aLvGLUI, aParentP));
@@ -1130,6 +1138,11 @@ static LVGLUiElementPtr createElement(LvGLUi& aLvGLUI, JsonObjectPtr aConfig, Lv
   #if LV_USE_SWITCH
   else if (tn=="switch") {
     elem = LVGLUiElementPtr(new LvGLUiSwitch(aLvGLUI, aParentP));
+  }
+  #endif
+  #if LV_USE_ARC
+  else if (tn=="arc") {
+    elem = LVGLUiElementPtr(new LvGLUiArc(aLvGLUI, aParentP));
   }
   #endif
   else {
@@ -1536,6 +1549,8 @@ void LvGLUiImage::setTextRaw(const string &aNewText)
 
 
 
+#if LV_USE_LABEL
+
 // MARK: - LvGLUiLabel
 
 LvGLUiLabel::LvGLUiLabel(LvGLUi& aLvGLUI, LvGLUiContainer* aParentP) :
@@ -1573,6 +1588,8 @@ void LvGLUiLabel::setTextRaw(const string &aNewText)
 {
   lv_label_set_text(mElement, aNewText.c_str());
 }
+
+#endif
 
 
 #if LV_USE_QRCODE
@@ -1619,6 +1636,7 @@ void LvGLUiQRCode::setTextRaw(const string &aNewText)
 #endif
 
 
+#if LV_USE_BUTTON
 
 // MARK: - LvGLUiButton
 
@@ -1640,11 +1658,13 @@ ErrorPtr LvGLUiButton::setProperty(const string& aName, JsonObjectPtr aValue)
 {
   // configure params
   if (aName=="label") {
+    #if LV_USE_LABEL
     // convenience for text-labelled buttons
     if (mLabel) lv_obj_delete(mLabel);
     mLabel = lv_label_create(mElement);
     lv_obj_center(mLabel);
     setText(aValue->stringValue());
+    #endif
   }
   else {
     return inherited::setProperty(aName, aValue);
@@ -1655,9 +1675,15 @@ ErrorPtr LvGLUiButton::setProperty(const string& aName, JsonObjectPtr aValue)
 
 void LvGLUiButton::setTextRaw(const string &aNewText)
 {
+  #if LV_USE_LABEL
   if (mLabel) lv_label_set_text(mLabel, aNewText.c_str());
+  #endif
 }
 
+#endif
+
+
+#if LV_USE_IMAGEBUTTON
 
 // MARK: - LvGLUiImgButton
 
@@ -1711,6 +1737,10 @@ ErrorPtr LvGLUiImgButton::setProperty(const string &aName, JsonObjectPtr aValue)
   return ErrorPtr();
 }
 
+#endif
+
+
+#if LV_USE_BAR
 
 // MARK: - LvGLUiBar
 
@@ -1743,6 +1773,8 @@ void LvGLUiBar::setValue(int16_t aValue, uint16_t aAnimationTimeMs)
   }
   lv_bar_set_value(mElement, aValue, aAnimationTimeMs>0 ? LV_ANIM_ON : LV_ANIM_OFF);
 }
+
+#endif
 
 
 #if LV_USE_SLIDER
@@ -1813,6 +1845,67 @@ void LvGLUiSwitch::setValue(int16_t aValue, uint16_t aAnimationTimeMs)
 
 #endif
 
+
+#if LV_USE_ARC
+
+// MARK: - LvGLUiArc
+
+LvGLUiArc::LvGLUiArc(LvGLUi& aLvGLUI, LvGLUiContainer* aParentP) :
+  inherited(aLvGLUI, aParentP)
+{
+  mElement = lv_arc_create(lvParent());
+}
+
+
+int16_t LvGLUiArc::getValue()
+{
+  return lv_arc_get_value(mElement);
+}
+
+
+void LvGLUiArc::setValue(int16_t aValue, uint16_t aAnimationTimeMs)
+{
+  lv_arc_set_value(mElement, aValue);
+}
+
+
+ErrorPtr LvGLUiArc::setProperty(const string& aName, JsonObjectPtr aValue)
+{
+  if (aName=="min") {
+    lv_arc_set_range(mElement, aValue->int32Value(), lv_arc_get_max_value(mElement));
+  }
+  else if (aName=="max") {
+    lv_arc_set_range(mElement, lv_arc_get_min_value(mElement), aValue->int32Value());
+  }
+  else if (aName=="start") {
+    lv_arc_set_bg_start_angle(mElement, aValue->int32Value());
+  }
+  else if (aName=="end") {
+    lv_arc_set_bg_end_angle(mElement, aValue->int32Value());
+  }
+  else if (aName=="mode") {
+    string mode = aValue->stringValue();
+    lv_arc_mode_t m = LV_ARC_MODE_NORMAL;
+    if (mode=="symmetrical") m = LV_ARC_MODE_SYMMETRICAL;
+    else if (mode=="reverse") m = LV_ARC_MODE_REVERSE;
+    lv_arc_set_mode(mElement, m);
+  }
+  else if (aName=="rotation") {
+    lv_arc_set_rotation(mElement, aValue->int32Value());
+  }
+  else if (aName=="change_rate") {
+    lv_arc_set_change_rate(mElement, aValue->int32Value());
+  }
+  else if (aName=="knob_offset") {
+    lv_arc_set_knob_offset(mElement, aValue->int32Value());
+  }
+  else {
+    return inherited::setProperty(aName, aValue);
+  }
+  return ErrorPtr();
+}
+
+#endif
 
 
 // MARK: - LvGLUi
@@ -2271,6 +2364,26 @@ static void removestyle_func(BuiltinFunctionContextPtr f)
 }
 
 
+// state(statename) // return true if set
+// state(statename, newvalue) // set or clear named state
+FUNC_ARG_DEFS(state, { text }, { numeric|optionalarg });
+static void state_func(BuiltinFunctionContextPtr f)
+{
+  LVGLUiElementObj* o = dynamic_cast<LVGLUiElementObj*>(f->thisObj().get());
+  assert(o);
+  lv_state_t state = getStateByName(f->arg(0)->stringValue());
+  if (state!=LV_STATE_DEFAULT) {
+    if (f->numArgs()>1) {
+      lv_obj_set_state(o->element()->mElement, state, f->arg(1)->boolValue());
+      f->finish(o); // return myself for chaining calls
+    }
+    else {
+      f->finish(new BoolValue(lv_obj_has_state(o->element()->mElement, state)));
+    }
+  }
+}
+
+
 // set(propertyname, newvalue)   convenience function to set (configure) a single property
 FUNC_ARG_DEFS(set, { text }, { anyvalid });
 static void set_func(BuiltinFunctionContextPtr f)
@@ -2332,6 +2445,7 @@ static const BuiltinMemberDescriptor lvglobjFunctions[] = {
   FUNC_DEF_W_ARG(set, executable|structured),
   FUNC_DEF_W_ARG(addstyle, executable|structured),
   FUNC_DEF_W_ARG(removestyle, executable|structured),
+  FUNC_DEF_W_ARG(state, executable|numeric),
   FUNC_DEF_W_ARG(configure, executable|structured),
   { nullptr } // terminator
 };

@@ -303,6 +303,7 @@ namespace p44 {
 };
 
 
+  #if LV_USE_LABEL
   class LvGLUiLabel : public LVGLUiElement
   {
     typedef LVGLUiElement inherited;
@@ -311,7 +312,7 @@ namespace p44 {
     virtual ErrorPtr setProperty(const string& aName, JsonObjectPtr aValue) P44_OVERRIDE;
     virtual void setTextRaw(const string &aNewText) P44_OVERRIDE;
   };
-
+  #endif
 
   #if LV_USE_QRCODE
   class LvGLUiQRCode : public LVGLUiElement
@@ -325,6 +326,7 @@ namespace p44 {
   #endif
 
 
+  #if LV_USE_BUTTON
   class LvGLUiButton : public LvGLUiContainer
   {
     typedef LvGLUiContainer inherited;
@@ -340,8 +342,10 @@ namespace p44 {
   protected:
     virtual void setTextRaw(const string &aNewText) P44_OVERRIDE;
   };
+  #endif
 
 
+  #if LV_USE_IMAGEBUTTON
   class LvGLUiImgButton : public LVGLUiElement
   {
     typedef LVGLUiElement inherited;
@@ -358,8 +362,9 @@ namespace p44 {
   protected:
     static const void *imgBtnSrc(const string& aSource);
   };
+  #endif
 
-
+  #if LV_USE_BAR
   class LvGLUiBar : public LVGLUiElement
   {
     typedef LVGLUiElement inherited;
@@ -370,7 +375,7 @@ namespace p44 {
     virtual int16_t getValue() P44_OVERRIDE { return lv_bar_get_value(mElement); }
     virtual void setValue(int16_t aValue, uint16_t aAnimationTimeMs = 0) P44_OVERRIDE;
   };
-
+  #endif
 
   #if LV_USE_SLIDER
   class LvGLUiSlider : public LVGLUiElement
@@ -392,6 +397,20 @@ namespace p44 {
     typedef LVGLUiElement inherited;
   public:
     LvGLUiSwitch(LvGLUi& aLvGLUI, LvGLUiContainer* aParentP);
+  protected:
+    virtual int16_t getValue() P44_OVERRIDE;
+    virtual void setValue(int16_t aValue, uint16_t aAnimationTimeMs = 0) P44_OVERRIDE;
+  };
+  #endif
+
+
+  #if LV_USE_ARC
+  class LvGLUiArc : public LVGLUiElement
+  {
+    typedef LVGLUiElement inherited;
+  public:
+    LvGLUiArc(LvGLUi& aLvGLUI, LvGLUiContainer* aParentP);
+    virtual ErrorPtr setProperty(const string& aName, JsonObjectPtr aValue) P44_OVERRIDE;
   protected:
     virtual int16_t getValue() P44_OVERRIDE;
     virtual void setValue(int16_t aValue, uint16_t aAnimationTimeMs = 0) P44_OVERRIDE;
