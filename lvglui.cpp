@@ -41,134 +41,6 @@ using namespace P44Script;
 
 // MARK: - static utilities
 
-static const lv_font_t* getFontByName(const string aFontName)
-{
-  #if LV_FONT_MONTSERRAT_8
-  if (aFontName=="montserrat8") return &lv_font_montserrat_8;
-  #endif
-  #if LV_FONT_MONTSERRAT_10
-  if (aFontName=="montserrat10") return &lv_font_montserrat_10;
-  #endif
-  #if LV_FONT_MONTSERRAT_12
-  if (aFontName=="montserrat12") return &lv_font_montserrat_12;
-  #endif
-  #if LV_FONT_MONTSERRAT_14
-  if (aFontName=="montserrat14") return &lv_font_montserrat_14;
-  #endif
-  #if LV_FONT_MONTSERRAT_16
-  if (aFontName=="montserrat16") return &lv_font_montserrat_16;
-  #endif
-  #if LV_FONT_MONTSERRAT_18
-  if (aFontName=="montserrat18") return &lv_font_montserrat_18;
-  #endif
-  #if LV_FONT_MONTSERRAT_20
-  if (aFontName=="montserrat20") return &lv_font_montserrat_20;
-  #endif
-  #if LV_FONT_MONTSERRAT_22
-  if (aFontName=="montserrat22") return &lv_font_montserrat_22;
-  #endif
-  #if LV_FONT_MONTSERRAT_24
-  if (aFontName=="montserrat24") return &lv_font_montserrat_24;
-  #endif
-  #if LV_FONT_MONTSERRAT_26
-  if (aFontName=="montserrat26") return &lv_font_montserrat_26;
-  #endif
-  #if LV_FONT_MONTSERRAT_28
-  if (aFontName=="montserrat28") return &lv_font_montserrat_28;
-  #endif
-  #if LV_FONT_MONTSERRAT_30
-  if (aFontName=="montserrat30") return &lv_font_montserrat_30;
-  #endif
-  #if LV_FONT_MONTSERRAT_32
-  if (aFontName=="montserrat32") return &lv_font_montserrat_32;
-  #endif
-  #if LV_FONT_MONTSERRAT_34
-  if (aFontName=="montserrat34") return &lv_font_montserrat_34;
-  #endif
-  #if LV_FONT_MONTSERRAT_36
-  if (aFontName=="montserrat36") return &lv_font_montserrat_36;
-  #endif
-  #if LV_FONT_MONTSERRAT_38
-  if (aFontName=="montserrat38") return &lv_font_montserrat_38;
-  #endif
-  #if LV_FONT_MONTSERRAT_40
-  if (aFontName=="montserrat40") return &lv_font_montserrat_40;
-  #endif
-  #if LV_FONT_MONTSERRAT_42
-  if (aFontName=="montserrat42") return &lv_font_montserrat_42;
-  #endif
-  #if LV_FONT_MONTSERRAT_44
-  if (aFontName=="montserrat44") return &lv_font_montserrat_44;
-  #endif
-  #if LV_FONT_MONTSERRAT_46
-  if (aFontName=="montserrat46") return &lv_font_montserrat_46;
-  #endif
-  #if LV_FONT_MONTSERRAT_48
-  if (aFontName=="montserrat48") return &lv_font_montserrat_48;
-  #endif
-  else return NULL;
-}
-
-
-static lv_layout_t getLayoutByName(const string aLayoutName)
-{
-  if (aLayoutName=="flex") return LV_LAYOUT_FLEX;
-  else if (aLayoutName=="grid") return LV_LAYOUT_GRID;
-  else return LV_LAYOUT_NONE;
-}
-
-
-lv_flex_align_t getFlexAlignByName(const string aFlexAlign)
-{
-  if (aFlexAlign=="start") return LV_FLEX_ALIGN_START;
-  if (aFlexAlign=="end") return LV_FLEX_ALIGN_END;
-  if (aFlexAlign=="evenly") return LV_FLEX_ALIGN_SPACE_EVENLY;
-  if (aFlexAlign=="around") return LV_FLEX_ALIGN_SPACE_AROUND;
-  if (aFlexAlign=="between") return LV_FLEX_ALIGN_SPACE_BETWEEN;
-  return LV_FLEX_ALIGN_CENTER;
-}
-
-
-lv_flex_flow_t getFlexFlowByName(const string aFlexFlow)
-{
-  const char* p = aFlexFlow.c_str();
-  string part;
-  uint8_t flow = LV_FLEX_FLOW_ROW;
-  while (nextPart(p, part, ',')) {
-    if (part=="column") flow |= LV_FLEX_COLUMN;
-    else if (part=="wrap") flow |= LV_FLEX_WRAP;
-    else if (part=="reverse") flow |= LV_FLEX_REVERSE;
-  }
-  return (lv_flex_flow_t)flow;
-}
-
-
-lv_grid_align_t getGridAlignByName(const string aFlexAlign)
-{
-  if (aFlexAlign=="start") return LV_GRID_ALIGN_START;
-  if (aFlexAlign=="end") return LV_GRID_ALIGN_END;
-  if (aFlexAlign=="evenly") return LV_GRID_ALIGN_SPACE_EVENLY;
-  if (aFlexAlign=="around") return LV_GRID_ALIGN_SPACE_AROUND;
-  if (aFlexAlign=="between") return LV_GRID_ALIGN_SPACE_BETWEEN;
-  return LV_GRID_ALIGN_CENTER;
-}
-
-
-bool getGridTemplateArray(int32_t*& aGridTemplateP, JsonObjectPtr aTemplates)
-{
-  if (aGridTemplateP) { delete aGridTemplateP; aGridTemplateP = nullptr; }
-  int n = aTemplates->arrayLength();
-  if (n>0) {
-    aGridTemplateP = new int32_t[n+1]; // plus terminator
-    for (int i = 0; i<n; i++) {
-      aGridTemplateP[i] = aTemplates->arrayGet(i)->int32Value();
-    }
-    aGridTemplateP[n] = LV_GRID_TEMPLATE_LAST;
-    return true;
-  }
-  return false;
-}
-
 
 static const char* getSymbolByName(const string aSymbolName)
 {
@@ -233,216 +105,6 @@ static const char* getSymbolByName(const string aSymbolName)
 }
 
 
-static lv_palette_t getPaletteEntryFromColorSpec(const string aPaletteColor)
-{
-  if (aPaletteColor=="red") return LV_PALETTE_RED;
-  if (aPaletteColor=="pink") return LV_PALETTE_PINK;
-  if (aPaletteColor=="purple") return LV_PALETTE_PURPLE;
-  if (aPaletteColor=="deeppurple") return LV_PALETTE_DEEP_PURPLE;
-  if (aPaletteColor=="red") return LV_PALETTE_INDIGO;
-  if (aPaletteColor=="blue") return LV_PALETTE_BLUE;
-  if (aPaletteColor=="lightblue") return LV_PALETTE_LIGHT_BLUE;
-  if (aPaletteColor=="cyan") return LV_PALETTE_CYAN;
-  if (aPaletteColor=="teal") return LV_PALETTE_TEAL;
-  if (aPaletteColor=="green") return LV_PALETTE_GREEN;
-  if (aPaletteColor=="lightgreen") return LV_PALETTE_LIGHT_GREEN;
-  if (aPaletteColor=="lime") return LV_PALETTE_LIME;
-  if (aPaletteColor=="yellow") return LV_PALETTE_YELLOW;
-  if (aPaletteColor=="amber") return LV_PALETTE_AMBER;
-  if (aPaletteColor=="orange") return LV_PALETTE_ORANGE;
-  if (aPaletteColor=="deeporange") return LV_PALETTE_DEEP_ORANGE;
-  if (aPaletteColor=="brown") return LV_PALETTE_BROWN;
-  if (aPaletteColor=="bluegrey" || aPaletteColor=="bluegray") return LV_PALETTE_BLUE_GREY;
-  if (aPaletteColor=="grey" || aPaletteColor=="gray") return LV_PALETTE_GREY;
-  return LV_PALETTE_NONE;
-}
-
-
-
-static lv_color_t getColorFromString(const string aColorSpec, lv_opa_t* aOpacityP = nullptr)
-{
-  int r = 0, g = 0, b = 0;
-  lv_opa_t a;
-  bool hasOpacity = false;
-  size_t n = aColorSpec.size();
-  if (n>0) {
-    if (aColorSpec[0]!='#') {
-      // check palette
-      // syntax <palettecolorname>[+<lighten_level>|-<darken_level>]
-      // - find adjustment
-      size_t i = aColorSpec.find_first_of("+-");
-      int32_t adj = 0;
-      if (i!=string::npos) {
-        sscanf(aColorSpec.c_str()+i, "%d", &adj);
-      }
-      else {
-        i = aColorSpec.size();
-      }
-      // - find color
-      string colname = aColorSpec.substr(0, i);
-      if (colname=="black") return lv_color_black();
-      if (colname=="white") return lv_color_white();
-      if (colname=="transparent") {
-        if (aOpacityP) *aOpacityP = 0;
-        return lv_color_black();
-      }
-      lv_palette_t pi = getPaletteEntryFromColorSpec(colname);
-      if (pi!=LV_PALETTE_NONE) {
-        if (adj==0) return lv_palette_main(pi);
-        else if (adj>0) return lv_palette_lighten(pi, adj);
-        else return lv_palette_darken(pi, -adj);
-      }
-    }
-    else {
-      // web color
-      // syntax: #rrggbb or #rgb or #aarrggbb or #argb
-      n--; // string size without # !
-      uint32_t h;
-      if (sscanf(aColorSpec.c_str()+1, "%x", &h)==1) {
-        if (n<=4) {
-          // short form RGB or ARGB
-          if (n==4) { hasOpacity = true; a = (h>>12)&0xF; a |= a<<4; }
-          r = (h>>8)&0xF; r |= r<<4;
-          g = (h>>4)&0xF; g |= g<<4;
-          b = (h>>0)&0xF; b |= b<<4;
-        }
-        else {
-          // long form RRGGBB or AARRGGBB
-          a = 255;
-          if (n==8) { hasOpacity = true; a = (h>>24)&0xFF; }
-          r = (h>>16)&0xFF;
-          g = (h>>8)&0xFF;
-          b = (h>>0)&0xFF;
-        }
-      }
-    }
-  }
-  if (aOpacityP && hasOpacity) *aOpacityP = a;
-  return lv_color_make(r,g,b);
-}
-
-
-static lv_border_side_t getBorderSidesFromList(const string aBorderSides)
-{
-  const char* p = aBorderSides.c_str();
-  string part;
-  uint8_t sides = LV_BORDER_SIDE_NONE;
-  while (nextPart(p, part, ',')) {
-    if (part=="bottom") sides |= LV_BORDER_SIDE_BOTTOM;
-    else if (part=="top") sides |= LV_BORDER_SIDE_TOP;
-    else if (part=="left") sides |= LV_BORDER_SIDE_LEFT;
-    else if (part=="right") sides |= LV_BORDER_SIDE_RIGHT;
-    else if (part=="all") sides |= LV_BORDER_SIDE_FULL;
-    else if (part=="internal") sides |= LV_BORDER_SIDE_INTERNAL;
-  }
-  return (lv_border_side_t)sides;
-}
-
-
-static lv_align_t getAlignModeByName(const string aAlignMode)
-{
-  const char *p = aAlignMode.c_str();
-  bool in = true; // default to in
-  bool top = false;
-  bool mid = false;
-  bool bottom = false;
-  bool left = false;
-  bool right = false;
-  string tok;
-  if (aAlignMode=="center") return LV_ALIGN_CENTER; // special case not combinable from the elements below
-  while (nextPart(p, tok, ',')) {
-    if (tok=="top") top = true;
-    else if (tok=="mid") mid = true;
-    else if (tok=="bottom") bottom = true;
-    else if (tok=="left") left = true;
-    else if (tok=="right") right = true;
-    else if (tok=="in") in = true;
-    else if (tok=="out") in = false;
-  }
-  if (in && top && left) return LV_ALIGN_TOP_LEFT;
-  if (in && top && mid) return LV_ALIGN_TOP_MID;
-  if (in && top && right) return LV_ALIGN_TOP_RIGHT;
-  if (in && bottom && left) return LV_ALIGN_BOTTOM_LEFT;
-  if (in && bottom && mid) return LV_ALIGN_BOTTOM_MID;
-  if (in && bottom && right) return LV_ALIGN_BOTTOM_RIGHT;
-  if (in && left && mid) return LV_ALIGN_LEFT_MID;
-  if (in && right && mid) return LV_ALIGN_RIGHT_MID;
-  if (!in && top && left) return LV_ALIGN_OUT_TOP_LEFT;
-  if (!in && top && mid) return LV_ALIGN_OUT_TOP_MID;
-  if (!in && top && right) return LV_ALIGN_OUT_TOP_RIGHT;
-  if (!in && bottom && left) return LV_ALIGN_OUT_BOTTOM_LEFT;
-  if (!in && bottom && mid) return LV_ALIGN_OUT_BOTTOM_MID;
-  if (!in && bottom && right) return LV_ALIGN_OUT_BOTTOM_RIGHT;
-  if (!in && left && top) return LV_ALIGN_OUT_LEFT_TOP;
-  if (!in && left && mid) return LV_ALIGN_OUT_LEFT_MID;
-  if (!in && left && bottom) return LV_ALIGN_OUT_LEFT_BOTTOM;
-  if (!in && right && top) return LV_ALIGN_OUT_RIGHT_TOP;
-  if (!in && right && mid) return LV_ALIGN_OUT_RIGHT_MID;
-  if (!in && right && bottom) return LV_ALIGN_OUT_RIGHT_BOTTOM;
-  return LV_ALIGN_DEFAULT;
-}
-
-
-static lv_grad_dir_t getGradientDirByName(const string aGradientDir)
-{
-  if (aGradientDir=="vertical") return LV_GRAD_DIR_VER;
-  if (aGradientDir=="horizontal") return LV_GRAD_DIR_HOR;
-  if (aGradientDir=="linear") return LV_GRAD_DIR_LINEAR;
-  if (aGradientDir=="radial") return LV_GRAD_DIR_RADIAL;
-  if (aGradientDir=="conical") return LV_GRAD_DIR_CONICAL;
-  return LV_GRAD_DIR_NONE;
-}
-
-
-static lv_text_decor_t getTextDecorByName(const string aTextDecor)
-{
-  const char* p = aTextDecor.c_str();
-  string part;
-  uint8_t decor = LV_TEXT_DECOR_NONE;
-  while (nextPart(p, part, ',')) {
-    if (part=="underline") decor |= LV_TEXT_DECOR_UNDERLINE;
-    else if (part=="strikethrough") decor |= LV_TEXT_DECOR_STRIKETHROUGH;
-  }
-  return (lv_text_decor_t)decor;
-}
-
-
-static lv_text_align_t getTextAlignByName(const string aTextAlign)
-{
-  if (aTextAlign=="left") return LV_TEXT_ALIGN_LEFT;
-  if (aTextAlign=="center") return LV_TEXT_ALIGN_CENTER;
-  if (aTextAlign=="right") return LV_TEXT_ALIGN_RIGHT;
-  return LV_TEXT_ALIGN_AUTO;
-}
-
-
-static lv_blend_mode_t getBlendModeByName(const string aBlendMode)
-{
-  if (aBlendMode=="additive") return LV_BLEND_MODE_ADDITIVE;
-  if (aBlendMode=="subtractive") return LV_BLEND_MODE_SUBTRACTIVE;
-  if (aBlendMode=="multiply") return LV_BLEND_MODE_MULTIPLY;
-  return LV_BLEND_MODE_NORMAL;
-}
-
-
-static lv_coord_t getCoordFromJson(JsonObjectPtr aCoord)
-{
-  // strings might be values in other units than pixels
-  lv_coord_t coord = 0;
-  if (aCoord->isType(json_type_string)) {
-    string s = aCoord->stringValue();
-    int32_t v;
-    char unit = 0;
-    if (sscanf(s.c_str(), "%d%c", &v, &unit)>=1) {
-      if (unit=='%') coord = lv_pct(v);
-      else coord = v; // no other recognized units so far
-    }
-  }
-  else {
-    coord = aCoord->int32Value();
-  }
-  return coord;
-}
 
 
 static lv_state_t getStateByName(const string aState)
@@ -555,6 +217,627 @@ static void getFlagChangesByList(const string aFlagsList, uint32_t& aFlagsToSet,
     else aFlagsToSet |= flag;
   }
 }
+
+// MARK: style properties
+
+
+static ErrorPtr intPropValue(JsonObjectPtr aJsonValue, lv_style_value_t& aStyleValue)
+{
+  aStyleValue.num = aJsonValue->int32Value();
+  return ErrorPtr();
+}
+
+
+static ErrorPtr coordPropValue(JsonObjectPtr aJsonValue, lv_style_value_t& aStyleValue)
+{
+  // strings might be values in other units than pixels
+  lv_coord_t coord = 0;
+  if (aJsonValue->isType(json_type_string)) {
+    string s = aJsonValue->stringValue();
+    int32_t v;
+    char unit = 0;
+    if (sscanf(s.c_str(), "%d%c", &v, &unit)>=1) {
+      if (unit=='%') coord = lv_pct(v);
+      else coord = v; // no other recognized units so far
+    }
+  }
+  else {
+    return intPropValue(aJsonValue, aStyleValue);
+  }
+  aStyleValue.num = coord;
+  return ErrorPtr();
+}
+
+
+static ErrorPtr radiusPropValue(JsonObjectPtr aJsonValue, lv_style_value_t& aStyleValue)
+{
+  if (aJsonValue->stringValue()!="circle") return coordPropValue(aJsonValue, aStyleValue);
+  aStyleValue.num = LV_RADIUS_CIRCLE;
+  return ErrorPtr();
+}
+
+
+static ErrorPtr scalePropValue(JsonObjectPtr aJsonValue, lv_style_value_t& aStyleValue)
+{
+  aStyleValue.num = aJsonValue->doubleValue()*256;
+  return ErrorPtr();
+}
+
+
+static ErrorPtr anglePropValue(JsonObjectPtr aJsonValue, lv_style_value_t& aStyleValue)
+{
+  aStyleValue.num = aJsonValue->doubleValue()*10;
+  return ErrorPtr();
+}
+
+
+static ErrorPtr per255PropValue(JsonObjectPtr aJsonValue, lv_style_value_t& aStyleValue)
+{
+  aStyleValue.num = aJsonValue->doubleValue()*2.55; // 0..100 -> 0..255
+  return ErrorPtr();
+}
+
+
+static ErrorPtr boolPropValue(JsonObjectPtr aJsonValue, lv_style_value_t& aStyleValue)
+{
+  aStyleValue.num = aJsonValue->boolValue();
+  return ErrorPtr();
+}
+
+
+
+static ErrorPtr alignPropValue(JsonObjectPtr aJsonValue, lv_style_value_t& aStyleValue)
+{
+  const string alignMode = aJsonValue->stringValue();
+  const char *p = alignMode.c_str();
+  bool in = true; // default to in
+  bool top = false;
+  bool mid = false;
+  bool bottom = false;
+  bool left = false;
+  bool right = false;
+  string tok;
+  lv_align_t align;
+  if (alignMode=="center") align = LV_ALIGN_CENTER; // special case not combinable from the elements below
+  else {
+    while (nextPart(p, tok, ',')) {
+      if (tok=="top") top = true;
+      else if (tok=="mid") mid = true;
+      else if (tok=="bottom") bottom = true;
+      else if (tok=="left") left = true;
+      else if (tok=="right") right = true;
+      else if (tok=="in") in = true;
+      else if (tok=="out") in = false;
+    }
+    if (in && top && left) align = LV_ALIGN_TOP_LEFT;
+    else if (in && top && mid) align = LV_ALIGN_TOP_MID;
+    else if (in && top && right) align = LV_ALIGN_TOP_RIGHT;
+    else if (in && bottom && left) align = LV_ALIGN_BOTTOM_LEFT;
+    else if (in && bottom && mid) align = LV_ALIGN_BOTTOM_MID;
+    else if (in && bottom && right) align = LV_ALIGN_BOTTOM_RIGHT;
+    else if (in && left && mid) align = LV_ALIGN_LEFT_MID;
+    else if (in && right && mid) align = LV_ALIGN_RIGHT_MID;
+    else if (!in && top && left) align = LV_ALIGN_OUT_TOP_LEFT;
+    else if (!in && top && mid) align = LV_ALIGN_OUT_TOP_MID;
+    else if (!in && top && right) align = LV_ALIGN_OUT_TOP_RIGHT;
+    else if (!in && bottom && left) align = LV_ALIGN_OUT_BOTTOM_LEFT;
+    else if (!in && bottom && mid) align = LV_ALIGN_OUT_BOTTOM_MID;
+    else if (!in && bottom && right) align = LV_ALIGN_OUT_BOTTOM_RIGHT;
+    else if (!in && left && top) align = LV_ALIGN_OUT_LEFT_TOP;
+    else if (!in && left && mid) align = LV_ALIGN_OUT_LEFT_MID;
+    else if (!in && left && bottom) align = LV_ALIGN_OUT_LEFT_BOTTOM;
+    else if (!in && right && top) align = LV_ALIGN_OUT_RIGHT_TOP;
+    else if (!in && right && mid) align = LV_ALIGN_OUT_RIGHT_MID;
+    else if (!in && right && bottom) align = LV_ALIGN_OUT_RIGHT_BOTTOM;
+    else return TextError::err("unknown align mode '%s'", alignMode.c_str());
+  }
+  aStyleValue.num = align;
+  return ErrorPtr();
+}
+
+
+static ErrorPtr fontPropValue(JsonObjectPtr aJsonValue, lv_style_value_t& aStyleValue)
+{
+  const string fontName = aJsonValue->stringValue();
+  const lv_font_t* font = nullptr;
+  if (false) {}
+  #if LV_FONT_MONTSERRAT_8
+  else if (fontName=="montserrat8") font = &lv_font_montserrat_8;
+  #endif
+  #if LV_FONT_MONTSERRAT_10
+  else if (fontName=="montserrat10") font = &lv_font_montserrat_10;
+  #endif
+  #if LV_FONT_MONTSERRAT_12
+  else if (fontName=="montserrat12") font = &lv_font_montserrat_12;
+  #endif
+  #if LV_FONT_MONTSERRAT_14
+  else if (fontName=="montserrat14") font = &lv_font_montserrat_14;
+  #endif
+  #if LV_FONT_MONTSERRAT_16
+  else if (fontName=="montserrat16") font = &lv_font_montserrat_16;
+  #endif
+  #if LV_FONT_MONTSERRAT_18
+  else if (fontName=="montserrat18") font = &lv_font_montserrat_18;
+  #endif
+  #if LV_FONT_MONTSERRAT_20
+  else if (fontName=="montserrat20") font = &lv_font_montserrat_20;
+  #endif
+  #if LV_FONT_MONTSERRAT_22
+  else if (fontName=="montserrat22") font = &lv_font_montserrat_22;
+  #endif
+  #if LV_FONT_MONTSERRAT_24
+  else if (fontName=="montserrat24") font = &lv_font_montserrat_24;
+  #endif
+  #if LV_FONT_MONTSERRAT_26
+  else if (fontName=="montserrat26") font = &lv_font_montserrat_26;
+  #endif
+  #if LV_FONT_MONTSERRAT_28
+  else if (fontName=="montserrat28") font = &lv_font_montserrat_28;
+  #endif
+  #if LV_FONT_MONTSERRAT_30
+  else if (fontName=="montserrat30") font = &lv_font_montserrat_30;
+  #endif
+  #if LV_FONT_MONTSERRAT_32
+  else if (fontName=="montserrat32") font = &lv_font_montserrat_32;
+  #endif
+  #if LV_FONT_MONTSERRAT_34
+  else if (fontName=="montserrat34") font = &lv_font_montserrat_34;
+  #endif
+  #if LV_FONT_MONTSERRAT_36
+  else if (fontName=="montserrat36") font = &lv_font_montserrat_36;
+  #endif
+  #if LV_FONT_MONTSERRAT_38
+  else if (fontName=="montserrat38") font = &lv_font_montserrat_38;
+  #endif
+  #if LV_FONT_MONTSERRAT_40
+  else if (fontName=="montserrat40") font = &lv_font_montserrat_40;
+  #endif
+  #if LV_FONT_MONTSERRAT_42
+  else if (fontName=="montserrat42") font = &lv_font_montserrat_42;
+  #endif
+  #if LV_FONT_MONTSERRAT_44
+  else if (fontName=="montserrat44") font = &lv_font_montserrat_44;
+  #endif
+  #if LV_FONT_MONTSERRAT_46
+  else if (fontName=="montserrat46") font = &lv_font_montserrat_46;
+  #endif
+  #if LV_FONT_MONTSERRAT_48
+  else if (fontName=="montserrat48") font = &lv_font_montserrat_48;
+  #endif
+  else {
+    return TextError::err("unknown font '%s'", fontName.c_str());
+  }
+  aStyleValue.ptr = font;
+  return ErrorPtr();
+}
+
+
+
+static lv_palette_t getPaletteEntryFromColorSpec(const string aPaletteColor)
+{
+  if (aPaletteColor=="red") return LV_PALETTE_RED;
+  if (aPaletteColor=="pink") return LV_PALETTE_PINK;
+  if (aPaletteColor=="purple") return LV_PALETTE_PURPLE;
+  if (aPaletteColor=="deeppurple") return LV_PALETTE_DEEP_PURPLE;
+  if (aPaletteColor=="red") return LV_PALETTE_INDIGO;
+  if (aPaletteColor=="blue") return LV_PALETTE_BLUE;
+  if (aPaletteColor=="lightblue") return LV_PALETTE_LIGHT_BLUE;
+  if (aPaletteColor=="cyan") return LV_PALETTE_CYAN;
+  if (aPaletteColor=="teal") return LV_PALETTE_TEAL;
+  if (aPaletteColor=="green") return LV_PALETTE_GREEN;
+  if (aPaletteColor=="lightgreen") return LV_PALETTE_LIGHT_GREEN;
+  if (aPaletteColor=="lime") return LV_PALETTE_LIME;
+  if (aPaletteColor=="yellow") return LV_PALETTE_YELLOW;
+  if (aPaletteColor=="amber") return LV_PALETTE_AMBER;
+  if (aPaletteColor=="orange") return LV_PALETTE_ORANGE;
+  if (aPaletteColor=="deeporange") return LV_PALETTE_DEEP_ORANGE;
+  if (aPaletteColor=="brown") return LV_PALETTE_BROWN;
+  if (aPaletteColor=="bluegrey" || aPaletteColor=="bluegray") return LV_PALETTE_BLUE_GREY;
+  if (aPaletteColor=="grey" || aPaletteColor=="gray") return LV_PALETTE_GREY;
+  return LV_PALETTE_NONE;
+}
+
+
+static ErrorPtr colorPropValue(JsonObjectPtr aJsonValue, bool& aHasColor, lv_style_value_t& aColorValue, bool& aHasOpacity, lv_style_value_t& aOpaValue)
+{
+  const string colorSpec = aJsonValue->stringValue();
+  int r = 0, g = 0, b = 0;
+  lv_opa_t a;
+  aHasOpacity = false;
+  aHasColor = true;
+  size_t n = colorSpec.size();
+  lv_color_t color;
+  do {
+    if (n>0) {
+      if (colorSpec[0]!='#') {
+        // check palette
+        // syntax <palettecolorname>[+<lighten_level>|-<darken_level>]
+        // - find adjustment
+        size_t i = colorSpec.find_first_of("+-");
+        int32_t adj = 0;
+        if (i!=string::npos) {
+          sscanf(colorSpec.c_str()+i, "%d", &adj);
+        }
+        else {
+          i = colorSpec.size();
+        }
+        // - find color
+        string colname = colorSpec.substr(0, i);
+        if (colname=="black") { color = lv_color_black(); break; }
+        else if (colname=="white") { color = lv_color_white(); break; }
+        else if (colname=="transparent") {
+          aHasOpacity = true;
+          a = 0;
+          color = lv_color_black();
+          break;
+        }
+        lv_palette_t pi = getPaletteEntryFromColorSpec(colname);
+        if (pi!=LV_PALETTE_NONE) {
+          if (adj==0) color = lv_palette_main(pi);
+          else if (adj>0) color = lv_palette_lighten(pi, adj);
+          else color =lv_palette_darken(pi, -adj);
+          break;
+        }
+        return TextError::err("unknown color '%s'", colorSpec.c_str());
+      }
+      else {
+        // web color
+        // syntax: #rrggbb or #rgb or #aarrggbb or #argb
+        n--; // string size without # !
+        uint32_t h;
+        if (sscanf(colorSpec.c_str()+1, "%x", &h)==1) {
+          if (n==1) {
+            // alpha-only single digit
+            a = h&0xF; a |= a<<4;
+            aHasOpacity = true;
+            aHasColor = false;
+          }
+          else if (n==2) {
+            // alpha-only double digit
+            a = h&0xFF;
+            aHasOpacity = true;
+            aHasColor = false;
+          }
+          else if (n<=4) {
+            // short form RGB or ARGB
+            if (n==4) { aHasOpacity = true; a = (h>>12)&0xF; a |= a<<4; }
+            r = (h>>8)&0xF; r |= r<<4;
+            g = (h>>4)&0xF; g |= g<<4;
+            b = (h>>0)&0xF; b |= b<<4;
+          }
+          else {
+            // long form RRGGBB or AARRGGBB
+            a = 255;
+            if (n==8) { aHasOpacity = true; a = (h>>24)&0xFF; }
+            r = (h>>16)&0xFF;
+            g = (h>>8)&0xFF;
+            b = (h>>0)&0xFF;
+          }
+          color = lv_color_make(r,g,b);
+        }
+        else {
+          return TextError::err("unknown color '%s'", colorSpec.c_str());
+        }
+      }
+    }
+  } while(false);
+  if (aHasOpacity) aOpaValue.num = a;
+  aColorValue.color = color;
+  return ErrorPtr();
+}
+
+
+static ErrorPtr colorPropValue(JsonObjectPtr aJsonValue, lv_style_value_t& aStyleValue)
+{
+  lv_style_value_t opa;
+  bool hasOpa, hasColor;
+  ErrorPtr err = colorPropValue(aJsonValue, hasColor, aStyleValue, hasOpa, opa);
+  if (Error::isOK(err)) {
+    if (!hasColor) aStyleValue.color = lv_color_black();
+  }
+  return err;
+}
+
+
+
+
+static ErrorPtr gradientDirPropValue(JsonObjectPtr aJsonValue, lv_style_value_t& aStyleValue)
+{
+  const string gradSpec = aJsonValue->stringValue();
+  lv_grad_dir_t grad;
+  if (gradSpec=="vertical") grad = LV_GRAD_DIR_VER;
+  else if (gradSpec=="horizontal") grad = LV_GRAD_DIR_HOR;
+  else if (gradSpec=="linear") grad = LV_GRAD_DIR_LINEAR;
+  else if (gradSpec=="radial") grad = LV_GRAD_DIR_RADIAL;
+  else if (gradSpec=="conical") grad = LV_GRAD_DIR_CONICAL;
+  else if (gradSpec=="none") grad = LV_GRAD_DIR_NONE;
+  else {
+    return TextError::err("unknown gradient direction '%s'", gradSpec.c_str());
+  }
+  aStyleValue.num = grad;
+  return ErrorPtr();
+}
+
+
+static ErrorPtr borderSidesPropValue(JsonObjectPtr aJsonValue, lv_style_value_t& aStyleValue)
+{
+  const string s = aJsonValue->stringValue();
+  const char* p = s.c_str();
+  string part;
+  uint8_t sides = LV_BORDER_SIDE_NONE;
+  while (nextPart(p, part, ',')) {
+    if (part=="bottom") sides |= LV_BORDER_SIDE_BOTTOM;
+    else if (part=="top") sides |= LV_BORDER_SIDE_TOP;
+    else if (part=="left") sides |= LV_BORDER_SIDE_LEFT;
+    else if (part=="right") sides |= LV_BORDER_SIDE_RIGHT;
+    else if (part=="all") sides |= LV_BORDER_SIDE_FULL;
+    else if (part=="internal") sides |= LV_BORDER_SIDE_INTERNAL;
+    else return TextError::err("unknown border part '%s'", part.c_str());
+  }
+  aStyleValue.num = sides;
+  return ErrorPtr();
+}
+
+
+static ErrorPtr textDecorPropValue(JsonObjectPtr aJsonValue, lv_style_value_t& aStyleValue)
+{
+  const string s = aJsonValue->stringValue();
+  const char* p = s.c_str();
+  string part;
+  uint8_t decor = LV_TEXT_DECOR_NONE;
+  while (nextPart(p, part, ',')) {
+    if (part=="underline") decor |= LV_TEXT_DECOR_UNDERLINE;
+    else if (part=="strikethrough") decor |= LV_TEXT_DECOR_STRIKETHROUGH;
+    else return TextError::err("unknown text decor '%s'", part.c_str());
+  }
+  aStyleValue.num = decor;
+  return ErrorPtr();
+}
+
+
+static ErrorPtr textAlignPropValue(JsonObjectPtr aJsonValue, lv_style_value_t& aStyleValue)
+{
+  const string textAlign = aJsonValue->stringValue();
+  lv_text_align_t align;
+  if (textAlign=="left") align = LV_TEXT_ALIGN_LEFT;
+  else if (textAlign=="center") align = LV_TEXT_ALIGN_CENTER;
+  else if (textAlign=="right") align = LV_TEXT_ALIGN_RIGHT;
+  else if (textAlign=="auto") align = LV_TEXT_ALIGN_AUTO;
+  else return TextError::err("unknown text alignment '%s'", textAlign.c_str());
+  aStyleValue.num = align;
+  return ErrorPtr();
+}
+
+
+static ErrorPtr blendModePropValue(JsonObjectPtr aJsonValue, lv_style_value_t& aStyleValue)
+{
+  const string blendMode = aJsonValue->stringValue();
+  lv_blend_mode_t blend;
+  if (blendMode=="additive") blend = LV_BLEND_MODE_ADDITIVE;
+  else if (blendMode=="subtractive") blend = LV_BLEND_MODE_SUBTRACTIVE;
+  else if (blendMode=="multiply") blend = LV_BLEND_MODE_MULTIPLY;
+  else if (blendMode=="normal") blend = LV_BLEND_MODE_NORMAL;
+  else return TextError::err("unknown blend mode '%s'", blendMode.c_str());
+  aStyleValue.num = blend;
+  return ErrorPtr();
+}
+
+
+static ErrorPtr layoutPropValue(JsonObjectPtr aJsonValue, lv_style_value_t& aStyleValue)
+{
+  const string layoutName = aJsonValue->stringValue();
+  lv_layout_t layout;
+  if (layoutName=="flex") layout = LV_LAYOUT_FLEX;
+  else if (layoutName=="grid") layout = LV_LAYOUT_GRID;
+  else if (layoutName=="none") layout = LV_LAYOUT_NONE;
+  else return TextError::err("unknown layout '%s'", layoutName.c_str());
+  aStyleValue.num = layout;
+  return ErrorPtr();
+}
+
+
+static ErrorPtr flexAlignPropValue(JsonObjectPtr aJsonValue, lv_style_value_t& aStyleValue)
+{
+  const string flexAlign = aJsonValue->stringValue();
+  lv_flex_align_t align;
+  if (flexAlign=="start") align = LV_FLEX_ALIGN_START;
+  else if (flexAlign=="end") align = LV_FLEX_ALIGN_END;
+  else if (flexAlign=="evenly") align = LV_FLEX_ALIGN_SPACE_EVENLY;
+  else if (flexAlign=="around") align = LV_FLEX_ALIGN_SPACE_AROUND;
+  else if (flexAlign=="between") align = LV_FLEX_ALIGN_SPACE_BETWEEN;
+  else if (flexAlign=="center") align = LV_FLEX_ALIGN_CENTER;
+  else return TextError::err("unknown flex align '%s'", flexAlign.c_str());
+  aStyleValue.num = align;
+  return ErrorPtr();
+}
+
+
+
+static ErrorPtr flexFlowPropValue(JsonObjectPtr aJsonValue, lv_style_value_t& aStyleValue)
+{
+  const string flexFlow = aJsonValue->stringValue();
+  const char* p = flexFlow.c_str();
+  string part;
+  uint8_t flow = LV_FLEX_FLOW_ROW;
+  while (nextPart(p, part, ',')) {
+    if (part=="column") flow |= LV_FLEX_COLUMN;
+    else if (part=="wrap") flow |= LV_FLEX_WRAP;
+    else if (part=="reverse") flow |= LV_FLEX_REVERSE;
+    else if (part=="row");
+    else return TextError::err("unknown flex flow '%s'", flexFlow.c_str());
+  }
+  aStyleValue.num = flow;
+  return ErrorPtr();
+}
+
+
+static ErrorPtr gridAlignPropValue(JsonObjectPtr aJsonValue, lv_style_value_t& aStyleValue)
+{
+  const string gridAlign = aJsonValue->stringValue();
+  lv_grid_align_t align;
+  if (gridAlign=="start") align = LV_GRID_ALIGN_START;
+  else if (gridAlign=="end") align = LV_GRID_ALIGN_END;
+  else if (gridAlign=="evenly") align = LV_GRID_ALIGN_SPACE_EVENLY;
+  else if (gridAlign=="around") align = LV_GRID_ALIGN_SPACE_AROUND;
+  else if (gridAlign=="between") align = LV_GRID_ALIGN_SPACE_BETWEEN;
+  else if (gridAlign=="center") align = LV_GRID_ALIGN_CENTER;
+  else return TextError::err("unknown grid align '%s'", gridAlign.c_str());
+  aStyleValue.num = align;
+  return ErrorPtr();
+}
+
+
+static ErrorPtr gridTemplateArrayPropValue(JsonObjectPtr aJsonValue, lv_style_value_t& aStyleValue)
+{
+  int n = aJsonValue->arrayLength();
+  int32_t* aGridTemplateP = nullptr;
+  if (n>0) {
+    aGridTemplateP = new int32_t[n+1]; // plus terminator
+    for (int i = 0; i<n; i++) {
+      aGridTemplateP[i] = aJsonValue->arrayGet(i)->int32Value();
+    }
+    aGridTemplateP[n] = LV_GRID_TEMPLATE_LAST;
+  }
+  aStyleValue.ptr = aGridTemplateP;
+  return ErrorPtr();
+}
+
+
+static ErrorPtr imagePropValue(JsonObjectPtr aJsonValue, lv_style_value_t& aStyleValue)
+{
+  #warning %%% to implement
+  return TextError::err("Image properties not yet implemented");
+}
+
+
+typedef ErrorPtr (*PropValueConverter)(JsonObjectPtr aJsonValue, lv_style_value_t& aStyleValue);
+
+typedef struct {
+  const char* propname;
+  lv_style_prop_t propid;
+  lv_style_prop_t opa_propid;
+  PropValueConverter propconv;
+} PropDef;
+
+enum {
+  P44_STYLE_PAD_ALL=LV_STYLE_LAST_BUILT_IN_PROP+1,
+  P44_STYLE_MARGIN_ALL=LV_STYLE_LAST_BUILT_IN_PROP+2
+};
+
+static const PropDef propDefs[] = {
+  { "x", LV_STYLE_X, 0, coordPropValue },
+  { "y", LV_STYLE_Y, 0, coordPropValue },
+  { "dx", LV_STYLE_WIDTH, 0, coordPropValue },
+  { "min_dx", LV_STYLE_MIN_WIDTH, 0, coordPropValue },
+  { "max_dx", LV_STYLE_MAX_WIDTH, 0, coordPropValue },
+  { "dy", LV_STYLE_HEIGHT, 0, coordPropValue },
+  { "min_dy", LV_STYLE_MIN_HEIGHT, 0, coordPropValue },
+  { "max_dy", LV_STYLE_MAX_HEIGHT, 0, coordPropValue },
+  { "length", LV_STYLE_LENGTH, 0, coordPropValue },
+  { "align", LV_STYLE_LENGTH, 0, alignPropValue },
+  { "transform_dx", LV_STYLE_TRANSFORM_WIDTH, 0, coordPropValue },
+  { "transform_dy", LV_STYLE_TRANSFORM_HEIGHT, 0, coordPropValue },
+  { "translate_x", LV_STYLE_TRANSLATE_X, 0, coordPropValue },
+  { "translate_y", LV_STYLE_TRANSLATE_Y, 0, coordPropValue },
+  { "scale_x", LV_STYLE_TRANSFORM_SCALE_X, 0, scalePropValue },
+  { "scale_y", LV_STYLE_TRANSFORM_SCALE_Y, 0, scalePropValue },
+  { "rotation", LV_STYLE_TRANSFORM_ROTATION, 0, anglePropValue },
+  { "pivot_x", LV_STYLE_TRANSFORM_PIVOT_X, 0, coordPropValue },
+  { "pivot_y", LV_STYLE_TRANSFORM_PIVOT_Y, 0, coordPropValue },
+  { "skew_x", LV_STYLE_TRANSFORM_SKEW_X, 0, anglePropValue },
+  { "skew_y", LV_STYLE_TRANSFORM_SKEW_Y, 0, anglePropValue },
+  { "padding", P44_STYLE_PAD_ALL, 0, coordPropValue },
+  { "padding_top", LV_STYLE_PAD_TOP, 0, coordPropValue },
+  { "padding_bottom", LV_STYLE_PAD_BOTTOM, 0, coordPropValue },
+  { "padding_left", LV_STYLE_PAD_LEFT, 0, coordPropValue },
+  { "padding_right", LV_STYLE_PAD_RIGHT, 0, coordPropValue },
+  { "padding_row", LV_STYLE_PAD_ROW, 0, coordPropValue },
+  { "padding_column", LV_STYLE_PAD_COLUMN, 0, coordPropValue },
+  { "margin", P44_STYLE_MARGIN_ALL, 0, coordPropValue },
+  { "margin_top", LV_STYLE_MARGIN_TOP, 0, coordPropValue },
+  { "margin_bottom", LV_STYLE_MARGIN_BOTTOM, 0, coordPropValue },
+  { "margin_left", LV_STYLE_MARGIN_LEFT, 0, coordPropValue },
+  { "margin_right", LV_STYLE_MARGIN_RIGHT, 0, coordPropValue },
+  { "color", LV_STYLE_BG_COLOR, LV_STYLE_BG_OPA, nullptr },
+  { "color_main", LV_STYLE_BG_COLOR, LV_STYLE_BG_MAIN_OPA, nullptr },
+  { "gradient_color", LV_STYLE_BG_GRAD_COLOR, LV_STYLE_BG_GRAD_OPA, nullptr },
+  { "gradient_dir", LV_STYLE_BG_GRAD_DIR, 0, gradientDirPropValue },
+  { "gradient_start", LV_STYLE_BG_MAIN_STOP, 0, per255PropValue },
+  { "gradient_stop", LV_STYLE_BG_GRAD_STOP, 0, per255PropValue },
+  { "bg_image", LV_STYLE_BG_GRAD_STOP, 0, imagePropValue },
+  { "bg_recoloring", LV_STYLE_BG_IMAGE_RECOLOR, LV_STYLE_BG_IMAGE_RECOLOR_OPA, nullptr },
+  { "bg_tiled", LV_STYLE_BG_IMAGE_TILED, 0, boolPropValue },
+  { "border_color", LV_STYLE_BORDER_COLOR, LV_STYLE_BORDER_OPA, nullptr },
+  { "border_width", LV_STYLE_BORDER_WIDTH, 0, coordPropValue },
+  { "border_sides", LV_STYLE_BORDER_SIDE, 0, borderSidesPropValue },
+  { "border_post", LV_STYLE_BORDER_POST, 0, boolPropValue },
+  { "outline_color", LV_STYLE_OUTLINE_COLOR, LV_STYLE_OUTLINE_OPA, nullptr },
+  { "outline_width", LV_STYLE_OUTLINE_WIDTH, 0, coordPropValue },
+  { "outline_pad", LV_STYLE_OUTLINE_PAD, 0, coordPropValue },
+  { "shadow_color", LV_STYLE_SHADOW_COLOR, LV_STYLE_SHADOW_OPA, nullptr },
+  { "shadow_width", LV_STYLE_SHADOW_WIDTH, 0, coordPropValue },
+  { "shadow_dx", LV_STYLE_SHADOW_OFFSET_X, 0, coordPropValue },
+  { "shadow_dy", LV_STYLE_SHADOW_OFFSET_Y, 0, coordPropValue },
+  { "shadow_spread", LV_STYLE_SHADOW_OFFSET_Y, 0, coordPropValue },
+  { "image_alpha", LV_STYLE_IMAGE_OPA, 0, intPropValue },
+  { "image_recoloring", LV_STYLE_IMAGE_RECOLOR, LV_STYLE_IMAGE_RECOLOR_OPA, nullptr },
+  { "line_color", LV_STYLE_LINE_COLOR, LV_STYLE_LINE_OPA, nullptr },
+  { "line_width", LV_STYLE_LINE_WIDTH, 0, coordPropValue },
+  { "line_dash", LV_STYLE_LINE_DASH_WIDTH, 0, coordPropValue },
+  { "line_gap", LV_STYLE_LINE_DASH_GAP, 0, coordPropValue },
+  { "line_rounded", LV_STYLE_LINE_ROUNDED, 0, boolPropValue },
+  { "arc_color", LV_STYLE_ARC_COLOR, LV_STYLE_ARC_OPA, nullptr },
+  { "arc_width", LV_STYLE_ARC_WIDTH, 0, coordPropValue },
+  { "arc_rounded", LV_STYLE_ARC_ROUNDED, 0, boolPropValue },
+  { "arc_image", LV_STYLE_BG_GRAD_STOP, 0, imagePropValue },
+  { "text_color", LV_STYLE_TEXT_COLOR, LV_STYLE_TEXT_OPA, nullptr },
+  { "font", LV_STYLE_TEXT_FONT, 0, fontPropValue },
+  { "text_letter_space", LV_STYLE_TEXT_LETTER_SPACE, 0, coordPropValue },
+  { "text_line_space", LV_STYLE_TEXT_LINE_SPACE, 0, coordPropValue },
+  { "text_decor", LV_STYLE_TEXT_DECOR, 0, textDecorPropValue },
+  { "text_align", LV_STYLE_TEXT_ALIGN, 0, textAlignPropValue },
+  { "radius", LV_STYLE_RADIUS, 0, radiusPropValue },
+  { "clip_corner", LV_STYLE_CLIP_CORNER, 0, boolPropValue },
+  { "alpha", LV_STYLE_OPA, 0, intPropValue },
+  { "alpha_layered", LV_STYLE_OPA_LAYERED, 0, intPropValue },
+  // TODO: implement
+  // - color_filter_dsc/color_filter_opa
+  // - anim/anim_duration
+  // - transition
+  { "blend_mode", LV_STYLE_BLEND_MODE, 0, blendModePropValue },
+  { "layout", LV_STYLE_LAYOUT, 0, layoutPropValue },
+  { "flex_flow", LV_STYLE_FLEX_FLOW, 0, flexFlowPropValue },
+  { "flex_main_place", LV_STYLE_FLEX_MAIN_PLACE, 0, flexAlignPropValue },
+  { "flex_cross_place", LV_STYLE_FLEX_CROSS_PLACE, 0, flexAlignPropValue },
+  { "flex_track_place", LV_STYLE_FLEX_TRACK_PLACE, 0, flexAlignPropValue },
+  { "flex_grow", LV_STYLE_FLEX_GROW, 0, coordPropValue }, // TODO: unit unclear!!
+  { "grid_columns", LV_STYLE_GRID_COLUMN_DSC_ARRAY, 0, gridTemplateArrayPropValue },
+  { "grid_column_align", LV_STYLE_GRID_COLUMN_ALIGN, 0, gridAlignPropValue },
+  { "grid_rows", LV_STYLE_GRID_ROW_DSC_ARRAY, 0, gridTemplateArrayPropValue },
+  { "grid_row_align", LV_STYLE_GRID_ROW_ALIGN, 0, gridAlignPropValue },
+  { "grid_x", LV_STYLE_GRID_CELL_COLUMN_POS, 0, coordPropValue },
+  { "grid_x_align", LV_STYLE_GRID_CELL_X_ALIGN, 0, gridAlignPropValue },
+  { "grid_dx", LV_STYLE_GRID_CELL_COLUMN_SPAN, 0, coordPropValue },
+  { "grid_y", LV_STYLE_GRID_CELL_ROW_POS, 0, coordPropValue },
+  { "grid_y_align", LV_STYLE_GRID_CELL_Y_ALIGN, 0, gridAlignPropValue },
+  { "grid_dy", LV_STYLE_GRID_CELL_ROW_SPAN, 0, coordPropValue },
+  // Terminator
+  { nullptr, 0 }
+};
+
+
+static const PropDef* getPropDefFromName(const string aStylePropName)
+{
+  const PropDef* propDef = propDefs;
+  while (propDef->propname) {
+    if (uequals(aStylePropName, propDef->propname)) {
+      return propDef;
+    }
+    propDef++;
+  }
+  return nullptr;
+}
+
 
 
 static lv_event_code_t getEventCodeFromName(const string aEventName)
@@ -694,33 +977,57 @@ ErrorPtr LvGLUiTheme::configure(JsonObjectPtr aConfig)
 {
   ErrorPtr err;
   JsonObjectPtr o;
-  const lv_font_t* font = NULL;
+  const lv_font_t* font = lv_font_default();
   lv_color_t primary = lv_color_hex3(0x03A); // TODO: adjust for a nice default
   lv_color_t secondary = lv_color_hex3(0x015);
   bool isDark = false;
   if (aConfig->get("name", o)) {
     mName = o->stringValue();
+    lv_style_value_t val;
     if (aConfig->get("primary", o)) {
-      primary = getColorFromString(o->stringValue());
+      err = colorPropValue(o, val);
+      if (Error::notOK(err)) return err;
+      primary = val.color;
     }
     if (aConfig->get("secondary", o)) {
-      secondary = getColorFromString(o->stringValue());
+      err = colorPropValue(o, val);
+      if (Error::notOK(err)) return err;
+      secondary = val.color;
     }
     if (aConfig->get("dark", o)) {
       isDark = o->boolValue();
     }
     if (aConfig->get("font", o)) {
-      font = getFontByName(o->stringValue());
-      if (!font) return TextError::err("unknown font '%s'", o->stringValue().c_str());
+      err = fontPropValue(o, val);
+      if (Error::notOK(err)) return err;
+      font = (lv_font_t*)val.ptr;
     }
+    // init now
+    string baseName = "default";
+    if (aConfig->get("base", o)) baseName = o->stringValue();
     // (re-)init theme
-    mTheme = lv_theme_default_init(
-      mLvglui.display(),
-      primary,
-      secondary,
-      isDark,
-      font
-    );
+    if (false);
+    #if LV_USE_THEME_SIMPLE
+    else if (baseName=="simple") {
+      mTheme = lv_theme_simple_init(mLvglui.display());
+    }
+    #endif
+    #if LV_USE_THEME_MONO
+    else if (baseName=="mono") {
+      mTheme = lv_theme_mono_init(mLvglui.display(), isDark, font);
+    }
+    #endif
+    #if LV_USE_THEME_DEFAULT
+    else if (baseName=="default") {
+      mTheme = lv_theme_default_init(
+        mLvglui.display(),
+        primary,
+        secondary,
+        isDark,
+        font
+      );
+    }
+    #endif
   }
   else {
     err = TextError::err("theme must have a name");
@@ -752,333 +1059,30 @@ ErrorPtr LvGLUiStyle::setProperty(const string& aName, JsonObjectPtr aValue)
   // set style properties
   // - dummies not to be checked here
   if (aName=="selector") return ErrorPtr();
-  // - size and position
-  // common properties
-  if (aName=="x") {
-    lv_style_set_x(&mStyle, getCoordFromJson(aValue));
-  }
-  else if (aName=="y") {
-    lv_style_set_y(&mStyle, getCoordFromJson(aValue));
-  }
-  else if (aName=="dx") {
-    lv_style_set_width(&mStyle, getCoordFromJson(aValue));
-  }
-  else if (aName=="min_dx") {
-    lv_style_set_min_width(&mStyle, getCoordFromJson(aValue));
-  }
-  else if (aName=="max_dx") {
-    lv_style_set_max_width(&mStyle, getCoordFromJson(aValue));
-  }
-  else if (aName=="dy") {
-    lv_style_set_height(&mStyle, getCoordFromJson(aValue));
-  }
-  else if (aName=="min_dy") {
-    lv_style_set_min_height(&mStyle, getCoordFromJson(aValue));
-  }
-  else if (aName=="max_dy") {
-    lv_style_set_max_height(&mStyle, getCoordFromJson(aValue));
-  }
-  else if (aName=="length") {
-    lv_style_set_length(&mStyle, aValue->int32Value());
-  }
-  else if (aName=="align") {
-    lv_style_set_align(&mStyle, getAlignModeByName(aValue->stringValue()));
-  }
-  else if (aName=="transform_dx") {
-    lv_style_set_transform_width(&mStyle, getCoordFromJson(aValue));
-  }
-  else if (aName=="transform_dy") {
-    lv_style_set_transform_height(&mStyle, getCoordFromJson(aValue));
-  }
-  else if (aName=="translate_dx") {
-    lv_style_set_translate_x(&mStyle, getCoordFromJson(aValue));
-  }
-  else if (aName=="translate_dy") {
-    lv_style_set_translate_y(&mStyle, getCoordFromJson(aValue));
-  }
-  else if (aName=="scale_x") {
-    lv_style_set_transform_scale_x(&mStyle, aValue->doubleValue()*256);
-  }
-  else if (aName=="scale_y") {
-    lv_style_set_transform_scale_y(&mStyle, aValue->doubleValue()*256);
-  }
-  else if (aName=="rotation") {
-    lv_style_set_transform_rotation(&mStyle, aValue->doubleValue()*10);
-  }
-  else if (aName=="pivot_x") {
-    lv_style_set_transform_pivot_x(&mStyle, aValue->int32Value());
-  }
-  else if (aName=="pivot_y") {
-    lv_style_set_transform_pivot_y(&mStyle, aValue->int32Value());
-  }
-  else if (aName=="skew_x") {
-    lv_style_set_transform_skew_x(&mStyle, aValue->doubleValue()*10);
-  }
-  else if (aName=="skew_y") {
-    lv_style_set_transform_skew_y(&mStyle, aValue->doubleValue()*10);
-  }
-  // - padding
-  else if (aName=="padding") {
-    lv_style_set_pad_all(&mStyle, (lv_coord_t)aValue->int32Value());
-  }
-  else if (aName=="padding_top") {
-    lv_style_set_pad_top(&mStyle, (lv_coord_t)aValue->int32Value());
-  }
-  else if (aName=="padding_bottom") {
-    lv_style_set_pad_bottom(&mStyle, (lv_coord_t)aValue->int32Value());
-  }
-  else if (aName=="padding_left") {
-    lv_style_set_pad_left(&mStyle, (lv_coord_t)aValue->int32Value());
-  }
-  else if (aName=="padding_right") {
-    lv_style_set_pad_right(&mStyle, (lv_coord_t)aValue->int32Value());
-  }
-  else if (aName=="padding_row") {
-    lv_style_set_pad_row(&mStyle, (lv_coord_t)aValue->int32Value());
-  }
-  else if (aName=="padding_column") {
-    lv_style_set_pad_column(&mStyle, (lv_coord_t)aValue->int32Value());
-  }
-  // - margin
-  else if (aName=="margin_top") {
-    lv_style_set_margin_top(&mStyle, (lv_coord_t)aValue->int32Value());
-  }
-  else if (aName=="margin_bottom") {
-    lv_style_set_margin_bottom(&mStyle, (lv_coord_t)aValue->int32Value());
-  }
-  else if (aName=="margin_left") {
-    lv_style_set_margin_left(&mStyle, (lv_coord_t)aValue->int32Value());
-  }
-  else if (aName=="margin_right") {
-    lv_style_set_margin_right(&mStyle, (lv_coord_t)aValue->int32Value());
-  }
-  // - background
-  else if (aName=="color") {
-    lv_opa_t opacity = 255;
-    lv_style_set_bg_color(&mStyle, getColorFromString(aValue->stringValue(), &opacity));
-    lv_style_set_bg_main_opa(&mStyle, opacity);
-  }
-  else if (aName=="gradient_color") {
-    lv_opa_t opacity = 255;
-    lv_style_set_bg_grad_color(&mStyle, getColorFromString(aValue->stringValue(), &opacity));
-    lv_style_set_bg_grad_opa(&mStyle, opacity);
-  }
-  else if (aName=="gradient_dir") {
-    lv_style_set_bg_grad_dir(&mStyle, getGradientDirByName(aValue->stringValue()));
-  }
-  else if (aName=="gradient_start") {
-    // Note: we call that start, not main stop
-    lv_style_set_bg_main_stop(&mStyle, aValue->doubleValue()*2.55);
-  }
-  else if (aName=="gradient_stop") {
-    lv_style_set_bg_grad_stop(&mStyle, aValue->doubleValue()*2.55);
-  }
-  else if (aName=="bg_image") {
-    // FIXME: similar to what we did in LvglUIImage
-    #warning %%% to implement
-    return TextError::err("'%s' not yet implemented", aName.c_str());
-  }
-  else if (aName=="bg_recoloring") {
-    lv_opa_t opacity = 255;
-    lv_style_set_bg_image_recolor(&mStyle, getColorFromString(aValue->stringValue(), &opacity));
-    lv_style_set_bg_image_recolor_opa(&mStyle, opacity);
-  }
-  else if (aName=="bg_tiled") {
-    lv_style_set_bg_image_tiled(&mStyle, aValue->boolValue());
-  }
-  // - border
-  else if (aName=="border_color") {
-    lv_opa_t opacity = 255;
-    lv_style_set_border_color(&mStyle, getColorFromString(aValue->stringValue(), &opacity));
-    lv_style_set_border_opa(&mStyle, opacity);
-  }
-  else if (aName=="border_width") {
-    lv_style_set_border_width(&mStyle, aValue->int32Value());
-  }
-  else if (aName=="border_sides") {
-    lv_style_set_border_side(&mStyle, getBorderSidesFromList(aValue->stringValue()));
-  }
-  else if (aName=="border_post") {
-    lv_style_set_border_post(&mStyle, aValue->boolValue());
-  }
-  // - outline
-  else if (aName=="outline_color") {
-    lv_opa_t opacity = 255;
-    lv_style_set_outline_color(&mStyle, getColorFromString(aValue->stringValue(), &opacity));
-    lv_style_set_outline_opa(&mStyle, opacity);
-  }
-  else if (aName=="outline_width") {
-    lv_style_set_outline_width(&mStyle, aValue->int32Value());
-  }
-  else if (aName=="outline_pad") {
-    lv_style_set_outline_pad(&mStyle, aValue->int32Value());
-  }
-  // - shadow
-  else if (aName=="shadow_color") {
-    lv_opa_t opacity = 255;
-    lv_style_set_shadow_color(&mStyle, getColorFromString(aValue->stringValue(), &opacity));
-    lv_style_set_shadow_opa(&mStyle, opacity);
-  }
-  else if (aName=="shadow_width") {
-    lv_style_set_shadow_width(&mStyle, aValue->int32Value());
-  }
-  else if (aName=="shadow_dx") {
-    lv_style_set_shadow_offset_x(&mStyle, aValue->int32Value());
-  }
-  else if (aName=="shadow_dy") {
-    lv_style_set_shadow_offset_y(&mStyle, aValue->int32Value());
-  }
-  else if (aName=="shadow_spread") {
-    lv_style_set_shadow_spread(&mStyle, aValue->int32Value());
-  }
-  // - image
-  else if (aName=="image_alpha") {
-    lv_style_set_image_opa(&mStyle, (lv_opa_t)aValue->int32Value());
-  }
-  else if (aName=="image_recoloring") {
-    lv_opa_t opacity = 255;
-    lv_style_set_image_recolor(&mStyle, getColorFromString(aValue->stringValue(), &opacity));
-    lv_style_set_image_recolor_opa(&mStyle, opacity);
-  }
-  // - line
-  else if (aName=="line_color") {
-    lv_opa_t opacity = 255;
-    lv_style_set_line_color(&mStyle, getColorFromString(aValue->stringValue(), &opacity));
-    lv_style_set_line_opa(&mStyle, opacity);
-  }
-  else if (aName=="line_width") {
-    lv_style_set_line_width(&mStyle, aValue->int32Value());
-  }
-  else if (aName=="line_dash") {
-    lv_style_set_line_dash_width(&mStyle, aValue->int32Value());
-  }
-  else if (aName=="line_gap") {
-    lv_style_set_line_dash_gap(&mStyle, aValue->int32Value());
-  }
-  else if (aName=="line_rounded") {
-    lv_style_set_line_rounded(&mStyle, aValue->boolValue());
-  }
-  // - arc
-  else if (aName=="arc_color") {
-    lv_opa_t opacity = 255;
-    lv_style_set_arc_color(&mStyle, getColorFromString(aValue->stringValue(), &opacity));
-    lv_style_set_arc_opa(&mStyle, opacity);
-  }
-  else if (aName=="arc_width") {
-    lv_style_set_arc_width(&mStyle, aValue->int32Value());
-  }
-  else if (aName=="arc_rounded") {
-    lv_style_set_arc_rounded(&mStyle, aValue->boolValue());
-  }
-  else if (aName=="arc_image") {
-    // FIXME: similar to what we did in LvglUIImage
-    #warning %%% to implement
-    return TextError::err("'%s' not yet implemented", aName.c_str());
-  }
-  // - text
-  else if (aName=="text_color") {
-    lv_opa_t opacity = 255;
-    lv_style_set_text_color(&mStyle, getColorFromString(aValue->stringValue(), &opacity));
-    lv_style_set_text_opa(&mStyle, opacity);
-  }
-  else if (aName=="font") {
-    const lv_font_t* font = getFontByName(aValue->stringValue());
-    if (!font) return TextError::err("font '%s' not found", aValue->stringValue().c_str());
-    lv_style_set_text_font(&mStyle, font);
-  }
-  else if (aName=="text_letter_space") {
-    lv_style_set_text_letter_space(&mStyle, aValue->int32Value());
-  }
-  else if (aName=="text_line_space") {
-    lv_style_set_text_line_space(&mStyle, aValue->int32Value());
-  }
-  else if (aName=="text_decor") {
-    lv_style_set_text_decor(&mStyle, getTextDecorByName(aValue->stringValue()));
-  }
-  else if (aName=="text_align") {
-    lv_style_set_text_align(&mStyle, getTextAlignByName(aValue->stringValue()));
-  }
-  // - miscellaneous
-  else if (aName=="radius") {
-    if (aValue->stringValue()=="circle") lv_style_set_radius(&mStyle, LV_RADIUS_CIRCLE);
-    else lv_style_set_radius(&mStyle, (lv_coord_t)aValue->int32Value());
-  }
-  else if (aName=="clip_corner") {
-    lv_style_set_clip_corner(&mStyle, aValue->boolValue());
-  }
-  else if (aName=="alpha") {
-    lv_style_set_opa(&mStyle, (lv_opa_t)aValue->int32Value());
-  }
-  else if (aName=="alpha_layered") {
-    lv_style_set_opa_layered(&mStyle, (lv_opa_t)aValue->int32Value());
-  }
-  // TODO: implement
-  // - color_filter_dsc/color_filter_opa
-  // - anim/anim_duration
-  // - transition
-  else if (aName=="blend_mode") {
-    lv_style_set_blend_mode(&mStyle, getBlendModeByName(aValue->stringValue()));
-  }
-  else if (aName=="layout") {
-    lv_style_set_layout(&mStyle, getLayoutByName(aValue->stringValue()));
-  }
-  // - flex
-  else if (aName=="flex_flow") {
-    lv_style_set_flex_flow(&mStyle, getFlexFlowByName(aValue->stringValue()));
-  }
-  else if (aName=="flex_main_place") {
-    lv_style_set_flex_main_place(&mStyle, getFlexAlignByName(aValue->stringValue()));
-  }
-  else if (aName=="flex_cross_place") {
-    lv_style_set_flex_cross_place(&mStyle, getFlexAlignByName(aValue->stringValue()));
-  }
-  else if (aName=="flex_track_place") {
-    lv_style_set_flex_track_place(&mStyle, getFlexAlignByName(aValue->stringValue()));
-  }
-  else if (aName=="flex_grow") {
-    lv_style_set_flex_grow(&mStyle, getFlexAlignByName(aValue->stringValue()));
-  }
-  // - grid
-  else if (aName=="grid_columns") {
-    int32_t* columns;
-    if (getGridTemplateArray(columns, aValue)) {
-      lv_style_set_grid_column_dsc_array(&mStyle, columns);
+  // - set via property id
+  ErrorPtr err;
+  const PropDef* prop = getPropDefFromName(aName);
+  if (prop) {
+    if (prop->propconv) {
+      lv_style_value_t propval;
+      err = prop->propconv(aValue, propval);
+      if (Error::isOK(err)) lv_style_set_prop(&mStyle, prop->propid, propval);
     }
-  }
-  else if (aName=="grid_column_align") {
-    lv_style_set_grid_column_align(&mStyle, getGridAlignByName(aValue->stringValue()));
-  }
-  else if (aName=="grid_rows") {
-    int32_t* rows;
-    if (getGridTemplateArray(rows, aValue)) {
-      lv_style_set_grid_row_dsc_array(&mStyle, rows);
+    else if (prop->opa_propid) {
+      // color and opacity combined
+      lv_style_value_t color, opa;
+      bool hasColor, hasOpa;
+      err = colorPropValue(aValue, hasColor, color, hasOpa, opa);
+      if (Error::isOK(err)) {
+        if (hasColor) lv_style_set_prop(&mStyle, prop->propid, color);
+        if (hasOpa) lv_style_set_prop(&mStyle, prop->opa_propid, opa);
+      }
     }
-  }
-  else if (aName=="grid_row_align") {
-    lv_style_set_grid_row_align(&mStyle, getGridAlignByName(aValue->stringValue()));
-  }
-  else if (aName=="grid_x") {
-    lv_style_set_grid_cell_column_pos(&mStyle, aValue->int32Value());
-  }
-  else if (aName=="grid_x_align") {
-    lv_style_set_grid_cell_x_align(&mStyle, getGridAlignByName(aValue->stringValue()));
-  }
-  else if (aName=="grid_dx") {
-    lv_style_set_grid_cell_column_span(&mStyle, aValue->int32Value());
-  }
-  else if (aName=="grid_y") {
-    lv_style_set_grid_cell_row_pos(&mStyle, aValue->int32Value());
-  }
-  else if (aName=="grid_y_align") {
-    lv_style_set_grid_cell_y_align(&mStyle, getGridAlignByName(aValue->stringValue()));
-  }
-  else if (aName=="grid_dy") {
-    lv_style_set_grid_cell_row_span(&mStyle, aValue->int32Value());
   }
   else {
     return inherited::setProperty(aName, aValue);
   }
-  return ErrorPtr();
+  return err;
 }
 
 
@@ -1108,10 +1112,12 @@ static LVGLUiElementPtr createElement(LvGLUi& aLvGLUI, JsonObjectPtr aConfig, Lv
   }
   #endif
   else if (tn=="button") {
-    if (aConfig->get("image"))
+    if (aConfig->get("image")) {
       elem = LVGLUiElementPtr(new LvGLUiImgButton(aLvGLUI, aParentP));
-    else
+    }
+    else {
       elem = LVGLUiElementPtr(new LvGLUiButton(aLvGLUI, aParentP));
+    }
   }
   else if (tn=="image_button") {
     elem = LVGLUiElementPtr(new LvGLUiImgButton(aLvGLUI, aParentP));
@@ -1127,10 +1133,12 @@ static LVGLUiElementPtr createElement(LvGLUi& aLvGLUI, JsonObjectPtr aConfig, Lv
   }
   #endif
   else {
-    if (aContainerByDefault)
+    if (aContainerByDefault) {
       elem = LVGLUiElementPtr(new LvGLUiPanel(aLvGLUI, aParentP));
-    else
+    }
+    else {
       elem = LVGLUiElementPtr(new LvGLUiPlain(aLvGLUI, aParentP));
+    }
   }
   return elem;
 }
@@ -1140,7 +1148,7 @@ static LVGLUiElementPtr createElement(LvGLUi& aLvGLUI, JsonObjectPtr aConfig, Lv
 
 const void* LVGLUiElement::imgSrc(const string& aSource)
 {
-  if (aSource.empty()) return NULL;
+  if (aSource.empty()) return nullptr;
   return aSource.c_str();
 }
 
@@ -1180,14 +1188,14 @@ ErrorPtr LVGLUiElement::setEventHandler(lv_event_code_t aEventCode, JsonObjectPt
 LVGLUiElement::LVGLUiElement(LvGLUi& aLvGLUI, LvGLUiContainer* aParentP) :
   inherited(aLvGLUI),
   mParentP(aParentP),
-  mElement(NULL)
+  mElement(nullptr)
 {
 }
 
 
 lv_obj_t* LVGLUiElement::lvParent()
 {
-  return mParentP ? mParentP->mElement : NULL;
+  return mParentP ? mParentP->mElement : nullptr;
 }
 
 
@@ -1200,8 +1208,12 @@ LVGLUiElement::~LVGLUiElement()
 void LVGLUiElement::clear()
 {
   if (mElement) {
-    lv_obj_del(mElement); // delete element and all of its children on the lvgl level
-    mElement = NULL;
+    if (!mParentP) {
+      // root, owned by us, delete
+      // Note: all child elements are also childs at the lvgl level and thus owned by the lvgl parent, not us
+      lv_obj_delete(mElement);
+    }
+    mElement = nullptr;
   }
 }
 
@@ -1255,7 +1267,8 @@ ErrorPtr LVGLUiElement::setProperty(const string& aName, JsonObjectPtr aValue)
       // structured: { to:name, dx:nn, dy:nn }
       JsonObjectPtr o;
       LVGLUiElementPtr alignRef;
-      lv_align_t alignmode = LV_ALIGN_DEFAULT;
+      lv_style_value_t alignmode;
+      alignmode.num = LV_ALIGN_DEFAULT;
       lv_coord_t align_dx = 0;
       lv_coord_t align_dy = 0;
       if (aValue->get("to", o)) {
@@ -1268,15 +1281,19 @@ ErrorPtr LVGLUiElement::setProperty(const string& aName, JsonObjectPtr aValue)
         align_dy = o->int32Value();
       }
       if (aValue->get("mode", o)) {
-        alignmode = getAlignModeByName(o->stringValue());
+        ErrorPtr err = alignPropValue(o, alignmode);
+        if (Error::notOK(err)) return err;
       }
       if (alignRef) {
         // align to a existing object
-        lv_obj_align_to(mElement, alignRef->mElement, alignmode, align_dx, align_dy);
+        lv_obj_align_to(mElement, alignRef->mElement, (lv_align_t)alignmode.num, align_dx, align_dy);
       }
     }
     else {
-      lv_obj_set_align(mElement, getAlignModeByName(aValue->stringValue()));
+      lv_style_value_t alignmode;
+      ErrorPtr err = alignPropValue(aValue, alignmode);
+      if (Error::notOK(err)) return err;
+      lv_obj_set_align(mElement, (lv_align_t)alignmode.num);
     }
   }
   else if (aName=="style") {
@@ -1290,18 +1307,58 @@ ErrorPtr LVGLUiElement::setProperty(const string& aName, JsonObjectPtr aValue)
       else {
         // add one or multiple styles in an array
         for (int i=0; i<aValue->arrayLength(); i++) {
-          ErrorPtr err = mLvglui.namedOrAdHocStyle(aValue->arrayGet(i), style, selector);
+          ErrorPtr err = mLvglui.namedStyle(aValue->arrayGet(i), style, selector);
           if (Error::notOK(err)) return err;
           lv_obj_add_style(mElement, style, selector);
         }
       }
     }
     else {
-      // add a single style
-      ErrorPtr err = mLvglui.namedOrAdHocStyle(aValue, style, selector);
-      if (Error::notOK(err)) return err;
-      lv_obj_add_style(mElement, style, selector);
-    }
+      // add a single style or define local styling
+      if (aValue->isType(json_type_object)) {
+        // local: { "selector":"sta1|sta2", "styleprop1":val1 ... }
+        // - we need the selector before we set any property!
+        lv_style_selector_t selector = LV_STATE_DEFAULT;
+        JsonObjectPtr o;
+        if (aValue->get("selector", o)) {
+          selector = getSelectorByList(o->stringValue());
+          if (selector==LV_STATE_DEFAULT) return TextError::err("invalid local style selector '%s'", o->stringValue().c_str());
+        }
+        // - now iterate over local property overrides
+        aValue->resetKeyIteration();
+        string propName;
+        while(aValue->nextKeyValue(propName, o)) {
+          if (propName=="selector") continue; // ignore now, checked above
+          const PropDef* prop = getPropDefFromName(propName);
+          if (prop) {
+            if (prop->propconv) {
+              lv_style_value_t propval;
+              ErrorPtr err = prop->propconv(o, propval);
+              if (Error::notOK(err)) return err;
+              lv_obj_set_local_style_prop(mElement, prop->propid, propval, selector);
+            }
+            else if (prop->opa_propid) {
+              // color and opacity combined
+              lv_style_value_t color, opa;
+              bool hasColor, hasOpa;
+              ErrorPtr err = colorPropValue(o, hasColor, color, hasOpa, opa);
+              if (Error::notOK(err)) return err;
+              if (hasColor) lv_obj_set_local_style_prop(mElement, prop->propid, color, selector);
+              if (hasOpa) lv_obj_set_local_style_prop(mElement, prop->opa_propid, opa, selector);
+            }
+          }
+          else {
+            return TextError::err("unknown local style property '%s'", propName.c_str());
+          }
+        }
+      }
+      else {
+        // add named style
+        ErrorPtr err = mLvglui.namedStyle(aValue, style, selector);
+        if (Error::notOK(err)) return err;
+        lv_obj_add_style(mElement, style, selector);
+      }
+    } // single style
   }
   else if (aName=="flags") {
     uint32_t set=0, clr=0;
@@ -1394,7 +1451,7 @@ ErrorPtr LvGLUiContainer::addElements(JsonObjectPtr aElementConfigArray, LvGLUiC
     else {
       // this element does not need a wrapper, and has a parent which will release this child's memory
       // so we just need to make sure disposing of the wrapper will not delete the lv_obj
-      uielement->mElement = NULL; // cut lv_obj from the wrapper
+      uielement->mElement = nullptr; // cut lv_obj from the wrapper
     }
   }
   return err;
@@ -1448,7 +1505,7 @@ LvGLUiPanel::LvGLUiPanel(LvGLUi& aLvGLUI, LvGLUiContainer* aParentP) :
 LvGLUiImage::LvGLUiImage(LvGLUi& aLvGLUI, LvGLUiContainer* aParentP) :
   inherited(aLvGLUI, aParentP)
 {
-  mElement = lv_img_create(lvParent());
+  mElement = lv_image_create(lvParent());
 }
 
 
@@ -1457,7 +1514,7 @@ ErrorPtr LvGLUiImage::setProperty(const string& aName, JsonObjectPtr aValue)
   // configure params
   if (aName=="src") {
     if (setProp(mImgSrc, mLvglui.namedImageSource(aValue->stringValue()))) {
-      lv_img_set_src(mElement, mImgSrc.c_str());
+      lv_image_set_src(mElement, mImgSrc.c_str());
     }
   }
   else if (aName=="symbol") {
@@ -1536,10 +1593,16 @@ ErrorPtr LvGLUiQRCode::setProperty(const string& aName, JsonObjectPtr aValue)
     lv_qrcode_set_size(mElement, aValue->int32Value());
   }
   else if (aName=="darkcolor") {
-    lv_qrcode_set_dark_color(mElement, getColorFromString(aValue->stringValue()));
+    lv_style_value_t col;
+    ErrorPtr err = colorPropValue(aValue, col);
+    if (Error::notOK(err)) return err;
+    lv_qrcode_set_dark_color(mElement, col.color);
   }
   else if (aName=="lightcolor") {
-    lv_qrcode_set_light_color(mElement, getColorFromString(aValue->stringValue()));
+    lv_style_value_t col;
+    ErrorPtr err = colorPropValue(aValue, col);
+    if (Error::notOK(err)) return err;
+    lv_qrcode_set_light_color(mElement, col.color);
   }
   else {
     return inherited::setProperty(aName, aValue);
@@ -1604,7 +1667,7 @@ const void* LvGLUiImgButton::imgBtnSrc(const string& aSource)
   if (src) {
     // avoid symbols in image buttons (these only work in normal images)
     if (lv_image_src_get_type(src)==LV_IMAGE_SRC_SYMBOL) {
-      src = NULL;
+      src = nullptr;
     }
   }
   return src;
@@ -1754,11 +1817,12 @@ void LvGLUiSwitch::setValue(int16_t aValue, uint16_t aAnimationTimeMs)
 
 // MARK: - LvGLUi
 
-static LvGLUi* gLvgluiP = NULL;
+static LvGLUi* gLvgluiP = nullptr;
 
 LvGLUi::LvGLUi() :
-  inherited(*this, NULL),
-  mDataPathResources(false)
+  inherited(*this, nullptr),
+  mDataPathResources(false),
+  mEmptyScreen(nullptr)
   #if ENABLE_LVGLUI_SCRIPT_FUNCS
   ,mActivityTimeoutScript(scriptbody+regular, "activityTimeout")
   ,mActivationScript(scriptbody+regular, "activation")
@@ -1766,6 +1830,13 @@ LvGLUi::LvGLUi() :
 {
   mName = "LvGLUi";
   gLvgluiP = this;
+}
+
+
+LvGLUi::~LvGLUi()
+{
+  if (mEmptyScreen) lv_obj_delete(mEmptyScreen);
+  mEmptyScreen = nullptr;
 }
 
 
@@ -1783,18 +1854,19 @@ void LvGLUi::uiActivation(bool aActivated)
 
 void LvGLUi::clear()
 {
+  lv_screen_load(mEmptyScreen);
   // TODO: FIXME: how to clear the image cache?
   inherited::clear();
   mStyles.clear();
-  mAdhocStyles.clear();
   mThemes.clear();
 }
 
 
 void LvGLUi::initForDisplay(lv_disp_t* aDisplay)
 {
-  clear();
   mDisplay = aDisplay;
+  mEmptyScreen = lv_obj_create(nullptr);
+  clear();
 }
 
 
@@ -1810,7 +1882,7 @@ lv_theme_t* LvGLUi::namedTheme(const string aThemeName)
   ThemeMap::iterator pos = mThemes.find(aThemeName);
   if (pos!=mThemes.end())
     return pos->second->mTheme;
-  return NULL;
+  return nullptr;
 }
 
 
@@ -1824,40 +1896,24 @@ lv_style_t* LvGLUi::namedStyle(const string aStyleName)
 }
 
 
-ErrorPtr LvGLUi::namedOrAdHocStyle(JsonObjectPtr aStyleSpecOrDefinition, lv_style_t*& aStyleP, lv_style_selector_t& aSelector)
+ErrorPtr LvGLUi::namedStyle(JsonObjectPtr aStyleSpecOrDefinition, lv_style_t*& aStyleP, lv_style_selector_t& aSelector)
 {
   ErrorPtr err;
   aSelector = LV_STATE_DEFAULT;
-  if (aStyleSpecOrDefinition->isType(json_type_string)) {
-    string stylespec = aStyleSpecOrDefinition->stringValue();
-    // style spec: <stylename>[:<sta1>[|sta2...]]
-    size_t sep = stylespec.find_first_of(":");
-    if (sep!=string::npos) {
-      // state(s) specified
-      aSelector = getSelectorByList(stylespec.substr(sep+1));
-      if (aSelector==LV_STATE_DEFAULT) err = TextError::err("invalid selector '%s'", stylespec.substr(sep+1).c_str());
-    }
-    else {
-      sep = stylespec.size();
-    }
-    if (Error::isOK(err)) {
-      aStyleP = namedStyle(stylespec.substr(0,sep));
-      if (!aStyleP) err = TextError::err("unknown style named '%s'", stylespec.substr(0,sep).c_str());
-    }
+  string stylespec = aStyleSpecOrDefinition->stringValue();
+  // style spec: <stylename>[:<sta1>[|sta2...]]
+  size_t sep = stylespec.find_first_of(":");
+  if (sep!=string::npos) {
+    // state(s) specified
+    aSelector = getSelectorByList(stylespec.substr(sep+1));
+    if (aSelector==LV_STATE_DEFAULT) err = TextError::err("invalid selector '%s'", stylespec.substr(sep+1).c_str());
   }
-  else if (aStyleSpecOrDefinition->isType(json_type_object)) {
-    // ad-hoc style: { "states":"sta1|sta2", "styleprop1":val1 ... }
-    LvGLUiStylePtr adhocStyle = LvGLUiStylePtr(new LvGLUiStyle(*this));
-    err = adhocStyle->configure(aStyleSpecOrDefinition);
-    if (Error::isOK(err)) {
-      mAdhocStyles.push_back(adhocStyle);
-      aStyleP = &(adhocStyle->mStyle);
-      JsonObjectPtr o = aStyleSpecOrDefinition->get("selector");
-      if (o) {
-        aSelector = getSelectorByList(o->stringValue());
-        if (aSelector==LV_STATE_DEFAULT) err = TextError::err("invalid selector '%s'", o->stringValue().c_str());
-      }
-    }
+  else {
+    sep = stylespec.size();
+  }
+  if (Error::isOK(err)) {
+    aStyleP = namedStyle(stylespec.substr(0,sep));
+    if (!aStyleP) err = TextError::err("unknown style named '%s'", stylespec.substr(0,sep).c_str());
   }
   return err;
 }
@@ -1911,7 +1967,7 @@ void LvGLUi::loadScreen(const string aScreenName)
 {
   LVGLUiElementPtr screen = namedElement(aScreenName, &mLvglui);
   if (screen) {
-    lv_scr_load(screen->mElement);
+    lv_screen_load(screen->mElement);
     #if ENABLE_LVGLUI_SCRIPT_FUNCS
     if (screen->mRefreshEventHandler) {
       screen->runEventScript(LV_EVENT_REFRESH, screen->mRefreshEventHandler->mEventScript);
@@ -1957,8 +2013,8 @@ ErrorPtr LvGLUi::configure(JsonObjectPtr aConfig)
   }
   // check for screens
   if (aConfig->get("screens", o)) {
-    lv_disp_set_default(mDisplay); // make sure screens are created on the correct display
-    err = addElements(o, NULL, true); // screens are just elements with no parent
+    lv_display_set_default(mDisplay); // make sure screens are created on the correct display
+    err = addElements(o, nullptr, true); // screens are just elements with no parent
     if (Error::notOK(err)) return err;
   }
   // check for start screen to load
@@ -1979,75 +2035,10 @@ ErrorPtr LvGLUi::configure(JsonObjectPtr aConfig)
     mActivationScript.setSource(o->stringValue());
   }
   // simulate activity
-  lv_disp_trig_activity(NULL);
+  lv_display_trigger_activity(nullptr);
   return ErrorPtr();
 }
 
-
-#if 0
-
-ErrorPtr LvGLUi::setProperty(const string& aName, JsonObjectPtr aValue)
-{
-  ErrorPtr err;
-  // check for themes
-  if (aName=="themes") {
-    for (int i = 0; i<aValue->arrayLength(); ++i) {
-      JsonObjectPtr themeConfig = aValue->arrayGet(i);
-      LvGLUiThemePtr th = LvGLUiThemePtr(new LvGLUiTheme(*this));
-      th->configure(themeConfig);
-      if (th->getName().empty()) return TextError::err("theme must have a 'name'");
-      mThemes[th->getName()] = th;
-    }
-  }
-  // check for styles
-  else if (aName=="styles") {
-    for (int i = 0; i<aValue->arrayLength(); ++i) {
-      JsonObjectPtr styleConfig = aValue->arrayGet(i);
-      LvGLUiStylePtr st = LvGLUiStylePtr(new LvGLUiStyle(*this));
-      err = st->configure(styleConfig);
-      if (Error::notOK(err)) return err;
-      if (st->getName().empty()) return TextError::err("style must have a 'name'");
-      mStyles[st->getName()] = st;
-    }
-  }
-  // check for default theme
-  else if (aName=="theme") {
-    lv_theme_t* th = namedTheme(aValue->stringValue());
-    if (th) {
-      lv_display_set_theme(mDisplay, th);
-    }
-  }
-  // check for screens
-  else if (aName=="screens") {
-    lv_disp_set_default(mDisplay); // make sure screens are created on the correct display
-    addElements(aValue, NULL, true); // screens are just elements with no parent
-  }
-  // check for start screen to load
-  else if (aName=="startscreen") {
-    loadScreen(aValue->stringValue());
-  }
-  else if (aName=="resourceprefix") {
-    mResourcePrefix = aValue->stringValue();
-  }
-  else if (aName=="dataresources") {
-    mDataPathResources = aValue->boolValue();
-  }
-  // check for activation/deactivation scripts
-  else if (aName=="activitytimeoutscript") {
-    mActivityTimeoutScript.setSource(aValue->stringValue());
-  }
-  else if (aName=="activationscript") {
-    mActivationScript.setSource(aValue->stringValue());
-  }
-  else {
-    return inherited::setProperty(aName, aValue);
-  }
-  // simulate activity
-  lv_disp_trig_activity(NULL);
-  return ErrorPtr();
-}
-
-#endif
 
 string LvGLUi::imagePath(const string aImageSpec)
 {
@@ -2212,7 +2203,7 @@ static void refresh_func(BuiltinFunctionContextPtr f)
 {
   LVGLUiElementObj* o = dynamic_cast<LVGLUiElementObj*>(f->thisObj().get());
   assert(o);
-  lv_obj_send_event(o->element()->mElement, LV_EVENT_REFRESH, NULL);
+  lv_obj_send_event(o->element()->mElement, LV_EVENT_REFRESH, nullptr);
   f->finish(o); // return myself for chaining calls
 }
 
@@ -2225,6 +2216,58 @@ static void showscreen_func(BuiltinFunctionContextPtr f)
   assert(o);
   o->element()->getLvGLUi().loadScreen(f->arg(0)->stringValue());
   f->finish();
+}
+
+
+// addstyle/removestyle
+static void changestyle(BuiltinFunctionContextPtr f, bool aAdd)
+{
+  LVGLUiElementObj* o = dynamic_cast<LVGLUiElementObj*>(f->thisObj().get());
+  for(int i=0; i<f->numArgs(); i++) {
+    lv_style_selector_t selector;
+    lv_style_t* styleP;
+    ErrorPtr err = o->element()->getLvGLUi().namedStyle(f->arg(i)->jsonValue(), styleP, selector);
+    if (styleP) {
+      if (aAdd) lv_obj_add_style(o->element()->mElement, styleP, selector);
+      else lv_obj_remove_style(o->element()->mElement, styleP, selector);
+    }
+  }
+  f->finish(o); // return myself for chaining calls
+}
+// addstyle(<style[:selector]> [,<style[:selector]>])
+FUNC_ARG_DEFS(addstyle, { text|multiple });
+static void addstyle_func(BuiltinFunctionContextPtr f)
+{
+  changestyle(f, true);
+}
+// removestyle(<style[:selector]> [,<style[:selector]>])
+// removestyle() // reset to theme
+// removestyle(null) // remove all styles
+FUNC_ARG_DEFS(removestyle, { text|multiple });
+static void removestyle_func(BuiltinFunctionContextPtr f)
+{
+  LVGLUiElementObj* o = dynamic_cast<LVGLUiElementObj*>(f->thisObj().get());
+  if(f->numArgs()==0) {
+    // reset to theme, saving position and size
+    lv_coord_t x = lv_obj_get_x(o->element()->mElement);
+    lv_coord_t y = lv_obj_get_y(o->element()->mElement);
+    lv_coord_t dx = lv_obj_get_width(o->element()->mElement);
+    lv_coord_t dy = lv_obj_get_height(o->element()->mElement);
+    lv_theme_apply(o->element()->mElement);
+    lv_obj_set_x(o->element()->mElement, x);
+    lv_obj_set_y(o->element()->mElement, y);
+    lv_obj_set_width(o->element()->mElement, dx);
+    lv_obj_set_height(o->element()->mElement, dy);
+    f->finish(o); // return myself for chaining calls
+    return;
+  }
+  else if (!f->arg(0)->defined()) {
+    // remove all styles, including theme
+    lv_obj_remove_style_all(o->element()->mElement);
+    f->finish(o); // return myself for chaining calls
+    return;
+  }
+  changestyle(f, false);
 }
 
 
@@ -2287,11 +2330,13 @@ static const BuiltinMemberDescriptor lvglobjFunctions[] = {
   FUNC_DEF_NOARG(refresh, executable|structured),
   FUNC_DEF_W_ARG(showscreen, executable|null),
   FUNC_DEF_W_ARG(set, executable|structured),
+  FUNC_DEF_W_ARG(addstyle, executable|structured),
+  FUNC_DEF_W_ARG(removestyle, executable|structured),
   FUNC_DEF_W_ARG(configure, executable|structured),
-  { NULL } // terminator
+  { nullptr } // terminator
 };
 
-static BuiltInMemberLookup* sharedLvglobjFunctionLookupP = NULL;
+static BuiltInMemberLookup* sharedLvglobjFunctionLookupP = nullptr;
 
 LVGLUiElementObj::LVGLUiElementObj(LVGLUiElementPtr aElement) :
   mElement(aElement)

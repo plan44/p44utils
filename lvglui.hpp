@@ -406,9 +406,9 @@ namespace p44 {
     typedef LvGLUiContainer inherited;
 
     lv_disp_t* mDisplay; ///< the display this gui appears on
+    lv_obj_t* mEmptyScreen; ///< a programmatically created "screen" we can load when UI gets redefined
 
-    StyleMap mStyles; ///< custom styles
-    StyleList mAdhocStyles; ///< keeps ad hoc styles
+    StyleMap mStyles; ///< styles
     ThemeMap mThemes; ///< initialized themes (basic theme + hue + font)
 
     bool mDataPathResources; ///< look for resources also in data path
@@ -428,6 +428,7 @@ namespace p44 {
   public:
 
     LvGLUi();
+    virtual ~LvGLUi();
 
     #if ENABLE_LVGLUI_SCRIPT_FUNCS
 
@@ -481,7 +482,7 @@ namespace p44 {
     /// @param aStyleP will be set to named or adhoc style (owned by this UI)
     /// @param aSelector state(s) and part(s) this style should apply to, default is LV_STATE_DEFAULT;
     /// @return true if a style could be found/created
-    ErrorPtr namedOrAdHocStyle(JsonObjectPtr aStyleSpecOrDefinition, lv_style_t*& aStyleP, lv_style_selector_t& aSelector);
+    ErrorPtr namedStyle(JsonObjectPtr aStyleSpecOrDefinition, lv_style_t*& aStyleP, lv_style_selector_t& aSelector);
 
     /// get image file path, will possibly look up in different places (resources, data)
     /// @param aImageSpec a path or filename specifying an image

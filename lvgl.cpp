@@ -193,21 +193,21 @@ static lv_res_t png_decoder_info(lv_img_decoder_t* decoder, const void* src, lv_
   if (imgtype==LV_IMAGE_SRC_SYMBOL) return LV_RES_INV; // short cut any PNG specifics
   // maintain a PngDecoderState as user data of the decoder
   PngDecoderState* pngDecP = (PngDecoderState*)decoder->user_data;
-  if (pngDecP==NULL) {
+  if (pngDecP==nullptr) {
     // create new decoder state
     pngDecP = new PngDecoderState;
     memset(&pngDecP->pngImage, 0, sizeof(png_image));
     pngDecP->pngImage.version = PNG_IMAGE_VERSION;
-    pngDecP->pngBuffer = NULL;
+    pngDecP->pngBuffer = nullptr;
     decoder->user_data = pngDecP;
   }
   else {
     // reset png image
     png_image_free(&pngDecP->pngImage);
   }
-  if (pngDecP->pngBuffer!=NULL) {
+  if (pngDecP->pngBuffer!=nullptr) {
     free(pngDecP->pngBuffer);
-    pngDecP->pngBuffer = NULL;
+    pngDecP->pngBuffer = nullptr;
   }
   if (imgtype==LV_IMAGE_SRC_FILE) {
     const char *fn = (const char*)src;
@@ -283,7 +283,7 @@ static void convert_color_depth(uint8_t* &img, uint32_t px_cnt)
 static lv_res_t png_decoder_open(lv_img_decoder_t * decoder, lv_img_decoder_dsc_t * dsc)
 {
   PngDecoderState* pngDecP = (PngDecoderState*)decoder->user_data;
-  if (pngDecP==NULL || dsc->src!=pngDecP->src) {
+  if (pngDecP==nullptr || dsc->src!=pngDecP->src) {
     // apparently, png_decoder_info() was not called for this src before. Do it now, it will init the decoder state correctly
     lv_res_t res = png_decoder_info(decoder, dsc->src, &dsc->header);
     if (res!=LV_RES_OK) return res;
@@ -308,10 +308,10 @@ static lv_res_t png_decoder_open(lv_img_decoder_t * decoder, lv_img_decoder_dsc_
   // - now actually read the image
   if (png_image_finish_read(
     &pngDecP->pngImage,
-    NULL, // background
+    nullptr, // background
     (png_bytep)imgData,
     0, // row_stride
-    NULL //colormap
+    nullptr //colormap
   ) == 0) {
     // error
     LOG(LOG_WARNING, "Error decoding PNG: error: %s", pngDecP->pngImage.message);
@@ -320,7 +320,7 @@ static lv_res_t png_decoder_open(lv_img_decoder_t * decoder, lv_img_decoder_dsc_
   }
   // - convert if LV_COLOR_DEPTH is not 32
   convert_color_depth(imgData, pixCount); // may realloc the buffer in attempt to reduce it
-  if (imgData==NULL) return LV_RES_INV; // safety, should never happen as image gets REDUCED, not expanded!
+  if (imgData==nullptr) return LV_RES_INV; // safety, should never happen as image gets REDUCED, not expanded!
   // - successfully read
   dsc->img_data = imgData;
   dsc->header.cf = LV_IMG_CF_TRUE_COLOR_ALPHA;
@@ -333,7 +333,7 @@ static lv_res_t png_decoder_open(lv_img_decoder_t * decoder, lv_img_decoder_dsc_
 
 /**
  * Decode `len` pixels starting from the given `x`, `y` coordinates and store them in `buf`.
- * Required only if the "open" function can't open the whole decoded pixel array. (dsc->img_data == NULL)
+ * Required only if the "open" function can't open the whole decoded pixel array. (dsc->img_data == nullptr)
  * @param decoder pointer to the decoder the function associated with
  * @param dsc pointer to decoder descriptor
  * @param x start x coordinate
@@ -365,10 +365,10 @@ static void png_decoder_close(lv_img_decoder_t * decoder, lv_img_decoder_dsc_t *
     png_image_free(&pngDecP->pngImage);
     if (pngDecP->pngBuffer) {
       free(pngDecP->pngBuffer);
-      pngDecP->pngBuffer = NULL;
+      pngDecP->pngBuffer = nullptr;
     }
     delete pngDecP;
-    decoder->user_data = NULL;
+    decoder->user_data = nullptr;
   }
   // Call the built-in close function if the built-in open/read_line was used (which use user_data)
   //lv_img_decoder_built_in_close(decoder, dsc);
