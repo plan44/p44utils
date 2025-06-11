@@ -44,6 +44,8 @@
   #include "spi.hpp"
 #endif
 
+#include "backlight.hpp"
+
 #include "logger.hpp"
 #include "mainloop.hpp"
 #if (!DISABLE_SYSTEMCMDIO || ENABLE_ANALOGIO_SCRIPT_FUNCS) && !defined(ESP_PLATFORM)
@@ -153,6 +155,13 @@ AnalogIo::AnalogIo(const char* aPinSpec, bool aOutput, double aInitialValue) :
   }
   else
   #endif
+  #if ENABLE_BACKLIGHT
+  if (busName=="backlight") {
+    if (deviceName.empty()) deviceName="backlight"; // default to "backlight"
+    mIoPin = AnalogIOPinPtr(new BacklightControl(deviceName.c_str()));
+  }
+  else
+  #endif
   if (busName=="fdsim") {
     // analog I/O from file descriptor (should be non-blocking or at least minimal-delay files such
     // as quickly served pipes or /sys/class/* files)
@@ -251,6 +260,7 @@ void AnalogIo::pollhandler(MLMicroSeconds aPollInterval, MLMicroSeconds aToleran
 
 void AnalogIo::setValue(double aValue)
 {
+  if (!mOutput) return; // NOP
   mIoPin->setValue(aValue);
 }
 
