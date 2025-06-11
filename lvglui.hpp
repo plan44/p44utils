@@ -228,6 +228,8 @@ namespace p44 {
 
   protected:
 
+    ErrorPtr configureStyle(JsonObjectPtr aStyleConfig);
+
     virtual void setTextRaw(const string &aNewText) { /* NOP in base class */ }
 
     static const void* imgSrc(const string& aSource);
@@ -243,8 +245,11 @@ namespace p44 {
     typedef LVGLUiElement inherited;
     friend class LvGLUi;
 
-    ElementMap mNamedElements; ///< the contained elements that have a name because the need to be referencable
-    ElementList mAnonymousElements; ///< the contained elements that need to be around after configuration because they are actionable
+    ElementList mAnonymousElements; ///< the contained elements that need to be around because the LVGLUiElement subclass carries data that is needed for operating the element
+
+  protected:
+
+    ElementMap mNamedElements; ///< the contained elements that have a name because they need to be referencable during operation
 
   public:
 
@@ -330,14 +335,9 @@ namespace p44 {
   class LvGLUiButton : public LvGLUiContainer
   {
     typedef LvGLUiContainer inherited;
-    #if ENABLE_LVGLUI_SCRIPT_FUNCS
-    P44Script::ScriptHost mOnPressScript;
-    P44Script::ScriptHost mOnReleaseScript;
-    #endif
-    lv_obj_t *mLabel;
+    lv_obj_t *mLabel; // owned by lvgl, just here for accessing via setTextRaw
   public:
     LvGLUiButton(LvGLUi& aLvGLUI, LvGLUiContainer* aParentP);
-    virtual ~LvGLUiButton();
     virtual ErrorPtr setProperty(const string& aName, JsonObjectPtr aValue) P44_OVERRIDE;
   protected:
     virtual void setTextRaw(const string &aNewText) P44_OVERRIDE;
@@ -413,6 +413,40 @@ namespace p44 {
     virtual ErrorPtr setProperty(const string& aName, JsonObjectPtr aValue) P44_OVERRIDE;
   protected:
     virtual int16_t getValue() P44_OVERRIDE;
+    virtual void setValue(int16_t aValue, uint16_t aAnimationTimeMs = 0) P44_OVERRIDE;
+  };
+  #endif
+
+
+  #if LV_USE_LINE
+  class LvGLUiLine : public LVGLUiElement
+  {
+    typedef LVGLUiElement inherited;
+    lv_point_precise_t* mPoints;
+  public:
+    LvGLUiLine(LvGLUi& aLvGLUI, LvGLUiContainer* aParentP);
+    virtual ~LvGLUiLine();
+    virtual bool wrapperNeeded() P44_OVERRIDE { return mPoints || inherited::wrapperNeeded(); }; // needed if we have points (usually: yes)
+    virtual ErrorPtr setProperty(const string& aName, JsonObjectPtr aValue) P44_OVERRIDE;
+  };
+  #endif
+
+
+  #if LV_USE_SCALE
+  class LvGLUiScale : public LvGLUiContainer
+  {
+    typedef LvGLUiContainer inherited;
+    string mLabelContents;
+    const char** mLabels;
+    lv_obj_t* mCurrentNeedle;
+    int32_t mCurrentNeedleLength;
+  public:
+    LvGLUiScale(LvGLUi& aLvGLUI, LvGLUiContainer* aParentP);
+    virtual ~LvGLUiScale();
+    virtual bool wrapperNeeded() P44_OVERRIDE { return mLabels || inherited::wrapperNeeded(); }; // needed if we have custom label
+    virtual ErrorPtr configure(JsonObjectPtr aConfig) P44_OVERRIDE;
+    virtual ErrorPtr setProperty(const string& aName, JsonObjectPtr aValue) P44_OVERRIDE;
+  protected:
     virtual void setValue(int16_t aValue, uint16_t aAnimationTimeMs = 0) P44_OVERRIDE;
   };
   #endif

@@ -126,30 +126,33 @@ static lv_state_t getStateByName(const string aState)
 }
 
 
-static lv_style_selector_t getSelectorByList(const string aStateList)
+static bool getSelectorByList(const string aStateList, lv_style_selector_t &aSelector)
 {
   const char* p = aStateList.c_str();
-  string part;
-  lv_style_selector_t selector = LV_STATE_DEFAULT;
-  while (nextPart(p, part, '|')) {
-    // states
-    lv_state_t state = getStateByName(part);
-    if (state!=LV_STATE_DEFAULT) {
-      selector |= state;
+  string tok;
+  lv_state_t state = LV_STATE_DEFAULT;
+  lv_part_t part = LV_PART_MAIN;
+  while (nextPart(p, tok, '|')) {
+    // states?
+    lv_state_t nextstate = getStateByName(tok);
+    if (nextstate!=LV_STATE_DEFAULT) {
+      state |= nextstate;
     }
     else {
-      // parts
-      if (part=="main") selector |= LV_PART_MAIN;
-      else if (part=="scrollbar") selector |= LV_PART_SCROLLBAR;
-      else if (part=="indicator") selector |= LV_PART_INDICATOR;
-      else if (part=="knob") selector |= LV_PART_KNOB;
-      else if (part=="selected") selector |= LV_PART_SELECTED;
-      else if (part=="items") selector |= LV_PART_ITEMS;
-      else if (part=="cursor") selector |= LV_PART_CURSOR;
-      else if (part=="any") selector |= LV_PART_ANY;
+      // part?
+      if (tok=="main") part = LV_PART_MAIN;
+      else if (tok=="scrollbar") part = LV_PART_SCROLLBAR;
+      else if (tok=="indicator") part = LV_PART_INDICATOR;
+      else if (tok=="knob") part = LV_PART_KNOB;
+      else if (tok=="selected") part = LV_PART_SELECTED;
+      else if (tok=="items") part = LV_PART_ITEMS;
+      else if (tok=="cursor") part = LV_PART_CURSOR;
+      else if (tok=="any") part = LV_PART_ANY;
+      else return false;
     }
   }
-  return selector;
+  aSelector = part | state;
+  return true;
 }
 
 
@@ -1145,6 +1148,16 @@ static LVGLUiElementPtr createElement(LvGLUi& aLvGLUI, JsonObjectPtr aConfig, Lv
     elem = LVGLUiElementPtr(new LvGLUiArc(aLvGLUI, aParentP));
   }
   #endif
+  #if LV_USE_LINE
+  else if (tn=="line") {
+    elem = LVGLUiElementPtr(new LvGLUiLine(aLvGLUI, aParentP));
+  }
+  #endif
+  #if LV_USE_ARC
+  else if (tn=="scale") {
+    elem = LVGLUiElementPtr(new LvGLUiScale(aLvGLUI, aParentP));
+  }
+  #endif
   else {
     if (aContainerByDefault) {
       elem = LVGLUiElementPtr(new LvGLUiPanel(aLvGLUI, aParentP));
@@ -1247,6 +1260,60 @@ ErrorPtr LVGLUiElement::configure(JsonObjectPtr aConfig)
 }
 
 
+ErrorPtr LVGLUiElement::configureStyle(JsonObjectPtr aValue)
+{
+  // add a single style or define local styling
+  if (aValue->isType(json_type_object)) {
+    // local: { "selector":"sta1|sta2", "styleprop1":val1 ... }
+    // - we need the selector before we set any property!
+    lv_style_selector_t selector = LV_STATE_DEFAULT;
+    JsonObjectPtr o;
+    if (aValue->get("selector", o)) {
+      if (!getSelectorByList(o->stringValue(), selector)) {
+        return TextError::err("invalid local style selector '%s'", o->stringValue().c_str());
+      }
+    }
+    // - now iterate over local property overrides
+    aValue->resetKeyIteration();
+    string propName;
+    while(aValue->nextKeyValue(propName, o)) {
+      if (propName=="selector") continue; // ignore now, checked above
+      const PropDef* prop = getPropDefFromName(propName);
+      if (prop) {
+        if (prop->propconv) {
+          lv_style_value_t propval;
+          ErrorPtr err = prop->propconv(o, propval);
+          if (Error::notOK(err)) return err;
+          lv_obj_set_local_style_prop(mElement, prop->propid, propval, selector);
+        }
+        else if (prop->opa_propid) {
+          // color and opacity combined
+          lv_style_value_t color, opa;
+          bool hasColor, hasOpa;
+          ErrorPtr err = colorPropValue(o, hasColor, color, hasOpa, opa);
+          if (Error::notOK(err)) return err;
+          if (hasColor) lv_obj_set_local_style_prop(mElement, prop->propid, color, selector);
+          if (hasOpa) lv_obj_set_local_style_prop(mElement, prop->opa_propid, opa, selector);
+        }
+      }
+      else {
+        return TextError::err("unknown local style property '%s'", propName.c_str());
+      }
+    }
+  }
+  else {
+    // add named style
+    lv_style_t* style;
+    lv_style_selector_t selector;
+    ErrorPtr err = mLvglui.namedStyle(aValue, style, selector);
+    if (Error::notOK(err)) return err;
+    lv_obj_add_style(mElement, style, selector);
+  }
+  return ErrorPtr();
+}
+
+
+
 ErrorPtr LVGLUiElement::setProperty(const string& aName, JsonObjectPtr aValue)
 {
   if (!mElement) return TextError::err("trying to configure non-existing lv_obj");
@@ -1301,6 +1368,10 @@ ErrorPtr LVGLUiElement::setProperty(const string& aName, JsonObjectPtr aValue)
         // align to a existing object
         lv_obj_align_to(mElement, alignRef->mElement, (lv_align_t)alignmode.num, align_dx, align_dy);
       }
+      else {
+        // align by mode but maybe also with offsets
+        lv_obj_align(mElement, (lv_align_t)alignmode.num, align_dx, align_dy);
+      }
     }
     else {
       lv_style_value_t alignmode;
@@ -1310,8 +1381,6 @@ ErrorPtr LVGLUiElement::setProperty(const string& aName, JsonObjectPtr aValue)
     }
   }
   else if (aName=="style") {
-    lv_style_t* style = nullptr;
-    lv_style_selector_t selector;
     if (aValue->isType(json_type_array)) {
       if (aValue->arrayLength()==0) {
         // explicitly remove all styles
@@ -1320,57 +1389,13 @@ ErrorPtr LVGLUiElement::setProperty(const string& aName, JsonObjectPtr aValue)
       else {
         // add one or multiple styles in an array
         for (int i=0; i<aValue->arrayLength(); i++) {
-          ErrorPtr err = mLvglui.namedStyle(aValue->arrayGet(i), style, selector);
+          ErrorPtr err = configureStyle(aValue->arrayGet(i));
           if (Error::notOK(err)) return err;
-          lv_obj_add_style(mElement, style, selector);
         }
       }
     }
     else {
-      // add a single style or define local styling
-      if (aValue->isType(json_type_object)) {
-        // local: { "selector":"sta1|sta2", "styleprop1":val1 ... }
-        // - we need the selector before we set any property!
-        lv_style_selector_t selector = LV_STATE_DEFAULT;
-        JsonObjectPtr o;
-        if (aValue->get("selector", o)) {
-          selector = getSelectorByList(o->stringValue());
-          if (selector==LV_STATE_DEFAULT) return TextError::err("invalid local style selector '%s'", o->stringValue().c_str());
-        }
-        // - now iterate over local property overrides
-        aValue->resetKeyIteration();
-        string propName;
-        while(aValue->nextKeyValue(propName, o)) {
-          if (propName=="selector") continue; // ignore now, checked above
-          const PropDef* prop = getPropDefFromName(propName);
-          if (prop) {
-            if (prop->propconv) {
-              lv_style_value_t propval;
-              ErrorPtr err = prop->propconv(o, propval);
-              if (Error::notOK(err)) return err;
-              lv_obj_set_local_style_prop(mElement, prop->propid, propval, selector);
-            }
-            else if (prop->opa_propid) {
-              // color and opacity combined
-              lv_style_value_t color, opa;
-              bool hasColor, hasOpa;
-              ErrorPtr err = colorPropValue(o, hasColor, color, hasOpa, opa);
-              if (Error::notOK(err)) return err;
-              if (hasColor) lv_obj_set_local_style_prop(mElement, prop->propid, color, selector);
-              if (hasOpa) lv_obj_set_local_style_prop(mElement, prop->opa_propid, opa, selector);
-            }
-          }
-          else {
-            return TextError::err("unknown local style property '%s'", propName.c_str());
-          }
-        }
-      }
-      else {
-        // add named style
-        ErrorPtr err = mLvglui.namedStyle(aValue, style, selector);
-        if (Error::notOK(err)) return err;
-        lv_obj_add_style(mElement, style, selector);
-      }
+      ErrorPtr err = configureStyle(aValue);
     } // single style
   }
   else if (aName=="flags") {
@@ -1648,20 +1673,13 @@ LvGLUiButton::LvGLUiButton(LvGLUi& aLvGLUI, LvGLUiContainer* aParentP) :
 }
 
 
-LvGLUiButton::~LvGLUiButton()
-{
-  if (mLabel) lv_obj_delete(mLabel);
-}
-
-
 ErrorPtr LvGLUiButton::setProperty(const string& aName, JsonObjectPtr aValue)
 {
   // configure params
   if (aName=="label") {
     #if LV_USE_LABEL
     // convenience for text-labelled buttons
-    if (mLabel) lv_obj_delete(mLabel);
-    mLabel = lv_label_create(mElement);
+    mLabel = lv_label_create(mElement); // owned by button
     lv_obj_center(mLabel);
     setText(aValue->stringValue());
     #endif
@@ -1908,6 +1926,216 @@ ErrorPtr LvGLUiArc::setProperty(const string& aName, JsonObjectPtr aValue)
 #endif
 
 
+#if LV_USE_LINE
+
+// MARK: - LvGLUiLine
+
+LvGLUiLine::LvGLUiLine(LvGLUi& aLvGLUI, LvGLUiContainer* aParentP) :
+  inherited(aLvGLUI, aParentP),
+  mPoints(nullptr)
+{
+  mElement = lv_line_create(lvParent());
+}
+
+
+LvGLUiLine::~LvGLUiLine()
+{
+  if (mPoints) delete mPoints;
+  mPoints = nullptr;
+}
+
+
+ErrorPtr LvGLUiLine::setProperty(const string& aName, JsonObjectPtr aValue)
+{
+  if (aName=="points") {
+    uint32_t numpoints = aValue->arrayLength();
+    if (numpoints>0) {
+      if (mPoints) delete mPoints;
+      mPoints = new lv_point_precise_t[numpoints];
+      lv_point_precise_t point;
+      point.x = 0;
+      point.y = 0;
+      for (uint32_t i=0; i<numpoints; i++) {
+        JsonObjectPtr pt = aValue->arrayGet(i);
+        JsonObjectPtr o;
+        lv_style_value_t sv;
+        if (pt->get("x", o)) { coordPropValue(o, sv); point.x = sv.num; } // if not specified, previous x remains
+        if (pt->get("y", o)) { coordPropValue(o, sv); point.y = sv.num; } // if not specified, previous y remains
+        mPoints[i] = point;
+      }
+      lv_line_set_points(mElement, mPoints, numpoints);
+    }
+  }
+  else {
+    return inherited::setProperty(aName, aValue);
+  }
+  return ErrorPtr();
+}
+
+#endif
+
+
+#if LV_USE_SCALE
+
+// MARK: - LvGLUiScale
+
+LvGLUiScale::LvGLUiScale(LvGLUi& aLvGLUI, LvGLUiContainer* aParentP) :
+  inherited(aLvGLUI, aParentP),
+  mLabels(nullptr),
+  mCurrentNeedle(nullptr),
+  mCurrentNeedleLength(50) // arbitrary
+{
+  mElement = lv_scale_create(lvParent());
+}
+
+
+LvGLUiScale::~LvGLUiScale()
+{
+  if (mLabels) delete mLabels;
+  mLabels = nullptr;
+}
+
+
+void LvGLUiScale::setValue(int16_t aValue, uint16_t aAnimationTimeMs)
+{
+  if (mCurrentNeedle) {
+    if (lv_obj_check_type(mCurrentNeedle, &lv_line_class)) {
+      lv_scale_set_line_needle_value(mElement, mCurrentNeedle, mCurrentNeedleLength, aValue);
+    }
+    if (lv_obj_check_type(mCurrentNeedle, &lv_image_class)) {
+      lv_scale_set_image_needle_value(mElement, mCurrentNeedle, aValue);
+    }
+  }
+}
+
+
+ErrorPtr LvGLUiScale::configure(JsonObjectPtr aConfig)
+{
+  // need to get the scale including subobjects that might be needles
+  ErrorPtr err = inherited::configure(aConfig);
+  // now check for needle
+  if (Error::isOK(err)) {
+    JsonObjectPtr needleConfig;
+    if (aConfig->get("needle", needleConfig)) {
+      // needle: <named obj in the scale>
+      string needleName = "needle"; // needle element name default if not specified below
+      bool setPos = false;
+      int32_t position;
+      if (needleConfig->isType(json_type_object)) {
+        // needle: { name:<elementname>, length:<len>, position:<value> }
+        JsonObjectPtr o;
+        if (needleConfig->get("element", o)) needleName = o->stringValue();
+        if (needleConfig->get("length", o)) mCurrentNeedleLength = o->int32Value();
+        if (needleConfig->get("position", o)) { position = o->int32Value(); setPos = true; }
+      }
+      else {
+        // needle: <elementname>
+        // needle: true // can be used when the needle is named "needle"
+        if (needleConfig->isType(json_type_string)) needleName = needleConfig->stringValue();
+      }
+      ElementMap::iterator pos = mNamedElements.find(needleName);
+      if (pos==mNamedElements.end()) return TextError::err("needle element '%s' not found", needleName.c_str());
+      mCurrentNeedle = pos->second->mElement;
+      if (setPos) {
+        setValue(position);
+      }
+    }
+  }
+  return err;
+}
+
+
+ErrorPtr LvGLUiScale::setProperty(const string& aName, JsonObjectPtr aValue)
+{
+  if (aName=="mode") {
+    string mode = aValue->stringValue();
+    lv_scale_mode_t m;
+    if (mode=="horizontal_top") m = LV_SCALE_MODE_HORIZONTAL_TOP;
+    else if (mode=="horizontal_boottom") m = LV_SCALE_MODE_HORIZONTAL_BOTTOM;
+    else if (mode=="vertical_top") m = LV_SCALE_MODE_VERTICAL_LEFT;
+    else if (mode=="vertical_top") m = LV_SCALE_MODE_VERTICAL_RIGHT;
+    else if (mode=="round_inner") m = LV_SCALE_MODE_ROUND_INNER;
+    else if (mode=="round_outer") m = LV_SCALE_MODE_ROUND_OUTER;
+    else return TextError::err("unknown scale mode '%s", mode.c_str());
+    lv_scale_set_mode(mElement, m);
+  }
+  else if (aName=="ticks_on_top") {
+    lv_scale_set_draw_ticks_on_top(mElement, aValue->boolValue());
+  }
+  else if (aName=="min") {
+    lv_scale_set_range(mElement, aValue->int32Value(), lv_scale_get_range_max_value(mElement));
+  }
+  else if (aName=="max") {
+    lv_scale_set_range(mElement, lv_scale_get_range_min_value(mElement), aValue->int32Value());
+  }
+  else if (aName=="angle") {
+    lv_scale_set_angle_range(mElement, aValue->int32Value());
+  }
+  else if (aName=="rotation") {
+    lv_scale_set_rotation(mElement, aValue->int32Value());
+  }
+  else if (aName=="tickcount") {
+    lv_scale_set_total_tick_count(mElement, aValue->int32Value());
+  }
+  else if (aName=="major_every") {
+    lv_scale_set_major_tick_every(mElement, aValue->int32Value());
+  }
+  else if (aName=="labels") {
+    int numlabels = aValue->arrayLength();
+    if (numlabels>0) {
+      // define custom labels
+      mLabels = new const char*[numlabels+1];
+      mLabels[numlabels] = nullptr; // terminator
+      for (int i = 0; i<numlabels; i++) {
+        mLabels[i] = mLabelContents.c_str()+mLabelContents.size();
+        JsonObjectPtr o = aValue->arrayGet(i);
+        if (o) {
+          mLabelContents += o->stringValue();
+          mLabelContents += '\x00'; // explicit NUL as separator
+        }
+      }
+    }
+    else {
+      // just show/hide
+      lv_scale_set_label_show(mElement, aValue->boolValue());
+    }
+  }
+  else if (aName=="sections") {
+    int numsections = aValue->arrayLength();
+    for (int i = 0; i<numsections; i++) {
+      JsonObjectPtr se = aValue->arrayGet(i);
+      if (se) {
+        JsonObjectPtr o;
+        int32_t start = lv_scale_get_range_min_value(mElement);
+        int32_t end = lv_scale_get_range_max_value(mElement);
+        if (se->get("from",o)) start = o->int32Value();
+        if (se->get("to",o)) end = o->int32Value();
+        lv_scale_section_t* section = lv_scale_add_section(mElement);
+        lv_scale_section_set_range(section, start, end);
+        if (se->get("styles",o)) {
+          lv_style_t* style;
+          lv_style_selector_t selector;
+          for (int i=0; i<o->arrayLength(); i++) {
+            ErrorPtr err = getLvGLUi().namedStyle(o->arrayGet(i), style, selector);
+            if (Error::notOK(err)) return err;
+            lv_scale_section_set_style(section, selector, style);
+          }
+        }
+      }
+    }
+  }
+  else if (aName=="needle") {
+    // NOP here, is handled in configure()
+  }
+  else {
+    return inherited::setProperty(aName, aValue);
+  }
+  return ErrorPtr();
+}
+
+#endif
+
+
 // MARK: - LvGLUi
 
 static LvGLUi* gLvgluiP = nullptr;
@@ -1998,8 +2226,9 @@ ErrorPtr LvGLUi::namedStyle(JsonObjectPtr aStyleSpecOrDefinition, lv_style_t*& a
   size_t sep = stylespec.find_first_of(":");
   if (sep!=string::npos) {
     // state(s) specified
-    aSelector = getSelectorByList(stylespec.substr(sep+1));
-    if (aSelector==LV_STATE_DEFAULT) err = TextError::err("invalid selector '%s'", stylespec.substr(sep+1).c_str());
+    if (!getSelectorByList(stylespec.substr(sep+1), aSelector)) {
+      err = TextError::err("invalid selector '%s'", stylespec.substr(sep+1).c_str());
+    }
   }
   else {
     sep = stylespec.size();
