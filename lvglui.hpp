@@ -458,9 +458,17 @@ namespace p44 {
   {
     typedef LvGLUiContainer inherited;
 
+    typedef enum {
+      ui_idle,
+      ui_recently_active,
+      ui_now_active
+    } ActivityState;
+
     lv_disp_t* mDisplay; ///< the display this gui appears on
     lv_obj_t* mEmptyScreen; ///< a programmatically created "screen" we can load when UI gets redefined
-
+    ActivityState mActivityState; ///< the (user) activity state, for dimming background or returning to a home screen
+    MLMicroSeconds mShortActivityTimeout; ///< short timeout (e.g. for backlight dimming after some inactivity)
+    MLMicroSeconds mLongActivityTimeout; ///< long timeout (e.g. for entering a standby mode or reset to a home state)
     StyleMap mStyles; ///< styles
     ThemeMap mThemes; ///< initialized themes (basic theme + hue + font)
 
@@ -470,8 +478,7 @@ namespace p44 {
     #if ENABLE_LVGLUI_SCRIPT_FUNCS
     P44Script::ScriptMainContextPtr mScriptMainContext;
     P44Script::ScriptObjPtr mRepresentingObj;
-    P44Script::ScriptHost mActivityTimeoutScript;
-    P44Script::ScriptHost mActivationScript;
+    P44Script::ScriptHost mActivityTrackingScript;
     #endif
 
   protected:
@@ -496,17 +503,17 @@ namespace p44 {
     /// @return a singleton script object, representing this lvgl ui instance
     P44Script::ScriptObjPtr representingScriptObj();
 
-    /// report activation / timeout of UI
-    /// @note actual mechanism to detect UI usage or inactivity must be implemented on app level
-    ///    This method is only to call respective scripts
-    /// @param aActivated if set, this is an UI activation, otherwise a UI timeout
-    void uiActivation(bool aActivated);
-
     #endif // ENABLE_LVGLUI_SCRIPT_FUNCS
 
     /// initialize for use with a specified display
     /// @param aDisplay the display to use
     void initForDisplay(lv_disp_t* aDisplay);
+
+    /// called from LVGL once per task (should do little)
+    void taskCallBack();
+
+    /// @return activity state - 0=inactive, 1=paused (short time inactive), 2=active
+    int activityState() { return mActivityState; }
 
     /// @return the lv\_disp_t this UI runs on
     lv_disp_t* display() { return mDisplay; }

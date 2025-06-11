@@ -2143,10 +2143,12 @@ static LvGLUi* gLvgluiP = nullptr;
 LvGLUi::LvGLUi() :
   inherited(*this, nullptr),
   mDataPathResources(false),
-  mEmptyScreen(nullptr)
+  mEmptyScreen(nullptr),
+  mActivityState(ui_idle),
+  mShortActivityTimeout(Never), // no backlight timeout by default
+  mLongActivityTimeout(Never) // no timeout by default
   #if ENABLE_LVGLUI_SCRIPT_FUNCS
-  ,mActivityTimeoutScript(scriptbody+regular, "activityTimeout")
-  ,mActivationScript(scriptbody+regular, "activation")
+  ,mActivityTrackingScript(scriptbody+regular, "activityChange")
   #endif
 {
   mName = "LvGLUi";
@@ -2159,18 +2161,6 @@ LvGLUi::~LvGLUi()
   if (mEmptyScreen) lv_obj_delete(mEmptyScreen);
   mEmptyScreen = nullptr;
 }
-
-
-void LvGLUi::uiActivation(bool aActivated)
-{
-  if (aActivated) {
-    runEventScript(LV_EVENT_REFRESH, mActivationScript);
-  }
-  else {
-    runEventScript(LV_EVENT_REFRESH, mActivityTimeoutScript);
-  }
-}
-
 
 
 void LvGLUi::clear()
@@ -2350,11 +2340,16 @@ ErrorPtr LvGLUi::configure(JsonObjectPtr aConfig)
     mDataPathResources = o->boolValue();
   }
   // check for activation/deactivation scripts
-  if (aConfig->get("activitytimeoutscript", o)) {
-    mActivityTimeoutScript.setSource(o->stringValue());
+  if (aConfig->get("shortactivitytimeout", o)) {
+    double timeout = o->doubleValue();
+    mShortActivityTimeout = timeout>0 ? timeout*Second : Never;
   }
-  if (aConfig->get("activationscript", o)) {
-    mActivationScript.setSource(o->stringValue());
+  if (aConfig->get("longactivitytimeout", o)) {
+    double timeout = o->doubleValue();
+    mLongActivityTimeout = timeout>0 ? timeout*Second : Never;
+  }
+  if (aConfig->get("onactivitychange", o)) {
+    mActivityTrackingScript.setSource(o->stringValue());
   }
   // simulate activity
   lv_display_trigger_activity(nullptr);
@@ -2396,6 +2391,21 @@ string LvGLUi::namedImageSource(const string& aImageSpec)
   }
 }
 
+
+// MARK: - activity tracking
+
+void LvGLUi::taskCallBack()
+{
+  // idle time tracking to adjust activity level
+  MLMicroSeconds inactivetime = (MLMicroSeconds)lv_disp_get_inactive_time(NULL)*MilliSecond;
+  ActivityState newState = ui_now_active;
+  if (mLongActivityTimeout!=Never && inactivetime>mLongActivityTimeout) newState = ui_idle;
+  else if (mShortActivityTimeout!=Never && inactivetime>mShortActivityTimeout) newState = ui_recently_active;
+  if (newState!=mActivityState) {
+    mActivityState = newState;
+    runEventScript(LV_EVENT_REFRESH, mActivityTrackingScript);
+  }
+}
 
 // MARK: - script support
 
@@ -2662,6 +2672,15 @@ static void configure_func(BuiltinFunctionContextPtr f)
 }
 
 
+// activity() // return activity level: 0=long timeout, 1=paused=short timeout, 2=active
+static void activity_func(BuiltinFunctionContextPtr f)
+{
+  LVGLUiElementObj* o = dynamic_cast<LVGLUiElementObj*>(f->thisObj().get());
+  assert(o);
+  f->finish(new NumericValue(o->element()->getLvGLUi().activityState()));
+}
+
+
 static const BuiltinMemberDescriptor lvglobjFunctions[] = {
   FUNC_DEF_W_ARG(findobj, executable|structured),
   FUNC_DEF_NOARG(name, executable|text),
@@ -2676,6 +2695,7 @@ static const BuiltinMemberDescriptor lvglobjFunctions[] = {
   FUNC_DEF_W_ARG(removestyle, executable|structured),
   FUNC_DEF_W_ARG(state, executable|numeric),
   FUNC_DEF_W_ARG(configure, executable|structured),
+  FUNC_DEF_NOARG(activity, executable|numeric),
   { nullptr } // terminator
 };
 
