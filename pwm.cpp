@@ -41,11 +41,11 @@ using namespace p44;
 // MARK: - PWM via ESP32 LEDC PWM controller
 
 PWMPin::PWMPin(int aPwmChip, int aPwmChannel, bool aInverted, double aInitialValue, uint32_t aPeriodInNs) :
-  gpioNo((gpio_num_t)aPwmChip),
-  ledcChannel((ledc_channel_t)aPwmChannel),
-  inverted(aInverted),
-  activeNs(0),
-  periodNs(aPeriodInNs)
+  mGpioNo((gpio_num_t)aPwmChip),
+  mLedcChannel((ledc_channel_t)aPwmChannel),
+  mInverted(aInverted),
+  mActiveNs(0),
+  mPeriodNs(aPeriodInNs)
 {
   esp_err_t ret;
 
@@ -69,8 +69,8 @@ PWMPin::PWMPin(int aPwmChip, int aPwmChannel, bool aInverted, double aInitialVal
     .duty       = 0,
     .hpoint     = 0
   };
-  ledc_channel.gpio_num = gpioNo;
-  ledc_channel.channel = ledcChannel;
+  ledc_channel.gpio_num = mGpioNo;
+  ledc_channel.channel = mLedcChannel;
   ledc_channel.duty = aInitialValue/100*((1<<13)-1);
   // Set configuration of timer0 for high speed channels
   ret = ledc_timer_config(&ledc_timer);
@@ -79,34 +79,34 @@ PWMPin::PWMPin(int aPwmChip, int aPwmChannel, bool aInverted, double aInitialVal
   }
   if (ret!=ESP_OK) {
     LOG(LOG_ERR,"LEDC PWM init error: %s", esp_err_to_name(ret));
-    gpioNo = GPIO_NUM_NC; // signal "not connected"
+    mGpioNo = GPIO_NUM_NC; // signal "not connected"
   }
 }
 
 
 PWMPin::~PWMPin()
 {
-  if (gpioNo!=GPIO_NUM_NC) {
-    ledc_stop(LEDC_HIGH_SPEED_MODE, ledcChannel, inverted);
+  if (mGpioNo!=GPIO_NUM_NC) {
+    ledc_stop(LEDC_HIGH_SPEED_MODE, mLedcChannel, mInverted);
   }
 }
 
 
 void PWMPin::setValue(double aValue)
 {
-  if (gpioNo==GPIO_NUM_NC) return; // non-existing pins cannot be set
+  if (mGpioNo==GPIO_NUM_NC) return; // non-existing pins cannot be set
   if (aValue<0) aValue = 0; // limit to min
   else if (aValue>100) aValue = 100; // limit to max
-  if (inverted) aValue = 100-aValue; // inverted output: invert duty cycle
-  ledc_set_duty(LEDC_HIGH_SPEED_MODE, ledcChannel, aValue/100*((1<<13)-1));
-  ledc_update_duty(LEDC_HIGH_SPEED_MODE, ledcChannel);
+  if (mInverted) aValue = 100-aValue; // inverted output: invert duty cycle
+  ledc_set_duty(LEDC_HIGH_SPEED_MODE, mLedcChannel, aValue/100*((1<<13)-1));
+  ledc_update_duty(LEDC_HIGH_SPEED_MODE, mLedcChannel);
 }
 
 
 double PWMPin::getValue()
 {
-  if (periodNs==0) return 0;
-  return (double)activeNs/(double)periodNs*100;
+  if (mPeriodNs==0) return 0;
+  return (double)mActiveNs/(double)mPeriodNs*100;
 }
 
 
@@ -114,7 +114,7 @@ bool PWMPin::getRange(double &aMin, double &aMax, double &aResolution)
 {
   aMin = 0;
   aMax = 100;
-  aResolution = periodNs>0 ? 1/periodNs : 1;
+  aResolution = mPeriodNs>0 ? 1/mPeriodNs : 1;
   return true;
 }
 
@@ -127,44 +127,44 @@ bool PWMPin::getRange(double &aMin, double &aMax, double &aResolution)
 
 
 PWMPin::PWMPin(int aPwmChip, int aPwmChannel, bool aInverted, double aInitialValue, uint32_t aPeriodInNs) :
-  pwmChip(aPwmChip),
-  pwmChannel(aPwmChannel),
-  inverted(aInverted),
-  activeNs(0),
-  periodNs(aPeriodInNs),
-  pwmFD(-1)
+  mPwmChip(aPwmChip),
+  mPwmChannel(aPwmChannel),
+  mInverted(aInverted),
+  mActiveNs(0),
+  mPeriodNs(aPeriodInNs),
+  mPwmFD(-1)
 {
   int tempFd;
   string name;
-  if (periodNs==0) periodNs = 20000; // 50kHz
-  string s = string_format("%d", pwmChannel);
+  if (mPeriodNs==0) mPeriodNs = 20000; // 50kHz
+  string s = string_format("%d", mPwmChannel);
   // have the kernel export the pwm channel
-  name = string_format("%s/pwmchip%d/export", PWM_SYS_CLASS_PATH, pwmChip);
+  name = string_format("%s/pwmchip%d/export", PWM_SYS_CLASS_PATH, mPwmChip);
   tempFd = open(name.c_str(), O_WRONLY);
   if (tempFd<0) { LOG(LOG_ERR, "Cannot open PWM export file %s: %s", name.c_str(), strerror(errno)); return; }
   write(tempFd, s.c_str(), s.length());
   close(tempFd);
   // save base path
-  string basePath = string_format("%s/pwmchip%d/pwm%d", PWM_SYS_CLASS_PATH, pwmChip, pwmChannel);
+  string basePath = string_format("%s/pwmchip%d/pwm%d", PWM_SYS_CLASS_PATH, mPwmChip, mPwmChannel);
   // configure
   // - set polarity
   name = basePath + "/polarity";
   tempFd = open(name.c_str(), O_RDWR);
   if (tempFd<0) { LOG(LOG_ERR, "Cannot open PWM polarity file %s: %s", name.c_str(), strerror(errno)); return; }
-  s = inverted ? "inverted" : "normal";
+  s = mInverted ? "inverted" : "normal";
   write(tempFd, s.c_str(), s.length());
   close(tempFd);
   // - set period
   name = basePath + "/period";
   tempFd = open(name.c_str(), O_RDWR);
   if (tempFd<0) { LOG(LOG_ERR, "Cannot open PWM period file %s: %s", name.c_str(), strerror(errno)); return; }
-  s = string_format("%u", periodNs);
+  s = string_format("%u", mPeriodNs);
   write(tempFd, s.c_str(), s.length());
   close(tempFd);
   // now keep the duty cycle FD open
   name = basePath + "/duty_cycle";
-  pwmFD = open(name.c_str(), O_RDWR);
-  if (pwmFD<0) { LOG(LOG_ERR, "Cannot open PWM duty_cycle file %s: %s", name.c_str(), strerror(errno)); return; }
+  mPwmFD = open(name.c_str(), O_RDWR);
+  if (mPwmFD<0) { LOG(LOG_ERR, "Cannot open PWM duty_cycle file %s: %s", name.c_str(), strerror(errno)); return; }
   // - set the initial value
   setValue(aInitialValue);
   // - now enable
@@ -179,27 +179,27 @@ PWMPin::PWMPin(int aPwmChip, int aPwmChannel, bool aInverted, double aInitialVal
 
 PWMPin::~PWMPin()
 {
-  if (pwmFD>0) {
-    close(pwmFD);
+  if (mPwmFD>0) {
+    close(mPwmFD);
   }
 }
 
 
 void PWMPin::setValue(double aValue)
 {
-  if (pwmFD<0) return; // non-existing pins cannot be set
+  if (mPwmFD<0) return; // non-existing pins cannot be set
   if (aValue<0) aValue = 0; // limit to min
-  activeNs = periodNs*(aValue/100);
-  if (activeNs>periodNs) activeNs = periodNs; // limit to max
-  string s = string_format("%u", activeNs);
-  write(pwmFD, s.c_str(), s.length());
+  mActiveNs = mPeriodNs*(aValue/100);
+  if (mActiveNs>mPeriodNs) mActiveNs = mPeriodNs; // limit to max
+  string s = string_format("%u", mActiveNs);
+  write(mPwmFD, s.c_str(), s.length());
 }
 
 
 double PWMPin::getValue()
 {
-  if (periodNs==0) return 0;
-  return (double)activeNs/(double)periodNs*100;
+  if (mPeriodNs==0) return 0;
+  return (double)mActiveNs/(double)mPeriodNs*100;
 }
 
 
@@ -207,7 +207,7 @@ bool PWMPin::getRange(double &aMin, double &aMax, double &aResolution)
 {
   aMin = 0;
   aMax = 100;
-  aResolution = periodNs>0 ? 1/periodNs : 1;
+  aResolution = mPeriodNs>0 ? 1/mPeriodNs : 1;
   return true;
 }
 

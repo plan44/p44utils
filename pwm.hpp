@@ -43,16 +43,16 @@ namespace p44 {
   {
     typedef AnalogIOPin inherited;
 
-    uint32_t activeNs; ///< active time in nanoseconds
-    uint32_t periodNs; ///< PWM period in nanoseconds
-    bool inverted; ///< pwm inverted
+    uint32_t mActiveNs; ///< active time in nanoseconds
+    uint32_t mPeriodNs; ///< PWM period in nanoseconds
+    bool mInverted; ///< pwm inverted
     #ifdef ESP_PLATFORM
-    gpio_num_t gpioNo; ///< the GPIO to use as PWM output
-    ledc_channel_t ledcChannel; ///< ledc channel number
+    gpio_num_t mGpioNo; ///< the GPIO to use as PWM output
+    ledc_channel_t mLedcChannel; ///< ledc channel number
     #else
-    int pwmChip; ///< chip number
-    int pwmChannel; ///< channel number
-    int pwmFD; ///< file descriptor for the "value" file
+    int mPwmChip; ///< chip number
+    int mPwmChannel; ///< channel number
+    int mPwmFD; ///< file descriptor for the "value" file
     #endif
 
   public:
