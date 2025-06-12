@@ -1,6 +1,6 @@
 //  SPDX-License-Identifier: GPL-3.0-or-later
 //
-//  Copyright (c) 2013-2023 plan44.ch / Lukas Zeller, Zurich, Switzerland
+//  Copyright (c) 2013-2025 plan44.ch / Lukas Zeller, Zurich, Switzerland
 //
 //  Author: Lukas Zeller <luz@plan44.ch>
 //
@@ -45,32 +45,32 @@ using namespace p44;
 // MARK: - GPIO via ESP32 gpio
 
 GpioPin::GpioPin(int aGpioNo, bool aOutput, bool aInitialState, Tristate aPull) :
-  gpioNo((gpio_num_t)aGpioNo),
-  output(aOutput),
-  pinState(aInitialState)
+  mGpioNo((gpio_num_t)aGpioNo),
+  mOutput(aOutput),
+  mPinState(aInitialState)
   #ifndef ESP_PLATFORM
-  ,gpioFD(-1)
+  ,mGpioFD(-1)
   #endif
 {
   esp_err_t ret;
   // make sure pin is set to GPIO
-  ret = gpio_reset_pin(gpioNo);
+  ret = gpio_reset_pin(mGpioNo);
   if (ret==ESP_OK) {
     // set pullup/down
-    ret = gpio_set_pull_mode(gpioNo, aPull==yes ? GPIO_PULLUP_ONLY : (aPull==no ? GPIO_PULLUP_PULLDOWN : GPIO_FLOATING));
+    ret = gpio_set_pull_mode(mGpioNo, aPull==yes ? GPIO_PULLUP_ONLY : (aPull==no ? GPIO_PULLUP_PULLDOWN : GPIO_FLOATING));
   }
   if (ret==ESP_OK) {
     // set direction
-    ret = gpio_set_direction(gpioNo, output ? GPIO_MODE_OUTPUT : GPIO_MODE_INPUT);
-    if (output && ret==ESP_OK) {
+    ret = gpio_set_direction(mGpioNo, mOutput ? GPIO_MODE_OUTPUT : GPIO_MODE_INPUT);
+    if (mOutput && ret==ESP_OK) {
       // set initial state
-      ret = gpio_set_level(gpioNo, pinState ? 1 : 0);
+      ret = gpio_set_level(mGpioNo, mPinState ? 1 : 0);
     }
   }
   if (ret!=ESP_OK) {
     LOG(LOG_ERR,"GPIO init error: %s", esp_err_to_name(ret));
-    gpio_reset_pin(gpioNo);
-    gpioNo = GPIO_NUM_NC; // signal "not connected"
+    gpio_reset_pin(mGpioNo);
+    mGpioNo = GPIO_NUM_NC; // signal "not connected"
   }
 }
 
@@ -78,20 +78,20 @@ GpioPin::GpioPin(int aGpioNo, bool aOutput, bool aInitialState, Tristate aPull) 
 GpioPin::~GpioPin()
 {
   // reset to default (disabled) state
-  gpio_reset_pin(gpioNo);
+  gpio_reset_pin(mGpioNo);
 }
 
 
 
 bool GpioPin::getState()
 {
-  if (output) {
-    return pinState; // just return last set state
+  if (mOutput) {
+    return mPinState; // just return last set state
   }
   else {
     // is input
-    if (gpioNo!=GPIO_NUM_NC) {
-      return gpio_get_level(gpioNo);
+    if (mGpioNo!=GPIO_NUM_NC) {
+      return gpio_get_level(mGpioNo);
     }
   }
   return false; // non-working pins always return false
@@ -106,7 +106,7 @@ bool GpioPin::setInputChangedHandler(InputChangedCB aInputChangedCB, bool aInver
   /*
   if (aInputChangedCB==NULL) {
     // release handler
-    MainLoop::currentMainLoop().unregisterPollHandler(gpioFD);
+    MainLoop::currentMainLoop().unregisterPollHandler(mGpioFD);
     return inherited::setInputChangedHandler(aInputChangedCB, aInverted, aInitialState, aDebounceTime, aPollInterval);
   }
   // anyway, save parameters for base class
@@ -115,10 +115,10 @@ bool GpioPin::setInputChangedHandler(InputChangedCB aInputChangedCB, bool aInver
   currentState = aInitialState;
   debounceTime = aDebounceTime;
   // try to open "edge" to configure interrupt
-  string edgePath = string_format("%s/gpio%d/edge", GPIO_SYS_CLASS_PATH, gpioNo);
+  string edgePath = string_format("%s/gpio%d/edge", GPIO_SYS_CLASS_PATH, mGpioNo);
   int edgeFd = open(edgePath.c_str(), O_RDWR);
   if (edgeFd<0) {
-    LOG(LOG_DEBUG, "GPIO edge file does not exist -> GPIO %d has no edge interrupt capability", gpioNo);
+    LOG(LOG_DEBUG, "GPIO edge file does not exist -> GPIO %d has no edge interrupt capability", mGpioNo);
     // use poll-based input change detection
     return inherited::setInputChangedHandler(aInputChangedCB, aInverted, aInitialState, aDebounceTime, aPollInterval);
   }
@@ -128,7 +128,7 @@ bool GpioPin::setInputChangedHandler(InputChangedCB aInputChangedCB, bool aInver
   if (ret<0) { LOG(LOG_ERR, "Cannot write to GPIO edge file %s", strerror(errno)); return false; }
   close(edgeFd);
   // establish a IO poll
-  MainLoop::currentMainLoop().registerPollHandler(gpioFD, POLLPRI, boost::bind(&GpioPin::stateChanged, this, _2));
+  MainLoop::currentMainLoop().registerPollHandler(mGpioFD, POLLPRI, boost::bind(&GpioPin::stateChanged, this, _2));
   return true;
   */
 }
@@ -137,7 +137,7 @@ bool GpioPin::setInputChangedHandler(InputChangedCB aInputChangedCB, bool aInver
 bool GpioPin::stateChanged(int aPollFlags)
 {
   bool newState = getState();
-  //LOG(LOG_DEBUG, "GPIO %d edge detected (poll() returned POLLPRI for value file) : new state = %d", gpioNo, newState);
+  //LOG(LOG_DEBUG, "GPIO %d edge detected (poll() returned POLLPRI for value file) : new state = %d", mGpioNo, newState);
   inputHasChangedTo(newState);
   return true; // handled
 }
@@ -145,12 +145,13 @@ bool GpioPin::stateChanged(int aPollFlags)
 
 void GpioPin::setState(bool aState)
 {
-  if (!output) return; // non-outputs cannot be set
-  if (gpioNo==GPIO_NUM_NC) return; // non-existing pins cannot be set
-  pinState = aState;
+  if (!mOutput) return; // non-outputs cannot be set
+  if (mGpioNo==GPIO_NUM_NC) return; // non-existing pins cannot be set
+  mPinState = aState;
   // - set value
-  gpio_set_level(gpioNo, pinState ? 1 : 0);
+  gpio_set_level(mGpioNo, mPinState ? 1 : 0);
 }
+
 
 #else
 
@@ -159,8 +160,8 @@ void GpioPin::setState(bool aState)
 #define GPIO_LED_CLASS_PATH "/sys/class/leds"
 
 GpioLedPin::GpioLedPin(const char* aLedName, bool aInitialState) :
-  ledState(aInitialState),
-  ledFD(-1)
+  mLedState(aInitialState),
+  mLedFD(-1)
 {
   string name;
   if (isdigit(*aLedName)) {
@@ -171,36 +172,36 @@ GpioLedPin::GpioLedPin(const char* aLedName, bool aInitialState) :
     // modern alphanumeric LED name -> use as-is
     name = string_format("%s/%s/brightness", GPIO_LED_CLASS_PATH, aLedName);
   }
-  ledFD = open(name.c_str(), O_RDWR);
-  if (ledFD<0) { LOG(LOG_ERR, "Cannot open LED brightness file %s: %s", name.c_str(), strerror(errno)); return; }
+  mLedFD = open(name.c_str(), O_RDWR);
+  if (mLedFD<0) { LOG(LOG_ERR, "Cannot open LED brightness file %s: %s", name.c_str(), strerror(errno)); return; }
   // set initial state
-  setState(ledState);
+  setState(mLedState);
 }
 
 
 GpioLedPin::~GpioLedPin()
 {
-  if (ledFD>0) {
-    close(ledFD);
+  if (mLedFD>0) {
+    close(mLedFD);
   }
 }
 
 
 bool GpioLedPin::getState()
 {
-  return ledState; // just return last set state
+  return mLedState; // just return last set state
 }
 
 
 void GpioLedPin::setState(bool aState)
 {
-  if (ledFD<0) return; // non-existing pins cannot be set
-  ledState = aState;
+  if (mLedFD<0) return; // non-existing pins cannot be set
+  mLedState = aState;
   // - set value
   char buf[2];
-  buf[0] = ledState ? '1' : '0';
+  buf[0] = mLedState ? '1' : '0';
   buf[1] = 0;
-  write(ledFD, buf, 1);
+  write(mLedFD, buf, 1);
 }
 
 
@@ -211,16 +212,16 @@ void GpioLedPin::setState(bool aState)
 
 
 GpioPin::GpioPin(int aGpioNo, bool aOutput, bool aInitialState, Tristate aPull) :
-  gpioNo(aGpioNo),
-  output(aOutput),
-  pinState(aInitialState),
-  gpioFD(-1)
+  mGpioNo(aGpioNo),
+  mOutput(aOutput),
+  mPinState(aInitialState),
+  mGpioFD(-1)
 {
   // TODO: convert to modern character device based gpio, implement pull up/down.
   int tempFd;
   ssize_t ret;
   string name;
-  string s = string_format("%d", gpioNo);
+  string s = string_format("%d", mGpioNo);
   // have the kernel export the pin
   name = string_format("%s/export",GPIO_SYS_CLASS_PATH);
   tempFd = open(name.c_str(), O_WRONLY);
@@ -229,15 +230,15 @@ GpioPin::GpioPin(int aGpioNo, bool aOutput, bool aInitialState, Tristate aPull) 
   if (ret<0) { LOG(LOG_WARNING, "Cannot write '%s' to GPIO export file %s: %s, probably already exported", s.c_str(), name.c_str(), strerror(errno)); }
   close(tempFd);
   // save base path
-  string basePath = string_format("%s/gpio%d", GPIO_SYS_CLASS_PATH, gpioNo);
+  string basePath = string_format("%s/gpio%d", GPIO_SYS_CLASS_PATH, mGpioNo);
   // configure
   name = basePath + "/direction";
   tempFd = open(name.c_str(), O_RDWR);
   if (tempFd<0) { LOG(LOG_ERR, "Cannot open GPIO direction file %s: %s", name.c_str(), strerror(errno)); return; }
-  if (output) {
+  if (mOutput) {
     // output
     // - set output with initial value
-    s = pinState ? "high" : "low";
+    s = mPinState ? "high" : "low";
     ret = write(tempFd, s.c_str(), s.length());
   }
   else {
@@ -250,16 +251,16 @@ GpioPin::GpioPin(int aGpioNo, bool aOutput, bool aInitialState, Tristate aPull) 
   close(tempFd);
   // now keep the value FD open
   name = basePath + "/value";
-  gpioFD = open(name.c_str(), O_RDWR);
-  if (gpioFD<0) { LOG(LOG_ERR, "Cannot open GPIO value file %s: %s", name.c_str(), strerror(errno)); return; }
+  mGpioFD = open(name.c_str(), O_RDWR);
+  if (mGpioFD<0) { LOG(LOG_ERR, "Cannot open GPIO value file %s: %s", name.c_str(), strerror(errno)); return; }
 }
 
 
 GpioPin::~GpioPin()
 {
-  if (gpioFD>0) {
-    MainLoop::currentMainLoop().unregisterPollHandler(gpioFD);
-    close(gpioFD);
+  if (mGpioFD>0) {
+    MainLoop::currentMainLoop().unregisterPollHandler(mGpioFD);
+    close(mGpioFD);
   }
 }
 
@@ -267,17 +268,17 @@ GpioPin::~GpioPin()
 
 bool GpioPin::getState()
 {
-  if (output)
-    return pinState; // just return last set state
+  if (mOutput)
+    return mPinState; // just return last set state
   else {
     // is input
-    if (gpioFD<0)
+    if (mGpioFD<0)
       return false; // non-working pins always return false
     else {
       // read from input
       char buf[2];
-      lseek(gpioFD, 0, SEEK_SET);
-      if (read(gpioFD, buf, 1)>0) {
+      lseek(mGpioFD, 0, SEEK_SET);
+      if (read(mGpioFD, buf, 1)>0) {
         return buf[0]!='0';
       }
     }
@@ -290,7 +291,7 @@ bool GpioPin::setInputChangedHandler(InputChangedCB aInputChangedCB, bool aInver
 {
   if (aInputChangedCB==NULL) {
     // release handler
-    MainLoop::currentMainLoop().unregisterPollHandler(gpioFD);
+    MainLoop::currentMainLoop().unregisterPollHandler(mGpioFD);
     return inherited::setInputChangedHandler(aInputChangedCB, aInverted, aInitialState, aDebounceTime, aPollInterval);
   }
   // anyway, save parameters for base class
@@ -299,10 +300,10 @@ bool GpioPin::setInputChangedHandler(InputChangedCB aInputChangedCB, bool aInver
   currentState = aInitialState;
   debounceTime = aDebounceTime;
   // try to open "edge" to configure interrupt
-  string edgePath = string_format("%s/gpio%d/edge", GPIO_SYS_CLASS_PATH, gpioNo);
+  string edgePath = string_format("%s/gpio%d/edge", GPIO_SYS_CLASS_PATH, mGpioNo);
   int edgeFd = open(edgePath.c_str(), O_RDWR);
   if (edgeFd<0) {
-    LOG(LOG_DEBUG, "GPIO edge file does not exist -> GPIO %d has no edge interrupt capability", gpioNo);
+    LOG(LOG_DEBUG, "GPIO edge file does not exist -> GPIO %d has no edge interrupt capability", mGpioNo);
     // use poll-based input change detection
     return inherited::setInputChangedHandler(aInputChangedCB, aInverted, aInitialState, aDebounceTime, aPollInterval);
   }
@@ -312,7 +313,7 @@ bool GpioPin::setInputChangedHandler(InputChangedCB aInputChangedCB, bool aInver
   if (ret<0) { LOG(LOG_ERR, "Cannot write to GPIO edge file %s", strerror(errno)); return false; }
   close(edgeFd);
   // establish a IO poll
-  MainLoop::currentMainLoop().registerPollHandler(gpioFD, POLLPRI, boost::bind(&GpioPin::stateChanged, this, _2));
+  MainLoop::currentMainLoop().registerPollHandler(mGpioFD, POLLPRI, boost::bind(&GpioPin::stateChanged, this, _2));
   return true;
 }
 
@@ -330,210 +331,55 @@ bool GpioPin::stateChanged(int aPollFlags)
 
 void GpioPin::setState(bool aState)
 {
-  if (!output) return; // non-outputs cannot be set
-  if (gpioFD<0) return; // non-existing pins cannot be set
-  pinState = aState;
+  if (!mOutput) return; // non-outputs cannot be set
+  if (mGpioFD<0) return; // non-existing pins cannot be set
+  mPinState = aState;
   // - set value
   char buf[2];
-  buf[0] = pinState ? '1' : '0';
+  buf[0] = mPinState ? '1' : '0';
   buf[1] = 0;
-  write(gpioFD, buf, 1);
+  write(mGpioFD, buf, 1);
 }
 
-
-//  Sysfs Interface for Userspace (OPTIONAL)
-//  ========================================
-//  Platforms which use the "gpiolib" implementors framework may choose to
-//  configure a sysfs user interface to GPIOs.  This is different from the
-//  debugfs interface, since it provides control over GPIO direction and
-//  value instead of just showing a gpio state summary.  Plus, it could be
-//  present on production systems without debugging support.
-//
-//  Given appropriate hardware documentation for the system, userspace could
-//  know for example that GPIO #23 controls the write protect line used to
-//  protect boot loader segments in flash memory.  System upgrade procedures
-//  may need to temporarily remove that protection, first importing a GPIO,
-//  then changing its output state, then updating the code before re-enabling
-//  the write protection.  In normal use, GPIO #23 would never be touched,
-//  and the kernel would have no need to know about it.
-//
-//  Again depending on appropriate hardware documentation, on some systems
-//  userspace GPIO can be used to determine system configuration data that
-//  standard kernels won't know about.  And for some tasks, simple userspace
-//  GPIO drivers could be all that the system really needs.
-//
-//  Note that standard kernel drivers exist for common "LEDs and Buttons"
-//  GPIO tasks:  "leds-gpio" and "gpio_keys", respectively.  Use those
-//  instead of talking directly to the GPIOs; they integrate with kernel
-//  frameworks better than your userspace code could.
-//
-//
-//  Paths in Sysfs
-//  --------------
-//  There are three kinds of entry in /sys/class/gpio:
-//
-//     -  Control interfaces used to get userspace control over GPIOs;
-//
-//     -  GPIOs themselves; and
-//
-//     -  GPIO controllers ("gpio_chip" instances).
-//
-//  That's in addition to standard files including the "device" symlink.
-//
-//  The control interfaces are write-only:
-//
-//      /sys/class/gpio/
-//
-//        "export" ... Userspace may ask the kernel to export control of
-//      a GPIO to userspace by writing its number to this file.
-//
-//      Example:  "echo 19 > export" will create a "gpio19" node
-//      for GPIO #19, if that's not requested by kernel code.
-//
-//        "unexport" ... Reverses the effect of exporting to userspace.
-//
-//      Example:  "echo 19 > unexport" will remove a "gpio19"
-//      node exported using the "export" file.
-//
-//  GPIO signals have paths like /sys/class/gpio/gpio42/ (for GPIO #42)
-//  and have the following read/write attributes:
-//
-//      /sys/class/gpio/gpioN/
-//
-//    "direction" ... reads as either "in" or "out".  This value may
-//      normally be written.  Writing as "out" defaults to
-//      initializing the value as low.  To ensure glitch free
-//      operation, values "low" and "high" may be written to
-//      configure the GPIO as an output with that initial value.
-//
-//      Note that this attribute *will not exist* if the kernel
-//      doesn't support changing the direction of a GPIO, or
-//      it was exported by kernel code that didn't explicitly
-//      allow userspace to reconfigure this GPIO's direction.
-//
-//    "value" ... reads as either 0 (low) or 1 (high).  If the GPIO
-//      is configured as an output, this value may be written;
-//      any nonzero value is treated as high.
-//
-//      If the pin can be configured as interrupt-generating interrupt
-//      and if it has been configured to generate interrupts (see the
-//      description of "edge"), you can poll(2) on that file and
-//      poll(2) will return whenever the interrupt was triggered. If
-//      you use poll(2), set the events POLLPRI and POLLERR. If you
-//      use select(2), set the file descriptor in exceptfds. After
-//      poll(2) returns, either lseek(2) to the beginning of the sysfs
-//      file and read the new value or close the file and re-open it
-//      to read the value.
-//
-//    "edge" ... reads as either "none", "rising", "falling", or
-//      "both". Write these strings to select the signal edge(s)
-//      that will make poll(2) on the "value" file return.
-//
-//      This file exists only if the pin can be configured as an
-//      interrupt generating input pin.
-//
-//    "active_low" ... reads as either 0 (false) or 1 (true).  Write
-//      any nonzero value to invert the value attribute both
-//      for reading and writing.  Existing and subsequent
-//      poll(2) support configuration via the edge attribute
-//      for "rising" and "falling" edges will follow this
-//      setting.
-//
-//  GPIO controllers have paths like /sys/class/gpio/gpiochip42/ (for the
-//  controller implementing GPIOs starting at #42) and have the following
-//  read-only attributes:
-//
-//      /sys/class/gpio/gpiochipN/
-//
-//        "base" ... same as N, the first GPIO managed by this chip
-//
-//        "label" ... provided for diagnostics (not always unique)
-//
-//        "ngpio" ... how many GPIOs this manges (N to N + ngpio - 1)
-//
-//  Board documentation should in most cases cover what GPIOs are used for
-//  what purposes.  However, those numbers are not always stable; GPIOs on
-//  a daughtercard might be different depending on the base board being used,
-//  or other cards in the stack.  In such cases, you may need to use the
-//  gpiochip nodes (possibly in conjunction with schematics) to determine
-//  the correct GPIO number to use for a given signal.
-//
-//
-//  Exporting from Kernel code
-//  --------------------------
-//  Kernel code can explicitly manage exports of GPIOs which have already been
-//  requested using gpio_request():
-//
-//    /* export the GPIO to userspace */
-//    int gpio_export(unsigned gpio, bool direction_may_change);
-//
-//    /* reverse gpio_export() */
-//    void gpio_unexport();
-//
-//    /* create a sysfs link to an exported GPIO node */
-//    int gpio_export_link(struct device *dev, const char *name,
-//      unsigned gpio)
-//
-//    /* change the polarity of a GPIO node in sysfs */
-//    int gpio_sysfs_set_active_low(unsigned gpio, int value);
-//
-//  After a kernel driver requests a GPIO, it may only be made available in
-//  the sysfs interface by gpio_export().  The driver can control whether the
-//  signal direction may change.  This helps drivers prevent userspace code
-//  from accidentally clobbering important system state.
-//
-//  This explicit exporting can help with debugging (by making some kinds
-//  of experiments easier), or can provide an always-there interface that's
-//  suitable for documenting as part of a board support package.
-//
-//  After the GPIO has been exported, gpio_export_link() allows creating
-//  symlinks from elsewhere in sysfs to the GPIO sysfs node.  Drivers can
-//  use this to provide the interface under their own device in sysfs with
-//  a descriptive name.
-//
-//  Drivers can use gpio_sysfs_set_active_low() to hide GPIO line polarity
-//  differences between boards from user space.  This only affects the
-//  sysfs interface.  Polarity change can be done both before and after
-//  gpio_export(), and previously enabled poll(2) support for either
-//  rising or falling edge will be reconfigured to follow this setting.
+#endif
 
 
-
+#if P44_BUILD_DIGI
 
 // MARK: - GPIO for NS9xxx (Digi ME 9210 LX)
 
 GpioNS9XXXPin::GpioNS9XXXPin(const char* aGpioName, bool aOutput, bool aInitialState) :
-  gpioFD(-1),
-  pinState(false)
+  mGpioFD(-1),
+  mPinState(false)
 {
   // save params
-  output = aOutput;
-  name = aGpioName;
-  pinState = aInitialState; // set even for inputs
+  mOutput = aOutput;
+  mName = aGpioName;
+  mPinState = aInitialState; // set even for inputs
 
   int ret_val;
   // open device
   string gpiopath(GPION9XXX_DEVICES_BASEPATH);
-  gpiopath.append(name);
-  gpioFD = open(gpiopath.c_str(), O_RDWR);
-  if (gpioFD<0) {
-    LOG(LOG_ERR, "Cannot open GPIO device %s: %s", name.c_str(), strerror(errno));
+  gpiopath.append(mName);
+  mGpioFD = open(gpiopath.c_str(), O_RDWR);
+  if (mGpioFD<0) {
+    LOG(LOG_ERR, "Cannot open GPIO device %s: %s", mName.c_str(), strerror(errno));
     return;
   }
   // configure
-  if (output) {
+  if (mOutput) {
     // output
-    if ((ret_val = ioctl(gpioFD, GPIO_CONFIG_AS_OUT)) < 0) {
-      LOG(LOG_ERR, "GPIO_CONFIG_AS_OUT failed for %s: %s", name.c_str(), strerror(errno));
+    if ((ret_val = ioctl(mGpioFD, GPIO_CONFIG_AS_OUT)) < 0) {
+      LOG(LOG_ERR, "GPIO_CONFIG_AS_OUT failed for %s: %s", mName.c_str(), strerror(errno));
       return;
     }
     // set state immediately
-    setState(pinState);
+    setState(mPinState);
   }
   else {
     // input
-    if ((ret_val = ioctl(gpioFD, GPIO_CONFIG_AS_INP)) < 0) {
-      LOG(LOG_ERR, "GPIO_CONFIG_AS_INP failed for %s: %s", name.c_str(), strerror(errno));
+    if ((ret_val = ioctl(mGpioFD, GPIO_CONFIG_AS_INP)) < 0) {
+      LOG(LOG_ERR, "GPIO_CONFIG_AS_INP failed for %s: %s", mName.c_str(), strerror(errno));
       return;
     }
   }
@@ -542,8 +388,8 @@ GpioNS9XXXPin::GpioNS9XXXPin(const char* aGpioName, bool aOutput, bool aInitialS
 
 GpioNS9XXXPin::~GpioNS9XXXPin()
 {
-  if (gpioFD>0) {
-    close(gpioFD);
+  if (mGpioFD>0) {
+    close(mGpioFD);
   }
 }
 
@@ -551,9 +397,9 @@ GpioNS9XXXPin::~GpioNS9XXXPin()
 
 bool GpioNS9XXXPin::getState()
 {
-  if (output)
-    return pinState; // just return last set state
-  if (gpioFD<0)
+  if (mOutput)
+    return mPinState; // just return last set state
+  if (mGpioFD<0)
     return false; // non-working pins always return false
   else {
     // read from input
@@ -575,11 +421,11 @@ bool GpioNS9XXXPin::getState()
 
 void GpioNS9XXXPin::setState(bool aState)
 {
-  if (!output) return; // non-outputs cannot be set
-  if (gpioFD<0) return; // non-existing pins cannot be set
-  pinState = aState;
+  if (!mOutput) return; // non-outputs cannot be set
+  if (mGpioFD<0) return; // non-existing pins cannot be set
+  mPinState = aState;
   // - set value
-  int setval = pinState;
+  int setval = mPinState;
   #ifndef __APPLE__
   int ret_val;
   if ((ret_val = ioctl(gpioFD, GPIO_WRITE_PIN_VAL, &setval)) < 0) {
@@ -591,4 +437,5 @@ void GpioNS9XXXPin::setState(bool aState)
   #endif
 }
 
-#endif // !ESP_PLATFORM
+#endif // P44_BUILD_DIGI
+

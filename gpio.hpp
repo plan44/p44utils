@@ -1,6 +1,6 @@
 //  SPDX-License-Identifier: GPL-3.0-or-later
 //
-//  Copyright (c) 2013-2023 plan44.ch / Lukas Zeller, Zurich, Switzerland
+//  Copyright (c) 2013-2025 plan44.ch / Lukas Zeller, Zurich, Switzerland
 //
 //  Author: Lukas Zeller <luz@plan44.ch>
 //
@@ -49,8 +49,8 @@ namespace p44 {
   {
     typedef IOPin inherited;
 
-    int ledFD;
-    bool ledState;
+    int mLedFD;
+    bool mLedState;
 
   public:
 
@@ -79,13 +79,13 @@ namespace p44 {
   {
     typedef IOPin inherited;
 
-    bool pinState;
-    bool output;
+    bool mPinState;
+    bool mOutput;
     #ifdef ESP_PLATFORM
-    gpio_num_t gpioNo;
+    gpio_num_t mGpioNo;
     #else
-    int gpioNo;
-    int gpioFD;
+    int mGpioNo;
+    int mGpioFD;
     #endif
 
     bool stateChanged(int aPollFlags);
@@ -126,16 +126,17 @@ namespace p44 {
 
 
 
+  #if P44_BUILD_DIGI
   /// Wrapper for General Purpose I/O pin as accessed via NS9XXX kernel module
   /// and SysFS from Userland (Digi ME 9210 LX)
   class GpioNS9XXXPin : public IOPin
   {
     typedef IOPin inherited;
 
-    int gpioFD;
-    bool pinState;
-    bool output;
-    string name;
+    int mGpioFD;
+    bool mPinState;
+    bool mOutput;
+    string mName;
 
   public:
 
@@ -155,8 +156,8 @@ namespace p44 {
     virtual void setState(bool aState);
 
   };
+  #endif
 
-	
 } // namespace p44
 
 #endif /* defined(__p44utils__gpio__) */
