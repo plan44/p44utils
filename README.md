@@ -1,4 +1,3 @@
-
 p44utils
 ========
 
@@ -48,7 +47,7 @@ Features
 - wrappers to abstract various sources of digital and analog inputs (such as GPIO, I2C and SPI peripherals) into easy to use input or output objects, including debouncing for inputs and blinking sequences for indicator outputs.
 - helper class for serial data controlled RGB and RGBW LED chains (WS281x, SK6812 etc.), and arranging multiple chains to form a display surface that can be used with [p44lrgraphics](https://github.com/plan44/p44lrgraphics).
 - value animator class which provides all functionality to change a numeric property over a given time with a specific curve, for example properties of [p44lrgraphics](https://github.com/plan44/p44lrgraphics) views or a PWM output.
-- support for using [lvgl](https://lvgl.io) embedded graphics library in p44utils based applications, including a JSON-based UI configuration mechanism.
+- support for using [lvgl](https://lvgl.io) embedded graphics library in p44utils based applications, including fully dynamic JSON-based UI configuration and full integration into *p44script*, so entire UIs can be defined and operated from p44script.
 - support for bidirectional DC motor control including current supervision and end contacts.
 - support for modbus client and server via TCP or RS485.
 - utils: simple utility functions that DO NOT depend on other p44utils classes.
@@ -60,9 +59,10 @@ Supporting p44utils
 
 1. use it!
 2. support development via [github sponsors](https://github.com/sponsors/plan44) or [flattr](https://flattr.com/@luz)
-3. Discuss it in the [plan44 community forum](https://forum.plan44.ch/t/opensource-c-vdcd).
-3. contribute patches, report issues and suggest new functionality [on github](https://github.com/plan44/p44utils) or in the [forum](https://forum.plan44.ch/t/opensource-c-vdcd).
-5. Buy plan44.ch [products](https://plan44.ch/automation/products.php) - sales revenue is paying the time for contributing to opensource projects :-)
+3. See it in action by trying the p44 automation platform, such as [free Rpi images](https://plan44.ch/automation/p44-lc-x.php) or the [p44-open openwrt build](https://github.com/plan44/p44-xx-open).
+4. Discuss it in the [plan44 community forum](https://forum.plan44.ch/t/opensource-c-vdcd).
+5. contribute patches, report issues and suggest new functionality [on github](https://github.com/plan44/p44utils) or in the [forum](https://forum.plan44.ch/t/opensource-c-vdcd).
+6. Buy plan44.ch [products](https://plan44.ch/automation/products.php) - sales revenue is paying the time for contributing to opensource projects :-)
 
 
-(c) 2013-2022 by Lukas Zeller / [plan44.ch](http://www.plan44.ch/opensource)
+(c) 2013-2025 by Lukas Zeller / [plan44.ch](http://www.plan44.ch/opensource)
