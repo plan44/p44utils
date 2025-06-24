@@ -1,6 +1,6 @@
 //  SPDX-License-Identifier: GPL-3.0-or-later
 //
-//  Copyright (c) 2020-2023 plan44.ch / Lukas Zeller, Zurich, Switzerland
+//  Copyright (c) 2020-2025 plan44.ch / Lukas Zeller, Zurich, Switzerland
 //
 //  Author: Lukas Zeller <luz@plan44.ch>
 //
@@ -352,8 +352,8 @@ MLMicroSeconds ValueAnimator::step(MLMicroSeconds aNow)
 void ValueAnimator::autoStep(MLTimer &aTimer, MLMicroSeconds aNow)
 {
   MLMicroSeconds nextStep = step();
-  if (nextStep!=Never) {
-    MainLoop::currentMainLoop().retriggerTimer(aTimer, mStepTime);
+  if (nextStep>0) {
+    MainLoop::currentMainLoop().retriggerTimer(aTimer, 0, nextStep, MainLoop::absolute);
   }
 }
 
