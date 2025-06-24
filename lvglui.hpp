@@ -547,14 +547,15 @@ namespace p44 {
     /// get image file path, will possibly look up in different places (resources, data)
     /// @param aImageSpec a path or filename specifying an image
     /// @return absolute path to existing image file, or empty string if none of the possible places contain the file
-    virtual string imagePath(const string aImageSpec);
+    virtual string imagePath(const string aImageSpec, ErrorPtr& aErr);
 
     /// get image source specification by name
     /// @param aImageSpec a path specifying an image
+    /// @param aAllowSymbols if set, symbols are allowed (NOT for image buttons)
     /// @note names containing dots will be considered file paths. Other texts are considered symbol names.
     ///    fallback is a text image label.
-    /// @return image specification (file path or symbol)
-    string namedImageSource(const string& aImageSpec);
+    /// @return image specification (file path prefixed by lvgl drive letter or symbol), or empty string
+    string namedImageSource(const string& aImageSpec, bool aAllowSymbols, ErrorPtr& aErr);
 
     /// @param aElementPath dot separated absolute path beginning at root container, or dot-prefixed relative path
     ///   (.elem = one of my subelements, ..elem=a sibling (element in my parent's container), ...=grandparent, etc.)

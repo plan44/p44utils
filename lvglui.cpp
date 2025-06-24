@@ -224,14 +224,14 @@ static void getFlagChangesByList(const string aFlagsList, uint32_t& aFlagsToSet,
 // MARK: style properties
 
 
-static ErrorPtr intPropValue(JsonObjectPtr aJsonValue, lv_style_value_t& aStyleValue)
+static ErrorPtr intPropValue(JsonObjectPtr aJsonValue, lv_style_value_t& aStyleValue, LvGLUi& aLvglUI)
 {
   aStyleValue.num = aJsonValue->int32Value();
   return ErrorPtr();
 }
 
 
-static ErrorPtr coordPropValue(JsonObjectPtr aJsonValue, lv_style_value_t& aStyleValue)
+static ErrorPtr coordPropValue(JsonObjectPtr aJsonValue, lv_style_value_t& aStyleValue, LvGLUi& aLvglUI)
 {
   // strings might be values in other units than pixels
   lv_coord_t coord = 0;
@@ -245,43 +245,43 @@ static ErrorPtr coordPropValue(JsonObjectPtr aJsonValue, lv_style_value_t& aStyl
     }
   }
   else {
-    return intPropValue(aJsonValue, aStyleValue);
+    return intPropValue(aJsonValue, aStyleValue, aLvglUI);
   }
   aStyleValue.num = coord;
   return ErrorPtr();
 }
 
 
-static ErrorPtr radiusPropValue(JsonObjectPtr aJsonValue, lv_style_value_t& aStyleValue)
+static ErrorPtr radiusPropValue(JsonObjectPtr aJsonValue, lv_style_value_t& aStyleValue, LvGLUi& aLvglUI)
 {
-  if (aJsonValue->stringValue()!="circle") return coordPropValue(aJsonValue, aStyleValue);
+  if (aJsonValue->stringValue()!="circle") return coordPropValue(aJsonValue, aStyleValue, aLvglUI);
   aStyleValue.num = LV_RADIUS_CIRCLE;
   return ErrorPtr();
 }
 
 
-static ErrorPtr scalePropValue(JsonObjectPtr aJsonValue, lv_style_value_t& aStyleValue)
+static ErrorPtr scalePropValue(JsonObjectPtr aJsonValue, lv_style_value_t& aStyleValue, LvGLUi& aLvglUI)
 {
   aStyleValue.num = aJsonValue->doubleValue()*256;
   return ErrorPtr();
 }
 
 
-static ErrorPtr anglePropValue(JsonObjectPtr aJsonValue, lv_style_value_t& aStyleValue)
+static ErrorPtr anglePropValue(JsonObjectPtr aJsonValue, lv_style_value_t& aStyleValue, LvGLUi& aLvglUI)
 {
   aStyleValue.num = aJsonValue->doubleValue()*10;
   return ErrorPtr();
 }
 
 
-static ErrorPtr per255PropValue(JsonObjectPtr aJsonValue, lv_style_value_t& aStyleValue)
+static ErrorPtr per255PropValue(JsonObjectPtr aJsonValue, lv_style_value_t& aStyleValue, LvGLUi& aLvglUI)
 {
   aStyleValue.num = aJsonValue->doubleValue()*2.55; // 0..100 -> 0..255
   return ErrorPtr();
 }
 
 
-static ErrorPtr boolPropValue(JsonObjectPtr aJsonValue, lv_style_value_t& aStyleValue)
+static ErrorPtr boolPropValue(JsonObjectPtr aJsonValue, lv_style_value_t& aStyleValue, LvGLUi& aLvglUI)
 {
   aStyleValue.num = aJsonValue->boolValue();
   return ErrorPtr();
@@ -289,7 +289,7 @@ static ErrorPtr boolPropValue(JsonObjectPtr aJsonValue, lv_style_value_t& aStyle
 
 
 
-static ErrorPtr alignPropValue(JsonObjectPtr aJsonValue, lv_style_value_t& aStyleValue)
+static ErrorPtr alignPropValue(JsonObjectPtr aJsonValue, lv_style_value_t& aStyleValue, LvGLUi& aLvglUI)
 {
   const string alignMode = aJsonValue->stringValue();
   const char *p = alignMode.c_str();
@@ -339,7 +339,7 @@ static ErrorPtr alignPropValue(JsonObjectPtr aJsonValue, lv_style_value_t& aStyl
 }
 
 
-static ErrorPtr fontPropValue(JsonObjectPtr aJsonValue, lv_style_value_t& aStyleValue)
+static ErrorPtr fontPropValue(JsonObjectPtr aJsonValue, lv_style_value_t& aStyleValue, LvGLUi& aLvglUI)
 {
   const string fontName = aJsonValue->stringValue();
   const lv_font_t* font = nullptr;
@@ -530,7 +530,7 @@ static ErrorPtr colorPropValue(JsonObjectPtr aJsonValue, bool& aHasColor, lv_sty
 }
 
 
-static ErrorPtr colorPropValue(JsonObjectPtr aJsonValue, lv_style_value_t& aStyleValue)
+static ErrorPtr colorPropValue(JsonObjectPtr aJsonValue, lv_style_value_t& aStyleValue, LvGLUi& aLvglUI)
 {
   lv_style_value_t opa;
   bool hasOpa, hasColor;
@@ -544,7 +544,7 @@ static ErrorPtr colorPropValue(JsonObjectPtr aJsonValue, lv_style_value_t& aStyl
 
 
 
-static ErrorPtr gradientDirPropValue(JsonObjectPtr aJsonValue, lv_style_value_t& aStyleValue)
+static ErrorPtr gradientDirPropValue(JsonObjectPtr aJsonValue, lv_style_value_t& aStyleValue, LvGLUi& aLvglUI)
 {
   const string gradSpec = aJsonValue->stringValue();
   lv_grad_dir_t grad;
@@ -562,7 +562,7 @@ static ErrorPtr gradientDirPropValue(JsonObjectPtr aJsonValue, lv_style_value_t&
 }
 
 
-static ErrorPtr borderSidesPropValue(JsonObjectPtr aJsonValue, lv_style_value_t& aStyleValue)
+static ErrorPtr borderSidesPropValue(JsonObjectPtr aJsonValue, lv_style_value_t& aStyleValue, LvGLUi& aLvglUI)
 {
   const string s = aJsonValue->stringValue();
   const char* p = s.c_str();
@@ -582,7 +582,7 @@ static ErrorPtr borderSidesPropValue(JsonObjectPtr aJsonValue, lv_style_value_t&
 }
 
 
-static ErrorPtr textDecorPropValue(JsonObjectPtr aJsonValue, lv_style_value_t& aStyleValue)
+static ErrorPtr textDecorPropValue(JsonObjectPtr aJsonValue, lv_style_value_t& aStyleValue, LvGLUi& aLvglUI)
 {
   const string s = aJsonValue->stringValue();
   const char* p = s.c_str();
@@ -598,7 +598,7 @@ static ErrorPtr textDecorPropValue(JsonObjectPtr aJsonValue, lv_style_value_t& a
 }
 
 
-static ErrorPtr textAlignPropValue(JsonObjectPtr aJsonValue, lv_style_value_t& aStyleValue)
+static ErrorPtr textAlignPropValue(JsonObjectPtr aJsonValue, lv_style_value_t& aStyleValue, LvGLUi& aLvglUI)
 {
   const string textAlign = aJsonValue->stringValue();
   lv_text_align_t align;
@@ -612,7 +612,7 @@ static ErrorPtr textAlignPropValue(JsonObjectPtr aJsonValue, lv_style_value_t& a
 }
 
 
-static ErrorPtr blendModePropValue(JsonObjectPtr aJsonValue, lv_style_value_t& aStyleValue)
+static ErrorPtr blendModePropValue(JsonObjectPtr aJsonValue, lv_style_value_t& aStyleValue, LvGLUi& aLvglUI)
 {
   const string blendMode = aJsonValue->stringValue();
   lv_blend_mode_t blend;
@@ -626,7 +626,7 @@ static ErrorPtr blendModePropValue(JsonObjectPtr aJsonValue, lv_style_value_t& a
 }
 
 
-static ErrorPtr layoutPropValue(JsonObjectPtr aJsonValue, lv_style_value_t& aStyleValue)
+static ErrorPtr layoutPropValue(JsonObjectPtr aJsonValue, lv_style_value_t& aStyleValue, LvGLUi& aLvglUI)
 {
   const string layoutName = aJsonValue->stringValue();
   lv_layout_t layout;
@@ -639,7 +639,7 @@ static ErrorPtr layoutPropValue(JsonObjectPtr aJsonValue, lv_style_value_t& aSty
 }
 
 
-static ErrorPtr flexAlignPropValue(JsonObjectPtr aJsonValue, lv_style_value_t& aStyleValue)
+static ErrorPtr flexAlignPropValue(JsonObjectPtr aJsonValue, lv_style_value_t& aStyleValue, LvGLUi& aLvglUI)
 {
   const string flexAlign = aJsonValue->stringValue();
   lv_flex_align_t align;
@@ -656,7 +656,7 @@ static ErrorPtr flexAlignPropValue(JsonObjectPtr aJsonValue, lv_style_value_t& a
 
 
 
-static ErrorPtr flexFlowPropValue(JsonObjectPtr aJsonValue, lv_style_value_t& aStyleValue)
+static ErrorPtr flexFlowPropValue(JsonObjectPtr aJsonValue, lv_style_value_t& aStyleValue, LvGLUi& aLvglUI)
 {
   const string flexFlow = aJsonValue->stringValue();
   const char* p = flexFlow.c_str();
@@ -674,7 +674,7 @@ static ErrorPtr flexFlowPropValue(JsonObjectPtr aJsonValue, lv_style_value_t& aS
 }
 
 
-static ErrorPtr gridAlignPropValue(JsonObjectPtr aJsonValue, lv_style_value_t& aStyleValue)
+static ErrorPtr gridAlignPropValue(JsonObjectPtr aJsonValue, lv_style_value_t& aStyleValue, LvGLUi& aLvglUI)
 {
   const string gridAlign = aJsonValue->stringValue();
   lv_grid_align_t align;
@@ -690,7 +690,7 @@ static ErrorPtr gridAlignPropValue(JsonObjectPtr aJsonValue, lv_style_value_t& a
 }
 
 
-static ErrorPtr gridTemplateArrayPropValue(JsonObjectPtr aJsonValue, lv_style_value_t& aStyleValue)
+static ErrorPtr gridTemplateArrayPropValue(JsonObjectPtr aJsonValue, lv_style_value_t& aStyleValue, LvGLUi& aLvglUI)
 {
   int n = aJsonValue->arrayLength();
   int32_t* aGridTemplateP = nullptr;
@@ -706,14 +706,20 @@ static ErrorPtr gridTemplateArrayPropValue(JsonObjectPtr aJsonValue, lv_style_va
 }
 
 
-static ErrorPtr imagePropValue(JsonObjectPtr aJsonValue, lv_style_value_t& aStyleValue)
+static ErrorPtr imagePropValue(JsonObjectPtr aJsonValue, lv_style_value_t& aStyleValue, LvGLUi& aLvglUI)
 {
-  #warning %%% to implement
-  return TextError::err("Image properties not yet implemented");
+  ErrorPtr err;
+  string imgsrc = aLvglUI.namedImageSource(aJsonValue->stringValue(), true, err);
+  if (Error::isOK(err)) {
+    // FIXME: this will never get freed, so redefining styles can leak memory
+    aStyleValue.ptr = malloc(imgsrc.size()+1);
+    strncpy((char *)aStyleValue.ptr, imgsrc.c_str(), imgsrc.size()+1);
+  }
+  return err;
 }
 
 
-typedef ErrorPtr (*PropValueConverter)(JsonObjectPtr aJsonValue, lv_style_value_t& aStyleValue);
+typedef ErrorPtr (*PropValueConverter)(JsonObjectPtr aJsonValue, lv_style_value_t& aStyleValue, LvGLUi& aLvglUI);
 
 typedef struct {
   const char* propname;
@@ -767,7 +773,7 @@ static const PropDef propDefs[] = {
   { "gradient_dir", LV_STYLE_BG_GRAD_DIR, 0, gradientDirPropValue },
   { "gradient_start", LV_STYLE_BG_MAIN_STOP, 0, per255PropValue },
   { "gradient_stop", LV_STYLE_BG_GRAD_STOP, 0, per255PropValue },
-  { "bg_image", LV_STYLE_BG_GRAD_STOP, 0, imagePropValue },
+  { "bg_image", LV_STYLE_BG_IMAGE_SRC, 0, imagePropValue },
   { "bg_recoloring", LV_STYLE_BG_IMAGE_RECOLOR, LV_STYLE_BG_IMAGE_RECOLOR_OPA, nullptr },
   { "bg_tiled", LV_STYLE_BG_IMAGE_TILED, 0, boolPropValue },
   { "border_color", LV_STYLE_BORDER_COLOR, LV_STYLE_BORDER_OPA, nullptr },
@@ -792,7 +798,7 @@ static const PropDef propDefs[] = {
   { "arc_color", LV_STYLE_ARC_COLOR, LV_STYLE_ARC_OPA, nullptr },
   { "arc_width", LV_STYLE_ARC_WIDTH, 0, coordPropValue },
   { "arc_rounded", LV_STYLE_ARC_ROUNDED, 0, boolPropValue },
-  { "arc_image", LV_STYLE_BG_GRAD_STOP, 0, imagePropValue },
+  { "arc_image", LV_STYLE_ARC_IMAGE_SRC, 0, imagePropValue },
   { "text_color", LV_STYLE_TEXT_COLOR, LV_STYLE_TEXT_OPA, nullptr },
   { "font", LV_STYLE_TEXT_FONT, 0, fontPropValue },
   { "text_letter_space", LV_STYLE_TEXT_LETTER_SPACE, 0, coordPropValue },
@@ -988,12 +994,12 @@ ErrorPtr LvGLUiTheme::configure(JsonObjectPtr aConfig)
     mName = o->stringValue();
     lv_style_value_t val;
     if (aConfig->get("primary", o)) {
-      err = colorPropValue(o, val);
+      err = colorPropValue(o, val, mLvglui);
       if (Error::notOK(err)) return err;
       primary = val.color;
     }
     if (aConfig->get("secondary", o)) {
-      err = colorPropValue(o, val);
+      err = colorPropValue(o, val, mLvglui);
       if (Error::notOK(err)) return err;
       secondary = val.color;
     }
@@ -1001,7 +1007,7 @@ ErrorPtr LvGLUiTheme::configure(JsonObjectPtr aConfig)
       isDark = o->boolValue();
     }
     if (aConfig->get("font", o)) {
-      err = fontPropValue(o, val);
+      err = fontPropValue(o, val, mLvglui);
       if (Error::notOK(err)) return err;
       font = (lv_font_t*)val.ptr;
     }
@@ -1068,7 +1074,7 @@ ErrorPtr LvGLUiStyle::setProperty(const string& aName, JsonObjectPtr aValue)
   if (prop) {
     if (prop->propconv) {
       lv_style_value_t propval;
-      err = prop->propconv(aValue, propval);
+      err = prop->propconv(aValue, propval, mLvglui);
       if (Error::isOK(err)) lv_style_set_prop(&mStyle, prop->propid, propval);
     }
     else if (prop->opa_propid) {
@@ -1282,7 +1288,7 @@ ErrorPtr LVGLUiElement::configureStyle(JsonObjectPtr aValue)
       if (prop) {
         if (prop->propconv) {
           lv_style_value_t propval;
-          ErrorPtr err = prop->propconv(o, propval);
+          ErrorPtr err = prop->propconv(o, propval, mLvglui);
           if (Error::notOK(err)) return err;
           lv_obj_set_local_style_prop(mElement, prop->propid, propval, selector);
         }
@@ -1361,7 +1367,7 @@ ErrorPtr LVGLUiElement::setProperty(const string& aName, JsonObjectPtr aValue)
         align_dy = o->int32Value();
       }
       if (aValue->get("mode", o)) {
-        ErrorPtr err = alignPropValue(o, alignmode);
+        ErrorPtr err = alignPropValue(o, alignmode, mLvglui);
         if (Error::notOK(err)) return err;
       }
       if (alignRef) {
@@ -1375,7 +1381,7 @@ ErrorPtr LVGLUiElement::setProperty(const string& aName, JsonObjectPtr aValue)
     }
     else {
       lv_style_value_t alignmode;
-      ErrorPtr err = alignPropValue(aValue, alignmode);
+      ErrorPtr err = alignPropValue(aValue, alignmode, mLvglui);
       if (Error::notOK(err)) return err;
       lv_obj_set_align(mElement, (lv_align_t)alignmode.num);
     }
@@ -1550,8 +1556,9 @@ LvGLUiImage::LvGLUiImage(LvGLUi& aLvGLUI, LvGLUiContainer* aParentP) :
 ErrorPtr LvGLUiImage::setProperty(const string& aName, JsonObjectPtr aValue)
 {
   // configure params
+  ErrorPtr err;
   if (aName=="src") {
-    if (setProp(mImgSrc, mLvglui.namedImageSource(aValue->stringValue()))) {
+    if (setProp(mImgSrc, mLvglui.namedImageSource(aValue->stringValue(), true, err))) {
       lv_image_set_src(mElement, mImgSrc.c_str());
     }
   }
@@ -1561,7 +1568,7 @@ ErrorPtr LvGLUiImage::setProperty(const string& aName, JsonObjectPtr aValue)
   else {
     return inherited::setProperty(aName, aValue);
   }
-  return ErrorPtr();
+  return err;
 }
 
 
@@ -1636,13 +1643,13 @@ ErrorPtr LvGLUiQRCode::setProperty(const string& aName, JsonObjectPtr aValue)
   }
   else if (aName=="darkcolor") {
     lv_style_value_t col;
-    ErrorPtr err = colorPropValue(aValue, col);
+    ErrorPtr err = colorPropValue(aValue, col, mLvglui);
     if (Error::notOK(err)) return err;
     lv_qrcode_set_dark_color(mElement, col.color);
   }
   else if (aName=="lightcolor") {
     lv_style_value_t col;
-    ErrorPtr err = colorPropValue(aValue, col);
+    ErrorPtr err = colorPropValue(aValue, col, mLvglui);
     if (Error::notOK(err)) return err;
     lv_qrcode_set_light_color(mElement, col.color);
   }
@@ -1710,6 +1717,8 @@ const void* LvGLUiImgButton::imgBtnSrc(const string& aSource)
   const void* src = LVGLUiElement::imgSrc(aSource);
   if (src) {
     // avoid symbols in image buttons (these only work in normal images)
+
+
     if (lv_image_src_get_type(src)==LV_IMAGE_SRC_SYMBOL) {
       src = nullptr;
     }
@@ -1728,31 +1737,42 @@ LvGLUiImgButton::LvGLUiImgButton(LvGLUi& aLvGLUI, LvGLUiContainer* aParentP) :
 ErrorPtr LvGLUiImgButton::setProperty(const string &aName, JsonObjectPtr aValue)
 {
   // images
+  ErrorPtr err;
   // TODO: implement left/right images, for now we only have center
   if (aName=="released_image" || aName=="image") {
-    if (setProp(relImgSrc, mLvglui.namedImageSource(aValue->stringValue())))
+    if (setProp(relImgSrc, mLvglui.namedImageSource(aValue->stringValue(), false, err))) {
       lv_imagebutton_set_src(mElement, LV_IMAGEBUTTON_STATE_RELEASED, nullptr, relImgSrc.c_str(), nullptr);
+    }
   }
   else if (aName=="pressed_image") {
-    if (setProp(prImgSrc, mLvglui.namedImageSource(aValue->stringValue())))
+    if (setProp(prImgSrc, mLvglui.namedImageSource(aValue->stringValue(), false, err))) {
       lv_imagebutton_set_src(mElement, LV_IMAGEBUTTON_STATE_PRESSED, nullptr, prImgSrc.c_str(), nullptr);
+    }
   }
   else if (aName=="disabled_image") {
-    if (setProp(inaImgSrc, mLvglui.namedImageSource(aValue->stringValue())))
+    if (setProp(inaImgSrc, mLvglui.namedImageSource(aValue->stringValue(), false, err))) {
       lv_imagebutton_set_src(mElement, LV_IMAGEBUTTON_STATE_DISABLED, nullptr, inaImgSrc.c_str(), nullptr);
+    }
   }
   else if (aName=="on_image") {
-    if (setProp(tglPrImgSrc, mLvglui.namedImageSource(aValue->stringValue())))
+    if (setProp(tglPrImgSrc, mLvglui.namedImageSource(aValue->stringValue(), false, err))) {
       lv_imagebutton_set_src(mElement, LV_IMAGEBUTTON_STATE_CHECKED_PRESSED, nullptr, tglPrImgSrc.c_str(), nullptr);
+    }
   }
   else if (aName=="off_image") {
-    if (setProp(tglRelImgSrc, mLvglui.namedImageSource(aValue->stringValue())))
+    if (setProp(tglRelImgSrc, mLvglui.namedImageSource(aValue->stringValue(), false, err))) {
       lv_imagebutton_set_src(mElement, LV_IMAGEBUTTON_STATE_CHECKED_RELEASED, nullptr, tglRelImgSrc.c_str(), nullptr);
+    }
+  }
+  else if (aName=="disabled_on_image") {
+    if (setProp(tglPrImgSrc, mLvglui.namedImageSource(aValue->stringValue(), false, err))) {
+      lv_imagebutton_set_src(mElement, LV_IMAGEBUTTON_STATE_CHECKED_DISABLED, nullptr, tglPrImgSrc.c_str(), nullptr);
+    }
   }
   else {
     return inherited::setProperty(aName, aValue);
   }
-  return ErrorPtr();
+  return err;
 }
 
 #endif
@@ -1959,8 +1979,8 @@ ErrorPtr LvGLUiLine::setProperty(const string& aName, JsonObjectPtr aValue)
         JsonObjectPtr pt = aValue->arrayGet(i);
         JsonObjectPtr o;
         lv_style_value_t sv;
-        if (pt->get("x", o)) { coordPropValue(o, sv); point.x = sv.num; } // if not specified, previous x remains
-        if (pt->get("y", o)) { coordPropValue(o, sv); point.y = sv.num; } // if not specified, previous y remains
+        if (pt->get("x", o)) { coordPropValue(o, sv, mLvglui); point.x = sv.num; } // if not specified, previous x remains
+        if (pt->get("y", o)) { coordPropValue(o, sv, mLvglui); point.y = sv.num; } // if not specified, previous y remains
         mPoints[i] = point;
       }
       lv_line_set_points(mElement, mPoints, numpoints);
@@ -2357,15 +2377,23 @@ ErrorPtr LvGLUi::configure(JsonObjectPtr aConfig)
 }
 
 
-string LvGLUi::imagePath(const string aImageSpec)
+string LvGLUi::imagePath(const string aImageSpec, ErrorPtr& aErr)
 {
   string f;
   if (mDataPathResources) {
     f = Application::sharedApplication()->dataPath(aImageSpec, mResourcePrefix);
-    if (access(f.c_str(), R_OK)>=0) return f;
+    if (access(f.c_str(), R_OK)>=0) {
+      f.insert(0, 1, LV_FS_POSIX_LETTER);
+      return f;
+    }
   }
   f = Application::sharedApplication()->resourcePath(aImageSpec, mResourcePrefix);
-  if (access(f.c_str(), R_OK)>=0) return f;
+  if (access(f.c_str(), R_OK)>=0) {
+    f.insert(0, 1, LV_FS_POSIX_LETTER);
+    return f;
+  }
+  // not found
+  aErr = TextError::err("image '%s' does not exist", f.c_str());
   return "";
 }
 
@@ -2377,17 +2405,21 @@ void LvGLUi::setResourceLoadOptions(bool aFromDataPath, const string aPrefix)
 }
 
 
-string LvGLUi::namedImageSource(const string& aImageSpec)
+string LvGLUi::namedImageSource(const string& aImageSpec, bool aAllowSymbols, ErrorPtr& aErr)
 {
   if (aImageSpec.find('.')!=string::npos) {
-    // consider this a file name
-    string ip = imagePath(aImageSpec);
+    // has a period -> has an extension -> consider this a file name
+    string ip = imagePath(aImageSpec, aErr);
     return ip;
   }
-  else {
+  else if (aAllowSymbols) {
     const char* sym = getSymbolByName(aImageSpec);
     if (sym) return sym; // symbol
     return LV_SYMBOL_DUMMY+aImageSpec; // text
+  }
+  else {
+    aErr = TextError::err("symbols not allowed");
+    return "";
   }
 }
 
