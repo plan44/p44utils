@@ -1,6 +1,6 @@
 //  SPDX-License-Identifier: GPL-3.0-or-later
 //
-//  Copyright (c) 2013-2023 plan44.ch / Lukas Zeller, Zurich, Switzerland
+//  Copyright (c) 2013-2025 plan44.ch / Lukas Zeller, Zurich, Switzerland
 //
 //  Author: Lukas Zeller <luz@plan44.ch>
 //
@@ -506,6 +506,11 @@ MainLoop::MainLoop() :
 // private implementation
 MLTicketNo MainLoop::executeOnce(TimerCB aTimerCallback, MLMicroSeconds aDelay, MLMicroSeconds aTolerance)
 {
+  #if DEBUG
+  if (aDelay<0) {
+    DBGLOG(LOG_WARNING, "demanding timer in the past, aDelay=%lld", aDelay);
+  }
+  #endif
 	MLMicroSeconds executionTime = now()+aDelay;
 	return executeOnceAt(aTimerCallback, executionTime, aTolerance);
 }
@@ -518,6 +523,12 @@ MLTicketNo MainLoop::executeOnceAt(TimerCB aTimerCallback, MLMicroSeconds aExecu
   tmr.mReinsert = false;
   tmr.mTicketNo = ++mTicketNo;
   tmr.mExecutionTime = aExecutionTime;
+  #if DEBUG
+  if (aExecutionTime<now()-100*MilliSecond) {
+    // actually in the past, not just 0..99mS
+    DBGLOG(LOG_WARNING, "executeOnceAt with time more than 100mS in the past: aExecutionTime=%lld", aExecutionTime);
+  }
+  #endif
   tmr.mTolerance = aTolerance;
 	tmr.mCallback = aTimerCallback;
   scheduleTimer(tmr);
@@ -639,6 +650,12 @@ bool MainLoop::rescheduleExecutionTicketAt(MLTicketNo aTicketNo, MLMicroSeconds 
 			pos = mTimers.erase(pos);
       // reschedule
       h.mExecutionTime = aExecutionTime;
+      #if DEBUG
+      if (aExecutionTime<now()-100*MilliSecond) {
+        // actually in the past, not just 0..99mS
+        DBGLOG(LOG_WARNING, "rescheduling with time more than 100mS in the past: aExecutionTime=%lld", aExecutionTime);
+      }
+      #endif
       scheduleTimer(h);
       // reschedule was possible
       return true;
@@ -661,11 +678,23 @@ int MainLoop::retriggerTimer(MLTimer &aTimer, MLMicroSeconds aInterval, MLMicroS
     }
     else {
       aTimer.mExecutionTime = aInterval; // aInterval is absolute time to fire timer next
+      #if DEBUG
+      if (aInterval<now-100*MilliSecond) {
+        // actually in the past, not just 0..99mS
+        DBGLOG(LOG_WARNING, "retriggering in skip=absolute mode more than 100mS in the past: aExecutionTime=%lld", aInterval);
+      }
+      #endif
     }
     aTimer.mReinsert = true;
     return skipped;
   }
   else if (aSkip==from_now_if_late) {
+    #if DEBUG
+    if (aInterval<0) {
+      // actually in the past, not just 0..99mS
+      DBGLOG(LOG_WARNING, "retriggering in skip=from_now_if_late with negative interval: aInterval=%lld", aInterval);
+    }
+    #endif
     aTimer.mExecutionTime += aInterval;
     if (aTimer.mExecutionTime+aTimer.mTolerance < now) {
       // too late (even taking allowed tolerance into account)
@@ -677,12 +706,25 @@ int MainLoop::retriggerTimer(MLTimer &aTimer, MLMicroSeconds aInterval, MLMicroS
     return skipped;
   }
   else if (aSkip==from_now) {
+    #if DEBUG
+    if (aInterval<0) {
+      // actually in the past, not just 0..99mS
+      DBGLOG(LOG_WARNING, "retriggering in skip=from_now with negative interval: aInterval=%lld", aInterval);
+    }
+    #endif
     // unconditionally relative to now
     aTimer.mExecutionTime = now+aInterval;
     aTimer.mReinsert = true;
     return skipped;
   }
   else {
+    // skip as many intervals until we can schedule the timer in the future
+    #if DEBUG
+    if (aInterval<0) {
+      // actually in the past, not just 0..99mS
+      DBGLOG(LOG_WARNING, "retriggering in skip mode with negative interval: aInterval=%lld", aInterval);
+    }
+    #endif
     do {
       aTimer.mExecutionTime += aInterval;
       if (aTimer.mExecutionTime >= now) {
