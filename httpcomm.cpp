@@ -697,7 +697,7 @@ static const BuiltinMemberDescriptor httpGlobals[] = {
   FUNC_DEF_C_ARG(puturl, executable|async|text, postputurl),
   FUNC_DEF_W_ARG(httprequest, executable|async|text),
   FUNC_DEF_W_ARG(urlencode, executable|text),
-  { NULL } // terminator
+  BUILTINS_TERMINATOR
 };
 
 HttpLookup::HttpLookup() :

@@ -10346,7 +10346,7 @@ static const BuiltinMemberDescriptor standardFunctions[] = {
   #endif
   #endif // !ESP_PLATFORM
   #endif // P44SCRIPT_FULL_SUPPORT
-  { NULL } // terminator
+  BUILTINS_TERMINATOR
 };
 
 } // BuiltinFunctions

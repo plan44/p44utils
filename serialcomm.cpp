@@ -605,7 +605,7 @@ static const BuiltinMemberDescriptor serialCommMembers[] = {
   FUNC_DEF_C_ARG(dtr, executable|null, boolarg),
   FUNC_DEF_C_ARG(rts, executable|null, boolarg),
   FUNC_DEF_NOARG(sendbreak, executable|null),
-  { NULL } // terminator
+  BUILTINS_TERMINATOR
 };
 
 static BuiltInMemberLookup* sharedSerialCommFunctionLookupP = NULL;
@@ -689,7 +689,7 @@ static void serial_func(BuiltinFunctionContextPtr f)
 
 static const BuiltinMemberDescriptor serialGlobals[] = {
   FUNC_DEF_W_ARG(serial, executable|null),
-  { NULL } // terminator
+  BUILTINS_TERMINATOR
 };
 
 SerialLookup::SerialLookup() :

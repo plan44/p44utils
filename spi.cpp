@@ -1066,7 +1066,7 @@ static const BuiltinMemberDescriptor spiDeviceMembers[] = {
   FUNC_DEF_W_ARG(regread, executable|error|text|numeric),
   FUNC_DEF_W_ARG(regwrite, executable|error|text|numeric),
   FUNC_DEF_W_ARG(writeread, executable|error|text),
-  { NULL } // terminator
+  BUILTINS_TERMINATOR
 };
 
 static BuiltInMemberLookup* sharedspiDeviceFunctionLookupP = NULL;
@@ -1099,7 +1099,7 @@ static void spidevice_func(BuiltinFunctionContextPtr f)
 
 static const BuiltinMemberDescriptor spiGlobals[] = {
   FUNC_DEF_W_ARG(spidevice, executable|null),
-  { NULL } // terminator
+  BUILTINS_TERMINATOR
 };
 
 SPILookup::SPILookup() :

@@ -547,7 +547,7 @@ static const BuiltinMemberDescriptor animatorFunctions[] = {
   FUNC_DEF_NOARG(reset, executable|anyvalid),
   MEMBER_DEF(current, builtinvalue|numeric),
   MEMBER_DEF(running, builtinvalue|numeric),
-  { NULL } // terminator
+  BUILTINS_TERMINATOR
 };
 
 static BuiltInMemberLookup* sharedAnimatorFunctionLookupP = NULL;

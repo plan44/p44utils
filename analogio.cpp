@@ -651,7 +651,7 @@ static const BuiltinMemberDescriptor analogioFunctions[] = {
   FUNC_DEF_NOARG(animator, executable|objectvalue),
   FUNC_DEF_W_ARG(poll, executable|null),
   FUNC_DEF_W_ARG(filter, executable|null),
-  { NULL } // terminator
+  BUILTINS_TERMINATOR
 };
 
 static BuiltInMemberLookup* sharedAnalogIoFunctionLookupP = NULL;
@@ -828,7 +828,7 @@ static const BuiltinMemberDescriptor coloroutputFunctions[] = {
   FUNC_DEF_C_ARG(whitecolor, executable|null, chcolor),
   FUNC_DEF_C_ARG(ambercolor, executable|null, chcolor),
   FUNC_DEF_W_ARG(setoutputchannelpower, executable|null),
-  { NULL } // terminator
+  BUILTINS_TERMINATOR
 };
 
 static BuiltInMemberLookup* sharedColorOutputFunctionLookupP = NULL;
@@ -864,7 +864,7 @@ static const BuiltinMemberDescriptor analogioGlobals[] = {
   #if ENABLE_ANALOGIO_COLOR_SUPPORT
   { "analogcoloroutput", executable|null, coloroutput_numargs, coloroutput_args, &coloroutput_func },
   #endif
-  { NULL } // terminator
+  BUILTINS_TERMINATOR
 };
 
 AnalogIoLookup::AnalogIoLookup() :

@@ -1012,7 +1012,7 @@ static void message_func(BuiltinFunctionContextPtr f)
 static const BuiltinMemberDescriptor socketFunctions[] = {
   FUNC_DEF_W_ARG(send, executable|error),
   FUNC_DEF_NOARG(message, executable|text|null),
-  { NULL } // terminator
+  BUILTINS_TERMINATOR
 };
 
 static BuiltInMemberLookup* sharedSocketFunctionLookupP = NULL;
@@ -1071,7 +1071,7 @@ static void udpsocket_func(BuiltinFunctionContextPtr f)
 
 static const BuiltinMemberDescriptor socketGlobals[] = {
   FUNC_DEF_W_ARG(udpsocket, executable|null),
-  { NULL } // terminator
+  BUILTINS_TERMINATOR
 };
 
 SocketLookup::SocketLookup() :

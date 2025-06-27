@@ -597,7 +597,7 @@ static const BuiltinMemberDescriptor digitalioFunctions[] = {
   FUNC_DEF_W_ARG(state, executable|numeric),
   FUNC_DEF_NOARG(toggle, executable|numeric),
   FUNC_DEF_W_ARG(detectchanges, executable|numeric),
-  { NULL } // terminator
+  BUILTINS_TERMINATOR
 };
 
 static BuiltInMemberLookup* sharedDigitalIoFunctionLookupP = NULL;
@@ -669,7 +669,7 @@ static const BuiltinMemberDescriptor digitalIoBusFunctions[] = {
   FUNC_DEF_W_ARG(value, executable|numeric),
   FUNC_DEF_NOARG(buswidth, executable|numeric),
   FUNC_DEF_NOARG(maxvalue, executable|numeric),
-  { NULL } // terminator
+  BUILTINS_TERMINATOR
 };
 
 static BuiltInMemberLookup* sharedDigitalIoBusFunctionLookupP = NULL;
@@ -743,7 +743,7 @@ static const BuiltinMemberDescriptor indicatorFunctions[] = {
   FUNC_DEF_W_ARG(on, executable|numeric),
   FUNC_DEF_NOARG(off, executable|numeric),
   FUNC_DEF_NOARG(stop, executable|numeric),
-  { NULL } // terminator
+  BUILTINS_TERMINATOR
 };
 
 static BuiltInMemberLookup* sharedIndicatorFunctionLookupP = NULL;
@@ -810,7 +810,7 @@ static const BuiltinMemberDescriptor digitalioGlobals[] = {
   FUNC_DEF_W_ARG(digitalio, executable|null),
   FUNC_DEF_W_ARG(digitalbus, executable|null),
   FUNC_DEF_W_ARG(indicator, executable|null),
-  { NULL } // terminator
+  BUILTINS_TERMINATOR
 };
 
 DigitalIoLookup::DigitalIoLookup() :

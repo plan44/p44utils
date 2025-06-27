@@ -1247,7 +1247,7 @@ static const BuiltinMemberDescriptor i2cDeviceMembers[] = {
   FUNC_DEF_W_ARG(smbusread, executable|error|text|numeric),
   FUNC_DEF_W_ARG(rawwrite, executable|error|text|numeric),
   FUNC_DEF_W_ARG(smbuswrite, executable|error|text|numeric),
-  { NULL } // terminator
+  BUILTINS_TERMINATOR
 };
 
 static BuiltInMemberLookup* sharedi2cDeviceFunctionLookupP = NULL;
@@ -1280,7 +1280,7 @@ static void i2cdevice_func(BuiltinFunctionContextPtr f)
 
 static const BuiltinMemberDescriptor i2cGlobals[] = {
   FUNC_DEF_W_ARG(i2cdevice, executable|null),
-  { NULL } // terminator
+  BUILTINS_TERMINATOR
 };
 
 I2CLookup::I2CLookup() :

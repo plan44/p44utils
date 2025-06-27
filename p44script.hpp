@@ -3611,7 +3611,8 @@ namespace p44 { namespace P44Script {
     { #f, r|builtin, a ## _numargs, a ## _args, & f ## _func }
   #define MEMBER_DEF(m, r) \
     { #m, r|builtin|builtinvalue, 0, nullptr, (BuiltinFunctionImplementation)& m ## _accessor }
-
+  #define BUILTINS_TERMINATOR \
+    { nullptr, 0, 0, nullptr, nullptr }
 
   class BuiltInLValue : public ScriptLValue
   {

@@ -535,7 +535,7 @@ static const BuiltinMemberDescriptor dcmotorFunctions[] = {
   FUNC_DEF_W_ARG(power, executable|null),
   FUNC_DEF_NOARG(status, executable|objectvalue),
   FUNC_DEF_NOARG(stop, executable|null),
-  { NULL } // terminator
+  BUILTINS_TERMINATOR
 };
 
 static BuiltInMemberLookup* sharedDCMotorFunctionLookupP = NULL;
@@ -567,7 +567,7 @@ static void dcmotor_func(BuiltinFunctionContextPtr f)
 
 static const BuiltinMemberDescriptor dcmotorGlobals[] = {
   FUNC_DEF_W_ARG(dcmotor, executable|null),
-  { NULL } // terminator
+  BUILTINS_TERMINATOR
 };
 
 DcMotorLookup::DcMotorLookup() :

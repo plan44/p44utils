@@ -2414,7 +2414,7 @@ static const BuiltinMemberDescriptor modbusSlaveMembers[] = {
   FUNC_DEF_W_ARG(slaveaddress, executable|numeric),
   FUNC_DEF_W_ARG(slaveid, executable|null),
   FUNC_DEF_W_ARG(setmodel, executable|null),
-  { NULL } // terminator
+  BUILTINS_TERMINATOR
 };
 
 static BuiltInMemberLookup* sharedModbusSlaveFunctionLookupP = NULL;
@@ -2600,7 +2600,7 @@ static const BuiltinMemberDescriptor modbusMasterMembers[] = {
   FUNC_DEF_C_ARG(readsreg, executable|error|numeric, read),
   FUNC_DEF_C_ARG(readbit, executable|error|numeric, read),
   FUNC_DEF_NOARG(readinfo, executable|error|text),
-  { NULL } // terminator
+  BUILTINS_TERMINATOR
 };
 
 static BuiltInMemberLookup* sharedModbusMasterFunctionLookupP = NULL;
@@ -2653,7 +2653,7 @@ static void modbusslave_func(BuiltinFunctionContextPtr f)
 static const BuiltinMemberDescriptor modbusGlobals[] = {
   FUNC_DEF_NOARG(modbusmaster, executable|null),
   FUNC_DEF_NOARG(modbusslave, executable|null),
-  { NULL } // terminator
+  BUILTINS_TERMINATOR
 };
 
 ModbusLookup::ModbusLookup() :

@@ -284,7 +284,7 @@ static const BuiltinMemberDescriptor webSocketFunctions[] = {
   FUNC_DEF_W_ARG(send, executable|error),
   FUNC_DEF_W_ARG(close, executable|async|error),
   FUNC_DEF_NOARG(message, executable|text|null),
-  { NULL } // terminator
+  BUILTINS_TERMINATOR
 };
 
 static BuiltInMemberLookup* sharedWebSocketFunctionLookupP = NULL;
@@ -373,7 +373,7 @@ static void websocket_func(BuiltinFunctionContextPtr f)
 
 static const BuiltinMemberDescriptor websocketGlobals[] = {
   FUNC_DEF_W_ARG(websocket, executable|async|null),
-  { NULL } // terminator
+  BUILTINS_TERMINATOR
 };
 
 WebSocketLookup::WebSocketLookup() :

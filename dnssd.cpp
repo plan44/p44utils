@@ -1005,7 +1005,7 @@ static void dnssdbrowse_func(BuiltinFunctionContextPtr f)
 
 static const BuiltinMemberDescriptor dnssdGlobals[] = {
   FUNC_DEF_W_ARG(dnssdbrowse, executable|async|arrayvalue),
-  { NULL } // terminator
+  BUILTINS_TERMINATOR
 };
 
 DnsSdLookup::DnsSdLookup() :

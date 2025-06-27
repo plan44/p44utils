@@ -1634,7 +1634,7 @@ static const BuiltinMemberDescriptor ledChainArrangementGlobals[] = {
   FUNC_DEF_W_ARG(setmaxledpower, executable),
   FUNC_DEF_W_ARG(setrootview, executable),
   FUNC_DEF_W_ARG(setledrefresh, executable),
-  { NULL } // terminator
+  BUILTINS_TERMINATOR
 };
 
 

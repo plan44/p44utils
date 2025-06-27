@@ -528,7 +528,7 @@ static const BuiltinMemberDescriptor midiBusMembers[] = {
   FUNC_DEF_W_ARG(program, executable|objectvalue|null),
   FUNC_DEF_W_ARG(pitchbend, executable|objectvalue|null),
   FUNC_DEF_W_ARG(note, executable|objectvalue|null),
-  { NULL } // terminator
+  BUILTINS_TERMINATOR
 };
 
 static BuiltInMemberLookup* sharedMidiBusFunctionLookupP = NULL;
@@ -577,7 +577,7 @@ static void midibus_func(BuiltinFunctionContextPtr f)
 
 static const BuiltinMemberDescriptor midiGlobals[] = {
   FUNC_DEF_W_ARG(midibus, executable|null),
-  { NULL } // terminator
+  BUILTINS_TERMINATOR
 };
 
 MidiLookup::MidiLookup() :
