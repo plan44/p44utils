@@ -1,7 +1,7 @@
 p44utils
 ========
 
-*[[if you want to support p44utils development, please consider to sponsor plan44]](https://github.com/sponsors/plan44)* 
+*[[if you want to support p44utils development, please consider to sponsor plan44]](https://github.com/sponsors/plan44)*
 
 *p44utils* is a set of free (opensource, GPLv3) C++ utility classes and functions for creating single-threaded, mainloop event based applications, mainly targeted at linux daemons for automation.
 
@@ -22,9 +22,9 @@ License
 
 p44utils are licensed under the GPLv3 License (see COPYING).
 
-If that's a problem for your particular application, I am open to provide a commercial license, please contact me at [luz@plan44.ch](mailto:luz@plan44.ch).
-
-Some of the p44utils make use of third party project's code (e.g. civetweb, sqlitepp, rpi_ws281x), which is under less strict licenses such as MIT or BSD. This code is included in the "thirdparty" subfolder. Please see the LICENSE files or license header comments in the individual projects included in that folder.
+Some of the p44utils make use of third party project's code, of which some have a differing (compatible) license.
+Please see the LICENSE files and/or license header comments in the sources directly included under thirdparty/
+or submodules on the main project level.
 
 
 Features
