@@ -32,13 +32,19 @@
 using namespace p44;
 
 #if ENABLE_SERIAL_SCRIPT_FUNCS
-#include "application.hpp" // for userlevel check
-using namespace P44Script;
+  #include "application.hpp" // for userlevel check
+  using namespace P44Script;
 #endif
 
 #if defined(__linux__)
-#include <linux/serial.h>
+  #include <linux/serial.h>
 #endif
+
+#ifdef __APPLE__
+  #include <sys/ioctl.h>
+  #include <IOKit/serial/ioss.h> // for IOSSIOSPEED
+#endif
+
 
 #define DEFAULT_OPEN_FLAGS (O_RDWR)
 
@@ -184,7 +190,9 @@ void SerialComm::setDeviceOpParams(int aDeviceOpenFlags, bool aUnknownReadyBytes
 // Setting baud rate on Linux, see sample code at the bottom of the tty_ioctl man page:
 // https://www.man7.org/linux/man-pages/man4/tty_ioctl.4.html
 
-#if defined(BOTHER)
+#ifdef __APPLE__
+#define OTHERBAUDRATE (999999) // one that does not exist
+#elif defined(BOTHER)
 #define OTHERBAUDRATE (BOTHER)
 #elif P44_BUILD_OW
 #define OTHERBAUDRATE (CBAUDEX)
@@ -210,6 +218,7 @@ ErrorPtr SerialComm::establishConnection()
         // actual serial port we want to set termios params
         // - convert the baudrate
         switch (mBaudRate) {
+          // standard baud rates that should be available everywhere
           case 50 : baudRateCode = B50; break;
           case 75 : baudRateCode = B75; break;
           case 110 : baudRateCode = B110; break;
@@ -229,6 +238,7 @@ ErrorPtr SerialComm::establishConnection()
           case 115200 : baudRateCode = B115200; break;
           case 230400 : baudRateCode = B230400; break;
           #if defined(__linux__)
+          // linux-only baud rate codes
           case 460800 : baudRateCode = B460800; break;
           case 500000 : baudRateCode = B500000; break;
           case 576000 : baudRateCode = B576000; break;
@@ -241,8 +251,9 @@ ErrorPtr SerialComm::establishConnection()
           case 3000000 : baudRateCode = B3000000; break;
           case 3500000 : baudRateCode = B3500000; break;
           case 4000000 : baudRateCode = B4000000; break;
-          #endif
+          #endif // defined(__linux__)
           #ifdef OTHERBAUDRATE
+          // platform supports other (=custom) baudrates
           default : baudRateCode = OTHERBAUDRATE; break;
           #endif
         }
@@ -251,7 +262,7 @@ ErrorPtr SerialComm::establishConnection()
         }
       }
       // assume it's a serial port
-      mConnectionFd = open(mConnectionPath.c_str(), mDeviceOpenFlags|O_NOCTTY);
+      mConnectionFd = open(mConnectionPath.c_str(), mDeviceOpenFlags|O_NOCTTY|O_NONBLOCK);
       if (mConnectionFd<0) {
         return SysError::errNo("Cannot open serial port: ");
       }
@@ -269,11 +280,11 @@ ErrorPtr SerialComm::establishConnection()
         memset(&newTermIO, 0, sizeof(newTermIO));
         // - 8-N-1,
         newTermIO.c_cflag =
-        CLOCAL | CREAD | // no modem control lines (local), reading enabled
-        (mCharSize==5 ? CS5 : (mCharSize==6 ? CS6 : (mCharSize==7 ? CS7 : CS8))) | // char size
-        (mTwoStopBits ? CSTOPB : 0) | // stop bits
-        (mParityEnable ? PARENB | (mEvenParity ? 0 : PARODD) : 0) | // parity
-        (mHardwareHandshake ? CRTSCTS : 0); // hardware handshake
+          CLOCAL | CREAD | // no modem control lines (local), reading enabled
+          (mCharSize==5 ? CS5 : (mCharSize==6 ? CS6 : (mCharSize==7 ? CS7 : CS8))) | // char size
+          (mTwoStopBits ? CSTOPB : 0) | // stop bits
+          (mParityEnable ? PARENB | (mEvenParity ? 0 : PARODD) : 0) | // parity
+          (mHardwareHandshake ? CRTSCTS : 0); // hardware handshake
         // - ignore parity errors
         newTermIO.c_iflag =
         mParityEnable ? INPCK : IGNPAR; // check or ignore parity
@@ -307,7 +318,10 @@ ErrorPtr SerialComm::establishConnection()
           newTermIO.c_cflag &= ~(CBAUD | CBAUDEX);
           newTermIO.c_cflag |= B38400;
           // - actual baud rate magic happens after tcsetattr(), see below
-          #endif // P44_BUILD_OW
+          #elif defined(__APPLE__)
+          // first, set a dummy baudrate, actual apple specific setting follows below
+          cfsetspeed(&newTermIO, B9600);
+          #endif // __APPLE__, !BOTHER
         }
         else
         #endif // OTHERBAUDRATE
@@ -333,17 +347,20 @@ ErrorPtr SerialComm::establishConnection()
         if (baudRateCode==OTHERBAUDRATE && mBaudRate>0) {
           #if P44_BUILD_OW
           struct serial_struct serial;
-          if (ioctl(mConnectionFd, TIOCGSERIAL, &serial)) return SysError::errNo("Error getting with TIOCGSERIAL: ");
+          if (ioctl(mConnectionFd, TIOCGSERIAL, &serial)) return SysError::errNo("Error preparing for custom baudrate by getting TIOCGSERIAL: ");
           serial.flags &= ~ASYNC_SPD_MASK;
           serial.flags |= ASYNC_SPD_CUST;
           serial.custom_divisor = serial.baud_base / mBaudRate;
           FOCUSLOG("SerialComm: requested custom baud rate = %d, serial.baud_base = %d -> serial.custom_divisor = %d, ACTUAL baud = %d",
             mBaudRate, serial.baud_base, serial.custom_divisor, serial.baud_base/serial.custom_divisor
           );
-          if (ioctl(mConnectionFd, TIOCSSERIAL, &serial)) return SysError::errNo("Error setting with TIOCSSERIAL: ");
-          #endif // P44_BUILD_OW
+          if (ioctl(mConnectionFd, TIOCSSERIAL, &serial)<0) return SysError::errNo("Error setting custom baud rate with TIOCSSERIAL: ");
+          #elif defined(__APPLE__)
+          speed_t speed = mBaudRate;
+          if (ioctl(mConnectionFd, IOSSIOSPEED, &speed)<0) return SysError::errNo("Error setting custom baud rate with IOSSIOSPEED: ");
+          #endif // __APPLE__, !P44_BUILD_OW
         }
-        #endif
+        #endif // OTHERBAUDRATE
       }
     }
     else {
