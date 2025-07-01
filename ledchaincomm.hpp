@@ -36,8 +36,8 @@
 #ifndef LEDCHAIN_READBACK
   #define LEDCHAIN_READBACK (!ENABLE_P44LRGRAPHICS) // with p44graphics, we don't need reading back LED values
 #endif
-#ifndef LEDCHAIN_UART
-  #define LEDCHAIN_UART 1 // by default, include UART-based WS28xx signal generator
+#ifndef ENABLE_LEDCHAIN_UART
+  #define ENABLE_LEDCHAIN_UART (!ESP_PLATFORM) // on normal platforms include UART-based WS28xx signal generator
 #endif
 
 
@@ -182,6 +182,7 @@ namespace p44 {
       int whiteChannelMw; // [mW] power consumption of white channel (0 if none)
       uint8_t numBytesPerChannel; // number of bytes per channel
       bool rgbCommonCurrent; // if set, the LEDs are in a serial circuit with bridging PWM shortcuts, so max(r,g,b) defines consumption, not sum(r,g,b)
+      bool slowTiming; // if set, slower WS2811/12 timing will be used when sending via UART
     } LedChipDesc;
 
   private:
@@ -219,8 +220,11 @@ namespace p44 {
     #elif ENABLE_RPIWS281X
     ws2811_t mRPiWS281x; // the descriptor for the rpi_ws281x library
     #else
-    int ledFd; // the file descriptor for the LED device
-    uint8_t *rawBuffer; // the raw bytes to be sent to the WS2812 device
+    int ledFd; // the file descriptor for the LED device (p44ledchain or UART)
+    #if ENABLE_LEDCHAIN_UART
+    bool mUartOutput; // if true, output device is UART and we'll synthesize WS28xx timing with 7-1-N @ 2.5/3.0 MBaud
+    #endif
+    uint8_t *rawBuffer; // the raw bytes to be sent to the WS28xx device (possibly translated in UART mode)
     size_t rawBytes; // number of bytes to send from ledbuffer, including header
     uint8_t *ledBuffer; // the first led in the raw buffer (in case there is a header)
     #endif

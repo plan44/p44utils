@@ -36,6 +36,15 @@
 
 #include <math.h>
 
+#if ENABLE_LEDCHAIN_UART
+  #include <fcntl.h>
+  #include <termios.h>
+  #ifdef __APPLE__
+  #include <sys/ioctl.h>
+  #include <IOKit/serial/ioss.h> // for IOSSIOSPEED
+  #endif
+#endif // ENABLE_LEDCHAIN_UART
+
 using namespace p44;
 
 // MARK: - LEDPowerConverter
@@ -148,33 +157,53 @@ void LEDPowerConverter::powersForComponents(
 // Power consumption according to
 // https://www.thesmarthomehookup.com/the-complete-guide-to-selecting-individually-addressable-led-strips/
 static const LEDChainComm::LedChipDesc ledChipDescriptors[LEDChainComm::num_ledchips] = {
-  { "none",    0,   0,  0, 1, false },
-  { "WS2811",  8,  64,  0, 1, false },
-  { "WS2812",  4,  60,  0, 1, false },
-  { "WS2813",  4,  85,  0, 1, false },
-  { "WS2815", 24, 120,  0, 1, true },
-  { "P9823",   8,  80,  0, 1, false }, // no real data, rough assumption
-  { "SK6812",  6,  50, 95, 1, false },
-  { "WS2816",  4,  85,  0, 2, false }, // no real data, assume same as WS2813
-  { "WS2813_N",  4,  85,  0, 1, false } // old/Normandled WS2813 timing with higher T0H
+  // type     Idle  rgb  Wh  by  common slowTm
+  { "none",      0,   0,  0,  1, false, false },
+  { "WS2811",    8,  64,  0,  1, false, true  },
+  { "WS2812",    4,  60,  0,  1, false, true  },
+  { "WS2813",    4,  85,  0,  1, false, false },
+  { "WS2815",   24, 120,  0,  1, true,  false },
+  { "P9823",     8,  80,  0,  1, false, true  }, // no real data, rough assumption
+  { "SK6812",    6,  50, 95,  1, false, true  },
+  { "WS2816",    4,  85,  0,  2, false, false }, // no real data, assume same as WS2813
+  { "WS2813_N",  4,  85,  0,  1, false, false } // old/Normandled WS2813 timing with higher T0H
 };
 
 
-static const char* ledLayoutNames[LEDChainComm::num_ledlayouts] = {
-  "none",
-  "RGB",
-  "GRB",
-  "RGBW",
-  "GRBW",
-  // new since 2022-11-23
-  "RBG",
-  "GBR",
-  "BRG",
-  "BGR",
-  "RBGW",
-  "GBRW",
-  "BRGW",
-  "BGRW",
+typedef struct {
+  const char *name; ///< name of the LED layout
+  int channels; ///< number of channels, 3 or 4
+  uint8_t fetchIdx[4]; ///< fetch indices - at what relative index to fetch bytes from input into output stream
+} LedLayoutDescriptor_t;
+
+
+static const LedLayoutDescriptor_t ledLayoutDescriptors[LEDChainComm::num_ledlayouts] = {
+  // none
+  { .name = "none", .channels = 1, .fetchIdx = { 1 } },
+  // RGB data order
+  { .name = "RGB", .channels = 3, .fetchIdx = { 0, 1, 2 } },
+  // GRB data order
+  { .name = "GRB", .channels = 3, .fetchIdx = { 1, 0, 2 } },
+  // RGBW data order
+  { .name = "RGBW", .channels = 4, .fetchIdx = { 0, 1, 2, 3 } },
+  // GRBW data order
+  { .name = "GRBW", .channels = 4, .fetchIdx = { 1, 0, 2, 3 } },
+  // RBG data order
+  { .name = "RBG", .channels = 3, .fetchIdx = { 0, 2, 1 } },
+  // GBR data order
+  { .name = "GBR", .channels = 3, .fetchIdx = { 1, 2, 0 } },
+  // BRG data order
+  { .name = "BRG", .channels = 3, .fetchIdx = { 2, 0, 1 } },
+  // BGR data order
+  { .name = "BGR", .channels = 3, .fetchIdx = { 2, 1, 0 } },
+  // RBGW data order
+  { .name = "RBGW", .channels = 4, .fetchIdx = { 0, 2, 1, 3 } },
+  // GBRW data order
+  { .name = "GBRW", .channels = 4, .fetchIdx = { 1, 2, 0, 3 } },
+  // BRGW data order
+  { .name = "BRGW", .channels = 4, .fetchIdx = { 2, 0, 1, 3 } },
+  // BGRW data order
+  { .name = "BGRW", .channels = 4, .fetchIdx = { 2, 1, 0, 3 } },
 };
 
 
@@ -201,6 +230,9 @@ LEDChainComm::LEDChainComm(
   ,rawBuffer(NULL)
   ,ledBuffer(NULL)
   ,rawBytes(0)
+  #if ENABLE_LEDCHAIN_UART
+  ,mUartOutput(false)
+  #endif
   #endif
 {
   // set defaults
@@ -243,7 +275,7 @@ LEDChainComm::LEDChainComm(
     }
     if (nextPart(cP, part, '.')) {
       // layout
-      for (int i=0; i<num_ledlayouts; i++) { if (uequals(part, ledLayoutNames[i])) { mLedLayout = (LedLayout)i; break; } };
+      for (int i=0; i<num_ledlayouts; i++) { if (uequals(part, ledLayoutDescriptors[i].name)) { mLedLayout = (LedLayout)i; break; } };
     }
     if (nextPart(cP, part, '.')) {
       // custom TPassive_max_nS
@@ -256,6 +288,12 @@ LEDChainComm::LEDChainComm(
   }
   // device name/channel
   mDeviceName = aDeviceName;
+  #if ENABLE_LEDCHAIN_UART
+  if (mDeviceName.find("ledchain")==string::npos) {
+    mUartOutput = true;
+    FOCUSLOG("output device is not dedicated ledchain driver, but assumed UART");
+  }
+  #endif // ENABLE_LEDCHAIN_UART
   mNumColorComponents = ledChipDescriptors[mLedChip].whiteChannelMw>0 ? 4 : 3;
   mNumBytesPerComponent = ledChipDescriptors[mLedChip].numBytesPerChannel;
   mInactiveStartLeds = aInactiveStartLeds;
@@ -318,15 +356,62 @@ const LEDChainComm::LedChipDesc &LEDChainComm::ledChipDescriptor() const
 }
 
 
+#if ENABLE_LEDCHAIN_UART
 // MARK: - UART based WS28xx generator
 
-static void sendToUart(int aUartFd, uint8_t* aLedData, size_t aLedDataSize)
+static int setupUart(int aUartFd, bool aSlowTiming)
+{
+  int ret = 0;
+
+  #ifdef __APPLE__
+  // macOS does not have non-standard baud rate codes, but separate speed setting API
+  int baudRateCode = B9600; // dummy but standard
+  speed_t speed = aSlowTiming ? 2500000 : 3000000; // actual speed we need
+  #else
+  int baudRateCode = aSlowTiming ? B2500000 : B3000000;
+  #endif
+  struct termios newtio;
+  memset(&newtio, 0, sizeof(newtio));
+  // - charsize, stopbits, parity, no modem control lines (local), reading enabled
+  newtio.c_cflag =
+    CS7 |
+    0 | // !CSTOPB : no second stop bit
+    0 | // !PARENB and !PARODD : no parity
+    CLOCAL | // ignore status lines
+    0; // !CREAD : do not enable receiver
+  // - ignore parity errors (just to make sure)
+  newtio.c_iflag = IGNPAR;
+  // - no output control
+  newtio.c_oflag = 0;
+  // - no input control (non-canonical)
+  newtio.c_lflag = 0;
+  // - no inter-char time
+  newtio.c_cc[VTIME]    = 0;   /* inter-character timer unused */
+  // - receive every single char seperately
+  newtio.c_cc[VMIN]     = 1;   /* blocking read until 1 chars received */
+  // - set speed (as this ors into c_cflag, this must be after setting c_cflag initial value)
+  cfsetspeed(&newtio, baudRateCode);
+  tcflush(aUartFd, TCIFLUSH);
+  // now apply new settings
+  ret = tcsetattr(aUartFd, TCSANOW, &newtio);
+  #ifdef __APPLE__
+  // on macOS, we need to set the non-standard speed separately
+  if (ret>=0) {
+    ret = ioctl(aUartFd, IOSSIOSPEED, &speed);
+  }
+  #endif // __APPLE__
+  return ret;
+}
+
+
+static void sendToUart(int aUartFd, uint8_t* aLedData, size_t aLedDataSize, const LedLayoutDescriptor_t& aLedLayout)
 {
   // We can generate appropriate WS28xx timing using 7-N-1 @ 3Mhz
   // - UART are LSBit first
   // - WS28xx are MSBit first
   // - we need 1 byte output for 3 bits LED data = 8 byte output for 3 byte LED data
-
+  // - UART idle is H, start bit is L, stop bit is H
+  // - as we need idle=L, start=H, stop=L for WS, we need to invert the UART data, and send inverted data
   // UART   : | start | Bit0 | Bit1 | Bit2 | Bit3 | Bit4 | Bit5 | Bit6 | Stop |
   // WS28xx : |   1   | LED7 |   0  |   1  | LED6 |   0  |   1  | LED5 |   0  |
   // WS28xx : |   1   | LED4 |   0  |   1  | LED3 |   0  |   1  | LED2 |   0  |
@@ -336,8 +421,14 @@ static void sendToUart(int aUartFd, uint8_t* aLedData, size_t aLedDataSize)
   uint8_t* outP = uartData;
   int outBitMask = 0x01; // first LED data bit in UART output
   uint8_t uartByte = 0;
-  while(aLedDataSize>0) {
-    uint8_t ledByte = *aLedData++;
+  size_t lidx = 0;
+  size_t cidx = 0;
+  while(lidx<aLedDataSize) {
+    uint8_t ledByte = aLedData[lidx+aLedLayout.fetchIdx[cidx++]];
+    if (cidx>=aLedLayout.channels) {
+      cidx = 0;
+      lidx += aLedLayout.channels;
+    }
     uint8_t ledBitMask = 0x80;
     while (ledBitMask) {
       if (outBitMask>1) uartByte |= (outBitMask>>1); // 2nd or 3rd bit in this uart byte: enable the bit position (not idle) by setting the always 1 sync bit (T0H)
@@ -346,7 +437,7 @@ static void sendToUart(int aUartFd, uint8_t* aLedData, size_t aLedDataSize)
       outBitMask <<= 3; // next output bit position
       if ((outBitMask & 0x7F)==0) {
         // uart byte complete
-        *(outP++) = uartByte;
+        *(outP++) = ~uartByte; // send inverted
         uartByte = 0;
         outBitMask = 0x01;
       }
@@ -357,6 +448,8 @@ static void sendToUart(int aUartFd, uint8_t* aLedData, size_t aLedDataSize)
   // done
   delete[] uartData;
 }
+
+#endif // ENABLE_LEDCHAIN_UART
 
 
 // MARK: - LEDChainComm physical LED chain driver
@@ -516,7 +609,13 @@ bool LEDChainComm::begin(size_t aHintAtTotalChains)
         ledBuffer = NULL;
         rawBytes = 0;
       }
-      if (mLedChip!=ledchip_none) {
+      if (
+        mLedChip!=ledchip_none
+        #if ENABLE_LEDCHAIN_UART
+        && !mUartOutput
+        #endif
+      ) {
+        // p44ledchain-style driver, need a header
         const int hdrsize = 5; // v6 header size
         rawBytes = mNumColorComponents*mNumBytesPerComponent*mNumLeds+1+hdrsize;
         rawBuffer = new uint8_t[rawBytes];
@@ -530,15 +629,23 @@ bool LEDChainComm::begin(size_t aHintAtTotalChains)
         rawBuffer[5] = mMaxRetries;
       }
       else {
-        // chip not known here: must be legacy driver w/o header
+        // chip not known here: legacy driver w/o header or UART, just need the raw buffer
         rawBytes = mNumColorComponents*mNumBytesPerComponent*mNumLeds;
         rawBuffer = new uint8_t[rawBytes];
         ledBuffer = rawBuffer;
       }
       memset(ledBuffer, 0, mNumColorComponents*mNumBytesPerComponent*mNumLeds);
-      ledFd = open(mDeviceName.c_str(), O_RDWR);
+      ledFd = open(mDeviceName.c_str(), O_RDWR|O_NOCTTY|O_NONBLOCK);
       if (ledFd>=0) {
         mInitialized = true;
+        #if ENABLE_LEDCHAIN_UART
+        if (mUartOutput) {
+          if (setupUart(ledFd, ledChipDescriptor().slowTiming)<0) {
+            LOG(LOG_ERR, "Error: Cannot set UART for WS28xx output on '%s'", mDeviceName.c_str());
+            mInitialized = false;
+          }
+        }
+        #endif // ENABLE_LEDCHAIN_UART
       }
       else {
         LOG(LOG_ERR, "Error: Cannot open LED chain device '%s'", mDeviceName.c_str());
@@ -616,7 +723,15 @@ void LEDChainComm::show()
     #elif ENABLE_RPIWS281X
     ws2811_render(&mRPiWS281x);
     #else
-    write(ledFd, rawBuffer, rawBytes); // with header
+    #if ENABLE_LEDCHAIN_UART
+    if (mUartOutput) {
+      sendToUart(ledFd, rawBuffer, rawBytes, ledLayoutDescriptors[mLedLayout]); // no header, will be converted to WS28xx
+    }
+    else
+    #endif // ENABLE_LEDCHAIN_UART
+    {
+      write(ledFd, rawBuffer, rawBytes); // just data with header
+    }
     #endif
   }
 }
