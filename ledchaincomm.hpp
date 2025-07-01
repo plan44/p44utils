@@ -27,15 +27,19 @@
 #include "colorutils.hpp"
 
 #if ENABLE_P44LRGRAPHICS
-#include "p44view.hpp"
+  #include "p44view.hpp"
 #endif
 
 #ifndef LEDCHAIN_LEGACY_API
-#define LEDCHAIN_LEGACY_API (!ENABLE_P44LRGRAPHICS) // with p44graphics, we don't need legacy API any more
+  #define LEDCHAIN_LEGACY_API (!ENABLE_P44LRGRAPHICS) // with p44graphics, we don't need legacy API any more
 #endif
 #ifndef LEDCHAIN_READBACK
-#define LEDCHAIN_READBACK (!ENABLE_P44LRGRAPHICS) // with p44graphics, we don't need reading back LED values
+  #define LEDCHAIN_READBACK (!ENABLE_P44LRGRAPHICS) // with p44graphics, we don't need reading back LED values
 #endif
+#ifndef LEDCHAIN_UART
+  #define LEDCHAIN_UART 1 // by default, include UART-based WS28xx signal generator
+#endif
+
 
 #include <stdint.h>
 #include <stdio.h>

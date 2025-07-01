@@ -318,6 +318,47 @@ const LEDChainComm::LedChipDesc &LEDChainComm::ledChipDescriptor() const
 }
 
 
+// MARK: - UART based WS28xx generator
+
+static void sendToUart(int aUartFd, uint8_t* aLedData, size_t aLedDataSize)
+{
+  // We can generate appropriate WS28xx timing using 7-N-1 @ 3Mhz
+  // - UART are LSBit first
+  // - WS28xx are MSBit first
+  // - we need 1 byte output for 3 bits LED data = 8 byte output for 3 byte LED data
+
+  // UART   : | start | Bit0 | Bit1 | Bit2 | Bit3 | Bit4 | Bit5 | Bit6 | Stop |
+  // WS28xx : |   1   | LED7 |   0  |   1  | LED6 |   0  |   1  | LED5 |   0  |
+  // WS28xx : |   1   | LED4 |   0  |   1  | LED3 |   0  |   1  | LED2 |   0  |
+  // WS28xx : |   1   | LED1 |   0  |   1  | LED0 |   0  |   1  | next |   0  |
+  size_t uartDataSize = (aLedDataSize*8+2)/3;
+  uint8_t* uartData = new uint8_t[uartDataSize];
+  uint8_t* outP = uartData;
+  int outBitMask = 0x01; // first LED data bit in UART output
+  uint8_t uartByte = 0;
+  while(aLedDataSize>0) {
+    uint8_t ledByte = *aLedData++;
+    uint8_t ledBitMask = 0x80;
+    while (ledBitMask) {
+      if (outBitMask>1) uartByte |= (outBitMask>>1); // 2nd or 3rd bit in this uart byte: enable the bit position (not idle) by setting the always 1 sync bit (T0H)
+      if (ledByte & ledBitMask) uartByte |= outBitMask; // actual data bit, extending T0H to become T1H in case bit is set
+      ledBitMask >>= 1; // next input bit
+      outBitMask <<= 3; // next output bit position
+      if ((outBitMask & 0x7F)==0) {
+        // uart byte complete
+        *(outP++) = uartByte;
+        uartByte = 0;
+        outBitMask = 0x01;
+      }
+    }
+  }
+  // send
+  write(aUartFd, uartData, uartDataSize);
+  // done
+  delete[] uartData;
+}
+
+
 // MARK: - LEDChainComm physical LED chain driver
 
 #ifdef ESP_PLATFORM
