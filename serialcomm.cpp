@@ -57,6 +57,7 @@ SerialComm::SerialComm(MainLoop &aMainLoop) :
   mEvenParity(false),
   mTwoStopBits(false),
   mHardwareHandshake(false),
+  mTxOnly(false),
   mConnectionOpen(false),
   mReconnecting(false),
   mUnknownReadyBytes(false),
@@ -81,6 +82,7 @@ bool SerialComm::parseConnectionSpecification(
   bool &aEvenParity,
   bool &aTwoStopBits,
   bool &aHardwareHandshake,
+  bool &aTxOnly,
   uint16_t &aConnectionPort
 )
 {
@@ -93,6 +95,7 @@ bool SerialComm::parseConnectionSpecification(
   aEvenParity = false;
   aTwoStopBits = false;
   aHardwareHandshake = false;
+  aTxOnly = false;
   if (aConnectionSpec && *aConnectionSpec) {
     aConnectionPath = aConnectionSpec;
     if (aConnectionSpec[0]=='/') {
@@ -139,9 +142,12 @@ bool SerialComm::parseConnectionSpecification(
                     aTwoStopBits = part[0]=='2';
                   }
                   if (nextPart(p, part, ',')) {
-                    // hardware handshake?
-                    if (part.size()>0) {
-                      aHardwareHandshake = part[0]=='H';
+                    // more options:
+                    for (size_t i=0; i<part.size(); i++) {
+                      switch (part[i]) {
+                        case 'H': aHardwareHandshake = true; break;
+                        case 'T': aTxOnly = true; break;
+                      }
                     }
                   }
                 }
@@ -175,6 +181,7 @@ void SerialComm::setConnectionSpecification(const char* aConnectionSpec, uint16_
     mEvenParity,
     mTwoStopBits,
     mHardwareHandshake,
+    mTxOnly,
     mConnectionPort
   );
   closeConnection();
@@ -280,7 +287,8 @@ ErrorPtr SerialComm::establishConnection()
         memset(&newTermIO, 0, sizeof(newTermIO));
         // - 8-N-1,
         newTermIO.c_cflag =
-          CLOCAL | CREAD | // no modem control lines (local), reading enabled
+          CLOCAL | // no modem control lines (local)
+          (mTxOnly ? 0 : CREAD) | // rx enable/disable
           (mCharSize==5 ? CS5 : (mCharSize==6 ? CS6 : (mCharSize==7 ? CS7 : CS8))) | // char size
           (mTwoStopBits ? CSTOPB : 0) | // stop bits
           (mParityEnable ? PARENB | (mEvenParity ? 0 : PARODD) : 0) | // parity

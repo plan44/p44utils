@@ -106,6 +106,7 @@ namespace p44 {
     bool mEvenParity;
     bool mTwoStopBits;
     bool mHardwareHandshake;
+    bool mTxOnly;
     bool mConnectionOpen;
     int mConnectionFd;
     int mDeviceOpenFlags;
@@ -128,9 +129,10 @@ namespace p44 {
     /// @param aConnectionSpec "/dev[:commParams]" or "hostname[:port]"
     /// @param aDefaultPort default port number for TCP connection (irrelevant for direct serial device connection)
     /// @param aDefaultCommParams default communication parameters (in case spec does not contain :commParams)
-    /// @note commParams syntax is: `[baud rate][,[bits][,[parity][,[stopbits][,[H]]]]]`
+    /// @note commParams syntax is: `[baud rate][,[bits][,[parity][,[stopbits][,[H][T]]]]]`
     ///   - parity can be O, E or N
     ///   - H means hardware handshake enabled
+    ///   - T means transmitting only
     /// @note commParams can also be set to `none` to use the device without applying any termios settings
     void setConnectionSpecification(const char* aConnectionSpec, uint16_t aDefaultPort, const char *aDefaultCommParams);
 
@@ -144,6 +146,7 @@ namespace p44 {
       bool &aEvenParity,
       bool &aTwoStopBits,
       bool &aHardwareHandshake,
+      bool &aTxOnly,
       uint16_t &aConnectionPort
     );
 

@@ -119,6 +119,7 @@ ErrorPtr ModbusConnection::setConnectionSpecification(
   bool evenParity;
   bool twoStopBits;
   bool hardwareHandshake;
+  bool txOnly;
   mIsTcp = !SerialComm::parseConnectionSpecification(
     aConnectionSpec, aDefaultPort, aDefaultCommParams,
     connectionPath,
@@ -128,6 +129,7 @@ ErrorPtr ModbusConnection::setConnectionSpecification(
     evenParity,
     twoStopBits,
     hardwareHandshake,
+    txOnly,
     connectionPort
   );
   int mberr = 0;
