@@ -189,21 +189,21 @@ namespace p44 {
 
     typedef P44Obj inherited;
 
-    LedChip mLedChip; // type of LED chips in the chain
-    LedLayout mLedLayout; // color layout in the LED chips
-    uint16_t mTMaxPassive_uS; // max passive bit time in uS
-    uint8_t mMaxRetries; // max number of update retries (for some low level drivers that may need to retry when IRQ hits at the wrong time)
-    string mDeviceName; // the LED device name
-    uint16_t mInactiveStartLeds; // number of inactive LEDs at the start of the chain
-    uint16_t mInactiveBetweenLeds; // number of inactive LEDs between physical rows
-    uint16_t mInactiveEndLeds; // number of inactive LEDs at the end of the chain (we have buffer for them, but do not set colors for them)
-    uint16_t mNumLeds; // number of LEDs
-    uint16_t mLedsPerRow; // number of LEDs per row (physically, along WS2812 chain)
-    uint16_t mNumRows; // number of rows (sections of WS2812 chain)
-    bool mXReversed; // even (0,2,4...) rows go backwards, or all if not alternating
-    bool mYReversed; // columns go backwards
-    bool mAlternating; // direction changes after every row
-    bool mXYSwap; // x and y swapped
+    LedChip mLedChip; ///< type of LED chips in the chain
+    LedLayout mLedLayout; ///< color layout in the LED chips
+    uint16_t mTMaxPassive_uS; ///< max passive bit time in uS
+    uint8_t mMaxRetries; ///< max number of update retries (for some low level drivers that may need to retry when IRQ hits at the wrong time)
+    string mDeviceName; ///< the LED device name
+    uint16_t mInactiveStartLeds; ///< number of inactive LEDs at the start of the chain
+    uint16_t mInactiveBetweenLeds; ///< number of inactive LEDs between physical rows
+    uint16_t mInactiveEndLeds; ///< number of inactive LEDs at the end of the chain (we have buffer for them, but do not set colors for them)
+    uint16_t mNumLeds; ///< number of LEDs
+    uint16_t mLedsPerRow; ///< number of LEDs per row (physically, along WS2812 chain)
+    uint16_t mNumRows; ///< number of rows (sections of WS2812 chain)
+    bool mXReversed; ///< even (0,2,4...) rows go backwards, or all if not alternating
+    bool mYReversed; ///< columns go backwards
+    bool mAlternating; ///< direction changes after every row
+    bool mXYSwap; ///< x and y swapped
 
     bool mInitialized;
     uint8_t mNumColorComponents; // depends on ledType
@@ -214,19 +214,19 @@ namespace p44 {
     LEDPowerConverterPtr mLEDPowerConverter; // the converter to use for converting pixel colors to output values
 
     #ifdef ESP_PLATFORM
-    int gpioNo; // the GPIO to be used
-    Esp_ws281x_LedChain* espLedChain; // handle for the chain
-    Esp_ws281x_pixel* pixels; // the pixel buffer
+    int mGpioNo; // the GPIO to be used
+    Esp_ws281x_LedChain* mEspLedChain; // handle for the chain
+    Esp_ws281x_pixel* mPixels; // the pixel buffer
     #elif ENABLE_RPIWS281X
     ws2811_t mRPiWS281x; // the descriptor for the rpi_ws281x library
     #else
-    int ledFd; // the file descriptor for the LED device (p44ledchain or UART)
+    int mLedFd; // the file descriptor for the LED device (p44ledchain or UART)
     #if ENABLE_LEDCHAIN_UART
     bool mUartOutput; // if true, output device is UART and we'll synthesize WS28xx timing with 7-1-N @ 2.5/3.0 MBaud
     #endif
-    uint8_t *rawBuffer; // the raw bytes to be sent to the WS28xx device (possibly translated in UART mode)
-    size_t rawBytes; // number of bytes to send from ledbuffer, including header
-    uint8_t *ledBuffer; // the first led in the raw buffer (in case there is a header)
+    uint8_t *mRawBuffer; // the raw bytes to be sent to the WS28xx device (possibly translated in UART mode)
+    size_t mRawBytes; // number of bytes to send from ledbuffer, including header
+    uint8_t *mLedBuffer; // the first led in the raw buffer (in case there is a header)
     #endif
 
     #if ENABLE_P44LRGRAPHICS

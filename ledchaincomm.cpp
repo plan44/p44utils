@@ -222,16 +222,17 @@ LEDChainComm::LEDChainComm(
 ) :
   mInitialized(false)
   #ifdef ESP_PLATFORM
-  ,gpioNo(18) // sensible default
-  ,pixels(NULL)
+  ,mGpioNo(18) // sensible default
+  ,mPixels(NULL)
   #elif ENABLE_RPIWS281X
   #else
-  ,ledFd(-1)
-  ,rawBuffer(NULL)
-  ,ledBuffer(NULL)
-  ,rawBytes(0)
+  ,mLedFd(-1)
+  ,mRawBuffer(NULL)
+  ,mLedBuffer(NULL)
+  ,mRawBytes(0)
   #if ENABLE_LEDCHAIN_UART
   ,mUartOutput(false)
+  ,mOutputTimingFactor(0)
   #endif
   #endif
 {
@@ -477,7 +478,7 @@ bool LEDChainComm::begin(size_t aHintAtTotalChains)
       #error "16-bit LEDs not yet implemented"
       #endif
       if (mDeviceName.substr(0,4)=="gpio") {
-        sscanf(mDeviceName.c_str()+4, "%d", &gpioNo);
+        sscanf(mDeviceName.c_str()+4, "%d", &mGpioNo);
       }
       // make sure library is initialized
       if (!gEsp32_ws281x_initialized) {
@@ -509,14 +510,14 @@ bool LEDChainComm::begin(size_t aHintAtTotalChains)
           elt = esp_ledtype_ws2813;
           break;
       }
-      espLedChain = esp_ws281x_newChain(elt, gpioNo, ESP32_LEDCHAIN_MAX_RETRIES);
-      if (espLedChain) {
+      mEspLedChain = esp_ws281x_newChain(elt, mGpioNo, ESP32_LEDCHAIN_MAX_RETRIES);
+      if (mEspLedChain) {
         // prepare buffer
-        if (pixels) {
-          delete[] pixels;
-          pixels = NULL;
+        if (mPixels) {
+          delete[] mPixels;
+          mPixels = nullptr;
         }
-        pixels = new Esp_ws281x_pixel[mNumLeds];
+        mPixels = new Esp_ws281x_pixel[mNumLeds];
         mInitialized = true;
         clear();
       }
@@ -603,11 +604,11 @@ bool LEDChainComm::begin(size_t aHintAtTotalChains)
       }
       #else
       // Allocate led buffer
-      if (rawBuffer) {
-        delete[] rawBuffer;
-        rawBuffer = NULL;
-        ledBuffer = NULL;
-        rawBytes = 0;
+      if (mRawBuffer) {
+        delete[] mRawBuffer;
+        mRawBuffer = NULL;
+        mLedBuffer = NULL;
+        mRawBytes = 0;
       }
       if (
         mLedChip!=ledchip_none
@@ -617,30 +618,30 @@ bool LEDChainComm::begin(size_t aHintAtTotalChains)
       ) {
         // p44ledchain-style driver, need a header
         const int hdrsize = 5; // v6 header size
-        rawBytes = mNumColorComponents*mNumBytesPerComponent*mNumLeds+1+hdrsize;
-        rawBuffer = new uint8_t[rawBytes];
-        ledBuffer = rawBuffer+1+hdrsize; // led data starts here
+        mRawBytes = mNumColorComponents*mNumBytesPerComponent*mNumLeds+1+hdrsize;
+        mRawBuffer = new uint8_t[mRawBytes];
+        mLedBuffer = mRawBuffer+1+hdrsize; // led data starts here
         // prepare header for p44-ledchain v6 and later compatible drivers
-        rawBuffer[0] = hdrsize; // driver v6 header size
-        rawBuffer[1] = mLedLayout;
-        rawBuffer[2] = mLedChip;
-        rawBuffer[3] = (mTMaxPassive_uS>>8) & 0xFF;
-        rawBuffer[4] = (mTMaxPassive_uS) & 0xFF;
-        rawBuffer[5] = mMaxRetries;
+        mRawBuffer[0] = hdrsize; // driver v6 header size
+        mRawBuffer[1] = mLedLayout;
+        mRawBuffer[2] = mLedChip;
+        mRawBuffer[3] = (mTMaxPassive_uS>>8) & 0xFF;
+        mRawBuffer[4] = (mTMaxPassive_uS) & 0xFF;
+        mRawBuffer[5] = mMaxRetries;
       }
       else {
         // chip not known here: legacy driver w/o header or UART, just need the raw buffer
-        rawBytes = mNumColorComponents*mNumBytesPerComponent*mNumLeds;
-        rawBuffer = new uint8_t[rawBytes];
-        ledBuffer = rawBuffer;
+        mRawBytes = mNumColorComponents*mNumBytesPerComponent*mNumLeds;
+        mRawBuffer = new uint8_t[mRawBytes];
+        mLedBuffer = mRawBuffer;
       }
-      memset(ledBuffer, 0, mNumColorComponents*mNumBytesPerComponent*mNumLeds);
-      ledFd = open(mDeviceName.c_str(), O_RDWR|O_NOCTTY|O_NONBLOCK);
-      if (ledFd>=0) {
+      memset(mLedBuffer, 0, mNumColorComponents*mNumBytesPerComponent*mNumLeds);
+      mLedFd = open(mDeviceName.c_str(), O_RDWR|O_NOCTTY|O_NONBLOCK);
+      if (mLedFd>=0) {
         mInitialized = true;
         #if ENABLE_LEDCHAIN_UART
         if (mUartOutput) {
-          if (setupUart(ledFd, ledChipDescriptor().slowTiming)<0) {
+          if (setupUart(mLedFd, ledChipDescriptor().slowTiming)<0) {
             LOG(LOG_ERR, "Error: Cannot set UART for WS28xx output on '%s'", mDeviceName.c_str());
             mInitialized = false;
           }
@@ -670,12 +671,12 @@ void LEDChainComm::clear()
   else {
     // this is the master driver, clear the entire buffer
     #ifdef ESP_PLATFORM
-    for (uint16_t i=0; i<mNumLeds; i++) pixels[i].num = 0;
+    for (uint16_t i=0; i<mNumLeds; i++) mPixels[i].num = 0;
     #elif ENABLE_RPIWS281X
     // FIXME: workaround, use two 8-bit for one 16-bit LED
     for (uint16_t i=0; i<mNumLeds*mNumBytesPerComponent; i++) mRPiWS281x.channel[0].leds[i] = 0;
     #else
-    memset(ledBuffer, 0, mNumColorComponents*mNumBytesPerComponent*mNumLeds);
+    memset(mLedBuffer, 0, mNumColorComponents*mNumBytesPerComponent*mNumLeds);
     #endif
   }
 }
@@ -686,25 +687,25 @@ void LEDChainComm::end()
   if (mInitialized) {
     if (!mChainDriver) {
       #ifdef ESP_PLATFORM
-      if (pixels) {
-        delete[] pixels;
-        pixels = NULL;
+      if (mPixels) {
+        delete[] mPixels;
+        mPixels = nullptr;
       }
-      esp_ws281x_freeChain(espLedChain);
-      espLedChain = NULL;
+      esp_ws281x_freeChain(mEspLedChain);
+      mEspLedChain = nullptr;
       #elif ENABLE_RPIWS281X
       // deinitialize library
       ws2811_fini(&mRPiWS281x);
       #else
-      if (rawBuffer) {
-        delete[] rawBuffer;
-        rawBuffer = NULL;
-        ledBuffer = NULL;
-        rawBytes = 0;
+      if (mRawBuffer) {
+        delete[] mRawBuffer;
+        mRawBuffer = nullptr;
+        mLedBuffer = nullptr;
+        mRawBytes = 0;
       }
-      if (ledFd>=0) {
-        close(ledFd);
-        ledFd = -1;
+      if (mLedFd>=0) {
+        close(mLedFd);
+        mLedFd = -1;
       }
       #endif
     }
@@ -719,7 +720,7 @@ void LEDChainComm::show()
     // Note: no operation if this is only a secondary mapping - primary driver will update the hardware
     if (!mInitialized) return;
     #ifdef ESP_PLATFORM
-    esp_ws281x_setColors(espLedChain, mNumLeds, pixels);
+    esp_ws281x_setColors(mEspLedChain, mNumLeds, mPixels);
     #elif ENABLE_RPIWS281X
     ws2811_render(&mRPiWS281x);
     #else
@@ -730,7 +731,7 @@ void LEDChainComm::show()
     else
     #endif // ENABLE_LEDCHAIN_UART
     {
-      write(ledFd, rawBuffer, rawBytes); // just data with header
+      write(ledFd, mRawBuffer, mRawBytes); // just data with header
     }
     #endif
   }
@@ -796,8 +797,8 @@ void LEDChainComm::setPowerAtLedIndex(uint16_t aLedIndex, LEDChannelPower aRed, 
     #if PWMBITS!=8
     #error "16-bit LEDs not yet implemented"
     #endif
-    if (!pixels) return;
-    pixels[aLedIndex] = esp_ws281x_makeRGBVal(aRed, aGreen, aBlue, aWhite);
+    if (!mPixels) return;
+    mPixels[aLedIndex] = esp_ws281x_makeRGBVal(aRed, aGreen, aBlue, aWhite);
     #elif ENABLE_RPIWS281X
     #if PWMBITS!=16
     #error "implementation is for 16-bit PWM only"
@@ -838,24 +839,24 @@ void LEDChainComm::setPowerAtLedIndex(uint16_t aLedIndex, LEDChannelPower aRed, 
     if (mNumBytesPerComponent>1) {
       // 16 bit
       byteindex = byteindex<<1; // double number of bytes
-      ledBuffer[byteindex++] = aRed>>8;
-      ledBuffer[byteindex++] = aRed & 0xFF;
-      ledBuffer[byteindex++] = aGreen>>8;
-      ledBuffer[byteindex++] = aGreen & 0xFF;
-      ledBuffer[byteindex++] = aBlue>>8;
-      ledBuffer[byteindex++] = aBlue & 0xFF;
+      mLedBuffer[byteindex++] = aRed>>8;
+      mLedBuffer[byteindex++] = aRed & 0xFF;
+      mLedBuffer[byteindex++] = aGreen>>8;
+      mLedBuffer[byteindex++] = aGreen & 0xFF;
+      mLedBuffer[byteindex++] = aBlue>>8;
+      mLedBuffer[byteindex++] = aBlue & 0xFF;
       if (mNumColorComponents>3) {
-        ledBuffer[byteindex++] = aWhite>>8;
-        ledBuffer[byteindex++] = aWhite & 0xFF;
+        mLedBuffer[byteindex++] = aWhite>>8;
+        mLedBuffer[byteindex++] = aWhite & 0xFF;
       }
     }
     else {
       // 8bit, send MSB only
-      ledBuffer[byteindex++] = pwmTo8Bits(aRed);
-      ledBuffer[byteindex++] = pwmTo8Bits(aGreen);
-      ledBuffer[byteindex++] = pwmTo8Bits(aBlue);
+      mLedBuffer[byteindex++] = pwmTo8Bits(aRed);
+      mLedBuffer[byteindex++] = pwmTo8Bits(aGreen);
+      mLedBuffer[byteindex++] = pwmTo8Bits(aBlue);
       if (mNumColorComponents>3) {
-        ledBuffer[byteindex++] = pwmTo8Bits(aWhite);
+        mLedBuffer[byteindex++] = pwmTo8Bits(aWhite);
       }
     }
     #endif
@@ -875,8 +876,8 @@ void LEDChainComm::getPowerAtLedIndex(uint16_t aLedIndex, LEDChannelPower &aRed,
     #if PWMBITS!=8
     #error "16-bit LEDs not yet implemented"
     #endif
-    if (!pixels) return;
-    Esp_ws281x_pixel &pixel = pixels[aLedIndex];
+    if (!mPixels) return;
+    Esp_ws281x_pixel &pixel = mPixels[aLedIndex];
     aRed = pixel.r;
     aGreen = pixel.g;
     aBlue = pixel.b;
