@@ -45,6 +45,7 @@
   #endif
 #endif // ENABLE_LEDCHAIN_UART
 
+
 using namespace p44;
 
 // MARK: - LEDPowerConverter
@@ -169,6 +170,7 @@ static const LEDChainComm::LedChipDesc ledChipDescriptors[LEDChainComm::num_ledc
   { "WS2813_N",  4,  85,  0,  1, false, false } // old/Normandled WS2813 timing with higher T0H
 };
 
+#define LEDCHAIN_INTERFRAME_PAUSE_MIN (350*MicroSecond) // min interframe pause time that certainly works for all chips (many could do with less)
 
 typedef struct {
   const char *name; ///< name of the LED layout
@@ -232,7 +234,10 @@ LEDChainComm::LEDChainComm(
   ,mRawBytes(0)
   #if ENABLE_LEDCHAIN_UART
   ,mUartOutput(false)
-  ,mOutputTimingFactor(0)
+  ,mUartSenderMutex(PTHREAD_MUTEX_INITIALIZER)
+  ,mUartSenderCond(PTHREAD_COND_INITIALIZER)
+  ,mUartSenderShutdown(false)
+  ,mUartSendflag(false)
   #endif
   #endif
 {
@@ -450,6 +455,65 @@ static void sendToUart(int aUartFd, uint8_t* aLedData, size_t aLedDataSize, cons
   delete[] uartData;
 }
 
+
+static void* uartSenderThreadRoutine(void *aArg)
+{
+  LEDChainComm* ledchainP = static_cast<LEDChainComm*>(aArg);
+  if (ledchainP) ledchainP->uartSenderThreadWorker();
+  return nullptr;
+}
+
+
+void LEDChainComm::uartSenderThreadWorker()
+{
+  // make blocking (again), so we can send large blocks at once
+  int flags;
+  if ((flags = fcntl(mLedFd, F_GETFL, 0))==-1) flags = 0;
+  fcntl(mLedFd, F_SETFL, flags & ~O_NONBLOCK);
+  // enter worker loop
+  while (true) {
+    pthread_mutex_lock(&mUartSenderMutex);
+    while (!mUartSendflag && !mUartSenderShutdown) {
+      pthread_cond_wait(&mUartSenderCond, &mUartSenderMutex);
+    }
+    if (mUartSenderShutdown) {
+      pthread_mutex_unlock(&mUartSenderMutex);
+      break;
+    }
+    pthread_mutex_unlock(&mUartSenderMutex);
+    // send blocking, so UART sends everything at max speed, no pauses
+    // Note: non-blocking can send max 4095 bytes on Linux, then would need
+    //   chunking and possibly pauses between bytes
+    
+    sendToUart(mLedFd, mRawBuffer, mRawBytes, ledLayoutDescriptors[mLedLayout]);
+    // make sure we have sent everything
+    tcdrain(mLedFd);
+    // make sure we have enough idle time
+    MainLoop::sleep(LEDCHAIN_INTERFRAME_PAUSE_MIN);
+    // - signal done
+    pthread_mutex_lock(&mUartSenderMutex);
+    mUartSendflag = false;
+    pthread_mutex_unlock(&mUartSenderMutex);
+  }
+}
+
+
+void LEDChainComm::triggerUartSend()
+{
+  pthread_mutex_lock(&mUartSenderMutex);
+  // if still busy, just skip
+  if (!mUartSendflag) {
+    mUartSendflag = true;
+    pthread_cond_signal(&mUartSenderCond);
+  }
+  else {
+    LOG(LOG_DEBUG, "UART LED data sending retriggered too early - dropping this update");
+  }
+  pthread_mutex_unlock(&mUartSenderMutex);
+}
+
+
+
 #endif // ENABLE_LEDCHAIN_UART
 
 
@@ -461,7 +525,7 @@ static bool gEsp32_ws281x_initialized = false;
 
 #define ESP32_LEDCHAIN_MAX_RETRIES 3
 
-#endif // CONFIG_P44UTILS_DIGITAL_LED_LIB
+#endif // ESP_PLATFORM
 
 
 
@@ -645,6 +709,10 @@ bool LEDChainComm::begin(size_t aHintAtTotalChains)
             LOG(LOG_ERR, "Error: Cannot set UART for WS28xx output on '%s'", mDeviceName.c_str());
             mInitialized = false;
           }
+          else {
+            // start a sender thread
+            pthread_create(&mUartSenderThread, NULL, uartSenderThreadRoutine, this);
+          }
         }
         #endif // ENABLE_LEDCHAIN_UART
       }
@@ -703,6 +771,13 @@ void LEDChainComm::end()
         mLedBuffer = nullptr;
         mRawBytes = 0;
       }
+      if (mUartOutput) {
+        pthread_mutex_lock(&mUartSenderMutex);
+        mUartSenderShutdown = true;
+        pthread_cond_signal(&mUartSenderCond);
+        pthread_mutex_unlock(&mUartSenderMutex);
+        pthread_join(mUartSenderThread, nullptr);
+      }
       if (mLedFd>=0) {
         close(mLedFd);
         mLedFd = -1;
@@ -726,12 +801,12 @@ void LEDChainComm::show()
     #else
     #if ENABLE_LEDCHAIN_UART
     if (mUartOutput) {
-      sendToUart(ledFd, rawBuffer, rawBytes, ledLayoutDescriptors[mLedLayout]); // no header, will be converted to WS28xx
+      triggerUartSend();
     }
     else
     #endif // ENABLE_LEDCHAIN_UART
     {
-      write(ledFd, mRawBuffer, mRawBytes); // just data with header
+      write(mLedFd, mRawBuffer, mRawBytes); // just data with header
     }
     #endif
   }
@@ -1255,10 +1330,15 @@ void LEDChainArrangement::addLEDChain(const string &aChainSpec)
             case 'S': swapXY = true; break;
             case 'A': alternating = true; break;
             case 'W':
+              // W#whilecol
               ledWhite = webColorToPixel(part.substr(i+1));
               i = part.size(); // W#whitecol ends the part (more options could follow after another colon)
               break;
             case 'C': {
+              // Gamma curve:
+              // Cexp,min
+              // Ccolorexp,colormin,whiteexp,whitemin
+              // Cexp,redmin,greenmin,bluemin,whitemin
               double p1 = 0, p2 = 0, p3 = 0, p4 = 0, p5 = 0;
               int n = sscanf(part.c_str()+i+1, "%lf,%lf,%lf,%lf,%lf", &p1, &p2, &p3, &p4, &p5);
               if (n==5) powerConverter = new LEDPowerConverter(p1, p2, p3, p4, p5); // common exponent, 4 separate minout

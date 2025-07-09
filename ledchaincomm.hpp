@@ -204,7 +204,6 @@ namespace p44 {
     bool mYReversed; ///< columns go backwards
     bool mAlternating; ///< direction changes after every row
     bool mXYSwap; ///< x and y swapped
-
     bool mInitialized;
     uint8_t mNumColorComponents; // depends on ledType
     uint8_t mNumBytesPerComponent; // depends on ledType
@@ -223,7 +222,12 @@ namespace p44 {
     int mLedFd; // the file descriptor for the LED device (p44ledchain or UART)
     #if ENABLE_LEDCHAIN_UART
     bool mUartOutput; // if true, output device is UART and we'll synthesize WS28xx timing with 7-1-N @ 2.5/3.0 MBaud
-    #endif
+    pthread_t mUartSenderThread;
+    pthread_mutex_t mUartSenderMutex;
+    pthread_cond_t mUartSenderCond;
+    bool mUartSendflag;
+    bool mUartSenderShutdown;
+    #endif // ENABLE_LEDCHAIN_UART
     uint8_t *mRawBuffer; // the raw bytes to be sent to the WS28xx device (possibly translated in UART mode)
     size_t mRawBytes; // number of bytes to send from ledbuffer, including header
     uint8_t *mLedBuffer; // the first led in the raw buffer (in case there is a header)
@@ -316,6 +320,11 @@ namespace p44 {
 
     /// @return the LED chip descriptor which includes information about power consumption
     const LedChipDesc &ledChipDescriptor() const;
+
+    #if ENABLE_LEDCHAIN_UART
+    void uartSenderThreadWorker();
+    void triggerUartSend();
+    #endif
 
     #if LEDCHAIN_LEGACY_API && PWMBITS==8
 
