@@ -37,7 +37,7 @@
   #define LEDCHAIN_READBACK (!ENABLE_P44LRGRAPHICS) // with p44graphics, we don't need reading back LED values
 #endif
 #ifndef ENABLE_LEDCHAIN_UART
-  #define ENABLE_LEDCHAIN_UART (!ESP_PLATFORM) // on normal platforms include UART-based WS28xx signal generator
+  #define ENABLE_LEDCHAIN_UART (!ESP_PLATFORM && !ENABLE_RPIWS281X) // only for standard leddata-to-device platforms (ledchain...)
 #endif
 
 
