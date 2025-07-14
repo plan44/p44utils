@@ -291,7 +291,7 @@ namespace p44 {
       SocketObj(SocketCommPtr aSocket);
       virtual ~SocketObj();
       virtual string getAnnotation() const P44_OVERRIDE { return "socket"; };
-      SocketCommPtr socket() { return mSocket; }
+      SocketCommPtr socketComm() { return mSocket; }
     private:
       void gotData(ErrorPtr aError);
     };

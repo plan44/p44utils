@@ -989,7 +989,7 @@ static void send_func(BuiltinFunctionContextPtr f)
   assert(s);
   ErrorPtr err;
   string datagram = f->arg(0)->stringValue();
-  size_t res = s->socket()->transmitBytes(datagram.length(), (uint8_t *)datagram.c_str(), err);
+  size_t res = s->socketComm()->transmitBytes(datagram.length(), (uint8_t *)datagram.c_str(), err);
   if (Error::notOK(err)) {
     f->finish(new ErrorValue(err));
   }
