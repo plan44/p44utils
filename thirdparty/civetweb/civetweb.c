@@ -10579,6 +10579,7 @@ mg_store_body(struct mg_connection *conn, const char *path)
  * Forward the string pointer till the end of a word, then
  * terminate it and forward till the begin of the next word.
  */
+/* luz 2025-07-15: when eol is set to 2, a space OR eol is allowed. */
 static int
 skip_to_end_of_word_and_terminate(char **ppw, int eol)
 {
@@ -10591,7 +10592,7 @@ skip_to_end_of_word_and_terminate(char **ppw, int eol)
     /* Check end of word */
     if (eol) {
         /* must be a end of line */
-        if ((**ppw != '\r') && (**ppw != '\n')) {
+        if ((**ppw != '\r') && (**ppw != '\n') && (eol!=2 || **ppw != ' ')) {
             return -1;
         }
     } else {
@@ -10947,7 +10948,8 @@ parse_http_response(char *buf, int len, struct mg_response_info *ri)
     /* The second word is the status as a number */
     tmp = buf;
 
-    if (skip_to_end_of_word_and_terminate(&buf, 0) <= 0) {
+    /* luz 2025-07-15: eol==2 means space OR eol is allowed, needed for some embedded servers, although not rfc */
+    if (skip_to_end_of_word_and_terminate(&buf, 2) <= 0) {
         return -1;
     }
 
