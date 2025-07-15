@@ -1,6 +1,6 @@
 //  SPDX-License-Identifier: GPL-3.0-or-later
 //
-//  Copyright (c) 2013-2023 plan44.ch / Lukas Zeller, Zurich, Switzerland
+//  Copyright (c) 2013-2025 plan44.ch / Lukas Zeller, Zurich, Switzerland
 //
 //  Author: Lukas Zeller <luz@plan44.ch>
 //
@@ -49,31 +49,31 @@ typedef enum {
 
 
 HttpComm::HttpComm(MainLoop &aMainLoop) :
-  mainLoop(aMainLoop),
-  requestInProgress(false),
-  mgConn(NULL),
-  httpAuthInfo(NULL),
-  authMode(digest_only),
-  timeout(Never),
-  bufferSz(2048),
-  serverCertVfyDir("*"), // default to platform's generic certificate checking method / root cert store
-  responseDataFd(-1),
-  streamResult(false),
-  dataProcessingPending(false)
+  mMainLoop(aMainLoop),
+  mRequestInProgress(false),
+  mMgConn(NULL),
+  mHttpAuthInfo(NULL),
+  mAuthMode(digest_only),
+  mTimeout(Never),
+  mBufferSz(2048),
+  mServerCertVfyDir("*"), // default to platform's generic certificate checking method / root cert store
+  mResponseDataFd(-1),
+  mStreamResult(false),
+  mDataProcessingPending(false)
 {
 }
 
 
 HttpComm::~HttpComm()
 {
-  if (httpAuthInfo) free(httpAuthInfo); // we own this
+  if (mHttpAuthInfo) free(mHttpAuthInfo); // we own this
   terminate();
 }
 
 
 void HttpComm::terminate()
 {
-  responseCallback.clear(); // prevent calling back now
+  mResponseCallback.clear(); // prevent calling back now
   cancelRequest(); // make sure subthread is cancelled
 }
 
@@ -84,9 +84,9 @@ void HttpComm::requestThread(ChildThreadWrapper &aThread)
   string protocol, hostSpec, host, doc;
   uint16_t port;
 
-  requestError.reset();
-  response.clear();
-  splitURL(requestURL.c_str(), &protocol, &hostSpec, &doc, NULL, NULL);
+  mRequestError.reset();
+  mResponse.clear();
+  splitURL(mRequestURL.c_str(), &protocol, &hostSpec, &doc, NULL, NULL);
   bool useSSL = false;
   if (protocol=="http") {
     port = 80;
@@ -97,15 +97,15 @@ void HttpComm::requestThread(ChildThreadWrapper &aThread)
     useSSL = true;
   }
   else {
-    requestError = Error::err<HttpCommError>(HttpCommError::invalidParameters, "invalid protocol");
+    mRequestError = Error::err<HttpCommError>(HttpCommError::invalidParameters, "invalid protocol");
   }
   splitHost(hostSpec.c_str(), &host, &port);
-  if (Error::isOK(requestError)) {
+  if (Error::isOK(mRequestError)) {
     // now issue request
     const size_t ebufSz = 100;
     char ebuf[ebufSz];
     string extraHeaders;
-    for (HttpHeaderMap::iterator pos=requestHeaders.begin(); pos!=requestHeaders.end(); ++pos) {
+    for (HttpHeaderMap::iterator pos=mRequestHeaders.begin(); pos!=mRequestHeaders.end(); ++pos) {
       extraHeaders += string_format("%s: %s\r\n", pos->first.c_str(), pos->second.c_str());
     }
     #if !USE_LIBMONGOOSE
@@ -113,43 +113,43 @@ void HttpComm::requestThread(ChildThreadWrapper &aThread)
     copts.host = host.c_str();
     copts.host_name = host.c_str(); // important for servers that need SNI for establishing SSL connection
     copts.port = port;
-    copts.client_cert = clientCertFile.empty() ? NULL : clientCertFile.c_str();
-    copts.server_cert = serverCertVfyDir.empty() ? NULL : serverCertVfyDir.c_str();
-    copts.timeout = timeout==Never ? -2 : (double)timeout/Second;
-    if (requestBody.length()>0) {
+    copts.client_cert = mClientCertFile.empty() ? NULL : mClientCertFile.c_str();
+    copts.server_cert = mServerCertVfyDir.empty() ? NULL : mServerCertVfyDir.c_str();
+    copts.timeout = mTimeout==Never ? -2 : (double)mTimeout/Second;
+    if (mRequestBody.length()>0) {
       // is a request which sends data in the HTTP message body (e.g. POST)
-      mgConn = mg_download_secure(
+      mMgConn = mg_download_secure(
         &copts,
         useSSL,
-        method.c_str(),
+        mMethod.c_str(),
         doc.c_str(),
-        username.empty() ? NULL : username.c_str(),
-        password.empty() ? NULL : password.c_str(),
-        &httpAuthInfo,
-        (int)authMode,
+        mUsername.empty() ? NULL : mUsername.c_str(),
+        mPassword.empty() ? NULL : mPassword.c_str(),
+        &mHttpAuthInfo,
+        (int)mAuthMode,
         ebuf, ebufSz,
         "Content-Type: %s\r\n"
         "Content-Length: %ld\r\n"
         "%s"
         "\r\n"
         "%s",
-        contentType.c_str(),
-        (long)requestBody.length(),
+        mContentType.c_str(),
+        (long)mRequestBody.length(),
         extraHeaders.c_str(),
-        requestBody.c_str()
+        mRequestBody.c_str()
       );
     }
     else {
       // no request body (e.g. GET, DELETE)
-      mgConn = mg_download_secure(
+      mMgConn = mg_download_secure(
         &copts,
         useSSL,
-        method.c_str(),
+        mMethod.c_str(),
         doc.c_str(),
-        username.empty() ? NULL : username.c_str(),
-        password.empty() ? NULL : password.c_str(),
-        &httpAuthInfo,
-        (int)authMode,
+        mUsername.empty() ? NULL : mUsername.c_str(),
+        mPassword.empty() ? NULL : mPassword.c_str(),
+        &mHttpAuthInfo,
+        (int)mAuthMode,
         ebuf, ebufSz,
         "Content-Length: 0\r\n"
         "%s"
@@ -202,60 +202,60 @@ void HttpComm::requestThread(ChildThreadWrapper &aThread)
       );
     }
     #endif
-    if (!mgConn) {
-      requestError = Error::err_cstr<HttpCommError>(HttpCommError::civetwebError, ebuf);
+    if (!mMgConn) {
+      mRequestError = Error::err_cstr<HttpCommError>(HttpCommError::civetwebError, ebuf);
     }
     else {
       // successfully initiated connection
       #if !USE_LIBMONGOOSE
-      const struct mg_response_info *responseInfo = mg_get_response_info(mgConn);
-      responseStatus = responseInfo->status_code;
+      const struct mg_response_info *responseInfo = mg_get_response_info(mMgConn);
+      mResponseStatus = responseInfo->status_code;
       #else
       struct mg_request_info *responseInfo = mg_get_request_info(mgConn);
       responseStatus = 0;
       sscanf(responseInfo->uri, "%d", &responseStatus);  // status code string is in uri
       #endif
       // check for auth
-      if (responseStatus==401) {
+      if (mResponseStatus==401) {
         LOG(LOG_DEBUG, "401 - http auth?")
       }
       // accept 200..203 status codes as OK (these are: success, created, accepted, non-authorative(=proxy modified))
-      if (responseStatus<200 || responseStatus>203) {
+      if (mResponseStatus<200 || mResponseStatus>203) {
         // Important: report status as WebError, not HttpCommError, because it is not technically an error on the HTTP transport level
-        requestError = WebError::webErr(responseStatus,"HTTP non-ok status");
+        mRequestError = WebError::webErr(mResponseStatus,"HTTP non-ok status");
       }
       // - get headers if requested
-      if (responseHeaders) {
+      if (mResponseHeaders) {
         if (responseInfo) {
           for (int i=0; i<responseInfo->num_headers; i++) {
-            (*responseHeaders)[responseInfo->http_headers[i].name] = responseInfo->http_headers[i].value;
+            (*mResponseHeaders)[responseInfo->http_headers[i].name] = responseInfo->http_headers[i].value;
           }
         }
       }
-      if (Error::isOK(requestError) || requestError->isDomain(WebError::domain())) {
+      if (Error::isOK(mRequestError) || mRequestError->isDomain(WebError::domain())) {
         // - read data
-        uint8_t *bufferP = new uint8_t[bufferSz];
+        uint8_t *bufferP = new uint8_t[mBufferSz];
         int errCause;
         #if !USE_LIBMONGOOSE
-        double to = streamResult ? TMO_SOMETHING : copts.timeout;
+        double to = mStreamResult ? TMO_SOMETHING : copts.timeout;
         #endif
         while (true) {
           #if !USE_LIBMONGOOSE
-          ssize_t res = mg_read_ex(mgConn, bufferP, bufferSz, to, &errCause);
-          if (streamResult && res<0 && errCause==EC_TIMEOUT) {
+          ssize_t res = mg_read_ex(mMgConn, bufferP, mBufferSz, to, &errCause);
+          if (mStreamResult && res<0 && errCause==EC_TIMEOUT) {
             continue;
           }
           else if (res==0 || (res<0 && errCause==EC_CLOSED)) {
             // connection has closed, all bytes read
-            if (streamResult) {
+            if (mStreamResult) {
               // when streaming, signal end-of-stream condition by an empty data response
-              response.clear();
+              mResponse.clear();
             }
             break;
           }
           else if (res<0) {
             // read error
-            requestError = Error::err<HttpCommError>(HttpCommError::read, "HTTP read error: %s", errCause==EC_TIMEOUT ? "timeout" : strerror(errno));
+            mRequestError = Error::err<HttpCommError>(HttpCommError::read, "HTTP read error: %s", errCause==EC_TIMEOUT ? "timeout" : strerror(errno));
             break;
           }
           #else
@@ -276,33 +276,33 @@ void HttpComm::requestThread(ChildThreadWrapper &aThread)
           #endif
           else {
             // data read
-            if (responseDataFd>=0) {
+            if (mResponseDataFd>=0) {
               // write to fd
-              write(responseDataFd, bufferP, res);
+              write(mResponseDataFd, bufferP, res);
             }
-            else if (streamResult) {
+            else if (mStreamResult) {
               // pass back the data chunk now
-              response.assign((const char *)bufferP, (size_t)res);
-              dataProcessingPending = true;
+              mResponse.assign((const char *)bufferP, (size_t)res);
+              mDataProcessingPending = true;
               aThread.signalParentThread(httpThreadSignalDataReady);
               // now wait until data has been processed in main thread
-              while (dataProcessingPending) {
+              while (mDataProcessingPending) {
                 // FIXME: ugly - add better thread signalling here
                 usleep(50000); // 50mS
               }
             }
             else {
               // just collect entire response in string
-              response.append((const char *)bufferP, (size_t)res);
+              mResponse.append((const char *)bufferP, (size_t)res);
             }
           }
         }
         delete[] bufferP;
       } // if content to read
       // done, close connection
-      if (mgConn) {
-        mg_close_connection(mgConn);
-        mgConn = NULL;
+      if (mMgConn) {
+        mg_close_connection(mMgConn);
+        mMgConn = NULL;
       }
     }
   }
@@ -316,15 +316,15 @@ void HttpComm::requestThreadSignal(ChildThreadWrapper &aChildThread, ThreadSigna
   DBGLOG(LOG_DEBUG, "HttpComm: Received signal from child thread: %d", aSignalCode);
   if (aSignalCode==threadSignalCompleted) {
     DBGLOG(LOG_DEBUG, "- HTTP subthread exited - request completed");
-    requestInProgress = false; // thread completed
+    mRequestInProgress = false; // thread completed
     // call back with result of request
     // Note: as this callback might initiate another request already and overwrite the callback, copy it here
-    HttpCommCB cb = responseCallback;
-    string resp = response;
-    ErrorPtr reqErr = requestError;
+    HttpCommCB cb = mResponseCallback;
+    string resp = mResponse;
+    ErrorPtr reqErr = mRequestError;
     // release child thread object now
-    responseCallback.clear();
-    childThread.reset();
+    mResponseCallback.clear();
+    mChildThread.reset();
     // now execute callback
     if (cb) cb(resp, reqErr);
   }
@@ -333,16 +333,16 @@ void HttpComm::requestThreadSignal(ChildThreadWrapper &aChildThread, ThreadSigna
     DBGLOG(LOG_DEBUG, "- HTTP subthread delivers chunk of data - request going on");
     //DBGLOG(LOG_DEBUG, "- data: %s", response.c_str());
     // callback may NOT issue another request on this httpComm, so no need to copy it
-    if (responseCallback) responseCallback(response, requestError);
-    dataProcessingPending = false; // child thread can go on reading
+    if (mResponseCallback) mResponseCallback(mResponse, mRequestError);
+    mDataProcessingPending = false; // child thread can go on reading
   }
   else if (aSignalCode==threadSignalCancelled) {
     // Note: mgConn is owned by child thread and should NOT be accessed from other threads, normally.
     //   This is an exception, because here the thread has been aborted, and if mgConn is still open,
     //   it has to be closed to avoid leaking memory or file descriptors.
-    if (mgConn) {
-      mg_close_connection(mgConn);
-      mgConn = NULL;
+    if (mMgConn) {
+      mg_close_connection(mMgConn);
+      mMgConn = NULL;
     }
   }
 }
@@ -360,25 +360,25 @@ bool HttpComm::httpRequest(
   bool aStreamResult
 )
 {
-  if (requestInProgress || !aURL)
+  if (mRequestInProgress || !aURL)
     return false; // blocked or no URL
-  responseDataFd = aResponseDataFd;
-  responseHeaders.reset();
-  requestError.reset();
+  mResponseDataFd = aResponseDataFd;
+  mResponseHeaders.reset();
+  mRequestError.reset();
   if (aSaveHeaders)
-    responseHeaders = HttpHeaderMapPtr(new HttpHeaderMap);
-  requestURL = aURL;
-  responseCallback = aResponseCallback;
-  method = aMethod;
-  requestBody = nonNullCStr(aRequestBody);
+    mResponseHeaders = HttpHeaderMapPtr(new HttpHeaderMap);
+  mRequestURL = aURL;
+  mResponseCallback = aResponseCallback;
+  mMethod = aMethod;
+  mRequestBody = nonNullCStr(aRequestBody);
   if (aContentType)
-    contentType = aContentType; // use specified content type
+    mContentType = aContentType; // use specified content type
   else
-    contentType = defaultContentType(); // use default for the class
-  streamResult = aStreamResult;
+    mContentType = defaultContentType(); // use default for the class
+  mStreamResult = aStreamResult;
   // now let subthread handle this
-  requestInProgress = true;
-  childThread = MainLoop::currentMainLoop().executeInThread(
+  mRequestInProgress = true;
+  mChildThread = MainLoop::currentMainLoop().executeInThread(
     boost::bind(&HttpComm::requestThread, this, _1),
     boost::bind(&HttpComm::requestThreadSignal, this, _1, _2)
   );
@@ -388,9 +388,9 @@ bool HttpComm::httpRequest(
 
 void HttpComm::cancelRequest()
 {
-  if (requestInProgress && childThread) {
-    childThread->cancel();
-    requestInProgress = false; // prevent cancelling multiple times
+  if (mRequestInProgress && mChildThread) {
+    mChildThread->cancel();
+    mRequestInProgress = false; // prevent cancelling multiple times
   }
 }
 
@@ -471,11 +471,11 @@ static void httpFuncDone(BuiltinFunctionContextPtr f, HttpCommPtr aHttpAction, b
   if (aWithMeta) {
     if (Error::isOK(aError) || Error::isDomain(aError, WebError::domain())) {
       JsonObjectPtr resp = JsonObject::newObj();
-      resp->add("status", JsonObject::newInt32(aHttpAction->responseStatus));
+      resp->add("status", JsonObject::newInt32(aHttpAction->mResponseStatus));
       resp->add("data", JsonObject::newString(aResponse));
-      if (aHttpAction->responseHeaders) {
+      if (aHttpAction->mResponseHeaders) {
         JsonObjectPtr hdrs = JsonObject::newObj();
-        for (HttpHeaderMap::iterator pos = aHttpAction->responseHeaders->begin(); pos!=aHttpAction->responseHeaders->end(); ++pos) {
+        for (HttpHeaderMap::iterator pos = aHttpAction->mResponseHeaders->begin(); pos!=aHttpAction->mResponseHeaders->end(); ++pos) {
           hdrs->add(pos->first.c_str(), JsonObject::newString(pos->second));
         }
         resp->add("headers", hdrs);

@@ -1,6 +1,6 @@
 //  SPDX-License-Identifier: GPL-3.0-or-later
 //
-//  Copyright (c) 2013-2023 plan44.ch / Lukas Zeller, Zurich, Switzerland
+//  Copyright (c) 2013-2025 plan44.ch / Lukas Zeller, Zurich, Switzerland
 //
 //  Author: Lukas Zeller <luz@plan44.ch>
 //
@@ -39,24 +39,24 @@ JsonWebClient::~JsonWebClient()
 
 void JsonWebClient::requestThreadSignal(ChildThreadWrapper &aChildThread, ThreadSignals aSignalCode)
 {
-  if (jsonResponseCallback) {
+  if (mJsonResponseCallback) {
     // only if we have a json callback, we need to parse the response at all
     if (aSignalCode==threadSignalCompleted) {
-      requestInProgress = false; // thread completed
+      mRequestInProgress = false; // thread completed
       JsonObjectPtr message;
-      if (Error::isOK(requestError) || requestError->isDomain(WebError::domain())) {
+      if (Error::isOK(mRequestError) || mRequestError->isDomain(WebError::domain())) {
         // try to decode JSON
         struct json_tokener* tokener = json_tokener_new();
-        struct json_object *o = json_tokener_parse_ex(tokener, response.c_str(), (int)response.size());
+        struct json_object *o = json_tokener_parse_ex(tokener, mResponse.c_str(), (int)mResponse.size());
         if (o==NULL) {
           // error (or incomplete JSON, which is fine)
           JsonError::ErrorCodes err = json_tokener_get_error(tokener);
           if (err!=json_tokener_continue) {
             // real JSON error - however, if we already have a http level error, just annotate
-            if (Error::notOK(requestError))
-              requestError->prefixMessage("JSON cannot be decoded, probably due to: ");
+            if (Error::notOK(mRequestError))
+              mRequestError->prefixMessage("JSON cannot be decoded, probably due to: ");
             else
-              requestError = ErrorPtr(new JsonError(err));
+              mRequestError = ErrorPtr(new JsonError(err));
           }
         }
         else {
@@ -66,16 +66,16 @@ void JsonWebClient::requestThreadSignal(ChildThreadWrapper &aChildThread, Thread
         json_tokener_free(tokener);
       }
       // call back with result of request
-      LOG(LOG_DEBUG, "JsonWebClient: <- received JSON response (Error=%s), answer:\n%s", Error::text(requestError), JsonObject::text(message));
+      LOG(LOG_DEBUG, "JsonWebClient: <- received JSON response (Error=%s), answer:\n%s", Error::text(mRequestError), JsonObject::text(message));
       // Note: this callback might initiate another request already
-      if (jsonResponseCallback) {
+      if (mJsonResponseCallback) {
         // use this callback, but as callback routine might post another request immediately, we need to free the member first
-        JsonWebClientCB cb = jsonResponseCallback;
-        jsonResponseCallback.clear();
-        cb(message, requestError);
+        JsonWebClientCB cb = mJsonResponseCallback;
+        mJsonResponseCallback.clear();
+        cb(message, mRequestError);
       }
       // release child thread object now
-      childThread.reset();
+      mChildThread.reset();
     }
     else {
       // none of the signals we understand at this level (e.g. httpThreadSignalDataReady), let inherited handle that
@@ -93,7 +93,7 @@ void JsonWebClient::requestThreadSignal(ChildThreadWrapper &aChildThread, Thread
 bool JsonWebClient::jsonRequest(const char *aURL, JsonWebClientCB aResponseCallback, const char *aMethod, JsonObjectPtr aJsonRequest, const char* aContentType, bool aSaveHeaders)
 {
   // set callback
-  jsonResponseCallback = aResponseCallback;
+  mJsonResponseCallback = aResponseCallback;
   // encode JSON, if any
   string jsonstring;
   if (aJsonRequest) {
@@ -108,7 +108,7 @@ bool JsonWebClient::jsonReturningRequest(const char *aURL, JsonWebClientCB aResp
 {
   if (!aContentType) aContentType = CONTENT_TYPE_FORMDATA;
   // set callback
-  jsonResponseCallback = aResponseCallback;
+  mJsonResponseCallback = aResponseCallback;
   LOG(LOG_DEBUG, "JsonWebClient: -> sending %s raw data request to %s:\n%s", aMethod, aURL, aPostData.c_str());
   return httpRequest(aURL, NoOP, aMethod, aPostData.c_str(), aContentType,  -1, aSaveHeaders);
 }

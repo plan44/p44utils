@@ -1,6 +1,6 @@
 //  SPDX-License-Identifier: GPL-3.0-or-later
 //
-//  Copyright (c) 2013-2023 plan44.ch / Lukas Zeller, Zurich, Switzerland
+//  Copyright (c) 2013-2025 plan44.ch / Lukas Zeller, Zurich, Switzerland
 //
 //  Author: Lukas Zeller <luz@plan44.ch>
 //
@@ -102,42 +102,42 @@ namespace p44 {
       basic_first = 2, // basic auth is attempted in first try without server asking for it
     } AuthMode; ///< http auth mode
 
-    HttpHeaderMapPtr responseHeaders; ///< the response headers when httpRequest is called with aSaveHeaders
-    int responseStatus; ///< set to the status code of the response (in all cases, success or not, 0 if none)
+    HttpHeaderMapPtr mResponseHeaders; ///< the response headers when httpRequest is called with aSaveHeaders
+    int mResponseStatus; ///< set to the status code of the response (in all cases, success or not, 0 if none)
 
   private:
 
-    HttpCommCB responseCallback;
+    HttpCommCB mResponseCallback;
 
     // vars used in subthread, only access when !requestInProgress
-    string requestURL;
-    string method;
-    string contentType;
-    string requestBody;
-    string username;
-    string password;
-    AuthMode authMode;
-    string clientCertFile;
-    string serverCertVfyDir;
-    int responseDataFd;
-    size_t bufferSz; ///< buffer size for civetweb/mongoose data read operations
-    bool streamResult; ///< if set, result will be "streamed", meaning callback will be called multiple times as data chunks arrive
-    MLMicroSeconds timeout; ///< timeout, Never = use default, do not set
-    struct mg_connection *mgConn; ///< mongoose connection
-    void *httpAuthInfo; ///< opaque auth info kept stored between connections
+    string mRequestURL;
+    string mMethod;
+    string mContentType;
+    string mRequestBody;
+    string mUsername;
+    string mPassword;
+    AuthMode mAuthMode;
+    string mClientCertFile;
+    string mServerCertVfyDir;
+    int mResponseDataFd;
+    size_t mBufferSz; ///< buffer size for civetweb/mongoose data read operations
+    bool mStreamResult; ///< if set, result will be "streamed", meaning callback will be called multiple times as data chunks arrive
+    MLMicroSeconds mTimeout; ///< timeout, Never = use default, do not set
+    struct mg_connection *mMgConn; ///< mongoose connection
+    void *mHttpAuthInfo; ///< opaque auth info kept stored between connections
 
   protected:
 
-    MainLoop &mainLoop;
+    MainLoop &mMainLoop;
 
-    bool requestInProgress; ///< set when request is in progress and no new request can be issued
+    bool mRequestInProgress; ///< set when request is in progress and no new request can be issued
 
     // vars used in subthread, only access when !requestInProgress
-    ChildThreadWrapperPtr childThread;
-    string response;
-    ErrorPtr requestError;
-    HttpHeaderMap requestHeaders; ///< extra request headers to be included with the request(s)
-    bool dataProcessingPending; ///< set until main thread has returned from callback in streamResult mode
+    ChildThreadWrapperPtr mChildThread;
+    string mResponse;
+    ErrorPtr mRequestError;
+    HttpHeaderMap mRequestHeaders; ///< extra request headers to be included with the request(s)
+    bool mDataProcessingPending; ///< set until main thread has returned from callback in streamResult mode
 
   public:
 
@@ -145,32 +145,32 @@ namespace p44 {
     virtual ~HttpComm();
 
     /// clear request headers
-    void clearRequestHeaders() { requestHeaders.clear(); };
+    void clearRequestHeaders() { mRequestHeaders.clear(); };
 
     /// add a request header (will be used on all subsequent requests
     /// @param aHeaderName the name of the header
     /// @param aHeaderValue the value of the header
-    void addRequestHeader(const string aHeaderName, const string aHeaderValue) { requestHeaders[aHeaderName] = aHeaderValue; };
+    void addRequestHeader(const string aHeaderName, const string aHeaderValue) { mRequestHeaders[aHeaderName] = aHeaderValue; };
 
     /// set http (digest) auth credentials (will be used on all subsequent requests)
     /// @param aUsername user name (empty means no http auth user)
     /// @param aPassword password (empty means no http auth pw)
     /// @param aAuthMode defaults to digest_only.
-    void setHttpAuthCredentials(const string aUsername, const string aPassword, AuthMode aAuthMode = digest_only) { username = aUsername; password = aPassword; authMode = aAuthMode; };
+    void setHttpAuthCredentials(const string aUsername, const string aPassword, AuthMode aAuthMode = digest_only) { mUsername = aUsername; mPassword = aPassword; mAuthMode = aAuthMode; };
 
     /// explicitly set socket timeout to use
     /// @param aTimeout set to timeout value or Never for no timeout at all
-    void setTimeout(MLMicroSeconds aTimeout) { timeout = aTimeout; };
+    void setTimeout(MLMicroSeconds aTimeout) { mTimeout = aTimeout; };
 
     /// explicitly set a receiving data buffer size
     /// @param aBufferSize size of buffer for receiving data. Default is ok for API calls -
     ///   only set a large buffer when you need more performance for receiving a lot of data.
-    void setBufferSize(size_t aBufferSize) { bufferSz = aBufferSize; };
+    void setBufferSize(size_t aBufferSize) { mBufferSz = aBufferSize; };
 
     /// explicitly set a client certificate path
     /// @param aClientCertFile set file path to a client certificate to use with the connection.
     ///   Use empty string to use no certificate.
-    void setClientCertFile(const string aClientCertFile) { clientCertFile = aClientCertFile; };
+    void setClientCertFile(const string aClientCertFile) { mClientCertFile = aClientCertFile; };
 
     /// explicitly set a client certificate path
     /// @param aServerCertVfyDir set file path to the root certificate file or directory for checking
@@ -180,7 +180,7 @@ namespace p44 {
     ///   - Specify a path (such as "/etc/ssl/cert") to specify a certs directory
     ///     (which must contain OpenSSL style certs and hash links created with c_rehash utility)
     ///   - prefix a file name with "=" to specify a CAFile (multiple certs in one file)
-    void setServerCertVfyDir(const string aServerCertVfyDir) { serverCertVfyDir = aServerCertVfyDir; };
+    void setServerCertVfyDir(const string aServerCertVfyDir) { mServerCertVfyDir = aServerCertVfyDir; };
 
     
     /// send a HTTP or HTTPS request
@@ -190,7 +190,7 @@ namespace p44 {
     /// @param aRequestBody a C string containing the request body to send, or NULL if none
     /// @param aContentType the content type for the body to send (including a charset spec, possibly), or NULL to use default
     /// @param aResponseDataFd if>=0, response data will be written to that file descriptor
-    /// @param aSaveHeaders if true, responseHeaders will be set to a string,string map containing the headers
+    /// @param aSaveHeaders if true, mResponseHeaders will be set to a string,string map containing the headers
     /// @param aStreamResult if true, response body will be delivered in chunks as they become available.
     ///   An empty result will be delivered when stream ends.
     /// @return false if no request could be initiated (already busy with another request).

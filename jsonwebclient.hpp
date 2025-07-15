@@ -1,6 +1,6 @@
 //  SPDX-License-Identifier: GPL-3.0-or-later
 //
-//  Copyright (c) 2013-2023 plan44.ch / Lukas Zeller, Zurich, Switzerland
+//  Copyright (c) 2013-2025 plan44.ch / Lukas Zeller, Zurich, Switzerland
 //
 //  Author: Lukas Zeller <luz@plan44.ch>
 //
@@ -49,7 +49,7 @@ namespace p44 {
   {
     typedef HttpComm inherited;
 
-    JsonWebClientCB jsonResponseCallback;
+    JsonWebClientCB mJsonResponseCallback;
 
   public:
 
@@ -62,7 +62,7 @@ namespace p44 {
     /// @param aMethod the HTTP method to use (defaults to "GET")
     /// @param aJsonRequest the JSON request to send (defaults to none)
     /// @param aContentType the content type/charset or NULL to use the default (application/json; charset=UTF-8)
-    /// @param aSaveHeaders if true, responseHeaders will be set to a string,string map containing the headers
+    /// @param aSaveHeaders if true, mResponseHeaders will be set to a string,string map containing the headers
     /// @return false if no request could be initiated (already busy with another request).
     ///   If false, aHttpCallback will not be called
     bool jsonRequest(const char *aURL, JsonWebClientCB aResponseCallback, const char *aMethod = "GET", JsonObjectPtr aJsonRequest = JsonObjectPtr(), const char* aContentType = NULL, bool aSaveHeaders = false);
@@ -73,7 +73,7 @@ namespace p44 {
     /// @param aMethod the HTTP method to use (defaults to "POST")
     /// @param aPostData the raw POST data to send (for POST or PUT requests)
     /// @param aContentType the content type/charset or NULL to use the default (application/x-www-form-urlencoded; charset=UTF-8)
-    /// @param aSaveHeaders if true, responseHeaders will be set to a string,string map containing the headers
+    /// @param aSaveHeaders if true, mResponseHeaders will be set to a string,string map containing the headers
     /// @return false if no request could be initiated (already busy with another request).
     ///   If false, aHttpCallback will not be called
     bool jsonReturningRequest(const char *aURL, JsonWebClientCB aResponseCallback, const char *aMethod = "POST", const string &aPostData = "", const char* aContentType = NULL, bool aSaveHeaders = false);
