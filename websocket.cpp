@@ -181,9 +181,7 @@ void WebSocketClient::connectTo(StatusCB aOnOpenCB, const string aUrl, MLMicroSe
   }
   // report immediate failure
   if (aOnOpenCB) {
-    StatusCB cb = mOnOpenCloseCB;
-    mOnOpenCloseCB = NoOP;
-    cb(err);
+    aOnOpenCB(err);
   }
 }
 
