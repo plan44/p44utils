@@ -796,6 +796,7 @@ void DnsSdServiceBrowser::avahi_browse_callback(AvahiServiceBrowser *b, AvahiIfI
 void DnsSdServiceBrowser::browse_callback(AvahiServiceBrowser *b, AvahiIfIndex interface, AvahiProtocol protocol, AvahiBrowserEvent event, const char *name, const char *type, const char *domain, AVAHI_GCC_UNUSED AvahiLookupResultFlags flags)
 {
   ErrorPtr err;
+  DnsSdServiceInfoPtr bi;
   // set member var early, because this callback can happen BEFORE avahi_service_browser_new() returns!
   mServiceBrowser = b;
   // Called whenever a new services becomes available on the LAN or is removed from the LAN
@@ -823,15 +824,12 @@ void DnsSdServiceBrowser::browse_callback(AvahiServiceBrowser *b, AvahiIfIndex i
       SOLOG(mManager, LOG_INFO, "browsing: VANISHED service '%s' of type '%s' in domain '%s'", name, type, domain);
       if (mServiceBrowserCB) {
         // create info object
-        DnsSdServiceInfoPtr bi = DnsSdServiceInfoPtr(new DnsSdServiceInfo);
+        bi = DnsSdServiceInfoPtr(new DnsSdServiceInfo);
         bi->disappeared = true;
         bi->name = name;
         bi->domain = domain;
         bi->port = 0;
         bi->lookupFlags = flags;
-        // report service having disappeared
-        mServiceBrowserCB(ErrorPtr(), bi);
-        return; // wait for resolved entry
       }
       break;
     case AVAHI_BROWSER_ALL_FOR_NOW:
@@ -850,13 +848,13 @@ void DnsSdServiceBrowser::browse_callback(AvahiServiceBrowser *b, AvahiIfIndex i
     default:
       return;
   }
-  // something to report
+  // report error or DnsSdServiceInfo (bi)
+  bool keepBrowsing = false;
   if (mServiceBrowserCB) {
-    bool keepBrowsing = mServiceBrowserCB(err, DnsSdServiceInfoPtr());
-    if (!keepBrowsing) {
-      avahi_service_browser_free(mServiceBrowser);
-      mServiceBrowser = NULL;
-    }
+    keepBrowsing = mServiceBrowserCB(err, bi);
+  }
+  if (!keepBrowsing) {
+    stopBrowsing();
   }
 }
 
@@ -919,7 +917,7 @@ void DnsSdServiceBrowser::resolve_callback(AvahiServiceResolver *r, AvahiIfIndex
   if (mResolving<=0) {
     // all resolving finished, report if we've seen allfornow in the meantime
     if (mAllForNow && keepBrowsing) {
-      keepBrowsing = mServiceBrowserCB(Error::err<DnsSdError>(DnsSdError::AllForNow, "all dns-sd entries for now"), DnsSdServiceInfoPtr());
+      keepBrowsing = mServiceBrowserCB && mServiceBrowserCB(Error::err<DnsSdError>(DnsSdError::AllForNow, "all dns-sd entries for now"), DnsSdServiceInfoPtr());
     }
     mAllForNow = false;
   }
