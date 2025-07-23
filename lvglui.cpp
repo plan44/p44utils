@@ -1198,7 +1198,7 @@ static void elementEventHandler(lv_event_t* aEvent)
 
 LVGLUIEventHandler::LVGLUIEventHandler(LVGLUiElement& aElement, lv_event_code_t aEventCode, const string& aSource) :
   mLVGLUIElement(aElement),
-  mEventScript(scriptbody+regular, eventName(aEventCode) /* static char* */, nullptr, nullptr)
+  mEventScript(scriptbody+regular, eventName(aEventCode) /* static char* */, nullptr, mLVGLUIElement.getLvGLUi().getLoggingContext())
 {
   mEventScript.setSource(aSource);
   lv_obj_add_event_cb(mLVGLUIElement.mElement, elementEventHandler, aEventCode, this);
@@ -1484,7 +1484,7 @@ ErrorPtr LvGLUiContainer::addElements(JsonObjectPtr aElementConfigArray, LvGLUiC
     }
     err = uielement->configure(elementConfig);
     if (Error::notOK(err)) break;
-    FOCUSLOG("Created Element '%s' from: %s", uielement->getName().c_str(), elementConfig->c_strValue());
+    FOCUSPOLOG(getLvGLUi().getLoggingContext(), "Created Element '%s' from: %s", uielement->getName().c_str(), elementConfig->c_strValue());
     // add to named elements if it has a name
     if (!uielement->getName().empty()) {
       mNamedElements[uielement->getName()] = uielement;
@@ -1806,7 +1806,7 @@ ErrorPtr LvGLUiBar::setProperty(const string& aName, JsonObjectPtr aValue)
 void LvGLUiBar::setValue(int16_t aValue, uint16_t aAnimationTimeMs)
 {
   if (aAnimationTimeMs>0) {
-    LOG(LOG_ERR, "animation not yet supported");
+    POLOG(getLvGLUi().getLoggingContext(), LOG_ERR, "animation not yet supported");
     // TODO: implement
   }
   lv_bar_set_value(mElement, aValue, aAnimationTimeMs>0 ? LV_ANIM_ON : LV_ANIM_OFF);
@@ -1850,7 +1850,7 @@ int16_t LvGLUiSlider::getValue()
 void LvGLUiSlider::setValue(int16_t aValue, uint16_t aAnimationTimeMs)
 {
   if (aAnimationTimeMs>0) {
-    LOG(LOG_ERR, "animation not yet supported");
+    POLOG(getLvGLUi().getLoggingContext(), LOG_ERR, "animation not yet supported");
     // TODO: implement
   }
   lv_slider_set_value(mElement, aValue, aAnimationTimeMs>0 ? LV_ANIM_ON : LV_ANIM_OFF);
@@ -2160,9 +2160,10 @@ ErrorPtr LvGLUiScale::setProperty(const string& aName, JsonObjectPtr aValue)
 
 static LvGLUi* gLvgluiP = nullptr;
 
-LvGLUi::LvGLUi() :
+LvGLUi::LvGLUi(P44LoggingObj* aLoggingContextP) :
   inherited(*this, nullptr),
   mDataPathResources(false),
+  mLoggingContextP(aLoggingContextP),
   mEmptyScreen(nullptr),
   mActivityState(ui_idle),
   mShortActivityTimeout(Never), // no backlight timeout by default
@@ -2457,7 +2458,7 @@ ScriptObjPtr LvGLUi::representingScriptObj()
 void LVGLUiElement::runEventScript(lv_event_code_t aEventCode, ScriptHost& aScriptHost)
 {
   const char* en = eventName(aEventCode);
-  LOG(LOG_INFO, "--- Starting/queuing action script for event='%s', LVGLUiElement '%s'", en, getName().c_str());
+  POLOG(getLvGLUi().getLoggingContext(), LOG_INFO, "--- Starting/queuing action script for event='%s', LVGLUiElement '%s'", en, getName().c_str());
   aScriptHost.setSharedMainContext(mLvglui.getScriptMainContext());
   // pass the event and sender as a thread-local variables
   SimpleVarContainer* eventThreadLocals = new SimpleVarContainer();
@@ -2469,7 +2470,7 @@ void LVGLUiElement::runEventScript(lv_event_code_t aEventCode, ScriptHost& aScri
 
 void LVGLUiElement::scriptDone()
 {
-  LOG(LOG_INFO, "--- Finished action script for LVGLUiElement '%s'", getName().c_str());
+  POLOG(getLvGLUi().getLoggingContext(), LOG_INFO, "--- Finished action script for LVGLUiElement '%s'", getName().c_str());
 }
 
 

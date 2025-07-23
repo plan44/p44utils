@@ -305,7 +305,7 @@ namespace p44 {
     virtual ErrorPtr setProperty(const string& aName, JsonObjectPtr aValue) P44_OVERRIDE;
     virtual void setTextRaw(const string &aNewText) P44_OVERRIDE;
     virtual bool wrapperNeeded() P44_OVERRIDE { return true; }; // wrapper stores the image source, must be kept
-};
+  };
 
 
   #if LV_USE_LABEL
@@ -317,7 +317,8 @@ namespace p44 {
     virtual ErrorPtr setProperty(const string& aName, JsonObjectPtr aValue) P44_OVERRIDE;
     virtual void setTextRaw(const string &aNewText) P44_OVERRIDE;
   };
-  #endif
+  #endif // LV_USE_LABEL
+
 
   #if LV_USE_QRCODE
   class LvGLUiQRCode : public LVGLUiElement
@@ -328,7 +329,7 @@ namespace p44 {
     virtual ErrorPtr setProperty(const string& aName, JsonObjectPtr aValue) P44_OVERRIDE;
     virtual void setTextRaw(const string &aNewText) P44_OVERRIDE;
   };
-  #endif
+  #endif // LV_USE_QRCODE
 
 
   #if LV_USE_BUTTON
@@ -342,7 +343,7 @@ namespace p44 {
   protected:
     virtual void setTextRaw(const string &aNewText) P44_OVERRIDE;
   };
-  #endif
+  #endif // LV_USE_BUTTON
 
 
   #if LV_USE_IMAGEBUTTON
@@ -362,7 +363,8 @@ namespace p44 {
   protected:
     static const void *imgBtnSrc(const string& aSource);
   };
-  #endif
+  #endif // LV_USE_IMAGEBUTTON
+
 
   #if LV_USE_BAR
   class LvGLUiBar : public LVGLUiElement
@@ -375,7 +377,8 @@ namespace p44 {
     virtual int16_t getValue() P44_OVERRIDE { return lv_bar_get_value(mElement); }
     virtual void setValue(int16_t aValue, uint16_t aAnimationTimeMs = 0) P44_OVERRIDE;
   };
-  #endif
+  #endif // LV_USE_BAR
+
 
   #if LV_USE_SLIDER
   class LvGLUiSlider : public LVGLUiElement
@@ -388,7 +391,7 @@ namespace p44 {
     virtual int16_t getValue() P44_OVERRIDE;
     virtual void setValue(int16_t aValue, uint16_t aAnimationTimeMs = 0) P44_OVERRIDE;
   };
-  #endif
+  #endif // LV_USE_SLIDER
 
 
   #if LV_USE_SWITCH
@@ -401,7 +404,7 @@ namespace p44 {
     virtual int16_t getValue() P44_OVERRIDE;
     virtual void setValue(int16_t aValue, uint16_t aAnimationTimeMs = 0) P44_OVERRIDE;
   };
-  #endif
+  #endif // LV_USE_SWITCH
 
 
   #if LV_USE_ARC
@@ -415,7 +418,7 @@ namespace p44 {
     virtual int16_t getValue() P44_OVERRIDE;
     virtual void setValue(int16_t aValue, uint16_t aAnimationTimeMs = 0) P44_OVERRIDE;
   };
-  #endif
+  #endif // LV_USE_ARC
 
 
   #if LV_USE_LINE
@@ -429,7 +432,7 @@ namespace p44 {
     virtual bool wrapperNeeded() P44_OVERRIDE { return mPoints || inherited::wrapperNeeded(); }; // needed if we have points (usually: yes)
     virtual ErrorPtr setProperty(const string& aName, JsonObjectPtr aValue) P44_OVERRIDE;
   };
-  #endif
+  #endif // LV_USE_LINE
 
 
   #if LV_USE_SCALE
@@ -449,7 +452,7 @@ namespace p44 {
   protected:
     virtual void setValue(int16_t aValue, uint16_t aAnimationTimeMs = 0) P44_OVERRIDE;
   };
-  #endif
+  #endif // LV_USE_SCALE
 
 
   // MARK: - LvGLUi
@@ -465,6 +468,7 @@ namespace p44 {
     } ActivityState;
 
     lv_disp_t* mDisplay; ///< the display this gui appears on
+    P44LoggingObj* mLoggingContextP; ///< the logging context
     lv_obj_t* mEmptyScreen; ///< a programmatically created "screen" we can load when UI gets redefined
     ActivityState mActivityState; ///< the (user) activity state, for dimming background or returning to a home screen
     MLMicroSeconds mShortActivityTimeout; ///< short timeout (e.g. for backlight dimming after some inactivity)
@@ -487,7 +491,8 @@ namespace p44 {
 
   public:
 
-    LvGLUi();
+    /// @param aLoggingContextP the logging context to use (for p44script event handlers, for example)
+    LvGLUi(P44LoggingObj* aLoggingContextP);
     virtual ~LvGLUi();
 
     #if ENABLE_LVGLUI_SCRIPT_FUNCS
@@ -508,6 +513,8 @@ namespace p44 {
     /// initialize for use with a specified display
     /// @param aDisplay the display to use
     void initForDisplay(lv_disp_t* aDisplay);
+
+    P44LoggingObj* getLoggingContext() { return mLoggingContextP; };
 
     /// called from LVGL once per task (should do little)
     void taskCallBack();
