@@ -7629,7 +7629,7 @@ void ScriptCodeThread::complete(ScriptObjPtr aFinalResult)
     //   avoid heaping up paused threads
   }
   else
-  #endif
+  #endif // P44SCRIPT_DEBUGGING_SUPPORT
   {
     // deactivate myself to break any remaining retain loops
     if (mOwner) mOwner->threadTerminated(this, mEvaluationFlags);
@@ -9526,15 +9526,25 @@ static void loglevel_func(BuiltinFunctionContextPtr f)
 }
 
 
-// logleveloffset()
-// logleveloffset(newoffset)
-FUNC_ARG_DEFS(logleveloffset, { numeric|optionalarg } );
+// logleveloffset() // query the logLevelOffset of the logging context of the thread
+// logleveloffset(newoffset) // set a new logLevelOffset for the logging context of the thread
+// logleveloffset(null, object) // query a the logLevelOffset of the logging context of the specified object
+// logleveloffset(newoffset, object) // set a new logLevelOffset for the logging context of the specified object
+FUNC_ARG_DEFS(logleveloffset, { numeric|null|optionalarg }, { alltypes|optionalarg } );
 static void logleveloffset_func(BuiltinFunctionContextPtr f)
 {
-  int oldOffset = f->getLogLevelOffset();
-  if (f->numArgs()>0) {
+  P44LoggingObj* target = f->thread()->loggingContext();
+  if (f->numArgs()>1) {
+    // setting the loglevel of a specified object's loggingContext
+    target = f->arg(1)->loggingContext();
+  }
+  if (!target) target = f.get(); // should not happen, but f is always a LoggingObj
+  int oldOffset = target->getLogLevelOffset();
+  // we can specify null as new level to query an arbitrary object
+  if (f->numArgs()>0 && f->arg(0)->defined()) {
+    // change the offset
     int newOffset = f->arg(0)->intValue();
-    f->setLogLevelOffset(newOffset);
+    target->setLogLevelOffset(newOffset);
   }
   f->finish(new IntegerValue(oldOffset));
 }

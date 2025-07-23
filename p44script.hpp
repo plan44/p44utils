@@ -251,7 +251,7 @@ namespace p44 { namespace P44Script {
     threadref = 0x200, ///< represents a running thread
     // type check modifier flags
     allof = 0x400, ///< for type requirements only: checked type (within checkedTypesMask) must have all type flags set present in the requirements
-    nonebut = 0x800, ///< for type requirements only: hecked type (within checkedTypesMask) must not have any type flags set not present in the requirements
+    nonebut = 0x800, ///< for type requirements only: checked type (within checkedTypesMask) must not have any type flags set not present in the requirements
     checkedTypesMask = typeMask&~(allof|nonebut), ///< type flags minus check flags
     // - type classes
     alltypes = checkedTypesMask, ///< all types
@@ -517,10 +517,13 @@ namespace p44 { namespace P44Script {
     virtual P44LoggingObj* loggingContext() const { return NULL; };
 
     /// @return the prefix to be used for logging from this object
+    /// @note overriding this allows ScriptObj to use logginPrefix/logLevelOffset of a more suitable object
     virtual string logContextPrefix() P44_OVERRIDE;
 
     /// @return the per-instance log level offset
-    /// @note is virtual because some objects might want to use the log level offset of another object
+    /// @note overriding this allows ScriptObj to use logginPrefix/logLevelOffset of a more suitable object
+    ///   (This implementation does inherit the larger context's offset (usually that of the scripthost)
+    ///   when the object itself has no offset!=0 of its own.
     virtual int getLogLevelOffset() P44_OVERRIDE;
 
     /// @return associated position, can be NULL
@@ -1835,7 +1838,7 @@ namespace p44 { namespace P44Script {
 
     /// @return number of breakpoints
     virtual size_t numBreakpoints() { return 0; };
-    #endif
+    #endif // P44SCRIPT_DEBUGGING_SUPPORT
   };
 
 
