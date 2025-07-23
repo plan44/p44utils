@@ -295,17 +295,44 @@ namespace p44 {
 
     P44LoggingObj();
 
-    /// @return the prefix to be used for logging from this object
-    virtual string logContextPrefix();
-
-    /// @return name (usually user-defined) of the context object
-    virtual string contextName() const;
+    /// @name components for default logContextPrefix() implementation
+    /// @{
 
     /// @return type (such as: device, element, vdc, trigger) of the context object
+    /// @note this should always be overridden with a sensible text identifying the originating object (class)
     virtual string contextType() const;
 
+    /// @return name (usually user-defined) of the context object
+    /// @note this may be overridden for object instances which have log-relevant name
+    virtual string contextName() const;
+
     /// @return id identifying the context object
+    /// @note this may be overridden for object instances which have a log-relevant ID
     virtual string contextId() const;
+
+    /// @}
+
+    /// @name virtual methods that might be overridden
+    /// @{
+
+    /// @return the prefix to be used for logging from this object
+    /// @note may be overridden for example by objects which would want another log prefix than
+    ///   the default (which is based on this object's contextType()/contextName()/contextId()),
+    ///   for example taking the prefix from another object.
+    virtual string logContextPrefix();
+
+    /// @return the per-instance log level offset
+    /// @note is virtual because some objects might want to use the log level offset of another object
+    virtual int getLogLevelOffset();
+
+    /// set the log level offset on this logging object (and possibly contained sub-objects)
+    /// @param aLogLevelOffset the new log level offset
+    /// @note is virtual because some objects might want to set the log level offset of another object,
+    ///   especially when getLogLevelOffset() uses another object's offset, to target that one.
+    virtual void setLogLevelOffset(int aLogLevelOffset);
+
+    /// @}
+
 
     /// test if log is enabled from this object at a given level
     /// @param aLogLevel level to check
@@ -316,16 +343,9 @@ namespace p44 {
     /// @param aFmt ... printf style error message
     void log(int aErrLevel, const char *aFmt, ... ) __printflike(3,4);
 
-    /// @return the per-instance log level offset
-    /// @note is virtual because some objects might want to use the log level offset of another object
-    virtual int getLogLevelOffset();
-
     /// @return always locally stored offset, even when getLogLevelOffset() returns something else
     int getLocalLogLevelOffset() { return mLogLevelOffset; }
 
-    /// set the log level offset on this logging object (and possibly contained sub-objects)
-    /// @param aLogLevelOffset the new log level offset
-    virtual void setLogLevelOffset(int aLogLevelOffset);
 
   };
 

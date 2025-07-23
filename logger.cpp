@@ -335,16 +335,16 @@ P44LoggingObj::P44LoggingObj() :
 }
 
 
-string P44LoggingObj::contextName() const
-{
-  return "";
-}
-
-
 string P44LoggingObj::contextType() const
 {
   // type is not optional, all derivates should define it - if they don't just identify the object
   return string_format("P44LoggingObj @%p", this);
+}
+
+
+string P44LoggingObj::contextName() const
+{
+  return "";
 }
 
 
@@ -392,7 +392,7 @@ void P44LoggingObj::log(int aErrLevel, const char *aFmt, ... )
       else if (offs<0) context = gReducedLevelPrefix;
     }
     else
-    #endif
+    #endif // ENABLE_LOG_COLORS
     {
       if (offs!=0) context = string_format("[%+d] ", offs);
     }
