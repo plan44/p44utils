@@ -736,6 +736,7 @@ void DnsSdServiceBrowser::invalidate()
   mServiceBrowser = NULL;
 }
 
+
 void DnsSdServiceBrowser::deactivate()
 {
   if (mServiceBrowser) {
@@ -747,13 +748,43 @@ void DnsSdServiceBrowser::deactivate()
 
 void DnsSdServiceBrowser::stopBrowsing()
 {
+  FOCUSSOLOG(mManager, "stopBrowsing() starts");
+  // we do not want any callbacks
   mServiceBrowserCB = NoOP;
-  deactivate();
-  // remove myself from manager's list
-  for (DnsSdManager::ServiceBrowsersList::iterator pos = mManager.mServiceBrowsers.begin(); pos!=mManager.mServiceBrowsers.end(); ++pos) {
-    if (pos->get() == this) {
-      mManager.mServiceBrowsers.erase(pos);
-      break;
+  // but we might need awaiting already started resolver callbacks
+  reportAndStopIfDoneNow(ErrorPtr(), DnsSdServiceInfoPtr());
+}
+
+
+void DnsSdServiceBrowser::reportAndStopIfDoneNow(ErrorPtr aError, DnsSdServiceInfoPtr aServiceInfo)
+{
+  bool keepReporting = false; // unless we get an indication to continue: don't
+  if (mServiceBrowserCB) {
+    // callback still set means we need to report
+    keepReporting = mServiceBrowserCB(aError, aServiceInfo);
+    if (keepReporting && mAllForNow) {
+      // ww also need to deliver the (already happened) all-for-now
+      keepReporting = mServiceBrowserCB(Error::err<DnsSdError>(DnsSdError::AllForNow, "all dns-sd entries for now"), DnsSdServiceInfoPtr());
+      mAllForNow = false; // reported
+    }
+  }
+  if (!keepReporting) {
+    // no more callbacks
+    mServiceBrowserCB = NoOP;
+    // and no need to continue browsing
+    deactivate();
+    // but maybe we need to await resolvings we have already started
+    if (mResolving<=0) {
+      // resolving is also done, so we can remove ourselves from the list and get deleted
+      FOCUSSOLOG(mManager, "reportAndStopIfDoneNow(): removing from manager");
+      // remove myself from manager's list
+      for (DnsSdManager::ServiceBrowsersList::iterator pos = mManager.mServiceBrowsers.begin(); pos!=mManager.mServiceBrowsers.end(); ++pos) {
+        if (pos->get() == this) {
+          mManager.mServiceBrowsers.erase(pos);
+          break;
+        }
+      }
+      FOCUSSOLOG(mManager, "reportAndStopIfDoneNow(): removed from manager");
     }
   }
 }
@@ -761,19 +792,13 @@ void DnsSdServiceBrowser::stopBrowsing()
 
 DnsSdServiceBrowser::~DnsSdServiceBrowser()
 {
-  if (mServiceBrowser) {
-    avahi_service_browser_free(mServiceBrowser);
-    invalidate();
-  }
+  deactivate();
 }
 
 
 void DnsSdServiceBrowser::browse(const char *aServiceType, DnsSdServiceBrowserCB aServiceBrowserCB)
 {
-  if (mServiceBrowser) {
-    avahi_service_browser_free(mServiceBrowser);
-    invalidate();
-  }
+  deactivate();
   mResolving = 0;
   mAllForNow = false;
   mServiceBrowser = avahi_service_browser_new(mManager.mService, AVAHI_IF_UNSPEC, AVAHI_PROTO_UNSPEC, aServiceType, NULL, (AvahiLookupFlags)0, avahi_browse_callback, this);
@@ -813,7 +838,7 @@ void DnsSdServiceBrowser::browse_callback(AvahiServiceBrowser *b, AvahiIfIndex i
       }
       SOLOG(mManager, LOG_INFO, "browsing: NEW service '%s' of type '%s' in domain '%s' -> resolving now", name, type, domain);
       // Note: the returned resolver object can be ignored, it is freed in the callback
-      //   if the server terminates before the callback has been executes, the server deletes the resolver.
+      //   if the server terminates before the callback has been executed, the server deletes the resolver.
       if (!(avahi_service_resolver_new(mManager.mService, interface, protocol, name, type, domain, protocol /* resolve to same proto as browsed */, (AvahiLookupFlags)0, avahi_resolve_callback, this))) {
         err = Error::err<DnsSdError>(DnsSdError::Fatal, "failed to create resolver browser failure: %s", avahi_strerror(avahi_service_errno(mManager.mService)));
         break;
@@ -849,13 +874,7 @@ void DnsSdServiceBrowser::browse_callback(AvahiServiceBrowser *b, AvahiIfIndex i
       return;
   }
   // report error or DnsSdServiceInfo (bi)
-  bool keepBrowsing = false;
-  if (mServiceBrowserCB) {
-    keepBrowsing = mServiceBrowserCB(err, bi);
-  }
-  if (!keepBrowsing) {
-    stopBrowsing();
-  }
+  reportAndStopIfDoneNow(err, bi);
 }
 
 
@@ -869,8 +888,8 @@ void DnsSdServiceBrowser::avahi_resolve_callback(AvahiServiceResolver *r, AvahiI
 void DnsSdServiceBrowser::resolve_callback(AvahiServiceResolver *r, AvahiIfIndex interface, AvahiProtocol protocol, AvahiResolverEvent event, const char *name, const char *type, const char *domain, const char *host_name, const AvahiAddress *a, uint16_t port, AvahiStringList *txt, AvahiLookupResultFlags flags)
 {
   ErrorPtr err;
+  DnsSdServiceInfoPtr bi;
   int avahiErr;
-  bool keepBrowsing = true;
   switch (event) {
     case AVAHI_RESOLVER_FAILURE:
       avahiErr = avahi_service_errno(mManager.mService);
@@ -883,7 +902,7 @@ void DnsSdServiceBrowser::resolve_callback(AvahiServiceResolver *r, AvahiIfIndex
       FOCUSSOLOG(mManager, "browsing: resolved service '%s' of type '%s' in domain '%s' at %s:", name, type, domain, addrtxt);
       if (mServiceBrowserCB) {
         // create info object
-        DnsSdServiceInfoPtr bi = DnsSdServiceInfoPtr(new DnsSdServiceInfo);
+        bi = DnsSdServiceInfoPtr(new DnsSdServiceInfo);
         bi->disappeared = false;
         bi->type = type;
         bi->name = name;
@@ -906,26 +925,14 @@ void DnsSdServiceBrowser::resolve_callback(AvahiServiceResolver *r, AvahiIfIndex
           }
           txt = avahi_string_list_get_next(txt);
         }
-        // report service found
-        keepBrowsing = mServiceBrowserCB(ErrorPtr(), bi);
       }
       break;
     }
   }
-  // resolving done
+  // resolving this entry done
   mResolving--;
-  if (mResolving<=0) {
-    // all resolving finished, report if we've seen allfornow in the meantime
-    if (mAllForNow && keepBrowsing) {
-      keepBrowsing = mServiceBrowserCB && mServiceBrowserCB(Error::err<DnsSdError>(DnsSdError::AllForNow, "all dns-sd entries for now"), DnsSdServiceInfoPtr());
-    }
-    mAllForNow = false;
-  }
-  avahi_service_resolver_free(r);
-  // maybe also kill browser now
-  if (!keepBrowsing) {
-    stopBrowsing();
-  }
+  FOCUSSOLOG(mManager, "browsing: pending resolves = %d", mResolving);
+  reportAndStopIfDoneNow(err, bi);
 }
 
 

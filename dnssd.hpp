@@ -254,6 +254,8 @@ namespace p44 {
     // stop avahi level browsing, and then invalidate()
     void deactivate();
 
+    void reportAndStopIfDoneNow(ErrorPtr aError, DnsSdServiceInfoPtr aServiceInfo);
+
   };
   typedef boost::intrusive_ptr<DnsSdServiceBrowser> DnsSdServiceBrowserPtr;
 
