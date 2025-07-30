@@ -80,7 +80,10 @@ bool Logger::stdoutLogEnabled(int aErrLevel)
 
 bool Logger::logEnabled(int aErrLevel, int aLevelOffset)
 {
+  if (aLevelOffset<=-3) return false; // always hide
+  if (aLevelOffset>=3) return true; // always show
   if (aLevelOffset && aErrLevel>=LOG_NOTICE) {
+    // promote or demote between LOG_DEBUG and LOG_NOTICE
     aErrLevel -= aLevelOffset;
     if (aErrLevel<LOG_NOTICE) aErrLevel = LOG_NOTICE;
     else if (aErrLevel>LOG_DEBUG) aErrLevel = LOG_DEBUG;

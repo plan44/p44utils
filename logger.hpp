@@ -112,6 +112,7 @@
 #define DBGOLOG(lvl,...) OLOG(lvl,##__VA_ARGS__)
 #define DBGSOLOGENABLED(obj,lvl) SOLOGENABLED(obj,lvl)
 #define DBGSOLOG(obj,lvl,...) SOLOG(obj,lvl,##__VA_ARGS__)
+#define DBGPOLOG(obj,lvl,...) POLOG(obj,lvl,##__VA_ARGS__)
 #define LOGGER_DEFAULT_LOGLEVEL LOG_DEBUG
 #else
 #define DEBUGLOGGING 0
@@ -125,6 +126,7 @@
 #define DBGOLOG(lvl,...)
 #define DBGSOLOGENABLED(obj,lvl) false
 #define DBGSOLOG(obj,lvl,...)
+#define DBGPOLOG(obj,lvl,...)
 #define LOGGER_DEFAULT_LOGLEVEL LOG_NOTICE
 #endif
 
