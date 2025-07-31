@@ -1011,7 +1011,8 @@ JsonObjectPtr StructuredValue::jsonValue(bool aDescribeNonJSON) const
   while ((o = iter->obtainKey(false))) {
     string key = o->stringValue();
     o = iter->obtainValue(aDescribeNonJSON ? none : nonebut|jsonrepresentable);
-    if (o) {
+    // Note: objects might contain a "this" member referring to themselves, do not expand that (or else: RECURSION!)
+    if (o && o!=this) {
       obj->add(key.c_str(), o->jsonValue(aDescribeNonJSON));
     }
     iter->next();
@@ -1491,6 +1492,7 @@ ErrorPtr SimpleVarContainer::setMemberByName(const string aName, const ScriptObj
 const ScriptObjPtr StructuredLookupObject::memberByName(const string aName, TypeInfo aMemberAccessFlags) const
 {
   FOCUSLOGLOOKUP("StructuredLookupObject");
+  if (aName=="this") return const_cast<StructuredLookupObject*>(this);
   ScriptObjPtr m;
   LookupList::const_iterator pos = mLookups.begin();
   while (pos!=mLookups.end()) {
@@ -10224,7 +10226,7 @@ static void threads_func(BuiltinFunctionContextPtr f)
   // create a threads list
   f->finish(f->thread()->owner()->threadsList());
 }
-#endif
+#endif // P44SCRIPT_DEBUGGING_SUPPORT
 
 
 #endif // SCRIPTING_JSON_SUPPORT
@@ -10340,7 +10342,7 @@ static const BuiltinMemberDescriptor standardFunctions[] = {
   FUNC_DEF_NOARG(globalbuiltins, executable|objectvalue),
   FUNC_DEF_NOARG(contextbuiltins, executable|objectvalue),
   FUNC_DEF_W_ARG(builtins, executable|objectvalue),
-  #endif
+  #endif // SCRIPTING_JSON_SUPPORT
   #if P44SCRIPT_FULL_SUPPORT
   FUNC_DEF_W_ARG(lock, executable|anyvalid),
   FUNC_DEF_NOARG(signal, executable|anyvalid),
