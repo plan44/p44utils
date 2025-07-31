@@ -931,6 +931,7 @@ void DnsSdServiceBrowser::resolve_callback(AvahiServiceResolver *r, AvahiIfIndex
   }
   // resolving this entry done
   mResolving--;
+  avahi_service_resolver_free(r); // dispose of this resolver, we do NOT want to get called again!
   FOCUSSOLOG(mManager, "browsing: pending resolves = %d", mResolving);
   reportAndStopIfDoneNow(err, bi);
 }
