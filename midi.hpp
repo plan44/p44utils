@@ -211,6 +211,7 @@ namespace p44 {
       virtual ~MidiBusObj();
       virtual void deactivate() P44_OVERRIDE;
       virtual string getAnnotation() const P44_OVERRIDE { return "midi bus"; };
+      virtual P44LoggingObj* loggingContext() const P44_OVERRIDE { return mMidiBus.get(); };
       MidiBusPtr midibus() { return mMidiBus; }
     private:
       void gotMessage(const MidiMessage &aMessage);

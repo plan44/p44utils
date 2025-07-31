@@ -9528,17 +9528,29 @@ static void loglevel_func(BuiltinFunctionContextPtr f)
 
 // logleveloffset() // query the logLevelOffset of the logging context of the thread
 // logleveloffset(newoffset) // set a new logLevelOffset for the logging context of the thread
-// logleveloffset(null, object) // query a the logLevelOffset of the logging context of the specified object
-// logleveloffset(newoffset, object) // set a new logLevelOffset for the logging context of the specified object
+// logleveloffset(null, topic_or_object) // query a the logLevelOffset of the logging context of the specified object
+// logleveloffset(newoffset, topic_or_object) // set a new logLevelOffset for the logging context of the specified object
 FUNC_ARG_DEFS(logleveloffset, { numeric|null|optionalarg }, { alltypes|optionalarg } );
 static void logleveloffset_func(BuiltinFunctionContextPtr f)
 {
   P44LoggingObj* target = f->thread()->loggingContext();
   if (f->numArgs()>1) {
-    // setting the loglevel of a specified object's loggingContext
-    target = f->arg(1)->loggingContext();
+    // setting the logleveloffset of a topic or of a specified object's loggingContext
+    if (f->arg(1)->hasType(text)) {
+      // look up logging context by log topic string
+      target = Application::sharedApplication()->getTopicLogObject(f->arg(1)->stringValue());
+    }
+    else {
+      // logging context
+      target = f->arg(1)->loggingContext();
+    }
   }
-  if (!target) target = f.get(); // should not happen, but f is always a LoggingObj
+  if (!target) {
+    // reading or writing: no target -> return null
+    f->finish(new AnnotatedNullValue("unknown topic/object"));
+    return;
+  }
+  // we have a target, get or set it's offset
   int oldOffset = target->getLogLevelOffset();
   // we can specify null as new level to query an arbitrary object
   if (f->numArgs()>0 && f->arg(0)->defined()) {

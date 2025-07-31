@@ -838,6 +838,7 @@ namespace p44 {
       virtual ~ModbusSlaveObj();
       virtual void deactivate() P44_OVERRIDE;
       virtual string getAnnotation() const P44_OVERRIDE { return "modbus slave"; };
+      virtual P44LoggingObj* loggingContext() const P44_OVERRIDE { return mModbus.get(); };
       ModbusSlavePtr modbus() { return mModbus; }
     private:
       ErrorPtr gotAccessed(int aAddress, bool aBit, bool aInput, bool aWrite);
@@ -855,6 +856,7 @@ namespace p44 {
       virtual ~ModbusMasterObj();
       virtual void deactivate() P44_OVERRIDE;
       virtual string getAnnotation() const P44_OVERRIDE { return "modbus master"; };
+      virtual P44LoggingObj* loggingContext() const P44_OVERRIDE { return mModbus.get(); };
       ModbusMasterPtr modbus() { return mModbus; }
     };
 

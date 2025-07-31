@@ -215,6 +215,9 @@ namespace p44 {
     /// @return the object type (used for context descriptions such as logging context)
     virtual string contextType() const P44_OVERRIDE { return "Application"; }
 
+    /// get logging object for a named topic
+    virtual P44LoggingObj* getTopicLogObject(const string aTopic) { return nullptr; /* base class has no logging subtopics */ }
+
   protected:
 
     /// daemonize

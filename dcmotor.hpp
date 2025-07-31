@@ -244,6 +244,7 @@ namespace p44 {
     public:
       DcMotorObj(DcMotorDriverPtr aDCMotor);
       virtual string getAnnotation() const P44_OVERRIDE { return "DC motor"; };
+      virtual P44LoggingObj* loggingContext() const P44_OVERRIDE { return mDCMotor.get(); };
       DcMotorDriverPtr dcMotor() { return mDCMotor; }
     };
 
