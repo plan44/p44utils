@@ -784,7 +784,7 @@ void DnsSdServiceBrowser::reportAndStopIfDoneNow(ErrorPtr aError, DnsSdServiceIn
           break;
         }
       }
-      FOCUSSOLOG(mManager, "reportAndStopIfDoneNow(): removed from manager");
+      FOCUSSOLOG(mManager, "reportAndStopIfDoneNow(): removed from manager, my refcount=%d", refCount());
     }
   }
 }
