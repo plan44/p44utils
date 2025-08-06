@@ -39,6 +39,15 @@ PixelColorComponent p44::dimVal(PixelColorComponent aVal, uint16_t aDim)
 }
 
 
+uint16_t p44::scaleVal(PixelColorComponent aVal, uint16_t aDim)
+{
+  if (aDim==0xFF) return aVal;
+  uint32_t d = (aDim+1)*aVal;
+  if (d>0xFFFFFF) return 0xFFFF;
+  return d>>8;
+}
+
+
 void p44::dimPixel(PixelColor &aPix, uint16_t aDim)
 {
   if (aDim==255) return; // 100% -> NOP

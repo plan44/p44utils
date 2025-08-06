@@ -460,6 +460,8 @@ namespace p44 {
     MLMicroSeconds mMinUpdateInterval; ///< minimum interval kept between updates to LED chain hardware
     MLMicroSeconds mMaxPriorityInterval; ///< maximum interval during which noisy view children are prevented from requesting rendering updates after prioritized (localTimingPriority==true) parent view did
 
+    uint16_t mMainDim; // 255 = 1:1, 0..254 dimmed down, 256..65535 = dimmed up (max factor 255)
+
   public:
 
     LEDChainArrangement();
@@ -501,6 +503,14 @@ namespace p44 {
     /// get minimal color intensity that does not completely switch off the color channel of the LED
     /// @return minimum r,g,b value
     uint8_t getMinVisibleColorIntensity();
+
+    /// get the current overall dim factor
+    /// @return the overall brightness dimming factor (1=100%)
+    double getMainDimFactor();
+
+    /// set the current overall dim factor
+    /// @param aMainDimFactor the overall brightness dimming factor (1=100%)
+    void setMainDimFactor(double aMainDimFactor);
 
     /// limit total power, dim LED chain output accordingly
     /// @param aMilliWatts how many milliwatts (approximatively) the total arrangement chains may use, 0=no limit

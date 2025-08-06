@@ -152,7 +152,7 @@ void LEDPowerConverter::powersForComponents(
   #define GPIO_DEFAULT_PIN 18 // P1 Pin 12, GPIO 18 (PCM_CLK)
   #define DMA 5 // don't change unless you know why
   #define MAX_BRIGHTNESS 255 // full brightness range
-#endif
+#endif // ENABLE_RPIWS281X
 
 
 // Power consumption according to
@@ -238,7 +238,7 @@ LEDChainComm::LEDChainComm(
   ,mUartSenderCond(PTHREAD_COND_INITIALIZER)
   ,mUartSenderShutdown(false)
   ,mUartSendflag(false)
-  #endif
+  #endif // ENABLE_LEDCHAIN_UART
   #endif
 {
   // set defaults
@@ -1170,6 +1170,7 @@ LEDChainArrangement::LEDChainArrangement() :
   mPowerLimitMw(0),
   mRequestedLightPowerMw(0),
   mActualLightPowerMw(0),
+  mMainDim(255), // 100% by default
   mPowerLimited(false),
   mLastUpdate(Never),
   mMinUpdateInterval(DEFAULT_MIN_UPDATE_INTERVAL),
@@ -1491,6 +1492,20 @@ int LEDChainArrangement::getCurrentPower()
 }
 
 
+double LEDChainArrangement::getMainDimFactor()
+{
+  return (double)mMainDim/255.0;
+}
+
+
+void LEDChainArrangement::setMainDimFactor(double aMainDimFactor)
+{
+  mMainDim = aMainDimFactor*255.0;
+  // make sure it gets applied immediately
+  if (mRootView) mRootView->makeDirtyAndUpdate();
+}
+
+
 
 MLMicroSeconds LEDChainArrangement::updateDisplay()
 {
@@ -1533,7 +1548,7 @@ MLMicroSeconds LEDChainArrangement::updateDisplay()
                     l.covers.x+x,
                     l.covers.y+y
                   });
-                  dimPixel(pix, pix.a);
+                  dimPixel(pix, scaleVal(pix.a, mMainDim)); // possibly scaled by mMainDim
                   #if DEBUG
                   //if (x==0 && y==0) pix={ 255,0,0,255 };
                   #endif
@@ -1810,6 +1825,7 @@ static void currentledpower_func(BuiltinFunctionContextPtr f)
 
 
 // setmaxledpower()
+FUNC_ARG_DEFS(setmaxledpower, { numeric } );
 static void setmaxledpower_func(BuiltinFunctionContextPtr f)
 {
   LEDChainLookup* l = dynamic_cast<LEDChainLookup*>(f->funcObj()->getMemberLookup());
@@ -1860,8 +1876,22 @@ static void ledchaincover_func(BuiltinFunctionContextPtr f)
 }
 
 
+// ledmaindim()
+// ledmaindim(newdim)
+FUNC_ARG_DEFS(ledmaindim, { numeric|optionalarg } );
+static void ledmaindim_func(BuiltinFunctionContextPtr f)
+{
+  LEDChainLookup* l = dynamic_cast<LEDChainLookup*>(f->funcObj()->getMemberLookup());
+  if (f->numArgs()==0) {
+    f->finish(new NumericValue(l->ledChainArrangement().getMainDimFactor()*100));
+  }
+  else {
+    l->ledChainArrangement().setMainDimFactor(f->arg(0)->doubleValue()/100);
+    f->finish();
+  }
+}
 
-FUNC_ARG_DEFS(setmaxledpower, { numeric } );
+
 static const BuiltinMemberDescriptor ledChainArrangementGlobals[] = {
   FUNC_DEF_W_ARG(addledchain, executable),
   FUNC_DEF_NOARG(removeledchains, executable),
@@ -1871,6 +1901,7 @@ static const BuiltinMemberDescriptor ledChainArrangementGlobals[] = {
   FUNC_DEF_W_ARG(setmaxledpower, executable),
   FUNC_DEF_W_ARG(setrootview, executable),
   FUNC_DEF_W_ARG(setledrefresh, executable),
+  FUNC_DEF_W_ARG(ledmaindim, executable),
   BUILTINS_TERMINATOR
 };
 
@@ -1882,8 +1913,6 @@ LEDChainLookup::LEDChainLookup(LEDChainArrangement& aLedChainArrangement) :
 }
 
 #endif // ENABLE_P44SCRIPT
-
-
 
 #endif // ENABLE_P44LRGRAPHICS
 
@@ -1923,4 +1952,4 @@ public:
 
 static PWMTableVerifier gV;
 
-#endif
+#endif // 0

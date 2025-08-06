@@ -64,6 +64,12 @@ namespace p44 {
   /// @return dimmed value, limited to max==255
   PixelColorComponent dimVal(PixelColorComponent aVal, uint16_t aDim);
 
+  /// scale aVal up or down, result is 16bit
+  /// @param aVal 0..255 value to dim up or down
+  /// @param aScale 0..65535: scaling, <255: scale down (dim), 255=1:1, >255: scale up
+  /// @return scaled value, limited to max==65535
+  uint16_t scaleVal(PixelColorComponent aVal, uint16_t aScale);
+
   /// dim  r,g,b values of a pixel (alpha unaffected)
   /// @param aPix the pixel
   /// @param aDim 0..255: dim, >255: light up (255=100%)
