@@ -137,6 +137,13 @@ void Application::signalOccurred(int aSignal, siginfo_t *aSiginfo)
   }
   // default action for all other signals is terminating the program
   OLOG(LOG_ERR, "Terminating because pid %d sent signal %d", aSiginfo->si_pid, aSignal);
+  terminateFromSignal();
+}
+
+
+void Application::terminateFromSignal()
+{
+  // default termination
   mMainLoop.terminate(EXIT_FAILURE);
 }
 

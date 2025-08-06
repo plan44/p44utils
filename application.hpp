@@ -229,6 +229,10 @@ namespace p44 {
     /// scheduled to run when mainloop has started
     virtual void initialize();
 
+    /// called from signal handler when we should terminate
+    /// Default implementation calls terminate(EXIT\_FAILURE)
+    virtual void terminateFromSignal();
+
     /// called when mainloop terminates
     virtual void cleanup(int aExitCode);
 
