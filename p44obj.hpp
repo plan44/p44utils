@@ -48,6 +48,9 @@ namespace p44 {
     ///   reach 0 and destruction would be attempted.
     void isMemberVariable();
 
+    /// access to the refcount for debug logging
+    int refCount() { return mRefCount; }
+
   protected:
     P44Obj() : mRefCount(0) {};
     virtual ~P44Obj() {}; // important for multiple inheritance
