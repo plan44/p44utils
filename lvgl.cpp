@@ -33,10 +33,6 @@
 
 #include "application.hpp"
 
-#if ENABLE_IMAGE_SUPPORT
-  #include <png.h>
-#endif
-
 using namespace p44;
 
 LvGL::LvGL() :

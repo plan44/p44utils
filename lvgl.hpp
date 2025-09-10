@@ -39,14 +39,6 @@
   #define MOUSE_CURSOR_SUPPORT 1
 #endif
 
-#ifndef ENABLE_IMAGE_SUPPORT
-  #if !DEBUG
-    #warning "tbd: re-enable"
-  #endif
-  #define ENABLE_IMAGE_SUPPORT 0
-#endif
-
-
 using namespace std;
 
 namespace p44 {
