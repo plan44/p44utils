@@ -782,7 +782,9 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "statements", "[scripting]" )
     REQUIRE(s.test(scriptbody, "var j = { 'text':'hello' }; j.text+' world'")->stringValue() == "hello world"); // calculatioValue() of json text field must be string that can be appended to
     REQUIRE(s.test(scriptbody, "var j = { 'number':42 }; j.number")->doubleValue() == 42.0);
     REQUIRE(s.test(scriptbody, "var j = { 'number':42 }; j.number==42")->boolValue() == true);
-    REQUIRE(s.test(scriptbody, "var j = { 'number':42 }; j.number+2")->doubleValue() == 44.0); // calculatioValue() of json numeric field must be number that can be added to
+    REQUIRE(s.test(scriptbody, "var j = { 'number':42 }; j.number+2")->doubleValue() == 44.0); // calculationValue() of json numeric field must be number that can be added to
+    // special case: empty string as key
+    REQUIRE(s.test(scriptbody, "var j = { '':44 }; j['']")->doubleValue() == 44.0); // calculatioValue() of json numeric field must be number that can be added to
   }
 
   SECTION("JS type array and object construction") {

@@ -629,7 +629,7 @@ StandardLValue::StandardLValue(ScriptObjPtr aContainer, const string aMemberName
   inherited(aCurrentValue),
   mContainer(aContainer),
   mMemberName(aMemberName),
-  mMemberIndex(0)
+  mMemberIndex(-1)
 {
 }
 
@@ -648,7 +648,7 @@ void StandardLValue::assignLValue(EvaluationCB aEvaluationCB, ScriptObjPtr aNewV
 {
   if (mContainer) {
     ErrorPtr err;
-    if (mMemberName.empty()) {
+    if (mMemberIndex>=0) {
       err = mContainer->setMemberAtIndex(mMemberIndex, aNewValue);
     }
     else {
@@ -3527,14 +3527,20 @@ void SourceProcessor::fieldnamedefined()
   }
   mSrc.skipNonCode();
   push(&SourceProcessor::s_objectfielddone); // push object to add to
+  setState(&SourceProcessor::s_objectfieldlvalue);
   memberByIdentifier(lvalue+create); // get assignable lvalue for the field
-  // - get value
-  push(&SourceProcessor::s_objectvalue);
-  resumeAt(&SourceProcessor::s_expression);
 }
 
 
-void SourceProcessor::s_objectvalue()
+void SourceProcessor::s_objectfieldlvalue()
+{
+  push(&SourceProcessor::s_objectfieldvalue); // result is lvalue to assign to
+  resumeAt(&SourceProcessor::s_expression); // now get the value
+}
+
+
+
+void SourceProcessor::s_objectfieldvalue()
 {
   // olderResult = lvalue for the field
   // result = value to assign

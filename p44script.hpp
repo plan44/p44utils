@@ -763,8 +763,8 @@ namespace p44 { namespace P44Script {
   {
     typedef ScriptLValue inherited;
 
-    string mMemberName;
-    size_t mMemberIndex;
+    string mMemberName; // member name (can be empty)
+    ssize_t mMemberIndex; // if >=0, access is by index
     ScriptObjPtr mContainer;
 
   public:
@@ -2908,7 +2908,8 @@ namespace p44 { namespace P44Script {
     void s_objectfield(); ///< object field name should follow
     void s_varobjectfield(); ///< before closing ']', calculated object name now in result
     void fieldnamedefined();
-    void s_objectvalue(); ///< object value in result
+    void s_objectfieldlvalue(); ///< object field lvalue in result
+    void s_objectfieldvalue(); ///< object value in result
     void s_objectfielddone(); ///< object value in result
     void s_arrayelementdone(); ///< array element value in result
 
