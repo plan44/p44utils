@@ -762,8 +762,8 @@ void DnsSdServiceBrowser::reportAndStopIfDoneNow(ErrorPtr aError, DnsSdServiceIn
   if (mServiceBrowserCB) {
     // callback still set means we need to report
     keepReporting = mServiceBrowserCB(aError, aServiceInfo);
-    if (keepReporting && mAllForNow) {
-      // ww also need to deliver the (already happened) all-for-now
+    if (keepReporting && mAllForNow && (mResolving<=0)) {
+      // client is still expecting data, but we have reported everything already: deliver the (already happened) all-for-now
       keepReporting = mServiceBrowserCB(Error::err<DnsSdError>(DnsSdError::AllForNow, "all dns-sd entries for now"), DnsSdServiceInfoPtr());
       mAllForNow = false; // reported
     }
