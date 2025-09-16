@@ -103,13 +103,11 @@ namespace p44 {
     /// @return number ob bytes actually written, can be 0 (e.g. if connection is still in process of opening)
     virtual size_t transmitBytes(size_t aNumBytes, const uint8_t *aBytes, ErrorPtr &aError);
 
-
     /// transmit string
     /// @param aString string to transmit
     /// @note intended for datagrams. Use transmitBytes to be able to handle partial transmission or
     ///   sendString() for buffered transfers
     bool transmitString(const string &aString);
-
 
     /// @return number of bytes ready for read
     size_t numBytesReady();
@@ -121,6 +119,10 @@ namespace p44 {
     /// @return number of bytes actually read
     virtual size_t receiveBytes(size_t aNumBytes, uint8_t *aBytes, ErrorPtr &aError);
 
+    /// @return true when receiving is set to re-assemble delimited messages automatically
+    /// @note if this returns true, receiveDelimitedString() should be used in receive handler
+    bool delimitedReceive() { return mDelimiter!=0; }
+
     /// Can be called from receive handler when setReceiveHandler() was set up with a delimiter
     /// to get the accumulated delimited string
     /// @param aString will contain the delimited string, without delimiters included
@@ -130,7 +132,6 @@ namespace p44 {
     /// Send string, buffer and transmit later if needed
     /// @param aString string to send
     void sendString(const string &aString);
-
 
     /// read data into string
     ErrorPtr receiveIntoString(string &aString, ssize_t aMaxBytes = -1);

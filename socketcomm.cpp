@@ -981,6 +981,55 @@ void SocketComm::dataExceptionHandler(int aFd, int aPollFlags)
 using namespace P44Script;
 
 
+static void openConnectionHandler(BuiltinFunctionContextPtr f, SocketObjPtr aSocketObj, ErrorPtr aError)
+{
+  if (Error::isOK(aError)) {
+    // connection ok, now let message() handle further status
+    // handle incoming data
+    aSocketObj->socketComm()->setReceiveHandler(boost::bind(&SocketObj::gotData, aSocketObj, _1));
+    aSocketObj->socketComm()->setConnectionStatusHandler(boost::bind(&SocketObj::handleConnectionStatus, aSocketObj, _2));
+    f->finish(new BoolValue(true));
+  }
+  else {
+    f->finish(new ErrorValue(aError));
+  }
+}
+
+
+// connect()
+static void connect_func(BuiltinFunctionContextPtr f)
+{
+  SocketObj* s = dynamic_cast<SocketObj*>(f->thisObj().get());
+  assert(s);
+  s->socketComm()->setConnectionStatusHandler(boost::bind(&openConnectionHandler, f, s, _2));
+  ErrorPtr err = s->socketComm()->initiateConnection();
+  if (Error::notOK(err)) {
+    f->finish(new ErrorValue(err));
+  }
+  // otherwise, we'll get a call to openConnectionHandler
+}
+
+
+// connected()
+static void connected_func(BuiltinFunctionContextPtr f)
+{
+  SocketObj* s = dynamic_cast<SocketObj*>(f->thisObj().get());
+  assert(s);
+  f->finish(new BoolValue(s->socketComm()->connected()));
+}
+
+
+// disconnect()
+static void disconnect_func(BuiltinFunctionContextPtr f)
+{
+  SocketObj* s = dynamic_cast<SocketObj*>(f->thisObj().get());
+  assert(s);
+  s->socketComm()->setConnectionStatusHandler(NoOP); // we do not want any status changes from explicitly closing the socket
+  s->socketComm()->closeConnection();
+  f->finish();
+}
+
+
 // send(data)
 FUNC_ARG_DEFS(send, { anyvalid } );
 static void send_func(BuiltinFunctionContextPtr f)
@@ -1005,11 +1054,14 @@ static void message_func(BuiltinFunctionContextPtr f)
   SocketObj* s = dynamic_cast<SocketObj*>(f->thisObj().get());
   assert(s);
   // return event source placeholder for received messages
-  f->finish(new OneShotEventNullValue(s, "UDP message"));
+  f->finish(new OneShotEventNullValue(s, "socket message"));
 }
 
 
 static const BuiltinMemberDescriptor socketFunctions[] = {
+  FUNC_DEF_NOARG(connect, executable),
+  FUNC_DEF_NOARG(connected, executable),
+  FUNC_DEF_NOARG(disconnect, executable),
   FUNC_DEF_W_ARG(send, executable|error),
   FUNC_DEF_NOARG(message, executable|text|null),
   BUILTINS_TERMINATOR
@@ -1017,12 +1069,14 @@ static const BuiltinMemberDescriptor socketFunctions[] = {
 
 static BuiltInMemberLookup* sharedSocketFunctionLookupP = NULL;
 
-SocketObj::SocketObj(SocketCommPtr aSocket) :
+SocketObj::SocketObj(SocketCommPtr aSocket, bool aStream, char aDelimiter) :
   mSocket(aSocket)
 {
   registerSharedLookup(sharedSocketFunctionLookupP, socketFunctions);
-  // handle incoming data
-  mSocket->setReceiveHandler(boost::bind(&SocketObj::gotData, this, _1));
+  if (!aStream) {
+    // handle incoming data
+    mSocket->setReceiveHandler(boost::bind(&SocketObj::gotData, this, _1), aDelimiter);
+  }
 }
 
 SocketObj::~SocketObj()
@@ -1030,17 +1084,49 @@ SocketObj::~SocketObj()
   mSocket->clearCallbacks();
 }
 
+void SocketObj::handleConnectionStatus(ErrorPtr aError)
+{
+  if (Error::notOK(aError)) {
+    sendEvent(new ErrorValue(aError));
+  }
+}
+
 
 void SocketObj::gotData(ErrorPtr aError)
 {
-  string datagram;
-  ErrorPtr err = mSocket->receiveIntoString(datagram);
-  if (Error::isOK(err)) {
-    sendEvent(new StringValue(datagram));
+  string data;
+  if (Error::isOK(aError)) {
+    if (mSocket->delimitedReceive()) {
+      if (!mSocket->receiveDelimitedString(data)) return; // nothing ready yet
+    }
+    else {
+      aError = mSocket->receiveIntoString(data);
+    }
+  }
+  if (Error::isOK(aError)) {
+    sendEvent(new StringValue(data));
   }
   else {
-    sendEvent(new ErrorValue(err));
+    sendEvent(new ErrorValue(aError));
   }
+}
+
+
+// tcpsocket(host, port [, receive_delimiter])
+FUNC_ARG_DEFS(tcpsocket, { text }, { text|numeric }, { text|optionalarg });
+static void tcpsocket_func(BuiltinFunctionContextPtr f)
+{
+  SocketCommPtr socket = new SocketComm();
+  socket->setConnectionParams(
+    f->arg(0)->stringValue().c_str(),
+    f->arg(1)->stringValue().c_str(),
+    SOCK_STREAM
+  );
+  char delimiter = 0;
+  if (f->numArgs()>2) {
+    delimiter = *(f->arg(2)->stringValue().c_str());
+  }
+  f->finish(new SocketObj(socket, true, delimiter));
 }
 
 
@@ -1062,7 +1148,7 @@ static void udpsocket_func(BuiltinFunctionContextPtr f)
   socket->setDatagramOptions(rec, broadcast);
   ErrorPtr err = socket->initiateConnection();
   if (Error::isOK(err)) {
-    f->finish(new SocketObj(socket));
+    f->finish(new SocketObj(socket, false, 0));
   }
   else {
     f->finish(new ErrorValue(err));
@@ -1071,6 +1157,7 @@ static void udpsocket_func(BuiltinFunctionContextPtr f)
 
 static const BuiltinMemberDescriptor socketGlobals[] = {
   FUNC_DEF_W_ARG(udpsocket, executable|null),
+  FUNC_DEF_W_ARG(tcpsocket, executable|null),
   BUILTINS_TERMINATOR
 };
 

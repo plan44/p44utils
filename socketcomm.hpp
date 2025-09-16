@@ -288,13 +288,14 @@ namespace p44 {
       typedef StructuredLookupObject inherited;
       SocketCommPtr mSocket;
     public:
-      SocketObj(SocketCommPtr aSocket);
+      SocketObj(SocketCommPtr aSocket, bool aStream, char aDelimiter);
       virtual ~SocketObj();
       virtual string getAnnotation() const P44_OVERRIDE { return "socket"; };
       SocketCommPtr socketComm() { return mSocket; }
-    private:
+      void handleConnectionStatus(ErrorPtr aError);
       void gotData(ErrorPtr aError);
     };
+    typedef boost::intrusive_ptr<SocketObj> SocketObjPtr;
 
 
     /// represents the global objects related to http
