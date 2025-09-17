@@ -916,6 +916,7 @@ namespace p44 { namespace P44Script {
     #if SCRIPTING_JSON_SUPPORT
     virtual JsonObjectPtr jsonValue(bool aDescribeNonJSON = false) const P44_OVERRIDE;
     #endif
+    bool isFatal() { return mErr && mErr->isDomain(ScriptError::domain()) && mErr->getErrorCode()>=ScriptError::FatalErrors; }
     bool caught() { return mCaught; } ///< @return true if error was caught (must not be thrown any more)
     void setCaught(bool aCaught) { mCaught = aCaught; } ///< set "caught" state
     // operators

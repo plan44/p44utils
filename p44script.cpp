@@ -3434,8 +3434,7 @@ void SourceProcessor::exitWithSyntaxError(const char *aFmt, ...)
 void SourceProcessor::throwOrComplete(ErrorValuePtr aError)
 {
   mResult = aError;
-  ErrorPtr err = aError->errorValue();
-  if (err->isDomain(ScriptError::domain()) && err->getErrorCode()>=ScriptError::FatalErrors) {
+  if (aError->isFatal()) {
     // just end the thread unconditionally
     complete(aError);
     return;
@@ -5696,6 +5695,11 @@ void CompiledTrigger::processEvent(ScriptObjPtr aEvent, EventSource &aSource, in
 }
 
 
+#ifdef DEBUG
+#define TRIGGER_MAX_EVAL_TIME (5*Minute)
+#else
+#define TRIGGER_MAX_EVAL_TIME (30*Second)
+#endif
 
 void CompiledTrigger::triggerEvaluation(EvaluationFlags aEvalMode)
 {
@@ -5706,7 +5710,7 @@ void CompiledTrigger::triggerEvaluation(EvaluationFlags aEvalMode)
   mOneShotEval = false; // no oneshot encountered yet. Evaluation will set it via checkFrozenEventValue(), which is called for every leaf value (frozen or not)
   ExecutionContextPtr ctx = contextForCallingFrom(NULL, NULL);
   EvaluationFlags runFlags = ((aEvalMode&~runModeMask) ? aEvalMode : (mEvalFlags&~runModeMask)|aEvalMode)|keepvars; // always keep vars, use only runmode from aEvalMode if nothing else is set
-  ctx->execute(ScriptObjPtr(this), runFlags, boost::bind(&CompiledTrigger::triggerDidEvaluate, this, runFlags, _1), nullptr, ScriptObjPtr(), 30*Second);
+  ctx->execute(ScriptObjPtr(this), runFlags, boost::bind(&CompiledTrigger::triggerDidEvaluate, this, runFlags, _1), nullptr, ScriptObjPtr(), TRIGGER_MAX_EVAL_TIME);
 }
 
 
@@ -5784,6 +5788,11 @@ void CompiledTrigger::triggerDidEvaluate(EvaluationFlags aEvalMode, ScriptObjPtr
     } // holdoff
   }
   mCurrentResult = aResult->assignmentValue();
+  // treat non-fatal errors as caught
+  ErrorValuePtr errval = dynamic_pointer_cast<ErrorValue>(mCurrentResult);
+  if (errval) {
+    errval->setCaught(!errval->isFatal());
+  }
   // take unfreeze time of frozen results into account for next evaluation
   FrozenResultsMap::iterator fpos = mFrozenResults.begin();
   MLMicroSeconds now = MainLoop::now();
@@ -7594,11 +7603,11 @@ void ScriptCodeThread::complete(ScriptObjPtr aFinalResult)
 {
   mAutoResumeTicket.cancel();
   mRunningSince = Never; // flag non-running, prevents getting aborted (again)
-  if (aFinalResult && aFinalResult->isErr()) {
-    ErrorPtr err = aFinalResult->errorValue();
-    bool fatal = err->isDomain(ScriptError::domain()) && err->getErrorCode()>=ScriptError::FatalErrors;
-    POLOG(loggingContext(), LOG_ERR,
-      "Aborting '%s' because of %s error: %s",
+  ErrorValuePtr errval = dynamic_pointer_cast<ErrorValue>(aFinalResult);
+  if (errval && !errval->caught()) {
+    bool fatal = errval->isFatal();
+    POLOG(loggingContext(), fatal ? LOG_ERR : LOG_INFO,
+      "Thread '%s' ends with %s error: %s",
       mCodeObj ? mCodeObj->getIdentifier().c_str() : "<codeless>",
       fatal ? "fatal" : "uncaught",
       aFinalResult->stringValue().c_str()
@@ -8007,6 +8016,7 @@ bool ScriptCodeThread::pauseCheck(PausingMode aPausingOccasion)
       if (mPausingMode<breakpoint) return false; // debugging disabled
       if ((!mResult || !mResult->isErr()) && mPausingMode<step_over) return false; // terminating w/o error only pauses when stepped into
       // terminated with error
+      if (dynamic_pointer_cast<ErrorValue>(mResult)->caught()) return false; // do not stop on already caught errors
       if (mResult->errorValue()->isError(ScriptError::domain(), ScriptError::Aborted)) return false; // do not stop on explicit abort
       // pause at termination of thread with non-abort error
       break;
