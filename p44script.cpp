@@ -8014,10 +8014,15 @@ bool ScriptCodeThread::pauseCheck(PausingMode aPausingOccasion)
     case terminated:
       if (mChainedFromThread) return false; // do not pause at end of function call pseudo-threads, error or not
       if (mPausingMode<breakpoint) return false; // debugging disabled
-      if ((!mResult || !mResult->isErr()) && mPausingMode<step_over) return false; // terminating w/o error only pauses when stepped into
-      // terminated with error
-      if (dynamic_pointer_cast<ErrorValue>(mResult)->caught()) return false; // do not stop on already caught errors
-      if (mResult->errorValue()->isError(ScriptError::domain(), ScriptError::Aborted)) return false; // do not stop on explicit abort
+      if (!mResult || !mResult->isErr()) {
+        // terminated w/o error (no result also means no error)
+        if (mPausingMode<step_over) return false; // terminating w/o error only pauses when stepped into
+      }
+      else {
+        // terminated with error
+        if (dynamic_pointer_cast<ErrorValue>(mResult)->caught()) return false; // do not stop on already caught errors
+        if (mResult->errorValue()->isError(ScriptError::domain(), ScriptError::Aborted)) return false; // do not stop on explicit abort
+      }
       // pause at termination of thread with non-abort error
       break;
     default:
