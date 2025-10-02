@@ -726,13 +726,13 @@ bool SocketComm::connectionMonitorHandler(int aFd, int aPollFlags)
     mCurrentAddressInfo = NULL; // no more addresses to check
     freeAddressInfo();
     LOG(LOG_DEBUG, "Connection to %s:%s established", mHostNameOrAddress.c_str(), mServiceOrPortOrSocket.c_str());
-    // call handler if defined
+    // first set FD to let FdComm base class operate open connection (will replace existing connection monitor with data monitoring)
+    setFd(aFd);
+    // only now call handler if defined
     if (mConnectionStatusHandler) {
       // connection ok
       mConnectionStatusHandler(this, ErrorPtr());
     }
-    // let FdComm base class operate open connection (will replace existing connection monitor with data monitoring)
-    setFd(aFd);
   }
   else {
     // this attempt has failed, try next (if any)
