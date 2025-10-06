@@ -1986,7 +1986,7 @@ ErrorPtr ModbusFileHandler::updateLocalCRC()
   lseek(mOpenFd, 0, SEEK_SET);
   Crc32 crc;
   uint32_t bytes = mLocalFileSize;
-  size_t crcBufSz = 8*1024;
+  const size_t crcBufSz = 8*1024;
   uint8_t crcbuf[crcBufSz];
   while (bytes>0) {
     int rc = (int)read(mOpenFd, crcbuf, bytes>crcBufSz ? crcBufSz : bytes);
@@ -2260,7 +2260,30 @@ static void s_close_func(BuiltinFunctionContextPtr f)
 }
 
 
-
+// floatmode(floatmode)
+FUNC_ARG_DEFS(floatmode, { text } );
+static void floatmode_func(ModbusConnectionPtr aModbusConnection, BuiltinFunctionContextPtr f)
+{
+  p44::ModbusConnection::FloatMode floatMode = p44::ModbusConnection::float_dcba;
+  string fmode = f->arg(0)->stringValue();
+  if (uequals(fmode, "abcd")) floatMode = p44::ModbusConnection::float_abcd;
+  else if (uequals(fmode, "badc")) floatMode = p44::ModbusConnection::float_badc;
+  else if (uequals(fmode, "cdab")) floatMode = p44::ModbusConnection::float_cdab;
+  else if (uequals(fmode, "dcba")) floatMode = p44::ModbusConnection::float_dcba;
+  else f->finish(new ErrorValue(ScriptError::Invalid, "invalid float mode"));
+  aModbusConnection->setFloatMode(floatMode);
+  f->finish();
+}
+static void m_floatmode_func(BuiltinFunctionContextPtr f)
+{
+  ModbusMasterObj* o = dynamic_cast<ModbusMasterObj*>(f->thisObj().get());
+  floatmode_func(o->modbus(), f);
+}
+static void s_floatmode_func(BuiltinFunctionContextPtr f)
+{
+  ModbusSlaveObj* o = dynamic_cast<ModbusSlaveObj*>(f->thisObj().get());
+  floatmode_func(o->modbus(), f);
+}
 
 
 // MARK: - modbus slave scripting
@@ -2275,6 +2298,7 @@ ModbusSlaveObjPtr ModbusSlave::representingScriptObj()
 
 
 // setreg(regaddr, value [,input])
+// setfreg(regaddr, value [,input])
 // setbit(bitaddr, value [,input])
 FUNC_ARG_DEFS(set, { numeric }, { numeric }, { numeric|optionalarg } );
 static void setreg_func(BuiltinFunctionContextPtr f)
@@ -2282,6 +2306,13 @@ static void setreg_func(BuiltinFunctionContextPtr f)
   ModbusSlaveObj* o = dynamic_cast<ModbusSlaveObj*>(f->thisObj().get());
   assert(o);
   o->modbus()->setReg(f->arg(0)->intValue(), f->arg(2)->boolValue(), f->arg(1)->intValue());
+  f->finish(o); // return myself for chaining calls
+}
+static void setfreg_func(BuiltinFunctionContextPtr f)
+{
+  ModbusSlaveObj* o = dynamic_cast<ModbusSlaveObj*>(f->thisObj().get());
+  assert(o);
+  o->modbus()->setFloatReg(f->arg(0)->intValue(), f->arg(2)->boolValue(), f->arg(1)->doubleValue());
   f->finish(o); // return myself for chaining calls
 }
 static void setbit_func(BuiltinFunctionContextPtr f)
@@ -2295,6 +2326,7 @@ static void setbit_func(BuiltinFunctionContextPtr f)
 
 // getreg(regaddr [,input])
 // getsreg(regaddr [,input]) // signed interpretation of 16-bit value
+// getfreg(regaddr [,input]) // float32
 // getbit(bitaddr [,input])
 FUNC_ARG_DEFS(get, { numeric }, { numeric|optionalarg } );
 static void getreg_func(BuiltinFunctionContextPtr f)
@@ -2308,6 +2340,12 @@ static void getsreg_func(BuiltinFunctionContextPtr f)
   ModbusSlaveObj* o = dynamic_cast<ModbusSlaveObj*>(f->thisObj().get());
   assert(o);
   f->finish(new IntegerValue((int16_t)(o->modbus()->getReg(f->arg(0)->intValue(), f->arg(1)->boolValue()))));
+}
+static void getfreg_func(BuiltinFunctionContextPtr f)
+{
+  ModbusSlaveObj* o = dynamic_cast<ModbusSlaveObj*>(f->thisObj().get());
+  assert(o);
+  f->finish(new NumericValue(o->modbus()->getFloatReg(f->arg(0)->intValue(), f->arg(1)->boolValue())));
 }
 static void getbit_func(BuiltinFunctionContextPtr f)
 {
@@ -2403,14 +2441,17 @@ static const BuiltinMemberDescriptor modbusSlaveMembers[] = {
   { "connection", executable|objectvalue, connection_numargs, connection_args, &s_connection_func },
   { "bytetime", executable|objectvalue, bytetime_numargs, bytetime_args, &s_bytetime_func },
   { "recoverymode", executable|objectvalue, recoverymode_numargs, recoverymode_args, &s_recoverymode_func },
+  { "floatmode", executable|null, floatmode_numargs, floatmode_args, &s_floatmode_func },
   { "debug", executable|objectvalue, debug_numargs, debug_args, &s_debug_func },
   { "connect", executable|null, connect_numargs, connect_args, &s_connect_func },
   { "close", executable|null, 0, NULL, &s_close_func },
   // slave only
   FUNC_DEF_C_ARG(setreg, executable|null, set),
+  FUNC_DEF_C_ARG(setfreg, executable|null, set),
   FUNC_DEF_C_ARG(setbit, executable|null, set),
   FUNC_DEF_C_ARG(getreg, executable|null, get),
   FUNC_DEF_C_ARG(getsreg, executable|null, get),
+  FUNC_DEF_C_ARG(getfreg, executable|null, get),
   FUNC_DEF_C_ARG(getbit, executable|null, get),
   FUNC_DEF_NOARG(access, executable|text|null),
   FUNC_DEF_W_ARG(slaveaddress, executable|numeric),
@@ -2478,6 +2519,7 @@ static void slave_func(BuiltinFunctionContextPtr f)
 
 
 // writereg(regaddr, value)
+// writefreg(regaddr, value) // 32bit float
 // writebit(bitaddr, value)
 FUNC_ARG_DEFS(write, { numeric }, { numeric } );
 static void writereg_func(BuiltinFunctionContextPtr f)
@@ -2489,7 +2531,18 @@ static void writereg_func(BuiltinFunctionContextPtr f)
     f->finish(new ErrorValue(err->withPrefix("writing register: ")));
     return;
   }
-  f->finish(); // return myself for chaining calls
+  f->finish();
+}
+static void writefreg_func(BuiltinFunctionContextPtr f)
+{
+  ModbusMasterObj* o = dynamic_cast<ModbusMasterObj*>(f->thisObj().get());
+  assert(o);
+  ErrorPtr err = o->modbus()->writeFloatRegister(f->arg(0)->intValue(), f->arg(1)->doubleValue());
+  if (Error::notOK(err)) {
+    f->finish(new ErrorValue(err->withPrefix("writing float register: ")));
+    return;
+  }
+  f->finish();
 }
 static void writebit_func(BuiltinFunctionContextPtr f)
 {
@@ -2500,12 +2553,13 @@ static void writebit_func(BuiltinFunctionContextPtr f)
     f->finish(new ErrorValue(err->withPrefix("writing bit: ")));
     return;
   }
-  f->finish(); // return myself for chaining calls
+  f->finish();
 }
 
 
 // readreg(regaddr [,input])
 // readsreg(regaddr [,input]) // signed interpretation of 16-bit value
+// readfreg(regaddr [,input]) // 32bit float
 // readbit(bitaddr [,input])
 FUNC_ARG_DEFS(read, { numeric }, { numeric|optionalarg } );
 static void readreg_func(BuiltinFunctionContextPtr f)
@@ -2531,6 +2585,18 @@ static void readsreg_func(BuiltinFunctionContextPtr f)
     return;
   }
   f->finish(new IntegerValue((int16_t)v));
+}
+static void readfreg_func(BuiltinFunctionContextPtr f)
+{
+  ModbusMasterObj* o = dynamic_cast<ModbusMasterObj*>(f->thisObj().get());
+  assert(o);
+  double v;
+  ErrorPtr err = o->modbus()->readFloatRegister(f->arg(0)->intValue(), v, f->arg(1)->boolValue());
+  if (Error::notOK(err)) {
+    f->finish(new ErrorValue(err->withPrefix("reading float register: ")));
+    return;
+  }
+  f->finish(new NumericValue(v));
 }
 static void readbit_func(BuiltinFunctionContextPtr f)
 {
@@ -2590,6 +2656,7 @@ static const BuiltinMemberDescriptor modbusMasterMembers[] = {
   { "connection", executable|objectvalue, connection_numargs, connection_args, &m_connection_func },
   { "bytetime", executable|objectvalue, bytetime_numargs, bytetime_args, &m_bytetime_func },
   { "recoverymode", executable|objectvalue, recoverymode_numargs, recoverymode_args, &m_recoverymode_func },
+  { "floatmode", executable|null, floatmode_numargs, floatmode_args, &m_floatmode_func },
   { "debug", executable|objectvalue, debug_numargs, debug_args, &m_debug_func },
   { "connect", executable|null, connect_numargs, connect_args, &m_connect_func },
   { "close", executable|null, 0, NULL, &m_close_func },
@@ -2597,9 +2664,11 @@ static const BuiltinMemberDescriptor modbusMasterMembers[] = {
   FUNC_DEF_W_ARG(slave, executable|objectvalue),
   FUNC_DEF_W_ARG(findslaves, executable|objectvalue),
   FUNC_DEF_C_ARG(writereg, executable|error|null, write),
+  FUNC_DEF_C_ARG(writefreg, executable|error|null, write),
   FUNC_DEF_C_ARG(writebit, executable|error|null, write),
   FUNC_DEF_C_ARG(readreg, executable|error|numeric, read),
   FUNC_DEF_C_ARG(readsreg, executable|error|numeric, read),
+  FUNC_DEF_C_ARG(readfreg, executable|error|numeric, read),
   FUNC_DEF_C_ARG(readbit, executable|error|numeric, read),
   FUNC_DEF_NOARG(readinfo, executable|error|text),
   BUILTINS_TERMINATOR
