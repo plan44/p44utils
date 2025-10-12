@@ -176,12 +176,29 @@ void WindowEvaluator::addValue(double aValue, MLMicroSeconds aTimeStamp)
 }
 
 
-double WindowEvaluator::evaluate()
+bool WindowEvaluator::hasData()
+{
+  return !mDataPoints.empty();
+}
+
+
+MLMicroSeconds WindowEvaluator::latest()
+{
+  if (!hasData()) return Never;
+  return mDataPoints.back().timestamp;
+}
+
+
+double WindowEvaluator::evaluate(bool aPerNow)
 {
   double result = 0;
   double divisor = 0;
   int count = 0;
   MLMicroSeconds lastTs = Never;
+  if (aPerNow && !mDataPoints.empty()) {
+    // re-add latest datapoint right now, so result will be per now (vs per last added datapoint)
+    addValue(mDataPoints.back().value);
+  }
   for (DataPointsList::iterator pos = mDataPoints.begin(); pos != mDataPoints.end(); ++pos) {
     switch (mWinEvalMode & eval_type_mask) {
       case eval_max: {

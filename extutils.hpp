@@ -104,7 +104,14 @@ namespace p44 {
 
     /// Get the current evaluation result
     /// @note will return 0 when no datapoints are accumulated at all
-    double evaluate();
+    /// @param aPerNow if set, the evaluation will be per-now (vs per-last-datapoint added)
+    double evaluate(bool aPerNow = false);
+
+    /// @return the timestamp of the latest value added, or Never if none
+    MLMicroSeconds latest();
+
+    /// @return true when data has been added to the filter
+    bool hasData();
 
   };
   typedef boost::intrusive_ptr<WindowEvaluator> WindowEvaluatorPtr;

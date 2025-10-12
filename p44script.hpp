@@ -49,6 +49,9 @@
 #ifndef P44SCRIPT_OTHER_SOURCES
   #define P44SCRIPT_OTHER_SOURCES P44SCRIPT_FULL_SUPPORT // also support editing non-script sources when we have full script support
 #endif
+#ifndef ENABLE_FILTER_FUNCS
+  #define ENABLE_FILTER_FUNCS 1
+#endif
 
 
 
@@ -3844,7 +3847,16 @@ namespace p44 { namespace P44Script {
 
   #endif // P44SCRIPT_REGISTERED_SOURCE
 
-}} // namespace p44::Script
+  #if ENABLE_FILTER_FUNCS
+  namespace BuiltinFunctions {
+    WindowEvaluatorPtr filterFromParams(BuiltinFunctionContextPtr f);
+  }
+  #endif // ENABLE_FILTER_FUNCS
+
+}} // namespace p44::P44Script
+
+
+
 
 #endif // ENABLE_P44SCRIPT
 

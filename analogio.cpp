@@ -232,13 +232,14 @@ double AnalogIo::processedValue()
 
 
 #if ENABLE_ANALOGIO_FILTER_SUPPORT
-void AnalogIo::setFilter(WinEvalMode aEvalType, MLMicroSeconds aWindowTime, MLMicroSeconds aDataPointCollTime)
+
+void AnalogIo::setFilter(WindowEvaluatorPtr aFilter)
 {
-  mWindowEvaluator.reset();
-  if (aEvalType==eval_none) return;
-  mWindowEvaluator = WindowEvaluatorPtr(new WindowEvaluator(aWindowTime, aDataPointCollTime, aEvalType));
+  mWindowEvaluator = aFilter;
+  if (!mWindowEvaluator) return;
   value(); // cause initialisation
 }
+
 #endif // ENABLE_ANALOGIO_FILTER_SUPPORT
 
 void AnalogIo::setAutopoll(MLMicroSeconds aPollInterval, MLMicroSeconds aTolerance, SimpleCB aPollCB)
@@ -621,28 +622,20 @@ static void poll_func(BuiltinFunctionContextPtr f)
 }
 
 
+#if ENABLE_FILTER_FUNCS && ENABLE_ANALOGIO_FILTER_SUPPORT
+
 // filter(type, [interval [, colltime]])
 FUNC_ARG_DEFS(filter, { text }, { numeric|optionalarg }, { numeric|optionalarg } );
 static void filter_func(BuiltinFunctionContextPtr f)
 {
   AnalogIoObj* a = dynamic_cast<AnalogIoObj*>(f->thisObj().get());
   assert(a);
-  string ty = f->arg(0)->stringValue();
-  WinEvalMode ety = eval_none;
-  if (uequals(ty.c_str(), "abs-", 4)) {
-    ety |= eval_option_abs;
-  }
-  if (uequals(ty,"average")) ety |= eval_timeweighted_average;
-  else if (uequals(ty,"simpleaverage")) ety |= eval_average;
-  else if (uequals(ty,"min")) ety |= eval_min;
-  else if (uequals(ty,"max")) ety |= eval_max;
-  MLMicroSeconds windowtime = 10*Second; // default to 10 second processing window
-  if (f->arg(1)->defined()) windowtime = f->arg(1)->doubleValue()*Second;
-  MLMicroSeconds colltime = windowtime/20; // default to 1/20 of the processing window
-  if (f->arg(2)->defined()) colltime = f->arg(2)->doubleValue()*Second;
-  a->analogIo()->setFilter(ety, windowtime, colltime);
+  WindowEvaluatorPtr filter = P44Script::BuiltinFunctions::filterFromParams(f);
+  a->analogIo()->setFilter(filter);
   f->finish();
 }
+
+#endif // ENABLE_FILTER_FUNCS && ENABLE_ANALOGIO_FILTER_SUPPORT
 
 
 static const BuiltinMemberDescriptor analogioFunctions[] = {
@@ -650,9 +643,12 @@ static const BuiltinMemberDescriptor analogioFunctions[] = {
   FUNC_DEF_NOARG(range, executable|objectvalue),
   FUNC_DEF_NOARG(animator, executable|objectvalue),
   FUNC_DEF_W_ARG(poll, executable|null),
+  #if ENABLE_FILTER_FUNCS && ENABLE_ANALOGIO_FILTER_SUPPORT
   FUNC_DEF_W_ARG(filter, executable|null),
+  #endif
   BUILTINS_TERMINATOR
 };
+
 
 static BuiltInMemberLookup* sharedAnalogIoFunctionLookupP = NULL;
 

@@ -151,11 +151,9 @@ namespace p44 {
     void setAutopoll(MLMicroSeconds aPollInterval, MLMicroSeconds aTolerance = 0, SimpleCB aPollCB = NoOP);
 
     #if ENABLE_ANALOGIO_FILTER_SUPPORT
-    /// setup value filtering
-    /// @param aEvalType the type of filtering to perform
-    /// @param aWindowTime width (timespan) of evaluation window
-    /// @param aDataPointCollTime within that timespan, new values reported will be collected into a single datapoint
-    void setFilter(WinEvalMode aEvalType, MLMicroSeconds aWindowTime, MLMicroSeconds aDataPointCollTime);
+    /// install or remove a value filter
+    /// @param aFilter the filter to use
+    void setFilter(WindowEvaluatorPtr aFilter);
     #endif // ENABLE_ANALOGIO_FILTER_SUPPORT
 
     #if ENABLE_ANALOGIO_SCRIPT_FUNCS && ENABLE_P44SCRIPT

@@ -8073,7 +8073,7 @@ void ScriptCodeThread::continueWithMode(PausingMode aNewPausingMode)
 
 // MARK: - Built-in Standard functions
 
-namespace BuiltinFunctions {
+namespace p44::P44Script::BuiltinFunctions {
 
 // for single argument math functions
 FUNC_ARG_DEFS(math1arg, { numeric|undefres } );
@@ -9662,6 +9662,103 @@ static void rgb_func(BuiltinFunctionContextPtr f) { return color_conversion(f, f
 
 #endif // ENABLE_P44LRGRAPHICS
 
+
+#if ENABLE_FILTER_FUNCS
+
+/// represents a filter
+class FilterObj : public StructuredLookupObject
+{
+  typedef StructuredLookupObject inherited;
+  WindowEvaluatorPtr mFilter;
+public:
+  FilterObj(WindowEvaluatorPtr aFilter);
+  virtual string getAnnotation() const P44_OVERRIDE { return "filter"; };
+  WindowEvaluatorPtr filter() { return mFilter; }
+};
+
+
+// add(value [,timestamp])
+FUNC_ARG_DEFS(add, { numeric }, { numeric|optionalarg } );
+static void add_func(BuiltinFunctionContextPtr f)
+{
+  FilterObj* fi = dynamic_cast<FilterObj*>(f->thisObj().get());
+  assert(fi);
+  MLMicroSeconds timestamp = Never;
+  double value = f->arg(0)->doubleValue();
+  if (f->numArgs()>1) timestamp = MainLoop::unixTimeToMainLoopTime(f->arg(1)->doubleValue()*Second);
+  fi->filter()->addValue(value, timestamp);
+  f->finish();
+}
+
+
+// result([perNow])
+FUNC_ARG_DEFS(result, { numeric|optionalarg } );
+static void result_func(BuiltinFunctionContextPtr f)
+{
+  FilterObj* fi = dynamic_cast<FilterObj*>(f->thisObj().get());
+  assert(fi);
+  if (fi->filter()->hasData()) f->finish(new NumericValue(fi->filter()->evaluate(f->arg(0)->boolValue())));
+  else f->finish(new AnnotatedNullValue("no filter data"));
+}
+
+// time()
+static void time_func(BuiltinFunctionContextPtr f)
+{
+  FilterObj* fi = dynamic_cast<FilterObj*>(f->thisObj().get());
+  assert(fi);
+  MLMicroSeconds l = fi->filter()->latest();
+  if (l!=Never) f->finish(new NumericValue((double)MainLoop::mainLoopTimeToUnixTime(l)/Second));
+  else f->finish(new AnnotatedNullValue("no filter data"));
+}
+
+
+static const BuiltinMemberDescriptor filterFunctions[] = {
+  FUNC_DEF_W_ARG(add, executable|numeric),
+  FUNC_DEF_W_ARG(result, executable|numeric),
+  FUNC_DEF_NOARG(time, executable|numeric),
+  BUILTINS_TERMINATOR
+};
+
+
+static BuiltInMemberLookup* sharedFilterFunctionLookupP = NULL;
+
+FilterObj::FilterObj(WindowEvaluatorPtr aFilter) : mFilter(aFilter) {
+  registerSharedLookup(sharedFilterFunctionLookupP, filterFunctions);
+}
+
+
+WindowEvaluatorPtr filterFromParams(BuiltinFunctionContextPtr f)
+{
+  string ty = f->arg(0)->stringValue();
+  WinEvalMode ety = eval_none;
+  if (uequals(ty.c_str(), "abs-", 4)) {
+    ety |= eval_option_abs;
+  }
+  if (uequals(ty,"average")) ety |= eval_timeweighted_average;
+  else if (uequals(ty,"simpleaverage")) ety |= eval_average;
+  else if (uequals(ty,"min")) ety |= eval_min;
+  else if (uequals(ty,"max")) ety |= eval_max;
+  MLMicroSeconds windowtime = 10*Second; // default to 10 second processing window
+  if (f->arg(1)->defined()) windowtime = f->arg(1)->doubleValue()*Second;
+  MLMicroSeconds colltime = windowtime/20; // default to 1/20 of the processing window
+  if (f->arg(2)->defined()) colltime = f->arg(2)->doubleValue()*Second;
+  WindowEvaluatorPtr w;
+  if (ety!=eval_none) w = new WindowEvaluator(windowtime, colltime, ety);
+  return w;
+}
+
+
+// filter(type, [interval [, colltime]])
+FUNC_ARG_DEFS(filter, { text }, { numeric|optionalarg }, { numeric|optionalarg } );
+static void filter_func(BuiltinFunctionContextPtr f)
+{
+  WindowEvaluatorPtr filter = filterFromParams(f);
+  f->finish(new FilterObj(filter));
+}
+
+#endif // ENABLE_FILTER_FUNCS
+
+
 #endif // P44SCRIPT_FULL_SUPPORT
 
 
@@ -10327,6 +10424,9 @@ static const BuiltinMemberDescriptor standardFunctions[] = {
   FUNC_DEF_C_ARG(hsv, executable|text|objectvalue, col),
   FUNC_DEF_C_ARG(rgb, executable|text|objectvalue, col),
   #endif // ENABLE_P44LRGRAPHICS
+  #if ENABLE_FILTER_FUNCS
+  FUNC_DEF_W_ARG(filter, executable|objectvalue|null),
+  #endif
   #endif // P44SCRIPT_FULL_SUPPORT
   FUNC_DEF_W_ARG(is_weekday, executable|anyvalid),
   FUNC_DEF_W_ARG(after_time, executable|numeric),
