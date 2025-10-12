@@ -230,13 +230,8 @@ namespace p44 {
   #if ENABLE_HTTP_SCRIPT_FUNCS && ENABLE_P44SCRIPT
   namespace P44Script {
 
-    /// represents the global objects related to http
-    class HttpLookup : public BuiltInMemberLookup
-    {
-      typedef BuiltInMemberLookup inherited;
-    public:
-      HttpLookup();
-    };
+    // get global builtins
+    const BuiltinMemberDescriptor* httpGlobals();
 
   }
   #endif

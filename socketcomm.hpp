@@ -297,14 +297,8 @@ namespace p44 {
     };
     typedef boost::intrusive_ptr<SocketObj> SocketObjPtr;
 
-
-    /// represents the global objects related to http
-    class SocketLookup : public BuiltInMemberLookup
-    {
-      typedef BuiltInMemberLookup inherited;
-    public:
-      SocketLookup();
-    };
+    // get global builtins
+    const BuiltinMemberDescriptor* socketGlobals();
 
   }
 

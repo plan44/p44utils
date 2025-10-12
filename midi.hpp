@@ -217,14 +217,8 @@ namespace p44 {
       void gotMessage(const MidiMessage &aMessage);
     };
 
-
-    /// represents the global objects related to midi
-    class MidiLookup : public BuiltInMemberLookup
-    {
-      typedef BuiltInMemberLookup inherited;
-    public:
-      MidiLookup();
-    };
+    // get global builtins
+    const BuiltinMemberDescriptor* midiGlobals();
 
   } // namespace P44Script
   #endif // ENABLE_MIDI_SCRIPT_FUNCS

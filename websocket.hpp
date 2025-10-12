@@ -159,14 +159,8 @@ namespace p44 {
       void gotMessage(const string aMessage, ErrorPtr aError);
     };
 
-
-    /// represents the global objects related to http
-    class WebSocketLookup : public BuiltInMemberLookup
-    {
-      typedef BuiltInMemberLookup inherited;
-    public:
-      WebSocketLookup();
-    };
+    // get global builtins
+    const BuiltinMemberDescriptor* webSocketGlobals();
 
   }
 

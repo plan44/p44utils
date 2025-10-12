@@ -561,13 +561,8 @@ namespace p44 {
       I2CDevicePtr i2cdevice() { return mI2CDevice; }
     };
 
-    /// represents the global objects related to i2c
-    class I2CLookup : public BuiltInMemberLookup
-    {
-      typedef BuiltInMemberLookup inherited;
-    public:
-      I2CLookup();
-    };
+    // get global builtins
+    const BuiltinMemberDescriptor* i2cGlobals();
 
   } // namespace
   #endif // ENABLE_I2C_SCRIPT_FUNCS

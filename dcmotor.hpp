@@ -248,14 +248,8 @@ namespace p44 {
       DcMotorDriverPtr dcMotor() { return mDCMotor; }
     };
 
-
-    /// represents the global objects related to DC motors
-    class DcMotorLookup : public BuiltInMemberLookup
-    {
-      typedef BuiltInMemberLookup inherited;
-    public:
-      DcMotorLookup();
-    };
+    // get global builtins
+    const BuiltinMemberDescriptor* dcMotorGlobals();
 
   }
 

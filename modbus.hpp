@@ -860,14 +860,8 @@ namespace p44 {
       ModbusMasterPtr modbus() { return mModbus; }
     };
 
-    /// represents the global objects related to Modbus
-    class ModbusLookup : public BuiltInMemberLookup
-    {
-      typedef BuiltInMemberLookup inherited;
-    public:
-      ModbusLookup();
-    };
-
+    // get global builtins
+    const BuiltinMemberDescriptor* modbusGlobals();
 
   }
   #endif // ENABLE_MODBUS_SCRIPT_FUNCS

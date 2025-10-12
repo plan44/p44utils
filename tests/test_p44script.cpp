@@ -145,10 +145,10 @@ public:
     LOG(LOG_INFO, "\n+++++++ constructing AsyncScriptingFixture");
     StandardScriptingDomain::sharedDomain().setLogLevelOffset(LOGLEVELOFFSET);
     #if ENABLE_HTTP_SCRIPT_FUNCS
-    StandardScriptingDomain::sharedDomain().registerMemberLookup(new P44Script::HttpLookup);
+    StandardScriptingDomain::sharedDomain().addGlobalBuiltins(p44::P44Script::httpGlobals());
     #endif
     #if ENABLE_SOCKET_SCRIPT_FUNCS
-    StandardScriptingDomain::sharedDomain().registerMemberLookup(new P44Script::SocketLookup);
+    StandardScriptingDomain::sharedDomain().addGlobalBuiltins(p44::P44Script::socketGlobals());
     #endif
     mainContext = StandardScriptingDomain::sharedDomain().newContext();
     s.setSharedMainContext(mainContext);

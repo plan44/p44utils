@@ -859,7 +859,7 @@ static void coloroutput_func(BuiltinFunctionContextPtr f)
 
 
 
-static const BuiltinMemberDescriptor analogioGlobals[] = {
+static const BuiltinMemberDescriptor cAnalogIoGlobals[] = {
   FUNC_DEF_W_ARG(analogio, executable|null),
   #if ENABLE_ANALOGIO_COLOR_SUPPORT
   { "analogcoloroutput", executable|null, coloroutput_numargs, coloroutput_args, &coloroutput_func },
@@ -867,9 +867,10 @@ static const BuiltinMemberDescriptor analogioGlobals[] = {
   BUILTINS_TERMINATOR
 };
 
-AnalogIoLookup::AnalogIoLookup() :
-  inherited(analogioGlobals)
+const BuiltinMemberDescriptor* p44::P44Script::analogIoGlobals()
 {
+  return cAnalogIoGlobals;
 }
+
 
 #endif // ENABLE_ANALOGIO_SCRIPT_FUNCS  && ENABLE_P44SCRIPT

@@ -227,14 +227,8 @@ namespace p44 {
       void hasData(ErrorPtr aStatus);
     };
 
-
-    /// represents the global objects related to serial interfaces
-    class SerialLookup : public BuiltInMemberLookup
-    {
-      typedef BuiltInMemberLookup inherited;
-    public:
-      SerialLookup();
-    };
+    // get global builtins
+    const BuiltinMemberDescriptor* serialGlobals();
 
   } // namespace P44Script
   #endif // ENABLE_SERIAL_SCRIPT_FUNCS

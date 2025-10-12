@@ -389,16 +389,11 @@ namespace p44 {
   #if ENABLE_DNSSD_SCRIPT_FUNCS && ENABLE_P44SCRIPT
   namespace P44Script {
 
-    /// represents the global objects related to http
-    class DnsSdLookup : public BuiltInMemberLookup
-    {
-      typedef BuiltInMemberLookup inherited;
-    public:
-      DnsSdLookup();
-    };
+    // get global builtins
+    const BuiltinMemberDescriptor* dnsSdGlobals();
 
   }
-  #endif
+  #endif // ENABLE_DNSSD_SCRIPT_FUNCS && ENABLE_P44SCRIPT
 
 
 } // namespace p44

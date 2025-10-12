@@ -1278,14 +1278,15 @@ static void i2cdevice_func(BuiltinFunctionContextPtr f)
 }
 
 
-static const BuiltinMemberDescriptor i2cGlobals[] = {
+static const BuiltinMemberDescriptor cI2cGlobals[] = {
   FUNC_DEF_W_ARG(i2cdevice, executable|null),
   BUILTINS_TERMINATOR
 };
 
-I2CLookup::I2CLookup() :
-  inherited(i2cGlobals)
+const BuiltinMemberDescriptor* p44::P44Script::i2cGlobals()
 {
+  return cI2cGlobals;
 }
+
 
 #endif // ENABLE_I2C_SCRIPT_FUNCS

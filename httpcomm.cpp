@@ -691,7 +691,7 @@ static void urlencode_func(BuiltinFunctionContextPtr f)
 }
 
 
-static const BuiltinMemberDescriptor httpGlobals[] = {
+const BuiltinMemberDescriptor cHttpGlobals[] = {
   FUNC_DEF_W_ARG(geturl, executable|async|text),
   FUNC_DEF_C_ARG(posturl, executable|async|text, postputurl),
   FUNC_DEF_C_ARG(puturl, executable|async|text, postputurl),
@@ -700,9 +700,10 @@ static const BuiltinMemberDescriptor httpGlobals[] = {
   BUILTINS_TERMINATOR
 };
 
-HttpLookup::HttpLookup() :
-  inherited(httpGlobals)
+
+const BuiltinMemberDescriptor* p44::P44Script::httpGlobals()
 {
+  return cHttpGlobals;
 }
 
 #endif // ENABLE_HTTP_SCRIPT_FUNCS && ENABLE_P44SCRIPT

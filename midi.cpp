@@ -575,16 +575,15 @@ static void midibus_func(BuiltinFunctionContextPtr f)
 }
 
 
-static const BuiltinMemberDescriptor midiGlobals[] = {
+static const BuiltinMemberDescriptor cMidiGlobals[] = {
   FUNC_DEF_W_ARG(midibus, executable|null),
   BUILTINS_TERMINATOR
 };
 
-MidiLookup::MidiLookup() :
-  inherited(midiGlobals)
+const BuiltinMemberDescriptor* p44::P44Script::midiGlobals()
 {
+  return cMidiGlobals;
 }
-
 
 #endif // ENABLE_MIDI_SCRIPT_FUNCS
 

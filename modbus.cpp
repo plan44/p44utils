@@ -2721,16 +2721,17 @@ static void modbusslave_func(BuiltinFunctionContextPtr f)
 }
 
 
-static const BuiltinMemberDescriptor modbusGlobals[] = {
+static const BuiltinMemberDescriptor cModbusGlobals[] = {
   FUNC_DEF_NOARG(modbusmaster, executable|null),
   FUNC_DEF_NOARG(modbusslave, executable|null),
   BUILTINS_TERMINATOR
 };
 
-ModbusLookup::ModbusLookup() :
-  inherited(modbusGlobals)
+const BuiltinMemberDescriptor* p44::P44Script::modbusGlobals()
 {
+  return cModbusGlobals;
 }
+
 
 #endif // ENABLE_MODBUS_SCRIPT_FUNCS
 

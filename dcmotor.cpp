@@ -565,15 +565,14 @@ static void dcmotor_func(BuiltinFunctionContextPtr f)
 }
 
 
-static const BuiltinMemberDescriptor dcmotorGlobals[] = {
+static const BuiltinMemberDescriptor cDcMotorGlobals[] = {
   FUNC_DEF_W_ARG(dcmotor, executable|null),
   BUILTINS_TERMINATOR
 };
 
-DcMotorLookup::DcMotorLookup() :
-  inherited(dcmotorGlobals)
+const BuiltinMemberDescriptor* p44::P44Script::dcMotorGlobals()
 {
+  return cDcMotorGlobals;
 }
-
 
 #endif // ENABLE_DCMOTOR_SCRIPT_FUNCS  && ENABLE_P44SCRIPT

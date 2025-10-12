@@ -369,15 +369,16 @@ static void websocket_func(BuiltinFunctionContextPtr f)
   websocket->connectTo(boost::bind(&websocket_connected, f, websocket, _1), url, pingInterval, ehstr);
 }
 
-static const BuiltinMemberDescriptor websocketGlobals[] = {
+static const BuiltinMemberDescriptor cWebsocketGlobals[] = {
   FUNC_DEF_W_ARG(websocket, executable|async|null),
   BUILTINS_TERMINATOR
 };
 
-WebSocketLookup::WebSocketLookup() :
-  inherited(websocketGlobals)
+const BuiltinMemberDescriptor* p44::P44Script::webSocketGlobals()
 {
+  return cWebsocketGlobals;
 }
+
 
 #endif // ENABLE_WEBSOCKET_SCRIPT_FUNCS && ENABLE_P44SCRIPT
 #endif // ENABLE_UWSC

@@ -806,17 +806,16 @@ static void indicator_func(BuiltinFunctionContextPtr f)
 }
 
 
-static const BuiltinMemberDescriptor digitalioGlobals[] = {
+static const BuiltinMemberDescriptor cDigitalIoGlobals[] = {
   FUNC_DEF_W_ARG(digitalio, executable|null),
   FUNC_DEF_W_ARG(digitalbus, executable|null),
   FUNC_DEF_W_ARG(indicator, executable|null),
   BUILTINS_TERMINATOR
 };
 
-DigitalIoLookup::DigitalIoLookup() :
-  inherited(digitalioGlobals)
+const BuiltinMemberDescriptor* p44::P44Script::digitalIoGlobals()
 {
+  return cDigitalIoGlobals;
 }
-
 
 #endif // ENABLE_DIGITALIO_SCRIPT_FUNCS  && ENABLE_P44SCRIPT

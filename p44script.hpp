@@ -105,6 +105,8 @@ namespace p44 { namespace P44Script {
   typedef boost::intrusive_ptr<ScriptMainContext> ScriptMainContextPtr;
   class ScriptingDomain;
   typedef boost::intrusive_ptr<ScriptingDomain> ScriptingDomainPtr;
+  class StandardScriptingDomain;
+  typedef boost::intrusive_ptr<StandardScriptingDomain> StandardScriptingDomainPtr;
 
   class SourcePos;
   class SourceCursor;
@@ -3640,9 +3642,14 @@ namespace p44 { namespace P44Script {
     MemberMap mMembers;
 
   public:
+
     /// create a builtin member lookup from descriptor table
     /// @param aMemberDescriptors pointer to an array of member descriptors, terminated with an entry with .name==NULL
     BuiltInMemberLookup(const BuiltinMemberDescriptor* aMemberDescriptors);
+
+    /// add member descriptors to the lookup
+    /// @param aMemberDescriptors pointer to an array of member descriptors, terminated with an entry with .name==NULL
+    void addMemberDescriptors(const BuiltinMemberDescriptor* aMemberDescriptors);
 
     virtual TypeInfo containsTypes() const P44_OVERRIDE { return builtin|allscopes|alltypes; } // constant, from all scopes, any type
     virtual ScriptObjPtr memberByNameFrom(ScriptObjPtr aThisObj, const string aName, TypeInfo aMemberAccessFlags) const P44_OVERRIDE;
@@ -3768,10 +3775,12 @@ namespace p44 { namespace P44Script {
 
   // MARK: - Standard scripting domain
 
-  /// Standard scripting domain, with standard set of built-in functions
+  /// Standard scripting domain, with standard set of built-in globally accessible functions
   class StandardScriptingDomain : public ScriptingDomain
   {
     typedef ScriptingDomain inherited;
+
+    BuiltInMemberLookupPtr mGlobalBuiltins;
 
   protected:
 
@@ -3786,11 +3795,15 @@ namespace p44 { namespace P44Script {
     /// @note if no standard scripting domain exists (neither sharedDomain() nor
     ///    setStandardScriptingDomain() called yet, a instance of this class will
     ///    be created.
-    static ScriptingDomain& sharedDomain();
+    static StandardScriptingDomain& sharedDomain();
 
     /// set standard scripting domain (e.g. when app wants a derived class for it)
     /// @param aStandardScriptingDomain set standard scripting domain or nullptr to remove it
-    static void setStandardScriptingDomain(ScriptingDomainPtr aStandardScriptingDomain);
+    static void setStandardScriptingDomain(StandardScriptingDomainPtr aStandardScriptingDomain);
+
+    /// add global builtins to this scripting domain
+    /// @param aMemberDescriptors pointer to an array of member descriptors, terminated with an entry with .name==NULL
+    void addGlobalBuiltins(const BuiltinMemberDescriptor* aMemberDescriptors);
 
   };
 

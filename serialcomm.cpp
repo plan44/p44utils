@@ -712,14 +712,14 @@ static void serial_func(BuiltinFunctionContextPtr f)
 }
 
 
-static const BuiltinMemberDescriptor serialGlobals[] = {
+static const BuiltinMemberDescriptor cSerialGlobals[] = {
   FUNC_DEF_W_ARG(serial, executable|null),
   BUILTINS_TERMINATOR
 };
 
-SerialLookup::SerialLookup() :
-  inherited(serialGlobals)
+const BuiltinMemberDescriptor* p44::P44Script::serialGlobals()
 {
+  return cSerialGlobals;
 }
 
 

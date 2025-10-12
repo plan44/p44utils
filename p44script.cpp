@@ -2396,11 +2396,16 @@ void BuiltInLValue::assignLValue(EvaluationCB aEvaluationCB, ScriptObjPtr aNewVa
 }
 
 
-
-
 BuiltInMemberLookup::BuiltInMemberLookup(const BuiltinMemberDescriptor* aMemberDescriptors)
 {
-  // build name lookup map
+  // build initial name lookup map
+  addMemberDescriptors(aMemberDescriptors);
+}
+
+
+void BuiltInMemberLookup::addMemberDescriptors(const BuiltinMemberDescriptor* aMemberDescriptors)
+{
+  // add to name lookup map
   if (aMemberDescriptors) {
     while (aMemberDescriptors->name) {
       mMembers[aMemberDescriptors->name]=aMemberDescriptors;
@@ -10399,17 +10404,29 @@ static const BuiltinMemberDescriptor standardFunctions[] = {
 
 // MARK: - Standard Scripting Domain
 
-static ScriptingDomainPtr gStandardScriptingDomain;
+static StandardScriptingDomainPtr gStandardScriptingDomain;
 
 
 StandardScriptingDomain::StandardScriptingDomain()
 {
   // a standard scripting domains has the standard functions
-  registerMemberLookup(new BuiltInMemberLookup(BuiltinFunctions::standardFunctions));
+  addGlobalBuiltins(BuiltinFunctions::standardFunctions);
 }
 
 
-ScriptingDomain& StandardScriptingDomain::sharedDomain()
+void StandardScriptingDomain::addGlobalBuiltins(const BuiltinMemberDescriptor* aMemberDescriptors)
+{
+  if (!mGlobalBuiltins) {
+    mGlobalBuiltins = new BuiltInMemberLookup(BuiltinFunctions::standardFunctions);
+    registerMemberLookup(mGlobalBuiltins);
+  }
+  if (aMemberDescriptors) {
+    mGlobalBuiltins->addMemberDescriptors(aMemberDescriptors);
+  }
+}
+
+
+StandardScriptingDomain& StandardScriptingDomain::sharedDomain()
 {
   if (!gStandardScriptingDomain) {
     gStandardScriptingDomain = new StandardScriptingDomain();
@@ -10418,7 +10435,7 @@ ScriptingDomain& StandardScriptingDomain::sharedDomain()
 };
 
 
-void StandardScriptingDomain::setStandardScriptingDomain(ScriptingDomainPtr aStandardScriptingDomain)
+void StandardScriptingDomain::setStandardScriptingDomain(StandardScriptingDomainPtr aStandardScriptingDomain)
 {
   gStandardScriptingDomain = aStandardScriptingDomain;
 }

@@ -1155,15 +1155,17 @@ static void udpsocket_func(BuiltinFunctionContextPtr f)
   }
 }
 
-static const BuiltinMemberDescriptor socketGlobals[] = {
+
+static const BuiltinMemberDescriptor cSocketGlobals[] = {
   FUNC_DEF_W_ARG(udpsocket, executable|null),
   FUNC_DEF_W_ARG(tcpsocket, executable|null),
   BUILTINS_TERMINATOR
 };
 
-SocketLookup::SocketLookup() :
-  inherited(socketGlobals)
+const BuiltinMemberDescriptor* p44::P44Script::socketGlobals()
 {
+  return cSocketGlobals;
 }
+
 
 #endif // ENABLE_SOCKET_SCRIPT_FUNCS && ENABLE_P44SCRIPT

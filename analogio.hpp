@@ -297,13 +297,9 @@ namespace p44 {
 
     #endif // ENABLE_ANALOGIO_COLOR_SUPPORT
 
-    /// represents the global objects related to analogio
-    class AnalogIoLookup : public BuiltInMemberLookup
-    {
-      typedef BuiltInMemberLookup inherited;
-    public:
-      AnalogIoLookup();
-    };
+
+    // get global builtins
+    const BuiltinMemberDescriptor* analogIoGlobals();
 
   }
 

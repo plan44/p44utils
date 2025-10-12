@@ -339,13 +339,8 @@ namespace p44 {
       IndicatorOutputPtr indicator() { return mIndicator; }
     };
 
-    /// represents the global objects related to Digitalio
-    class DigitalIoLookup : public BuiltInMemberLookup
-    {
-      typedef BuiltInMemberLookup inherited;
-    public:
-      DigitalIoLookup();
-    };
+    // get global builtins
+    const BuiltinMemberDescriptor* digitalIoGlobals();
 
   }
 

@@ -1097,14 +1097,15 @@ static void spidevice_func(BuiltinFunctionContextPtr f)
 }
 
 
-static const BuiltinMemberDescriptor spiGlobals[] = {
+static const BuiltinMemberDescriptor cSpiGlobals[] = {
   FUNC_DEF_W_ARG(spidevice, executable|null),
   BUILTINS_TERMINATOR
 };
 
-SPILookup::SPILookup() :
-  inherited(spiGlobals)
+const BuiltinMemberDescriptor* p44::P44Script::spiGlobals()
 {
+  return cSpiGlobals;
 }
+
 
 #endif // ENABLE_SPI_SCRIPT_FUNCS

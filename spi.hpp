@@ -479,13 +479,8 @@ namespace p44 {
       SPIDevicePtr spidevice() { return mSPIDevice; }
     };
 
-    /// represents the global objects related to i2c
-    class SPILookup : public BuiltInMemberLookup
-    {
-      typedef BuiltInMemberLookup inherited;
-    public:
-      SPILookup();
-    };
+    // get global builtins
+    const BuiltinMemberDescriptor* spiGlobals();
 
   } // namespace
   #endif // ENABLE_SPI_SCRIPT_FUNCS

@@ -46,7 +46,7 @@ namespace p44 {
   /// @return ok or error
   ErrorPtr string_tofile(const string aFilePath, const string &aData);
 
-  #endif
+  #endif // !ESP_PLATFORM
 
   /// make sure directory exists, otherwise make it (like mkdir -p)
   /// @param aDirPath path for directory to create

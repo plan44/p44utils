@@ -1009,14 +1009,15 @@ static void dnssdbrowse_func(BuiltinFunctionContextPtr f)
 }
 
 
-static const BuiltinMemberDescriptor dnssdGlobals[] = {
+static const BuiltinMemberDescriptor cDnsSdGlobals[] = {
   FUNC_DEF_W_ARG(dnssdbrowse, executable|async|arrayvalue),
   BUILTINS_TERMINATOR
 };
 
-DnsSdLookup::DnsSdLookup() :
-  inherited(dnssdGlobals)
+const BuiltinMemberDescriptor* p44::P44Script::dnsSdGlobals()
 {
+  return cDnsSdGlobals;
 }
+
 
 #endif // ENABLE_HTTP_SCRIPT_FUNCS && ENABLE_P44SCRIPT
