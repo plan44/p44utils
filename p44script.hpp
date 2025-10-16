@@ -1526,6 +1526,10 @@ namespace p44 { namespace P44Script {
     /// @return info about handlers
     ScriptObjPtr handlersInfo();
 
+    /// clear handlers only in this context
+    /// @note clearVars() also clears handlers, but in some cases variables should be kept, but only handlers stopped
+    void clearHandlers();
+
     /// register a handler in this main context
     /// @param aHandler the handler to register
     /// @return Ok or error

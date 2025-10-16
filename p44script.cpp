@@ -2213,13 +2213,19 @@ ScriptObjPtr ScriptMainContext::handlersInfo()
 }
 
 
-void ScriptMainContext::clearVars()
+void ScriptMainContext::clearHandlers()
 {
   HandlerList::iterator pos = mHandlers.begin();
   while (pos!=mHandlers.end()) {
     (*pos)->deactivate(); // pre-deletion, breaks retain cycles
     pos = mHandlers.erase(pos); // source is gone -> remove
   }
+}
+
+
+void ScriptMainContext::clearVars()
+{
+  clearHandlers();
   inherited::clearVars();
 }
 
