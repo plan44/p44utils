@@ -161,6 +161,10 @@ void LvGL::init(const string aDispSpec)
   if (dx<=0) dx = 720;
   if (dy<=0) dy = 720;
   mDisplay = lv_sdl_window_create(dx, dy);
+  #elif ENABLE_LVGL_DRM
+  // - Linux DRM
+  mDisplay = lv_linux_drm_create();
+  lv_linux_drm_set_file(mDisplay, dispdev.c_str(), -1 /* first connector */); // will read drm properties from device
   #else
   // - Linux frame buffer
   mDisplay = lv_linux_fbdev_create();
