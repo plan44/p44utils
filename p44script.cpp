@@ -8672,7 +8672,14 @@ static ScriptObjPtr format_string(BuiltinFunctionContextPtr f, size_t aFmtArgIdx
         else if (c=='s') {
           // string formatting
           string nfmt(p-1,e-p+1);
-          string_format_append(res, nfmt.c_str(), f->arg(ai++)->stringValue().c_str());
+          if (nfmt=="%s") {
+            // 1:1 unmodified string, append the actual string, even if it contains zeroes
+            res += f->arg(ai++)->stringValue();
+          }
+          else {
+            // string with length limits, padding etc. options, will stop at zero chars
+            string_format_append(res, nfmt.c_str(), f->arg(ai++)->stringValue().c_str());
+          }
         }
         else {
           return new ErrorValue(ScriptError::Syntax, "invalid format string, only basic %%duxXeEgGfs specs allowed");
