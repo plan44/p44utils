@@ -8451,7 +8451,7 @@ static uint64_t bitmask(int aNextArg, int& aLoBit, int& aHiBit, BuiltinFunctionC
     if (aLoBit<0) aLoBit=0;
     if (aHiBit>63) aHiBit=63;
   }
-  return (((uint64_t)-1)>>(63-aHiBit))<<aLoBit;
+  return (((uint64_t)-1)>>(63-(aHiBit-aLoBit)))<<aLoBit;
 }
 
 // bit(bitno, value) - get bit from value
@@ -8464,9 +8464,9 @@ static void bit_func(BuiltinFunctionContextPtr f)
   uint64_t mask = bitmask(nextarg, loBit, hiBit, f);
   uint64_t r = f->arg(nextarg)->int64Value();
   r = (r & mask)>>loBit;
-  if (f->arg(3)->boolValue() && (r & (1<<hiBit))) {
+  if (f->arg(3)->boolValue() && (r & (1<<(hiBit-loBit)))) {
     // extend sign
-    r |= ~mask;
+    r |= ((uint64_t)-1)<<(hiBit-loBit+1);
   }
   f->finish(new NumericValue((int64_t)r));
 }
