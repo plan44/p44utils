@@ -106,12 +106,32 @@ DigitalIo::DigitalIo(const char* aPinSpec, bool aOutput, bool aInitialState) :
   }
   // now create appropriate pin
   DBGLOG(LOG_DEBUG, "DigitalIo: bus name = '%s'", busName.c_str());
-  #if !defined(__APPLE__) && !DISABLE_GPIO
-  if (busName=="gpio") {
+  #if P44_BUILD_DIGI && !DISABLE_GPIO
+  // Note: must test this before "gpio"
+  if (busName=="gpioNS9XXXX") {
+    // gpioNS9XXXX.<pinname>
+    // NS9XXX driver based GPIO (Digi ME 9210 LX)
+    mIoPin = IOPinPtr(new GpioNS9XXXPin(pinName.c_str(), mOutput, initialPinState));
+  }
+  else
+  #endif // P44_BUILD_DIGI && !DISABLE_GPIO
+  #if !defined(__APPLE__) && !DISABLE_GPIO && !P44_BUILD_DIGI
+  if (busName.substr(0,4)=="gpio") {
     // Linux or ESP32 generic GPIO
-    // gpio.<gpionumber>
-    int pinNumber = atoi(pinName.c_str());
-    mIoPin = IOPinPtr(new GpioPin(pinNumber, mOutput, initialPinState, mPull));
+    #if ENABLE_GPIOD
+    if (busName.size()>4) {
+      // - modern linux gpiod chip/line gpio
+      int chipNo = atoi(busName.c_str()+4);
+      mIoPin = IOPinPtr(new GpiodPin(chipNo, pinName.c_str(), mOutput, initialPinState, mPull));
+    }
+    else
+    #endif // ENABLE_GPIOD
+    {
+      // - global index gpio (ESP32 and linux legacy)
+      //   gpio.<gpionumber>
+      int pinNumber = atoi(pinName.c_str());
+      mIoPin = IOPinPtr(new GpioPin(pinNumber, mOutput, initialPinState, mPull));
+    }
   }
   #ifndef ESP_PLATFORM
   else if (busName=="led") {
@@ -119,17 +139,9 @@ DigitalIo::DigitalIo(const char* aPinSpec, bool aOutput, bool aInitialState) :
     // led.<lednumber_or_name>
     mIoPin = IOPinPtr(new GpioLedPin(pinName.c_str(), initialPinState));
   }
+  else
   #endif // !ESP_PLATFORM
-  else
-  #endif
-  #if P44_BUILD_DIGI && !DISABLE_GPIO
-  if (busName=="gpioNS9XXXX") {
-    // gpioNS9XXXX.<pinname>
-    // NS9XXX driver based GPIO (Digi ME 9210 LX)
-    mIoPin = IOPinPtr(new GpioNS9XXXPin(pinName.c_str(), mOutput, initialPinState));
-  }
-  else
-  #endif
+  #endif // !defined(__APPLE__) && !DISABLE_GPIO && !P44_BUILD_DIGI
   #if !DISABLE_I2C
   if (busName.substr(0,3)=="i2c") {
     // i2c<busnum>.<devicespec>.<pinnum>
@@ -138,7 +150,7 @@ DigitalIo::DigitalIo(const char* aPinSpec, bool aOutput, bool aInitialState) :
     mIoPin = IOPinPtr(new I2CPin(busNumber, deviceName.c_str(), pinNumber, mOutput, initialPinState, mPull));
   }
   else
-  #endif
+  #endif // !DISABLE_I2C
   #if !DISABLE_SPI
   if (busName.substr(0,3)=="spi") {
     // spi<interfaceno*10+chipselno>.<devicespec>.<pinnum>
@@ -147,7 +159,7 @@ DigitalIo::DigitalIo(const char* aPinSpec, bool aOutput, bool aInitialState) :
     mIoPin = IOPinPtr(new SPIPin(busNumber, deviceName.c_str(), pinNumber, mOutput, initialPinState, mPull));
   }
   else
-  #endif
+  #endif // !DISABLE_SPI
   #if !DISABLE_SYSCMDIO && !defined(ESP_PLATFORM) && (ENABLE_APPLICATION_SUPPORT || ALWAYS_ALLOW_SYSCMDIO)
   if (
     busName=="syscmd"
@@ -158,9 +170,8 @@ DigitalIo::DigitalIo(const char* aPinSpec, bool aOutput, bool aInitialState) :
     // digital I/O calling system command to turn on/off
     mIoPin = IOPinPtr(new SysCommandPin(pinName.c_str(), mOutput, initialPinState));
   }
-  else
-  #endif
-  {
+  #endif // !DISABLE_SYSCMDIO && !defined(ESP_PLATFORM) && (ENABLE_APPLICATION_SUPPORT || ALWAYS_ALLOW_SYSCMDIO)
+  if (!mIoPin) {
     // all other/unknown bus names, including "sim", default to simulated pin operated from console
     mIoPin = IOPinPtr(new SimPin(mPinSpec.c_str(), mOutput, initialPinState));
   }
