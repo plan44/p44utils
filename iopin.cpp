@@ -28,10 +28,10 @@ using namespace p44;
 // MARK: - IOPin
 
 IOPin::IOPin() :
-  currentState(false),
-  invertedReporting(false),
-  pollInterval(Never),
-  lastReportedChange(Never)
+  mCurrentState(false),
+  mInvertedReporting(false),
+  mPollInterval(Never),
+  mLastReportedChange(Never)
 {
 }
 
@@ -44,10 +44,10 @@ IOPin::~IOPin()
 
 void IOPin::clearChangeHandling()
 {
-  inputChangedCB = NoOP;
-  pollInterval = Never;
-  pollTicket.cancel();
-  debounceTicket.cancel();
+  mInputChangedCB = NoOP;
+  mPollInterval = Never;
+  mPollTicket.cancel();
+  mDebounceTicket.cancel();
 }
 
 
@@ -55,25 +55,25 @@ void IOPin::clearChangeHandling()
 
 bool IOPin::setInputChangedHandler(InputChangedCB aInputChangedCB, bool aInverted, bool aInitialState, MLMicroSeconds aDebounceTime, MLMicroSeconds aPollInterval)
 {
-  inputChangedCB = aInputChangedCB;
-  pollInterval = aPollInterval;
-  currentState = aInitialState;
-  invertedReporting = aInverted;
-  debounceTime = aDebounceTime;
+  mInputChangedCB = aInputChangedCB;
+  mPollInterval = aPollInterval;
+  mCurrentState = aInitialState;
+  mInvertedReporting = aInverted;
+  mDebounceTime = aDebounceTime;
   if (aInputChangedCB==NULL) {
     // disable polling
     clearChangeHandling();
   }
   else {
-    if (pollInterval<0)
+    if (mPollInterval<0)
       return false; // cannot install non-polling input change handler
     // install handler
-    if (pollInterval==0) {
+    if (mPollInterval==0) {
       // use default interval
-      pollInterval = IOPIN_DEFAULT_POLL_INTERVAL;
+      mPollInterval = IOPIN_DEFAULT_POLL_INTERVAL;
     }
     // schedule first poll
-    pollTicket.executeOnce(boost::bind(&IOPin::timedpoll, this, _1));
+    mPollTicket.executeOnce(boost::bind(&IOPin::timedpoll, this, _1));
   }
   return true; // successful
 }
@@ -81,24 +81,24 @@ bool IOPin::setInputChangedHandler(InputChangedCB aInputChangedCB, bool aInverte
 
 void IOPin::inputHasChangedTo(bool aNewState)
 {
-  if (aNewState!=currentState) {
-    debounceTicket.cancel();
+  if (aNewState!=mCurrentState) {
+    mDebounceTicket.cancel();
     MLMicroSeconds now = MainLoop::now();
     // optional debouncing
-    if (debounceTime>0 && lastReportedChange!=Never) {
+    if (mDebounceTime>0 && mLastReportedChange!=Never) {
       // check for debounce time passed
-      if (lastReportedChange+debounceTime>now) {
+      if (mLastReportedChange+mDebounceTime>now) {
         LOG(LOG_DEBUG, "- debouncing holdoff, will resample after debouncing time");
         // debounce time not yet over, schedule an extra re-sample later and suppress reporting for now
-        debounceTicket.executeOnce(boost::bind(&IOPin::debounceSample, this), debounceTime);
+        mDebounceTicket.executeOnce(boost::bind(&IOPin::debounceSample, this), mDebounceTime);
         return;
       }
     }
     // report change now
     LOG(LOG_DEBUG, "- state changed >=debouncing time after last change: new state = %d", aNewState);
-    currentState = aNewState;
-    lastReportedChange = now;
-    if (inputChangedCB) inputChangedCB(currentState!=invertedReporting);
+    mCurrentState = aNewState;
+    mLastReportedChange = now;
+    if (mInputChangedCB) mInputChangedCB(mCurrentState!=mInvertedReporting);
   }
 }
 
@@ -107,10 +107,10 @@ void IOPin::debounceSample()
 {
   bool newState = getState();
   LOG(LOG_DEBUG, "- debouncing time over, resampled state = %d", newState);
-  if (newState!=currentState) {
-    currentState = newState;
-    lastReportedChange = MainLoop::now();
-    if (inputChangedCB) inputChangedCB(currentState!=invertedReporting);
+  if (newState!=mCurrentState) {
+    mCurrentState = newState;
+    mLastReportedChange = MainLoop::now();
+    if (mInputChangedCB) mInputChangedCB(mCurrentState!=mInvertedReporting);
   }
 }
 
@@ -120,7 +120,7 @@ void IOPin::timedpoll(MLTimer &aTimer)
 {
   inputHasChangedTo(getState());
   // schedule next poll
-  MainLoop::currentMainLoop().retriggerTimer(aTimer, pollInterval, pollInterval/2); // allow 50% jitter
+  MainLoop::currentMainLoop().retriggerTimer(aTimer, mPollInterval, mPollInterval/2); // allow 50% jitter
 }
 
 
@@ -131,26 +131,26 @@ void IOPin::timedpoll(MLTimer &aTimer)
 static char nextIoSimKey = 'a';
 
 SimPin::SimPin(const char *aName, bool aOutput, bool aInitialState) :
-  name(aName),
-  output(aOutput),
-  pinState(aInitialState)
+  mName(aName),
+  mOutput(aOutput),
+  mPinState(aInitialState)
 {
-  LOG(LOG_ALERT, "Initialized SimPin \"%s\" as %s with initial state %s", name.c_str(), aOutput ? "output" : "input", pinState ? "HI" : "LO");
+  LOG(LOG_ALERT, "Initialized SimPin \"%s\" as %s with initial state %s", mName.c_str(), aOutput ? "output" : "input", mPinState ? "HI" : "LO");
   #if !DISABLE_CONSOLEKEY
-  size_t n = name.find(":");
+  size_t n = mName.find(":");
   char key = 0;
-  if (n!=string::npos && name.size()>n+1) {
-    key = name[n+1];
+  if (n!=string::npos && mName.size()>n+1) {
+    key = mName[n+1];
   }
   else {
     key = nextIoSimKey++;
   }
   if (!aOutput) {
-    if (!output) {
-      consoleKey = ConsoleKeyManager::sharedKeyManager()->newConsoleKey(
+    if (!mOutput) {
+      mConsoleKey = ConsoleKeyManager::sharedKeyManager()->newConsoleKey(
         key,
-        name.c_str(),
-        pinState
+        mName.c_str(),
+        mPinState
       );
     }
   }
@@ -160,14 +160,14 @@ SimPin::SimPin(const char *aName, bool aOutput, bool aInitialState) :
 
 bool SimPin::getState()
 {
-  if (output) {
-    return pinState; // just return last set state
+  if (mOutput) {
+    return mPinState; // just return last set state
   }
   else {
     #if DISABLE_CONSOLEKEY
     return false; // no input at all
     #else
-    return (bool)consoleKey->isSet();
+    return (bool)mConsoleKey->isSet();
     #endif
   }
 }
@@ -175,10 +175,10 @@ bool SimPin::getState()
 
 void SimPin::setState(bool aState)
 {
-  if (!output) return; // non-outputs cannot be set
-  if (pinState!=aState) {
-    pinState = aState;
-    LOG(LOG_ALERT, ">>> SimPin \"%s\" set to %s", name.c_str(), pinState ? "HI" : "LO");
+  if (!mOutput) return; // non-outputs cannot be set
+  if (mPinState!=aState) {
+    mPinState = aState;
+    LOG(LOG_ALERT, ">>> SimPin \"%s\" set to %s", mName.c_str(), mPinState ? "HI" : "LO");
   }
 }
 
@@ -188,36 +188,36 @@ void SimPin::setState(bool aState)
 #if !DISABLE_SYSTEMCMDIO && !defined(ESP_PLATFORM)
 
 SysCommandPin::SysCommandPin(const char *aConfig, bool aOutput, bool aInitialState) :
-  pinState(aInitialState),
-  output(aOutput),
-  changePending(false),
-  changing(false)
+  mPinState(aInitialState),
+  mOutput(aOutput),
+  mChangePending(false),
+  mChanging(false)
 {
   // separate commands for switching on and off
   //  oncommand|offcommand
   string s = aConfig;
   size_t i = s.find("|", 0);
   if (i!=string::npos) {
-    onCommand = s.substr(0,i);
-    offCommand = s.substr(i+1);
+    mOnCommand = s.substr(0,i);
+    mOffCommand = s.substr(i+1);
   }
   // force setting initial state
-  pinState = !aInitialState;
+  mPinState = !aInitialState;
   setState(aInitialState);
 }
 
 
 string SysCommandPin::stateSetCommand(bool aState)
 {
-  return aState ? onCommand : offCommand;
+  return aState ? mOnCommand : mOffCommand;
 }
 
 
 void SysCommandPin::setState(bool aState)
 {
-  if (!output) return; // non-outputs cannot be set
-  if (pinState!=aState) {
-    pinState = aState;
+  if (!mOutput) return; // non-outputs cannot be set
+  if (mPinState!=aState) {
+    mPinState = aState;
     // schedule change
     applyState(aState);
   }
@@ -226,13 +226,13 @@ void SysCommandPin::setState(bool aState)
 
 void SysCommandPin::applyState(bool aState)
 {
-  if (changing) {
+  if (mChanging) {
     // already in process of applying a change
-    changePending = true;
+    mChangePending = true;
   }
   else {
     // trigger change
-    changing = true;
+    mChanging = true;
     MainLoop::currentMainLoop().fork_and_system(boost::bind(&SysCommandPin::stateUpdated, this, _1, _2), stateSetCommand(aState).c_str());
   }
 }
@@ -241,16 +241,16 @@ void SysCommandPin::applyState(bool aState)
 void SysCommandPin::stateUpdated(ErrorPtr aError, const string &aOutputString)
 {
   if (Error::notOK(aError)) {
-    LOG(LOG_WARNING, "SysCommandPin set state=%d: command (%s) execution failed: %s", pinState, stateSetCommand(pinState).c_str(), aError->text());
+    LOG(LOG_WARNING, "SysCommandPin set state=%d: command (%s) execution failed: %s", mPinState, stateSetCommand(mPinState).c_str(), aError->text());
   }
   else {
-    LOG(LOG_INFO, "SysCommandPin set state=%d: command (%s) executed successfully", pinState, stateSetCommand(pinState).c_str());
+    LOG(LOG_INFO, "SysCommandPin set state=%d: command (%s) executed successfully", mPinState, stateSetCommand(mPinState).c_str());
   }
-  changing = false;
-  if (changePending) {
-    changePending = false;
+  mChanging = false;
+  if (mChangePending) {
+    mChangePending = false;
     // apply latest value
-    applyState(pinState);
+    applyState(mPinState);
   }
 }
 
@@ -261,26 +261,26 @@ void SysCommandPin::stateUpdated(ErrorPtr aError, const string &aOutputString)
 
 
 AnalogSimPin::AnalogSimPin(const char *aName, bool aOutput, double aInitialValue) :
-  name(aName),
-  output(aOutput),
-  pinValue(aInitialValue)
+  mName(aName),
+  mOutput(aOutput),
+  mPinValue(aInitialValue)
 {
-  LOG(LOG_ALERT, "Initialized AnalogSimPin \"%s\" as %s with initial value %.2f", name.c_str(), aOutput ? "output" : "input", pinValue);
+  LOG(LOG_ALERT, "Initialized AnalogSimPin \"%s\" as %s with initial value %.2f", mName.c_str(), aOutput ? "output" : "input", mPinValue);
   #if !DISABLE_CONSOLEKEY
   if (!aOutput) {
-    if (!output) {
-      consoleKeyUp = ConsoleKeyManager::sharedKeyManager()->newConsoleKey(
+    if (!mOutput) {
+      mConsoleKeyUp = ConsoleKeyManager::sharedKeyManager()->newConsoleKey(
         nextIoSimKey++,
         "increase",
         false
       );
-      consoleKeyUp->setConsoleKeyHandler(boost::bind(&AnalogSimPin::simKeyPress, this, 1, _1));
-      consoleKeyDown = ConsoleKeyManager::sharedKeyManager()->newConsoleKey(
+      mConsoleKeyUp->setConsoleKeyHandler(boost::bind(&AnalogSimPin::simKeyPress, this, 1, _1));
+      mConsoleKeyDown = ConsoleKeyManager::sharedKeyManager()->newConsoleKey(
         nextIoSimKey++,
         "decrease",
         false
       );
-      consoleKeyDown->setConsoleKeyHandler(boost::bind(&AnalogSimPin::simKeyPress, this, -1, _1));
+      mConsoleKeyDown->setConsoleKeyHandler(boost::bind(&AnalogSimPin::simKeyPress, this, -1, _1));
     }
   }
   #endif
@@ -291,8 +291,8 @@ AnalogSimPin::AnalogSimPin(const char *aName, bool aOutput, double aInitialValue
 void AnalogSimPin::simKeyPress(int aDir, bool aNewState)
 {
   if (aNewState) {
-    pinValue += 0.1*aDir;
-    LOG(LOG_ALERT, ">>> AnalogSimPin \"%s\" manually changed to %.2f", name.c_str(), pinValue);
+    mPinValue += 0.1*aDir;
+    LOG(LOG_ALERT, ">>> AnalogSimPin \"%s\" manually changed to %.2f", mName.c_str(), mPinValue);
   }
 }
 #endif
@@ -300,16 +300,16 @@ void AnalogSimPin::simKeyPress(int aDir, bool aNewState)
 
 double AnalogSimPin::getValue()
 {
-  return pinValue; // just return last set value (as set by setValue or modified by key presses)
+  return mPinValue; // just return last set value (as set by setValue or modified by key presses)
 }
 
 
 void AnalogSimPin::setValue(double aValue)
 {
-  if (!output) return; // non-outputs cannot be set
-  if (pinValue!=aValue) {
-    pinValue = aValue;
-    LOG(LOG_ALERT, ">>> AnalogSimPin \"%s\" set to %.2f", name.c_str(), pinValue);
+  if (!mOutput) return; // non-outputs cannot be set
+  if (mPinValue!=aValue) {
+    mPinValue = aValue;
+    LOG(LOG_ALERT, ">>> AnalogSimPin \"%s\" set to %.2f", mName.c_str(), mPinValue);
   }
 }
 
@@ -320,34 +320,34 @@ void AnalogSimPin::setValue(double aValue)
 #if !DISABLE_SYSTEMCMDIO && !defined(ESP_PLATFORM)
 
 AnalogSysCommandPin::AnalogSysCommandPin(const char *aConfig, bool aOutput, double aInitialValue) :
-  pinValue(aInitialValue),
-  output(aOutput),
-  range(100),
-  changePending(false),
-  changing(false)
+  mPinValue(aInitialValue),
+  mOutput(aOutput),
+  mRange(100),
+  mChangePending(false),
+  mChanging(false)
 {
   // Save set command
   //  [range|]offcommand
-  setCommand = aConfig;
-  size_t i = setCommand.find("|", 0);
+  mSetCommand = aConfig;
+  size_t i = mSetCommand.find("|", 0);
   // check for range
   if (i!=string::npos) {
-    sscanf(setCommand.substr(0,i).c_str(), "%d", &range);
-    setCommand.erase(0,i+1);
+    sscanf(mSetCommand.substr(0,i).c_str(), "%d", &mRange);
+    mSetCommand.erase(0,i+1);
   }
   // force setting initial state
-  pinValue = aInitialValue+1;
+  mPinValue = aInitialValue+1;
   setValue(aInitialValue);
 }
 
 
 string AnalogSysCommandPin::valueSetCommand(double aValue)
 {
-  size_t vpos = setCommand.find("${VALUE}");
+  size_t vpos = mSetCommand.find("${VALUE}");
   string cmd;
   if (vpos!=string::npos) {
-    cmd = setCommand;
-    cmd.replace(vpos, vpos+8, string_format("%d", (int)(aValue/100*range))); // aValue assumed to be 0..100
+    cmd = mSetCommand;
+    cmd.replace(vpos, vpos+8, string_format("%d", (int)(aValue/100*mRange))); // aValue assumed to be 0..100
   }
   return cmd;
 }
@@ -355,9 +355,9 @@ string AnalogSysCommandPin::valueSetCommand(double aValue)
 
 void AnalogSysCommandPin::setValue(double aValue)
 {
-  if (!output) return; // non-outputs cannot be set
-  if (aValue!=pinValue) {
-    pinValue = aValue;
+  if (!mOutput) return; // non-outputs cannot be set
+  if (aValue!=mPinValue) {
+    mPinValue = aValue;
     // schedule change
     applyValue(aValue);
   }
@@ -366,13 +366,13 @@ void AnalogSysCommandPin::setValue(double aValue)
 
 void AnalogSysCommandPin::applyValue(double aValue)
 {
-  if (changing) {
+  if (mChanging) {
     // already in process of applying a change
-    changePending = true;
+    mChangePending = true;
   }
   else {
     // trigger change
-    changing = true;
+    mChanging = true;
     MainLoop::currentMainLoop().fork_and_system(boost::bind(&AnalogSysCommandPin::valueUpdated, this, _1, _2), valueSetCommand(aValue).c_str());
   }
 }
@@ -381,16 +381,16 @@ void AnalogSysCommandPin::applyValue(double aValue)
 void AnalogSysCommandPin::valueUpdated(ErrorPtr aError, const string &aOutputString)
 {
   if (Error::notOK(aError)) {
-    LOG(LOG_WARNING, "AnalogSysCommandPin set value=%.2f: command (%s) execution failed: %s", pinValue, valueSetCommand(pinValue).c_str(), aError->text());
+    LOG(LOG_WARNING, "AnalogSysCommandPin set value=%.2f: command (%s) execution failed: %s", mPinValue, valueSetCommand(mPinValue).c_str(), aError->text());
   }
   else {
-    LOG(LOG_INFO, "AnalogSysCommandPin set value=%.2f: command (%s) executed successfully", pinValue, valueSetCommand(pinValue).c_str());
+    LOG(LOG_INFO, "AnalogSysCommandPin set value=%.2f: command (%s) executed successfully", mPinValue, valueSetCommand(mPinValue).c_str());
   }
-  changing = false;
-  if (changePending) {
-    changePending = false;
+  mChanging = false;
+  if (mChangePending) {
+    mChangePending = false;
     // apply latest value
-    applyValue(pinValue);
+    applyValue(mPinValue);
   }
 }
 
@@ -400,34 +400,34 @@ void AnalogSysCommandPin::valueUpdated(ErrorPtr aError, const string &aOutputStr
 
 
 AnalogSimPinFd::AnalogSimPinFd(const char *aName, bool aOutput, double aInitialValue) :
-  name(aName),
-  output(aOutput),
-  pinValue(aInitialValue)
+  mName(aName),
+  mOutput(aOutput),
+  mPinValue(aInitialValue)
 {
-  LOG(LOG_ALERT, "Initialized AnalogSimPinFd \"%s\" as %s with initial value %.2f", name.c_str(), aOutput ? "output" : "input", pinValue);
-  fd = open(aName, O_RDWR);
+  LOG(LOG_ALERT, "Initialized AnalogSimPinFd \"%s\" as %s with initial value %.2f", mName.c_str(), aOutput ? "output" : "input", mPinValue);
+  mFd = open(aName, O_RDWR);
 }
 
 
 double AnalogSimPinFd::getValue()
 {
   char buf[20];
-  lseek(fd, 0, SEEK_SET);
-  if (read(fd, buf, 20) > 0) {
-    pinValue = atof(buf);
+  lseek(mFd, 0, SEEK_SET);
+  if (read(mFd, buf, 20) > 0) {
+    mPinValue = atof(buf);
   }
-  return pinValue;
+  return mPinValue;
 }
 
 
 void AnalogSimPinFd::setValue(double aValue)
 {
-  if (!output) return; // non-outputs cannot be set
-  if (pinValue!=aValue) {
-    pinValue = aValue;
+  if (!mOutput) return; // non-outputs cannot be set
+  if (mPinValue!=aValue) {
+    mPinValue = aValue;
     char buf[20];
-    snprintf(buf, 20, "%f\n", pinValue);
-    lseek(fd, 0, SEEK_SET);
-    write(fd, buf, strlen(buf));
+    snprintf(buf, 20, "%f\n", mPinValue);
+    lseek(mFd, 0, SEEK_SET);
+    write(mFd, buf, strlen(buf));
   }
 }

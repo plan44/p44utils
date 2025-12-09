@@ -45,15 +45,15 @@ namespace p44 {
 
   protected:
 
-    InputChangedCB inputChangedCB;
-    bool currentState;
-    bool invertedReporting;
-    MLTicket pollTicket;
-    MLMicroSeconds pollInterval;
+    InputChangedCB mInputChangedCB;
+    bool mCurrentState;
+    bool mInvertedReporting;
+    MLTicket mPollTicket;
+    MLMicroSeconds mPollInterval;
 
-    MLMicroSeconds debounceTime;
-    MLMicroSeconds lastReportedChange;
-    MLTicket debounceTicket;
+    MLMicroSeconds mDebounceTime;
+    MLMicroSeconds mLastReportedChange;
+    MLTicket mDebounceTicket;
 
     /// this can be called by derived classes' input change detection or polling routine to report the current input state
     /// Note: the current state does not necessarily need to be "new", inputHasChangedTo() prevents re-reporting the same state
@@ -103,11 +103,11 @@ namespace p44 {
     typedef IOPin inherited;
 
     #ifndef DISABLE_CONSOLEKEY
-    ConsoleKeyPtr consoleKey;
+    ConsoleKeyPtr mConsoleKey;
     #endif
-    bool output;
-    string name;
-    bool pinState;
+    bool mOutput;
+    string mName;
+    bool mPinState;
 
   public:
     // create a simulated pin (using console I/O)
@@ -128,19 +128,19 @@ namespace p44 {
   {
     typedef IOPin inherited;
 
-    bool pinState;
+    bool mPinState;
 
   public:
     // create a missing pin (not connected, just keeping state)
-    MissingPin(bool aInitialState) : pinState(aInitialState) {};
+    MissingPin(bool aInitialState) : mPinState(aInitialState) {};
 
     /// get state of pin
     /// @return current state (from actual GPIO pin for inputs, from last set state for outputs)
-    virtual bool getState() { return pinState; } // return state (which is initialstate or state set with setState later on)
+    virtual bool getState() { return mPinState; } // return state (which is initialstate or state set with setState later on)
 
     /// set state of pin (NOP)
     /// @param aState new state (changes initial state)
-    virtual void setState(bool aState) { pinState = aState; }; // remember
+    virtual void setState(bool aState) { mPinState = aState; }; // remember
   };
 
 
@@ -151,12 +151,12 @@ namespace p44 {
   {
     typedef IOPin inherited;
 
-    string onCommand;
-    string offCommand;
-    bool pinState;
-    bool output;
-    bool changing;
-    bool changePending;
+    string mOnCommand;
+    string mOffCommand;
+    bool mPinState;
+    bool mOutput;
+    bool mChanging;
+    bool mChangePending;
 
   public:
     // create a pin using a command line to act
@@ -164,7 +164,7 @@ namespace p44 {
 
     /// get state of pin
     /// @return current state (from actual GPIO pin for inputs, from last set state for outputs)
-    virtual bool getState() { return pinState; } // return state (which is initialstate or state set with setState later on)
+    virtual bool getState() { return mPinState; } // return state (which is initialstate or state set with setState later on)
 
     /// set state of pin (NOP for inputs)
     /// @param aState new state to set output to
@@ -215,12 +215,12 @@ namespace p44 {
     typedef AnalogIOPin inherited;
 
     #ifndef DISABLE_CONSOLEKEY
-    ConsoleKeyPtr consoleKeyUp;
-    ConsoleKeyPtr consoleKeyDown;
+    ConsoleKeyPtr mConsoleKeyUp;
+    ConsoleKeyPtr mConsoleKeyDown;
     #endif
-    bool output;
-    string name;
-    double pinValue;
+    bool mOutput;
+    string mName;
+    double mPinValue;
 
   public:
     // create a simulated pin (using console I/O)
@@ -246,19 +246,19 @@ namespace p44 {
   {
     typedef AnalogIOPin inherited;
 
-    double pinValue;
+    double mPinValue;
 
   public:
     // create a missing pin (not connected, just keeping state)
-    AnalogMissingPin(double aInitialValue) : pinValue(aInitialValue) {};
+    AnalogMissingPin(double aInitialValue) : mPinValue(aInitialValue) {};
 
     /// get value of pin
     /// @return current value (from actual pin for inputs, from last set state for outputs)
-    virtual double getValue() { return pinValue; } // return value (which is initial value or value set with setValue later on)
+    virtual double getValue() { return mPinValue; } // return value (which is initial value or value set with setValue later on)
 
     /// set value of pin (NOP for inputs)
     /// @param aValue new value to set output to
-    virtual void setValue(double aValue) { pinValue = aValue; } // remember
+    virtual void setValue(double aValue) { mPinValue = aValue; } // remember
   };
 
 
@@ -270,12 +270,12 @@ namespace p44 {
   {
     typedef AnalogIOPin inherited;
 
-    string setCommand;
-    double pinValue;
-    int range;
-    bool output;
-    bool changing;
-    bool changePending;
+    string mSetCommand;
+    double mPinValue;
+    int mRange;
+    bool mOutput;
+    bool mChanging;
+    bool mChangePending;
 
   public:
     // create a pin using a command line to act
@@ -283,7 +283,7 @@ namespace p44 {
 
     /// get value of pin
     /// @return current value (from actual pin for inputs, from last set state for outputs)
-    virtual double getValue() { return pinValue; } // return value (which is initial value or value set with setValue later on)
+    virtual double getValue() { return mPinValue; } // return value (which is initial value or value set with setValue later on)
 
     /// set value of pin (NOP for inputs)
     /// @param aValue new value to set output to
@@ -304,10 +304,10 @@ namespace p44 {
   {
     typedef AnalogIOPin inherited;
 
-    bool output;
-    string name;
-    int fd;
-    double pinValue;
+    bool mOutput;
+    string mName;
+    int mFd;
+    double mPinValue;
 
   public:
     // create a simulated pin (using console I/O)

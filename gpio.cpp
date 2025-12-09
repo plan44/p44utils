@@ -82,7 +82,6 @@ GpioPin::~GpioPin()
 }
 
 
-
 bool GpioPin::getState()
 {
   if (mOutput) {
@@ -210,7 +209,6 @@ void GpioLedPin::setState(bool aState)
 
 #define GPIO_SYS_CLASS_PATH "/sys/class/gpio"
 
-
 GpioPin::GpioPin(int aGpioNo, bool aOutput, bool aInitialState, Tristate aPull) :
   mGpioNo(aGpioNo),
   mOutput(aOutput),
@@ -265,7 +263,6 @@ GpioPin::~GpioPin()
 }
 
 
-
 bool GpioPin::getState()
 {
   if (mOutput)
@@ -295,10 +292,10 @@ bool GpioPin::setInputChangedHandler(InputChangedCB aInputChangedCB, bool aInver
     return inherited::setInputChangedHandler(aInputChangedCB, aInverted, aInitialState, aDebounceTime, aPollInterval);
   }
   // anyway, save parameters for base class
-  inputChangedCB = aInputChangedCB;
-  invertedReporting = aInverted;
-  currentState = aInitialState;
-  debounceTime = aDebounceTime;
+  mInputChangedCB = aInputChangedCB;
+  mInvertedReporting = aInverted;
+  mCurrentState = aInitialState;
+  mDebounceTime = aDebounceTime;
   // try to open "edge" to configure interrupt
   string edgePath = string_format("%s/gpio%d/edge", GPIO_SYS_CLASS_PATH, mGpioNo);
   int edgeFd = open(edgePath.c_str(), O_RDWR);
@@ -318,7 +315,6 @@ bool GpioPin::setInputChangedHandler(InputChangedCB aInputChangedCB, bool aInver
 }
 
 
-
 bool GpioPin::stateChanged(int aPollFlags)
 {
   bool newState = getState();
@@ -326,7 +322,6 @@ bool GpioPin::stateChanged(int aPollFlags)
   inputHasChangedTo(newState);
   return true; // handled
 }
-
 
 
 void GpioPin::setState(bool aState)
@@ -392,7 +387,6 @@ GpioNS9XXXPin::~GpioNS9XXXPin()
     close(mGpioFD);
   }
 }
-
 
 
 bool GpioNS9XXXPin::getState()
