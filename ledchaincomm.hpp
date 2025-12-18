@@ -1,6 +1,6 @@
 //  SPDX-License-Identifier: GPL-3.0-or-later
 //
-//  Copyright (c) 2016-2023 plan44.ch / Lukas Zeller, Zurich, Switzerland
+//  Copyright (c) 2016-2025 plan44.ch / Lukas Zeller, Zurich, Switzerland
 //
 //  Author: Lukas Zeller <luz@plan44.ch>
 //
@@ -48,6 +48,9 @@
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+
+
+#define LED_UPDATE_STATS 1 // only counting in background, usually shown at stats view global event
 
 #ifdef ESP_PLATFORM
 
@@ -448,21 +451,149 @@ namespace p44 {
     bool mStarted; // set when started
     PixelRect mCovers;
 
-    MLMicroSeconds mLastUpdate;
-    MLMicroSeconds mLastStep;
     MLTicket mAutoStepTicket;
-    uint32_t mPowerLimitMw; // max power (accumulated PWM values of all LEDs)
-    uint32_t mRequestedLightPowerMw; // light power currently requested (but possibly not actually output if >powerLimit)
-    uint32_t mActualLightPowerMw; // light power actually used after dimming down because of limit
-    bool mPowerLimited; // set while power is limited
-    MLMicroSeconds mSlowDetected; // when last timing hickup was detected and warned
+    MLMicroSeconds mNextAutoStep; ///< next scheduled autostep
+
+    MLMicroSeconds mCurrentStepShowTime; ///< time we are calculating for in this step (usually in the future)
+    MLMicroSeconds mNextStepShowTime; ///< time we should calculate for again for the next step (definitely in the future)
+    MLMicroSeconds mEarliestNextDispApply; ///< when we can apply the next display update, earliest
+    MLMicroSeconds mRenderPendingFor; ///< time we should render the current view state for
+    MLMicroSeconds mDispApplyPendingFor; ///< time when display update should be applied next time (as precisely as possible)
+
+    uint32_t mPowerLimitMw; ///< max power (accumulated PWM values of all LEDs)
+    uint32_t mRequestedLightPowerMw; ///< light power currently requested (but possibly not actually output if >powerLimit)
+    uint32_t mActualLightPowerMw; ///< light power actually used after dimming down because of limit
+    bool mPowerLimited; ///< set while power is limited
+    MLMicroSeconds mSlowDetected; ///< when last timing hickup was detected and warned
 
     MLMicroSeconds mMinUpdateInterval; ///< minimum interval kept between updates to LED chain hardware
     MLMicroSeconds mMaxPriorityInterval; ///< maximum interval during which noisy view children are prevented from requesting rendering updates after prioritized (localTimingPriority==true) parent view did
+    MLMicroSeconds mBufferTime; ///< how much in advance of real time should we run the step calculation time
 
     uint16_t mMainDim; // 255 = 1:1, 0..254 dimmed down, 256..65535 = dimmed up (max factor 255)
 
+    #if LED_UPDATE_STATS
+    MLMicroSeconds mStatsBase;
+    long mNumSteps;
+    long mNumViewSteps;
+    long mNumRenders;
+    long mNumApplys;
+    MLMicroSeconds mMinStepTime;
+    MLMicroSeconds mMaxStepTime;
+    MLMicroSeconds mMinRenderTime;
+    MLMicroSeconds mMaxRenderTime;
+    MLMicroSeconds mMinApplyDelay;
+    MLMicroSeconds mMaxApplyDelay;
+    long mNumBufferTimesInserted;
+    typedef struct {
+      MLMicroSeconds entered; // real time of entering the step
+      long looped;
+      MLMicroSeconds currentStepShowTime;
+      MLMicroSeconds nextStepShowTime;
+      MLMicroSeconds renderPendingFor;
+      MLMicroSeconds dispApplyPendingFor;
+      MLMicroSeconds dispApplied;
+      MLMicroSeconds schedulenext;
+      MLMicroSeconds left; // realtime of leaving the step
+    } StepLogEntry;
+    static const size_t cStepLogSize = 1000;
+    StepLogEntry mStepLog[cStepLogSize];
+    size_t mStepLogIdx;
+    size_t mLogged;
+    #endif // LED_UPDATE_STATS
+
   public:
+
+    #if LED_UPDATE_STATS
+    void resetStats() {
+      mStatsBase = MainLoop::now();
+      mNumSteps = 0;
+      mNumViewSteps = 0;
+      mNumRenders = 0;
+      mNumApplys = 0;
+      mMinStepTime = 999999999;
+      mMaxStepTime = -999999999;
+      mMinRenderTime = 999999999;
+      mMaxRenderTime = -999999999;
+      mMinApplyDelay = 999999999;
+      mMaxApplyDelay = -999999999;
+      mNumBufferTimesInserted = 0;
+      mStepLogIdx = 0;
+      mLogged = 0;
+    }
+    void showStats() {
+      LOG(LOG_NOTICE, "LEDChainArrangement Statistics:"
+        "\n- mNumSteps                  = %12ld"
+        "\n- mNumViewSteps              = %12ld"
+        "\n- mNumRenders                = %12ld"
+        "\n- mNumApplys                 = %12ld"
+        "\n- mMinStepTime               = %12lld µS"
+        "\n- mMaxStepTime               = %12lld µS"
+        "\n- mMinRenderTime             = %12lld µS"
+        "\n- mMaxRenderTime             = %12lld µS"
+        "\n- mMinApplyDelay             = %12lld µS"
+        "\n- mMaxApplyDelay             = %12lld µS"
+        "\n- mNumBufferTimesInserted    = %12ld times",
+        mNumSteps,
+        mNumViewSteps,
+        mNumRenders,
+        mNumApplys,
+        mMinStepTime,
+        mMaxStepTime,
+        mMinRenderTime,
+        mMaxRenderTime,
+        mMinApplyDelay,
+        mMaxApplyDelay,
+        mNumBufferTimesInserted
+      );
+      LOG(LOG_NOTICE,
+        "entered             "
+        "looped              "
+        "currentStepShowTime "
+        "nextStepShowTime    "
+        "renderPendingFor    "
+        "dispApplyPendingFor "
+        "dispApplied         "
+        "schedulenext        "
+        "left                "
+      );
+      size_t numlogs = mLogged>cStepLogSize ? cStepLogSize : mLogged;
+      ssize_t i = mStepLogIdx-numlogs;
+      ssize_t i2 = i;
+      if (i<0) i += cStepLogSize;
+      while (numlogs>0) {
+        LOG(LOG_NOTICE,
+          "%12lld (%+9lld) "
+          "%12ld        "
+          "%12lld        "
+          "%12lld        "
+          "%12lld        "
+          "%12lld        "
+          "%12lld (%+9lld) "
+          "%12lld        "
+          "%12lld        ",
+          mStepLog[i].entered,
+          mStepLog[i].entered-mStepLog[i2].entered,
+          mStepLog[i].looped,
+          mStepLog[i].currentStepShowTime,
+          mStepLog[i].nextStepShowTime,
+          mStepLog[i].renderPendingFor,
+          mStepLog[i].dispApplyPendingFor,
+          mStepLog[i].dispApplied,
+          mStepLog[i].dispApplied-mStepLog[i2].dispApplied,
+          mStepLog[i].schedulenext,
+          mStepLog[i].left
+        );
+        numlogs--;
+        i2 = i;
+        i++;
+        if (i>=cStepLogSize) i = 0;
+      }
+      resetStats();
+    }
+    #else
+    void showStats() {}; // NOP
+    #endif // LED_UPDATE_STATS
 
     LEDChainArrangement();
     virtual ~LEDChainArrangement();
@@ -537,7 +668,13 @@ namespace p44 {
     /// the root view will get informed of that update interval as a hint for scheduling
     /// of animations etc.
     /// @param aMinUpdateInterval the minimal interval between LED chain updates
+    /// @note this also sets a default buffer time
     void setMinUpdateInterval(MLMicroSeconds aMinUpdateInterval);
+
+    /// Set the buffer time separately
+    /// @note setMinUpdateInterval automatically sets the buffer time to a default value
+    ///   so call this *after* setMinUpdateInterval() to set a non-default buffer time
+    void setBufferTime(MLMicroSeconds aBufferTime);
 
     /// Set the maximum priority interval, that is the interval after an display update when only prioritized views
     /// (such as scrollers that must run smoothly) will request updates when they get dirty. Other views
@@ -588,21 +725,22 @@ namespace p44 {
     /// process ledchain arrangement specific command line options
     void processCmdlineOptions();
 
-    #endif
+    #endif // ENABLE_APPLICATION_SUPPORT
 
   private:
 
     /// perform needed LED chain updates
     /// @return time when step() should be called again latest
-    /// @note use stepASAP() to request a step an automatically schedule it at the next possible time
-    ///    in case it cannot be executed right noow
     MLMicroSeconds step();
 
     void recalculateCover();
 
-    /// Update the display by actually sending data to LED chains when needed (views dirty or minimal refresh interval reached)
-    /// @return time when updateDisplay() can/should actually perform the next update
-    MLMicroSeconds updateDisplay();
+    /// render the LED update from the current view state, but do not yet apply it to the hardware
+    void renderViewState();
+
+    /// apply the already calculated display update
+    /// @note: this routine should be called with as precise timing as possible for smooth rendering
+    void applyDisplayUpdate();
 
     void autoStep(MLTimer &aTimer);
 

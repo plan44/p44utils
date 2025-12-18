@@ -1600,7 +1600,7 @@ void MainLoop::statistics_reset()
   mTimesTimersRanToLong = 0;
   mTimesThrottlingApplied =0;
   mMaxTimers = 0;
-  #endif
+  #endif // MAINLOOP_STATISTICS
 }
 
 

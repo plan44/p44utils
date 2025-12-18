@@ -1,6 +1,6 @@
 //  SPDX-License-Identifier: GPL-3.0-or-later
 //
-//  Copyright (c) 2016-2023 plan44.ch / Lukas Zeller, Zurich, Switzerland
+//  Copyright (c) 2016-2025 plan44.ch / Lukas Zeller, Zurich, Switzerland
 //
 //  Author: Lukas Zeller <luz@plan44.ch>
 //
@@ -1161,6 +1161,7 @@ void LEDChainComm::getPowerXY(uint16_t aX, uint16_t aY, LEDChannelPower &aRed, L
   #define MAX_UPDATE_INTERVAL (500*MilliSecond) // send an update at least this often, even if no changes happen (LED refresh)
 #endif
 #define DEFAULT_MIN_UPDATE_INTERVAL (15*MilliSecond) // do not send updates faster than this
+#define DEFAULT_BUFFER_FRAMES 2 // calculate this many (minimally timed) frames in advance
 #define DEFAULT_MAX_PRIORITY_INTERVAL (50*MilliSecond) // allow synchronizing prioritized timing for this timespan after the last LED refresh
 #define MAX_SLOW_WARN_INTERVAL (10*Second) // how often (max) the timing violation detection will be logged
 
@@ -1172,10 +1173,15 @@ LEDChainArrangement::LEDChainArrangement() :
   mActualLightPowerMw(0),
   mMainDim(255), // 100% by default
   mPowerLimited(false),
-  mLastUpdate(Never),
+  mCurrentStepShowTime(Infinite),
+  mNextStepShowTime(Infinite),
+  mEarliestNextDispApply(Infinite),
+  mRenderPendingFor(Infinite),
+  mDispApplyPendingFor(Infinite),
   mMinUpdateInterval(DEFAULT_MIN_UPDATE_INTERVAL),
+  mBufferTime(DEFAULT_BUFFER_FRAMES*DEFAULT_MIN_UPDATE_INTERVAL),
   mMaxPriorityInterval(DEFAULT_MAX_PRIORITY_INTERVAL),
-  mSlowDetected(Never)
+  mSlowDetected(Infinite)
 {
   #if ENABLE_P44SCRIPT && ENABLE_P44LRGRAPHICS && ENABLE_VIEWCONFIG
   // install p44script lookup providing "ledchain" global
@@ -1184,7 +1190,10 @@ LEDChainArrangement::LEDChainArrangement() :
   p44::P44Script::StandardScriptingDomain::sharedDomain().registerMemberLookup(
     new P44Script::LEDChainLookup(*this)
   );
-  #endif // ENABLE_P44SCRIPT
+  #endif // ENABLE_P44SCRIPT && ENABLE_P44LRGRAPHICS && ENABLE_VIEWCONFIG
+  #if LED_UPDATE_STATS
+  resetStats();
+  #endif
 }
 
 
@@ -1218,8 +1227,16 @@ void LEDChainArrangement::setRootView(P44ViewPtr aRootView)
 void LEDChainArrangement::setMinUpdateInterval(MLMicroSeconds aMinUpdateInterval)
 {
   mMinUpdateInterval = aMinUpdateInterval;
+  mBufferTime = DEFAULT_BUFFER_FRAMES*aMinUpdateInterval;
   if (mRootView) mRootView->setMinUpdateInterval(mMinUpdateInterval);
 }
+
+
+void LEDChainArrangement::setBufferTime(MLMicroSeconds aBufferTime)
+{
+  mBufferTime = aBufferTime;
+}
+
 
 
 void LEDChainArrangement::setMaxPriorityInterval(MLMicroSeconds aMaxPriorityInterval)
@@ -1507,129 +1524,115 @@ void LEDChainArrangement::setMainDimFactor(double aMainDimFactor)
 
 
 
-MLMicroSeconds LEDChainArrangement::updateDisplay()
+void LEDChainArrangement::renderViewState()
 {
-  // current real time is the relevant time here (not the step start, which might be a while ago when step calc was expensive)
-  MLMicroSeconds now = MainLoop::now();
-  if (mRootView) {
-    bool dirty = mRootView->isDirty();
-    if (dirty || now>mLastUpdate+MAX_UPDATE_INTERVAL) {
-      // needs update
-      MLMicroSeconds earliestUpdate = mLastUpdate+mMinUpdateInterval;
-      // can we start right now?
-      if (now<earliestUpdate) {
-        DBGFOCUSOLOG("\r- next display update (interval>=%lld µS) must wait at least %lld µS, mRootView.dirty=%d", mMinUpdateInterval, earliestUpdate-now, dirty);
-        return earliestUpdate;
-      }
-      else {
-        // update now
-        mLastUpdate = now;
-        uint32_t idlePowerMw = 0;
-        uint32_t lightPowerMw = 0;
-        uint32_t lightPowerPWM = 0;
-        uint32_t lightPowerPWMWhite = 0;
-        if (dirty) {
-          uint8_t powerDim = 0; // undefined
-          while (true) {
-            idlePowerMw = 0;
-            lightPowerMw = 0;
-            // update LED chain content buffers from view hierarchy
-            for(LedChainVector::iterator pos = mLedChains.begin(); pos!=mLedChains.end(); ++pos) {
-              lightPowerPWM = 0; // accumulated PWM values per chain
-              lightPowerPWMWhite = 0; // separate for white which has different wattage
-              LEDChainFixture& l = *pos;
-              const LEDPowerConverter& conv = l.ledChain->powerConverter(); // get the power converter
-              bool hasWhite = l.ledChain->hasWhite();
-              const LEDChainComm::LedChipDesc &chip = l.ledChain->ledChipDescriptor();
-              for (int x=0; x<l.covers.dx; ++x) {
-                for (int y=0; y<l.covers.dy; ++y) {
-                  // get pixel from view
-                  PixelColor pix = mRootView->colorAt({
-                    l.covers.x+x,
-                    l.covers.y+y
-                  });
-                  dimPixel(pix, scaleVal(pix.a, mMainDim)); // possibly scaled by mMainDim
-                  #if DEBUG
-                  //if (x==0 && y==0) pix={ 255,0,0,255 };
-                  #endif
-                  PixelColorComponent w = 0;
-                  if (hasWhite) {
-                    // transfer common white from RGB to white channel
-                    double r = (double)pix.r/255;
-                    double g = (double)pix.g/255;
-                    double b = (double)pix.b/255;
-                    int f = 255;
-                    w = p44::transferToColor(l.ledChain->mLEDWhite, r, g, b)*f;
-                    pix.r = r*f;
-                    pix.g = g*f;
-                    pix.b = b*f;
-                  }
-                  // transfer to output power
-                  LEDChannelPower Pr, Pg, Pb, Pw;
-                  conv.powersForComponents(powerDim, pix.r, pix.g, pix.b, w, Pr, Pg, Pb, Pw);
-                  // measure
-                  // - every LED consumes the idle power
-                  idlePowerMw += chip.idleChipMw;
-                  // - sum up PWM values (multiply later, only once per chain)
-                  if (chip.rgbCommonCurrent) {
-                    // serially connected LEDs: max LEDs power determines total power
-                    lightPowerPWM += Pr>Pg ? (Pb>Pr ? Pb : Pr) : (Pb>Pg ? Pb : Pg);
-                  }
-                  else {
-                    // sum of RGB LEDs is total power
-                    lightPowerPWM += Pr+Pg+Pb;
-                  }
-                  lightPowerPWMWhite += Pw;
-                  // set pixel in chain
-                  l.ledChain->setPowerXY(
-                    l.offset.x+x,
-                    l.offset.y+y,
-                    Pr, Pg, Pb, Pw
-                  );
-                }
-              }
-              // end of one chain
-              // - update actual power (according to chip type)
-              lightPowerMw += (uint64_t)lightPowerPWM*chip.rgbChannelMw/PWMMAX + (uint64_t)lightPowerPWMWhite*chip.whiteChannelMw/PWMMAX;
-            }
-            // update stats (including idle power)
-            mActualLightPowerMw = lightPowerMw+idlePowerMw; // what we measured in this pass
-            if (powerDim==0) {
-              mRequestedLightPowerMw = mActualLightPowerMw; // what we measure without dim is the requested amount
-            }
-            // check if we need power limiting
-            // Note: too low mPowerLimitMw might get us here with lightPowerMw==0 and still too much (idle) power!
-            if (mPowerLimitMw && mActualLightPowerMw>mPowerLimitMw && powerDim==0 && lightPowerMw>0) {
-              powerDim = (uint32_t)255*(mPowerLimitMw-idlePowerMw)/lightPowerMw; // scale proportionally to PWM dependent part of consumption (idle power cannot be reduced)
-              if (!mPowerLimited) {
-                mPowerLimited = true;
-                OLOG(LOG_INFO, "!!! LED power (%d mW active + %d mW idle) exceeds limit (%d mW) -> re-run dimmed to (%d%%)", lightPowerMw, idlePowerMw, mPowerLimitMw, powerDim*100/255);
-              }
-              if (powerDim!=0) continue; // run again with reduced power (but prevent endless loop in case reduction results in zero)
-            }
-            else if (powerDim) {
-              DBGFOCUSOLOG("\r--- requested power is %d mW, reduced power is %d mW now (limit %d mW), dim=%d", mRequestedLightPowerMw, lightPowerMw, mPowerLimitMw, powerDim);
-            }
-            else {
-              if (mPowerLimited) {
-                mPowerLimited = false;
-                OLOG(LOG_INFO, "!!! LED power (%d mW) back below limit (%d mW) -> no dimm-down active", lightPowerMw, mPowerLimitMw);
-              }
-            }
-            break;
+  if (!mRootView) return;
+  uint8_t powerDim = 0; // undefined
+  uint32_t idlePowerMw = 0;
+  uint32_t lightPowerMw = 0;
+  uint32_t lightPowerPWM = 0;
+  uint32_t lightPowerPWMWhite = 0;
+  while (true) {
+    idlePowerMw = 0;
+    lightPowerMw = 0;
+    // update LED chain content buffers from view hierarchy
+    for(LedChainVector::iterator pos = mLedChains.begin(); pos!=mLedChains.end(); ++pos) {
+      lightPowerPWM = 0; // accumulated PWM values per chain
+      lightPowerPWMWhite = 0; // separate for white which has different wattage
+      LEDChainFixture& l = *pos;
+      const LEDPowerConverter& conv = l.ledChain->powerConverter(); // get the power converter
+      bool hasWhite = l.ledChain->hasWhite();
+      const LEDChainComm::LedChipDesc &chip = l.ledChain->ledChipDescriptor();
+      for (int x=0; x<l.covers.dx; ++x) {
+        for (int y=0; y<l.covers.dy; ++y) {
+          // get pixel from view
+          PixelColor pix = mRootView->colorAt({
+            l.covers.x+x,
+            l.covers.y+y
+          });
+          dimPixel(pix, scaleVal(pix.a, mMainDim)); // possibly scaled by mMainDim
+          #if DEBUG
+          //if (x==0 && y==0) pix={ 255,0,0,255 };
+          #endif
+          PixelColorComponent w = 0;
+          if (hasWhite) {
+            // transfer common white from RGB to white channel
+            double r = (double)pix.r/255;
+            double g = (double)pix.g/255;
+            double b = (double)pix.b/255;
+            int f = 255;
+            w = p44::transferToColor(l.ledChain->mLEDWhite, r, g, b)*f;
+            pix.r = r*f;
+            pix.g = g*f;
+            pix.b = b*f;
           }
-          mRootView->updated();
+          // transfer to output power
+          LEDChannelPower Pr, Pg, Pb, Pw;
+          conv.powersForComponents(powerDim, pix.r, pix.g, pix.b, w, Pr, Pg, Pb, Pw);
+          // measure
+          // - every LED consumes the idle power
+          idlePowerMw += chip.idleChipMw;
+          // - sum up PWM values (multiply later, only once per chain)
+          if (chip.rgbCommonCurrent) {
+            // serially connected LEDs: max LEDs power determines total power
+            lightPowerPWM += Pr>Pg ? (Pb>Pr ? Pb : Pr) : (Pb>Pg ? Pb : Pg);
+          }
+          else {
+            // sum of RGB LEDs is total power
+            lightPowerPWM += Pr+Pg+Pb;
+          }
+          lightPowerPWMWhite += Pw;
+          // set pixel in chain
+          l.ledChain->setPowerXY(
+            l.offset.x+x,
+            l.offset.y+y,
+            Pr, Pg, Pb, Pw
+          );
         }
-        // update hardware (refresh actual LEDs, cleans away possible glitches
-        DBGFOCUSOLOG("\r######## calling show(), dirty=%d", dirty);
-        for(LedChainVector::iterator pos = mLedChains.begin(); pos!=mLedChains.end(); ++pos) {
-          pos->ledChain->show();
-        }
-        DBGFOCUSOLOG("\r######## show() called");
+      }
+      // end of one chain
+      // - update actual power (according to chip type)
+      lightPowerMw += (uint64_t)lightPowerPWM*chip.rgbChannelMw/PWMMAX + (uint64_t)lightPowerPWMWhite*chip.whiteChannelMw/PWMMAX;
+    }
+    // update stats (including idle power)
+    mActualLightPowerMw = lightPowerMw+idlePowerMw; // what we measured in this pass
+    if (powerDim==0) {
+      mRequestedLightPowerMw = mActualLightPowerMw; // what we measure without dim is the requested amount
+    }
+    // check if we need power limiting
+    // Note: too low mPowerLimitMw might get us here with lightPowerMw==0 and still too much (idle) power!
+    if (mPowerLimitMw && mActualLightPowerMw>mPowerLimitMw && powerDim==0 && lightPowerMw>0) {
+      powerDim = (uint32_t)255*(mPowerLimitMw-idlePowerMw)/lightPowerMw; // scale proportionally to PWM dependent part of consumption (idle power cannot be reduced)
+      if (!mPowerLimited) {
+        mPowerLimited = true;
+        OLOG(LOG_INFO, "!!! LED power (%d mW active + %d mW idle) exceeds limit (%d mW) -> re-run dimmed to (%d%%)", lightPowerMw, idlePowerMw, mPowerLimitMw, powerDim*100/255);
+      }
+      if (powerDim!=0) continue; // run again with reduced power (but prevent endless loop in case reduction results in zero)
+    }
+    else if (powerDim) {
+      DBGFOCUSOLOG("\r--- requested power is %d mW, reduced power is %d mW now (limit %d mW), dim=%d", mRequestedLightPowerMw, lightPowerMw, mPowerLimitMw, powerDim);
+    }
+    else {
+      if (mPowerLimited) {
+        mPowerLimited = false;
+        OLOG(LOG_INFO, "!!! LED power (%d mW) back below limit (%d mW) -> no dimm-down active", lightPowerMw, mPowerLimitMw);
       }
     }
+    break;
   }
-  return Infinite; // no pending update
+  mRootView->updated();
+}
+
+
+void LEDChainArrangement::applyDisplayUpdate()
+{
+  if (!mStarted) return;
+  // update hardware (refresh actual LEDs, cleans away possible glitches
+  DBGFOCUSOLOG("\r######## calling show(), dirty=%d", dirty);
+  for(LedChainVector::iterator pos = mLedChains.begin(); pos!=mLedChains.end(); ++pos) {
+    pos->ledChain->show();
+  }
+  DBGFOCUSOLOG("\r######## show() called");
 }
 
 
@@ -1660,95 +1663,158 @@ void LEDChainArrangement::begin(bool aAutoStep)
 }
 
 
+
 MLMicroSeconds LEDChainArrangement::step()
 {
-  MLMicroSeconds nextStep = Infinite;
-  MLMicroSeconds stepNow = MainLoop::now();
-  DBGFOCUSOLOG("\rSTEP at %011lld µS = lastStep+%09lld µS, lastupdate+%09lld µS", stepNow-MainLoop::currentMainLoop().startedAt(), stepNow-mLastStep, stepNow-mLastUpdate);
-  if (mRootView) {
-    // do view steps
-    do {
-      nextStep = mRootView->step(mLastUpdate+mMaxPriorityInterval, stepNow);
-    } while (nextStep==0);
-    // do update
-    MLMicroSeconds nextDisp = updateDisplay();
-    // now try to sync display updates with steps as much as possible
-    // by avoiding starting an update of which we know in advance that it will likely not be complete before the next view step
-    if (nextStep==Infinite) {
-      // no next view step
-      nextStep = stepNow+MAX_STEP_INTERVAL;
-      if (nextDisp==Infinite) {
-        // no need to update display
-        if (nextStep<mLastUpdate+MAX_UPDATE_INTERVAL) {
-          DBGFOCUSOLOG("\r- insert step to prevent view update stalling in currentstep+%lld µS", nextStep-stepNow);
-        }
-        else {
-          nextStep = mLastUpdate+MAX_UPDATE_INTERVAL; // just schedule refresh
-          DBGFOCUSOLOG("\r- insert step to ensure display refresh at currentstep+%lld µS", nextStep-stepNow);
-        }
+  MLMicroSeconds scheduleNextFor = Infinite;
+  // this is supposed to be the most precise point in time we do have
+  MLMicroSeconds realNow = MainLoop::now();
+  #if LED_UPDATE_STATS
+  mNumSteps++;
+  mStepLog[mStepLogIdx].entered = realNow;
+  mStepLog[mStepLogIdx].looped = 0;
+  mStepLog[mStepLogIdx].currentStepShowTime = mCurrentStepShowTime;
+  mStepLog[mStepLogIdx].nextStepShowTime = mNextStepShowTime;
+  mStepLog[mStepLogIdx].renderPendingFor = mRenderPendingFor;
+  mStepLog[mStepLogIdx].dispApplyPendingFor = mDispApplyPendingFor;
+  mStepLog[mStepLogIdx].dispApplied = Infinite;
+  #endif // LED_UPDATE_STATS
+  // prevent getting caught in endless loop, but also allow optimizing immediate apply&render
+  for(int n=0; n<2; n++) {
+    #if LED_UPDATE_STATS
+    mStepLog[mStepLogIdx].looped++;
+    #endif
+    // first apply pending and due display update
+    if (mDispApplyPendingFor!=Infinite) {
+      // there is an apply pending. Is it due?
+      if (mDispApplyPendingFor<=realNow) {
+        // yes, apply it
+        applyDisplayUpdate();
+        #if LED_UPDATE_STATS
+        mNumApplys++;
+        mStepLog[mStepLogIdx].dispApplied = realNow;
+        MLMicroSeconds applyDelay = realNow-mDispApplyPendingFor;
+        if (applyDelay<mMinApplyDelay) mMinApplyDelay = applyDelay;
+        if (applyDelay>mMaxApplyDelay) mMaxApplyDelay = applyDelay;
+        #endif
+        mDispApplyPendingFor = Infinite;
+        mEarliestNextDispApply = realNow+mMinUpdateInterval; // earliest next update possible
+        realNow = MainLoop::now(); // but update it for stats
       }
       else {
-        // specific time to update display
-        DBGFOCUSOLOG("\r- no next view step but pending update step -> run it at currentstep+%lld µS", nextDisp-stepNow);
-        nextStep = nextDisp;
+        // no, apply pending but not yet due.
+        // Is there state to capture from the views (=render) before we can step further?
+        if (mRenderPendingFor!=Infinite) {
+          // yes, we must await display apply first
+          scheduleNextFor = mDispApplyPendingFor;
+          break;
+        }
       }
     }
-    else if (nextDisp!=Infinite) {
-      // we have both view and a disp step pending
-      // - decide which one to run
-      if (nextStep>nextDisp+mMinUpdateInterval) {
-        // there's time to run another disp step before view step is required
-        DBGFOCUSOLOG("\r- enough time to run a update step before next view step is due  -> run it at currentstep+%lld µS", nextDisp-stepNow);
-        nextStep = nextDisp;
+    // we get here only when we may run rendering if it is pending, possibly/usually ahead of time
+    // (checks above prevent getting here if we still waiting to flush the previous rendered data)
+    if (mRenderPendingFor!=Infinite) {
+      MLMicroSeconds renderTime = realNow;
+      renderViewState();
+      realNow = MainLoop::now();
+      renderTime = realNow-renderTime; // time spent in rendering
+      #if LED_UPDATE_STATS
+      mNumRenders++;
+      if (renderTime<mMinRenderTime) mMinRenderTime = renderTime;
+      if (renderTime>mMaxRenderTime) mMaxRenderTime = renderTime;
+      #endif
+      // now applying this gets pending
+      mDispApplyPendingFor = mRenderPendingFor;
+      mRenderPendingFor = Infinite; // done rendering
+      // make sure we do not apply too soon
+      if (mDispApplyPendingFor<mEarliestNextDispApply) mDispApplyPendingFor = mEarliestNextDispApply;
+      // Optimization: apply right now without any delay if we have reached the time for apply by now
+      if (realNow>=mDispApplyPendingFor) continue;
+    }
+    // we get here only if we can run further display steps, that is previous state
+    // already rendered and dirty flags cleared in the view hierarchy. The apply itself
+    // might still be pending, though.
+    mCurrentStepShowTime = mNextStepShowTime; // we can advance to the next step
+    // calculate next step possibly and hopefully ahead of time
+    // Are we late?
+    if (realNow>mCurrentStepShowTime) {
+      // we are certainly late here as we should APPLY the result of this step now, and haven't
+      // even started calculating it.
+      // Note: even if we get here before the show time, we still MIGHT be late due to calculation
+      // needing more time than left until showtime, but not certainly. Only correct for certain lateness!
+      // We are definitely late -> push calculation time into the future
+      mCurrentStepShowTime = realNow+mBufferTime;
+      #if LED_UPDATE_STATS
+      mNumBufferTimesInserted++;
+      #endif
+    }
+    mNextStepShowTime = Infinite; // none known yet
+    // Run a step
+    if (mRootView) {
+      // do a real view hierarchy step
+      MLMicroSeconds stepTime = realNow;
+      mNextStepShowTime = mRootView->step(mCurrentStepShowTime, mCurrentStepShowTime+mMaxPriorityInterval, realNow);
+      realNow = MainLoop::now();
+      stepTime = realNow-stepTime; // time spent in step calculation
+      #if LED_UPDATE_STATS
+      mNumViewSteps++;
+      if (stepTime<mMinStepTime) mMinStepTime = stepTime;
+      if (stepTime>mMaxStepTime) mMaxStepTime = stepTime;
+      #endif
+      // is this step's result state something we should bring to the display?
+      if (mRootView->isDirty() || mCurrentStepShowTime>mEarliestNextDispApply+MAX_UPDATE_INTERVAL) {
+        // yes, we should bring that state to display at mCurrentStepShowTime
+        mRenderPendingFor = mCurrentStepShowTime;
+        continue; // try right now (might be possible unless display apply is pending)
       }
-      else {
-        DBGFOCUSOLOG("\r- next view step due before pending update could finish -> SKIP update step and WAIT until currentstep+%lld µS", nextDisp-stepNow);
-        if (mSlowDetected+MAX_SLOW_WARN_INTERVAL<stepNow) {
-          OLOG(LOG_WARNING,"views change too quickly for minupdateinterval %lld µS -> display probably jumpy", mMinUpdateInterval);
-        }
-        mSlowDetected = stepNow;
-      }
+      // no change in view hierarchy that needs rendering.
+    }
+    // we get here when there is no render pending, but maybe a display update
+    if (mNextStepShowTime==Infinite) {
+      // no next step requested, just run one occasionally
+      scheduleNextFor = realNow+MAX_UPDATE_INTERVAL;
     }
     else {
-      // only a next step is pending
-      DBGFOCUSOLOG("\r- just view step pending -> run it at currentstep+%9lld µS", nextStep-stepNow);
+      // next step requested, calculating a (hopefully) future display state
+      MLMicroSeconds startBeforeShow = 2*mBufferTime; // start calculating step that much before it's planned show time
+      if (mNextStepShowTime-realNow > startBeforeShow) {
+        // no point in calculating too much into the future.
+        // Schedule calculation in real time for two buffer times before result is needed
+        scheduleNextFor = mNextStepShowTime-startBeforeShow;
+      }
+      else {
+        // we're close to show time, calculate it
+        scheduleNextFor = realNow; // schedule immediately in case we fall out of the loop...
+        continue; // ..but try to loop
+      }
     }
-  }
-  else {
-    // no root view, just step again later
-    nextStep = stepNow+MAX_STEP_INTERVAL;
-  }
-  // caller MUST call again at nextStep!
-  if (nextStep<stepNow) {
-    // apparently we are too slow
-    if (mSlowDetected+MAX_SLOW_WARN_INTERVAL<stepNow) {
-      OLOG(LOG_WARNING,"processing updates is too slow (step %lld µS late, minupdateinterval %lld µS) -> display probably jumpy or flickering", stepNow-nextStep, mMinUpdateInterval);
-    }
-    mSlowDetected = stepNow;
-  }
-  else if (mSlowDetected && stepNow>mSlowDetected+MAX_SLOW_WARN_INTERVAL) {
-    // last warning is long enough since, re-enable warning
-    OLOG(LOG_INFO, "processing seems fast enough again (smooth in last %lld µS)", MAX_SLOW_WARN_INTERVAL);
-    mSlowDetected = Never;
-  }
-  mLastStep = stepNow;
-  return nextStep;
+  } // for looping limit
+  #if LED_UPDATE_STATS
+  mStepLog[mStepLogIdx].schedulenext = scheduleNextFor;
+  mStepLog[mStepLogIdx].left = realNow;
+  mLogged++;
+  mStepLogIdx++;
+  if (mStepLogIdx>=cStepLogSize) mStepLogIdx = 0;
+  #endif
+  return scheduleNextFor;
 }
 
 
 void LEDChainArrangement::autoStep(MLTimer &aTimer)
 {
   DBGFOCUSOLOG("\r\n\n######## autostep() called");
-  MLMicroSeconds nextCall = step();
-  MainLoop::currentMainLoop().retriggerTimer(aTimer, nextCall, 0, MainLoop::absolute);
+  mNextAutoStep = step();
+  MainLoop::currentMainLoop().retriggerTimer(aTimer, mNextAutoStep, 0, MainLoop::absolute);
 }
 
 
 void LEDChainArrangement::render()
 {
   DBGFOCUSOLOG("\r######## render() called");
-  MLMicroSeconds nextCall = step();
-  mAutoStepTicket.executeOnceAt(boost::bind(&LEDChainArrangement::autoStep, this, _1), nextCall);
+  // run this next step right now, but calculate it for the same time as the last (current) step calculated (to prevent step show time going backwardss!)
+  mNextStepShowTime = mCurrentStepShowTime==Never ? MainLoop::now() : mCurrentStepShowTime;
+  mNextAutoStep = step();
+  mAutoStepTicket.executeOnceAt(boost::bind(&LEDChainArrangement::autoStep, this, _1), mNextAutoStep);
 }
 
 
@@ -1756,16 +1822,21 @@ void LEDChainArrangement::externalUpdateRequest()
 {
   DBGFOCUSOLOG("\r######## externalUpdateRequest()");
   if (mRootView) {
-    if (mAutoStepTicket) {
-      // interrupt autostepping timer
-      DBGFOCUSOLOG("- externalUpdateRequest: interrupts scheduled autostop and inserts step right now");
-      mAutoStepTicket.cancel();
-      // start new with immediate step call
-      mAutoStepTicket.executeOnce(boost::bind(&LEDChainArrangement::autoStep, this, _1));
-    }
-    else {
-      // just step
-      step();
+    MLMicroSeconds realNow = MainLoop::now();
+    // prevent extra steps when next scheduled step is near enough
+    if (mNextAutoStep > realNow+2*mMinUpdateInterval) {
+      // run this next step right now, but calculate it for the same time as the last (current) step calculated (to prevent step show time going backwardss!)
+      mNextStepShowTime = mCurrentStepShowTime==Never ? realNow : mCurrentStepShowTime;
+      if (mAutoStepTicket) {
+        // interrupt autostepping timer
+        DBGFOCUSOLOG("- externalUpdateRequest: interrupts scheduled autostep and inserts step right now");
+        // start new with immediate step call
+        mAutoStepTicket.executeOnce(boost::bind(&LEDChainArrangement::autoStep, this, _1));
+      }
+      else {
+        // just step
+        step();
+      }
     }
   }
 }
@@ -1834,14 +1905,17 @@ static void setmaxledpower_func(BuiltinFunctionContextPtr f)
 }
 
 
-// setledrefresh(minUpdateInterval, [maxpriorityinterval])
-FUNC_ARG_DEFS(setledrefresh, { numeric }, { numeric|optionalarg } );
+// setledrefresh(minUpdateInterval [, maxpriorityinterval [, bufferTime])
+FUNC_ARG_DEFS(setledrefresh, { numeric }, { numeric|optionalarg }, { numeric|optionalarg } );
 static void setledrefresh_func(BuiltinFunctionContextPtr f)
 {
   LEDChainLookup* l = dynamic_cast<LEDChainLookup*>(f->funcObj()->getMemberLookup());
   l->ledChainArrangement().setMinUpdateInterval(f->arg(0)->doubleValue()*Second);
   if (f->arg(1)->defined()) {
     l->ledChainArrangement().setMaxPriorityInterval(f->arg(1)->doubleValue()*Second);
+  }
+  if (f->arg(2)->defined()) {
+    l->ledChainArrangement().setBufferTime(f->arg(2)->doubleValue()*Second);
   }
   f->finish();
 }
