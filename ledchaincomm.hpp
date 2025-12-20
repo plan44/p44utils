@@ -469,6 +469,7 @@ namespace p44 {
     MLMicroSeconds mMinUpdateInterval; ///< minimum interval kept between updates to LED chain hardware
     MLMicroSeconds mMaxPriorityInterval; ///< maximum interval during which noisy view children are prevented from requesting rendering updates after prioritized (localTimingPriority==true) parent view did
     MLMicroSeconds mBufferTime; ///< how much in advance of real time should we run the step calculation time
+    bool mRenderWithApply; ///< if true, rendering is done with apply at apply time (assuming render time is mostly constant and does not cause jitter)
 
     uint16_t mMainDim; // 255 = 1:1, 0..254 dimmed down, 256..65535 = dimmed up (max factor 255)
 
@@ -546,41 +547,29 @@ namespace p44 {
         mMaxApplyDelay,
         mNumBufferTimesInserted
       );
-      LOG(LOG_NOTICE,
-        "entered             "
-        "looped              "
-        "currentStepShowTime "
-        "nextStepShowTime    "
-        "renderPendingFor    "
-        "dispApplyPendingFor "
-        "dispApplied         "
-        "schedulenext        "
-        "left                "
-      );
       size_t numlogs = mLogged>cStepLogSize ? cStepLogSize : mLogged;
       ssize_t i = mStepLogIdx-numlogs;
       ssize_t i2 = i;
       if (i<0) i += cStepLogSize;
       while (numlogs>0) {
         LOG(LOG_NOTICE,
-          "%12lld (%+9lld) "
-          "%12ld        "
-          "%12lld        "
-          "%12lld        "
-          "%12lld        "
-          "%12lld        "
-          "%12lld (%+9lld) "
-          "%12lld        "
-          "%12lld        ",
+          "beg=%12lld (%+12lld), "
+          "loop=%2ld, "
+          "cShow=%12lld, "
+          "nShow=%12lld, "
+          "rendP=%12lld, "
+          "dispP=%12lld (%+12lld), "
+          "disp=%12lld (%+9lld late), "
+          "sched=%12lld, "
+          "end=%12lld",
           mStepLog[i].entered,
           mStepLog[i].entered-mStepLog[i2].entered,
           mStepLog[i].looped,
           mStepLog[i].currentStepShowTime,
           mStepLog[i].nextStepShowTime,
           mStepLog[i].renderPendingFor,
-          mStepLog[i].dispApplyPendingFor,
-          mStepLog[i].dispApplied,
-          mStepLog[i].dispApplied-mStepLog[i2].dispApplied,
+          mStepLog[i].dispApplyPendingFor, mStepLog[i].dispApplyPendingFor-mStepLog[i2].dispApplyPendingFor,
+          mStepLog[i].dispApplied, mStepLog[i].dispApplied-mStepLog[i].dispApplyPendingFor,
           mStepLog[i].schedulenext,
           mStepLog[i].left
         );
@@ -675,6 +664,11 @@ namespace p44 {
     /// @note setMinUpdateInterval automatically sets the buffer time to a default value
     ///   so call this *after* setMinUpdateInterval() to set a non-default buffer time
     void setBufferTime(MLMicroSeconds aBufferTime);
+
+    /// Set the rendering timing mode:
+    /// - true means rendering late just before displaying (catching changes from multiple steps)
+    /// - false means rendering early (as soon as a step returns a change, possibly shifting further changes to the next display cycle)
+    void setRenderWithApply(bool aRenderWithApply);
 
     /// Set the maximum priority interval, that is the interval after an display update when only prioritized views
     /// (such as scrollers that must run smoothly) will request updates when they get dirty. Other views

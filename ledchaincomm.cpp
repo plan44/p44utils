@@ -1164,6 +1164,7 @@ void LEDChainComm::getPowerXY(uint16_t aX, uint16_t aY, LEDChannelPower &aRed, L
 #define DEFAULT_BUFFER_FRAMES 2 // calculate this many (minimally timed) frames in advance
 #define DEFAULT_MAX_PRIORITY_INTERVAL (50*MilliSecond) // allow synchronizing prioritized timing for this timespan after the last LED refresh
 #define MAX_SLOW_WARN_INTERVAL (10*Second) // how often (max) the timing violation detection will be logged
+#define DEFAULT_RENDER_WITH_APPLY false // if true, rendering is considered constant time (not causing jitter) and thus done with apply (not pre-calculated)
 
 LEDChainArrangement::LEDChainArrangement() :
   mStarted(false),
@@ -1180,6 +1181,7 @@ LEDChainArrangement::LEDChainArrangement() :
   mDispApplyPendingFor(Infinite),
   mMinUpdateInterval(DEFAULT_MIN_UPDATE_INTERVAL),
   mBufferTime(DEFAULT_BUFFER_FRAMES*DEFAULT_MIN_UPDATE_INTERVAL),
+  mRenderWithApply(DEFAULT_RENDER_WITH_APPLY),
   mMaxPriorityInterval(DEFAULT_MAX_PRIORITY_INTERVAL),
   mSlowDetected(Infinite)
 {
@@ -1237,6 +1239,11 @@ void LEDChainArrangement::setBufferTime(MLMicroSeconds aBufferTime)
   mBufferTime = aBufferTime;
 }
 
+
+void LEDChainArrangement::setRenderWithApply(bool aRenderWithApply)
+{
+  mRenderWithApply = aRenderWithApply;
+}
 
 
 void LEDChainArrangement::setMaxPriorityInterval(MLMicroSeconds aMaxPriorityInterval)
@@ -1687,7 +1694,7 @@ MLMicroSeconds LEDChainArrangement::step()
     // first apply pending and due display update
     if (mDispApplyPendingFor!=Infinite) {
       // there is an apply pending. Is it due?
-      if (mDispApplyPendingFor<=realNow) {
+      if (realNow>=mDispApplyPendingFor) {
         // yes, apply it
         applyDisplayUpdate();
         #if LED_UPDATE_STATS
@@ -1704,7 +1711,7 @@ MLMicroSeconds LEDChainArrangement::step()
       else {
         // no, apply pending but not yet due.
         // Is there state to capture from the views (=render) before we can step further?
-        if (mRenderPendingFor!=Infinite) {
+        if (!mRenderWithApply || mRenderPendingFor!=Infinite) {
           // yes, we must await display apply first
           scheduleNextFor = mDispApplyPendingFor;
           break;
@@ -1714,26 +1721,32 @@ MLMicroSeconds LEDChainArrangement::step()
     // we get here only when we may run rendering if it is pending, possibly/usually ahead of time
     // (checks above prevent getting here if we still waiting to flush the previous rendered data)
     if (mRenderPendingFor!=Infinite) {
-      MLMicroSeconds renderTime = realNow;
-      renderViewState();
-      realNow = MainLoop::now();
-      renderTime = realNow-renderTime; // time spent in rendering
-      #if LED_UPDATE_STATS
-      mNumRenders++;
-      if (renderTime<mMinRenderTime) mMinRenderTime = renderTime;
-      if (renderTime>mMaxRenderTime) mMaxRenderTime = renderTime;
-      #endif
-      // now applying this gets pending
-      mDispApplyPendingFor = mRenderPendingFor;
-      mRenderPendingFor = Infinite; // done rendering
-      // make sure we do not apply too soon
-      if (mDispApplyPendingFor<mEarliestNextDispApply) mDispApplyPendingFor = mEarliestNextDispApply;
-      // Optimization: apply right now without any delay if we have reached the time for apply by now
-      if (realNow>=mDispApplyPendingFor) continue;
+      if (!mRenderWithApply || realNow>=mRenderPendingFor) {
+        MLMicroSeconds renderTime = realNow;
+        renderViewState();
+        realNow = MainLoop::now();
+        renderTime = realNow-renderTime; // time spent in rendering
+        #if LED_UPDATE_STATS
+        mNumRenders++;
+        if (renderTime<mMinRenderTime) mMinRenderTime = renderTime;
+        if (renderTime>mMaxRenderTime) mMaxRenderTime = renderTime;
+        #endif
+        // now applying this gets pending
+        mDispApplyPendingFor = mRenderPendingFor;
+        mRenderPendingFor = Infinite; // done rendering
+        // make sure we do not apply too soon
+        if (mDispApplyPendingFor<mEarliestNextDispApply) mDispApplyPendingFor = mEarliestNextDispApply;
+        // Optimization: apply right now without any delay if we have reached the time for apply by now
+        if (realNow>=mDispApplyPendingFor) continue;
+      }
+      else {
+        // late renderWithApply pending but not yet due
+        // schedule due time in case no further calculation step schedules something
+        scheduleNextFor = mRenderPendingFor;
+      }
     }
     // we get here only if we can run further display steps, that is previous state
-    // already rendered and dirty flags cleared in the view hierarchy. The apply itself
-    // might still be pending, though.
+    // already rendered (or mRenderWithApply demands late rendering).
     mCurrentStepShowTime = mNextStepShowTime; // we can advance to the next step
     // calculate next step possibly and hopefully ahead of time
     // Are we late?
@@ -1764,15 +1777,16 @@ MLMicroSeconds LEDChainArrangement::step()
       // is this step's result state something we should bring to the display?
       if (mRootView->isDirty() || mCurrentStepShowTime>mEarliestNextDispApply+MAX_UPDATE_INTERVAL) {
         // yes, we should bring that state to display at mCurrentStepShowTime
-        mRenderPendingFor = mCurrentStepShowTime;
+        // But do not advance planned rendering to the future, just possibly draw it closer
+        if (mRenderPendingFor==Infinite || mRenderPendingFor>mCurrentStepShowTime) mRenderPendingFor = mCurrentStepShowTime;
         continue; // try right now (might be possible unless display apply is pending)
       }
       // no change in view hierarchy that needs rendering.
     }
-    // we get here when there is no render pending, but maybe a display update
+    // we get here when there is no render pending (or done mRenderWithApply), but maybe a display update
     if (mNextStepShowTime==Infinite) {
       // no next step requested, just run one occasionally
-      scheduleNextFor = realNow+MAX_UPDATE_INTERVAL;
+      if (scheduleNextFor==Infinite) scheduleNextFor = realNow+MAX_UPDATE_INTERVAL;
     }
     else {
       // next step requested, calculating a (hopefully) future display state
@@ -1780,7 +1794,8 @@ MLMicroSeconds LEDChainArrangement::step()
       if (mNextStepShowTime-realNow > startBeforeShow) {
         // no point in calculating too much into the future.
         // Schedule calculation in real time for two buffer times before result is needed
-        scheduleNextFor = mNextStepShowTime-startBeforeShow;
+        MLMicroSeconds sch = mNextStepShowTime-startBeforeShow;
+        if (scheduleNextFor==Infinite || scheduleNextFor>sch) scheduleNextFor = sch;
       }
       else {
         // we're close to show time, calculate it
@@ -1905,8 +1920,8 @@ static void setmaxledpower_func(BuiltinFunctionContextPtr f)
 }
 
 
-// setledrefresh(minUpdateInterval [, maxpriorityinterval [, bufferTime])
-FUNC_ARG_DEFS(setledrefresh, { numeric }, { numeric|optionalarg }, { numeric|optionalarg } );
+// setledrefresh(minUpdateInterval [, maxpriorityinterval [, bufferTime, [, renderwithapply]])
+FUNC_ARG_DEFS(setledrefresh, { numeric }, { numeric|optionalarg }, { numeric|optionalarg }, { numeric|optionalarg } );
 static void setledrefresh_func(BuiltinFunctionContextPtr f)
 {
   LEDChainLookup* l = dynamic_cast<LEDChainLookup*>(f->funcObj()->getMemberLookup());
@@ -1916,6 +1931,9 @@ static void setledrefresh_func(BuiltinFunctionContextPtr f)
   }
   if (f->arg(2)->defined()) {
     l->ledChainArrangement().setBufferTime(f->arg(2)->doubleValue()*Second);
+  }
+  if (f->arg(3)->defined()) {
+    l->ledChainArrangement().setRenderWithApply(f->arg(3)->boolValue());
   }
   f->finish();
 }
