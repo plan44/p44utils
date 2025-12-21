@@ -44,6 +44,10 @@ namespace p44 {
   const MLMicroSeconds Day = 24*Hour;
   /// @}
 
+  #define DEFINED_TIME(t) (t>0) // any time at or before 0 is not a defined time (but Never or Infinite)
+  #define DEFINED_INTERVAL(dt) (dt>=0) // Interval 0 is defined, negative is not an interval
+  #define NONZERO_INTERVAL(dt) (dt>0) // zero interval sometimes means "Never"
+
   /// Special Constant to use for empty boost::function arguments
   /// @note use this, not NULL, because NULL is nullptr in more recent C++ environments,
   ///    which is incompatible with boost::function constructors. A plain 0 is compatible.

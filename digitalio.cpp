@@ -455,7 +455,7 @@ void IndicatorOutput::blinkFor(MLMicroSeconds aOnTime, MLMicroSeconds aBlinkPeri
   stop();
   mBlinkOnTime =  (aBlinkPeriod*aOnRatioPercent*10)/1000;
   mBlinkOffTime = aBlinkPeriod - mBlinkOnTime;
-  mBlinkUntilTime = aOnTime>0 ? MainLoop::now()+aOnTime : Never;
+  mBlinkUntilTime = NONZERO_INTERVAL(aOnTime) ? MainLoop::now()+aOnTime : Never;
   set(true); // ..start with on
   mNextTimedState = false; // ..then turn off..
   mTimedOpTicket.executeOnce(boost::bind(&IndicatorOutput::timer, this, _1), mBlinkOnTime); // ..after blinkOn time
@@ -489,11 +489,11 @@ void IndicatorOutput::timer(MLTimer &aTimer)
   // apply scheduled next state
   set(mNextTimedState);
   // if we are blinking, check continuation
-  if (mBlinkUntilTime!=Never && mBlinkUntilTime<MainLoop::now()) {
+  if (DEFINED_TIME(mBlinkUntilTime) && mBlinkUntilTime<MainLoop::now()) {
     // end of blinking, stop
     stop();
   }
-  else if (mBlinkOnTime!=Never) {
+  else if (DEFINED_TIME(mBlinkOnTime)) {
     // blinking should continue
     mNextTimedState = !mNextTimedState;
     MainLoop::currentMainLoop().retriggerTimer(aTimer, mNextTimedState ? mBlinkOffTime : mBlinkOnTime);

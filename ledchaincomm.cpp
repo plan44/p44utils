@@ -1692,7 +1692,7 @@ MLMicroSeconds LEDChainArrangement::step()
     mStepLog[mStepLogIdx].looped++;
     #endif
     // first apply pending and due display update
-    if (mDispApplyPendingFor!=Infinite) {
+    if (DEFINED_TIME(mDispApplyPendingFor)) {
       // there is an apply pending. Is it due?
       if (realNow>=mDispApplyPendingFor) {
         // yes, apply it
@@ -1711,7 +1711,7 @@ MLMicroSeconds LEDChainArrangement::step()
       else {
         // no, apply pending but not yet due.
         // Is there state to capture from the views (=render) before we can step further?
-        if (!mRenderWithApply || mRenderPendingFor!=Infinite) {
+        if (!mRenderWithApply || DEFINED_TIME(mRenderPendingFor)) {
           // yes, we must await display apply first
           scheduleNextFor = mDispApplyPendingFor;
           break;
@@ -1720,7 +1720,7 @@ MLMicroSeconds LEDChainArrangement::step()
     }
     // we get here only when we may run rendering if it is pending, possibly/usually ahead of time
     // (checks above prevent getting here if we still waiting to flush the previous rendered data)
-    if (mRenderPendingFor!=Infinite) {
+    if (DEFINED_TIME(mRenderPendingFor)) {
       if (!mRenderWithApply || realNow>=mRenderPendingFor) {
         MLMicroSeconds renderTime = realNow;
         renderViewState();
@@ -1778,15 +1778,15 @@ MLMicroSeconds LEDChainArrangement::step()
       if (mRootView->isDirty() || mCurrentStepShowTime>mEarliestNextDispApply+MAX_UPDATE_INTERVAL) {
         // yes, we should bring that state to display at mCurrentStepShowTime
         // But do not advance planned rendering to the future, just possibly draw it closer
-        if (mRenderPendingFor==Infinite || mRenderPendingFor>mCurrentStepShowTime) mRenderPendingFor = mCurrentStepShowTime;
+        if (!DEFINED_TIME(mRenderPendingFor) || mRenderPendingFor>mCurrentStepShowTime) mRenderPendingFor = mCurrentStepShowTime;
         continue; // try right now (might be possible unless display apply is pending)
       }
       // no change in view hierarchy that needs rendering.
     }
     // we get here when there is no render pending (or done mRenderWithApply), but maybe a display update
-    if (mNextStepShowTime==Infinite) {
+    if (!DEFINED_TIME(mNextStepShowTime)) {
       // no next step requested, just run one occasionally
-      if (scheduleNextFor==Infinite) scheduleNextFor = realNow+MAX_UPDATE_INTERVAL;
+      if (!DEFINED_TIME(scheduleNextFor)) scheduleNextFor = realNow+MAX_UPDATE_INTERVAL;
     }
     else {
       // next step requested, calculating a (hopefully) future display state
@@ -1795,7 +1795,7 @@ MLMicroSeconds LEDChainArrangement::step()
         // no point in calculating too much into the future.
         // Schedule calculation in real time for two buffer times before result is needed
         MLMicroSeconds sch = mNextStepShowTime-startBeforeShow;
-        if (scheduleNextFor==Infinite || scheduleNextFor>sch) scheduleNextFor = sch;
+        if (!DEFINED_TIME(scheduleNextFor) || scheduleNextFor>sch) scheduleNextFor = sch;
       }
       else {
         // we're close to show time, calculate it
@@ -1827,7 +1827,7 @@ void LEDChainArrangement::render()
 {
   DBGFOCUSOLOG("\r######## render() called");
   // run this next step right now, but calculate it for the same time as the last (current) step calculated (to prevent step show time going backwardss!)
-  mNextStepShowTime = mCurrentStepShowTime==Never ? MainLoop::now() : mCurrentStepShowTime;
+  mNextStepShowTime = !DEFINED_TIME(mCurrentStepShowTime) ? MainLoop::now() : mCurrentStepShowTime;
   mNextAutoStep = step();
   mAutoStepTicket.executeOnceAt(boost::bind(&LEDChainArrangement::autoStep, this, _1), mNextAutoStep);
 }
@@ -1841,7 +1841,7 @@ void LEDChainArrangement::externalUpdateRequest()
     // prevent extra steps when next scheduled step is near enough
     if (mNextAutoStep > realNow+2*mMinUpdateInterval) {
       // run this next step right now, but calculate it for the same time as the last (current) step calculated (to prevent step show time going backwardss!)
-      mNextStepShowTime = mCurrentStepShowTime==Never ? realNow : mCurrentStepShowTime;
+      mNextStepShowTime = !DEFINED_TIME(mCurrentStepShowTime) ? realNow : mCurrentStepShowTime;
       if (mAutoStepTicket) {
         // interrupt autostepping timer
         DBGFOCUSOLOG("- externalUpdateRequest: interrupts scheduled autostep and inserts step right now");

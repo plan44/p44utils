@@ -5874,8 +5874,8 @@ void CompiledTrigger::scheduleEvalNotLaterThan(const MLMicroSeconds aLatestEval)
 
 bool CompiledTrigger::updateNextEval(const MLMicroSeconds aLatestEval)
 {
-  if (aLatestEval==Never || aLatestEval==Infinite) return false; // no next evaluation needed, no need to update
-  if (mNextEvaluation==Never || aLatestEval<mNextEvaluation) {
+  if (!DEFINED_TIME(aLatestEval)) return false; // no next evaluation needed, no need to update
+  if (!DEFINED_TIME(mNextEvaluation) || aLatestEval<mNextEvaluation) {
     // new time is more recent than previous, update
     if (aLatestEval<=mMostRecentEvaluation) {
       // requesting past evaluation: not allowed!
@@ -5940,7 +5940,7 @@ CompiledTrigger::FrozenResult* CompiledTrigger::getTimeFrozenValue(ScriptObjPtr 
 
 bool CompiledTrigger::FrozenResult::frozen()
 {
-  return mFrozenUntil==Infinite || (mFrozenUntil!=Never && mFrozenUntil>MainLoop::now());
+  return mFrozenUntil==Infinite || (DEFINED_TIME(mFrozenUntil) && mFrozenUntil>MainLoop::now());
 }
 
 
@@ -7675,14 +7675,14 @@ void ScriptCodeThread::stepLoop()
     MLMicroSeconds now = MainLoop::now();
     // Check maximum execution time
     #if !DEBUG
-    if (mMaxRunTime!=Infinite && now-mRunningSince>mMaxRunTime) {
+    if (DEFINED_INTERVAL(mMaxRunTime) && now-mRunningSince>mMaxRunTime) {
       // Note: not calling abort as we are WITHIN the call chain
       complete(new ErrorPosValue(mSrc, ScriptError::Timeout, "Aborted because of overall execution time limit"));
       return;
     }
     else
     #endif // !DEBUG
-    if (mMaxBlockTime!=Infinite && now-loopingSince>mMaxBlockTime) {
+    if (DEFINED_INTERVAL(mMaxBlockTime) && now-loopingSince>mMaxBlockTime) {
       // time expired
       if (mEvaluationFlags & synchronously) {
         // Note: not calling abort as we are WITHIN the call chain
@@ -8845,7 +8845,7 @@ static void maxruntime_func(BuiltinFunctionContextPtr f)
 {
   if (f->numArgs()==0) {
     MLMicroSeconds mrt = f->thread()->getMaxRunTime();
-    if (mrt==Infinite) f->finish(new AnnotatedNullValue("no run time limit"));
+    if (!DEFINED_INTERVAL(mrt)) f->finish(new AnnotatedNullValue("no run time limit"));
     else f->finish(new NumericValue((double)mrt/Second));
   }
   else {
@@ -9218,7 +9218,7 @@ void LockObj::registerLockCB(ScriptCodeThread* aThreadP, LockCB aLockCB, MLMicro
   LockWaiter w;
   w.threadP = aThreadP; // for comparison only, never dereferenced
   w.lockCB = aLockCB;
-  if (aTimeout!=Infinite) {
+  if (DEFINED_INTERVAL(aTimeout)) {
     w.timeoutTicket.executeOnce(boost::bind(&LockObj::locktimeout, this, w), aTimeout);
   }
   mWaiters.push_back(w);
@@ -9409,7 +9409,7 @@ static void await_func(BuiltinFunctionContextPtr f)
     v->registerForFilteredEvents(awaitEventSink); // register to receive events (possibly filtered)
     ai++;
   } while(ai<f->numArgs());
-  if (to!=Infinite) {
+  if (DEFINED_INTERVAL(to)) {
     awaitEventSink->timeoutTicket.executeOnce(boost::bind(&AwaitEventSink::timeout, awaitEventSink), to);
   }
   f->setAbortCallback(boost::bind(&await_abort, awaitEventSink));

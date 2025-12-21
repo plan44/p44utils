@@ -587,7 +587,7 @@ namespace p44 {
 
     /// ask if mainloop is normally running
     /// @return will return false as soon as mainloop has been requested to terminate, or before run() has been called
-    bool isRunning() { return mStartedAt!=Never && !mTerminated; };
+    bool isRunning() { return DEFINED_TIME(mStartedAt) && !mTerminated; };
 
     /// @return mainloop time when started
     MLMicroSeconds startedAt() { return mStartedAt; }
