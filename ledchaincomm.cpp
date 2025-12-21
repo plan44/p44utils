@@ -1670,6 +1670,102 @@ void LEDChainArrangement::begin(bool aAutoStep)
 }
 
 
+#if LED_UPDATE_STATS
+
+void LEDChainArrangement::resetStats()
+{
+  mStatsBase = MainLoop::now();
+  mNumSteps = 0;
+  mNumViewSteps = 0;
+  mNumRenders = 0;
+  mNumApplys = 0;
+  mMinStepTime = 999999999;
+  mMaxStepTime = -999999999;
+  mMinRenderTime = 999999999;
+  mMaxRenderTime = -999999999;
+  mMinApplyDelay = 999999999;
+  mMaxApplyDelay = -999999999;
+  mNumBufferTimesInserted = 0;
+  #if LED_UPDATE_STATS>1
+  mStepLogIdx = 0;
+  mLogged = 0;
+  #endif
+}
+
+
+void LEDChainArrangement::showStats()
+{
+  LOG(LOG_NOTICE, "LEDChainArrangement Statistics:"
+    "\n- mNumSteps                  = %12ld"
+    "\n- mNumViewSteps              = %12ld"
+    "\n- mNumRenders                = %12ld"
+    "\n- mNumApplys                 = %12ld"
+    "\n- mMinStepTime               = %12lld µS"
+    "\n- mMaxStepTime               = %12lld µS"
+    "\n- mMinRenderTime             = %12lld µS"
+    "\n- mMaxRenderTime             = %12lld µS"
+    "\n- mMinApplyDelay             = %12lld µS"
+    "\n- mMaxApplyDelay             = %12lld µS"
+    "\n- mNumBufferTimesInserted    = %12ld times",
+    mNumSteps,
+    mNumViewSteps,
+    mNumRenders,
+    mNumApplys,
+    mMinStepTime,
+    mMaxStepTime,
+    mMinRenderTime,
+    mMaxRenderTime,
+    mMinApplyDelay,
+    mMaxApplyDelay,
+    mNumBufferTimesInserted
+  );
+  #if LED_UPDATE_STATS>1
+  size_t numlogs = mLogged>cStepLogSize ? cStepLogSize : mLogged;
+  ssize_t i = mStepLogIdx-numlogs;
+  ssize_t i2 = i;
+  if (i<0) i += cStepLogSize;
+  if (LOGENABLED(LOG_INFO)) {
+    while (numlogs>0) {
+      LOG(LOG_INFO,
+        "beg=%12lld (%+12lld), "
+        "loop=%2ld, "
+        "cShow=%12lld, "
+        "nShow=%12lld, "
+        "rendP=%12lld, "
+        "dispP=%12lld (%+12lld), "
+        "disp=%12lld (%+9lld late), "
+        "sched=%12lld, "
+        "end=%12lld",
+        mStepLog[i].entered,
+        mStepLog[i].entered-mStepLog[i2].entered,
+        mStepLog[i].looped,
+        mStepLog[i].currentStepShowTime,
+        mStepLog[i].nextStepShowTime,
+        mStepLog[i].renderPendingFor,
+        mStepLog[i].dispApplyPendingFor, mStepLog[i].dispApplyPendingFor-mStepLog[i2].dispApplyPendingFor,
+        mStepLog[i].dispApplied, mStepLog[i].dispApplied-mStepLog[i].dispApplyPendingFor,
+        mStepLog[i].schedulenext,
+        mStepLog[i].left
+      );
+      numlogs--;
+      i2 = i;
+      i++;
+      if (i>=cStepLogSize) i = 0;
+    }
+  }
+  else {
+    LOG(LOG_WARNING, "use loglevel>=6 to see recorded step log with %d entries", cStepLogSize);
+  }
+  #endif // LED_UPDATE_STATS>1
+  resetStats();
+}
+#else
+
+void showStats() {}; // NOP
+
+#endif // LED_UPDATE_STATS
+
+
 
 MLMicroSeconds LEDChainArrangement::step()
 {
@@ -1678,6 +1774,7 @@ MLMicroSeconds LEDChainArrangement::step()
   MLMicroSeconds realNow = MainLoop::now();
   #if LED_UPDATE_STATS
   mNumSteps++;
+  #if LED_UPDATE_STATS>1
   mStepLog[mStepLogIdx].entered = realNow;
   mStepLog[mStepLogIdx].looped = 0;
   mStepLog[mStepLogIdx].currentStepShowTime = mCurrentStepShowTime;
@@ -1685,10 +1782,11 @@ MLMicroSeconds LEDChainArrangement::step()
   mStepLog[mStepLogIdx].renderPendingFor = mRenderPendingFor;
   mStepLog[mStepLogIdx].dispApplyPendingFor = mDispApplyPendingFor;
   mStepLog[mStepLogIdx].dispApplied = Infinite;
+  #endif // LED_UPDATE_STATS>1
   #endif // LED_UPDATE_STATS
   // prevent getting caught in endless loop, but also allow optimizing immediate apply&render
   for(int n=0; n<2; n++) {
-    #if LED_UPDATE_STATS
+    #if LED_UPDATE_STATS>1
     mStepLog[mStepLogIdx].looped++;
     #endif
     // first apply pending and due display update
@@ -1698,12 +1796,14 @@ MLMicroSeconds LEDChainArrangement::step()
         // yes, apply it
         applyDisplayUpdate();
         #if LED_UPDATE_STATS
-        mNumApplys++;
+        #if LED_UPDATE_STATS>1
         mStepLog[mStepLogIdx].dispApplied = realNow;
+        #endif
+        mNumApplys++;
         MLMicroSeconds applyDelay = realNow-mDispApplyPendingFor;
         if (applyDelay<mMinApplyDelay) mMinApplyDelay = applyDelay;
         if (applyDelay>mMaxApplyDelay) mMaxApplyDelay = applyDelay;
-        #endif
+        #endif // LED_UPDATE_STATS
         mDispApplyPendingFor = Infinite;
         mEarliestNextDispApply = realNow+mMinUpdateInterval; // earliest next update possible
         realNow = MainLoop::now(); // but update it for stats
@@ -1804,13 +1904,13 @@ MLMicroSeconds LEDChainArrangement::step()
       }
     }
   } // for looping limit
-  #if LED_UPDATE_STATS
+  #if LED_UPDATE_STATS>1
   mStepLog[mStepLogIdx].schedulenext = scheduleNextFor;
   mStepLog[mStepLogIdx].left = realNow;
   mLogged++;
   mStepLogIdx++;
   if (mStepLogIdx>=cStepLogSize) mStepLogIdx = 0;
-  #endif
+  #endif // LED_UPDATE_STATS>1
   return scheduleNextFor;
 }
 

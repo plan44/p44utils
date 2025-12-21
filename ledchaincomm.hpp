@@ -50,7 +50,7 @@
 #include <sys/stat.h>
 
 
-#define LED_UPDATE_STATS 1 // only counting in background, usually shown at stats view global event
+#define LED_UPDATE_STATS 1 // 1 = just stats counters, 2 = step log that uses some ram
 
 #ifdef ESP_PLATFORM
 
@@ -486,6 +486,7 @@ namespace p44 {
     MLMicroSeconds mMinApplyDelay;
     MLMicroSeconds mMaxApplyDelay;
     long mNumBufferTimesInserted;
+    #if LED_UPDATE_STATS>1
     typedef struct {
       MLMicroSeconds entered; // real time of entering the step
       long looped;
@@ -501,88 +502,15 @@ namespace p44 {
     StepLogEntry mStepLog[cStepLogSize];
     size_t mStepLogIdx;
     size_t mLogged;
+    #endif // LED_UPDATE_STATS>1
     #endif // LED_UPDATE_STATS
 
   public:
 
     #if LED_UPDATE_STATS
-    void resetStats() {
-      mStatsBase = MainLoop::now();
-      mNumSteps = 0;
-      mNumViewSteps = 0;
-      mNumRenders = 0;
-      mNumApplys = 0;
-      mMinStepTime = 999999999;
-      mMaxStepTime = -999999999;
-      mMinRenderTime = 999999999;
-      mMaxRenderTime = -999999999;
-      mMinApplyDelay = 999999999;
-      mMaxApplyDelay = -999999999;
-      mNumBufferTimesInserted = 0;
-      mStepLogIdx = 0;
-      mLogged = 0;
-    }
-    void showStats() {
-      LOG(LOG_NOTICE, "LEDChainArrangement Statistics:"
-        "\n- mNumSteps                  = %12ld"
-        "\n- mNumViewSteps              = %12ld"
-        "\n- mNumRenders                = %12ld"
-        "\n- mNumApplys                 = %12ld"
-        "\n- mMinStepTime               = %12lld µS"
-        "\n- mMaxStepTime               = %12lld µS"
-        "\n- mMinRenderTime             = %12lld µS"
-        "\n- mMaxRenderTime             = %12lld µS"
-        "\n- mMinApplyDelay             = %12lld µS"
-        "\n- mMaxApplyDelay             = %12lld µS"
-        "\n- mNumBufferTimesInserted    = %12ld times",
-        mNumSteps,
-        mNumViewSteps,
-        mNumRenders,
-        mNumApplys,
-        mMinStepTime,
-        mMaxStepTime,
-        mMinRenderTime,
-        mMaxRenderTime,
-        mMinApplyDelay,
-        mMaxApplyDelay,
-        mNumBufferTimesInserted
-      );
-      size_t numlogs = mLogged>cStepLogSize ? cStepLogSize : mLogged;
-      ssize_t i = mStepLogIdx-numlogs;
-      ssize_t i2 = i;
-      if (i<0) i += cStepLogSize;
-      while (numlogs>0) {
-        LOG(LOG_NOTICE,
-          "beg=%12lld (%+12lld), "
-          "loop=%2ld, "
-          "cShow=%12lld, "
-          "nShow=%12lld, "
-          "rendP=%12lld, "
-          "dispP=%12lld (%+12lld), "
-          "disp=%12lld (%+9lld late), "
-          "sched=%12lld, "
-          "end=%12lld",
-          mStepLog[i].entered,
-          mStepLog[i].entered-mStepLog[i2].entered,
-          mStepLog[i].looped,
-          mStepLog[i].currentStepShowTime,
-          mStepLog[i].nextStepShowTime,
-          mStepLog[i].renderPendingFor,
-          mStepLog[i].dispApplyPendingFor, mStepLog[i].dispApplyPendingFor-mStepLog[i2].dispApplyPendingFor,
-          mStepLog[i].dispApplied, mStepLog[i].dispApplied-mStepLog[i].dispApplyPendingFor,
-          mStepLog[i].schedulenext,
-          mStepLog[i].left
-        );
-        numlogs--;
-        i2 = i;
-        i++;
-        if (i>=cStepLogSize) i = 0;
-      }
-      resetStats();
-    }
-    #else
-    void showStats() {}; // NOP
-    #endif // LED_UPDATE_STATS
+    void resetStats();
+    void showStats();
+    #endif
 
     LEDChainArrangement();
     virtual ~LEDChainArrangement();
