@@ -467,7 +467,7 @@ namespace p44 {
     MLMicroSeconds mSlowDetected; ///< when last timing hickup was detected and warned
 
     MLMicroSeconds mMinUpdateInterval; ///< minimum interval kept between updates to LED chain hardware
-    MLMicroSeconds mMaxPriorityInterval; ///< maximum interval during which noisy view children are prevented from requesting rendering updates after prioritized (localTimingPriority==true) parent view did
+    MLMicroSeconds mMaxPriorityInterval; ///< maximum interval during which noisy view children or base view animations are prevented from requesting non-aligned rendering updates 
     MLMicroSeconds mBufferTime; ///< how much in advance of real time should we run the step calculation time
     bool mRenderWithApply; ///< if true, rendering is done with apply at apply time (assuming render time is mostly constant and does not cause jitter)
 

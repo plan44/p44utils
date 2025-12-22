@@ -1162,7 +1162,7 @@ void LEDChainComm::getPowerXY(uint16_t aX, uint16_t aY, LEDChannelPower &aRed, L
 #endif
 #define DEFAULT_MIN_UPDATE_INTERVAL (15*MilliSecond) // do not send updates faster than this
 #define DEFAULT_BUFFER_FRAMES 2 // calculate this many (minimally timed) frames in advance
-#define DEFAULT_MAX_PRIORITY_INTERVAL (50*MilliSecond) // allow synchronizing prioritized timing for this timespan after the last LED refresh
+#define DEFAULT_MAX_PRIORITY_INTERVAL (3*DEFAULT_MIN_UPDATE_INTERVAL) // allow synchronizing prioritized timing for this timespan after the last LED refresh
 #define MAX_SLOW_WARN_INTERVAL (10*Second) // how often (max) the timing violation detection will be logged
 #define DEFAULT_RENDER_WITH_APPLY false // if true, rendering is considered constant time (not causing jitter) and thus done with apply (not pre-calculated)
 
@@ -2021,11 +2021,15 @@ static void setmaxledpower_func(BuiltinFunctionContextPtr f)
 
 
 // setledrefresh(minUpdateInterval [, maxpriorityinterval [, bufferTime, [, renderwithapply]])
-FUNC_ARG_DEFS(setledrefresh, { numeric }, { numeric|optionalarg }, { numeric|optionalarg }, { numeric|optionalarg } );
+FUNC_ARG_DEFS(setledrefresh, { numeric|optionalarg }, { numeric|optionalarg }, { numeric|optionalarg }, { numeric|optionalarg } );
 static void setledrefresh_func(BuiltinFunctionContextPtr f)
 {
   LEDChainLookup* l = dynamic_cast<LEDChainLookup*>(f->funcObj()->getMemberLookup());
-  l->ledChainArrangement().setMinUpdateInterval(f->arg(0)->doubleValue()*Second);
+  if (f->arg(0)->defined()) {
+    MLMicroSeconds intvl = f->arg(0)->doubleValue()*Second;
+    l->ledChainArrangement().setMinUpdateInterval(intvl);
+    l->ledChainArrangement().setMaxPriorityInterval(intvl*3); // auto-adjust to sensible value
+  }
   if (f->arg(1)->defined()) {
     l->ledChainArrangement().setMaxPriorityInterval(f->arg(1)->doubleValue()*Second);
   }
