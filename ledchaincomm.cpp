@@ -1867,6 +1867,10 @@ MLMicroSeconds LEDChainArrangement::step()
       // do a real view hierarchy step
       MLMicroSeconds stepTime = realNow;
       mNextStepShowTime = mRootView->step(mCurrentStepShowTime, mCurrentStepShowTime+mMaxPriorityInterval, realNow);
+      if (mNextStepShowTime==mCurrentStepShowTime) {
+        // means we want next step as soon as this one's result is out, which is at earliest next display time (if we are lucky)
+        mNextStepShowTime = mEarliestNextDispApply;
+      }
       realNow = MainLoop::now();
       stepTime = realNow-stepTime; // time spent in step calculation
       #if LED_UPDATE_STATS
