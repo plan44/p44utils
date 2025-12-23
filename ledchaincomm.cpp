@@ -484,7 +484,7 @@ void LEDChainComm::uartSenderThreadWorker()
     // send blocking, so UART sends everything at max speed, no pauses
     // Note: non-blocking can send max 4095 bytes on Linux, then would need
     //   chunking and possibly pauses between bytes
-    
+
     sendToUart(mLedFd, mRawBuffer, mRawBytes, ledLayoutDescriptors[mLedLayout]);
     // make sure we have sent everything
     tcdrain(mLedFd);
@@ -1785,7 +1785,7 @@ MLMicroSeconds LEDChainArrangement::step()
   #endif // LED_UPDATE_STATS>1
   #endif // LED_UPDATE_STATS
   // prevent getting caught in endless loop, but also allow optimizing immediate apply&render
-  for(int n=0; n<2; n++) {
+  for(int n=0; n<4; n++) {
     #if LED_UPDATE_STATS>1
     mStepLog[mStepLogIdx].looped++;
     #endif
@@ -1950,11 +1950,12 @@ void LEDChainArrangement::externalUpdateRequest()
         // interrupt autostepping timer
         DBGFOCUSOLOG("- externalUpdateRequest: interrupts scheduled autostep and inserts step right now");
         // start new with immediate step call
+        mNextAutoStep = realNow;
         mAutoStepTicket.executeOnce(boost::bind(&LEDChainArrangement::autoStep, this, _1));
       }
       else {
         // just step
-        step();
+        mNextAutoStep = step();
       }
     }
   }
