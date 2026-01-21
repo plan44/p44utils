@@ -143,6 +143,7 @@ void LvGL::init(const string aDispSpec)
       switch (nmbrcnt) {
         case 0: dx = n; break;
         case 1: dy = n; break;
+        case 2: colorformat = n; break;
         default: break;
       }
       nmbrcnt++;
