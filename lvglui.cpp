@@ -407,6 +407,12 @@ static ErrorPtr fontPropValue(JsonObjectPtr aJsonValue, lv_style_value_t& aStyle
   #if LV_FONT_MONTSERRAT_48
   else if (fontName=="montserrat48") font = &lv_font_montserrat_48;
   #endif
+  #if LV_FONT_UNSCII_8
+  else if (fontName=="unscii8") font = &lv_font_unscii_8;
+  #endif
+  #if LV_FONT_UNSCII_16
+  else if (fontName=="unscii16") font = &lv_font_unscii_16;
+  #endif
   else {
     return TextError::err("unknown font '%s'", fontName.c_str());
   }
