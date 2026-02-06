@@ -2056,7 +2056,7 @@ namespace p44 { namespace P44Script {
       #endif
       ScriptCommandCB mScriptCommandCB; ///< will be called via scriptCommand
       EvaluationCB mScriptResultCB; ///< will be called to deliver script results or errors
-      #endif
+      #endif // P44SCRIPT_REGISTERED_SOURCE
     } ActiveParams;
 
     ActiveParams* mActiveParams; ///< parameters allocated and created at activation only
@@ -2075,7 +2075,12 @@ namespace p44 { namespace P44Script {
     /// @param aOriginLabel origin label to specify script's origin or nullptr if none (will fall back to default labels)
     /// @param aTitleTemplate specific user-facing title template for this script (e.g. for p44script IDE),
     ///   can contain %x placeholders for inserting context and other info. Should uniquely identify script when expanded.
-    ///   (will use a standard template when not specified).
+    ///   (will use "%C (%O)" standard template when not specified). Placeholders are:
+    ///   - %C : context title
+    ///   - %O : origin label
+    ///   - %N : context name
+    ///   - %T : context type
+    ///   - %I : context ID
     /// @param aLoggingContextP the logging object to log script related info or nullptr if none
     /// @note this constructor is for member variables only (disables refcounting)
     /// @note this is suitable for likely-used scripts which can be active before any source is loaded as it does
@@ -2103,7 +2108,7 @@ namespace p44 { namespace P44Script {
     /// @note once activated, the function can be called again but is NOP and ignores activation params
     /// @param aDefaultFlags default execution flags
     /// @param aOriginLabel origin label to specify script's origin or nullptr if none (will fall back to default labels)
-    /// @param aTitleTemplate specific user-facing title template for this script
+    /// @param aTitleTemplate specific user-facing title template for this script (see ScriptHost() for details)
     /// @param aLoggingContextP the logging object to log script related info or nullptr if none
     void activate(EvaluationFlags aDefaultFlags, const char* aOriginLabel = nullptr, const char* aTitleTemplate = nullptr, P44LoggingObj* aLoggingContextP = nullptr);
 
@@ -2122,9 +2127,7 @@ namespace p44 { namespace P44Script {
     ///   and will become registered under this id as a activated script if non-empty source code could be loaded.
     /// @param aDefaultFlags default execution flags
     /// @param aOriginLabel origin label to specify script's origin or nullptr if none (will fall back to default labels)
-    /// @param aTitleTemplate specific user-facing title template for this script (e.g. for p44script IDE),
-    ///   can contain %x placeholders for inserting context and other info. Should uniquely identify script when expanded.
-    ///   (will use a standard template when not specified).
+    /// @param aTitleTemplate specific user-facing title template for this script (see ScriptHost() for details)
     /// @param aLoggingContextP the logging object to log script related info or nullptr if none
     /// @param aInDomain the scripting domain, if not specified, the standard scripting domain will be used
     /// @param aLocallyStoredSource if not nullptr, this is source code as locally stored (eg. in DB). This might get migrated to
@@ -2151,9 +2154,7 @@ namespace p44 { namespace P44Script {
     ///   storage under this id (if the text has changed from already stored version)
     /// @param aDefaultFlags default execution flags
     /// @param aOriginLabel origin label to specify script's origin or nullptr if none (will fall back to default labels)
-    /// @param aTitleTemplate specific user-facing title template for this script (e.g. for p44script IDE),
-    ///   can contain %x placeholders for inserting context and other info. Should uniquely identify script when expanded.
-    ///   (will use a standard template when not specified).
+    /// @param aTitleTemplate specific user-facing title template for this script (see ScriptHost() for details)
     /// @param aLoggingContextP the logging object to log script related info or nullptr if none
     /// @param aInDomain the scripting domain, if not specified, the standard scripting domain will be used
     /// @return true if aSource was different from previously stored (or empty) source
