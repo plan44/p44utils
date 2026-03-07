@@ -2204,6 +2204,7 @@ void LvGLUi::initForDisplay(lv_disp_t* aDisplay)
 {
   mDisplay = aDisplay;
   mEmptyScreen = lv_obj_create(nullptr);
+  lv_obj_set_style_bg_color(mEmptyScreen, lv_color_black(), 0);
   clear();
 }
 
