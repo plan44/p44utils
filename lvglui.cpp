@@ -2721,6 +2721,16 @@ static void activity_func(BuiltinFunctionContextPtr f)
 }
 
 
+// active() // trigger activity (e.g. from external buttons/controls not managed by lvgl)
+static void active_func(BuiltinFunctionContextPtr f)
+{
+  LVGLUiElementObj* o = dynamic_cast<LVGLUiElementObj*>(f->thisObj().get());
+  assert(o);
+  lv_display_trigger_activity(o->element()->getLvGLUi().display());
+  f->finish();
+}
+
+
 static const BuiltinMemberDescriptor lvglobjFunctions[] = {
   FUNC_DEF_W_ARG(findobj, executable|structured),
   FUNC_DEF_NOARG(name, executable|text),
@@ -2736,6 +2746,7 @@ static const BuiltinMemberDescriptor lvglobjFunctions[] = {
   FUNC_DEF_W_ARG(state, executable|numeric),
   FUNC_DEF_W_ARG(configure, executable|structured),
   FUNC_DEF_NOARG(activity, executable|numeric),
+  FUNC_DEF_NOARG(active, executable|null),
   { nullptr } // terminator
 };
 
