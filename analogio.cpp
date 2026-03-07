@@ -157,8 +157,8 @@ AnalogIo::AnalogIo(const char* aPinSpec, bool aOutput, double aInitialValue) :
   #endif
   #if ENABLE_BACKLIGHT
   if (busName=="backlight") {
-    if (deviceName.empty()) deviceName="backlight"; // default to "backlight"
-    mIoPin = AnalogIOPinPtr(new BacklightControl(deviceName.c_str()));
+    if (pinName.empty()) pinName="backlight"; // default to "backlight"
+    mIoPin = AnalogIOPinPtr(new BacklightControl(pinName.c_str()));
   }
   else
   #endif
