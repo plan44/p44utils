@@ -97,6 +97,7 @@ void LvGL::init(const string aDispSpec)
   int32_t dy = 0; // default
   mWithKeyboard = false;
   lv_display_rotation_t rotation = LV_DISPLAY_ROTATION_0; // default
+  bool positionWindow = false;
   string evdev = "/dev/input/event0";
   // aDispSpec:
   //   [<display device>[:<evdev device>]][<dx>:<dy>[:<colorformat>]][:<options>]
@@ -107,6 +108,7 @@ void LvGL::init(const string aDispSpec)
   //     - L: rotate left
   //     - R: rotate right
   //     - U: upside down
+  //     - W: set (later maybe: remember %%%) window position for SDL
   string part;
   const char *p = aDispSpec.c_str();
   int nmbrcnt = 0;
@@ -133,6 +135,7 @@ void LvGL::init(const string aDispSpec)
             case 'R': rotation = LV_DISPLAY_ROTATION_90; break;
             case 'U': rotation = LV_DISPLAY_ROTATION_180; break;
             case 'L': rotation = LV_DISPLAY_ROTATION_270; break;
+            case 'W': positionWindow = true; break;
           }
         }
       }
@@ -162,6 +165,9 @@ void LvGL::init(const string aDispSpec)
   if (dx<=0) dx = 720;
   if (dy<=0) dy = 720;
   mDisplay = lv_sdl_window_create(dx, dy);
+  if (positionWindow) {
+    lv_sdl_window_set_position(mDisplay, 0, 0);
+  }
   #elif ENABLE_LVGL_DRM
   // - Linux DRM
   mDisplay = lv_linux_drm_create();
