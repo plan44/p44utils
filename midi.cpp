@@ -31,7 +31,6 @@
 
 #if ENABLE_MIDI
 
-#include "application.hpp" // for userlevel check
 #include "utils.hpp"
 
 using namespace p44;
@@ -559,11 +558,9 @@ MidiBusObj::~MidiBusObj()
 FUNC_ARG_DEFS(midibus, { text } );
 static void midibus_func(BuiltinFunctionContextPtr f)
 {
-  #if ENABLE_APPLICATION_SUPPORT
-  if (Application::sharedApplication()->userLevel()<1) { // user level >=1 is needed for IO access
+  if (f->scriptmain()->userLevel()<1) { // user level >=1 is needed for IO access
     f->finish(new ErrorValue(ScriptError::NoPrivilege, "no IO privileges"));
   }
-  #endif
   MidiBusPtr midibus = new MidiBus;
   ErrorPtr err = midibus->open(f->arg(0)->stringValue());
   if (Error::isOK(err)) {

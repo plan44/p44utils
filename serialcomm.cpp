@@ -32,7 +32,6 @@
 using namespace p44;
 
 #if ENABLE_SERIAL_SCRIPT_FUNCS
-  #include "application.hpp" // for userlevel check
   using namespace P44Script;
 #endif
 
@@ -691,11 +690,9 @@ void SerialCommObj::hasData(ErrorPtr aStatus)
 FUNC_ARG_DEFS(serial, { text }, { text|numeric|optionalarg } );
 static void serial_func(BuiltinFunctionContextPtr f)
 {
-  #if ENABLE_APPLICATION_SUPPORT
-  if (Application::sharedApplication()->userLevel()<1) { // user level >=1 is needed for IO access
+  if (f->scriptmain()->userLevel()<1) { // user level >=1 is needed for IO access
     f->finish(new ErrorValue(ScriptError::NoPrivilege, "no IO privileges"));
   }
-  #endif
   SerialCommPtr serialComm = new SerialComm;
   serialComm->setConnectionSpecification(f->arg(0)->stringValue().c_str(), 2101, "none");
   char delimiter = 0;

@@ -505,11 +505,6 @@ void IndicatorOutput::timer(MLTimer &aTimer)
 
 #if ENABLE_DIGITALIO_SCRIPT_FUNCS && ENABLE_P44SCRIPT
 
-#if !ENABLE_APPLICATION_SUPPORT
-  #warning "Unconditionally allowing I/O creation (no userlevel check)"
-#endif
-
-
 using namespace P44Script;
 
 DigitalInputEventObj::DigitalInputEventObj(DigitalIoPtr aDigitalIo) :
@@ -620,7 +615,7 @@ DigitalIoObj::DigitalIoObj(DigitalIoPtr aDigitalIo) :
 }
 
 
-DigitalIoPtr DigitalIoObj::digitalIoFromArg(ScriptObjPtr aArg, bool aOutput, bool aInitialState)
+DigitalIoPtr DigitalIoObj::digitalIoFromArg(ScriptObjPtr aArg, bool aOutput, bool aInitialState, int aUserLevel)
 {
   DigitalIoPtr dio;
   DigitalIoObj* d = dynamic_cast<DigitalIoObj*>(aArg.get());
@@ -628,10 +623,8 @@ DigitalIoPtr DigitalIoObj::digitalIoFromArg(ScriptObjPtr aArg, bool aOutput, boo
     dio = d->digitalIo();
   }
   else if (aArg->hasType(text)) {
-    #if ENABLE_APPLICATION_SUPPORT
-    if (Application::sharedApplication()->userLevel()>=1)
-    #endif
-    { // user level >=1 is needed for IO access
+    if (aUserLevel>=1) {
+      // user level >=1 is needed for IO access
       dio = DigitalIoPtr(new DigitalIo(aArg->stringValue().c_str(), aOutput, aInitialState));
     }
   }
@@ -770,11 +763,9 @@ IndicatorObj::IndicatorObj(IndicatorOutputPtr aIndicator) :
 FUNC_ARG_DEFS(digitalio, { text }, { numeric }, { numeric|optionalarg } );
 static void digitalio_func(BuiltinFunctionContextPtr f)
 {
-  #if ENABLE_APPLICATION_SUPPORT
-  if (Application::sharedApplication()->userLevel()<1) { // user level >=1 is needed for IO access
+  if (f->scriptmain()->userLevel()<1) { // user level >=1 is needed for IO access
     f->finish(new ErrorValue(ScriptError::NoPrivilege, "no IO privileges"));
   }
-  #endif
   bool out = f->arg(1)->boolValue();
   bool v = false;
   if (f->arg(2)->defined()) v = f->arg(2)->boolValue();
@@ -787,11 +778,9 @@ static void digitalio_func(BuiltinFunctionContextPtr f)
 FUNC_ARG_DEFS(digitalbus, { text }, { numeric }, { numeric|optionalarg } );
 static void digitalbus_func(BuiltinFunctionContextPtr f)
 {
-  #if ENABLE_APPLICATION_SUPPORT
-  if (Application::sharedApplication()->userLevel()<1) { // user level >=1 is needed for IO access
+  if (f->scriptmain()->userLevel()<1) { // user level >=1 is needed for IO access
     f->finish(new ErrorValue(ScriptError::NoPrivilege, "no IO privileges"));
   }
-  #endif
   bool out = f->arg(1)->boolValue();
   bool v = false;
   if (f->arg(2)->defined()) v = f->arg(2)->boolValue();
@@ -805,11 +794,9 @@ static void digitalbus_func(BuiltinFunctionContextPtr f)
 FUNC_ARG_DEFS(indicator, { text }, { numeric|optionalarg } );
 static void indicator_func(BuiltinFunctionContextPtr f)
 {
-  #if ENABLE_APPLICATION_SUPPORT
-  if (Application::sharedApplication()->userLevel()<1) { // user level >=1 is needed for IO access
+  if (f->scriptmain()->userLevel()<1) { // user level >=1 is needed for IO access
     f->finish(new ErrorValue(ScriptError::NoPrivilege, "no IO privileges"));
   }
-  #endif
   bool v = false;
   if (f->arg(1)->defined()) v = f->arg(2)->boolValue();
   IndicatorOutputPtr indicator = new IndicatorOutput(f->arg(0)->stringValue().c_str(), v);

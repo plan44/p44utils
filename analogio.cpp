@@ -55,7 +55,7 @@
   #ifndef ALWAYS_ALLOW_SYSCMDIO
     #define ALWAYS_ALLOW_SYSCMDIO 0
   #endif
-#endif
+#endif // (!DISABLE_SYSTEMCMDIO || ENABLE_ANALOGIO_SCRIPT_FUNCS) && !defined(ESP_PLATFORM)
 
 
 
@@ -503,10 +503,6 @@ ValueAnimatorPtr AnalogColorOutput::animatorFor(const string aComponent)
 
 #if ENABLE_ANALOGIO_SCRIPT_FUNCS && ENABLE_P44SCRIPT
 
-#if !ENABLE_APPLICATION_SUPPORT
-  #warning "Unconditionally allowing I/O creation (no userlevel check)"
-#endif
-
 using namespace P44Script;
 
 AnalogInputEventObj::AnalogInputEventObj(AnalogIoPtr aAnalogIo) :
@@ -659,7 +655,7 @@ AnalogIoObj::AnalogIoObj(AnalogIoPtr aAnalogIo) :
 }
 
 
-AnalogIoPtr AnalogIoObj::analogIoFromArg(ScriptObjPtr aArg, bool aOutput, double aInitialValue)
+AnalogIoPtr AnalogIoObj::analogIoFromArg(ScriptObjPtr aArg, bool aOutput, double aInitialValue, int aUserLevel)
 {
   AnalogIoPtr aio;
   AnalogIoObj* a = dynamic_cast<AnalogIoObj*>(aArg.get());
@@ -667,10 +663,8 @@ AnalogIoPtr AnalogIoObj::analogIoFromArg(ScriptObjPtr aArg, bool aOutput, double
     aio = a->analogIo();
   }
   else if (aArg->hasType(text)) {
-    #if ENABLE_APPLICATION_SUPPORT
-    if (Application::sharedApplication()->userLevel()>=1) // user level >=1 is needed for IO access
-    #endif
-    {
+    if (aUserLevel>=1) {
+      // user level >=1 is needed for IO access
       aio = AnalogIoPtr(new AnalogIo(aArg->stringValue().c_str(), aOutput, aInitialValue));
     }
   }
@@ -683,11 +677,9 @@ AnalogIoPtr AnalogIoObj::analogIoFromArg(ScriptObjPtr aArg, bool aOutput, double
 FUNC_ARG_DEFS(analogio, { text }, { numeric }, { numeric|optionalarg } );
 static void analogio_func(BuiltinFunctionContextPtr f)
 {
-  #if ENABLE_APPLICATION_SUPPORT
-  if (Application::sharedApplication()->userLevel()<1) { // user level >=1 is needed for IO access
+  if (f->scriptmain()->userLevel()<1) { // user level >=1 is needed for IO access
     f->finish(new ErrorValue(ScriptError::NoPrivilege, "no IO privileges"));
   }
-  #endif
   bool out = f->arg(1)->boolValue();
   double v = 0;
   if (f->arg(2)->defined()) v = f->arg(2)->doubleValue();
@@ -840,13 +832,14 @@ AnalogColorOutputObj::AnalogColorOutputObj(AnalogColorOutputPtr aColorOutput) :
 FUNC_ARG_DEFS(coloroutput, { text|objectvalue }, { text|objectvalue }, { text|objectvalue }, { text|optionalarg }, { text|optionalarg } );
 static void coloroutput_func(BuiltinFunctionContextPtr f)
 {
-  AnalogIoPtr red = AnalogIoObj::analogIoFromArg(f->arg(0), true, 0);
-  AnalogIoPtr green = AnalogIoObj::analogIoFromArg(f->arg(1), true, 0);
-  AnalogIoPtr blue = AnalogIoObj::analogIoFromArg(f->arg(2), true, 0);
+  int userlevel = f->scriptmain()->userLevel();
+  AnalogIoPtr red = AnalogIoObj::analogIoFromArg(f->arg(0), true, 0, userlevel);
+  AnalogIoPtr green = AnalogIoObj::analogIoFromArg(f->arg(1), true, 0, userlevel);
+  AnalogIoPtr blue = AnalogIoObj::analogIoFromArg(f->arg(2), true, 0, userlevel);
   AnalogIoPtr white;
   AnalogIoPtr amber;
-  if (f->arg(3)->defined()) white = AnalogIoObj::analogIoFromArg(f->arg(3), true, 0);
-  if (f->arg(4)->defined()) amber = AnalogIoObj::analogIoFromArg(f->arg(4), true, 0);
+  if (f->arg(3)->defined()) white = AnalogIoObj::analogIoFromArg(f->arg(3), true, 0, userlevel);
+  if (f->arg(4)->defined()) amber = AnalogIoObj::analogIoFromArg(f->arg(4), true, 0, userlevel);
   AnalogColorOutputPtr colorOutput = new AnalogColorOutput(red, green, blue, white, amber);
   f->finish(new AnalogColorOutputObj(colorOutput));
 }

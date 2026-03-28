@@ -114,7 +114,7 @@ public:
     // setup scripting context
     testLookup.isMemberVariable();
     StandardScriptingDomain::sharedDomain().setLogLevelOffset(LOGLEVELOFFSET);
-    mainContext = StandardScriptingDomain::sharedDomain().newContext();
+    mainContext = StandardScriptingDomain::sharedDomain().newContext(nullptr, 2); // user level 2
     s.setSharedMainContext(mainContext);
     mainContext->registerMemberLookup(&testLookup);
     mainContext->domain()->setMemberByName("jstest", ScriptObj::valueFromJSON(JsonObject::objFromText(JSON_TEST_OBJ)));
@@ -150,7 +150,7 @@ public:
     #if ENABLE_SOCKET_SCRIPT_FUNCS
     StandardScriptingDomain::sharedDomain().addGlobalBuiltins(p44::P44Script::socketGlobals());
     #endif
-    mainContext = StandardScriptingDomain::sharedDomain().newContext();
+    mainContext = StandardScriptingDomain::sharedDomain().newContext(nullptr, 2); // user level 2
     s.setSharedMainContext(mainContext);
   };
 

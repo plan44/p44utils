@@ -1477,6 +1477,7 @@ namespace p44 { namespace P44Script {
 
     ScriptingDomainPtr mDomainObj; ///< the scripting domain (unless it's myself to avoid locking)
     ScriptObjPtr mThisObj; ///< the object _instance_ scope of this execution context (if any)
+    int mUserLevel; ///< the context's "user (expert) level" - 0=regular, 1=diy/beta, 2=privileged (e.g. shell calling I/O pins, script functions)
 
     #if P44SCRIPT_FULL_SUPPORT
     typedef std::list<CompiledHandlerPtr> HandlerList;
@@ -1488,7 +1489,8 @@ namespace p44 { namespace P44Script {
     /// @param aDomain owning link to domain - as long as context exists, domain may not get deleted.
     /// @param aThis can be NULL if there's no object instance scope for this script. This object is
     ///    passed to all registered member lookups
-    ScriptMainContext(ScriptingDomainPtr aDomain, ScriptObjPtr aThis);
+    /// @param aUserLevel the context specific user level, can be set -1 to use application's userlevel
+    ScriptMainContext(ScriptingDomainPtr aDomain, ScriptObjPtr aThis, int aUserLevel);
 
   public:
 
@@ -1500,6 +1502,8 @@ namespace p44 { namespace P44Script {
     virtual void deactivate() P44_OVERRIDE;
 
     virtual bool isExecutingSource(SourceContainerPtr aSource) P44_OVERRIDE;
+
+    int userLevel() { return mUserLevel; }
 
     #if P44SCRIPT_DEBUGGING_SUPPORT
 
@@ -2482,7 +2486,8 @@ namespace p44 { namespace P44Script {
   public:
 
     ScriptingDomain() :
-      inherited(ScriptingDomainPtr(), ScriptObjPtr()), mGeoLocationP(NULL),
+      inherited(ScriptingDomainPtr(), ScriptObjPtr(), -1), // user level from application
+      mGeoLocationP(NULL),
       mMaxBlockTime(DEFAULT_MAX_BLOCK_TIME)
       #if P44SCRIPT_DEBUGGING_SUPPORT
       , mDefaultPausingMode(running)
@@ -2512,10 +2517,11 @@ namespace p44 { namespace P44Script {
     /// @param aInstanceObj the object _instance_ scope for scripts running in this context.
     ///   If set, the script main code is working as a method of aInstanceObj, i.e. has access
     ///   to members of aInstanceObj like other script-local variables.
+    /// @param aUserLevel the context specific user level, can be set -1 (default) to use application's userlevel
     /// @note the scripts's _class_ scope is defined by the lookups that are registered.
     ///   The class scope can also bring in aInstanceObj related member functions (methods), but also
     ///   plain functions (static methods) and other members.
-    ScriptMainContextPtr newContext(ScriptObjPtr aInstanceObj = ScriptObjPtr());
+    ScriptMainContextPtr newContext(ScriptObjPtr aInstanceObj = ScriptObjPtr(), int aUserLevel = -1);
 
     #if P44SCRIPT_DEBUGGING_SUPPORT
     /// @name debugging

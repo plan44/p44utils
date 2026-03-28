@@ -54,12 +54,6 @@
   #warning "No i2C supported on this platform - just showing calls in focus debug output"
 #endif
 
-#if !defined(ESP_PLATFORM)
-  #if ENABLE_APPLICATION_SUPPORT
-    #include "application.hpp" // we need it for user level, syscmd is only allowed with userlevel>=2
-  #endif
-#endif
-
 using namespace p44;
 #if ENABLE_I2C_SCRIPT_FUNCS
 using namespace P44Script;
@@ -1263,11 +1257,9 @@ I2CDeviceObj::I2CDeviceObj(I2CDevicePtr aI2CDevice) :
 FUNC_ARG_DEFS(i2cdevice, { numeric }, { text } );
 static void i2cdevice_func(BuiltinFunctionContextPtr f)
 {
-  #if ENABLE_APPLICATION_SUPPORT
-  if (Application::sharedApplication()->userLevel()<2) { // user level >=1 is needed for IO access
+  if (f->scriptmain()->userLevel()<2) { // user level >=1 is needed for IO access
     f->finish(new ErrorValue(ScriptError::NoPrivilege, "no IO privileges"));
   }
-  #endif
   I2CDevicePtr dev = I2CManager::sharedManager().getDevice(f->arg(0)->intValue(), f->arg(1)->stringValue().c_str());
   if (dev) {
     f->finish(dev->representingScriptObj());

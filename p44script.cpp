@@ -42,19 +42,12 @@
   #include <sys/stat.h> // for mkdir
   #include <dirent.h>
   #include <stdio.h>
-#endif
+#endif // ENABLE_JSON_APPLICATION && SCRIPTING_JSON_SUPPORT || ENABLE_APPLICATION_SUPPORT
 #if P44SCRIPT_FULL_SUPPORT && ENABLE_P44LRGRAPHICS
   #include "colorutils.hpp"
 #endif // P44SCRIPT_FULL_SUPPORT
 #if P44SCRIPT_OTHER_SOURCES
   #include "fnv.hpp"
-#endif
-
-#ifndef ALWAYS_ALLOW_SYSTEM_FUNC
-  #define ALWAYS_ALLOW_SYSTEM_FUNC 0
-#endif
-#ifndef ALWAYS_ALLOW_ALL_FILES
-  #define ALWAYS_ALLOW_ALL_FILES 0
 #endif
 
 #if P44SCRIPT_LIFECYCLE_DBG
@@ -2113,11 +2106,22 @@ void ScriptCodeContext::threadTerminated(ScriptCodeThreadPtr aThread, Evaluation
 
 // MARK: - ScriptMainContext
 
-ScriptMainContext::ScriptMainContext(ScriptingDomainPtr aDomain, ScriptObjPtr aThis) :
+ScriptMainContext::ScriptMainContext(ScriptingDomainPtr aDomain, ScriptObjPtr aThis, int aUserLevel) :
   inherited(ScriptMainContextPtr()), // main context itself does not have a mainContext (would self-lock)
   mDomainObj(aDomain),
   mThisObj(aThis)
 {
+  if (aUserLevel>=0) {
+    mUserLevel = aUserLevel;
+  }
+  else {
+    // default
+    #if ENABLE_APPLICATION_SUPPORT
+    mUserLevel = Application::sharedApplication()->userLevel(); // use application's level
+    #else
+    mUserLevel = 2; // allow everything if we don't have the concept of an app-level userlevel
+    #endif
+  }
 }
 
 
@@ -7091,7 +7095,7 @@ ScriptObjPtr ScriptingDomain::getIncludedCode(const string aIncludeFilePath, Sou
   ErrorPtr err;
   string path;
   size_t prefixlen;
-  Application::PathType ty = Application::sharedApplication()->getPathType(aIncludeFilePath, 2, false, &prefixlen);
+  Application::PathType ty = Application::sharedApplication()->getPathType(aIncludeFilePath, userLevel()>=2, false, &prefixlen);
   if (ty==Application::notallowed) {
     return new ErrorValue(ScriptError::NoPrivilege, "no privilege for this include path");
   }
@@ -7326,9 +7330,9 @@ string ExternalFileHost::getContextType()
 
 // MARK: - ScriptingDomain
 
-ScriptMainContextPtr ScriptingDomain::newContext(ScriptObjPtr aInstanceObj)
+ScriptMainContextPtr ScriptingDomain::newContext(ScriptObjPtr aInstanceObj, int aUserLevel)
 {
-  return new ScriptMainContext(this, aInstanceObj);
+  return new ScriptMainContext(this, aInstanceObj, aUserLevel);
 }
 
 
@@ -8352,7 +8356,7 @@ static void jsonresource_func(BuiltinFunctionContextPtr f)
 {
   ErrorPtr err;
   string fn = f->arg(0)->stringValue();
-  if (Application::sharedApplication()->getPathType(fn, 1, false)==Application::notallowed) {
+  if (Application::sharedApplication()->getPathType(fn, f->scriptmain()->userLevel()>=1, false)==Application::notallowed) {
     f->finish(new ErrorValue(ScriptError::NoPrivilege, "no reading privileges for this path"));
     return;
   }
@@ -8915,15 +8919,10 @@ static void system_done(BuiltinFunctionContextPtr f, ErrorPtr aError, const stri
 FUNC_ARG_DEFS(system, { text } );
 static void system_func(BuiltinFunctionContextPtr f)
 {
-  #if !ALWAYS_ALLOW_SYSTEM_FUNC
-  #if ENABLE_APPLICATION_SUPPORT
-  if (Application::sharedApplication()->userLevel()<2)
-  #endif
-  {
+  if (f->scriptmain()->userLevel()<2) {
     f->finish(new ErrorValue(ScriptError::NoPrivilege, "no privileges to use system() function"));
     return;
   }
-  #endif // ALWAYS_ALLOW_SYSTEM_FUNC
   pid_t pid = MainLoop::currentMainLoop().fork_and_system(boost::bind(&system_done, f, _1, _2), f->arg(0)->stringValue().c_str(), true);
   if (pid>=0) {
     f->setAbortCallback(boost::bind(&system_abort, pid));
@@ -8962,7 +8961,7 @@ static void listfiles_func(BuiltinFunctionContextPtr f)
 {
   string fn = f->arg(0)->stringValue();
   // user level 1 is allowed to read everywhere
-  Application::PathType ty = Application::sharedApplication()->getPathType(fn, 1, true);
+  Application::PathType ty = Application::sharedApplication()->getPathType(fn, f->scriptmain()->userLevel()>=1, true);
   if (ty==Application::empty) {
     f->finish(new ErrorValue(ScriptError::Invalid, "no filename"));
     return;
@@ -9002,7 +9001,7 @@ static void readfile_func(BuiltinFunctionContextPtr f)
 {
   string fn = f->arg(0)->stringValue();
   // user level 1 is allowed to read everywhere
-  Application::PathType ty = Application::sharedApplication()->getPathType(fn, 1, true);
+  Application::PathType ty = Application::sharedApplication()->getPathType(fn, f->scriptmain()->userLevel()>=1, true);
   if (ty==Application::empty) {
     f->finish(new ErrorValue(ScriptError::Invalid, "no filename"));
     return;
@@ -9026,7 +9025,7 @@ FUNC_ARG_DEFS(writefile, { text }, { anyvalid|null }, { numeric|optionalarg } );
 static void writefile_func(BuiltinFunctionContextPtr f)
 {
   string fn = f->arg(0)->stringValue();
-  Application::PathType ty = Application::sharedApplication()->getPathType(fn, 2, true); // only temp prefix allowed
+  Application::PathType ty = Application::sharedApplication()->getPathType(fn, f->scriptmain()->userLevel()>=2, true); // only temp prefix allowed
   if (ty==Application::empty) {
     f->finish(new ErrorValue(ScriptError::Invalid, "no filename"));
     return;
@@ -9072,7 +9071,7 @@ FUNC_ARG_DEFS(editfile, { text }, { text|null|optionalarg }, { text|optionalarg 
 static void editfile_func(BuiltinFunctionContextPtr f)
 {
   string fn = f->arg(0)->stringValue();
-  Application::PathType ty = Application::sharedApplication()->getPathType(fn, 2, true); // only temp prefix allowed for writing
+  Application::PathType ty = Application::sharedApplication()->getPathType(fn, f->scriptmain()->userLevel()>=2, true); // only temp prefix allowed for writing
   if (ty==Application::empty) {
     f->finish(new ErrorValue(ScriptError::Invalid, "no filename"));
     return;
@@ -9082,7 +9081,7 @@ static void editfile_func(BuiltinFunctionContextPtr f)
     // no sufficient user level for writing
     readonly = true;
     // try reading
-    ty = Application::sharedApplication()->getPathType(fn, 1, false); // all prefixes allowed for reading
+    ty = Application::sharedApplication()->getPathType(fn, f->scriptmain()->userLevel()>=1, false); // all prefixes allowed for reading
     if (ty==Application::notallowed) {
       f->finish(new ErrorValue(ScriptError::NoPrivilege, "no writing privileges for this path"));
       return;
@@ -9601,6 +9600,14 @@ static void logleveloffset_func(BuiltinFunctionContextPtr f)
   }
   f->finish(new IntegerValue(oldOffset));
 }
+
+
+// userlevel() // return the context's user level
+static void userlevel_func(BuiltinFunctionContextPtr f)
+{
+  f->finish(new IntegerValue(f->scriptmain()->userLevel()));
+}
+
 
 #if ENABLE_P44LRGRAPHICS
 
@@ -10433,6 +10440,7 @@ static const BuiltinMemberDescriptor standardFunctions[] = {
   FUNC_DEF_W_ARG(log, executable|text),
   FUNC_DEF_W_ARG(loglevel, executable|numeric),
   FUNC_DEF_W_ARG(logleveloffset, executable|numeric),
+  FUNC_DEF_NOARG(userlevel, executable|numeric),
   #if ENABLE_P44LRGRAPHICS
   FUNC_DEF_C_ARG(hsv, executable|text|objectvalue, col),
   FUNC_DEF_C_ARG(rgb, executable|text|objectvalue, col),

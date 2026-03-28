@@ -227,7 +227,7 @@ void Application::terminateAppWith(ErrorPtr aError)
 }
 
 
-Application::PathType Application::getPathType(const string aPath, int aFreePathUserLevel, bool aTempPrefixOnly, size_t* aPrefixLenP)
+Application::PathType Application::getPathType(const string aPath, bool aFreePath, bool aTempPrefixOnly, size_t* aPrefixLenP)
 {
   PathType ty;
   size_t prefixLen = 0;
@@ -239,23 +239,21 @@ Application::PathType Application::getPathType(const string aPath, int aFreePath
   else if (aPath.substr(0,2)=="_/") { ty = temp_relative; ; prefixLen = 2; }
   else ty = relative;
   if (aPrefixLenP) *aPrefixLenP = prefixLen;
-  #if !ALWAYS_ALLOW_ALL_FILES
-  if (aFreePathUserLevel>0 && mUserLevel<aFreePathUserLevel) {
+  if (!aFreePath) {
     // must be of an allowed type and not contain any slashes or ".."
     if ((aTempPrefixOnly && (ty==resource_relative || ty==data_relative)) || aPath.find("/", prefixLen)!=string::npos || aPath.find("..", prefixLen)!=string::npos) {
       return notallowed;
     }
   }
-  #endif
   return ty;
 }
 
 
-Application::PathType Application::extractPathType(string& aPath, int aFreePathUserLevel, bool aTempPrefixOnly)
+Application::PathType Application::extractPathType(string& aPath, bool aFreePath, bool aTempPrefixOnly)
 {
   PathType ty;
   size_t prefixLen;
-  ty = getPathType(aPath, aFreePathUserLevel, aTempPrefixOnly, &prefixLen);
+  ty = getPathType(aPath, aFreePath, aTempPrefixOnly, &prefixLen);
   aPath.erase(0, prefixLen);
   return ty;
 }
@@ -266,7 +264,7 @@ Application::PathType Application::extractPathType(string& aPath, int aFreePathU
 string Application::resourcePath(const string aResource, const string aPrefix)
 {
   string path = aResource;
-  PathType ty = extractPathType(path, 0, false);
+  PathType ty = extractPathType(path, true, false);
   if (ty==empty && aPrefix.empty())
     return mResourcepath; // just return resource path
   if (ty==absolute)
@@ -295,7 +293,7 @@ void Application::setResourcePath(const char* aResourcePath)
 string Application::dataPath(const string aDataFile, const string aPrefix, bool aCreatePrefix)
 {
   string path = aDataFile;
-  PathType ty = extractPathType(path, 0, false);
+  PathType ty = extractPathType(path, true, false);
   if (ty==empty && aPrefix.empty())
     return mDatapath; // just return data path
   if (ty==absolute)

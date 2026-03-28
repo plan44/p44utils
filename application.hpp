@@ -126,21 +126,19 @@ namespace p44 {
 
     /// analyze path type
     /// @param aPath path that may contain special prefixes to denote data/resource/temp relative.
-    /// @param aFreePathUserLevel userlevel required to allow free path specifications, i.e. subdirectories and absolute paths.
-    ///   Set this to 0 to disable checks
+    /// @param aFreePath must be set to allow free path specifications, i.e. subdirectories and absolute paths.
     /// @param aTempPrefixOnly if set, only temp prefix is allowed
     /// @param aPrefixLenP will receive prefix len if not null
     /// @return the path type or notallowed when not allowed
-    PathType getPathType(const string aPath, int aFreePathUserLevel, bool aTempPrefixOnly, size_t* aPrefixLenP = nullptr);
+    PathType getPathType(const string aPath, bool aFreePath, bool aTempPrefixOnly, size_t* aPrefixLenP = nullptr);
 
     /// extract path type and remove prefixes
     /// @param aPath path that may contain special prefixes to denote data/resource/temp relative.
     ///   these prefixes are removed from aPath, leaving a relative path.
-    /// @param aFreePathUserLevel userlevel required to allow free path specifications, i.e. subdirectories and absolute paths.
-    ///   Set this to 0 to disable checks
+    /// @param aFreePath must be set to allow free path specifications, i.e. subdirectories and absolute paths.
     /// @param aTempPrefixOnly if set, only temp prefix is allowed
     /// @return the path type or notallowed when not allowed
-    PathType extractPathType(string& aPath, int aFreePathUserLevel, bool aTempPrefixOnly);
+    PathType extractPathType(string& aPath, bool aFreePath, bool aTempPrefixOnly);
 
     /// get resource path. Resources are usually readonly files
     /// @param aResource if not empty, and it is an absolute path, the the result will be just this path.

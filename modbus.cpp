@@ -2207,8 +2207,9 @@ static void connection_func(ModbusConnectionPtr aModbusConnection, BuiltinFuncti
   );
   if (Error::isOK(err)) {
     // set the pins
-    aModbusConnection->mModbusTxEnable = DigitalIoObj::digitalIoFromArg(f->arg(1), true, false);
-    aModbusConnection->mModbusRxEnable = DigitalIoObj::digitalIoFromArg(f->arg(2), true, false);
+    int userlevel = f->scriptmain()->userLevel();
+    aModbusConnection->mModbusTxEnable = DigitalIoObj::digitalIoFromArg(f->arg(1), true, false, userlevel);
+    aModbusConnection->mModbusRxEnable = DigitalIoObj::digitalIoFromArg(f->arg(2), true, false, userlevel);
   }
   f->finish(ErrorValue::trueOrError(err));
 }
@@ -2698,11 +2699,9 @@ ModbusMasterObj::~ModbusMasterObj()
 // modbusmaster()
 static void modbusmaster_func(BuiltinFunctionContextPtr f)
 {
-  #if ENABLE_APPLICATION_SUPPORT
-  if (Application::sharedApplication()->userLevel()<1) { // user level >=1 is needed for IO access
+  if (f->scriptmain()->userLevel()<1) { // user level >=1 is needed for IO access
     f->finish(new ErrorValue(ScriptError::NoPrivilege, "no IO privileges"));
   }
-  #endif
   ModbusMasterPtr mbm = new ModbusMaster();
   f->finish(mbm->representingScriptObj());
 }
@@ -2711,11 +2710,9 @@ static void modbusmaster_func(BuiltinFunctionContextPtr f)
 // modbusslave()
 static void modbusslave_func(BuiltinFunctionContextPtr f)
 {
-  #if ENABLE_APPLICATION_SUPPORT
-  if (Application::sharedApplication()->userLevel()<1) { // user level >=1 is needed for IO access
+  if (f->scriptmain()->userLevel()<1) { // user level >=1 is needed for IO access
     f->finish(new ErrorValue(ScriptError::NoPrivilege, "no IO privileges"));
   }
-  #endif
   ModbusSlavePtr mbs = new ModbusSlave();
   f->finish(mbs->representingScriptObj());
 }

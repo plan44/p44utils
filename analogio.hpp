@@ -276,7 +276,7 @@ namespace p44 {
 
       /// factory method to get an AnalogIo either by creating it from pinspec
       /// string or by using existing AnalogIoObj passed
-      static AnalogIoPtr analogIoFromArg(ScriptObjPtr aArg, bool aOutput, double aInitialValue);
+      static AnalogIoPtr analogIoFromArg(ScriptObjPtr aArg, bool aOutput, double aInitialValue, int aUserLevel);
     };
 
 

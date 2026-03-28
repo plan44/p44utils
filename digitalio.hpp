@@ -311,7 +311,7 @@ namespace p44 {
       void inputChanged(bool aNewState);
       /// factory method to get a DigitalIo either by creating it from pinspec
       /// string or by using existing DigitalIoObj passed
-      static DigitalIoPtr digitalIoFromArg(ScriptObjPtr aArg, bool aOutput, bool aInitialState);
+      static DigitalIoPtr digitalIoFromArg(ScriptObjPtr aArg, bool aOutput, bool aInitialState, int aUserLevel);
     };
 
 

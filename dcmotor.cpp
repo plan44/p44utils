@@ -454,7 +454,7 @@ static void currentsensor_func(BuiltinFunctionContextPtr f)
 {
   DcMotorObj* dc = dynamic_cast<DcMotorObj*>(f->thisObj().get());
   assert(dc);
-  AnalogIoPtr sens = AnalogIoObj::analogIoFromArg(f->arg(0), false, 0);
+  AnalogIoPtr sens = AnalogIoObj::analogIoFromArg(f->arg(0), false, 0, f->scriptmain()->userLevel());
   MLMicroSeconds interval = DEFAULT_CURRENT_POLL_INTERVAL; // sensible default
   if (f->arg(1)->defined()) interval = f->arg(1)->doubleValue()*Second;
   if (!sens) {
@@ -487,8 +487,9 @@ static void endswitches_func(BuiltinFunctionContextPtr f)
 {
   DcMotorObj* dc = dynamic_cast<DcMotorObj*>(f->thisObj().get());
   assert(dc);
-  DigitalIoPtr pos = DigitalIoObj::digitalIoFromArg(f->arg(0), false, false);
-  DigitalIoPtr neg = DigitalIoObj::digitalIoFromArg(f->arg(1), false, false);
+  int userlevel = f->scriptmain()->userLevel();
+  DigitalIoPtr pos = DigitalIoObj::digitalIoFromArg(f->arg(0), false, false, userlevel);
+  DigitalIoPtr neg = DigitalIoObj::digitalIoFromArg(f->arg(1), false, false, userlevel);
   MLMicroSeconds interval = 0; // automatic
   MLMicroSeconds debouncetime = DEFAULT_ENDSWITCH_DEBOUNCE_TIME; // usually, we need some debounce to avoid stopping while driving out of end switch
   if (f->arg(2)->defined()) debouncetime = f->arg(2)->doubleValue()*Second;
@@ -553,13 +554,14 @@ DcMotorObj::DcMotorObj(DcMotorDriverPtr aDCMotor) :
 FUNC_ARG_DEFS(dcmotor, { text|objectvalue }, { text|objectvalue|optionalarg }, { text|objectvalue|optionalarg } );
 static void dcmotor_func(BuiltinFunctionContextPtr f)
 {
-  AnalogIoPtr power = AnalogIoObj::analogIoFromArg(f->arg(0), true, 0);
+  int userlevel = f->scriptmain()->userLevel();
+  AnalogIoPtr power = AnalogIoObj::analogIoFromArg(f->arg(0), true, 0, userlevel);
   if (!power) {
     f->finish(new ErrorValue(ScriptError::Invalid, "missing analog output"));
     return;
   }
-  DigitalIoPtr cwd = DigitalIoObj::digitalIoFromArg(f->arg(1), true, false);
-  DigitalIoPtr ccwd = DigitalIoObj::digitalIoFromArg(f->arg(2), true, false);
+  DigitalIoPtr cwd = DigitalIoObj::digitalIoFromArg(f->arg(1), true, false, userlevel);
+  DigitalIoPtr ccwd = DigitalIoObj::digitalIoFromArg(f->arg(2), true, false, userlevel);
   DcMotorDriverPtr dcmotor = new DcMotorDriver(power, cwd, ccwd);
   f->finish(new DcMotorObj(dcmotor));
 }

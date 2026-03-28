@@ -43,12 +43,6 @@ extern "C" {
   #warning "No SPI supported on this platform - just showing calls in focus debug output"
 #endif
 
-#if !defined(ESP_PLATFORM)
-  #if ENABLE_APPLICATION_SUPPORT
-    #include "application.hpp" // we need it for user level, syscmd is only allowed with userlevel>=2
-  #endif
-#endif
-
 using namespace p44;
 #if ENABLE_SPI_SCRIPT_FUNCS
 using namespace P44Script;
@@ -1082,11 +1076,9 @@ SPIDeviceObj::SPIDeviceObj(SPIDevicePtr aSPIDevice) :
 FUNC_ARG_DEFS(spidevice, { numeric }, { text } );
 static void spidevice_func(BuiltinFunctionContextPtr f)
 {
-  #if ENABLE_APPLICATION_SUPPORT
-  if (Application::sharedApplication()->userLevel()<2) { // user level >=2 is needed for IO access
+  if (f->scriptmain()->userLevel()<2) { // user level >=2 is needed for IO access
     f->finish(new ErrorValue(ScriptError::NoPrivilege, "no IO privileges"));
   }
-  #endif
   SPIDevicePtr dev = SPIManager::sharedManager().getDevice(f->arg(0)->intValue(), f->arg(1)->stringValue().c_str());
   if (dev) {
     f->finish(dev->representingScriptObj());
