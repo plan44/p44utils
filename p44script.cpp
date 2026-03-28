@@ -8942,6 +8942,7 @@ static void restartapp_func(BuiltinFunctionContextPtr f)
   if (uequals(opt, "shutdown")) ec = P44_EXIT_SHUTDOWN; // p44 vdcd daemon specific exit code
   else if (uequals(opt, "reboot")) ec = P44_EXIT_REBOOT; // p44 vdcd daemon specific exit code
   else if (uequals(opt, "upgrade")) ec = P44_EXIT_FIRMWAREUPDATE; // p44 vdcd daemon specific exit code
+  else if ((f->scriptmain()->userLevel()>=3) && uequals(opt, "factoryreset")) ec = P44_EXIT_FACTORYRESET; // p44 vdcd daemon specific exit code
   LOG(LOG_WARNING, "Application will terminate with exit code %d because script called restartapp()", ec);
   Application::sharedApplication()->terminateApp(ec); // regular termination
   f->finish();
