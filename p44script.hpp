@@ -1785,9 +1785,33 @@ namespace p44 { namespace P44Script {
     BreakpointLineSet mBreakpointLines;
 
     /// @}
-    #endif
+    #endif // P44SCRIPT_DEBUGGING_SUPPORT
 
   };
+
+
+  // convenience class to run a "system" script, that is, an immutable script which is not registered for editing/viewing/debugging
+  class SystemScript : public P44LoggingObj
+  {
+    SourceContainer mSource;
+    ScriptCodeContextPtr mContext;
+
+  public:
+    SystemScript(const char* aLabel, const string aSource, ScriptCodeContextPtr aContext);
+
+    /// run the script
+    /// @param aFlags the evaluation flags
+    /// @param aEvaluationCB will be called with the result.
+    /// @param aThreadLocals optionally, the (structured) object that provides thread local members
+    /// @param aMaxRunTime optionally, maximum time the thread may run before it is aborted by timeout
+    /// @return null or error object when compilation fails
+    ScriptObjPtr run(EvaluationFlags aFlags, EvaluationCB aEvaluationCB, ScriptObjPtr aThreadLocals = nullptr, MLMicroSeconds aMaxRunTime = Infinite);
+
+    /// get the context pointer
+    ScriptCodeContextPtr context() { return mContext; }
+
+  };
+  typedef boost::intrusive_ptr<SystemScript> SystemScriptPtr;
 
 
   // class representing an editable source text, such as script, html page, config file etc.

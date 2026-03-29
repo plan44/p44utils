@@ -6193,6 +6193,34 @@ bool SourceContainer::breakPointAtLine(size_t aLine) const
 #endif // P44SCRIPT_DEBUGGING_SUPPORT
 
 
+// MARK: - SystemScript
+
+SystemScript::SystemScript(const char* aLabel, const string aSource, ScriptCodeContextPtr aContext) :
+  mSource(aLabel, this, aSource),
+  mContext(aContext)
+{
+  mSource.isMemberVariable();
+  assert(mContext);
+}
+
+
+ScriptObjPtr SystemScript::run(EvaluationFlags aFlags, EvaluationCB aEvaluationCB, ScriptObjPtr aThreadLocals, MLMicroSeconds aMaxRunTime)
+{
+  ScriptCompiler compiler(mContext->domain());
+  CompiledFunctionPtr compiledcode = new CompiledFunction("systemscript");
+  ScriptObjPtr res = compiler.compile(&mSource, compiledcode, aFlags, mContext->scriptmain());
+  if (res->isErr()) return res;
+  mContext->execute(
+    compiledcode, aFlags,
+    aEvaluationCB,
+    nullptr, // not chained
+    aThreadLocals,
+    aMaxRunTime // run time limit
+  );
+  return ScriptObjPtr();
+}
+
+
 // MARK: - ScriptHost
 
 
@@ -7593,7 +7621,7 @@ void ScriptCodeThread::abort(ScriptObjPtr aAbortResult)
   }
   // reduce to simple as possible value, as final result will survive deactivate() so should
   // not be a object possibly retaining other objects
-  aAbortResult = aAbortResult->calculationValue();
+  if (aAbortResult) aAbortResult = aAbortResult->calculationValue();
   inherited::abort(aAbortResult); // set the result
   // Note: calling abort must execute the callback passed to this thread when starting it
   if (mChainedExecutionContext) {
