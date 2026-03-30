@@ -1759,6 +1759,9 @@ namespace p44 { namespace P44Script {
     /// @note this is a non-retaining backreference
     SourceHost* sourceHost() { return mSourceHostP; }
 
+    /// @return the origin label, can be NULL
+    const char* originLabel() const { return mOriginLabel; }
+
     /// @return true if this source is floating, i.e. not part of a still existing script
     bool floating() { return mFloating; }
 
@@ -1798,6 +1801,9 @@ namespace p44 { namespace P44Script {
 
   public:
     SystemScript(const char* aLabel, const string aSource, ScriptCodeContextPtr aContext);
+
+    virtual string contextType() const P44_OVERRIDE { return "systemscript"; };
+    virtual string contextName() const P44_OVERRIDE { return nonNullCStr(mSource.originLabel()); };
 
     /// run the script
     /// @param aFlags the evaluation flags
