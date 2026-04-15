@@ -147,18 +147,18 @@ PWMPin::PWMPin(int aPwmChip, int aPwmChannel, bool aInverted, double aInitialVal
   // save base path
   string basePath = string_format("%s/pwmchip%d/pwm%d", PWM_SYS_CLASS_PATH, mPwmChip, mPwmChannel);
   // configure
-  // - set polarity
-  name = basePath + "/polarity";
-  tempFd = open(name.c_str(), O_RDWR);
-  if (tempFd<0) { LOG(LOG_ERR, "Cannot open PWM polarity file %s: %s", name.c_str(), strerror(errno)); return; }
-  s = mInverted ? "inversed" : "normal";
-  write(tempFd, s.c_str(), s.length());
-  close(tempFd);
   // - set period
   name = basePath + "/period";
   tempFd = open(name.c_str(), O_RDWR);
   if (tempFd<0) { LOG(LOG_ERR, "Cannot open PWM period file %s: %s", name.c_str(), strerror(errno)); return; }
   s = string_format("%u", mPeriodNs);
+  write(tempFd, s.c_str(), s.length());
+  close(tempFd);
+  // - set polarity
+  name = basePath + "/polarity";
+  tempFd = open(name.c_str(), O_RDWR);
+  if (tempFd<0) { LOG(LOG_ERR, "Cannot open PWM polarity file %s: %s", name.c_str(), strerror(errno)); return; }
+  s = mInverted ? "inversed" : "normal";
   write(tempFd, s.c_str(), s.length());
   close(tempFd);
   // now keep the duty cycle FD open
