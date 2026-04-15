@@ -113,7 +113,7 @@ AnalogIo::AnalogIo(const char* aPinSpec, bool aOutput, double aInitialValue) :
     mIoPin = AnalogIOPinPtr(new AnalogI2CPin(busNumber, deviceName.c_str(), pinNumber, mOutput, aInitialValue));
   }
   else
-  #endif
+  #endif // !DISABLE_I2C
   #if !DISABLE_SPI
   if (busName.substr(0,3)=="spi") {
     // spi<interfaceno*10+chipselno>.<devicespec>.<pinnum>
@@ -122,7 +122,7 @@ AnalogIo::AnalogIo(const char* aPinSpec, bool aOutput, double aInitialValue) :
     mIoPin = AnalogIOPinPtr(new AnalogSPIPin(busNumber, deviceName.c_str(), pinNumber, mOutput, aInitialValue));
   }
   else
-  #endif
+  #endif // !DISABLE_SPI
   #if !DISABLE_SYSCMDIO && !defined(ESP_PLATFORM) && (ENABLE_APPLICATION_SUPPORT || ALWAYS_ALLOW_SYSCMDIO)
   if (
     busName=="syscmd"
@@ -134,7 +134,7 @@ AnalogIo::AnalogIo(const char* aPinSpec, bool aOutput, double aInitialValue) :
     mIoPin = AnalogIOPinPtr(new AnalogSysCommandPin(pinName.c_str(), mOutput, aInitialValue));
   }
   else
-  #endif
+  #endif // !DISABLE_SYSCMDIO && !defined(ESP_PLATFORM) && (ENABLE_APPLICATION_SUPPORT || ALWAYS_ALLOW_SYSCMDIO)
   #if !DISABLE_PWM
   if (busName.substr(0,7)=="pwmchip") {
     // Linux generic PWM output
@@ -154,14 +154,14 @@ AnalogIo::AnalogIo(const char* aPinSpec, bool aOutput, double aInitialValue) :
     mIoPin = AnalogIOPinPtr(new PWMPin(chipNumber, channelNumber, inverted, aInitialValue, periodNs));
   }
   else
-  #endif
+  #endif // !DISABLE_PWM
   #if ENABLE_BACKLIGHT
   if (busName=="backlight") {
     if (pinName.empty()) pinName="backlight"; // default to "backlight"
     mIoPin = AnalogIOPinPtr(new BacklightControl(pinName.c_str()));
   }
   else
-  #endif
+  #endif // ENABLE_BACKLIGHT
   if (busName=="fdsim") {
     // analog I/O from file descriptor (should be non-blocking or at least minimal-delay files such
     // as quickly served pipes or /sys/class/* files)
