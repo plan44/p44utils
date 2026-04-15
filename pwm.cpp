@@ -151,7 +151,7 @@ PWMPin::PWMPin(int aPwmChip, int aPwmChannel, bool aInverted, double aInitialVal
   name = basePath + "/polarity";
   tempFd = open(name.c_str(), O_RDWR);
   if (tempFd<0) { LOG(LOG_ERR, "Cannot open PWM polarity file %s: %s", name.c_str(), strerror(errno)); return; }
-  s = mInverted ? "inverted" : "normal";
+  s = mInverted ? "inversed" : "normal";
   write(tempFd, s.c_str(), s.length());
   close(tempFd);
   // - set period
