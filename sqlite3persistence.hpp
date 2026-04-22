@@ -139,7 +139,9 @@ namespace p44 {
     SQLiteTGQuery(SQLite3TableGroup& aTableGroup);
 
     /// prevent standard prepare
+    #if !P44_BUILD_DIGI
     int prepare(char const* stmt) = delete;
+    #endif
 
     /// prepared query from template with $PREFIX\_ in it
     ErrorPtr prefixedPrepare(const char* aTemplate, ...); // __printflike(2,3); // is not really printflike because of non-standard placeholders like %q
@@ -158,7 +160,9 @@ namespace p44 {
     SQLiteTGCommand(SQLite3TableGroup& aTableGroup);
 
     /// prevent standard prepare
+    #if !P44_BUILD_DIGI
     int prepare(char const* stmt) = delete;
+    #endif
 
     /// prepared query from template with $PREFIX\_ in it
     ErrorPtr prefixedPrepare(const char* aTemplate, ...); // __printflike(2,3); // is not really printflike because of non-standard placeholders like %q
