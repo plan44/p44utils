@@ -1560,7 +1560,7 @@ string MainLoop::description()
     "  - timer handlers ran too long : %ld times\n"
     "  - max timers waiting at once  : %ld\n"
     "- throttling sleep inserted     : %ld times\n"
-    #endif
+    #endif // MAINLOOP_STATISTICS
     #if MAINLOOP_LIBEV_BASED
     "- pending libev watchers        : %d %s\n"
     #endif
@@ -1579,7 +1579,7 @@ string MainLoop::description()
     ,(long)mTimesTimersRanToLong
     ,(long)mMaxTimers
     ,(long)mTimesThrottlingApplied
-    #endif
+    #endif // MAINLOOP_STATISTICS
     #if MAINLOOP_LIBEV_BASED
     ,(mLibEvLoopP ? ev_pending_count(mLibEvLoopP) : 0)
     ,(mLibEvLoopP ? "" : "(NOT IN USE)")
@@ -1642,9 +1642,11 @@ ChildThreadWrapper::ChildThreadWrapper(MainLoop &aParentThreadMainLoop, ThreadRo
   mParentSignalHandler(aThreadSignalHandler),
   mThreadRoutine(aThreadRoutine),
   mTerminationPending(false),
-  mMyMainLoopP(NULL),
-  mCrossThreadCallMutex(PTHREAD_MUTEX_INITIALIZER),
-  mCrossThreadCallCond(PTHREAD_COND_INITIALIZER)
+  mMyMainLoopP(NULL)
+  #if !REDUCED_FOOTPRINT
+  ,mCrossThreadCallMutex(PTHREAD_MUTEX_INITIALIZER),
+  ,mCrossThreadCallCond(PTHREAD_COND_INITIALIZER)
+  #endif
 {
   // create a signal pipe
   int pipeFdPair[2];
@@ -1784,6 +1786,7 @@ bool ChildThreadWrapper::signalPipeHandler(int aPollFlags)
     sig = threadSignalCompleted;
   }
   if (sig!=threadSignalNone) {
+    #if !REDUCED_FOOTPRINT
     if (sig==threadSignalScheduleCall) {
       // child thread wants to execute something on the parent thread
       if (!mCrossThreadCallRoutine) {
@@ -1798,7 +1801,9 @@ bool ChildThreadWrapper::signalPipeHandler(int aPollFlags)
       pthread_cond_broadcast(&mCrossThreadCallCond);
       pthread_mutex_unlock(&mCrossThreadCallMutex);
     }
-    else {
+    else
+    #endif // !REDUCED_FOOTPRINT
+    {
       // check for thread terminated
       if (sig==threadSignalCompleted) {
         // finalize thread execution first
@@ -1822,6 +1827,8 @@ bool ChildThreadWrapper::signalPipeHandler(int aPollFlags)
   return false; // did not handle any I/O
 }
 
+
+#if !REDUCED_FOOTPRINT
 
 // MARK: - executing code on main thread from child thread
 
@@ -1950,6 +1957,7 @@ void ChildThreadWrapper::crossThreadCallProcessor()
 }
 
 
+#endif // !REDUCED_FOOTPRINT
 
 
 
