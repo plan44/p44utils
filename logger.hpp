@@ -249,9 +249,6 @@ namespace p44 {
     /// @return current log level
     int getLogLevel() { return mLogLevel; }
 
-    /// @return true if log symbols are enabled
-    bool logSymbols() { return mLogSymbols; }
-
     /// set level required to send messages to stderr
     /// @param aStderrLevel any messages with this or a lower (=higher priority) level will be sent to stderr (default = LOG_ERR)
     /// @param aErrToStdout if set, messages that qualify for stderr will STILL be duplicated to stdout as well (default = true)
@@ -272,11 +269,16 @@ namespace p44 {
     // @param true to enable daemon mode (on by default)
     void setDaemonMode(bool aDaemonMode) { mDaemonMode = aDaemonMode; }
 
+    #if ENABLE_LOG_COLORS
+    /// @return true if log symbols are enabled
+    bool logSymbols() { return mLogSymbols; }
+
     /// @param aSymbols if set, logger uses UTF-8 symbols to differentiate levels and separate prefix from actual log content
     void setSymbols(bool aSymbols) { mLogSymbols = aSymbols; };
 
     /// @param aColoring if set, ANSI terminal colors are used to differentiate levels and separate prefix from actual log content
     void setColoring(bool aColoring) { mLogColors = aColoring; };
+    #endif // ENABLE_LOG_COLORS
 
   private:
 
@@ -290,7 +292,7 @@ namespace p44 {
     typedef P44Obj inherited;
 
   protected:
-    
+
     int mLogLevelOffset; ///< will be subtracted from log level for checking (in 7..5 range only)
 
   public:
