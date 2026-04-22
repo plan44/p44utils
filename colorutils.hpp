@@ -52,11 +52,11 @@ namespace p44 {
     PixelColorComponent a; // alpha
   } PixelColor;
 
-  #if !REDUCED_FOOTPRINT
-
   const PixelColor transparent = { .r=0, .g=0, .b=0, .a=0 };
   const PixelColor black = { .r=0, .g=0, .b=0, .a=255 };
   const PixelColor white = { .r=255, .g=255, .b=255, .a=255 };
+
+  #if !REDUCED_FOOTPRINT
 
   /// dim down (or light up) value
   /// @param aVal 0..255 value to dim up or down
@@ -139,18 +139,12 @@ namespace p44 {
   /// @param aIncludeAlphaIntoBrightness if set, alpha is included in aBrightness returned
   void pixelToHsb(PixelColor aPixelColor, double &aHue, double &aSaturation, double &aBrightness, bool aIncludeAlphaIntoBrightness = false);
 
-  /// convert pixel color to web color
-  /// @param aPixelColor pixel color
-  /// @param aWithHash if set, output is prefixed with hash, as in css: #RRGGBB or #AARRGGBB
-  /// @return web color in RRGGBB style or AARRGGBB when alpha is not fully opaque (==255)
-  string pixelToWebColor(const PixelColor aPixelColor, bool aWithHash);
+  #endif // !REDUCED_FOOTPRINT
 
   /// convert RGB values in 0..1 range to pixel color
   /// @param aRGB will R,G,B values in 0..1 range
   /// @return pixel color, alpha set to 255
   PixelColor rgbToPixel(const Row3 &aRGB);
-
-  #endif // !REDUCED_FOOTPRINT
 
   /// convert pixel color to RGB color components in 0..1 double range
   /// @param aPixelColor pixel color, alpha will be applied to dim output
@@ -161,6 +155,12 @@ namespace p44 {
   /// @param aWebColor web style #ARGB or #AARRGGBB color, alpha (A, AA) is optional, "#" is also optional
   /// @return pixel color. If Alpha is not specified, it is set to fully opaque = 255.
   PixelColor webColorToPixel(const string aWebColor);
+
+  /// convert pixel color to web color
+  /// @param aPixelColor pixel color
+  /// @param aWithHash if set, output is prefixed with hash, as in css: #RRGGBB or #AARRGGBB
+  /// @return web color in RRGGBB style or AARRGGBB when alpha is not fully opaque (==255)
+  string pixelToWebColor(const PixelColor aPixelColor, bool aWithHash);
 
   /// @}
 
