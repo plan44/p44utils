@@ -119,6 +119,8 @@ namespace p44 {
   /// @note when this routine exits, a threadSignalCompleted will be sent to the parent thread
   typedef boost::function<void (ChildThreadWrapper &aThread)> ThreadRoutine;
 
+  #if !REDUCED_FOOTPRINT
+
   /// cross-thread call
   /// @param aThread the object that wraps a child thread and manages commonication with the parent thread
   typedef boost::function<ErrorPtr (ChildThreadWrapper &aWrapper)> CrossThreadCall;
@@ -128,10 +130,13 @@ namespace p44 {
   /// @param aStatusCB the callback to invoke when the async call chain terminates
   typedef boost::function<void (ChildThreadWrapper &aThread, StatusCB aStatusCB)> CrossThreadAsyncCall;
 
+  #endif // !REDUCED_FOOTPRINT
+
   /// thread signal handler, will be called from main loop of parent thread when child thread uses signalParentThread()
   /// @param aChildThread the ChildThreadWrapper object which sent the signal
   /// @param aSignalCode the signal received from the child thread
   typedef boost::function<void (ChildThreadWrapper &aChildThread, ThreadSignals aSignalCode)> ThreadSignalHandler;
+
 
   /// @}
 
@@ -662,11 +667,13 @@ namespace p44 {
 
     MainLoop *mMyMainLoopP; ///< the (optional) mainloop of this thread
 
+    #if !REDUCED_FOOTPRINT
     CrossThreadCall mCrossThreadCallRoutine; ///< the routine waiting to run or actually running
     pthread_mutex_t mCrossThreadCallMutex; ///< the mutex the caller waits on
     pthread_cond_t mCrossThreadCallCond; ///< the condition the caller waits on
     ErrorPtr mCrossThreadCallStatus; ///< the status of the cross thread call
     StatusCB mCrossThreadStatusCB; ///< the status callback
+    #endif // !REDUCED_FOOTPRINT
 
   public:
 
@@ -697,6 +704,8 @@ namespace p44 {
     /// disconnect this child wrapper, that is, prevent it from calling back via mParentSignalHandler
     /// @note thread will continue to run, but no longer call back
     void disconnect();
+
+    #if !REDUCED_FOOTPRINT
 
     /// execute routine, BLOCKING the current (child) thread, on the parent thread
     /// @param aParentThreadRoutine the routine to be executed in the parent thread
@@ -732,6 +741,8 @@ namespace p44 {
     /// @note this does not exit unless the child thread is terminated
     void crossThreadCallProcessor();
 
+    #endif // !REDUCED_FOOTPRINT
+
 
     /// @}
 
@@ -747,6 +758,8 @@ namespace p44 {
 
     /// cancel execution and wait for cancellation to complete
     void cancel();
+
+    #if !REDUCED_FOOTPRINT
 
     /// execute routine, BLOCKING the current (parent) thread, on the child thread
     /// @param aChildThreadRoutine the routine to be executed in the child thread
@@ -769,6 +782,8 @@ namespace p44 {
     /// @note this requires the child thread to support startOnChildThread(), see details there.
     void executeOnChildThreadAsync(CrossThreadCall aChildThreadRoutine, StatusCB aStatusCB);
 
+    #endif // !REDUCED_FOOTPRINT
+
     /// @}
 
     /// method called from thread_start_function from this child thread
@@ -778,6 +793,8 @@ namespace p44 {
 
     bool signalPipeHandler(int aPollFlags);
     void finalizeThreadExecution();
+
+    #if !REDUCED_FOOTPRINT
 
     ErrorPtr asyncParentCallExecutor(CrossThreadAsyncCall aParentAsyncRoutine, StatusCB aStatusCB);
 
@@ -796,6 +813,8 @@ namespace p44 {
     void parentToChildCallback(ErrorPtr aStatus, StatusCB aFinalCallback);
 
     ErrorPtr crossThreadCallbackDelivery(ErrorPtr aStatus, StatusCB aFinalCallback);
+
+    #endif // !REDUCED_FOOTPRINT
 
   };
 
