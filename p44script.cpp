@@ -135,7 +135,14 @@ void EventSource::registerForEvents(EventSink* aEventSink, intptr_t aRegId, Even
 void EventSource::registerForEvents(EventSink& aEventSink, intptr_t aRegId, EventFilterPtr aFilter)
 {
   mSinksModified = true;
+  #if P44_CPP11_FEATURE
   mEventSinks[&aEventSink] = { aRegId, aFilter }; // multiple registrations are possible, counted only once, only last aRegId/aFilter stored
+  #else
+  SinkRegistration sr;
+  sr.regId = aRegId;
+  sr.eventFilter = aFilter;
+  mEventSinks[&aEventSink] = sr;
+  #endif
   aEventSink.mEventSources.insert(this);
 }
 
@@ -1388,7 +1395,7 @@ void SimpleVarContainer::releaseObjsFromSource(SourceContainerPtr aSource)
       pos = mNamedVars.erase(pos); // source is gone -> remove
       #else
       NamedVarMap::iterator dpos = pos++; // pre-C++ 11
-      namedVars.erase(dpos); // source is gone -> remove
+      mNamedVars.erase(dpos); // source is gone -> remove
       #endif
     }
     else {
@@ -1408,7 +1415,7 @@ void SimpleVarContainer::clearFloating()
       pos = mNamedVars.erase(pos); // source is gone -> remove
       #else
       NamedVarMap::iterator dpos = pos++; // pre-C++ 11
-      namedVars.erase(dpos); // source is gone -> remove
+      mNamedVars.erase(dpos); // source is gone -> remove
       #endif
     }
     else {
@@ -2075,7 +2082,7 @@ void ScriptCodeContext::threadTerminated(ScriptCodeThreadPtr aThread, Evaluation
       pos = mThreads.erase(pos);
       #else
       ThreadList::iterator dpos = pos++;
-      threads.erase(dpos);
+      mThreads.erase(dpos);
       #endif
       // thread object should get disposed now, along with its SourceRef
       if (anyFromQueue) break; // optimization: no need to continue loop
@@ -5813,7 +5820,7 @@ void CompiledTrigger::triggerDidEvaluate(EvaluationFlags aEvalMode, ScriptObjPtr
   }
   mCurrentResult = aResult->assignmentValue();
   // treat non-fatal errors as caught
-  ErrorValuePtr errval = dynamic_pointer_cast<ErrorValue>(mCurrentResult);
+  ErrorValuePtr errval = boost::dynamic_pointer_cast<ErrorValue>(mCurrentResult);
   if (errval) {
     errval->setCaught(!errval->isFatal());
   }
@@ -7669,7 +7676,7 @@ void ScriptCodeThread::complete(ScriptObjPtr aFinalResult)
 {
   mAutoResumeTicket.cancel();
   mRunningSince = Never; // flag non-running, prevents getting aborted (again)
-  ErrorValuePtr errval = dynamic_pointer_cast<ErrorValue>(aFinalResult);
+  ErrorValuePtr errval = boost::dynamic_pointer_cast<ErrorValue>(aFinalResult);
   if (errval && !errval->caught()) {
     bool fatal = errval->isFatal();
     POLOG(loggingContext(), fatal ? LOG_ERR : LOG_INFO,
@@ -8134,7 +8141,9 @@ void ScriptCodeThread::continueWithMode(PausingMode aNewPausingMode)
 
 // MARK: - Built-in Standard functions
 
-namespace p44::P44Script::BuiltinFunctions {
+namespace p44 {
+namespace P44Script {
+namespace BuiltinFunctions {
 
 // for single argument math functions
 FUNC_ARG_DEFS(math1arg, { numeric|undefres } );
@@ -10572,7 +10581,7 @@ static const BuiltinMemberDescriptor standardFunctions[] = {
   BUILTINS_TERMINATOR
 };
 
-} // BuiltinFunctions
+}}} // namespace p44::P44Script::BuiltinFunctions
 
 
 // MARK: - Standard Scripting Domain
@@ -10583,14 +10592,14 @@ static StandardScriptingDomainPtr gStandardScriptingDomain;
 StandardScriptingDomain::StandardScriptingDomain()
 {
   // a standard scripting domains has the standard functions
-  addGlobalBuiltins(BuiltinFunctions::standardFunctions);
+  addGlobalBuiltins(p44::P44Script::BuiltinFunctions::standardFunctions);
 }
 
 
 void StandardScriptingDomain::addGlobalBuiltins(const BuiltinMemberDescriptor* aMemberDescriptors)
 {
   if (!mGlobalBuiltins) {
-    mGlobalBuiltins = new BuiltInMemberLookup(BuiltinFunctions::standardFunctions);
+    mGlobalBuiltins = new BuiltInMemberLookup(p44::P44Script::BuiltinFunctions::standardFunctions);
     registerMemberLookup(mGlobalBuiltins);
   }
   if (aMemberDescriptors) {
