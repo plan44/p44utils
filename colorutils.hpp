@@ -45,14 +45,14 @@ namespace p44 {
   typedef uint8_t PixelColorComponent;
   #define PIXELMAX 255
 
-  #if !REDUCED_FOOTPRINT
-
   typedef struct {
     PixelColorComponent r;
     PixelColorComponent g;
     PixelColorComponent b;
     PixelColorComponent a; // alpha
   } PixelColor;
+
+  #if !REDUCED_FOOTPRINT
 
   const PixelColor transparent = { .r=0, .g=0, .b=0, .a=0 };
   const PixelColor black = { .r=0, .g=0, .b=0, .a=255 };
@@ -139,32 +139,31 @@ namespace p44 {
   /// @param aIncludeAlphaIntoBrightness if set, alpha is included in aBrightness returned
   void pixelToHsb(PixelColor aPixelColor, double &aHue, double &aSaturation, double &aBrightness, bool aIncludeAlphaIntoBrightness = false);
 
-  /// convert Web color to pixel color
-  /// @param aWebColor web style #ARGB or #AARRGGBB color, alpha (A, AA) is optional, "#" is also optional
-  /// @return pixel color. If Alpha is not specified, it is set to fully opaque = 255.
-  PixelColor webColorToPixel(const string aWebColor);
-
   /// convert pixel color to web color
   /// @param aPixelColor pixel color
   /// @param aWithHash if set, output is prefixed with hash, as in css: #RRGGBB or #AARRGGBB
   /// @return web color in RRGGBB style or AARRGGBB when alpha is not fully opaque (==255)
   string pixelToWebColor(const PixelColor aPixelColor, bool aWithHash);
 
+  /// convert RGB values in 0..1 range to pixel color
+  /// @param aRGB will R,G,B values in 0..1 range
+  /// @return pixel color, alpha set to 255
+  PixelColor rgbToPixel(const Row3 &aRGB);
+
+  #endif // !REDUCED_FOOTPRINT
 
   /// convert pixel color to RGB color components in 0..1 double range
   /// @param aPixelColor pixel color, alpha will be applied to dim output
   /// @param aRGB will receive R,G,B scaled to 0..1 range
   void pixelToRGB(const PixelColor aPixelColor, Row3 &aRGB);
 
-  /// convert RGB values in 0..1 range to pixel color
-  /// @param aRGB will R,G,B values in 0..1 range
-  /// @return pixel color, alpha set to 255
-  PixelColor rgbToPixel(const Row3 &aRGB);
-
+  /// convert Web color to pixel color
+  /// @param aWebColor web style #ARGB or #AARRGGBB color, alpha (A, AA) is optional, "#" is also optional
+  /// @return pixel color. If Alpha is not specified, it is set to fully opaque = 255.
+  PixelColor webColorToPixel(const string aWebColor);
 
   /// @}
 
-  #endif // !REDUCED_FOOTPRINT
 
 
   /// @name color space conversions
