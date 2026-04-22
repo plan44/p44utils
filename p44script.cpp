@@ -2052,7 +2052,9 @@ ScriptCodeThreadPtr ScriptCodeContext::newThreadFrom(CompiledFunctionPtr aCodeOb
   }
   // can start new thread now
   mThreads.push_back(newThread);
+  #if P44SCRIPT_FULL_SUPPORT
   if (mMainContext) mMainContext->registerRelatedThread(newThread);
+  #endif
   return newThread;
 }
 
@@ -2061,7 +2063,9 @@ void ScriptCodeContext::threadTerminated(ScriptCodeThreadPtr aThread, Evaluation
 {
   // a thread has ended
   // - in case this is not the main context, also remove it from main context's "related" list
+  #if P44SCRIPT_FULL_SUPPORT
   if (mMainContext) mMainContext->unregisterRelatedThread(aThread);
+  #endif
   // - remove it from the local list
   ThreadList::iterator pos=mThreads.begin();
   bool anyFromQueue = false;
@@ -2095,7 +2099,9 @@ void ScriptCodeContext::threadTerminated(ScriptCodeThreadPtr aThread, Evaluation
       mQueuedThreads.pop_front();
       // and start it
       mThreads.push_back(nextThread);
+      #if P44SCRIPT_FULL_SUPPORT
       if (mMainContext) mMainContext->registerRelatedThread(nextThread);
+      #endif
       nextThread->run();
       return; // no need to check for no threads, we've just started one
     }
@@ -2146,8 +2152,8 @@ void ScriptMainContext::deactivate()
 {
   #if P44SCRIPT_FULL_SUPPORT
   mHandlers.clear();
-  #endif
   mRelatedThreads.clear();
+  #endif
   mDomainObj.reset();
   mThisObj.reset();
   inherited::deactivate();
@@ -2374,12 +2380,15 @@ const ScriptObjPtr ScriptMainContext::memberByName(const string aName, TypeInfo 
 
 // MARK: - Scripting Domain
 
+#if P44SCRIPT_REGISTERED_SOURCE
+
 string ScriptingDomain::scriptStoragePath()
 {
   // base class: just the data dir when we do not have script file support in the domain
   return Application::sharedApplication()->dataPath();
 }
 
+#endif // P44SCRIPT_REGISTERED_SOURCE
 
 // MARK: - Built-in member support
 
@@ -6062,8 +6071,8 @@ ScriptObjPtr ScriptCompiler::compile(SourceContainerPtr aSource, CompiledFunctio
 {
   if (!aSource) return new ErrorValue(ScriptError::Internal, "No source code");
   // set up starting point
-  #if P44SCRIPT_FULL_SUPPORT
   SourceCursor codeStart = aSource->getCursor();
+  #if P44SCRIPT_FULL_SUPPORT
   // could contain declarations, must scan these now
   setCursor(codeStart);
   aParsingMode = (aParsingMode & ~runModeMask) | scanning | (aParsingMode&checking); // compiling only, with optional checking
@@ -6142,7 +6151,6 @@ void ScriptCompiler::storeHandler()
 // MARK: - SourceContainer
 
 
-#if P44SCRIPT_REGISTERED_SOURCE
 SourceContainer::SourceContainer(SourceHost* aHostSourceP, const string aSource) :
   mFloating(false),
   mSourceHostP(aHostSourceP)
@@ -6152,7 +6160,7 @@ SourceContainer::SourceContainer(SourceHost* aHostSourceP, const string aSource)
   mLoggingContextP = mSourceHostP->getLoggingContext();
   mSource = aSource;
 }
-#endif
+
 
 SourceContainer::SourceContainer(const char *aOriginLabel, P44LoggingObj* aLoggingContextP, const string aSource) :
   mOriginLabel(aOriginLabel),
@@ -6259,7 +6267,9 @@ ScriptHost::~ScriptHost()
       mActiveParams->mSourceContainer->mSourceHostP = nullptr;
     }
     // - have includes release their includer
+    #if P44SCRIPT_REGISTERED_SOURCE
     domain()->unincludeFrom(*this);
+    #endif
     // done
     delete mActiveParams;
     mActiveParams = nullptr;
@@ -6273,14 +6283,16 @@ void ScriptHost::activate(EvaluationFlags aDefaultFlags, const char* aOriginLabe
     mActiveParams = new ActiveParams;
     mActiveParams->mDefaultFlags = aDefaultFlags;
     mActiveParams->mOriginLabel = nonNullCStr(aOriginLabel);
-    mActiveParams->mTitleTemplate = nonNullCStr(aTitleTemplate);
     mActiveParams->mLoggingContextP = aLoggingContextP;
+    #if P44SCRIPT_REGISTERED_SOURCE
+    mActiveParams->mTitleTemplate = nonNullCStr(aTitleTemplate);
     mActiveParams->mSourceDirty = false;
     mActiveParams->mUnstored = false;
     #if P44SCRIPT_MIGRATE_TO_DOMAIN_SOURCE
     mActiveParams->mDomainSource = false;
     mActiveParams->mLocalDataReportedRemoved = false;
     #endif
+    #endif // P44SCRIPT_REGISTERED_SOURCE
   }
 }
 
@@ -6293,7 +6305,11 @@ bool ScriptHost::active() const
 
 bool ScriptHost::storable() const
 {
+  #if P44SCRIPT_REGISTERED_SOURCE
   return active() && !mActiveParams->mUnstored;
+  #else
+  return active();
+  #endif
 }
 
 
@@ -6580,9 +6596,6 @@ size_t ScriptHost::numBreakpoints()
 
 #endif // P44SCRIPT_DEBUGGING_SUPPORT
 
-#endif // P44SCRIPT_REGISTERED_SOURCE
-
-
 void ScriptHost::setDomain(ScriptingDomainPtr aDomain)
 {
   assert(active());
@@ -6599,6 +6612,8 @@ ScriptingDomainPtr ScriptHost::domain()
   }
   return mScriptingDomain;
 }
+
+#endif // P44SCRIPT_REGISTERED_SOURCE
 
 
 void ScriptHost::setSharedMainContext(ScriptMainContextPtr aSharedMainContext)
@@ -6647,10 +6662,12 @@ void ScriptHost::uncompile(bool aDoAbort, bool aAllowAutoRestart)
     mActiveParams->mCachedExecutable.reset(); // release cached executable (will release SourceCursor holding our source)
   }
   if (mActiveParams->mSourceContainer) {
+    #if P44SCRIPT_REGISTERED_SOURCE
     if (mScriptingDomain) {
       mScriptingDomain->releaseObjsFromSource(mActiveParams->mSourceContainer); // release all global objects from this source
       mScriptingDomain->unincludeFrom(*this);
     }
+    #endif // P44SCRIPT_REGISTERED_SOURCE
     if (mActiveParams->mSharedMainContext) mActiveParams->mSharedMainContext->releaseObjsFromSource(mActiveParams->mSourceContainer); // release all main context objects from this source
   }
   // auto-restart?
@@ -6690,7 +6707,7 @@ bool ScriptHost::setSource(const string aSource, EvaluationFlags aEvaluationFlag
   if (numBreakpoints()>0) {
     breakpoints = mActiveParams->mSourceContainer->breakpoints();
   }
-  #endif
+  #endif // P44SCRIPT_DEBUGGING_SUPPORT
   mActiveParams->mSourceContainer.reset(); // release it myself
   // create new source container
   if (!aSource.empty()) {
@@ -6702,7 +6719,9 @@ bool ScriptHost::setSource(const string aSource, EvaluationFlags aEvaluationFlag
     mActiveParams->mSourceContainer->setBreakpoints(breakpoints);
     #endif
   }
+  #if P44SCRIPT_REGISTERED_SOURCE
   mActiveParams->mSourceDirty = true;
+  #endif
   return true; // source has changed
 }
 
@@ -6775,12 +6794,13 @@ ScriptObjPtr ScriptHost::syntaxcheck()
 }
 
 
+#if P44SCRIPT_REGISTERED_SOURCE
 void ScriptHost::setScriptCommandHandler(ScriptCommandCB aScriptCommandCB)
 {
   assert(active());
   mActiveParams->mScriptCommandCB = aScriptCommandCB;
 }
-
+#endif // P44SCRIPT_REGISTERED_SOURCE
 
 void ScriptHost::setScriptResultHandler(EvaluationCB aScriptResultCB)
 {
@@ -6904,6 +6924,8 @@ bool TriggerSource::setTriggerSource(const string aSource, bool aAutoInit)
 }
 
 
+#if 0
+
 bool TriggerSource::setAndStoreTriggerSource(const string& aSource, bool aAutoInit)
 {
   bool changed = setSource(aSource);
@@ -6929,6 +6951,7 @@ bool TriggerSource::loadTriggerSource(const char* aLocallyStoredSource, bool aAu
   return changed;
 }
 
+#endif // 0
 
 
 bool TriggerSource::setTriggerHoldoff(MLMicroSeconds aHoldOffTime, bool aAutoInit)

@@ -1743,11 +1743,9 @@ namespace p44 { namespace P44Script {
     /// @note this kind of container cannot be used for debugging as there is no way for the debugger to find the source
     SourceContainer(const char *aOriginLabel, P44LoggingObj* aLoggingContextP, const string aSource);
 
-    #if P44SCRIPT_REGISTERED_SOURCE
     /// create source container linked to source host
     /// @note origin label and logging context will be taken from aHostSourceP
     SourceContainer(SourceHost* aHostSourceP, const string aSource);
-    #endif
 
     /// create source container copying a source part from another container
     SourceContainer(const SourceCursor &aCodeFrom, const SourcePos &aStartPos, const SourcePos &aEndPos);
@@ -1833,8 +1831,10 @@ namespace p44 { namespace P44Script {
 
   public:
 
+    #if P44SCRIPT_REGISTERED_SOURCE
     /// @return the source UID or a dummy placeholder in case it is not set
     virtual string getSourceUid() = 0;
+    #endif
 
     /// @return true for scripts that can be started/stopped/debugged, false for other editable source texts
     virtual bool isScript() const = 0;
@@ -1855,10 +1855,12 @@ namespace p44 { namespace P44Script {
     /// @return the source code as set by setSource()
     virtual string getSource() const = 0;
 
+    #if P44SCRIPT_REGISTERED_SOURCE
     /// sets source text and stores source by scriptSourceUid to domain level if different from previous version
     /// @param aSource the source text to set
     /// @return relevant / applicable only for
     virtual bool setAndStoreSource(const string& aSource) = 0;
+    #endif // P44SCRIPT_REGISTERED_SOURCE
 
     /// @return title for this source
     virtual string getSourceTitle() = 0;
@@ -2088,9 +2090,9 @@ namespace p44 { namespace P44Script {
       bool mDomainSource; ///< source is stored in domain, locally stored data can be deleted
       bool mLocalDataReportedRemoved; ///< locally stored data at least once reported as removed
       #endif
+      #endif // P44SCRIPT_REGISTERED_SOURCE
       ScriptCommandCB mScriptCommandCB; ///< will be called via scriptCommand
       EvaluationCB mScriptResultCB; ///< will be called to deliver script results or errors
-      #endif // P44SCRIPT_REGISTERED_SOURCE
     } ActiveParams;
 
     ActiveParams* mActiveParams; ///< parameters allocated and created at activation only
@@ -2263,7 +2265,7 @@ namespace p44 { namespace P44Script {
 
     /// @return number of breakpoints
     virtual size_t numBreakpoints() P44_OVERRIDE;
-    #endif
+    #endif // P44SCRIPT_DEBUGGING_SUPPORT
 
 
 
@@ -2278,10 +2280,12 @@ namespace p44 { namespace P44Script {
     ///   original default flags are usually important and should not be changed
     void setDefaultEvaluationFlags(EvaluationFlags aDefaultFlags);
 
+    #if P44SCRIPT_REGISTERED_SOURCE
     /// set domain (where global objects from compilation will be stored)
     /// @param aDomain the domain. In ScriptHosts, will be assigned StandardScriptingDomain::sharedDomain()
     ///   if not explicitly set before using domain() for the first time.
     virtual void setDomain(ScriptingDomainPtr aDomain) P44_OVERRIDE;
+    #endif // P44SCRIPT_REGISTERED_SOURCE
 
     /// get the domain assiciated with this source.
     /// If none was set specifically, the StandardScriptingDomain is returned.
@@ -2412,6 +2416,8 @@ namespace p44 { namespace P44Script {
     {
     }
 
+    #if 0
+
     /// load trigger source by scriptSourceUid from domain level store
     /// @note must be activated before calling
     /// @param aLocallyStoredSource if not nullptr, this is source code as locally stored (eg. in DB). This might get migrated to
@@ -2428,11 +2434,15 @@ namespace p44 { namespace P44Script {
     ///   source must be stored locally.
     bool setAndStoreTriggerSource(const string& aSource, bool aAutoInit);
 
+    #endif // 0
+
+
     /// set new trigger source with the callback/mode/evalFlags as set with the constructor
     /// @param aSource the trigger source code to set
     /// @param aAutoInit if set, and source code has actually changed, compileAndInit() will be called
     /// @return true if changed.
     bool setTriggerSource(const string aSource, bool aAutoInit = false);
+
 
     /// set new trigger mode
     /// @param aHoldOffTime the new holdoff time
@@ -2492,7 +2502,7 @@ namespace p44 { namespace P44Script {
   /// @param aPausedThread the thread that got paused
   /// @param aPausingReason the reason for the pause
   typedef boost::function<void (ScriptCodeThreadPtr aPausedThread)> PauseHandlerCB;
-  #endif
+  #endif // P44SCRIPT_DEBUGGING_SUPPORT
 
   /// Scripting domain, usually singleton, containing global variables and event handlers
   /// No code runs directly in this context
@@ -2571,7 +2581,7 @@ namespace p44 { namespace P44Script {
     void setPauseHandler(PauseHandlerCB aPauseHandlerCB) { mPauseHandlerCB = aPauseHandlerCB; }
 
     /// @}
-    #endif
+    #endif // P44SCRIPT_DEBUGGING_SUPPORT
 
     #if P44SCRIPT_REGISTERED_SOURCE
     /// @name domain level source registry
@@ -2637,7 +2647,7 @@ namespace p44 { namespace P44Script {
     #endif // P44SCRIPT_OTHER_SOURCES
 
     /// @}
-    #endif
+    #endif // P44SCRIPT_REGISTERED_SOURCE
 
   };
 

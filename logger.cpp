@@ -134,13 +134,14 @@ static const struct {
 static const char* gIncreasedLevelPrefix = "🔸 ";
 static const char* gReducedLevelPrefix = "🔹 ";
 
-static const char* gTextContextPostfix = ": ";
 static const char* gSymbolContextPostfix = " ➡️ ";
 
 static const char* gContextPrefixColor = GRAY;
 static const char* gNormalColor = NORMAL;
 
 #endif // ENABLE_LOG_COLORS
+
+static const char* gTextContextPostfix = ": ";
 
 
 
@@ -210,7 +211,7 @@ void Logger::contextLogStr_always(int aErrLevel, const string& aContext, const s
     msg += levelColors[aErrLevel].symbol;
     msg += " ";
   }
-  #endif
+  #endif // ENABLE_LOG_COLORS
   if (!aContext.empty()) {
     #if ENABLE_LOG_COLORS
     if (mLogColors) msg += gContextPrefixColor;
@@ -221,7 +222,7 @@ void Logger::contextLogStr_always(int aErrLevel, const string& aContext, const s
       msg += gSymbolContextPostfix;
     }
     else
-    #endif
+    #endif // ENABLE_LOG_COLORS
     {
       msg += gTextContextPostfix;
     }
