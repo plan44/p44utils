@@ -52,9 +52,15 @@ namespace p44 {
     PixelColorComponent a; // alpha
   } PixelColor;
 
+  #if P44_CPP11_FEATURE
   const PixelColor transparent = { .r=0, .g=0, .b=0, .a=0 };
   const PixelColor black = { .r=0, .g=0, .b=0, .a=255 };
   const PixelColor white = { .r=255, .g=255, .b=255, .a=255 };
+  #else
+  const PixelColor transparent = { 0, 0, 0, 0 };
+  const PixelColor black = { 0, 0, 0, 255 };
+  const PixelColor white = { 255, 255, 255, 255 };
+  #endif
 
   #if !REDUCED_FOOTPRINT
 
