@@ -825,12 +825,12 @@ bool GpioNS9XXXPin::getState()
     int inval;
     #ifndef __APPLE__
     int ret_val;
-    if ((ret_val = ioctl(gpioFD, GPIO_READ_PIN_VAL, &inval)) < 0) {
-      LOG(LOG_ERR, "GPIO_READ_PIN_VAL failed for %s: %s", name.c_str(), strerror(errno));
+    if ((ret_val = ioctl(mGpioFD, GPIO_READ_PIN_VAL, &inval)) < 0) {
+      LOG(LOG_ERR, "GPIO_READ_PIN_VAL failed for %s: %s", mName.c_str(), strerror(errno));
       return false;
     }
     #else
-    DBGLOG(LOG_ERR, "ioctl(gpioFD, GPIO_READ_PIN_VAL, &dummy)");
+    DBGLOG(LOG_ERR, "ioctl(mGpioFD, GPIO_READ_PIN_VAL, &dummy)");
     inval = 0;
     #endif
     return (bool)inval;
@@ -847,12 +847,12 @@ void GpioNS9XXXPin::setState(bool aState)
   int setval = mPinState;
   #ifndef __APPLE__
   int ret_val;
-  if ((ret_val = ioctl(gpioFD, GPIO_WRITE_PIN_VAL, &setval)) < 0) {
-    LOG(LOG_ERR, "GPIO_WRITE_PIN_VAL failed for %s: %s", name.c_str(), strerror(errno));
+  if ((ret_val = ioctl(mGpioFD, GPIO_WRITE_PIN_VAL, &setval)) < 0) {
+    LOG(LOG_ERR, "GPIO_WRITE_PIN_VAL failed for %s: %s", mName.c_str(), strerror(errno));
     return;
   }
   #else
-  DBGLOG(LOG_ERR, "ioctl(gpioFD, GPIO_WRITE_PIN_VAL, %d)", setval);
+  DBGLOG(LOG_ERR, "ioctl(mGpioFD, GPIO_WRITE_PIN_VAL, %d)", setval);
   #endif
 }
 

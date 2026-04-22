@@ -158,43 +158,43 @@ void HttpComm::requestThread(ChildThreadWrapper &aThread)
       );
     }
     #else
-    int tmo = timeout==Never ? -1 : (int)(timeout/MilliSecond);
-    if (requestBody.length()>0) {
+    int tmo = mTimeout==Never ? -1 : (int)(mTimeout/MilliSecond);
+    if (mRequestBody.length()>0) {
       // is a request which sends data in the HTTP message body (e.g. POST)
-      mgConn = mg_download_ex(
+      mMgConn = mg_download_ex(
         host.c_str(),
         port,
         useSSL,
         tmo,
-        method.c_str(),
+        mMethod.c_str(),
         doc.c_str(),
-        username.empty() ? NULL : username.c_str(),
-        password.empty() ? NULL : password.c_str(),
-        &httpAuthInfo,
+        mUsername.empty() ? NULL : mUsername.c_str(),
+        mPassword.empty() ? NULL : mPassword.c_str(),
+        &mHttpAuthInfo,
         ebuf, ebufSz,
         "Content-Type: %s\r\n"
         "Content-Length: %ld\r\n"
         "%s"
         "\r\n"
         "%s",
-        contentType.c_str(),
-        requestBody.length(),
+        mContentType.c_str(),
+        (long)mRequestBody.length(),
         extraHeaders.c_str(),
-        requestBody.c_str()
+        mRequestBody.c_str()
       );
     }
     else {
       // no request body (e.g. GET, DELETE)
-      mgConn = mg_download_ex(
+      mMgConn = mg_download_ex(
         host.c_str(),
         port,
         useSSL,
         tmo,
-        method.c_str(),
+        mMethod.c_str(),
         doc.c_str(),
-        username.empty() ? NULL : username.c_str(),
-        password.empty() ? NULL : password.c_str(),
-        &httpAuthInfo,
+        mUsername.empty() ? NULL : mUsername.c_str(),
+        mPassword.empty() ? NULL : mPassword.c_str(),
+        &mHttpAuthInfo,
         ebuf, ebufSz,
         "%s"
         "\r\n",
@@ -211,9 +211,9 @@ void HttpComm::requestThread(ChildThreadWrapper &aThread)
       const struct mg_response_info *responseInfo = mg_get_response_info(mMgConn);
       mResponseStatus = responseInfo->status_code;
       #else
-      struct mg_request_info *responseInfo = mg_get_request_info(mgConn);
-      responseStatus = 0;
-      sscanf(responseInfo->uri, "%d", &responseStatus);  // status code string is in uri
+      struct mg_request_info *responseInfo = mg_get_request_info(mMgConn);
+      mResponseStatus = 0;
+      sscanf(responseInfo->uri, "%d", &mResponseStatus);  // status code string is in uri
       #endif
       // check for auth
       if (mResponseStatus==401) {
@@ -259,18 +259,18 @@ void HttpComm::requestThread(ChildThreadWrapper &aThread)
             break;
           }
           #else
-          ssize_t res = mg_read_ex(mgConn, bufferP, bufferSz, (int)streamResult);
+          ssize_t res = mg_read_ex(mMgConn, bufferP, mBufferSz, (int)mStreamResult);
           if (res==0) {
             // connection has closed, all bytes read
-            if (streamResult) {
+            if (mStreamResult) {
               // when streaming, signal of stream condition by an empty data response
-              response.clear();
+              mResponse.clear();
             }
             break;
           }
           else if (res<0) {
             // read error
-            requestError = Error::err<HttpCommError>(HttpCommError::read, "HTTP read error: %s", strerror(errno));
+            mRequestError = Error::err<HttpCommError>(HttpCommError::read, "HTTP read error: %s", strerror(errno));
             break;
           }
           #endif
