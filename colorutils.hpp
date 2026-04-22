@@ -45,8 +45,6 @@ namespace p44 {
   typedef uint8_t PixelColorComponent;
   #define PIXELMAX 255
 
-  #if !REDUCED_FOOTPRINT
-
   typedef struct {
     PixelColorComponent r;
     PixelColorComponent g;
@@ -54,9 +52,17 @@ namespace p44 {
     PixelColorComponent a; // alpha
   } PixelColor;
 
+  #if P44_CPP11_FEATURE
   const PixelColor transparent = { .r=0, .g=0, .b=0, .a=0 };
   const PixelColor black = { .r=0, .g=0, .b=0, .a=255 };
   const PixelColor white = { .r=255, .g=255, .b=255, .a=255 };
+  #else
+  const PixelColor transparent = { 0, 0, 0, 0 };
+  const PixelColor black = { 0, 0, 0, 255 };
+  const PixelColor white = { 255, 255, 255, 255 };
+  #endif
+
+  #if !REDUCED_FOOTPRINT
 
   /// dim down (or light up) value
   /// @param aVal 0..255 value to dim up or down
@@ -139,6 +145,18 @@ namespace p44 {
   /// @param aIncludeAlphaIntoBrightness if set, alpha is included in aBrightness returned
   void pixelToHsb(PixelColor aPixelColor, double &aHue, double &aSaturation, double &aBrightness, bool aIncludeAlphaIntoBrightness = false);
 
+  #endif // !REDUCED_FOOTPRINT
+
+  /// convert RGB values in 0..1 range to pixel color
+  /// @param aRGB will R,G,B values in 0..1 range
+  /// @return pixel color, alpha set to 255
+  PixelColor rgbToPixel(const Row3 &aRGB);
+
+  /// convert pixel color to RGB color components in 0..1 double range
+  /// @param aPixelColor pixel color, alpha will be applied to dim output
+  /// @param aRGB will receive R,G,B scaled to 0..1 range
+  void pixelToRGB(const PixelColor aPixelColor, Row3 &aRGB);
+
   /// convert Web color to pixel color
   /// @param aWebColor web style #ARGB or #AARRGGBB color, alpha (A, AA) is optional, "#" is also optional
   /// @return pixel color. If Alpha is not specified, it is set to fully opaque = 255.
@@ -150,21 +168,8 @@ namespace p44 {
   /// @return web color in RRGGBB style or AARRGGBB when alpha is not fully opaque (==255)
   string pixelToWebColor(const PixelColor aPixelColor, bool aWithHash);
 
-
-  /// convert pixel color to RGB color components in 0..1 double range
-  /// @param aPixelColor pixel color, alpha will be applied to dim output
-  /// @param aRGB will receive R,G,B scaled to 0..1 range
-  void pixelToRGB(const PixelColor aPixelColor, Row3 &aRGB);
-
-  /// convert RGB values in 0..1 range to pixel color
-  /// @param aRGB will R,G,B values in 0..1 range
-  /// @return pixel color, alpha set to 255
-  PixelColor rgbToPixel(const Row3 &aRGB);
-
-
   /// @}
 
-  #endif // !REDUCED_FOOTPRINT
 
 
   /// @name color space conversions

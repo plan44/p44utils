@@ -257,6 +257,8 @@ void p44::pixelToHsb(PixelColor aPixelColor, double &aHue, double &aSaturation, 
     aBrightness = HSV[2];
 }
 
+#endif // !REDUCED_FOOTPRINT
+
 
 PixelColor p44::webColorToPixel(const string aWebColor)
 {
@@ -314,10 +316,6 @@ PixelColor p44::rgbToPixel(const Row3 &aRGB)
   res.b = aRGB[2]*255;
   return res;
 }
-
-
-#endif // !REDUCED_FOOTPRINT
-
 
 
 // MARK: - color space conversions
