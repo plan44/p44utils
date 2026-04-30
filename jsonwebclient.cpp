@@ -92,6 +92,8 @@ void JsonWebClient::requestThreadSignal(ChildThreadWrapper &aChildThread, Thread
 
 bool JsonWebClient::jsonRequest(const char *aURL, JsonWebClientCB aResponseCallback, const char *aMethod, JsonObjectPtr aJsonRequest, const char* aContentType, bool aSaveHeaders)
 {
+  // BEFORE possibly overwriting still in-use callback, check for being busy
+  if (mRequestInProgress) return false; // can't launch another
   // set callback
   mJsonResponseCallback = aResponseCallback;
   // encode JSON, if any
@@ -106,9 +108,11 @@ bool JsonWebClient::jsonRequest(const char *aURL, JsonWebClientCB aResponseCallb
 
 bool JsonWebClient::jsonReturningRequest(const char *aURL, JsonWebClientCB aResponseCallback, const char *aMethod, const string &aPostData, const char* aContentType, bool aSaveHeaders)
 {
-  if (!aContentType) aContentType = CONTENT_TYPE_FORMDATA;
+  // BEFORE possibly overwriting still in-use callback, check for being busy
+  if (mRequestInProgress) return false; // can't launch another
   // set callback
   mJsonResponseCallback = aResponseCallback;
+  if (!aContentType) aContentType = CONTENT_TYPE_FORMDATA;
   LOG(LOG_DEBUG, "JsonWebClient: -> sending %s raw data request to %s:\n%s", aMethod, aURL, aPostData.c_str());
   return httpRequest(aURL, NoOP, aMethod, aPostData.c_str(), aContentType,  -1, aSaveHeaders);
 }
