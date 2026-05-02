@@ -206,13 +206,15 @@ void Operation::abortOperation(ErrorPtr aError)
 #define QUEUE_RECHECK_INTERVAL (30*MilliSecond)
 #define QUEUE_RECHECK_TOLERANCE (15*MilliSecond)
 
+#define QUEUE_CHECK_GUARD_INTERVAL (10*Second) // undefine to disable
+
 // create operation queue into specified mainloop
 OperationQueue::OperationQueue(MainLoop &aMainLoop) :
   mMainLoop(aMainLoop),
   mIsProcessingQueue(false),
-  mLastInitiation(Never)
+  mLastInitiation(Never),
+  mLastCheck(Never)
 {
-  // register with mainloop
   mMainLoop.executeTicketOnce(mRecheckTicket, boost::bind(&OperationQueue::queueRecheck, this, _1));
 }
 
@@ -227,6 +229,7 @@ OperationQueue::~OperationQueue()
 void OperationQueue::terminate()
 {
   // unregister from mainloop
+  mMainLoop.cancelExecutionTicket(mSafetyRestartTicket);
   mMainLoop.cancelExecutionTicket(mRecheckTicket);
   // silently reset all operations
   abortOperations();
@@ -242,10 +245,28 @@ void OperationQueue::queueOperation(OperationPtr aOperation)
 
 
 
+/// TODO: find root cause for why we need to have this at all
+void OperationQueue::restartChecking()
+{
+  OLOG(LOG_ERR, "operation queue timer needed restart: %s", MainLoop::currentMainLoop().description().c_str());
+  MainLoop::currentMainLoop().statistics_reset();
+  OLOG(LOG_ERR, "mRecheckTicket = %ld", (MLTicketNo)mRecheckTicket);
+  // restart the checker
+  mMainLoop.executeTicketOnce(mRecheckTicket, boost::bind(&OperationQueue::queueRecheck, this, _1));
+}
+
+
 void OperationQueue::queueRecheck(MLTimer &aTimer)
 {
-  processOneOperation();
-  mMainLoop.retriggerTimer(aTimer, QUEUE_RECHECK_INTERVAL, QUEUE_RECHECK_TOLERANCE);
+  #ifdef QUEUE_CHECK_GUARD_INTERVAL
+  /// TODO: find root cause for why we need to have this at all
+  // this is a safeguard/watchdog that should never trigger because this should be called every QUEUE_RECHECK_INTERVAL.
+  // But if it is not, the timer will fire and restartChecking will set up the timer again
+  mSafetyRestartTicket.executeOnce(boost::bind(&OperationQueue::restartChecking, this), QUEUE_CHECK_GUARD_INTERVAL);
+  // end safeguard
+  #endif // QUEUE_CHECK_GUARD_INTERVAL
+  processOneOperation(false);
+  mMainLoop.retriggerTimer(aTimer, QUEUE_RECHECK_INTERVAL, QUEUE_RECHECK_TOLERANCE, MainLoop::from_now_if_late);
 }
 
 
@@ -255,16 +276,24 @@ void OperationQueue::processOperations()
 {
 	bool completed = true;
 	do {
-		completed = processOneOperation();
+		completed = processOneOperation(true);
 	} while (!completed);
 }
 
 
+#define MIN_STATS_INTERVAL (5*Second)
 
-bool OperationQueue::processOneOperation()
+bool OperationQueue::processOneOperation(bool aExplicit)
 {
   if (mIsProcessingQueue) {
     // already processing, avoid recursion
+    #if FOCUSLOGGING
+    MLMicroSeconds now = MainLoop::now();
+    if (FOCUSOLOGENABLED && (aExplicit || now>mLastCheck+MIN_STATS_INTERVAL)) {
+      FOCUSOLOG("OperationQueue mIsProcessingQueue==true, aExplicit=%d for more than %lld seconds", aExplicit, MIN_STATS_INTERVAL/Second);
+      mLastCheck = now; // avoid too many checks
+    }
+    #endif // FOCUSLOGGING
     return true;
   }
   OperationQueuePtr keepMeAlive(this); // make sure this object lives until routine terminates
@@ -275,7 +304,7 @@ bool OperationQueue::processOneOperation()
     OperationList::iterator pos;
     #if FOCUSLOGGING
     // Statistics
-    if (FOCUSLOGENABLED) {
+    if (FOCUSOLOGENABLED && (aExplicit || now>mLastCheck+MIN_STATS_INTERVAL)) {
       int numTimedOut = 0;
       int numInitiated = 0;
       int numCompleted = 0;
@@ -287,9 +316,10 @@ bool OperationQueue::processOneOperation()
           if (op->hasCompleted()) numCompleted++;
         }
       }
-      FOCUSLOG("OperationQueue stats: size=%lu, pending: initiated=%d, completed=%d, timedout=%d", mOperationQueue.size(), numInitiated, numCompleted, numTimedOut);
+      FOCUSOLOG("OperationQueue (aExplicit=%d) stats: size=%lu, pending: initiated=%d, completed=%d, timedout=%d", aExplicit, mOperationQueue.size(), numInitiated, numCompleted, numTimedOut);
     }
-    #endif
+    #endif // FOCUSLOGGING
+    mLastCheck = now;
     // (re)start with first element in queue
     for (pos = mOperationQueue.begin(); pos!=mOperationQueue.end(); ++pos) {
       OperationPtr op = *pos;

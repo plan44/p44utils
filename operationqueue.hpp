@@ -175,12 +175,16 @@ namespace p44 {
     MLTicket mRecheckTicket; ///< regular checking of the queue
     MLMicroSeconds mLastInitiation; ///< time when last initiation was fired
 
+    MLTicket mSafetyRestartTicket; ///< FIXME: debug only: regular restarting of the recheck
+
   protected:
 
     typedef list<OperationPtr> OperationList;
     OperationList mOperationQueue;
 
   public:
+
+    MLMicroSeconds mLastCheck; ///< time when last periodic check has happened
 
     /// create operation queue linked into specified mainloop
     OperationQueue(MainLoop &aMainLoop = MainLoop::currentMainLoop());
@@ -204,13 +208,16 @@ namespace p44 {
     
   private:
 
+    /// TODO: find root cause for why we need to have this at all
+    void restartChecking();
+
     /// periodic re-check of operation queue
     void queueRecheck(MLTimer &aTimer);
 
     /// process at most one operation
     /// @return true if operations processed for now, i.e. no need to call again immediately
     ///   false if processOperations() should be called ASAP again (with no or little delay, if possible)
-    bool processOneOperation();
+    bool processOneOperation(bool aExplicit);
 
   };
 
