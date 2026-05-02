@@ -528,7 +528,7 @@ MLTicketNo MainLoop::executeOnceAt(TimerCB aTimerCallback, MLMicroSeconds aExecu
     // actually in the past, not just 0..99mS
     DBGLOG(LOG_WARNING, "executeOnceAt with time more than 100mS in the past: aExecutionTime=%lld", aExecutionTime);
   }
-  #endif
+  #endif // DEBUG
   tmr.mTolerance = aTolerance;
 	tmr.mCallback = aTimerCallback;
   scheduleTimer(tmr);
@@ -578,7 +578,7 @@ void MainLoop::executeNowFromForeignTask(TimerCB aTimerCallback)
   xSemaphoreGive(mTimersLock);
 }
 
-#endif
+#endif // ESP_PLATFORM
 
 
 
@@ -592,7 +592,7 @@ void MainLoop::scheduleTimer(MLTimer &aTimer)
 	TimerList::iterator pos = mTimers.begin();
   // optimization: if no timers, just append
   if (pos!=mTimers.end()) {
-    // optimization: if new timer is later than all others, just append
+    // optimization: check if new timer is later than all others, if so, no need to find position, just append at end
     if (aTimer.mExecutionTime<mTimers.back().mExecutionTime) {
       // is somewhere between current timers, need to find position
       do {
@@ -683,7 +683,7 @@ int MainLoop::retriggerTimer(MLTimer &aTimer, MLMicroSeconds aInterval, MLMicroS
         // actually in the past, not just 0..99mS
         DBGLOG(LOG_WARNING, "retriggering in skip=absolute mode more than 100mS in the past: aExecutionTime=%lld", aInterval);
       }
-      #endif
+      #endif // DEBUG
     }
     aTimer.mReinsert = true;
     return skipped;
@@ -691,27 +691,26 @@ int MainLoop::retriggerTimer(MLTimer &aTimer, MLMicroSeconds aInterval, MLMicroS
   else if (aSkip==from_now_if_late) {
     #if DEBUG
     if (aInterval<0) {
-      // actually in the past, not just 0..99mS
+      // cannot trigger in the past
       DBGLOG(LOG_WARNING, "retriggering in skip=from_now_if_late with negative interval: aInterval=%lld", aInterval);
     }
-    #endif
+    #endif // DEBUG
     aTimer.mExecutionTime += aInterval;
     if (aTimer.mExecutionTime+aTimer.mTolerance < now) {
-      // too late (even taking allowed tolerance into account)
+      // too late (even taking allowed tolerance into account), reschedule from now
       aTimer.mExecutionTime = now+aInterval;
       skipped = 1; // signal we skipped some time
     }
-    // we're not yet too late to let this timer run within its tolerance -> re-insert it
     aTimer.mReinsert = true;
     return skipped;
   }
   else if (aSkip==from_now) {
     #if DEBUG
     if (aInterval<0) {
-      // actually in the past, not just 0..99mS
+      // cannot trigger in the past
       DBGLOG(LOG_WARNING, "retriggering in skip=from_now with negative interval: aInterval=%lld", aInterval);
     }
-    #endif
+    #endif // DEBUG
     // unconditionally relative to now
     aTimer.mExecutionTime = now+aInterval;
     aTimer.mReinsert = true;
@@ -721,10 +720,10 @@ int MainLoop::retriggerTimer(MLTimer &aTimer, MLMicroSeconds aInterval, MLMicroS
     // skip as many intervals until we can schedule the timer in the future
     #if DEBUG
     if (aInterval<0) {
-      // actually in the past, not just 0..99mS
+      // cannot trigger in the past
       DBGLOG(LOG_WARNING, "retriggering in skip mode with negative interval: aInterval=%lld", aInterval);
     }
-    #endif
+    #endif // DEBUG
     do {
       aTimer.mExecutionTime += aInterval;
       if (aTimer.mExecutionTime >= now) {
@@ -1028,7 +1027,7 @@ bool MainLoop::checkWait()
   return true; // all checked
 }
 
-#endif
+#endif // !ESP_PLATFORM
 
 
 // MARK: - IO event handling
@@ -1077,7 +1076,7 @@ static inline int epollToPoll(int aEpollFlags)
   return events;
 }
 
-#endif
+#endif // !__APPLE__
 
 
 
@@ -1093,7 +1092,7 @@ void p44::libev_io_poll_handler(EV_P_ struct ev_io *i, int revents)
     h->mPollHandler(h->mEpolledFd, epollToPoll(ev.events));
     return;
   }
-  #endif
+  #endif // !__APPLE__
   // directly return the flags reported by libev
   h->mPollHandler(i->fd, evToPoll(revents));
 }
@@ -1120,7 +1119,7 @@ void MainLoop::IOPollHandler::deactivate()
       close(mIoWatcher.fd); // close the extra epoll FD
       mEpolledFd=-1;
     }
-    #endif
+    #endif // !__APPLE__
     mIoWatcher.data = NULL; // disconnect to make sure
   }
 }
@@ -1450,7 +1449,7 @@ bool MainLoop::mainLoopCycle()
     // poll I/O and/or sleep
     MLMicroSeconds pollTimeout = nextWake-MainLoop::now();
     if (nextWake!=Never && pollTimeout<=0) {
-      // not sleeping at all
+      // we're on time or already late - do not sleep at all, just poll IO once
       handleIOPoll(0);
       // limit cycle run time
       if (cycleStarted+mMaxRun<MainLoop::now()) {
