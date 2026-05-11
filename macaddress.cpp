@@ -243,7 +243,7 @@ bool p44::getIfInfo(uint64_t *aMacAddressP, uint32_t *aIPv4AddressP, int *aIfInd
       ifr.ifr_ifindex = ifIndex;
       res = ioctl(sock, SIOCGIFNAME, &ifr);
       if (res<0) {
-        if (ifIndex>20 || errno!=ENODEV) break; // error or no more names -> end
+        if (ifIndex>50 || errno!=ENODEV) break; // error or no more names -> end
         ifIndex++; continue; // otherwise, just skip (indices aren't necessarily contiguous)
       }
       // got name for index
@@ -257,8 +257,18 @@ bool p44::getIfInfo(uint64_t *aMacAddressP, uint32_t *aIPv4AddressP, int *aIfInd
       // - get flags for it
       if (ioctl(sock, SIOCGIFFLAGS, &ifr)>=0) {
         // skip loopback interfaces (unless specified by name)
-        if (foundIf || (!aIfName && (ifr.ifr_flags & IFF_LOOPBACK)==0)) {
-          // found by name or not loopback
+        // skip virtual interfaces like docker, veth, bridges (unless specified by name)
+        const char *name = ifr.ifr_name;
+        bool isVirtualInterface = 
+          strncmp(name, "docker", 6) == 0 ||
+          strncmp(name, "veth", 4) == 0 ||
+          strncmp(name, "br-", 3) == 0 ||
+          strncmp(name, "br", 2) == 0 ||  // also bridges like br0, br1
+          strcmp(name, "lo") == 0 ||
+          strcmp(name, "lo0") == 0;
+        
+        if (foundIf || (!aIfName && (ifr.ifr_flags & IFF_LOOPBACK)==0 && !isVirtualInterface)) {
+          // found by name or not loopback and not virtual
           // - now get HWADDR
           if (!foundMAC && aMacAddressP && ioctl(sock, SIOCGIFHWADDR, &ifr)>=0) {
             // compose int64
