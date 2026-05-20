@@ -10371,6 +10371,12 @@ static void contextbuiltins_func(BuiltinFunctionContextPtr f)
 }
 
 
+static void threadid_func(BuiltinFunctionContextPtr f)
+{
+  f->finish(new IntegerValue(f->thread()->threadId()));
+}
+
+
 FUNC_ARG_DEFS(builtins, { structured } );
 static void builtins_func(BuiltinFunctionContextPtr f)
 {
@@ -10550,6 +10556,7 @@ static const BuiltinMemberDescriptor standardFunctions[] = {
   FUNC_DEF_NOARG(globalbuiltins, executable|objectvalue),
   FUNC_DEF_NOARG(contextbuiltins, executable|objectvalue),
   FUNC_DEF_W_ARG(builtins, executable|objectvalue),
+  FUNC_DEF_NOARG(threadid, executable|numeric),
   #endif // SCRIPTING_JSON_SUPPORT
   #if P44SCRIPT_FULL_SUPPORT
   FUNC_DEF_W_ARG(lock, executable|anyvalid),
