@@ -204,13 +204,13 @@ void EventSource::copySinksFrom(EventSource* aOtherSource)
 
 #if FOCUSLOGGING
   #define FOCUSLOGCLEAR(p) \
-    if (FOCUSLOGENABLED) { string s = string_format("CLEARING %s@%pX", p, this); FOCUSLOG("%60s", s.c_str() ); }
+    if (FOCUSLOGENABLED) { string s = string_format("CLEARING %s@%p", p, this); FOCUSLOG("%60s", s.c_str() ); }
   #define FOCUSLOGCALLER(p) \
-    if (FOCUSLOGENABLED) { string s = string_format("calling@%pX for %s", this, p); FOCUSLOG("%60s : calling...", s.c_str() ); }
+    if (FOCUSLOGENABLED) { string s = string_format("calling@%p for %s", this, p); FOCUSLOG("%60s : calling...", s.c_str() ); }
   #define FOCUSLOGLOOKUP(p) \
-    if (FOCUSLOGENABLED) { string s = string_format("searching %s@%pX for '%s'", p, this, aName.c_str()); FOCUSLOG("%60s : requirements=0x%08x", s.c_str(), aMemberAccessFlags ); }
+    if (FOCUSLOGENABLED) { string s = string_format("searching %s@%p for '%s'", p, this, aName.c_str()); FOCUSLOG("%60s : requirements=0x%08x", s.c_str(), aMemberAccessFlags ); }
   #define FOCUSLOGSTORE(p) \
-    if (FOCUSLOGENABLED) { string s = string_format("setting '%s' in %s@%pX", aName.c_str(), p, this); FOCUSLOG("%60s : value = %s", s.c_str(), ScriptObj::describe(aMember).c_str()); }
+    if (FOCUSLOGENABLED) { string s = string_format("setting '%s' in %s@%p", aName.c_str(), p, this); FOCUSLOG("%60s : value = %s", s.c_str(), ScriptObj::describe(aMember).c_str()); }
 #else
   #define FOCUSLOGCLEAR(p)
   #define FOCUSLOGCALLER(p)
@@ -1856,7 +1856,7 @@ ArrayValuePtr ScriptCodeContext::threadsList() const
   }
   return a;
 }
-#endif
+#endif // P44SCRIPT_DEBUGGING_SUPPORT
 
 
 void ScriptCodeContext::appendFieldNames(FieldNameList& aList, TypeInfo aTypeRequirements) const
