@@ -7792,7 +7792,11 @@ void ScriptCodeThread::memberByIdentifier(TypeInfo aMemberAccessFlags, bool aNoN
       // create thread locals on demand if none already set at thread preparation
       mThreadLocals = ScriptObjPtr(new SimpleVarContainer);
     }
-    if (mThreadLocals) {
+    if ((mEvaluationFlags&funcexec) && !(aMemberAccessFlags&create)) {
+      // existing local vars (in particular, arguments!!) have first priority in functions!
+      mResult = mOwner->mLocalVars.memberByName(mIdentifier, aMemberAccessFlags);
+    }
+    if (!mResult && mThreadLocals) {
       // - try thread-level "this" context object
       TypeInfo fl = aMemberAccessFlags;
       if ((fl&threadlocal)==0) fl &= ~create; // do not create thread vars if not explicitly selected
@@ -7947,7 +7951,10 @@ void ScriptCodeThread::executeResult()
       // Note: must pass singlestep flag when current thread is in `into_function` (step-into) pausing mode
       if (mPausingMode==step_into) dbg |= singlestep;
       #endif // P44SCRIPT_DEBUGGING_SUPPORT
-      mFuncCallContext->execute(mResult, (mEvaluationFlags&~scopeMask&~implicitreturn)|scriptbody|keepvars|dbg, boost::bind(&ScriptCodeThread::executedResult, this, _1), this, mThreadLocals);
+      DBGFOCUSLOG("executeResult: thread: %p, mFuncCallContext: %p, vars: %s", this, mFuncCallContext.get(), mFuncCallContext->stringValue().c_str());
+      DBGFOCUSLOG("- mOwner.mLocalVars: %s", mOwner ? mOwner->mLocalVars.stringValue().c_str() : "<no owner>");
+      DBGFOCUSLOG("- mThreadLocals: %s", mThreadLocals ? mThreadLocals->stringValue().c_str() : "<no threadlocals>");
+      mFuncCallContext->execute(mResult, (mEvaluationFlags&~scopeMask&~implicitreturn)|scriptbody|keepvars|funcexec|dbg, boost::bind(&ScriptCodeThread::executedResult, this, _1), this, mThreadLocals);
       #else // P44SCRIPT_FULL_SUPPORT
       // only built-in functions can occur, eval scope flags are not relevant (only existing scope is expression)
       mFuncCallContext->execute(mResult, (mEvaluationFlags&~scopeMask)|expression|keepvars, boost::bind(&ScriptCodeThread::executedResult, this, _1), this, mThreadLocals);

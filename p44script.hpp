@@ -235,6 +235,7 @@ namespace p44 { namespace P44Script {
     ephemeralSource = 0x400000, ///< threads are kept running and global function+handler definitions are not deleted when originating source code is changed/deleted
     anonymousfunction = 0x800000, ///< compile and run as anonymous function body
     autorestart = 0x1000000, ///< automatically re-start when scripthost gets uncompiled
+    funcexec = 0x2000000, ///< identifies running as a function
   };
   typedef uint32_t EvaluationFlags;
 
