@@ -96,16 +96,44 @@ static double f1(double lat, double declin)
 };
 
 
-//  // Find the ecliptic longitude of the Sun
-//  static double FNsun (double d)
-//  {
-//    //   mean longitude of the Sun
-//    double L = FNrange(280.461 * RADS + .9856474 * RADS * d);
-//    //   mean anomaly of the Sun
-//    double g = FNrange(357.528 * RADS + .9856003 * RADS * d);
-//    //   Ecliptic longitude of the Sun
-//    return FNrange(L + 1.915 * RADS * sin(g) + .02 * RADS * sin(2 * g));
-//  };
+void p44::sunPosition(time_t aEpochTime, const GeoLocation &aGeoLocation, double &aAzimuthDeg, double &aElevationDeg)
+{
+  // days since J2000.0 which means noon (vs. epochtime that is 0 at midnight 1970-01-01)
+  double d = ((double)aEpochTime - 946728000.0) / 86400.0;
+  // Mean longitude of the Sun
+  double L = FNrange((280.461 + .9856474 * d) * RADS);
+  // Mean anomaly of the Sun
+  double g = FNrange((357.528 + .9856003 * d) * RADS);
+  // Ecliptic longitude of the Sun
+  double lambda = FNrange(L + 1.915 * RADS * sin(g) + .02 * RADS * sin(2 * g));
+  // Obliquity of the ecliptic
+  double obliq = (23.439 - .0000004 * d) * RADS;
+  // RA/DEC
+  double alpha = FNrange(atan2(cos(obliq) * sin(lambda), cos(lambda)));
+  double delta = asin(sin(obliq) * sin(lambda));
+  // Local sidereal time.  // d is days since J2000.0  // This gives approximate
+  double gmstDeg = 280.46061837 + 360.98564736629 * d; // GMST in degrees.
+  double lst = FNrange((gmstDeg + aGeoLocation.longitude) * RADS);
+  // Hour angle, positive westward
+  double H = FNrange(lst - alpha);
+  if (H > M_PI) H -= 2.0 * M_PI; // normalize to -pi..+pi
+  // Elevation / altitude
+  double lat = aGeoLocation.latitude * RADS;
+  double sinAlt =
+    sin(lat) * sin(delta) +
+    cos(lat) * cos(delta) * cos(H);
+  double alt = asin(sinAlt);
+  // Azimuth, measured from north through east:
+  // north = 0, east = 90, south = 180, west = 270
+  double az = atan2(
+    -sin(H),
+    tan(delta) * cos(lat) - sin(lat) * cos(H)
+  );
+  az = FNrange(az);
+
+  aAzimuthDeg = az * DEGS;
+  aElevationDeg = alt * DEGS;
+}
 
 
 void p44::getSunParams(time_t aTime, const GeoLocation &aGeoLocation, SunParams &aSunParams)

@@ -82,6 +82,11 @@ namespace p44 {
   /// @return sunrise or morning twilight time in hours
   double sunset(time_t aTime, const GeoLocation &aGeoLocation, bool aTwilight);
 
+  /// @param aTime unix time of the day
+  /// @param aGeoLocation geolocation with latitude/longitude set
+  /// @param aAzimuthDeg sun azimuth in degrees
+  /// @param aElevationDeg sun elevation in degrees
+  void sunPosition(time_t aEpochTime, const GeoLocation &aGeoLocation, double &aAzimuthDeg, double &aElevationDeg);
 
 } // namespace p44
 

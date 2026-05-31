@@ -10115,7 +10115,7 @@ static bool checkSunParams(BuiltinFunctionContextPtr f, time_t &aTime)
     f->finish(new AnnotatedNullValue("no geolocation information available"));
     return false;
   }
-  //
+  // allow specific epochtime, defaults to current time.
   if (f->arg(0)->defined()) {
     aTime = f->arg(0)->int64Value(); // get
   }
@@ -10161,6 +10161,20 @@ static void dusk_func(BuiltinFunctionContextPtr f)
   time_t time;
   if (checkSunParams(f, time)) {
     f->finish(new NumericValue(sunset(time, *(f->geoLocation()), true)*3600));
+  }
+}
+
+
+static void sunposition_func(BuiltinFunctionContextPtr f)
+{
+  time_t time;
+  if (checkSunParams(f, time)) {
+    double az, el;
+    sunPosition(time, *(f->geoLocation()), az, el);
+    ObjectValue* sunpos = new ObjectValue();
+    sunpos->setMemberByName("azimuth", new NumericValue(az));
+    sunpos->setMemberByName("elevation", new NumericValue(el));
+    f->finish(sunpos);
   }
 }
 
@@ -10534,6 +10548,7 @@ static const BuiltinMemberDescriptor standardFunctions[] = {
   FUNC_DEF_C_ARG(dawn, executable|numeric|null, timegetter),
   FUNC_DEF_C_ARG(sunset, executable|numeric|null, timegetter),
   FUNC_DEF_C_ARG(dusk, executable|numeric|null, timegetter),
+  FUNC_DEF_C_ARG(sunposition, executable|numeric|null, timegetter),
   FUNC_DEF_W_ARG(epochtime, executable|anyvalid),
   FUNC_DEF_NOARG(epochdays, executable|anyvalid),
   FUNC_DEF_C_ARG(timeofday, executable|numeric, timegetter),
