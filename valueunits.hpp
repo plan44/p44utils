@@ -74,7 +74,8 @@ namespace p44 {
     valueUnit_frenchwaterhardness, ///< equivalent to (1/10000 mol)/liter -> 10 times more than mmol/liter
     valueUnit_bequerelperm3,
     valueUnit_gramperm3,
-    valueUnit_meterpersecond,
+    valueUnit_meterpersecond, // speed
+    valueUnit_meterpersecond2, // acceleration
     valueUnit_meterperm2,
     valueUnit_literpersecond,
     // non-SI scaled units
