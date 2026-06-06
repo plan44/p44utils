@@ -61,7 +61,7 @@ static const ValueUnitDescriptor valueUnitNames[numValueUnits] = {
   { "molpercubicmeter", "mol/m3" },
   { "frenchwaterhardness", "°fH" },
   { "bequerelpercubicmeter", "Bq/m3" },
-  { "grampercubicmeter", "Bq/m3" },
+  { "grampercubicmeter", "g/m3" },
   { "meterpersecond", "m/s" },
   { "meterpersquaresecond", "m/s2" },
   { "mperm2", "m/m2" },
