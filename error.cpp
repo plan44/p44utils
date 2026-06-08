@@ -32,14 +32,14 @@ using namespace p44;
 // MARK: - error base class
 
 Error::Error(ErrorCode aErrorCode) :
-  errorCode(aErrorCode)
+  mErrorCode(aErrorCode)
 {
 }
 
 
 Error::Error(ErrorCode aErrorCode, const std::string &aErrorMessage) :
-  errorCode(aErrorCode),
-  errorMessage(aErrorMessage)
+  mErrorCode(aErrorCode),
+  mErrorMessage(aErrorMessage)
 {
 }
 
@@ -47,32 +47,32 @@ Error::Error(ErrorCode aErrorCode, const std::string &aErrorMessage) :
 void Error::setFormattedMessage(const char *aFmt, va_list aArgs, bool aAppend)
 {
   // now make the string
-  textCache.clear();
-  string_format_v(errorMessage, aAppend, aFmt, aArgs);
+  mTextCache.clear();
+  string_format_v(mErrorMessage, aAppend, aFmt, aArgs);
 }
 
 
 void Error::prefixMessage(const char *aFmt, ...)
 {
-  textCache.clear();
+  mTextCache.clear();
   string s;
   va_list args;
   va_start(args, aFmt);
   string_format_v(s, false, aFmt, args);
   va_end(args);
-  errorMessage.insert(0, s);
+  mErrorMessage.insert(0, s);
 }
 
 
 ErrorPtr Error::withPrefix(const char *aFmt, ...)
 {
-  textCache.clear();
+  mTextCache.clear();
   string s;
   va_list args;
   va_start(args, aFmt);
   string_format_v(s, false, aFmt, args);
   va_end(args);
-  errorMessage.insert(0, s);
+  mErrorMessage.insert(0, s);
   return ErrorPtr(this);
 }
 
@@ -91,7 +91,7 @@ const char *Error::getErrorDomain() const
 
 const char *Error::getErrorMessage() const
 {
-  return errorMessage.c_str();
+  return mErrorMessage.c_str();
 }
 
 
@@ -112,7 +112,7 @@ string Error::errorCodeText() const
   errorText += ')';
   return errorText;
   #else
-  return string_format("(%s:%ld)", getErrorDomain() , errorCode);
+  return string_format("(%s:%ld)", getErrorDomain() , mErrorCode);
   #endif
 }
 
@@ -120,8 +120,8 @@ string Error::errorCodeText() const
 string Error::description() const
 {
   string errorText;
-  if (errorMessage.size()>0)
-    errorText = errorMessage;
+  if (mErrorMessage.size()>0)
+    errorText = mErrorMessage;
   else
     errorText = "Error";
   // Append domain and code to message text
@@ -132,10 +132,10 @@ string Error::description() const
 
 const char* Error::text()
 {
-  if (textCache.empty()) {
-    textCache = description();
+  if (mTextCache.empty()) {
+    mTextCache = description();
   }
-  return textCache.c_str(); // is safe to return, as textCache lives as error object member
+  return mTextCache.c_str(); // is safe to return, as textCache lives as error object member
 }
 
 
@@ -149,7 +149,7 @@ const char* Error::text(ErrorPtr aError)
 
 bool Error::isError(const char *aDomain, ErrorCode aErrorCode) const
 {
-  return aErrorCode==errorCode && (aDomain==NULL || isDomain(aDomain));
+  return aErrorCode==mErrorCode && (aDomain==NULL || isDomain(aDomain));
 }
 
 

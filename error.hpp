@@ -55,9 +55,13 @@ namespace p44 {
   typedef boost::intrusive_ptr<Error> ErrorPtr;
   class Error : public P44Obj
   {
-    ErrorCode errorCode;
-    string errorMessage;
-    string textCache; // only created on demand
+    ErrorCode mErrorCode;
+    string mTextCache; // only created on demand
+
+  protected:
+
+    string mErrorMessage;
+
   public:
 
     enum {
@@ -118,7 +122,7 @@ namespace p44 {
     template<typename T> static ErrorPtr err_str(ErrorCode aErrorCode, const string aMessage)
     {
       Error *errP = new T(static_cast<typename T::ErrorCodes>(aErrorCode));
-      errP->errorMessage = aMessage;
+      errP->mErrorMessage = aMessage;
       return ErrorPtr(errP);
     };
 
@@ -128,7 +132,7 @@ namespace p44 {
     template<typename T> static ErrorPtr err_cstr(ErrorCode aErrorCode, const char *aMessage)
     {
       Error *errP = new T(static_cast<typename T::ErrorCodes>(aErrorCode));
-      if (aMessage) errP->errorMessage = aMessage;
+      if (aMessage) errP->mErrorMessage = aMessage;
       return ErrorPtr(errP);
     };
 
@@ -147,13 +151,13 @@ namespace p44 {
     /// get error code
     /// @return the error code. Note that error codes are unique only within the same error domain.
     ///   error code 0 from any domain means OK.
-    inline ErrorCode getErrorCode() const { return errorCode; }
+    inline ErrorCode getErrorCode() const { return mErrorCode; }
 
     /// @return true if error is OK code (= no error)
-    inline bool isOK() { return errorCode==OK; };
+    inline bool isOK() { return mErrorCode==OK; };
 
     /// @return true if error is a real error (not the OK code)
-    inline bool notOK() { return errorCode!=OK; };
+    inline bool notOK() { return mErrorCode!=OK; };
 
 
     /// get error message
