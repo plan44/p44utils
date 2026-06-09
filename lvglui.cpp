@@ -2690,13 +2690,13 @@ static void configure_func(BuiltinFunctionContextPtr f)
     cfgJSON = f->arg(0)->jsonValue();
   }
   else
-  #endif
+  #endif // SCRIPTING_JSON_SUPPORT
   {
     // JSON from string (or file if we have a JSON app)
     string cfgText = f->arg(0)->stringValue();
     // literal json or filename
     #if ENABLE_JSON_APPLICATION
-    cfgJSON = Application::jsonObjOrResource(cfgText, &err);
+    cfgJSON = Application::jsonObjOrResource(cfgText, &err, P44SCRIPT_DATA_SUBDIR, true); // prefix for data and temp only;
     #else
     cfgJSON = JsonObject::objFromText(cfgText.c_str(), -1, &err);
     #endif

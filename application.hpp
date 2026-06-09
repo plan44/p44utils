@@ -146,12 +146,15 @@ namespace p44 {
     ///   If it starts with `=/`, the application's data path will be prepended.
     ///   If it starts with `_/`, the application's temp path will be prepended.
     /// @param aPrefix if not empty, the prefix will be appended to the resource path when aResource
-    ///   is a relative path and does does not begin with any of the special */ prefixes (see above).
+    ///   is a relative path and does does not begin with any of the special */ prefixes (see above)
+    ///   and also is not explictly relative (starting with ./).
     ///   Note that aPrefix must end with a path separator if it is meant as a subdirectory, otherwise
     ///   it is just a prefix for the resource file names.
+    /// @param aPrefixForDataAndTemp if set, the prefix will be used for data and temp only, NOT for resource.
+    ///   Otherwise, the prefix will be used only for resource path relative accesses, as specified above.
     /// @return if aRelativePath is empty, result is the application's resource directory (no separator at end)
     ///   Otherwise, it is the absolute path to the resource specified with aResource (and aPrefix)
-    string resourcePath(const string aResource = "", const string aPrefix = "");
+    string resourcePath(const string aResource = "", const string aPrefix = "", bool aPrefixForDataAndTemp = false);
 
     /// get data path. Data are usually persistent read/write files
     /// @param aDataFile if not empty, and it is an absolute path, the the result will be just this path.
@@ -184,8 +187,9 @@ namespace p44 {
     /// @param aResourceName resource file name (see resourcePath()) containing JSON which is parsed and returned;
     /// @param aErrorP if set, parsing error is stored here
     /// @param aPrefix prefix possibly used on resource path (see resourcepath())
+    /// @param aPrefixForDataAndTemp if set, the prefix will be used for data and temp only (see resourcepath())
     /// @return json or NULL if none found
-    static JsonObjectPtr jsonResource(string aResourceName, ErrorPtr *aErrorP, const string aPrefix="");
+    static JsonObjectPtr jsonResource(string aResourceName, ErrorPtr *aErrorP, const string aPrefix="", bool aPrefixForDataAndTemp = false);
 
     /// parse JSON literal or get json file from resource
     /// @param aText the text to parse. If it is a plain string and ends on ".json", treat it as resource file
@@ -193,8 +197,9 @@ namespace p44 {
     ///   Otherwise, aText is parsed as JSON as-is.
     /// @param aErrorP if set, parsing error is stored here
     /// @param aPrefix prefix possibly used on resource path (see resourcepath())
+    /// @param aPrefixForDataAndTemp if set, the prefix will be used for data and temp only (see resourcepath())
     /// @return json or NULL if none found
-    static JsonObjectPtr jsonObjOrResource(const string &aText, ErrorPtr *aErrorP, const string aPrefix="");
+    static JsonObjectPtr jsonObjOrResource(const string &aText, ErrorPtr *aErrorP, const string aPrefix="", bool aPrefixForDataAndTemp = false);
 
     /// parse JSON literal or get json file from resource
     /// @param aConfig input json. If it is a plain string and ends on ".json", treat it as resource file
@@ -202,8 +207,9 @@ namespace p44 {
     ///   Otherwise, aConfig is returned as-is.
     /// @param aErrorP if set, parsing error is stored here
     /// @param aPrefix prefix possibly used on resource path (see resourcepath())
+    /// @param aPrefixForDataAndTemp if set, the prefix will be used for data and temp only (see resourcepath())
     /// @return json or NULL if none found
-    static JsonObjectPtr jsonObjOrResource(JsonObjectPtr aConfig, ErrorPtr *aErrorP, const string aPrefix="");
+    static JsonObjectPtr jsonObjOrResource(JsonObjectPtr aConfig, ErrorPtr *aErrorP, const string aPrefix="", bool aPrefixForDataAndTemp = false);
 
     #endif // ENABLE_JSON_APPLICATION
 

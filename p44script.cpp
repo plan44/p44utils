@@ -8427,7 +8427,7 @@ static void jsonresource_func(BuiltinFunctionContextPtr f)
     f->finish(new ErrorValue(ScriptError::NoPrivilege, "no reading privileges for this path"));
     return;
   }
-  JsonObjectPtr j = Application::jsonResource(fn, &err);
+  JsonObjectPtr j = Application::jsonResource(fn, &err, P44SCRIPT_DATA_SUBDIR "/", true); // use prefix for data/temp
   if (Error::isOK(err))
     f->finish(ScriptObj::valueFromJSON(j));
   else

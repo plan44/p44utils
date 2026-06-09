@@ -261,7 +261,7 @@ Application::PathType Application::extractPathType(string& aPath, bool aFreePath
 
 
 
-string Application::resourcePath(const string aResource, const string aPrefix)
+string Application::resourcePath(const string aResource, const string aPrefix, bool aPrefixForDataAndTemp)
 {
   string path = aResource;
   PathType ty = extractPathType(path, true, false);
@@ -273,11 +273,11 @@ string Application::resourcePath(const string aResource, const string aPrefix)
   if (ty==explicit_relative || ty==resource_relative)
     return mResourcepath + "/" + path; // omit prefix
   else if (ty==data_relative)
-    return mDatapath + "/" + path; // make it datapath-relative, w/o prefix
+    return mDatapath + "/" + (aPrefixForDataAndTemp ? aPrefix : "") + path; // make it datapath-relative, optionally prefixed
   else if (ty==temp_relative)
-    return tempPath(path); // make it temppath-relative, w/o prefix
+    return tempPath((aPrefixForDataAndTemp ? aPrefix : "") + path); // make it temppath-relative, optionally prefixed
   else
-    return mResourcepath + "/" + aPrefix + path; // resource path with prefix (which must end with "/" when it is to be a subdirectory)
+    return mResourcepath + "/" + (aPrefixForDataAndTemp ? "" : aPrefix) + path; // resource path optionally with prefix (which must end with "/" when it is to be a subdirectory)
 }
 
 
@@ -348,7 +348,7 @@ string Application::tempPath(const string aTempFile)
 
 #if ENABLE_JSON_APPLICATION
 
-JsonObjectPtr Application::jsonObjOrResource(const string &aText, ErrorPtr *aErrorP, const string aPrefix)
+JsonObjectPtr Application::jsonObjOrResource(const string &aText, ErrorPtr *aErrorP, const string aPrefix, bool aPrefixForDataAndTemp)
 {
   JsonObjectPtr obj;
   if (!aText.empty() && aText[0]=='{') {
@@ -357,24 +357,24 @@ JsonObjectPtr Application::jsonObjOrResource(const string &aText, ErrorPtr *aErr
   }
   else {
     // pass as a simple string, will try to load resource file
-    obj = jsonResource(aText, aErrorP, aPrefix);
+    obj = jsonResource(aText, aErrorP, aPrefix, aPrefixForDataAndTemp);
   }
   return obj;
 }
 
 
-JsonObjectPtr Application::jsonResource(string aResourceName, ErrorPtr *aErrorP, const string aPrefix)
+JsonObjectPtr Application::jsonResource(string aResourceName, ErrorPtr *aErrorP, const string aPrefix, bool aPrefixForDataAndTemp)
 {
   JsonObjectPtr r;
   ErrorPtr err;
-  string fn = Application::sharedApplication()->resourcePath(aResourceName, aPrefix);
+  string fn = Application::sharedApplication()->resourcePath(aResourceName, aPrefix, aPrefixForDataAndTemp);
   r = JsonObject::objFromFile(fn.c_str(), &err, true);
   if (aErrorP) *aErrorP = err;
   return r;
 }
 
 
-JsonObjectPtr Application::jsonObjOrResource(JsonObjectPtr aConfig, ErrorPtr *aErrorP, const string aPrefix)
+JsonObjectPtr Application::jsonObjOrResource(JsonObjectPtr aConfig, ErrorPtr *aErrorP, const string aPrefix, bool aPrefixForDataAndTemp)
 {
   ErrorPtr err;
   if (aConfig) {
@@ -382,7 +382,7 @@ JsonObjectPtr Application::jsonObjOrResource(JsonObjectPtr aConfig, ErrorPtr *aE
       // could be resource
       string resname = aConfig->stringValue();
       if (resname.substr(resname.size()-5)==".json") {
-        aConfig = jsonResource(resname, &err, aPrefix);
+        aConfig = jsonResource(resname, &err, aPrefix, aPrefixForDataAndTemp);
       }
     }
   }
