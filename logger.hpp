@@ -97,7 +97,7 @@
 #define SOLOG(obj,lvl,...) { if ((obj).logEnabled(lvl)) (obj).log(lvl,##__VA_ARGS__); }
 // logging via a pointed-to P44LoggingObj (messages prefixed with object's logContextPrefix(), object's logoffset applied)
 #define POLOGENABLED(obj,lvl) ((obj) ? (obj)->logEnabled(lvl) : LOGENABLED(lvl))
-#define POLOG(obj,lvl,...) { if (POLOGENABLED(obj,lvl)) { if (obj) (obj)->log(lvl,##__VA_ARGS__); else globalLogger.log(lvl,##__VA_ARGS__); }}
+#define POLOG(obj,lvl,...) { if (POLOGENABLED(obj,lvl)) { if (obj) (obj)->log(lvl,##__VA_ARGS__); else globalLogger.log(LOG_ERR,"POLOG with obj==null"); }}
 
 // debug build extra logging (not included in release code unless ALWAYS_DEBUG is set)
 #if defined(DEBUG) || ALWAYS_DEBUG
