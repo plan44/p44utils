@@ -616,12 +616,22 @@ static void httpFuncImpl(BuiltinFunctionContextPtr f, string aMethod)
     }
     // explicit client or server certs
     if (params->get("clientcert", o)) {
+      #if ENABLE_APPLICATION_SUPPORT
       httpAction->setClientCertFile(Application::sharedApplication()->dataPath(o->stringValue(), P44SCRIPT_DATA_SUBDIR "/", false));
+      #else
+      httpAction->setClientCertFile(o->stringValue());
+      #endif
     }
     if (params->get("servercert", o)) {
       string p = o->stringValue();
       if (p.empty()) httpAction->setServerCertVfyDir(p);
-      else httpAction->setServerCertVfyDir(Application::sharedApplication()->dataPath(p, P44SCRIPT_DATA_SUBDIR "/", false));
+      else {
+        #if ENABLE_APPLICATION_SUPPORT
+        httpAction->setServerCertVfyDir(Application::sharedApplication()->dataPath(p, P44SCRIPT_DATA_SUBDIR "/", false));
+        #else
+        httpAction->setServerCertVfyDir(p);
+        #endif
+      }
     }
     // request object might contain extra headers
     if (params->get("headers", o)) {

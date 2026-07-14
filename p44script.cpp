@@ -10595,16 +10595,16 @@ static const BuiltinMemberDescriptor standardFunctions[] = {
   #if !ESP_PLATFORM
   FUNC_DEF_W_ARG(system, executable|async|text),
   // Other system/app stuff
+  #if ENABLE_APPLICATION_SUPPORT
   FUNC_DEF_W_ARG(restartapp, executable|null),
   FUNC_DEF_NOARG(appversion, executable|null),
-  #if ENABLE_APPLICATION_SUPPORT
   FUNC_DEF_W_ARG(readfile, executable|error|text),
   FUNC_DEF_W_ARG(writefile, executable|error|null),
   FUNC_DEF_W_ARG(listfiles, executable|error|null),
-  #endif // ENABLE_APPLICATION_SUPPORT
   #if P44SCRIPT_OTHER_SOURCES
   FUNC_DEF_W_ARG(editfile, executable|error|null),
   #endif
+  #endif // ENABLE_APPLICATION_SUPPORT
   #endif // !ESP_PLATFORM
   #endif // P44SCRIPT_FULL_SUPPORT
   BUILTINS_TERMINATOR

@@ -658,7 +658,7 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "expressions", "[scripting],[FOCUS]") {
     // error handling
     REQUIRE(s.test(expression, "error('testerror')")->stringValue().find(string_format("testerror (ScriptError::User[%d])", ScriptError::User)) != string::npos); // also includes origin info
     REQUIRE(s.test(expression, "errordomain(error('testerror'))")->stringValue() == "ScriptError");
-    REQUIRE(s.test(expression, "errorcode(error('testerror'))")->doubleValue() == ScriptError::User);
+    REQUIRE(s.test(expression, "errorcode(error('testerror'))")->intValue() == (int)ScriptError::User);
     REQUIRE(s.test(expression, "errormessage(error('testerror'))")->stringValue() == "testerror");
     // separate terms ARE a syntax error in a expression! (not in a script, see below)
     REQUIRE(s.test(expression, "42 43 44")->stringValue().find(string_format("(ScriptError::Syntax[%d])", ScriptError::Syntax)) != string::npos);
