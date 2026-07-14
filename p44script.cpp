@@ -3538,7 +3538,7 @@ void SourceProcessor::s_objectfield()
 void SourceProcessor::s_varobjectfield()
 {
   if (mSrc.nextCodeIf(']')) {
-    mIdentifier = mResult->stringValue();
+    if (mResult) mIdentifier = mResult->stringValue(); // when skipping/compiling, we might not have a result
     mResult = mOlderResult;
     fieldnamedefined();
     return;

@@ -791,7 +791,8 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "statements", "[scripting]" )
     REQUIRE(s.test(scriptbody, "var js = { obj2: 42 }; return js.obj2")->doubleValue() == 42);
     REQUIRE(s.test(scriptbody, "var js = { 'obj2': 43 }; return js.obj2")->doubleValue() == 43);
     REQUIRE(s.test(scriptbody, "var js = { ['obj2']: 44 }; return js.obj2")->doubleValue() == 44);
-    REQUIRE(s.test(scriptbody, "var js = { obj2: 45, }; return js.obj2")->doubleValue() == 45);
+    REQUIRE(s.test(scriptbody, "var fn = 'obj2'; var js = { [fn]: 45 }; return js.obj2")->doubleValue() == 45);
+    REQUIRE(s.test(scriptbody, "var js = { obj2: 46, }; return js.obj2")->doubleValue() == 46);
   }
 
 
