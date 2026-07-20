@@ -7167,7 +7167,7 @@ ScriptObjPtr ScriptingDomain::getIncludedCode(const string aIncludeFilePath, Sou
     path = includedir + "/" + aIncludeFilePath.substr(prefixlen);
   }
   else {
-    path = Application::sharedApplication()->dataPath(path, "", false);
+    path = Application::sharedApplication()->dataPath(aIncludeFilePath, "", false);
   }
   // now process the absolute path
   string sourceHostUid;
