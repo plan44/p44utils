@@ -2119,14 +2119,16 @@ namespace p44 { namespace P44Script {
     ///   - %T : context type
     ///   - %I : context ID
     /// @param aLoggingContextP the logging object to log script related info or nullptr if none
-    /// @note this constructor is for member variables only (disables refcounting)
+    /// @note this constructor is usually for member variables only (disables refcounting by default).
+    ///   Set aIsMemberVar to false if the scripthost is not a member var.
     /// @note this is suitable for likely-used scripts which can be active before any source is loaded as it does
     ///   not really matter if they stay allocated empty.
     ScriptHost(
       EvaluationFlags aDefaultFlags,
       const char* aOriginLabel = nullptr,
       const char* aTitleTemplate = nullptr,
-      P44LoggingObj* aLoggingContextP = nullptr
+      P44LoggingObj* aLoggingContextP = nullptr,
+      bool aIsMemberVar = true
     );
 
     /// Destructor

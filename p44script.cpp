@@ -6250,11 +6250,12 @@ ScriptHost::ScriptHost(
   EvaluationFlags aDefaultFlags,
   const char* aOriginLabel,
   const char* aTitleTemplate,
-  P44LoggingObj* aLoggingContextP
+  P44LoggingObj* aLoggingContextP,
+  bool aIsMemberVar
 ) :
   mActiveParams(nullptr)
 {
-  isMemberVariable();
+  if (aIsMemberVar) isMemberVariable();
   activate(aDefaultFlags, aOriginLabel, aTitleTemplate, aLoggingContextP);
 }
 
@@ -6525,7 +6526,7 @@ bool ScriptHost::loadSource(const char* aLocallyStoredSource)
         mActiveParams->mScriptHostUid.c_str()
       );
     }
-    #endif
+    #endif // P44SCRIPT_MIGRATE_TO_DOMAIN_SOURCE
   }
   else {
     #if P44SCRIPT_MIGRATE_TO_DOMAIN_SOURCE
@@ -6534,7 +6535,7 @@ bool ScriptHost::loadSource(const char* aLocallyStoredSource)
       // apparently, locally stored data is already gone
       mActiveParams->mLocalDataReportedRemoved = true;
     }
-    #endif
+    #endif // P44SCRIPT_MIGRATE_TO_DOMAIN_SOURCE
     changed = setSource(source);
   }
   mActiveParams->mSourceDirty = false;
@@ -6581,7 +6582,7 @@ string ScriptHost::getSourceToStoreLocally() const
     }
     return ""; // empty
   }
-  #endif
+  #endif // P44SCRIPT_MIGRATE_TO_DOMAIN_SOURCE
   // no source from domain, just return it to be stored locally by the caller (e.g. in DB field)
   return getSource();
 }
@@ -7180,14 +7181,13 @@ ScriptObjPtr ScriptingDomain::getIncludedCode(const string aIncludeFilePath, Sou
     includeHost = boost::dynamic_pointer_cast<ScriptIncludeHost>(s);
     if (!includeHost) return new ErrorValue(ScriptError::Internal, "file uid = '%s' exists but is not an include", sourceHostUid.c_str());
   }
-  // if we do not have it, create empty sourcehost so editor will see it
+  // if we do not have it, create empty ScriptIncludeHost so editor will see it
   if (!includeHost) {
     // try to load from file
     string content;
     uint32_t contentHash;
     ErrorPtr err = FileHost::readFromFile(path, content, contentHash, ty!=Application::relative); // non-standard include files are read only
     if (Error::notOK(err)) return new ErrorValue(err);
-    // create the
     includeHost = new ScriptIncludeHost(*this, sourceHostUid, path, title, content, contentHash, ty==Application::resource_relative);
     includeHost->setDomain(this);
   }
