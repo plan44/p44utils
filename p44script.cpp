@@ -1995,6 +1995,7 @@ void ScriptCodeContext::execute(ScriptObjPtr aToExecute, EvaluationFlags aEvalFl
   // if debugging is enabled, make sure no paused thread is already running this same code
   if (domain()->defaultPausingMode()>running && hasThreadPausedIn(code)) {
     OLOG(LOG_WARNING, "'%s' is already executing in paused thread -> SUPPRESSED starting again in new thread", code->getIdentifier().c_str());
+    if (aEvaluationCB) aEvaluationCB(new ErrorValue(ScriptError::Internal, "suppressed starting again in new thread"));
     return;
   }
   #endif // P44SCRIPT_DEBUGGING_SUPPORT
