@@ -6333,6 +6333,17 @@ bool ScriptHost::storable() const
 }
 
 
+int ScriptHost::userLevel() const
+{
+  #if P44SCRIPT_REGISTERED_SOURCE
+  if (active() && mActiveParams->mSharedMainContext) return mActiveParams->mSharedMainContext->userLevel();
+  if (mScriptingDomain) return mScriptingDomain->userLevel();
+  #endif
+  return 0;
+}
+
+
+
 
 #if P44SCRIPT_REGISTERED_SOURCE
 
@@ -7163,10 +7174,12 @@ ErrorPtr FileHost::saveToFile(const string aFilePath, const string aContent, uin
 // lookup/factory method in domain
 ScriptObjPtr ScriptingDomain::getIncludedCode(const string aIncludeFilePath, SourceHostPtr aIncludingHost)
 {
+  assert(aIncludingHost);
   ErrorPtr err;
   string path;
   size_t prefixlen;
-  Application::PathType ty = Application::sharedApplication()->getPathType(aIncludeFilePath, userLevel()>=2, false, &prefixlen);
+  int hostUserLevel = aIncludingHost->userLevel();
+  Application::PathType ty = Application::sharedApplication()->getPathType(aIncludeFilePath, hostUserLevel>=2, false, &prefixlen);
   if (ty==Application::notallowed) {
     return new ErrorValue(ScriptError::NoPrivilege, "no privilege for this include path");
   }

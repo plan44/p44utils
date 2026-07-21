@@ -1838,9 +1838,14 @@ namespace p44 { namespace P44Script {
   public:
 
     #if P44SCRIPT_REGISTERED_SOURCE
+
     /// @return the source UID or a dummy placeholder in case it is not set
     virtual string getSourceUid() = 0;
-    #endif
+
+    /// @return user level of this host (relevant for compiling)
+    virtual int userLevel() const = 0;
+
+    #endif // P44SCRIPT_REGISTERED_SOURCE
 
     /// @return true for scripts that can be started/stopped/debugged, false for other editable source texts
     virtual bool isScript() const = 0;
@@ -1937,6 +1942,9 @@ namespace p44 { namespace P44Script {
     /// @return the source UID or a dummy placeholder in case it is not set
     virtual string getSourceUid() P44_OVERRIDE;
 
+    /// @return user level of this host (relevant for compiling)
+    virtual int userLevel() const P44_OVERRIDE { return 0; } // files do not have any extra permissions by themselves (not even include files)
+
     /// @return true for scripts that can be started/stopped in their own context, false otherwise
     virtual bool isScript() const P44_OVERRIDE { return false; }
 
@@ -2010,7 +2018,7 @@ namespace p44 { namespace P44Script {
 
     /// @return number of breakpoints
     virtual size_t numBreakpoints() P44_OVERRIDE;
-    #endif
+    #endif // P44SCRIPT_DEBUGGING_SUPPORT
   };
 
 
@@ -2147,6 +2155,9 @@ namespace p44 { namespace P44Script {
 
     /// @return true for scripts that can be started/stopped/debugged, false for other editable source texts
     virtual bool isScript() const P44_OVERRIDE { return true; }
+
+    /// @return user level of this host (relevant for compiling)
+    virtual int userLevel() const P44_OVERRIDE;
 
     /// activate the script for actually being used
     /// @note once activated, the function can be called again but is NOP and ignores activation params
