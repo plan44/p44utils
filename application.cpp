@@ -69,8 +69,7 @@ Application::Application(MainLoop &aMainLoop) :
 
 
 Application::Application() :
-  mMainLoop(MainLoop::currentMainLoop()),
-  mUserLevel(APPLICATION_DEFAULT_USERLEVEL)
+  mMainLoop(MainLoop::currentMainLoop())
 {
   initializeInternal();
 }
@@ -84,6 +83,7 @@ Application::~Application()
 
 void Application::initializeInternal()
 {
+  mUserLevel = APPLICATION_DEFAULT_USERLEVEL;
   mResourcepath = "."; // current directory by default
   mDatapath = TEMP_DIR_PATH; // tmp by default
   // make random a bit "random" (not really, but ok for games)
