@@ -1478,7 +1478,7 @@ namespace p44 { namespace P44Script {
 
     ScriptingDomainPtr mDomainObj; ///< the scripting domain (unless it's myself to avoid locking)
     ScriptObjPtr mThisObj; ///< the object _instance_ scope of this execution context (if any)
-    int mUserLevel; ///< the context's "user (expert) level" - 0=regular, 1=diy/beta, 2=privileged (e.g. shell calling I/O pins, script functions)
+    int mUserLevel; ///< the context's "user (expert) level" - 0=regular, 1=diy/beta, 2=privileged (e.g. shell calling I/O pins, script functions), 3=system (e.g. factory reset)
 
     #if P44SCRIPT_FULL_SUPPORT
     typedef std::list<CompiledHandlerPtr> HandlerList;
@@ -1504,7 +1504,12 @@ namespace p44 { namespace P44Script {
 
     virtual bool isExecutingSource(SourceContainerPtr aSource) P44_OVERRIDE;
 
-    int userLevel() { return mUserLevel; }
+    /// @return this context's user level
+    int userLevel();
+
+    /// set the user level for scripts running in this context
+    /// @param aUserLevel the user level to set (-1 to reset to app default)
+    void setUserLevel(int aUserLevel = -1);
 
     #if P44SCRIPT_DEBUGGING_SUPPORT
 

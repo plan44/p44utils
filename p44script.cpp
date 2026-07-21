@@ -2124,17 +2124,7 @@ ScriptMainContext::ScriptMainContext(ScriptingDomainPtr aDomain, ScriptObjPtr aT
   mDomainObj(aDomain),
   mThisObj(aThis)
 {
-  if (aUserLevel>=0) {
-    mUserLevel = aUserLevel;
-  }
-  else {
-    // default
-    #if ENABLE_APPLICATION_SUPPORT
-    mUserLevel = Application::sharedApplication()->userLevel(); // use application's level
-    #else
-    mUserLevel = 2; // allow everything if we don't have the concept of an app-level userlevel
-    #endif
-  }
+  setUserLevel(aUserLevel);
 }
 
 
@@ -2166,6 +2156,28 @@ void ScriptMainContext::deactivate()
   inherited::deactivate();
 }
 
+
+int ScriptMainContext::userLevel()
+{
+  return mUserLevel;
+}
+
+
+void ScriptMainContext::setUserLevel(int aUserLevel)
+{
+  if (aUserLevel>=0) {
+    // set explicit level
+    mUserLevel = aUserLevel;
+  }
+  else {
+    // reset to default
+    #if ENABLE_APPLICATION_SUPPORT
+    mUserLevel = Application::sharedApplication()->userLevel(); // use application's level
+    #else
+    mUserLevel = 2; // allow almost everything if we don't have the concept of an app-level userlevel (>2 are app-specific special cases)
+    #endif
+  }
+}
 
 
 #if P44SCRIPT_FULL_SUPPORT
