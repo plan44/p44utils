@@ -183,6 +183,12 @@ DigitalIo::~DigitalIo()
 }
 
 
+bool DigitalIo::pinMissing()
+{
+  return dynamic_cast<MissingPin*>(mIoPin.get())!=nullptr;
+}
+
+
 string DigitalIo::getName() const
 {
   return string_format("%s%s%s", mPull==yes ? "+" : (mPull==no ? "-" : ""), mInverted ? "/" : "", mPinSpec.c_str());

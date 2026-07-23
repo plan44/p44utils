@@ -104,6 +104,9 @@ namespace p44 {
     AnalogIo(const char* aPinSpec, bool aOutput, double aInitialValue);
     virtual ~AnalogIo();
 
+    /// check if actual pin is missing (assigned a non-functional dummy)
+    bool pinMissing();
+
     /// get name
     string getName() const { return mPinSpec.c_str(); };
 

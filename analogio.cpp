@@ -179,6 +179,12 @@ AnalogIo::~AnalogIo()
 }
 
 
+bool AnalogIo::pinMissing()
+{
+  return dynamic_cast<AnalogMissingPin*>(mIoPin.get())!=nullptr;
+}
+
+
 double AnalogIo::value()
 {
   if (!mUpdating) {

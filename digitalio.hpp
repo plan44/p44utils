@@ -84,6 +84,9 @@ namespace p44 {
     DigitalIo(const char* aPinSpec, bool aOutput, bool aInitialState = false);
     virtual ~DigitalIo();
 
+    /// check if actual pin is missing (assigned a non-functional dummy)
+    bool pinMissing();
+
     /// get name
     string getName() const;
 
