@@ -120,23 +120,22 @@ ErrorPtr SocketComm::startServer(ServerConnectionCB aServerConnectionHandler, in
   // check for protocolfamily auto-choice
   int family = mProtocolFamily;
   if (mProtocolFamily==PF_UNSPEC) {
-    // not specified, choose default
-    #ifndef ESP_PLATFORM
-    if (mServiceOrPortOrSocket.size()>1 && mServiceOrPortOrSocket[0]=='/') {
-      family = PF_LOCAL; // absolute paths are considered local sockets
-    }
-    else
-    #endif  // !ESP_PLATFORM
-    {
-      family = PF_INET; // otherwise, default to IPv4 for now
-    }
+    family = PF_INET; // default to IPv4
   }
-  #if !REDUCED_FOOTPRINT
+  #ifndef ESP_PLATFORM
+  if (mServiceOrPortOrSocket.size()>1 && mServiceOrPortOrSocket[0]=='/') {
+    family = PF_LOCAL; // absolute paths are considered local sockets
+  }
+  else
+  #endif  // !ESP_PLATFORM
   // check for v6+v4 accepting socket
-  else if (mProtocolFamily==PF_INET4_AND_6) {
-    family = PF_INET6;
+  if (mProtocolFamily==PF_INET4_AND_6) {
+    #if !REDUCED_FOOTPRINT
+    family = PF_INET6; // we do have v6 support, use a v6 socket with v4 enabled (see below)
+    #else
+    family = PF_INET; // we do not have IPv6 support, use a simple v4 socket
+    #endif // !REDUCED_FOOTPRINT
   }
-  #endif
   // derive protocol from socket type if not specified
   if (mProtocol==0) {
     // determine protocol automatically from socket type
@@ -145,8 +144,9 @@ ErrorPtr SocketComm::startServer(ServerConnectionCB aServerConnectionHandler, in
     else
       proto = IPPROTO_UDP;
   }
-  else
+  else {
     proto = mProtocol;
+  }
   // now start server
   if (family==PF_INET) {
     // IPv4 socket
@@ -239,7 +239,7 @@ ErrorPtr SocketComm::startServer(ServerConnectionCB aServerConnectionHandler, in
         }
       }
       if (Error::isOK(err))
-      #endif
+      #endif // !REDUCED_FOOTPRINT
       {
         if (setsockopt(socketFD, SOL_SOCKET, SO_REUSEADDR, (char *)&one, (int)sizeof(one)) == -1) {
           err = SysError::errNo("Cannot setsockopt(SO_REUSEADDR): ");
