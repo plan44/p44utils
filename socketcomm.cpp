@@ -186,10 +186,16 @@ ErrorPtr SocketComm::startServer(ServerConnectionCB aServerConnectionHandler, in
     memset((char *)saP, 0, saLen);
     // - set listening socket address
     sinP->sin6_family = (sa_family_t)family;
-    if (mNonLocal)
+    if (mNonLocal || mProtocolFamily==PF_INET4_AND_6) {
+      // for combined IPv4/IPv6 socket we need in6addr_any (because IPv4 localhost
+      // is mapped as ::ffff:127.0.0.1, which does not match in6addr_loopback.
+      // Note: we do SO_BINDTODEVICE("lo") below to restrict to loopback instead.
       sinP->sin6_addr = in6addr_any;
-    else
+    }
+    else {
+      // IPv6 only, we can use IPv6 loopback address
       sinP->sin6_addr = in6addr_loopback;
+    }
     // get service / port
     #ifndef ESP_PLATFORM
     if ((pse = getservbyname(mServiceOrPortOrSocket.c_str(), NULL)) != NULL) {
@@ -231,11 +237,20 @@ ErrorPtr SocketComm::startServer(ServerConnectionCB aServerConnectionHandler, in
     }
     else {
       // socket created, set options
+      string bindTo = mInterface;
       #if !REDUCED_FOOTPRINT
       if (family==PF_INET6) {
         int onlyv6 = mProtocolFamily!=PF_INET4_AND_6;
         if (setsockopt(socketFD, IPPROTO_IPV6, IPV6_V6ONLY, (char*)&onlyv6, (int)sizeof(onlyv6)) == -1) {
           err = SysError::errNo("Cannot setsockopt(IPV6_V6ONLY): ");
+        }
+        // we'll need SO_BINDTODEVICE to "lo" if this is a PF_INET4_AND_6 socket that may only be accessed locally
+        if (bindTo.empty() && !onlyv6 && !mNonLocal) {
+          #if defined(ESP_PLATFORM) || defined(__APPLE__)
+          LOG(LOG_ERR, "cannot restrict socket to loopback only on this platform -> remains accessible from all network interfaces!");
+          #else
+          bindTo = "lo";
+          #endif
         }
       }
       if (Error::isOK(err))
@@ -246,11 +261,11 @@ ErrorPtr SocketComm::startServer(ServerConnectionCB aServerConnectionHandler, in
         }
         else {
           #if defined(ESP_PLATFORM) || defined(__APPLE__)
-          if (!mInterface.empty()) {
-            err = TextError::err("SO_BINDTODEVICE not supported on macOS");
+          if (!bindTo.empty()) {
+            err = TextError::err("SO_BINDTODEVICE not supported on macOS/ESP32");
           }
           #else
-          if (!mInterface.empty() && setsockopt(socketFD, SOL_SOCKET, SO_BINDTODEVICE, mInterface.c_str(), (socklen_t)mInterface.size()) == -1) {
+          if (!bindTo.empty() && setsockopt(socketFD, SOL_SOCKET, SO_BINDTODEVICE, bindTo.c_str(), (socklen_t)bindTo.size()) == -1) {
             err = SysError::errNo("Cannot setsockopt(SO_BINDTODEVICE): ");
           }
           #endif
