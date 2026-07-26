@@ -4669,7 +4669,7 @@ void SourceProcessor::processStatement()
     // single stepping statements, thread is paused, debugger needs to call resume() to continue
     return;
   }
-  #endif
+  #endif // P44SCRIPT_DEBUGGING_SUPPORT
   if (mCurrentState==&SourceProcessor::s_oneStatement) setState(&SourceProcessor::s_noStatement);
   // - no result to begin with at the beginning of a statement. Important for if/else, try/catch!
   mResult.reset();
@@ -4752,6 +4752,15 @@ void SourceProcessor::processStatement()
       }
     }
     if (uequals(mIdentifier, "return")) {
+      if (mCurrentState==&SourceProcessor::s_included && !compiling()) {
+        // "return" at the root level of an included file just returns to the includer,
+        // as if the include file did end here. Return expression is ignored.
+        // When compiling, continue to possibly capture function definitions following below.
+        pop(); // back to before the include
+        mSrc = mPoppedSrc;
+        resume();
+        return;
+      }
       if (!mSrc.EOT() && (mSrc.c()!=';' && mSrc.lineno()==memPos.lineno())) {
         // Note: return value must at least *begin* on the same line as the "return"
         //   keyword was found. This is to make sure a single return on a line without ;
@@ -4898,7 +4907,7 @@ void SourceProcessor::processStatement()
       resumeAt(&SourceProcessor::s_expression);
       return;
     }
-    #endif
+    #endif // P44SCRIPT_REGISTERED_SOURCE
     // identifier we've parsed above is not a keyword, rewind cursor
     mSrc.mPos = memPos;
   }
@@ -5529,7 +5538,7 @@ void SourceProcessor::startOfBodyCode()
   mEvaluationFlags = (mEvaluationFlags & ~sourcecode) | scriptbody;
   checkAndResume(); // NOP on the base class level
 }
-#endif
+#endif // P44SCRIPT_FULL_SUPPORT
 
 
 void SourceProcessor::executeResult()
@@ -6122,7 +6131,7 @@ void ScriptCompiler::startOfBodyCode()
 {
   inherited::startOfBodyCode();
 }
-#endif
+#endif // P44SCRIPT_FULL_SUPPORT
 
 
 void ScriptCompiler::memberByIdentifier(TypeInfo aMemberAccessFlags, bool aNoNotFoundError)
@@ -7273,7 +7282,7 @@ bool ScriptIncludeHost::setAndStoreSource(const string& aSource)
   if (numBreakpoints()>0) {
     breakpoints = mSourceContainer->breakpoints();
   }
-  #endif
+  #endif // P44SCRIPT_DEBUGGING_SUPPORT
   mSourceContainer.reset(); // release that container
   // create a new one
   mSourceContainer = new SourceContainer(this, aSource);
@@ -8987,7 +8996,7 @@ static void breakpoint_func(BuiltinFunctionContextPtr f)
     FLOG(f, LOG_WARNING, "breakpoint() in script source");
     return;
   }
-  #endif
+  #endif // P44SCRIPT_DEBUGGING_SUPPORT
   f->finish();
 }
 
