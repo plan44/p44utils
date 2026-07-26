@@ -323,7 +323,7 @@ namespace p44 { namespace P44Script {
     onChangingBool = 2, ///< trigger is fired when evaluation result changes boolean value, including getting invalid
     onChange = 3, ///< trigger is fired when evaluation result changes (operator== with last result does not return true)
     onEvaluation = 4, ///< trigger is fired whenever it gets evaluated
-    onChangingBoolRisingHoldoffOnly = 5, ///< special mode which applies the holdoff delay only to the rising edge (
+    onChangingBoolRisingHoldoffOnly = 5, ///< special mode which applies the holdoff delay only to the rising edge (e.g. for evaluators)
   } TriggerMode;
 
 

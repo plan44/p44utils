@@ -9929,7 +9929,7 @@ static void timeCheckFunc(bool aIsTime, BuiltinFunctionContextPtr f)
   ScriptObjPtr secs = new NumericValue(newSecs);
   int daySecs = ((loctim.tm_hour*60)+loctim.tm_min)*60+loctim.tm_sec;
   CompiledTrigger* trigger = f->trigger();
-  CompiledTrigger::FrozenResult* frozenP = NULL;
+  CompiledTrigger::FrozenResult* frozenP = nullptr;
   if (trigger) frozenP = trigger->getTimeFrozenValue(secs, freezeId);
   bool met = daySecs>=secs->intValue();
   // next check at specified time, today if not yet met, tomorrow if already met for today
@@ -9939,7 +9939,7 @@ static void timeCheckFunc(bool aIsTime, BuiltinFunctionContextPtr f)
   // limit to a few secs around target if it's "is_time"
   if (aIsTime && met && daySecs<secs->intValue()+IS_TIME_TOLERANCE_SECONDS) {
     // freeze again for a bit
-    if (trigger) trigger->newTimedFreeze(frozenP, secs, freezeId, MainLoop::localTimeToMainLoopTime(loctim)+IS_TIME_TOLERANCE_SECONDS*Second);
+    if (trigger) trigger->newTimedFreeze(frozenP, secs, freezeId, MainLoop::localTimeToMainLoopTime(loctim)+IS_TIME_TOLERANCE_SECONDS*Second); // update only expired
   }
   else {
     loctim.tm_hour = 0; loctim.tm_min = 0; loctim.tm_sec = newSecs;
@@ -9948,11 +9948,10 @@ static void timeCheckFunc(bool aIsTime, BuiltinFunctionContextPtr f)
       loctim.tm_sec = 0; // midnight
       if (aIsTime) res = false;
     }
-    if (trigger) trigger->newTimedFreeze(frozenP, new NumericValue(newSecs), freezeId, MainLoop::localTimeToMainLoopTime(loctim));
+    if (trigger) trigger->newTimedFreeze(frozenP, new NumericValue(newSecs), freezeId, MainLoop::localTimeToMainLoopTime(loctim)); // update only expired
   }
   f->finish(new BoolValue(res));
 }
-
 
 // after_time(time)
 FUNC_ARG_DEFS(after_time, { numeric }, { numeric|optionalarg } );
@@ -9968,7 +9967,64 @@ static void is_time_func(BuiltinFunctionContextPtr f)
   timeCheckFunc(true, f);
 }
 
-#define MIN_RETRIGGER_SECONDS 10 ///< how soon testlater() is allowed to re-trigger
+
+// between_times(time1, time2)
+FUNC_ARG_DEFS(between_times, { numeric }, { numeric } );
+static void between_times_func(BuiltinFunctionContextPtr f)
+{
+  struct tm loctim; MainLoop::getLocalTime(loctim);
+  int daySecs = ((loctim.tm_hour*60)+loctim.tm_min)*60+loctim.tm_sec;
+  ScriptObjPtr secArg1 = f->arg(0); SourcePos::UniquePos freezeId1 = f->argId(0);
+  ScriptObjPtr secArg2 = f->arg(1); SourcePos::UniquePos freezeId2 = f->argId(1);
+  CompiledTrigger* trigger = f->trigger();
+  CompiledTrigger::FrozenResult* frozen1P = nullptr;
+  CompiledTrigger::FrozenResult* frozen2P = nullptr;
+  if (trigger) {
+    frozen1P = trigger->getTimeFrozenValue(secArg1, freezeId1);
+    frozen2P = trigger->getTimeFrozenValue(secArg2, freezeId2);
+  }
+  int secs1 = secArg1->intValue();
+  int secs2 = secArg2->intValue();
+  bool met;
+  loctim.tm_hour = 0; loctim.tm_min = 0;
+  if (secs1<secs2) {
+    // same day
+    met = daySecs>=secs1 && daySecs<secs2;
+    if (met) {
+      // next is secs2 same day
+      loctim.tm_sec = secs2;
+    }
+    else {
+      // next is secs1, this or next day
+      if (daySecs>=secs2) {
+        // can't meet again today, so next is next day
+        loctim.tm_mday++;
+      }
+      loctim.tm_sec = secs1;
+    }
+  }
+  else {
+    met = daySecs>=secs1 || daySecs<secs2;
+    if (met) {
+      // next is secs2, this or next day
+      if (daySecs>=secs1) {
+        // still in end of first day, so next is next day
+        loctim.tm_mday++;
+      }
+      loctim.tm_sec = secs2;
+    }
+    else {
+      // next is secs1 this day
+      loctim.tm_sec = secs1;
+    }
+  }
+  if (trigger) {
+    // update expired frozen values, keep non-expired
+    trigger->newTimedFreeze(frozen1P, secArg1, freezeId1, MainLoop::localTimeToMainLoopTime(loctim));
+    trigger->newTimedFreeze(frozen2P, secArg2, freezeId2, MainLoop::localTimeToMainLoopTime(loctim));
+  }
+  f->finish(new BoolValue(met));
+}
 
 
 // initial()  returns true if this is a "initial" run of a trigger, meaning after startup or expression changes
@@ -9976,6 +10032,8 @@ static void initial_func(BuiltinFunctionContextPtr f)
 {
   f->finish(new BoolValue((f->evalFlags()&initial)!=0));
 }
+
+#define MIN_RETRIGGER_SECONDS 10 ///< how soon testlater() is allowed to re-trigger
 
 // testlater(seconds, timedtest [, retrigger])
 // return "invalid" now, re-evaluate after given seconds and return value of test then.
@@ -10566,6 +10624,7 @@ static const BuiltinMemberDescriptor standardFunctions[] = {
   FUNC_DEF_W_ARG(is_weekday, executable|anyvalid),
   FUNC_DEF_W_ARG(after_time, executable|numeric),
   FUNC_DEF_W_ARG(is_time, executable|numeric),
+  FUNC_DEF_W_ARG(between_times, executable|numeric),
   FUNC_DEF_NOARG(initial, executable|numeric),
   FUNC_DEF_W_ARG(testlater, executable|numeric),
   FUNC_DEF_W_ARG(every, executable|numeric),
