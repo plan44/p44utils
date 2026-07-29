@@ -59,6 +59,7 @@
   #define P44_CPP11_FEATURE 0
   #define P44_CPP17_FEATURE 0
   #define P44_CPP20_FEATURE 0
+  #define nullptr NULL
 #endif
 
 #ifndef __printflike

@@ -183,7 +183,9 @@ namespace sqlite3pp
 
   void database::standby()
   {
+    #if !P44_BUILD_DIGI // old sqlite3 does not have this API call
     sqlite3_db_release_memory(db_);
+    #endif
   }
 
   statement::statement(database& db, char const* stmt) : db_(db), stmt_(0), tail_(0)
