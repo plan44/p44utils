@@ -154,7 +154,7 @@ SimPin::SimPin(const char *aName, bool aOutput, bool aInitialState) :
       );
     }
   }
-  #endif
+  #endif // !DISABLE_CONSOLEKEY
 }
 
 
@@ -283,7 +283,7 @@ AnalogSimPin::AnalogSimPin(const char *aName, bool aOutput, double aInitialValue
       mConsoleKeyDown->setConsoleKeyHandler(boost::bind(&AnalogSimPin::simKeyPress, this, -1, _1));
     }
   }
-  #endif
+  #endif // !DISABLE_CONSOLEKEY
 }
 
 
@@ -295,7 +295,7 @@ void AnalogSimPin::simKeyPress(int aDir, bool aNewState)
     LOG(LOG_ALERT, ">>> AnalogSimPin \"%s\" manually changed to %.2f", mName.c_str(), mPinValue);
   }
 }
-#endif
+#endif // !DISABLE_CONSOLEKEY
 
 
 double AnalogSimPin::getValue()

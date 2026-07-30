@@ -216,7 +216,7 @@ P44Script::ScriptObjPtr AnalogIo::getValueObj()
 {
   return new P44Script::AnalogInputEventObj(this);
 }
-#endif
+#endif // ENABLE_ANALOGIO_SCRIPT_FUNCS && ENABLE_P44SCRIPT
 
 
 

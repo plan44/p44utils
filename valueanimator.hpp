@@ -25,6 +25,12 @@
 
 #include "p44utils_main.hpp"
 
+#if !defined(ENABLE_VALUE_ANIMATOR_SUPPORT)
+  #define ENABLE_VALUE_ANIMATOR_SUPPORT 1
+#endif
+
+#if ENABLE_VALUE_ANIMATOR_SUPPORT
+
 #if ENABLE_P44SCRIPT && !defined(ENABLE_ANIMATOR_SCRIPT_FUNCS)
   #define ENABLE_ANIMATOR_SCRIPT_FUNCS 1
 #endif
@@ -225,5 +231,6 @@ namespace p44 {
 
 } // namespace p44
 
+#endif // ENABLE_VALUE_ANIMATOR_SUPPORT
 
 #endif /* defined(__p44utils__valueanimator__) */

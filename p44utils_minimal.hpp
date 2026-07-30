@@ -67,7 +67,7 @@
   #define __printflike(...)
   // these do not have mechanism for strftime, either -> define it empty
   #define __strftimelike(arg)
-#endif
+#endif // !__printflike
 #ifdef ESP_PLATFORM
   #define __printflike_template(...)
 #else

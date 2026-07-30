@@ -22,6 +22,8 @@
 
 #include "pwm.hpp"
 
+#if ENABLE_PWM_SUPPORT
+
 #include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
@@ -259,3 +261,5 @@ bool PWMPin::getRange(double &aMin, double &aMax, double &aResolution)
 //  - 1 - enabled
 
 #endif // !ESP_PLATFORM
+
+#endif // ENABLE_PWM_SUPPORT

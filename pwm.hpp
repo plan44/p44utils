@@ -25,6 +25,12 @@
 
 #include "p44utils_common.hpp"
 
+#if !defined(ENABLE_PWM_SUPPORT)
+  #define ENABLE_PWM_SUPPORT 1
+#endif
+
+#if ENABLE_PWM_SUPPORT
+
 #include "iopin.hpp"
 
 #ifdef ESP_PLATFORM
@@ -85,5 +91,7 @@ namespace p44 {
 
 	
 } // namespace p44
+
+#endif // ENABLE_PWM_SUPPORT
 
 #endif /* defined(__p44utils__pwm__) */

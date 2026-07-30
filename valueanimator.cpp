@@ -29,6 +29,8 @@
 
 #include "valueanimator.hpp"
 
+#if ENABLE_VALUE_ANIMATOR_SUPPORT
+
 #include <math.h>
 
 using namespace p44;
@@ -577,6 +579,7 @@ void ValueAnimatorObj::registerForFilteredEvents(EventSink* aEventSink, intptr_t
   registerForEvents(aEventSink, aRegId); // no filtering
 }
 
-
-
 #endif // ENABLE_ANIMATOR_SCRIPT_FUNCS
+
+#endif // ENABLE_VALUE_ANIMATOR_SUPPORT
+
