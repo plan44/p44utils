@@ -591,8 +591,20 @@ TEST_CASE_METHOD(ScriptingCodeFixture, "expressions", "[scripting],[FOCUS]") {
     REQUIRE(s.test(expression, "number('gugus 33')")->doubleValue() == 0); // best effort, nothing readable
     REQUIRE(s.test(expression, "min(42,78)")->doubleValue() == 42);
     REQUIRE(s.test(expression, "min(78,42)")->doubleValue() == 42);
+    REQUIRE(s.test(expression, "min(3,4,2)")->doubleValue() == 2);
+    REQUIRE(s.test(expression, "min(null,null)")->undefined() == true);
+    REQUIRE(s.test(expression, "min(null,null, 7, 2)")->doubleValue() == 2);
+    REQUIRE(s.test(expression, "min('Alice',null,'Bob')")->stringValue() == "Alice");
     REQUIRE(s.test(expression, "max(42,78)")->doubleValue() == 78);
     REQUIRE(s.test(expression, "max(78,42)")->doubleValue() == 78);
+    REQUIRE(s.test(expression, "max(3,4,2)")->doubleValue() == 4);
+    REQUIRE(s.test(expression, "max(null,null)")->undefined() == true);
+    REQUIRE(s.test(expression, "max(null,null, 7, 2)")->doubleValue() == 7);
+    REQUIRE(s.test(expression, "max('Alice',null,'Bob')")->stringValue() == "Bob");
+    REQUIRE(s.test(expression, "average(61,23)")->doubleValue() == 42);
+    REQUIRE(s.test(expression, "average(61,null,23)")->doubleValue() == 42);
+    REQUIRE(s.test(expression, "average(null,null,23)")->doubleValue() == 23);
+    REQUIRE(s.test(expression, "average(null,null)")->undefined() == true);
     REQUIRE(s.test(expression, "limited(15,10,20)")->doubleValue() == 15);
     REQUIRE(s.test(expression, "limited(2,10,20)")->doubleValue() == 10);
     REQUIRE(s.test(expression, "limited(42,10,20)")->doubleValue() == 20);

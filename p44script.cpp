@@ -8329,21 +8329,50 @@ static void random_func(BuiltinFunctionContextPtr f)
 }
 
 
-// min (a, b)    return the smaller value of a and b
-FUNC_ARG_DEFS(min, { value|undefres }, { value|undefres } );
+// min (a, b, ...)    return the lowest value of all valid arguments (any orderable values)
+FUNC_ARG_DEFS(min, { value|null|multiple } );
 static void min_func(BuiltinFunctionContextPtr f)
 {
-  if (f->argval(0)<f->argval(1)) f->finish(f->arg(0));
-  else f->finish(f->arg(1));
+  ScriptObjPtr res;
+  for (int i=0; i<f->numArgs(); i++) {
+    if (f->arg(i)->defined()) {
+      if (!res || f->argval(i)<*res) res = f->arg(i);
+    }
+  }
+  if (!res) res = new AnnotatedNullValue("no valid arguments");
+  f->finish(res);
 }
 
 
-// max (a, b)    return the bigger value of a and b
-FUNC_ARG_DEFS(max, { value|undefres }, { value|undefres } );
+// max (a, b, ...)    return the numerically highest value of all valid arguments (any orderable values)
+FUNC_ARG_DEFS(max, { value|null|multiple } );
 static void max_func(BuiltinFunctionContextPtr f)
 {
-  if (f->argval(0)>f->argval(1)) f->finish(f->arg(0));
-  else f->finish(f->arg(1));
+  ScriptObjPtr res;
+  for (int i=0; i<f->numArgs(); i++) {
+    if (f->arg(i)->defined()) {
+      if (!res || f->argval(i)>*res) res = f->arg(i);
+    }
+  }
+  if (!res) res = new AnnotatedNullValue("no valid arguments");
+  f->finish(res);
+}
+
+
+// average(v1, v2, ...)    calculate the average of all valid numeric arguments
+FUNC_ARG_DEFS(average, { numeric|null|multiple } );
+static void average_func(BuiltinFunctionContextPtr f)
+{
+  double sum = 0;
+  int count = 0;
+  for (int i=0; i<f->numArgs(); i++) {
+    if (f->arg(i)->hasType(numeric)) {
+      sum += f->arg(i)->doubleValue();
+      count++;
+    }
+  }
+  if (count>0) f->finish(new NumericValue(sum/count));
+  else f->finish(new AnnotatedNullValue("no valid arguments to average"));
 }
 
 
@@ -10585,6 +10614,7 @@ static const BuiltinMemberDescriptor standardFunctions[] = {
   FUNC_DEF_W_ARG(random, executable|numeric),
   FUNC_DEF_W_ARG(min, executable|numeric|null),
   FUNC_DEF_W_ARG(max, executable|numeric|null),
+  FUNC_DEF_W_ARG(average, executable|numeric|null),
   FUNC_DEF_W_ARG(limited, executable|numeric|null),
   FUNC_DEF_W_ARG(cyclic, executable|numeric|null),
   FUNC_DEF_W_ARG(string, executable|text),
