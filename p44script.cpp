@@ -987,19 +987,6 @@ JsonObjectPtr StringValue::jsonValue(bool aDescribeNonJSON) const
 }
 
 
-string StructuredValue::stringValue() const
-{
-  // json representation with non-JSON objects described as strings
-  return jsonValue(true)->json_str();
-}
-
-
-bool StructuredValue::boolValue() const
-{
-  return true; // bool value of arrays and objects, even empty ones, is always true
-}
-
-
 JsonObjectPtr StructuredValue::jsonValue(bool aDescribeNonJSON) const
 {
   // this is the generic implementation for json construction. Some subclasses
@@ -1048,6 +1035,24 @@ JsonObjectPtr ObjectValue::jsonValue(bool aDescribeNonJSON) const
 ValueIteratorPtr StructuredValue::newIterator(TypeInfo aTypeRequirements) const
 {
   return new ObjectFieldsIterator(this, aTypeRequirements);
+}
+
+
+string StructuredValue::stringValue() const
+{
+  // json representation with non-JSON objects described as strings
+  #if SCRIPTING_JSON_SUPPORT
+  return jsonValue(true)->json_str();
+  #else
+  // shortcut version when we do not have JSON at all: we can't stringify structured values at all
+  return "<structured value>";
+  #endif
+}
+
+
+bool StructuredValue::boolValue() const
+{
+  return true; // bool value of arrays and objects, even empty ones, is always true
 }
 
 
@@ -6643,18 +6648,22 @@ void ScriptHost::setDomain(ScriptingDomainPtr aDomain)
   inherited::setDomain(aDomain);
 };
 
+#endif // P44SCRIPT_REGISTERED_SOURCE
 
 ScriptingDomainPtr ScriptHost::domain()
 {
   assert(active());
+  #if P44SCRIPT_REGISTERED_SOURCE
   if (!mScriptingDomain) {
     // none assigned so far, assign default
     mScriptingDomain = ScriptingDomainPtr(&StandardScriptingDomain::sharedDomain());
   }
   return mScriptingDomain;
+  #else
+  // no specialized domains, always the standard one
+  return ScriptingDomainPtr(&StandardScriptingDomain::sharedDomain());
+  #endif
 }
-
-#endif // P44SCRIPT_REGISTERED_SOURCE
 
 
 void ScriptHost::setSharedMainContext(ScriptMainContextPtr aSharedMainContext)
@@ -6842,6 +6851,7 @@ void ScriptHost::setScriptCommandHandler(ScriptCommandCB aScriptCommandCB)
   mActiveParams->mScriptCommandCB = aScriptCommandCB;
 }
 #endif // P44SCRIPT_REGISTERED_SOURCE
+
 
 void ScriptHost::setScriptResultHandler(EvaluationCB aScriptResultCB)
 {

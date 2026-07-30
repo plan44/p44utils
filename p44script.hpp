@@ -1502,8 +1502,6 @@ namespace p44 { namespace P44Script {
 
     virtual void deactivate() P44_OVERRIDE;
 
-    virtual bool isExecutingSource(SourceContainerPtr aSource) P44_OVERRIDE;
-
     /// @return this context's user level
     int userLevel();
 
@@ -1532,6 +1530,11 @@ namespace p44 { namespace P44Script {
     virtual ScriptMainContextPtr scriptmain() const P44_OVERRIDE { return ScriptMainContextPtr(const_cast<ScriptMainContext*>(this)); }
 
     #if P44SCRIPT_FULL_SUPPORT
+
+    /// @param aSource source to check
+    /// @return true when thread (or any subthread) is executing source code from aSource
+    /// @note we don't need an override in !P44SCRIPT_FULL_SUPPORT because we don't have related threads
+    virtual bool isExecutingSource(SourceContainerPtr aSource) P44_OVERRIDE;
 
     /// @return info about handlers
     ScriptObjPtr handlersInfo();
@@ -1842,10 +1845,10 @@ namespace p44 { namespace P44Script {
     /// @return the source UID or a dummy placeholder in case it is not set
     virtual string getSourceUid() = 0;
 
+    #endif // P44SCRIPT_REGISTERED_SOURCE
+
     /// @return user level of this host (relevant for compiling)
     virtual int userLevel() const = 0;
-
-    #endif // P44SCRIPT_REGISTERED_SOURCE
 
     /// @return true for scripts that can be started/stopped/debugged, false for other editable source texts
     virtual bool isScript() const = 0;
@@ -1871,10 +1874,17 @@ namespace p44 { namespace P44Script {
     /// @param aSource the source text to set
     /// @return relevant / applicable only for
     virtual bool setAndStoreSource(const string& aSource) = 0;
-    #endif // P44SCRIPT_REGISTERED_SOURCE
 
     /// @return title for this source
     virtual string getSourceTitle() = 0;
+
+    #else
+
+    /// without registered source, we do not really have a title, just return the origin label
+    /// @return title for this source
+    virtual string getSourceTitle() { return getOriginLabel(); }
+
+    #endif // P44SCRIPT_REGISTERED_SOURCE
 
     /// @return the origin label string
     virtual const char* getOriginLabel() { return ""; }
@@ -2286,9 +2296,33 @@ namespace p44 { namespace P44Script {
     virtual size_t numBreakpoints() P44_OVERRIDE;
     #endif // P44SCRIPT_DEBUGGING_SUPPORT
 
+    /// set domain (where global objects from compilation will be stored)
+    /// @param aDomain the domain. In ScriptHosts, will be assigned StandardScriptingDomain::sharedDomain()
+    ///   if not explicitly set before using domain() for the first time.
+    virtual void setDomain(ScriptingDomainPtr aDomain) P44_OVERRIDE;
 
+    /// @return the context type for this source text, to allow editor to group texts
+    virtual string getContextType() P44_OVERRIDE;
+
+    /// @return title of script context (such as: device name or UID when unnamed, etc.) for the script
+    /// @note can be inserted into script title using %C
+    string getContextTitle();
+
+    /// @return title for this script, created from script title template when available, with
+    ///    inserts from context etc. From template:
+    ///    - %C will be replaced by getContextTitle()
+    ///    - %N will be replaced by context name (which might be empty)
+    ///    - %T will be replaced by context type
+    ///    - %I will be replaced by technical context ID
+    ///    - %O will be replaced by origin label
+    virtual string getSourceTitle() P44_OVERRIDE;
 
     #endif // P44SCRIPT_REGISTERED_SOURCE
+
+    /// get the domain assiciated with this source.
+    /// If none was set specifically, the StandardScriptingDomain is returned.
+    /// @return scripting domain
+    ScriptingDomainPtr domain();
 
     /// @return default evaluation flags for this source host
     EvaluationFlags defaultEvaluationFlags();
@@ -2298,18 +2332,6 @@ namespace p44 { namespace P44Script {
     /// @note this is usually only for adjusting a flag like autorestart, as most
     ///   original default flags are usually important and should not be changed
     void setDefaultEvaluationFlags(EvaluationFlags aDefaultFlags);
-
-    #if P44SCRIPT_REGISTERED_SOURCE
-    /// set domain (where global objects from compilation will be stored)
-    /// @param aDomain the domain. In ScriptHosts, will be assigned StandardScriptingDomain::sharedDomain()
-    ///   if not explicitly set before using domain() for the first time.
-    virtual void setDomain(ScriptingDomainPtr aDomain) P44_OVERRIDE;
-    #endif // P44SCRIPT_REGISTERED_SOURCE
-
-    /// get the domain assiciated with this source.
-    /// If none was set specifically, the StandardScriptingDomain is returned.
-    /// @return scripting domain
-    ScriptingDomainPtr domain();
 
     /// set pre-existing execution context to use, possibly shared with other script sources
     /// @param aSharedMainContext a context previously obtained from the domain with newContext()
@@ -2337,22 +2359,6 @@ namespace p44 { namespace P44Script {
     /// @return the origin label string
     /// @note can be inserted into script title template using %O
     virtual const char* getOriginLabel() P44_OVERRIDE;
-
-    /// @return the context type for this source text, to allow editor to group texts
-    virtual string getContextType() P44_OVERRIDE;
-
-    /// @return title of script context (such as: device name or UID when unnamed, etc.) for the script
-    /// @note can be inserted into script title using %C
-    string getContextTitle();
-
-    /// @return title for this script, created from script title template when available, with
-    ///    inserts from context etc. From template:
-    ///    - %C will be replaced by getContextTitle()
-    ///    - %N will be replaced by context name (which might be empty)
-    ///    - %T will be replaced by context type
-    ///    - %I will be replaced by technical context ID
-    ///    - %O will be replaced by origin label
-    virtual string getSourceTitle() P44_OVERRIDE;
 
     /// @return true if empty
     bool empty() const;
