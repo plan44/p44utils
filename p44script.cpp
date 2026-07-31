@@ -7968,8 +7968,15 @@ void ScriptCodeThread::pushFunctionArgument(ScriptObjPtr aArgument)
 {
   // assign the specified argument to the current function call context
   if (mFuncCallContext) {
-    ScriptObjPtr errVal = mFuncCallContext->checkAndSetArgument(aArgument, mFuncCallContext->numIndexedMembers(), mResult);
-    if (errVal) mResult = errVal;
+    ScriptObjPtr res = mFuncCallContext->checkAndSetArgument(aArgument, mFuncCallContext->numIndexedMembers(), mResult);
+    ErrorValuePtr errVal = boost::dynamic_pointer_cast<ErrorValue>(res);
+    if (errVal) {
+      // error from *checking* the argument, return it as uncaught to stop argument processing
+      // Note: we don't get here for error arguments that are allowed to be errors,
+      //   those are stored and passed to the function implementation
+      errVal->setCaught(false);
+      mResult = errVal;
+    }
   }
   checkAndResume();
 }
