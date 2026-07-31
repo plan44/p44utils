@@ -311,10 +311,9 @@ bool SocketComm::connectionAcceptHandler(int aFd, int aPollFlags)
   ErrorPtr err;
   if (aPollFlags & POLLIN) {
     // server socket has data, means connection waiting to get accepted
-    socklen_t fsinlen;
-    struct sockaddr fsin;
+    sockaddr_storage fsin;
+    socklen_t fsinlen = sizeof(fsin);
     int clientFD = -1;
-    fsinlen = sizeof(fsin);
     clientFD = accept(mConnectionFd, (struct sockaddr *) &fsin, &fsinlen);
     if (clientFD>0) {
       // get address and port of incoming connection
@@ -333,7 +332,7 @@ bool SocketComm::connectionAcceptHandler(int aFd, int aPollFlags)
         // TODO: find how to use getnameinfo on ESP32
         #else
         int s = getnameinfo(
-          &fsin, fsinlen,
+          reinterpret_cast<const sockaddr *>(&fsin), fsinlen,
           hbuf, sizeof hbuf,
           sbuf, sizeof sbuf,
           NI_NUMERICHOST | NI_NUMERICSERV
