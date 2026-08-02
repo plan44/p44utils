@@ -233,6 +233,16 @@ namespace p44 {
     /// @note for UDP, the host/port specified in setConnectionParams() will be used to send datagrams to
     virtual size_t transmitBytes(size_t aNumBytes, const uint8_t *aBytes, ErrorPtr &aError);
 
+    /// Send one datagram to a specific destination, without changing the configured default destination.
+    /// @param aHostNameOrAddress destination host name or numeric address
+    /// @param aServiceOrPort destination service name or numeric port
+    /// @param aNumBytes number of bytes to transfer
+    /// @param aBytes pointer to buffer to be sent
+    /// @param aError reference to ErrorPtr. Will be left untouched if no error occurs
+    /// @return number of bytes actually sent
+    /// @note only supported for connectionless sockets
+    size_t transmitDatagramTo(const char *aHostNameOrAddress, const char *aServiceOrPort, size_t aNumBytes, const uint8_t *aBytes, ErrorPtr &aError);
+
     /// read data (non-blocking)
     /// @param aNumBytes max number of bytes to receive
     /// @param aBytes pointer to buffer to store received bytes

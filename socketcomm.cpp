@@ -882,6 +882,49 @@ size_t SocketComm::transmitBytes(size_t aNumBytes, const uint8_t *aBytes, ErrorP
 }
 
 
+size_t SocketComm::transmitDatagramTo(const char *aHostNameOrAddress, const char *aServiceOrPort, size_t aNumBytes, const uint8_t *aBytes, ErrorPtr &aError)
+{
+  if (!mConnectionLess) {
+    aError = Error::err<SocketCommError>(SocketCommError::Unsupported, "transmitDatagramTo() only supported for connectionless sockets");
+    return 0;
+  }
+  if (mDataFd<0) {
+    return 0; // not ready yet
+  }
+  struct addrinfo hints;
+  struct addrinfo *addrInfoList = NULL;
+  memset(&hints, 0, sizeof(hints));
+  hints.ai_family = mProtocolFamily==PF_INET4_AND_6 ? PF_UNSPEC : mProtocolFamily;
+  hints.ai_socktype = mSocketType;
+  hints.ai_protocol = mProtocol;
+  if (hints.ai_protocol==0) {
+    hints.ai_protocol = IPPROTO_UDP;
+  }
+  int res = getaddrinfo(aHostNameOrAddress, aServiceOrPort, &hints, &addrInfoList);
+  if (res!=0) {
+    #ifdef ESP_PLATFORM
+    aError = Error::err<SocketCommError>(SocketCommError::CannotResolve, "Cannot resolve datagram destination %s:%s: error %d", nonNullCStr(aHostNameOrAddress), nonNullCStr(aServiceOrPort), res);
+    #else
+    aError = Error::err<SocketCommError>(SocketCommError::CannotResolve, "Cannot resolve datagram destination %s:%s: %s", nonNullCStr(aHostNameOrAddress), nonNullCStr(aServiceOrPort), gai_strerror(res));
+    #endif
+    return 0;
+  }
+  size_t sent = 0;
+  for (struct addrinfo *ai = addrInfoList; ai; ai = ai->ai_next) {
+    ssize_t s = sendto(mDataFd, aBytes, aNumBytes, 0, ai->ai_addr, ai->ai_addrlen);
+    if (s>=0) {
+      sent = (size_t)s;
+      break;
+    }
+  }
+  if (sent==0) {
+    aError = SysError::errNo("SocketComm::transmitDatagramTo: ");
+  }
+  freeaddrinfo(addrInfoList);
+  return sent;
+}
+
+
 size_t SocketComm::receiveBytes(size_t aNumBytes, uint8_t *aBytes, ErrorPtr &aError)
 {
   if (mConnectionLess) {
