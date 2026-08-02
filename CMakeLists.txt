@@ -35,6 +35,11 @@ if(CONFIG_P44UTILS_ENABLE_LEDCHAIN)
     "thirdparty/esp32_ws281x")
 endif()
 
+if(NOT DEFINED ENABLE_ARTNET OR ENABLE_ARTNET)
+  list(APPEND srcs
+    "artnetcomm.cpp")
+endif()
+
 if(CONFIG_P44UTILS_ENABLE_JSON)
   list(APPEND srcs
     "jsonobject.cpp"
@@ -66,4 +71,3 @@ target_compile_options(${COMPONENT_LIB} PRIVATE
   -isystem /Volumes/CaseSens/openwrt/build_dir/target-mipsel_24kc_musl/boost_1_71_0)
 
 # %%%ugly hack above ^^^^^^ for now%%% just take a boost checkout we already have
-
