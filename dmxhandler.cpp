@@ -75,12 +75,20 @@ ErrorPtr DmxHandler::open(const string aDmxInputSpec)
     mUniverse[i].processing = 0;
   }
   #if ENABLE_ARTNET
-  if (aDmxInputSpec.find("artnet")==0) {
+  if (uequals(aDmxInputSpec, "artnet:", 7)) {
     // set up artnet
     mArtNetReceiver = new ArtNetReceiver;
-    // TODO: parse spec like: artnet[:<portaddress>[:<....]]
-    //   for now, just run with defaults
-    mArtNetReceiver->setConnectionParams();
+    // TODO: parse more connection infos
+    // for now, just: artnet:<portaddress>, use default binding + timeout
+    const char *p = aDmxInputSpec.c_str()+7;
+    string part;
+    int portAddress = 0;
+    if (nextPart(p, part, ':')) {
+      portAddress = atoi(part.c_str());
+    }
+    // TODO: parse more parts
+    // set params
+    mArtNetReceiver->setConnectionParams(portAddress);
     mArtNetReceiver->setDmxHandler(boost::bind(&DmxHandler::handleArtNetDmx, this, _1, _2, _3, _4));
     // metadata
     ArtNet::ArtNetAdvertisementInfo info;
