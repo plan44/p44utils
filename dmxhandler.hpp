@@ -57,6 +57,7 @@ namespace p44 {
 
   typedef struct {
     uint8_t current;
+    uint8_t reported;
     bool monitor;
     bool processing;
   } DMXChannel;

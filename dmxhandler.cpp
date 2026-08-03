@@ -70,6 +70,7 @@ ErrorPtr DmxHandler::open(const string aDmxInputSpec)
   // clear the universe
   for(int i=0; i<cUniverseSize; i++) {
     mUniverse[i].current = 0;
+    mUniverse[i].reported = 0;
     mUniverse[i].monitor = 0;
     mUniverse[i].processing = 0;
   }
@@ -140,23 +141,24 @@ void DmxHandler::handleDmxFrame(const uint8_t *aData, size_t aLength)
     uint8_t newValue = aData[channelIdx];
     DMXChannel& ch = mUniverse[channelIdx];
     if (newValue!=ch.current) {
-      // has changed
-      if (ch.monitor && !ch.processing) {
-        // monitored -> report
-        ch.current = newValue;
+      ch.current = newValue; // update anyway
+      // has changed since last reporting
+      if (ch.monitor && !ch.processing && newValue!=ch.reported) {
+        // monitored and changed since last report -> report
+        ch.reported = newValue;
         ch.processing = true;
         #if ENABLE_DMX_SCRIPT_FUNCS
         if (mRepresentingObj) {
           mRepresentingObj->gotChannelChange(channelIdx+1, ch); // channelNo is 1-based, index is 0-based!
         }
-        #endif
-        /*
-        if (mDMXChangeCB) {
-         mDMXChangeCB(cc);
-        }
-        */
+      #endif
+      } // new to-be-reported value
+      /*
+      if (mDMXChangeCB) {
+       mDMXChangeCB(cc);
       }
-    }
+      */
+    } // new value
   }
   mProcessingFrame = false;
 }
@@ -246,6 +248,7 @@ static void confirm_func(BuiltinFunctionContextPtr f)
   assert(dmxObj);
   // from this object, we might register events that filter by channelNo and possibly autoconfirm
   dmxObj->dmxHandler()->getDmxChannel(channelNo).processing = false; // enable sending another event
+  f->finish();
 }
 
 
