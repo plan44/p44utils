@@ -25,7 +25,7 @@
 #define ALWAYS_DEBUG 0
 // - set FOCUSLOGLEVEL to non-zero log level (usually, 5,6, or 7==LOG_DEBUG) to get focus (extensive logging) for this file
 //   Note: must be before including "logger.hpp" (or anything that includes "logger.hpp")
-#define FOCUSLOGLEVEL 6
+#define FOCUSLOGLEVEL 7
 
 #include "dmxhandler.hpp"
 
@@ -70,9 +70,9 @@ ErrorPtr DmxHandler::open(const string aDmxInputSpec)
   // clear the universe
   for(int i=0; i<cUniverseSize; i++) {
     mUniverse[i].current = 0;
+    mUniverse[i].monitor = 0;
+    mUniverse[i].processing = 0;
   }
-
-
   #if ENABLE_ARTNET
   if (aDmxInputSpec.find("artnet")==0) {
     // set up artnet
@@ -136,28 +136,39 @@ void DmxHandler::handleDmxFrame(const uint8_t *aData, size_t aLength)
     return;
   }
   mProcessingFrame = true;
-  for(uint16_t channelNo=0; channelNo<aLength; channelNo++) {
-    uint8_t newValue = aData[channelNo];
-    if (newValue!=mUniverse[channelNo].current) {
-      // report
-      mUniverse[channelNo].current = newValue;
-      DMXChannelChange cc;
-      cc.channelNo = channelNo;
-      cc.value = newValue;
-      #if ENABLE_DMX_SCRIPT_FUNCS
-      if (mRepresentingObj) {
-        mRepresentingObj->gotChannelChange(cc);
+  for(uint16_t channelIdx=0; channelIdx<aLength; channelIdx++) {
+    uint8_t newValue = aData[channelIdx];
+    DMXChannel& ch = mUniverse[channelIdx];
+    if (newValue!=ch.current) {
+      // has changed
+      if (ch.monitor && !ch.processing) {
+        // monitored -> report
+        ch.current = newValue;
+        ch.processing = true;
+        #if ENABLE_DMX_SCRIPT_FUNCS
+        if (mRepresentingObj) {
+          mRepresentingObj->gotChannelChange(channelIdx+1, ch); // channelNo is 1-based, index is 0-based!
+        }
+        #endif
+        /*
+        if (mDMXChangeCB) {
+         mDMXChangeCB(cc);
+        }
+        */
       }
-      #endif
-      /*
-      if (mDMXChangeCB) {
-       mDMXChangeCB(cc);
-      }
-      */
     }
   }
   mProcessingFrame = false;
 }
+
+
+DMXChannel& DmxHandler::getDmxChannel(uint16_t aChannelNo)
+{
+  if (aChannelNo>0) aChannelNo--; // make 0-based, DMX is traditionally 1-based.
+  if (aChannelNo>cUniverseSize) aChannelNo=cUniverseSize-1; // limit to max channel we do have
+  return mUniverse[aChannelNo];
+}
+
 
 
 #if ENABLE_DMX_SCRIPT_FUNCS
@@ -173,59 +184,74 @@ P44Script::DmxHandlerObjPtr DmxHandler::representingScriptObj()
 }
 
 
-void DmxHandlerObj::gotChannelChange(const DMXChannelChange &aChannel)
-{
-  if (hasSinks()) { // optimisation: prevent creating unused objects
-    ScriptObjPtr dmxevent = new DmxChannelChangeObj(aChannel);
-    sendEvent(dmxevent);
-  }
-}
-
-
-ScriptObjPtr DmxChannelChangeObj::actualValue() const
-{
-  // create the actual object value from the DMX channel data
-  // (lazily in order to have filters applied BEFORE creating an expensive object value nobody needs)
-  ScriptObjPtr o = new IntegerValue(mChannelChange.value);
-  return o;
-}
-
-
 class DmxChannelFilter : public EventFilter
 {
   uint16_t mChannelFilter;
+  bool mAutoConfirm;
 
 public:
-  DmxChannelFilter(uint16_t aChannelFilter) : mChannelFilter(aChannelFilter) {};
+  DmxChannelFilter(uint16_t aChannelFilter, bool aAutoConfirm) : mChannelFilter(aChannelFilter), mAutoConfirm(aAutoConfirm) {};
 
   virtual bool filteredEventObj(ScriptObjPtr &aEventObj) P44_OVERRIDE
   {
     if (!aEventObj) return false;
-    DmxChannelChangeObj* c = dynamic_cast<DmxChannelChangeObj*>(aEventObj.get());
+    DmxChannelObj* c = dynamic_cast<DmxChannelObj*>(aEventObj.get());
     assert(c);
-    if (mChannelFilter!=c->change().channelNo) return false; // wrong channel
+    if (mChannelFilter!=c->channelNo()) return false; // wrong channel
     // message passes filter, can be forwarded as-is
+    if (mAutoConfirm) c->processingDone();
     return true;
   }
 };
 
 
-// channel(dmxchannel)
-FUNC_ARG_DEFS(channel, { numeric });
+void DmxHandlerObj::gotChannelChange(uint16_t aChannelNo, DMXChannel &aChannel)
+{
+  if (hasSinks()) { // optimisation: prevent creating unused objects
+    // this object is only a event result, will not be used to register events, so autoconfirm is not important
+    ScriptObjPtr dmxevent = new DmxChannelObj(dmxHandler(), aChannelNo, false);
+    sendEvent(dmxevent);
+  }
+}
+
+
+void DmxChannelObj::registerForFilteredEvents(EventSink* aEventSink, intptr_t aRegId)
+{
+  if (mDmxHandler) {
+    DmxHandlerObjPtr dmx = mDmxHandler->representingScriptObj();
+    if (dmx) dmx->registerForEvents(aEventSink, aRegId, new DmxChannelFilter(mChannelNo, mAutoConfirm)); // always filter by channel no
+  }
+}
+
+
+// channel(dmxchannel [,autoconfirm])
+FUNC_ARG_DEFS(channel, { numeric }, { numeric|optionalarg });
 static void channel_func(BuiltinFunctionContextPtr f)
 {
   uint16_t channelNo = (uint16_t)f->arg(0)->intValue();
-  EventSource* es = dynamic_cast<EventSource*>(f->thisObj().get());
-  assert(es);
-  // TODO: also allow just querying the current value, so:
-  //   return a IntegerValue with types=numeric|freezable|keeporiginal
-  //   which carries the channel value instead of OneShotEventNullValue
-  f->finish(new OneShotEventNullValue(es, "dmx channel change", new DmxChannelFilter(channelNo)));
+  bool autoconfirm = f->arg(1)->boolValue();
+  DmxHandlerObj* dmxObj = dynamic_cast<DmxHandlerObj*>(f->thisObj().get());
+  assert(dmxObj);
+  // from this object, we might register events that filter by channelNo and possibly autoconfirm
+  dmxObj->dmxHandler()->getDmxChannel(channelNo).monitor = true; // quering a channel for the first time makes it monitored (forever)
+  f->finish(new DmxChannelObj(dmxObj->dmxHandler(), channelNo, autoconfirm));
+}
+
+// confirm(dmxchannel)
+FUNC_ARG_DEFS(confirm, { numeric });
+static void confirm_func(BuiltinFunctionContextPtr f)
+{
+  uint16_t channelNo = (uint16_t)f->arg(0)->intValue();
+  DmxHandlerObj* dmxObj = dynamic_cast<DmxHandlerObj*>(f->thisObj().get());
+  assert(dmxObj);
+  // from this object, we might register events that filter by channelNo and possibly autoconfirm
+  dmxObj->dmxHandler()->getDmxChannel(channelNo).processing = false; // enable sending another event
 }
 
 
 static const BuiltinMemberDescriptor dmxHandlerMembers[] = {
   FUNC_DEF_W_ARG(channel, executable|null),
+  FUNC_DEF_W_ARG(confirm, executable|null),
   BUILTINS_TERMINATOR
 };
 

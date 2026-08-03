@@ -57,13 +57,9 @@ namespace p44 {
 
   typedef struct {
     uint8_t current;
+    bool monitor;
+    bool processing;
   } DMXChannel;
-
-  typedef struct {
-    uint16_t channelNo;
-    uint8_t value;
-  } DMXChannelChange;
-
 
 
   class DmxHandler : public P44LoggingObj
@@ -104,6 +100,10 @@ namespace p44 {
     /// close the midi interface
     virtual void close();
 
+    /// @param aChannelNo DMX channel number, 1..cUniverseSize. 0 is mapped to 1, values>cUniverseSize as cUniverseSize
+    /// @return reference to live channel struct
+    DMXChannel& getDmxChannel(uint16_t aChannelNo);
+
     #if ENABLE_DMX_SCRIPT_FUNCS
     /// @return a singleton script object, representing this midi bus, which can be registered as named member in a scripting domain
     P44Script::DmxHandlerObjPtr representingScriptObj();
@@ -123,15 +123,23 @@ namespace p44 {
   namespace P44Script {
 
     /// represents a dmx channel change
-    class DmxChannelChangeObj : public ScriptObj
+    class DmxChannelObj : public IntegerValue
     {
-      typedef ScriptObj inherited;
-      DMXChannelChange mChannelChange;
+      typedef IntegerValue inherited;
+      uint16_t mChannelNo; // 1-based
+      DmxHandlerPtr mDmxHandler;
+      bool mAutoConfirm;
     public:
-      DmxChannelChangeObj(DMXChannelChange aChannelChange) : mChannelChange(aChannelChange) {};
-      virtual string getAnnotation() const P44_OVERRIDE { return "DMX channel change"; };
-      virtual ScriptObjPtr actualValue() const P44_OVERRIDE;
-      const DMXChannelChange& change() { return mChannelChange; };
+      DmxChannelObj(DmxHandlerPtr aDmxHandler, uint16_t aChannelNo, bool aAutoConfirm) :
+        inherited(aDmxHandler->getDmxChannel(aChannelNo).current), mDmxHandler(aDmxHandler), mChannelNo(aChannelNo), mAutoConfirm(aAutoConfirm) {};
+      virtual string getAnnotation() const P44_OVERRIDE { return "DMX channel"; };
+      virtual TypeInfo getTypeInfo() const P44_OVERRIDE { return numeric|freezable|keeporiginal; };
+      virtual bool isEventSource() const P44_OVERRIDE { return true; };
+      virtual void registerForFilteredEvents(EventSink* aEventSink, intptr_t aRegId = 0) P44_OVERRIDE;
+
+      const DmxHandlerPtr dmxHandler() { return mDmxHandler; };
+      const uint16_t channelNo() { return mChannelNo; };
+      void processingDone() { if (mDmxHandler) mDmxHandler->getDmxChannel(mChannelNo).processing = false; };
     };
 
 
@@ -150,7 +158,7 @@ namespace p44 {
       virtual P44LoggingObj* loggingContext() const P44_OVERRIDE { return mDmxHandler.get(); };
       DmxHandlerPtr dmxHandler() { return mDmxHandler; }
     private:
-      void gotChannelChange(const DMXChannelChange &aChange);
+      void gotChannelChange(uint16_t aChannelNo, DMXChannel &aChannel);
     };
 
     // get global builtins
