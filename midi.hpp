@@ -26,8 +26,8 @@
 #include "p44utils_main.hpp"
 
 #ifndef ENABLE_MIDI
-  // We assume that including this file in a build usually means that modbus support is actually needed.
-  // Still, ENABLE_MODBUS can be set to 0 to create build variants w/o removing the file from the project/makefile
+  // We assume that including this file in a build usually means that midi support is actually needed.
+  // Still, ENABLE_MIDI can be set to 0 to create build variants w/o removing the file from the project/makefile
   #define ENABLE_MIDI 1
 #endif
 
@@ -109,7 +109,7 @@ namespace p44 {
     class MidiBusObj;
     typedef boost::intrusive_ptr<MidiBusObj> MidiBusObjPtr;
   }
-  #endif
+  #endif // ENABLE_MIDI_SCRIPT_FUNCS
 
   class MidiBus : public P44LoggingObj
   {
