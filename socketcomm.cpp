@@ -579,6 +579,19 @@ ErrorPtr SocketComm::connectNextAddress()
           }
         }
         if (Error::isOK(err) && mServing) {
+          // Receiving UDP services such as Art-Net may legitimately share one well-known port with
+          // another local sender/receiver. On macOS/BSD in particular, SO_REUSEADDR alone is not enough
+          // when the other process bound the port first.
+          if (setsockopt(socketFD, SOL_SOCKET, SO_REUSEADDR, (char *)&one, (int)sizeof(one)) == -1) {
+            err = SysError::errNo("Cannot setsockopt(SO_REUSEADDR): ");
+          }
+          #ifdef SO_REUSEPORT
+          if (Error::isOK(err) && setsockopt(socketFD, SOL_SOCKET, SO_REUSEPORT, (char *)&one, (int)sizeof(one)) == -1) {
+            err = SysError::errNo("Cannot setsockopt(SO_REUSEPORT): ");
+          }
+          #endif
+        }
+        if (Error::isOK(err) && mServing) {
           // We want this socket to be ready to receive messages
           // Note: w/o the following initialisation, the socket remains unbound for now,
           //   but issuing the first send will bind it to a random port to have an identity
