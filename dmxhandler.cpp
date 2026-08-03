@@ -137,29 +137,28 @@ void DmxHandler::handleDmxFrame(const uint8_t *aData, size_t aLength)
     return;
   }
   mProcessingFrame = true;
+  bool needEvent = false;
   for(uint16_t channelIdx=0; channelIdx<aLength; channelIdx++) {
     uint8_t newValue = aData[channelIdx];
     DMXChannel& ch = mUniverse[channelIdx];
+    // just detect changes
     if (newValue!=ch.current) {
       ch.current = newValue; // update anyway
       // has changed since last reporting
       if (ch.monitor && !ch.processing && newValue!=ch.reported) {
         // monitored and changed since last report -> report
         ch.reported = newValue;
-        ch.processing = true;
-        #if ENABLE_DMX_SCRIPT_FUNCS
-        if (mRepresentingObj) {
-          mRepresentingObj->gotChannelChange(channelIdx+1, ch); // channelNo is 1-based, index is 0-based!
-        }
-      #endif
+        ch.processing = true; // "is new value" marker for event filter
+        needEvent = true; // at least one change
       } // new to-be-reported value
-      /*
-      if (mDMXChangeCB) {
-       mDMXChangeCB(cc);
-      }
-      */
     } // new value
   }
+  #if ENABLE_DMX_SCRIPT_FUNCS
+  if (needEvent && mRepresentingObj) {
+    // inform event sinks registered with dmxhandler, let *those* filter by channel changes
+    mRepresentingObj->gotChannelChanges();
+  }
+  #endif // ENABLE_DMX_SCRIPT_FUNCS
   mProcessingFrame = false;
 }
 
@@ -186,74 +185,104 @@ P44Script::DmxHandlerObjPtr DmxHandler::representingScriptObj()
 }
 
 
+ScriptObjPtr DmxChannelsObj::actualValue() const
+{
+  // create the actual object value from the dmx frame
+  // (lazily in order to have filters applied BEFORE creating an expensive object value nobody needs)
+  ArrayValuePtr a = new ArrayValue;
+  for (uint16_t cn = mStartChannel; cn>0 && cn<=mEndChannel; cn++) {
+    a->appendMember(new IntegerValue(dmxHandler()->getDmxChannel(cn).current));
+  }
+  return a;
+}
+
+
+
 class DmxChannelFilter : public EventFilter
 {
-  uint16_t mChannelFilter;
+  uint16_t mStartChannel;
+  uint16_t mEndChannel;
   bool mAutoConfirm;
 
 public:
-  DmxChannelFilter(uint16_t aChannelFilter, bool aAutoConfirm) : mChannelFilter(aChannelFilter), mAutoConfirm(aAutoConfirm) {};
+  DmxChannelFilter(uint16_t aStartChannel, uint16_t aEndChannel, bool aAutoConfirm) : mStartChannel(aStartChannel), mEndChannel(aEndChannel), mAutoConfirm(aAutoConfirm) {};
 
   virtual bool filteredEventObj(ScriptObjPtr &aEventObj) P44_OVERRIDE
   {
-    if (!aEventObj) return false;
-    DmxChannelObj* c = dynamic_cast<DmxChannelObj*>(aEventObj.get());
+    if (!aEventObj || mStartChannel<1 || mEndChannel<1 || mEndChannel<mStartChannel) return false;
+    DmxChannelsObj* c = dynamic_cast<DmxChannelsObj*>(aEventObj.get());
     assert(c);
-    if (mChannelFilter!=c->channelNo()) return false; // wrong channel
-    // message passes filter, can be forwarded as-is
-    if (mAutoConfirm) c->processingDone();
-    return true;
+    // the filter is the authority for what objects should contain -> set object parameters
+    c->setRange(mStartChannel, mEndChannel, mAutoConfirm);
+    // check if any of the covered channels has a change
+    bool anyChanged = false;
+    for (uint16_t cn = mStartChannel; cn>0 && cn<=mEndChannel; cn++) {
+      DMXChannel& ch = c->dmxHandler()->getDmxChannel(cn);
+      if (ch.processing) {
+        anyChanged = true;
+        if (mAutoConfirm) ch.processing = false;
+        break;
+      }
+    }
+    return anyChanged; // at least one of my channels has changed
   }
 };
 
 
-void DmxHandlerObj::gotChannelChange(uint16_t aChannelNo, DMXChannel &aChannel)
+void DmxHandlerObj::gotChannelChanges()
 {
   if (hasSinks()) { // optimisation: prevent creating unused objects
-    // this object is only a event result, will not be used to register events, so autoconfirm is not important
-    ScriptObjPtr dmxevent = new DmxChannelObj(dmxHandler(), aChannelNo, false);
+    // this object is created by an event and will get its channel range from the filter
+    ScriptObjPtr dmxevent = new DmxChannelsObj(dmxHandler());
     sendEvent(dmxevent);
   }
 }
 
 
-void DmxChannelObj::registerForFilteredEvents(EventSink* aEventSink, intptr_t aRegId)
+void DmxChannelsObj::registerForFilteredEvents(EventSink* aEventSink, intptr_t aRegId)
 {
   if (mDmxHandler) {
     DmxHandlerObjPtr dmx = mDmxHandler->representingScriptObj();
-    if (dmx) dmx->registerForEvents(aEventSink, aRegId, new DmxChannelFilter(mChannelNo, mAutoConfirm)); // always filter by channel no
+    if (dmx) dmx->registerForEvents(aEventSink, aRegId, new DmxChannelFilter(mStartChannel, mEndChannel, mAutoConfirm)); // obj that registers is NOT an event and does have range set
   }
 }
 
 
-// channel(dmxchannel [,autoconfirm])
-FUNC_ARG_DEFS(channel, { numeric }, { numeric|optionalarg });
-static void channel_func(BuiltinFunctionContextPtr f)
+// channels(startchannel, endchannel, [,autoconfirm])
+FUNC_ARG_DEFS(channels, { numeric }, { numeric }, { numeric|optionalarg });
+static void channels_func(BuiltinFunctionContextPtr f)
 {
-  uint16_t channelNo = (uint16_t)f->arg(0)->intValue();
-  bool autoconfirm = f->arg(1)->boolValue();
+  uint16_t startChannel = (uint16_t)f->arg(0)->intValue();
+  uint16_t endChannel = (uint16_t)f->arg(1)->intValue();
+  bool autoconfirm = f->arg(2)->boolValue();
   DmxHandlerObj* dmxObj = dynamic_cast<DmxHandlerObj*>(f->thisObj().get());
   assert(dmxObj);
-  // from this object, we might register events that filter by channelNo and possibly autoconfirm
-  dmxObj->dmxHandler()->getDmxChannel(channelNo).monitor = true; // quering a channel for the first time makes it monitored (forever)
-  f->finish(new DmxChannelObj(dmxObj->dmxHandler(), channelNo, autoconfirm));
+  for (uint16_t cn = startChannel; cn>0 && cn<=endChannel; cn++) {
+    dmxObj->dmxHandler()->getDmxChannel(cn).monitor = true; // quering a channel for the first time makes it monitored (forever)
+  }
+  DmxChannelsObj* co = new DmxChannelsObj(dmxObj->dmxHandler());
+  co->setRange(startChannel, endChannel, autoconfirm);
+  f->finish(co);
 }
 
-// confirm(dmxchannel)
-FUNC_ARG_DEFS(confirm, { numeric });
+
+// confirm(startchannel, endchannel)
+FUNC_ARG_DEFS(confirm, { numeric }, { numeric });
 static void confirm_func(BuiltinFunctionContextPtr f)
 {
-  uint16_t channelNo = (uint16_t)f->arg(0)->intValue();
+  uint16_t startChannel = (uint16_t)f->arg(0)->intValue();
+  uint16_t endChannel = (uint16_t)f->arg(1)->intValue();
   DmxHandlerObj* dmxObj = dynamic_cast<DmxHandlerObj*>(f->thisObj().get());
   assert(dmxObj);
-  // from this object, we might register events that filter by channelNo and possibly autoconfirm
-  dmxObj->dmxHandler()->getDmxChannel(channelNo).processing = false; // enable sending another event
+  for (uint16_t cn = startChannel; cn>0 && cn<=endChannel; cn++) {
+    dmxObj->dmxHandler()->getDmxChannel(cn).processing = false; // enable sending another event
+  }
   f->finish();
 }
 
 
 static const BuiltinMemberDescriptor dmxHandlerMembers[] = {
-  FUNC_DEF_W_ARG(channel, executable|null),
+  FUNC_DEF_W_ARG(channels, executable|null),
   FUNC_DEF_W_ARG(confirm, executable|null),
   BUILTINS_TERMINATOR
 };

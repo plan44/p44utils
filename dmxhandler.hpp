@@ -123,24 +123,23 @@ namespace p44 {
   #if ENABLE_DMX_SCRIPT_FUNCS
   namespace P44Script {
 
-    /// represents a dmx channel change
-    class DmxChannelObj : public IntegerValue
+    /// represents a set of dmx channels
+    class DmxChannelsObj : public ScriptObj
     {
       typedef IntegerValue inherited;
-      uint16_t mChannelNo; // 1-based
+      uint16_t mStartChannel; // 1-based
+      uint16_t mEndChannel; // 1-based
       DmxHandlerPtr mDmxHandler;
       bool mAutoConfirm;
     public:
-      DmxChannelObj(DmxHandlerPtr aDmxHandler, uint16_t aChannelNo, bool aAutoConfirm) :
-        inherited(aDmxHandler->getDmxChannel(aChannelNo).current), mDmxHandler(aDmxHandler), mChannelNo(aChannelNo), mAutoConfirm(aAutoConfirm) {};
-      virtual string getAnnotation() const P44_OVERRIDE { return "DMX channel"; };
+      DmxChannelsObj(DmxHandlerPtr aDmxHandler) : mDmxHandler(aDmxHandler), mStartChannel(0), mEndChannel(0), mAutoConfirm(false) {};
+      void setRange(uint16_t aStartChannel, uint16_t aEndChannel, bool aAutoConfirm) { mStartChannel = aStartChannel; mEndChannel = aEndChannel; mAutoConfirm = aAutoConfirm; }
+      virtual string getAnnotation() const P44_OVERRIDE { return string_format("DMX channels %hd-%hd",mStartChannel, mEndChannel); };
       virtual TypeInfo getTypeInfo() const P44_OVERRIDE { return numeric|freezable|keeporiginal; };
       virtual bool isEventSource() const P44_OVERRIDE { return true; };
+      virtual ScriptObjPtr actualValue() const P44_OVERRIDE;
       virtual void registerForFilteredEvents(EventSink* aEventSink, intptr_t aRegId = 0) P44_OVERRIDE;
-
-      const DmxHandlerPtr dmxHandler() { return mDmxHandler; };
-      const uint16_t channelNo() { return mChannelNo; };
-      void processingDone() { if (mDmxHandler) mDmxHandler->getDmxChannel(mChannelNo).processing = false; };
+      DmxHandlerPtr dmxHandler() const { return mDmxHandler; };
     };
 
 
@@ -159,7 +158,7 @@ namespace p44 {
       virtual P44LoggingObj* loggingContext() const P44_OVERRIDE { return mDmxHandler.get(); };
       DmxHandlerPtr dmxHandler() { return mDmxHandler; }
     private:
-      void gotChannelChange(uint16_t aChannelNo, DMXChannel &aChannel);
+      void gotChannelChanges();
     };
 
     // get global builtins
