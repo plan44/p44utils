@@ -25,7 +25,7 @@
 #define ALWAYS_DEBUG 0
 // - set FOCUSLOGLEVEL to non-zero log level (usually, 5,6, or 7==LOG_DEBUG) to get focus (extensive logging) for this file
 //   Note: must be before including "logger.hpp" (or anything that includes "logger.hpp")
-#define FOCUSLOGLEVEL 0
+#define FOCUSLOGLEVEL 7
 
 #include "artnetcomm.hpp"
 
@@ -33,6 +33,11 @@
 
 #include <algorithm>
 #include <arpa/inet.h>
+#ifndef ESP_PLATFORM
+  #include <ifaddrs.h>
+  #include <net/if.h>
+#endif
+#include <netinet/in.h>
 
 #ifdef ESP_PLATFORM
   #warning "Art-Net receiver is Linux-first; TODO: review ESP32 UDP binding and advertised address handling before enabling on ESP32"
@@ -198,6 +203,42 @@ static bool parseIPv4(const string &aAddress, uint8_t *aBytes)
 }
 
 
+static bool isIPv4Loopback(const string &aAddress)
+{
+  uint8_t bytes[4];
+  return parseIPv4(aAddress, bytes) && bytes[0]==127;
+}
+
+
+static string localIPv4ForPeer(const string &aPeerAddress)
+{
+  string localAddress;
+  if (aPeerAddress.empty()) return localAddress;
+  struct sockaddr_in peerAddr;
+  memset(&peerAddr, 0, sizeof(peerAddr));
+  peerAddr.sin_family = AF_INET;
+  peerAddr.sin_port = htons(defaultPort);
+  if (inet_pton(AF_INET, aPeerAddress.c_str(), &peerAddr.sin_addr)!=1) {
+    return localAddress;
+  }
+  int s = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+  if (s<0) return localAddress;
+  if (connect(s, (struct sockaddr *)&peerAddr, sizeof(peerAddr))==0) {
+    struct sockaddr_in localAddr;
+    socklen_t localAddrLen = sizeof(localAddr);
+    memset(&localAddr, 0, sizeof(localAddr));
+    if (getsockname(s, (struct sockaddr *)&localAddr, &localAddrLen)==0) {
+      char addrBuf[INET_ADDRSTRLEN];
+      if (inet_ntop(AF_INET, &localAddr.sin_addr, addrBuf, sizeof(addrBuf))) {
+        localAddress = addrBuf;
+      }
+    }
+  }
+  close(s);
+  return localAddress;
+}
+
+
 static bool parseMac(const string &aAddress, uint8_t *aBytes)
 {
   unsigned int b[6];
@@ -256,6 +297,85 @@ bool ArtNet::encodeArtPollReply(const ArtNetAdvertisementInfo &aInfo, vector<uin
 }
 
 
+// MARK: - sACN/E1.31 codec helpers
+
+uint16_t Sacn::sacnUniverseFromPortAddress(uint16_t aPortAddress)
+{
+  return aPortAddress+1;
+}
+
+
+void Sacn::sacnMulticastAddress(uint16_t aUniverse, string &aAddress)
+{
+  aAddress = string_format("239.255.%u.%u", (aUniverse>>8) & 0xFF, aUniverse & 0xFF);
+}
+
+
+static uint16_t sacnFlagsAndLength(const uint8_t *aBytes)
+{
+  return readBE16(aBytes) & 0x0FFF;
+}
+
+
+bool Sacn::decodeSacnDmx(const uint8_t *aPacket, size_t aPacketSize, SacnDmxView &aDmx)
+{
+  static const uint8_t acnPacketId[12] = { 'A', 'S', 'C', '-', 'E', '1', '.', '1', '7', 0, 0, 0 };
+  if (!aPacket || aPacketSize<126) {
+    return false;
+  }
+  if (readBE16(aPacket)!=0x0010 || readBE16(aPacket+2)!=0x0000) {
+    return false;
+  }
+  if (memcmp(aPacket+4, acnPacketId, sizeof(acnPacketId))!=0) {
+    return false;
+  }
+  if (aPacketSize<16+sacnFlagsAndLength(aPacket+16)) {
+    return false;
+  }
+  if (readBE16(aPacket+18)!=0 || readBE16(aPacket+20)!=0x0004) { // VECTOR_ROOT_E131_DATA
+    return false;
+  }
+  if (aPacketSize<38+sacnFlagsAndLength(aPacket+38)) {
+    return false;
+  }
+  if (readBE16(aPacket+40)!=0 || readBE16(aPacket+42)!=0x0002) { // VECTOR_E131_DATA_PACKET
+    return false;
+  }
+  if (aPacket[108]>200) {
+    return false;
+  }
+  uint16_t universe = readBE16(aPacket+113);
+  if (universe==0 || universe>Sacn::maxUniverse) {
+    return false;
+  }
+  if (aPacketSize<115+sacnFlagsAndLength(aPacket+115)) {
+    return false;
+  }
+  if (aPacket[117]!=0x02 || aPacket[118]!=0xA1) { // VECTOR_DMP_SET_PROPERTY, 8-bit data
+    return false;
+  }
+  if (readBE16(aPacket+119)!=0 || readBE16(aPacket+121)!=1) {
+    return false;
+  }
+  size_t propertyValueCount = readBE16(aPacket+123);
+  if (propertyValueCount<2 || propertyValueCount>Sacn::maxDmxSlots+1) {
+    return false;
+  }
+  if (aPacketSize<125+propertyValueCount) {
+    return false;
+  }
+  if (aPacket[125]!=0) { // only DMX512-A null start code is handled
+    return false;
+  }
+  aDmx.universe = universe;
+  aDmx.priority = aPacket[108];
+  aDmx.sequence = aPacket[111];
+  aDmx.data = aPacket+126;
+  aDmx.length = propertyValueCount-1;
+  return true;
+}
+
+
 // MARK: - ArtNetReceiver
 
 ArtNetReceiver::ArtNetReceiver(MainLoop &aMainLoop) :
@@ -285,6 +405,9 @@ void ArtNetReceiver::setConnectionParams(uint16_t aPortAddress, const char *aBin
   mBindAddress = nonNullCStr(aBindAddress);
   mInterfaceName = nonNullCStr(aInterfaceName);
   mSourceTimeout = aSourceTimeout;
+  if (!mBindAddress.empty() && mBindAddress!="0.0.0.0" && mBindAddress!="*" && mAdvertisementInfo.ipAddress.empty()) {
+    mAdvertisementInfo.ipAddress = mBindAddress;
+  }
 }
 
 
@@ -313,6 +436,10 @@ ErrorPtr ArtNetReceiver::startArtNet()
   ErrorPtr err = mSocket->initiateConnection();
   if (Error::isOK(err)) {
     OLOG(LOG_INFO, "Art-Net receiver starting on UDP port 6454, Port-Address %u", mPortAddress);
+    ErrorPtr sacnErr = startSacn();
+    if (Error::notOK(sacnErr)) {
+      OLOG(LOG_WARNING, "sACN receiver not started: %s", sacnErr->text());
+    }
   }
   return err;
 }
@@ -322,6 +449,7 @@ void ArtNetReceiver::stopArtNet()
 {
   mSourceTimeoutTicket.cancel();
   mHasActiveSource = false;
+  stopSacn();
   if (mSocket) {
     mSocket->clearCallbacks();
     mSocket->closeConnection();
@@ -341,6 +469,135 @@ void ArtNetReceiver::socketStatusHandler(ErrorPtr aError)
   if (Error::notOK(aError)) {
     OLOG(LOG_WARNING, "Art-Net socket status: %s", aError->text());
   }
+}
+
+
+void ArtNetReceiver::sacnSocketStatusHandler(ErrorPtr aError)
+{
+  if (Error::notOK(aError)) {
+    OLOG(LOG_WARNING, "sACN socket status: %s", aError->text());
+  }
+}
+
+
+ErrorPtr ArtNetReceiver::startSacn()
+{
+  uint16_t universe = Sacn::sacnUniverseFromPortAddress(mPortAddress);
+  if (universe==0 || universe>Sacn::maxUniverse) {
+    return TextError::err("sACN universe %u out of range", universe);
+  }
+  mSacnSocket = new SocketComm(mMainLoop);
+  mSacnSocket->setConnectionParams(mBindAddress.empty() ? NULL : mBindAddress.c_str(), "5568", SOCK_DGRAM, AF_INET, IPPROTO_UDP, mInterfaceName.empty() ? NULL : mInterfaceName.c_str());
+  mSacnSocket->setAllowNonlocalConnections(true);
+  mSacnSocket->setDatagramOptions(true, true);
+  mSacnSocket->setReceiveHandler(boost::bind(&ArtNetReceiver::sacnReceiveHandler, this, _1));
+  mSacnSocket->setConnectionStatusHandler(boost::bind(&ArtNetReceiver::sacnSocketStatusHandler, this, _2));
+  ErrorPtr err = mSacnSocket->initiateConnection();
+  if (Error::isOK(err)) {
+    err = joinSacnMulticast();
+  }
+  if (Error::isOK(err)) {
+    string group;
+    Sacn::sacnMulticastAddress(universe, group);
+    OLOG(LOG_INFO, "sACN receiver starting on UDP port 5568, universe %u, multicast %s", universe, group.c_str());
+  }
+  return err;
+}
+
+
+void ArtNetReceiver::stopSacn()
+{
+  if (mSacnSocket) {
+    mSacnSocket->clearCallbacks();
+    mSacnSocket->closeConnection();
+    mSacnSocket = NULL;
+  }
+}
+
+
+ErrorPtr ArtNetReceiver::joinSacnMulticast()
+{
+  if (!mSacnSocket || mSacnSocket->getFd()<0) {
+    return TextError::err("sACN socket is not ready");
+  }
+  string group;
+  Sacn::sacnMulticastAddress(Sacn::sacnUniverseFromPortAddress(mPortAddress), group);
+  struct ip_mreq mreq;
+  memset(&mreq, 0, sizeof(mreq));
+  if (inet_pton(AF_INET, group.c_str(), &mreq.imr_multiaddr)!=1) {
+    return TextError::err("invalid sACN multicast address %s", group.c_str());
+  }
+  if (!mBindAddress.empty() && mBindAddress!="0.0.0.0" && mBindAddress!="*") {
+    if (inet_pton(AF_INET, mBindAddress.c_str(), &mreq.imr_interface)!=1) {
+      return TextError::err("invalid sACN interface address %s", mBindAddress.c_str());
+    }
+    if (setsockopt(mSacnSocket->getFd(), IPPROTO_IP, IP_ADD_MEMBERSHIP, (char *)&mreq, (int)sizeof(mreq))<0) {
+      return SysError::errNo("Cannot setsockopt(IP_ADD_MEMBERSHIP): ");
+    }
+    return ErrorPtr();
+  }
+  #ifdef ESP_PLATFORM
+  #warning "%%% ESP32 sACN multicast interface enumeration missing"
+  // TODO: join multicast on all relevant ESP32 network interfaces.
+  mreq.imr_interface.s_addr = htonl(INADDR_ANY);
+  if (setsockopt(mSacnSocket->getFd(), IPPROTO_IP, IP_ADD_MEMBERSHIP, (char *)&mreq, (int)sizeof(mreq))<0) {
+    return SysError::errNo("Cannot setsockopt(IP_ADD_MEMBERSHIP): ");
+  }
+  return ErrorPtr();
+  #else
+  struct ifaddrs *ifAddrs = NULL;
+  if (getifaddrs(&ifAddrs)!=0) {
+    return SysError::errNo("Cannot getifaddrs() for sACN multicast join: ");
+  }
+  bool joined = false;
+  ErrorPtr lastErr;
+  for (struct ifaddrs *ifa = ifAddrs; ifa; ifa = ifa->ifa_next) {
+    if (!ifa->ifa_addr || ifa->ifa_addr->sa_family!=AF_INET) {
+      continue;
+    }
+    if ((ifa->ifa_flags & IFF_UP)==0 || (ifa->ifa_flags & IFF_MULTICAST)==0) {
+      continue;
+    }
+    if (!mInterfaceName.empty() && mInterfaceName!=ifa->ifa_name) {
+      continue;
+    }
+    struct sockaddr_in *sinP = (struct sockaddr_in *)ifa->ifa_addr;
+    #ifdef __linux__
+    struct ip_mreqn mreqn;
+    memset(&mreqn, 0, sizeof(mreqn));
+    mreqn.imr_multiaddr = mreq.imr_multiaddr;
+    mreqn.imr_address = sinP->sin_addr;
+    mreqn.imr_ifindex = if_nametoindex(ifa->ifa_name);
+    if (setsockopt(mSacnSocket->getFd(), IPPROTO_IP, IP_ADD_MEMBERSHIP, (char *)&mreqn, (int)sizeof(mreqn))<0) {
+      lastErr = SysError::errNo("Cannot setsockopt(IP_ADD_MEMBERSHIP): ");
+      OLOG(LOG_WARNING, "cannot join sACN multicast %s on %s: %s", group.c_str(), ifa->ifa_name, lastErr->text());
+      continue;
+    }
+    #else
+    mreq.imr_interface = sinP->sin_addr;
+    if (setsockopt(mSacnSocket->getFd(), IPPROTO_IP, IP_ADD_MEMBERSHIP, (char *)&mreq, (int)sizeof(mreq))<0) {
+      lastErr = SysError::errNo("Cannot setsockopt(IP_ADD_MEMBERSHIP): ");
+      OLOG(LOG_WARNING, "cannot join sACN multicast %s on %s: %s", group.c_str(), ifa->ifa_name, lastErr->text());
+      continue;
+    }
+    #endif
+    char addrBuf[INET_ADDRSTRLEN];
+    const char *addrP = inet_ntop(AF_INET, &sinP->sin_addr, addrBuf, sizeof(addrBuf));
+    OLOG(LOG_INFO, "joined sACN multicast %s on %s (%s)", group.c_str(), ifa->ifa_name, addrP ? addrP : "?");
+    joined = true;
+  }
+  freeifaddrs(ifAddrs);
+  if (!joined) {
+    if (Error::notOK(lastErr)) {
+      return lastErr;
+    }
+    if (!mInterfaceName.empty()) {
+      return TextError::err("no IPv4 multicast-capable interface named %s", mInterfaceName.c_str());
+    }
+    return TextError::err("no IPv4 multicast-capable interface found for sACN");
+  }
+  return ErrorPtr();
+  #endif
 }
 
 
@@ -364,13 +621,41 @@ void ArtNetReceiver::receiveHandler(ErrorPtr aError)
     string senderAddress, senderPort;
     if (!mSocket->getDatagramOrigin(senderAddress, senderPort)) {
       senderAddress.clear();
+      senderPort.clear();
     }
-    processPacket(buffer, received, senderAddress);
+    processPacket(buffer, received, senderAddress, senderPort);
   }
 }
 
 
-void ArtNetReceiver::processPacket(const uint8_t *aData, size_t aSize, const string &aSenderAddress)
+void ArtNetReceiver::sacnReceiveHandler(ErrorPtr aError)
+{
+  FOCUSOLOG("received sacn Packet with status: %s", Error::text(aError));
+  if (Error::notOK(aError)) {
+    OLOG(LOG_WARNING, "sACN receive error: %s", aError->text());
+    return;
+  }
+  uint8_t buffer[1024];
+  ErrorPtr err;
+  while (mSacnSocket) {
+    size_t received = mSacnSocket->receiveBytes(sizeof(buffer), buffer, err);
+    if (Error::notOK(err)) {
+      OLOG(LOG_WARNING, "sACN receive failed: %s", err->text());
+      break;
+    }
+    if (received==0) {
+      break;
+    }
+    string senderAddress, senderPort;
+    if (!mSacnSocket->getDatagramOrigin(senderAddress, senderPort)) {
+      senderAddress.clear();
+    }
+    processSacnPacket(buffer, received, senderAddress);
+  }
+}
+
+
+void ArtNetReceiver::processPacket(const uint8_t *aData, size_t aSize, const string &aSenderAddress, const string &aSenderPort)
 {
   uint16_t opCode;
   if (!decodeOpCode(aData, aSize, opCode)) {
@@ -380,7 +665,7 @@ void ArtNetReceiver::processPacket(const uint8_t *aData, size_t aSize, const str
   if (opCode==OpPoll) {
     ArtPollView poll;
     if (decodeArtPoll(aData, aSize, poll)) {
-      handlePoll(poll, aSenderAddress);
+      handlePoll(poll, aSenderAddress, aSenderPort);
     }
     else {
       mMalformedPackets++;
@@ -398,19 +683,51 @@ void ArtNetReceiver::processPacket(const uint8_t *aData, size_t aSize, const str
 }
 
 
-void ArtNetReceiver::handlePoll(const ArtPollView &aPoll, const string &aSenderAddress)
+void ArtNetReceiver::processSacnPacket(const uint8_t *aData, size_t aSize, const string &aSenderAddress)
 {
+  Sacn::SacnDmxView dmx;
+  if (!Sacn::decodeSacnDmx(aData, aSize, dmx)) {
+    mMalformedPackets++;
+    return;
+  }
+  if (dmx.universe!=Sacn::sacnUniverseFromPortAddress(mPortAddress)) {
+    return;
+  }
+  handleDmxData(mPortAddress, dmx.sequence, dmx.data, dmx.length, aSenderAddress);
+}
+
+
+void ArtNetReceiver::handlePoll(const ArtPollView &aPoll, const string &aSenderAddress, const string &aSenderPort)
+{
+  FOCUSOLOG("received ArtPoll from %s:%s", aSenderAddress.c_str(), aSenderPort.c_str());
   (void)aPoll;
+  ArtNetAdvertisementInfo info = mAdvertisementInfo;
+  if (info.ipAddress.empty() && isIPv4Loopback(aSenderAddress)) {
+    info.ipAddress = aSenderAddress;
+  }
+  else if (info.ipAddress.empty()) {
+    info.ipAddress = localIPv4ForPeer(aSenderAddress);
+  }
   vector<uint8_t> reply;
-  if (!encodeArtPollReply(mAdvertisementInfo, reply)) {
+  if (!encodeArtPollReply(info, reply)) {
     OLOG(LOG_WARNING, "cannot encode ArtPollReply, advertisement info is invalid");
     return;
   }
   ErrorPtr err;
   const char *destination = aSenderAddress.empty() ? "255.255.255.255" : aSenderAddress.c_str();
+  if (info.ipAddress.empty()) {
+    OLOG(LOG_WARNING, "ArtPollReply has no advertised IPv4 address; call setAdvertisementInfo() or bind to a specific IPv4 address for discovery");
+  }
   mSocket->transmitDatagramTo(destination, "6454", reply.size(), &reply[0], err);
   if (Error::notOK(err)) {
     OLOG(LOG_WARNING, "cannot send ArtPollReply to %s: %s", destination, err->text());
+  }
+  if (!aSenderPort.empty() && aSenderPort!="6454") {
+    err.reset();
+    mSocket->transmitDatagramTo(destination, aSenderPort.c_str(), reply.size(), &reply[0], err);
+    if (Error::notOK(err)) {
+      OLOG(LOG_WARNING, "cannot send ArtPollReply to %s:%s: %s", destination, aSenderPort.c_str(), err->text());
+    }
   }
 }
 
@@ -420,6 +737,12 @@ void ArtNetReceiver::handleDmx(const ArtDmxView &aDmx, const string &aSenderAddr
   if (aDmx.portAddress!=mPortAddress) {
     return;
   }
+  handleDmxData(aDmx.portAddress, aDmx.sequence, aDmx.data, aDmx.length, aSenderAddress);
+}
+
+
+void ArtNetReceiver::handleDmxData(uint16_t aPortAddress, uint8_t aSequence, const uint8_t *aData, size_t aLength, const string &aSenderAddress)
+{
   MLMicroSeconds now = MainLoop::now();
   if (mHasActiveSource && aSenderAddress!=mActiveSource.address) {
     if (mSourceTimeout>0 && now-mActiveSource.receivedAt>=mSourceTimeout) {
@@ -435,13 +758,13 @@ void ArtNetReceiver::handleDmx(const ArtDmxView &aDmx, const string &aSenderAddr
     mHasActiveSource = true;
   }
   mActiveSource.address = aSenderAddress;
-  mActiveSource.sequence = aDmx.sequence;
+  mActiveSource.sequence = aSequence;
   mActiveSource.receivedAt = now;
-  mLastSequence = aDmx.sequence;
+  mLastSequence = aSequence;
   mReceivedFrames++;
   restartSourceTimeout();
   if (mDmxHandler) {
-    mDmxHandler(aDmx.portAddress, aDmx.data, aDmx.length, mActiveSource);
+    mDmxHandler(aPortAddress, aData, aLength, mActiveSource);
   }
 }
 

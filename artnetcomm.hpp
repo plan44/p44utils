@@ -103,6 +103,26 @@ namespace p44 {
 
   }
 
+  namespace Sacn {
+
+    static const uint16_t defaultPort = 5568;
+    static const uint16_t maxUniverse = 63999;
+    static const size_t maxDmxSlots = 512;
+
+    typedef struct {
+      uint16_t universe;
+      uint8_t priority;
+      uint8_t sequence;
+      const uint8_t *data;
+      size_t length;
+    } SacnDmxView;
+
+    uint16_t sacnUniverseFromPortAddress(uint16_t aPortAddress);
+    void sacnMulticastAddress(uint16_t aUniverse, string &aAddress);
+    bool decodeSacnDmx(const uint8_t *aPacket, size_t aPacketSize, SacnDmxView &aDmx);
+
+  }
+
 
   typedef struct {
     string address;
@@ -117,6 +137,7 @@ namespace p44 {
     typedef P44LoggingObj inherited;
 
     SocketCommPtr mSocket;
+    SocketCommPtr mSacnSocket;
     MainLoop &mMainLoop;
     ArtNetDmxCB mDmxHandler;
     ArtNet::ArtNetAdvertisementInfo mAdvertisementInfo;
@@ -155,9 +176,16 @@ namespace p44 {
   private:
     void socketStatusHandler(ErrorPtr aError);
     void receiveHandler(ErrorPtr aError);
-    void processPacket(const uint8_t *aData, size_t aSize, const string &aSenderAddress);
-    void handlePoll(const ArtNet::ArtPollView &aPoll, const string &aSenderAddress);
+    void sacnSocketStatusHandler(ErrorPtr aError);
+    void sacnReceiveHandler(ErrorPtr aError);
+    ErrorPtr startSacn();
+    void stopSacn();
+    ErrorPtr joinSacnMulticast();
+    void processPacket(const uint8_t *aData, size_t aSize, const string &aSenderAddress, const string &aSenderPort);
+    void processSacnPacket(const uint8_t *aData, size_t aSize, const string &aSenderAddress);
+    void handlePoll(const ArtNet::ArtPollView &aPoll, const string &aSenderAddress, const string &aSenderPort);
     void handleDmx(const ArtNet::ArtDmxView &aDmx, const string &aSenderAddress);
+    void handleDmxData(uint16_t aPortAddress, uint8_t aSequence, const uint8_t *aData, size_t aLength, const string &aSenderAddress);
     void restartSourceTimeout();
     void sourceTimedOut();
   };

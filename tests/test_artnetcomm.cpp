@@ -58,6 +58,36 @@ static vector<uint8_t> artPollPacket(uint8_t aTalkToMe)
 }
 
 
+static vector<uint8_t> sacnPacket(uint16_t aUniverse, size_t aLength)
+{
+  vector<uint8_t> packet(126+aLength, 0);
+  packet[0] = 0x00;
+  packet[1] = 0x10;
+  memcpy(&packet[4], "ASC-E1.17", 9);
+  packet[13] = 0;
+  packet[14] = 0;
+  packet[15] = 0;
+  writeBE16(&packet[16], 0x7000 | (packet.size()-16));
+  packet[21] = 0x04; // VECTOR_ROOT_E131_DATA
+  writeBE16(&packet[38], 0x7000 | (packet.size()-38));
+  packet[43] = 0x02; // VECTOR_E131_DATA_PACKET
+  memcpy(&packet[44], "lux", 3);
+  packet[108] = 100;
+  packet[111] = 9;
+  writeBE16(&packet[113], aUniverse);
+  writeBE16(&packet[115], 0x7000 | (packet.size()-115));
+  packet[117] = 0x02;
+  packet[118] = 0xA1;
+  writeBE16(&packet[121], 1);
+  writeBE16(&packet[123], aLength+1);
+  packet[125] = 0;
+  for (size_t i = 0; i<aLength; i++) {
+    packet[126+i] = (i+1) & 0xFF;
+  }
+  return packet;
+}
+
+
 TEST_CASE("Art-Net endian and universe helpers", "[artnet]")
 {
   uint8_t b[2];
@@ -142,6 +172,53 @@ TEST_CASE("ArtPoll decoder validates protocol and talk-to-me", "[artnet]")
 
   packet[11] = protocolVersion-1;
   REQUIRE_FALSE(decodeArtPoll(&packet[0], packet.size(), poll));
+}
+
+
+TEST_CASE("sACN helpers map Art-Net Port-Address to multicast universe", "[artnet][sacn]")
+{
+  string group;
+  REQUIRE(Sacn::sacnUniverseFromPortAddress(0)==1);
+  REQUIRE(Sacn::sacnUniverseFromPortAddress(299)==300);
+  Sacn::sacnMulticastAddress(1, group);
+  REQUIRE(group=="239.255.0.1");
+  Sacn::sacnMulticastAddress(300, group);
+  REQUIRE(group=="239.255.1.44");
+}
+
+
+TEST_CASE("sACN decoder validates Lux-shaped E1.31 data packets", "[artnet][sacn]")
+{
+  vector<uint8_t> packet = sacnPacket(1, 512);
+  Sacn::SacnDmxView dmx;
+  REQUIRE(Sacn::decodeSacnDmx(&packet[0], packet.size(), dmx));
+  REQUIRE(dmx.universe==1);
+  REQUIRE(dmx.priority==100);
+  REQUIRE(dmx.sequence==9);
+  REQUIRE(dmx.length==512);
+  REQUIRE(dmx.data[0]==1);
+  REQUIRE(dmx.data[255]==0);
+  REQUIRE(dmx.data[511]==0);
+
+  vector<uint8_t> minimum = sacnPacket(300, 1);
+  REQUIRE(Sacn::decodeSacnDmx(&minimum[0], minimum.size(), dmx));
+  REQUIRE(dmx.universe==300);
+  REQUIRE(dmx.length==1);
+
+  vector<uint8_t> truncated = packet;
+  truncated.resize(packet.size()-1);
+  REQUIRE_FALSE(Sacn::decodeSacnDmx(&truncated[0], truncated.size(), dmx));
+
+  vector<uint8_t> badStartCode = packet;
+  badStartCode[125] = 0xCC;
+  REQUIRE_FALSE(Sacn::decodeSacnDmx(&badStartCode[0], badStartCode.size(), dmx));
+
+  vector<uint8_t> badUniverse = sacnPacket(0, 1);
+  REQUIRE_FALSE(Sacn::decodeSacnDmx(&badUniverse[0], badUniverse.size(), dmx));
+
+  vector<uint8_t> badId = packet;
+  badId[4] = 'X';
+  REQUIRE_FALSE(Sacn::decodeSacnDmx(&badId[0], badId.size(), dmx));
 }
 
 
