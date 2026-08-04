@@ -3,9 +3,9 @@ p44utils
 
 *[[if you want to support p44utils development, please consider to sponsor plan44]](https://github.com/sponsors/plan44)*
 
-*p44utils* is a set of free (opensource, GPLv3) C++ utility classes and functions for creating single-threaded, mainloop event based applications, mainly targeted at linux daemons for automation.
+*p44utils* is a set of free (opensource, GPLv3) C++ utility classes and functions for creating single-threaded, mainloop event based applications, mainly targeted at linux daemons for automation and lighting.
 
-*p44utils* have been developed as part of the [vdcd project](https://github.com/plan44/vdcd) (a Digital Strom virtual device container daemon), but are of more generic use, and thus have been separated from the vdcd repository (and made vdcd and other tools use p44utils as a submodule)
+*p44utils* have been developed as part of the [vdcd project](https://github.com/plan44/vdcd) (a smart home device controller daemon), but are of more generic use, and thus have been separated from the vdcd repository (and made vdcd and other tools use p44utils as a submodule)
 
 *p44utils* makes very light use of boost (intrusive\_ptr, bind), and has some classes that use civetweb, sqlitepp, rpi_ws281x, json-c, uwsc, libmodbus, lvgl.
 
@@ -50,6 +50,8 @@ Features
 - support for using [lvgl](https://lvgl.io) embedded graphics library in p44utils based applications, including fully dynamic JSON-based UI configuration and full integration into *p44script*, so entire UIs can be defined and operated from p44script.
 - support for bidirectional DC motor control including current supervision and end contacts.
 - support for modbus client and server via TCP or RS485.
+- support for midi via linux midi ports (which can be physical or RTP-midi)
+- support for dmx input via ArtNet (physical serial port input planned)
 - utils: simple utility functions that DO NOT depend on other p44utils classes.
 - extutils: simple utility functions that depend on other p44utils classes.
 - other stuff :-)
@@ -65,4 +67,4 @@ Supporting p44utils
 6. Buy plan44.ch [products](https://plan44.ch/automation/products.php) - sales revenue is paying the time for contributing to opensource projects :-)
 
 
-(c) 2013-2025 by Lukas Zeller / [plan44.ch](http://www.plan44.ch/opensource)
+(c) 2013-2026 by Lukas Zeller / [plan44.ch](http://www.plan44.ch/opensource)
