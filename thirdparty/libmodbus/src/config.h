@@ -2,13 +2,17 @@
 /* config.h.in.  Generated from configure.ac by autoheader.  */
 
 /* Define to 1 if you have the `accept4' function. */
+#ifndef __APPLE__
 #define HAVE_ACCEPT4 1
+#endif
 
 /* Define to 1 if you have the <arpa/inet.h> header file. */
 #define HAVE_ARPA_INET_H 1
 
 /* Define to 1 if you have the <byteswap.h> header file. */
+#ifndef __APPLE__
 #define HAVE_BYTESWAP_H 1
+#endif
 
 /* Define to 1 if you have the declaration of `TIOCM_RTS', and to 0 if you
    don't. */
@@ -16,7 +20,11 @@
 
 /* Define to 1 if you have the declaration of `TIOCSRS485', and to 0 if you
    don't. */
+#ifndef __APPLE__
 #define HAVE_DECL_TIOCSRS485 1
+#else
+#define HAVE_DECL_TIOCSRS485 0
+#endif
 
 /* Define to 1 if you have the declaration of `__CYGWIN__', and to 0 if you
    don't. */
@@ -50,7 +58,9 @@
 #define HAVE_LIMITS_H 1
 
 /* Define to 1 if you have the <linux/serial.h> header file. */
+#ifndef __APPLE__
 #define HAVE_LINUX_SERIAL_H 1
+#endif
 
 /* Define to 1 if your system has a GNU libc compatible `malloc' function, and
    to 0 otherwise. */
