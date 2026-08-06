@@ -116,6 +116,11 @@ endif()
 
 if(ENABLE_UWSC)
   target_sources(p44utils PRIVATE websocket.cpp)
+  target_include_directories(p44utils SYSTEM PUBLIC
+    thirdparty/uwsc
+    thirdparty/uwsc/buffer
+    thirdparty/uwsc/ssl
+  )
   if(APPLE)
     target_sources(p44utils PRIVATE
       thirdparty/uwsc/uwsc.c
@@ -129,11 +134,6 @@ if(ENABLE_UWSC)
     )
     set_source_files_properties(websocket.cpp PROPERTIES
       COMPILE_OPTIONS "-I${CMAKE_CURRENT_SOURCE_DIR}/thirdparty"
-    )
-    target_include_directories(p44utils SYSTEM PUBLIC
-      thirdparty/uwsc
-      thirdparty/uwsc/buffer
-      thirdparty/uwsc/ssl
     )
   endif()
 endif()
