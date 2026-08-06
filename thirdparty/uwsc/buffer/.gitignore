@@ -50,3 +50,24 @@ modules.order
 Module.symvers
 Mkfile.old
 dkms.conf
+
+# CMake/Ninja specifics
+CMakeCache.txt
+CMakeFiles/
+CMakeScripts/
+Testing/
+CTestTestfile.cmake
+CPackConfig.cmake
+CPackSourceConfig.cmake
+cmake_install.cmake
+compile_commands.json
+install_manifest.txt
+CMakeUserPresets.json
+_deps/
+.ninja_*
+.ninja_deps
+.ninja_log
+build.ninja
+rules.ninja
+build-cmake-*/
+cmake-build-*/
