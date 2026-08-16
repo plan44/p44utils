@@ -959,7 +959,7 @@ size_t SocketComm::receiveBytes(size_t aNumBytes, uint8_t *aBytes, ErrorPtr &aEr
       if (aNumBytes>0) {
         if (mPeerSockAddrP)
           free(mPeerSockAddrP);
-        mPeerSockAddrLen = sizeof(sockaddr); // pass in buffer size
+        mPeerSockAddrLen = sizeof(sockaddr_storage); // pass in buffer size
         mPeerSockAddrP = (sockaddr *)malloc(mPeerSockAddrLen); // prepare buffer
         res = recvfrom(mDataFd, (void *)aBytes, aNumBytes, 0, mPeerSockAddrP, &mPeerSockAddrLen);
         if (res<0) {
