@@ -3760,13 +3760,32 @@ sockaddr_to_string(char *buf, size_t len, const union usa *usa)
     }
 #if defined(USE_IPV6)
     else if (usa->sa.sa_family == AF_INET6) {
-        getnameinfo(&usa->sa,
-                    sizeof(usa->sin6),
-                    buf,
-                    (unsigned)len,
-                    NULL,
-                    0,
-                    NI_NUMERICHOST);
+        if (IN6_IS_ADDR_V4MAPPED(&usa->sin6.sin6_addr)) {
+            union usa v4usa;
+
+            memset(&v4usa, 0, sizeof(v4usa));
+            v4usa.sin.sin_family = AF_INET;
+            memcpy(&v4usa.sin.sin_addr,
+                   &usa->sin6.sin6_addr.s6_addr[12],
+                   sizeof(v4usa.sin.sin_addr));
+
+            getnameinfo(&v4usa.sa,
+                        sizeof(v4usa.sin),
+                        buf,
+                        (unsigned)len,
+                        NULL,
+                        0,
+                        NI_NUMERICHOST);
+        }
+        else {
+            getnameinfo(&usa->sa,
+                        sizeof(usa->sin6),
+                        buf,
+                        (unsigned)len,
+                        NULL,
+                        0,
+                        NI_NUMERICHOST);
+        }
     }
 #endif
 }
