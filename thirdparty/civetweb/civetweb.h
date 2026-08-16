@@ -916,6 +916,41 @@ enum {
 #define PRINTF_ARGS(x, y)
 #endif
 
+#if !defined(DEBUG_TRACE)
+#if defined(DEBUG)
+void DEBUG_TRACE_FUNC(const char *func,
+                             unsigned line,
+                             PRINTF_FORMAT_STRING(const char *fmt),
+                             ...) PRINTF_ARGS(3, 4);
+
+#define DEBUG_TRACE(...)                                                  \
+    DEBUG_TRACE_FUNC(__func__, __LINE__, ##__VA_ARGS__)
+
+#define NEED_DEBUG_TRACE_FUNC
+#ifndef DEBUG_TRACE_STREAM
+# define DEBUG_TRACE_STREAM   stdout
+#endif
+
+#else
+#define DEBUG_TRACE(...)
+#endif /* DEBUG */
+#endif /* DEBUG_TRACE */
+
+
+#if !defined(DEBUG_ASSERT)
+#if defined(DEBUG)
+#define DEBUG_ASSERT(cond)                                                     \
+    do {                                                                       \
+        if (!(cond)) {                                                         \
+            DEBUG_TRACE("ASSERTION FAILED: %s", #cond);                        \
+            exit(2); /* Exit with error */                                     \
+        }                                                                      \
+    } while (0)
+#else
+#define DEBUG_ASSERT(cond)
+#endif /* DEBUG */
+#endif
+
 
 /* Send data to the client using printf() semantics.
    Works exactly like mg_write(), but allows to do message formatting. */
@@ -1473,6 +1508,8 @@ CIVETWEB_API void mg_cry(const struct mg_connection *conn,
 /* utility methods to compare two buffers, case insensitive. */
 CIVETWEB_API int mg_strcasecmp(const char *s1, const char *s2);
 CIVETWEB_API int mg_strncasecmp(const char *s1, const char *s2, size_t len);
+/* strncpy copying only a limited amount from src but still adds terminator */
+CIVETWEB_API size_t mg_strnncpy(char* dst, const char* src, size_t dstSz, size_t srcSz);
 
 
 /* Connect to a websocket as a client

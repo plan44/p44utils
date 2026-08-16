@@ -223,43 +223,6 @@ static int zephyr_worker_stack_index;
 #include "civetweb.h"
 #endif
 
-#if !defined(DEBUG_TRACE)
-#if defined(DEBUG)
-static void DEBUG_TRACE_FUNC(const char *func,
-                             unsigned line,
-                             PRINTF_FORMAT_STRING(const char *fmt),
-                             ...) PRINTF_ARGS(3, 4);
-
-#define DEBUG_TRACE(fmt, ...)                                                  \
-    DEBUG_TRACE_FUNC(__func__, __LINE__, fmt, __VA_ARGS__)
-
-#define NEED_DEBUG_TRACE_FUNC
-#ifndef DEBUG_TRACE_STREAM
-# define DEBUG_TRACE_STREAM   stdout
-#endif
-
-#else
-#define DEBUG_TRACE(fmt, ...)                                                  \
-    do {                                                                       \
-    } while (0)
-#endif /* DEBUG */
-#endif /* DEBUG_TRACE */
-
-
-#if !defined(DEBUG_ASSERT)
-#if defined(DEBUG)
-#define DEBUG_ASSERT(cond)                                                     \
-    do {                                                                       \
-        if (!(cond)) {                                                         \
-            DEBUG_TRACE("ASSERTION FAILED: %s", #cond);                        \
-            exit(2); /* Exit with error */                                     \
-        }                                                                      \
-    } while (0)
-#else
-#define DEBUG_ASSERT(cond)
-#endif /* DEBUG */
-#endif
-
 
 #if defined(__GNUC__) && defined(GCC_INSTRUMENTATION)
 void __cyg_profile_func_enter(void *this_fn, void *call_site)
@@ -1730,7 +1693,7 @@ mg_get_current_time_ns(void)
 
 
 #if defined(NEED_DEBUG_TRACE_FUNC)
-static void
+void
 DEBUG_TRACE_FUNC(const char *func, unsigned line, const char *fmt, ...)
 {
     va_list args;
@@ -3455,6 +3418,15 @@ mg_fclose(struct mg_file_access *fileacc)
     return ret;
 }
 #endif /* NO_FILESYSTEMS */
+
+
+size_t
+mg_strnncpy(char* dst, const char* src, size_t dstSz, size_t srcSz)
+{
+  if (srcSz>=dstSz) srcSz = dstSz-1;
+  strncpy(dst, src, srcSz); dst[srcSz] = 0;
+  return srcSz; /* actually copied string size */
+}
 
 
 static void
@@ -8898,13 +8870,16 @@ mg_check_access_authentication(struct mg_connection *conn,
                                       const char *realm,
                                       const char *filename)
 {
+    DEBUG_TRACE("mg_check_access_authentication - conn=%p, realm=%s, filename=%s", conn, realm ? realm : "<null>", filename ? filename : "<null");
     struct mg_file file = STRUCT_FILE_INITIALIZER;
     int auth;
 
     if (!conn || !filename) {
+        DEBUG_TRACE("no conn or no filename");
         return -1;
     }
     if (!mg_fopen(conn, filename, MG_FOPEN_MODE_READ, &file)) {
+        DEBUG_TRACE("error opening auth file");
         return -2;
     }
 
@@ -17326,7 +17301,7 @@ mg_connect_client_impl(const struct mg_client_options *client_options,
                     NULL, /* No truncation check for ebuf */
                     ebuf,
                     ebuf_len,
-                    "Can not create mutex: %s", strerror(err), NULL);
+                    "Can not create mutex: %s", strerror(err));
 #if !defined(NO_SSL)
         if (use_ssl) {
             SSL_CTX_free(conn->dom_ctx->ssl_ctx);
