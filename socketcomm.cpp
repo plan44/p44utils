@@ -337,6 +337,19 @@ bool SocketComm::connectionAcceptHandler(int aFd, int aPollFlags)
           sbuf, sizeof sbuf,
           NI_NUMERICHOST | NI_NUMERICSERV
         );
+        if (s==0) {
+          // Canonicalize IPv4-mapped IPv6 addresses to plain IPv4
+          if (fsin.ss_family == AF_INET6) {
+            const struct sockaddr_in6 *sa6 =
+              reinterpret_cast<const struct sockaddr_in6 *>(&fsin);
+            if (IN6_IS_ADDR_V4MAPPED(&sa6->sin6_addr)) {
+              struct in_addr a4;
+              memcpy(&a4, &sa6->sin6_addr.s6_addr[12], sizeof a4);
+              if (inet_ntop(AF_INET, &a4, hbuf, sizeof hbuf) == nullptr)
+                s = EAI_FAIL;
+            }
+          }
+        }
         if (s!=0)
         #endif
         {
@@ -376,7 +389,6 @@ bool SocketComm::connectionAcceptHandler(int aFd, int aPollFlags)
   // handled
   return true;
 }
-
 
 void SocketComm::passClientConnection(int aFd, SocketCommPtr aServerConnection)
 {
@@ -985,6 +997,17 @@ bool SocketComm::getDatagramOrigin(string &aAddress, string &aPort)
       NI_NUMERICHOST | NI_NUMERICSERV
     );
     if (s==0) {
+      // Canonicalize IPv4-mapped IPv6 addresses to plain IPv4
+      if (mPeerSockAddrP->sa_family == AF_INET6) {
+        const struct sockaddr_in6 *sa6 =
+          reinterpret_cast<const struct sockaddr_in6 *>(mPeerSockAddrP);
+        if (IN6_IS_ADDR_V4MAPPED(&sa6->sin6_addr)) {
+          struct in_addr a4;
+          memcpy(&a4, &sa6->sin6_addr.s6_addr[12], sizeof a4);
+          if (inet_ntop(AF_INET, &a4, hbuf, sizeof hbuf) == nullptr)
+            return false;
+        }
+      }
       aAddress = hbuf;
       aPort = sbuf;
       return true;
