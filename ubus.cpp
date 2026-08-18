@@ -1,6 +1,6 @@
 //  SPDX-License-Identifier: GPL-3.0-or-later
 //
-//  Copyright (c) 2019-2023 plan44.ch / Lukas Zeller, Zurich, Switzerland
+//  Copyright (c) 2019-2026 plan44.ch / Lukas Zeller, Zurich, Switzerland
 //
 //  Author: Lukas Zeller <luz@plan44.ch>
 //
@@ -220,9 +220,9 @@ int UbusServer::methodHandler(
   UbusRequestPtr ureq = UbusRequestPtr(new UbusRequest(this, req, method, jsonMsg));
   // look for object
   for (UbusObjectsList::iterator pos = mUbusObjects.begin(); pos!=mUbusObjects.end(); ++pos) {
-    if ((*pos)->objName==obj->name && (*pos)->methodHandler) {
+    if ((*pos)->mObjName==obj->name && (*pos)->mMethodHandler) {
       // object found and has a method handler -> call it
-      (*pos)->methodHandler(ureq);
+      (*pos)->mMethodHandler(ureq);
       // defer if not yet finished
       ureq->defer();
       return 0;
@@ -312,60 +312,60 @@ static int method_handler(
 // MARK: ==== UbusObject
 
 UbusObject::UbusObject(const string aObjectName, UbusMethodHandler aMethodHandler) :
-  objName(aObjectName),
-  methodHandler(aMethodHandler),
-  registered(false)
+  mObjName(aObjectName),
+  mMethodHandler(aMethodHandler),
+  mRegistered(false)
 {
   // object type
-  memset(&ubusObjType, 0, sizeof(ubusObjType));
-  ubusObjType.name = objName.c_str(); // type has same name as object
-  ubusObjType.id = 0;
-  ubusObjType.methods = NULL;
-  ubusObjType.n_methods = 0;
+  memset(&mUbusObjType, 0, sizeof(mUbusObjType));
+  mUbusObjType.name = mObjName.c_str(); // type has same name as object
+  mUbusObjType.id = 0;
+  mUbusObjType.methods = NULL;
+  mUbusObjType.n_methods = 0;
   // object instance
-  memset(&ubusObj, 0, sizeof(ubusObj));
-  ubusObj.name = objName.c_str();
-  ubusObj.type = &ubusObjType;
+  memset(&mUbusObj, 0, sizeof(mUbusObj));
+  mUbusObj.name = mObjName.c_str();
+  mUbusObj.type = &mUbusObjType;
 }
 
 
 UbusObject::~UbusObject()
 {
-  if (ubusObjType.methods) {
-    for (int i=0; i<ubusObjType.n_methods; i++) {
-      delete ubusObjType.methods[i].name;
+  if (mUbusObjType.methods) {
+    for (int i=0; i<mUbusObjType.n_methods; i++) {
+      delete mUbusObjType.methods[i].name;
     }
-    delete(ubusObjType.methods);
-    ubusObjType.methods = NULL;
-    ubusObjType.n_methods = 0;
+    delete(mUbusObjType.methods);
+    mUbusObjType.methods = NULL;
+    mUbusObjType.n_methods = 0;
   }
 }
 
 
 struct ubus_object *UbusObject::getUbusObj()
 {
-  if (!registered) {
+  if (!mRegistered) {
     // finalize
     // - object instance inherits methods from type
-    ubusObj.n_methods = ubusObjType.n_methods;
-    ubusObj.methods = ubusObjType.methods;
+    mUbusObj.n_methods = mUbusObjType.n_methods;
+    mUbusObj.methods = mUbusObjType.methods;
     // - lock now
-    registered = true;
+    mRegistered = true;
   }
-  return &ubusObj;
+  return &mUbusObj;
 }
 
 
 void UbusObject::addMethod(const string aMethodName, const struct blobmsg_policy *aMethodPolicy)
 {
-  if (registered) return; // cannot add methods when already registered!
+  if (mRegistered) return; // cannot add methods when already registered!
   // extend (or create) array of ubus_method structs
-  const struct ubus_method *oldMethods = ubusObjType.methods;
-  ubusObjType.methods = new struct ubus_method[ubusObjType.n_methods+1];
-  for (int i=0; i<ubusObjType.n_methods; i++) memcpy((void *)&ubusObjType.methods[i], (void *)&oldMethods[i], sizeof(struct ubus_method));
+  const struct ubus_method *oldMethods = mUbusObjType.methods;
+  mUbusObjType.methods = new struct ubus_method[mUbusObjType.n_methods+1];
+  for (int i=0; i<mUbusObjType.n_methods; i++) memcpy((void *)&mUbusObjType.methods[i], (void *)&oldMethods[i], sizeof(struct ubus_method));
   if (oldMethods) delete[] oldMethods;
   // init new method
-  struct ubus_method *m = (struct ubus_method *)&ubusObjType.methods[ubusObjType.n_methods];
+  struct ubus_method *m = (struct ubus_method *)&mUbusObjType.methods[mUbusObjType.n_methods];
   // - name must be allocated
   m->name = new char[aMethodName.size()+1];
   strcpy((char *)m->name, aMethodName.c_str());
@@ -382,7 +382,7 @@ void UbusObject::addMethod(const string aMethodName, const struct blobmsg_policy
     m->policy = aMethodPolicy;
   }
   // finished -> count it
-  ubusObjType.n_methods++;
+  mUbusObjType.n_methods++;
 }
 
 

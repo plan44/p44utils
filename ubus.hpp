@@ -1,6 +1,6 @@
 //  SPDX-License-Identifier: GPL-3.0-or-later
 //
-//  Copyright (c) 2019-2023 plan44.ch / Lukas Zeller, Zurich, Switzerland
+//  Copyright (c) 2019-2026 plan44.ch / Lukas Zeller, Zurich, Switzerland
 //
 //  Author: Lukas Zeller <luz@plan44.ch>
 //
@@ -119,16 +119,16 @@ namespace p44 {
     friend class UbusServer;
 
     // libubus internals
-    string objName;
-    struct ubus_object ubusObj;
-    struct ubus_object_type ubusObjType;
+    string mObjName;
+    struct ubus_object mUbusObj;
+    struct ubus_object_type mUbusObjType;
 
-    UbusMethodHandler methodHandler; ///< the handler for calls to (any) method of this object
+    UbusMethodHandler mMethodHandler; ///< the handler for calls to (any) method of this object
 
-    bool registered; ///< if set, prevents adding of new methods
+    bool mRegistered; ///< if set, prevents adding of new methods
 
     /// @return the ubus object ready for ubus_add_object()
-    /// @note finalizes the internal ubusObj struct on the first call and flags it registered
+    /// @note finalizes the internal mUbusObj struct on the first call and flags it registered
     struct ubus_object *getUbusObj();
 
   public:
