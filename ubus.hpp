@@ -126,6 +126,7 @@ namespace p44 {
     UbusMethodHandler mMethodHandler; ///< the handler for calls to (any) method of this object
 
     bool mRegistered; ///< if set, prevents adding of new methods
+    UbusServer *mUbusServer; ///< non-owning
 
     /// @return the ubus object ready for ubus_add_object()
     /// @note finalizes the internal mUbusObj struct on the first call and flags it registered
@@ -148,6 +149,12 @@ namespace p44 {
     /// @note The aMethodPolicy struct array passed must remain permanently allocated!
     void addMethod(const string aMethodName, const struct blobmsg_policy *aMethodPolicy = NULL);
 
+    /// send a notification
+    void notify(const string &aNotificationType, JsonObjectPtr aMessage);
+
+    /// @return true if the object has subscribers (which makes it worth emitting notifications)
+    bool hasSubscribers() const;
+
   };
   typedef boost::intrusive_ptr<UbusObject> UbusObjectPtr;
 
@@ -166,6 +173,7 @@ namespace p44 {
   {
     typedef P44LoggingObj inherited;
     friend class UbusRequest;
+    friend class UbusObject;
 
     MLTicket mRestartTicket;
 
@@ -207,6 +215,8 @@ namespace p44 {
     void retryStartServer();
 
     static void blobMsgToJsonContainer(JsonObjectPtr aContainer, const void *aBlobData, int aBlobLen);
+
+    void notify(UbusObject &aObject, const string &aNotificationType, JsonObjectPtr aMessage);
 
   public:
 

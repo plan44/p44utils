@@ -118,8 +118,49 @@ bool UbusServer::pollHandler(int aFD, int aPollFlags)
 }
 
 
+void UbusServer::notify(UbusObject &aObject, const string &aNotificationType, JsonObjectPtr aMessage)
+{
+  if (!mUbusServerCtx)
+    return;
+
+  struct blob_buf notificationBuffer;
+  memset(&notificationBuffer, 0, sizeof(notificationBuffer));
+  blob_buf_init(&notificationBuffer, 0);
+  if (aMessage) {
+    blobmsg_add_object(
+      &notificationBuffer,
+      (struct json_object *)aMessage->jsoncObj()
+    );
+  }
+  int ret = ubus_notify(
+    &mUbusServerCtx->ctx,
+    aObject.getUbusObj(),
+    aNotificationType.c_str(),
+    notificationBuffer.head,
+    -1
+  );
+  if (ret != UBUS_STATUS_OK) {
+    OLOG(
+      LOG_WARNING,
+      "cannot send ubus notification '%s' for object '%s': %s",
+      aNotificationType.c_str(),
+      aObject.mObjName.c_str(),
+      ubus_strerror(ret)
+    );
+  }
+  blob_buf_free(&notificationBuffer);
+}
+
+
+bool UbusObject::hasSubscribers() const
+{
+  return mUbusObj.has_subscribers;
+}
+
+
 void UbusServer::registerObject(UbusObjectPtr aUbusObject)
 {
+  aUbusObject->mUbusServer = this; // needed for issuing notifications
   // only save in my list, will be actually registered at startServer()
   // (because ubus_add_object() needs a active context which is created not before ubus_connect_ctx())
   mUbusObjects.push_back(aUbusObject);
@@ -314,7 +355,8 @@ static int method_handler(
 UbusObject::UbusObject(const string aObjectName, UbusMethodHandler aMethodHandler) :
   mObjName(aObjectName),
   mMethodHandler(aMethodHandler),
-  mRegistered(false)
+  mRegistered(false),
+  mUbusServer(nullptr)
 {
   // object type
   memset(&mUbusObjType, 0, sizeof(mUbusObjType));
@@ -385,5 +427,12 @@ void UbusObject::addMethod(const string aMethodName, const struct blobmsg_policy
   mUbusObjType.n_methods++;
 }
 
+
+void UbusObject::notify(const string &aNotificationType, JsonObjectPtr aMessage)
+{
+  if (mUbusServer) {
+    mUbusServer->notify(*this, aNotificationType, aMessage);
+  }
+}
 
 #endif // ENABLE_UBUS
