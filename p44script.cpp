@@ -9853,9 +9853,11 @@ static void add_func(BuiltinFunctionContextPtr f)
   FilterObj* fi = dynamic_cast<FilterObj*>(f->thisObj().get());
   assert(fi);
   MLMicroSeconds timestamp = Never;
-  double value = f->arg(0)->doubleValue();
-  if (f->numArgs()>1) timestamp = MainLoop::unixTimeToMainLoopTime(f->arg(1)->doubleValue()*Second);
-  fi->filter()->addValue(value, timestamp);
+  if (f->arg(0)->defined()) {
+    double value = f->arg(0)->doubleValue();
+    if (f->numArgs()>1) timestamp = MainLoop::unixTimeToMainLoopTime(f->arg(1)->doubleValue()*Second);
+    fi->filter()->addValue(value, timestamp);
+  }
   f->finish();
 }
 
