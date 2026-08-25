@@ -17326,7 +17326,7 @@ mg_connect_client_impl(const struct mg_client_options *client_options,
                     NULL, /* No truncation check for ebuf */
                     ebuf,
                     ebuf_len,
-                    "Can not create mutex: %s", strerror(err), NULL);
+                    "Can not create mutex: %s", strerror(errno), NULL);
 #if !defined(NO_SSL)
         if (use_ssl) {
             SSL_CTX_free(conn->dom_ctx->ssl_ctx);

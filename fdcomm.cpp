@@ -255,6 +255,16 @@ size_t FdComm::transmitBytes(size_t aNumBytes, const uint8_t *aBytes, ErrorPtr &
     // waiting for connection to open
     return 0; // cannot transmit data yet
   }
+  // validate input parameters to catch data corruption or invalid state
+  if (aNumBytes == 0 || !aBytes) {
+    // nothing to transmit
+    return 0;
+  }
+  if (aNumBytes > 0x100000) {
+    // suspiciously large byte count (>1MB), likely corrupted
+    aError = TextError::err("FdComm: Invalid byte count for transmission: %zu", aNumBytes);
+    return 0;
+  }
   // connection is open, write now
   ssize_t res = write(mDataFd,aBytes,aNumBytes);
   if (res<0) {
