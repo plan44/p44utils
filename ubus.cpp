@@ -430,6 +430,15 @@ void UbusObject::addMethod(const string aMethodName, const struct blobmsg_policy
 
 void UbusObject::notify(const string &aNotificationType, JsonObjectPtr aMessage)
 {
+  // make sure we don't notify while still processing a request
+  MainLoop::currentMainLoop().executeNow(
+    boost::bind(&UbusObject::do_notify, this, aNotificationType, aMessage)
+  );
+}
+
+
+void UbusObject::do_notify(const string &aNotificationType, JsonObjectPtr aMessage)
+{
   if (mUbusServer) {
     mUbusServer->notify(*this, aNotificationType, aMessage);
   }

@@ -155,6 +155,10 @@ namespace p44 {
     /// @return true if the object has subscribers (which makes it worth emitting notifications)
     bool hasSubscribers() const;
 
+  private:
+
+    void do_notify(const string &aNotificationType, JsonObjectPtr aMessage);
+
   };
   typedef boost::intrusive_ptr<UbusObject> UbusObjectPtr;
 
