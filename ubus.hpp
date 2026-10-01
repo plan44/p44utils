@@ -106,8 +106,10 @@ namespace p44 {
     UbusServerPtr server() const { return mUbusServer; }
 
     /// send response to this request
-    /// @param
-    void sendResponse(JsonObjectPtr aResponse, int aUbusErr = UBUS_STATUS_OK);
+    /// @param aResponse a JSON response that gets serialized to ubus blobmsg
+    /// @param aUbusErr the Ubus Error to return
+    /// @param aRawString if not null, aResponse must be a Json string with a field name, and aRawString will be sent directly with blobmsg_add_string
+    void sendResponse(JsonObjectPtr aResponse, int aUbusErr = UBUS_STATUS_OK, const string* aRawStringP = nullptr);
 
   };
 

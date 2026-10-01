@@ -204,7 +204,7 @@ bool UbusRequest::responded()
 
 
 
-void UbusRequest::sendResponse(JsonObjectPtr aResponse, int aUbusErr)
+void UbusRequest::sendResponse(JsonObjectPtr aResponse, int aUbusErr, const string* aRawStringP)
 {
   mUbusErr = aUbusErr;
   if (mUbusServer) {
@@ -224,7 +224,13 @@ void UbusRequest::sendResponse(JsonObjectPtr aResponse, int aUbusErr)
     // - then initialized
     blob_buf_init(&responseBuffer, 0);
     // - then used
-    if (aResponse) blobmsg_add_object(&responseBuffer, (struct json_object *)aResponse->jsoncObj());
+    if (aRawStringP) {
+      string fieldname = aResponse->stringValue();
+      blobmsg_add_field(&responseBuffer, BLOBMSG_TYPE_STRING, fieldname.c_str(), aRawStringP->c_str(), aRawStringP->size()+1);
+    }
+    else if (aResponse) {
+      blobmsg_add_object(&responseBuffer, (struct json_object *)aResponse->jsoncObj());
+    }
     if (mCurrentReqP) {
       ubus_send_reply(&mUbusServer->mUbusServerCtx->ctx, mCurrentReqP, responseBuffer.head);
     }
