@@ -428,3 +428,10 @@ void P44LoggingObj::setLogLevelOffset(int aLogLevelOffset)
   }
 }
 
+
+int P44LoggingObj::silentSetLogLeveloffset(int aLogLevelOffset)
+{
+  int prev = mLogLevelOffset;
+  mLogLevelOffset = aLogLevelOffset;
+  return prev;
+}

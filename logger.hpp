@@ -335,6 +335,13 @@ namespace p44 {
     ///   especially when getLogLevelOffset() uses another object's offset, to target that one.
     virtual void setLogLevelOffset(int aLogLevelOffset);
 
+    /// silently set the log level offset on this logging object
+    /// @param aLogLevelOffset the new log level offset
+    /// @return the previous offset
+    /// @note this is intended to be used around otherwise-hard-to-silence sequences programmatically,
+    ///   and then restore the previous level
+    int silentSetLogLeveloffset(int aLogLevelOffset);
+
     /// @}
 
 
