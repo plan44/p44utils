@@ -42,6 +42,19 @@ using namespace std;
 
 namespace p44 {
 
+  /// assign a variable and report if value has changed
+  /// @param aTargetValue the variable to update
+  /// @param aNewValue the new value
+  /// @return true when the value has changed
+  template<typename T> bool setIfChanged(T &aTargetValue, T aNewValue)
+  {
+    if (aTargetValue!=aNewValue) {
+      aTargetValue = aNewValue;
+      return true; // changed value
+    }
+    return false; // not changed value
+  };
+
   /// printf-style format into string
   /// @param aFormat printf-style format string
   /// @param aStringObj string to receive formatted result
