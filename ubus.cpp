@@ -118,7 +118,7 @@ bool UbusServer::pollHandler(int aFD, int aPollFlags)
 }
 
 
-void UbusServer::notify(UbusObject &aObject, const string &aNotificationType, JsonObjectPtr aMessage)
+void UbusServer::notify(UbusObject &aObject, const string &aNotificationType, JsonObjectPtr aMessage, const string* aRawStringP)
 {
   if (!mUbusServerCtx)
     return;
@@ -126,11 +126,12 @@ void UbusServer::notify(UbusObject &aObject, const string &aNotificationType, Js
   struct blob_buf notificationBuffer;
   memset(&notificationBuffer, 0, sizeof(notificationBuffer));
   blob_buf_init(&notificationBuffer, 0);
-  if (aMessage) {
-    blobmsg_add_object(
-      &notificationBuffer,
-      (struct json_object *)aMessage->jsoncObj()
-    );
+  if (aRawStringP) {
+    string fieldname = aMessage->stringValue();
+    blobmsg_add_field(&notificationBuffer, BLOBMSG_TYPE_STRING, fieldname.c_str(), aRawStringP->c_str(), aRawStringP->size()+1);
+  }
+  else if (aMessage) {
+    blobmsg_add_object(&notificationBuffer, (struct json_object *)aMessage->jsoncObj());
   }
   int ret = ubus_notify(
     &mUbusServerCtx->ctx,
@@ -434,19 +435,19 @@ void UbusObject::addMethod(const string aMethodName, const struct blobmsg_policy
 }
 
 
-void UbusObject::notify(const string &aNotificationType, JsonObjectPtr aMessage)
+void UbusObject::notify(const string &aNotificationType, JsonObjectPtr aMessage, const string* aRawStringP)
 {
   // make sure we don't notify while still processing a request
   MainLoop::currentMainLoop().executeNow(
-    boost::bind(&UbusObject::do_notify, this, aNotificationType, aMessage)
+    boost::bind(&UbusObject::do_notify, this, aNotificationType, aMessage, aRawStringP)
   );
 }
 
 
-void UbusObject::do_notify(const string &aNotificationType, JsonObjectPtr aMessage)
+void UbusObject::do_notify(const string &aNotificationType, JsonObjectPtr aMessage, const string* aRawStringP)
 {
   if (mUbusServer) {
-    mUbusServer->notify(*this, aNotificationType, aMessage);
+    mUbusServer->notify(*this, aNotificationType, aMessage, aRawStringP);
   }
 }
 

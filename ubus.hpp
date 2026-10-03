@@ -108,7 +108,7 @@ namespace p44 {
     /// send response to this request
     /// @param aResponse a JSON response that gets serialized to ubus blobmsg
     /// @param aUbusErr the Ubus Error to return
-    /// @param aRawString if not null, aResponse must be a Json string with a field name, and aRawString will be sent directly with blobmsg_add_string
+    /// @param aRawStringP if not null, aResponse must be a Json string with a field name, and aRawStringP will be sent directly with blobmsg_add_string
     void sendResponse(JsonObjectPtr aResponse, int aUbusErr = UBUS_STATUS_OK, const string* aRawStringP = nullptr);
 
   };
@@ -152,14 +152,17 @@ namespace p44 {
     void addMethod(const string aMethodName, const struct blobmsg_policy *aMethodPolicy = NULL);
 
     /// send a notification
-    void notify(const string &aNotificationType, JsonObjectPtr aMessage);
+    /// @param aNotificationType this is the value that allows consumers to differentiate messages
+    /// @param aMessage this is the message as a json object (see below on how to directly send a string)
+    /// @param aRawStringP if not null, aMessage must be a Json string with a field name, and aRawStringP will be sent directly with blobmsg_add_string
+    void notify(const string &aNotificationType, JsonObjectPtr aMessage, const string* aRawStringP = nullptr);
 
     /// @return true if the object has subscribers (which makes it worth emitting notifications)
     bool hasSubscribers() const;
 
   private:
 
-    void do_notify(const string &aNotificationType, JsonObjectPtr aMessage);
+    void do_notify(const string &aNotificationType, JsonObjectPtr aMessage, const string* aRawStringP);
 
   };
   typedef boost::intrusive_ptr<UbusObject> UbusObjectPtr;
@@ -222,7 +225,7 @@ namespace p44 {
 
     static void blobMsgToJsonContainer(JsonObjectPtr aContainer, const void *aBlobData, int aBlobLen);
 
-    void notify(UbusObject &aObject, const string &aNotificationType, JsonObjectPtr aMessage);
+    void notify(UbusObject &aObject, const string &aNotificationType, JsonObjectPtr aMessage, const string* aRawStringP);
 
   public:
 
