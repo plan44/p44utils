@@ -424,6 +424,14 @@ namespace p44 { namespace P44Script {
     /// @return true if aEvent was delivered (not filtered out) to at least one EvenSink
     bool sendEvent(ScriptObjPtr aEvent);
 
+    /// unwind call stack first, then send event by scheduling immediately on mainloop
+    /// @param aEvent event object, can also be NULL pointer
+    /// @return true if there were event sources at the moment of the call, so *could*
+    ///   get delivered - however event sources could get removed before the actual send happens.
+    ///   As filters only run when sending, we can get true here event if the event gets
+    ///   not delivered to any sink due to filters.
+    bool postSendingEvent(ScriptObjPtr aEvent);
+
     /// register an event sink to get events from this source
     /// @param aEventSink the event sink (receiver) to register for events (NULL allowed -> NOP)
     /// @param aRegId a registration id private to aEventSink's registration for this event source. This

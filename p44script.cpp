@@ -164,6 +164,14 @@ void EventSource::unregisterFromEvents(EventSink& aEventSink)
 
 
 
+bool EventSource::postSendingEvent(ScriptObjPtr aEvent)
+{
+  if (mEventSinks.empty()) return false; // optimisation
+  MainLoop::currentMainLoop().executeNow(boost::bind(&EventSource::sendEvent, this, aEvent));
+  return true; // we cannot know if we reach sinks, but we could as there are at least some
+}
+
+
 bool EventSource::sendEvent(ScriptObjPtr aEvent)
 {
   if (mEventSinks.empty()) return false; // optimisation
