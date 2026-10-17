@@ -6331,6 +6331,7 @@ void ScriptHost::activate(EvaluationFlags aDefaultFlags, const char* aOriginLabe
     mActiveParams->mTitleTemplate = nonNullCStr(aTitleTemplate);
     mActiveParams->mSourceDirty = false;
     mActiveParams->mUnstored = false;
+    modifiedNow(); // activation counts as modification
     #if P44SCRIPT_MIGRATE_TO_DOMAIN_SOURCE
     mActiveParams->mDomainSource = false;
     mActiveParams->mLocalDataReportedRemoved = false;
@@ -6364,8 +6365,6 @@ int ScriptHost::userLevel() const
   #endif
   return 0;
 }
-
-
 
 
 #if P44SCRIPT_REGISTERED_SOURCE
@@ -6583,6 +6582,7 @@ bool ScriptHost::loadSource(const char* aLocallyStoredSource)
     }
     #endif // P44SCRIPT_MIGRATE_TO_DOMAIN_SOURCE
     changed = setSource(source);
+    domain()->reportSourceChange(*this);
   }
   mActiveParams->mSourceDirty = false;
   registerScript();
@@ -6595,6 +6595,7 @@ bool ScriptHost::storeSource()
   if (!storable()) return false; // inactive or disabled storage is NOP (but ok)
   if (mActiveParams->mSourceDirty && !mActiveParams->mScriptHostUid.empty()) {
     bool storedok = domain()->storeSource(mActiveParams->mScriptHostUid, getSource());
+    domain()->reportSourceChange(*this);
     #if P44SCRIPT_MIGRATE_TO_DOMAIN_SOURCE
     mActiveParams->mDomainSource = storedok;
     #endif
@@ -6778,6 +6779,7 @@ bool ScriptHost::setSource(const string aSource, EvaluationFlags aEvaluationFlag
     #endif
   }
   #if P44SCRIPT_REGISTERED_SOURCE
+  modifiedNow();
   mActiveParams->mSourceDirty = true;
   #endif
   return true; // source has changed
@@ -7111,6 +7113,15 @@ void TriggerSource::nextEvaluationNotLaterThan(MLMicroSeconds aLatestEval)
 
 #if P44SCRIPT_REGISTERED_SOURCE
 
+// MARK: - SourceHost
+
+void SourceHost::modifiedNow()
+{
+  mLastModified = MainLoop::now();
+}
+
+
+
 // MARK: - FileHost
 
 FileHost::FileHost(
@@ -7126,6 +7137,7 @@ FileHost::FileHost(
   mTitle(aTitle),
   mReadOnly(aReadOnly)
 {
+  modifiedNow();
   // register
   mDomain.registerSourceHost(*this);
 }
@@ -7313,6 +7325,9 @@ bool ScriptIncludeHost::setAndStoreSource(const string& aSource)
   if (Error::notOK(err)) {
     LOG(LOG_ERR, "include file '%s' could not be stored", mFilePath.c_str());
   }
+  else {
+    modifiedNow();
+  }
   return Error::notOK(err); // consider not stored on error
 }
 
@@ -7398,6 +7413,7 @@ string ExternalFileHost::getSource() const
   Fnv32 contentHash;
   contentHash.addString(content);
   const_cast<ExternalFileHost*>(this)->mContentHash = contentHash.getHash();
+  mDomain.reportSourceChange(*this);
   return content;
 }
 
@@ -7415,6 +7431,7 @@ bool ExternalFileHost::setAndStoreSource(const string& aSource)
       // actually changed
       err = string_tofile(mFilePath, aSource);
     }
+    mDomain.reportSourceChange(*this);
     if (Error::notOK(err)) {
       LOG(LOG_ERR, "TextFileHost: error saving %s: %s", mFilePath.c_str(), err->text());
       return true; // not stored at domain level (not really relevant/checked in text file case, but semantically correct answer)
@@ -7539,6 +7556,12 @@ SourceHostPtr ScriptingDomain::getHostForThread(const ScriptCodeThreadPtr aScrip
     registerSourceHost(*host);
   }
   return host;
+}
+
+
+void ScriptingDomain::reportSourceChange(const SourceHost& aSourceHost) const
+{
+  if (mSourceChangedCB) mSourceChangedCB(const_cast<SourceHost*>(&aSourceHost));
 }
 
 

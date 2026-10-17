@@ -1843,15 +1843,28 @@ namespace p44 { namespace P44Script {
   protected:
 
     #if P44SCRIPT_REGISTERED_SOURCE
+
     ScriptingDomainPtr mScriptingDomain; ///< the scripting domain
-    #endif
+    MLMicroSeconds mLastModified; ///< timestamp of last "modification" starting with instantiation of this object
+
+    /// call to update modification timestamp
+    void modifiedNow();
+
+    #endif // P44SCRIPT_REGISTERED_SOURCE
 
   public:
 
     #if P44SCRIPT_REGISTERED_SOURCE
 
+    SourceHost() : mLastModified(Never) {};
+
     /// @return the source UID or a dummy placeholder in case it is not set
     virtual string getSourceUid() = 0;
+
+    /// @return the last modification timestamp in local mainloop time
+    /// @note this is only governs the modifications happening while this SourceHost is active
+    ///    and is initialized with the load time. It does not reflect actual modification timestamps of the underlying files.
+    MLMicroSeconds lastModified() { return mLastModified; }
 
     #endif // P44SCRIPT_REGISTERED_SOURCE
 
@@ -2533,9 +2546,15 @@ namespace p44 { namespace P44Script {
   #if P44SCRIPT_DEBUGGING_SUPPORT
   /// called when a thread is paused
   /// @param aPausedThread the thread that got paused
-  /// @param aPausingReason the reason for the pause
   typedef boost::function<void (ScriptCodeThreadPtr aPausedThread)> PauseHandlerCB;
   #endif // P44SCRIPT_DEBUGGING_SUPPORT
+
+  #if P44SCRIPT_REGISTERED_SOURCE
+  /// called when hosted sources change
+  /// @param aChangedSource the source  that has changed
+  typedef boost::function<void (const SourceHostPtr aChangedSource)> SourceChangedCB;
+  #endif // P44SCRIPT_DEBUGGING_SUPPORT
+
 
   /// Scripting domain, usually singleton, containing global variables and event handlers
   /// No code runs directly in this context
@@ -2549,6 +2568,7 @@ namespace p44 { namespace P44Script {
     #if P44SCRIPT_REGISTERED_SOURCE
     typedef std::vector<SourceHostPtr> SourceHostsVector;
     SourceHostsVector mSourceHosts;
+    SourceChangedCB mSourceChangedCB;
     #endif
 
     #if P44SCRIPT_DEBUGGING_SUPPORT
@@ -2644,6 +2664,12 @@ namespace p44 { namespace P44Script {
 
     /// @return source host for given thread - auto-create/register one if thread does not originate from an already registered host
     SourceHostPtr getHostForThread(const ScriptCodeThreadPtr aScriptCodeThread);
+
+    /// @param aSourceChangedCB the source changed handler to install (or null)
+    void setSourceChangeHandler(SourceChangedCB aSourceChangedCB) { mSourceChangedCB = aSourceChangedCB; }
+
+    /// report source change via callback
+    void reportSourceChange(const SourceHost& aSourceHost) const;
 
     /// try to load source text from domain level script storage
     /// @param aSource will be set to the source code loaded
